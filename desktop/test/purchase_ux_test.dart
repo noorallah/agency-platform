@@ -448,6 +448,166 @@ void main() {
     expect(api.created?.lines.single.unitPrice, '95.00');
     expect(outcome?.saved, isTrue);
   });
+
+  testWidgets('an approved order shows what came in, went back and was billed',
+      (tester) async {
+    final _UpdatingPurchaseApi api = _UpdatingPurchaseApi();
+    await _pumpOrderEditor(tester, api, _progressOrder('APPROVED'));
+
+    expect(find.text('RECEIVED AND BILLED'), findsOneWidget);
+    for (final String label in [
+      'Received',
+      'Rejected',
+      'Returned',
+      'Billed',
+      'Pending',
+      'To bill',
+    ]) {
+      expect(find.text(label), findsWidgets, reason: label);
+    }
+    expect(find.text('3.5'), findsOneWidget, reason: 'received');
+    expect(find.text('1.5'), findsOneWidget, reason: 'pending (5 - 3.5)');
+    expect(find.text('Part billed'), findsOneWidget);
+    expect(find.text('Complete'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a complete order says so beside its billing', (tester) async {
+    final _UpdatingPurchaseApi api = _UpdatingPurchaseApi();
+    await _pumpOrderEditor(
+      tester,
+      api,
+      _progressOrder('RECEIVED', billing: 'INVOICED', complete: true),
+    );
+    expect(find.text('Billed'), findsWidgets);
+    expect(find.text('Complete'), findsOneWidget);
+  });
+
+  testWidgets('a draft shows none of it', (tester) async {
+    final _UpdatingPurchaseApi api = _UpdatingPurchaseApi();
+    await _pumpOrderEditor(tester, api, _progressOrder('DRAFT'));
+
+    expect(find.text('RECEIVED AND BILLED'), findsNothing);
+    expect(find.text('Part billed'), findsNothing);
+    expect(find.text('Not billed'), findsNothing);
+    expect(find.text('To bill'), findsNothing);
+  });
+
+  testWidgets('saving an edited draft sends none of the read-only figures',
+      (tester) async {
+    final _UpdatingPurchaseApi api = _UpdatingPurchaseApi();
+    await _pumpOrderEditor(tester, api, _progressOrder('DRAFT'));
+
+    await tester.tap(find.byKey(const ValueKey('purchase-order-save')));
+    await tester.pumpAndSettle();
+
+    final Json body = api.updated!.toUpdateJson();
+    expect(body.containsKey('billing_status'), isFalse);
+    expect(body.containsKey('is_complete'), isFalse);
+    final List<dynamic> lines = body['lines'] as List<dynamic>;
+    expect(lines, isNotEmpty);
+    for (final dynamic line in lines) {
+      for (final String key in (line as Json).keys) {
+        expect(
+          const {
+            'received_quantity',
+            'accepted_quantity',
+            'rejected_quantity',
+            'damaged_quantity',
+            'returned_quantity',
+            'invoiced_quantity',
+            'pending_receipt_quantity',
+            'to_invoice_quantity',
+          }.contains(key),
+          isFalse,
+          reason: '$key is response-only',
+        );
+      }
+    }
+  });
+}
+
+PurchaseOrder _progressOrder(
+  String status, {
+  String billing = 'PARTIALLY_INVOICED',
+  bool complete = false,
+}) {
+  final Json json = <String, dynamic>{
+    'id': 'po-1',
+    'firm_id': 'firm-1',
+    'branch_id': 'branch-1',
+    'warehouse_id': 'warehouse-1',
+    'vendor_id': 'vendor-1',
+    'po_number': 'PO-0001',
+    'purchase_date': '2026-08-02',
+    'status': status,
+    'billing_status': billing,
+    'is_complete': complete,
+    'lines': [
+      {
+        'id': 'line-1',
+        'line_number': 1,
+        'product_id': 'product-1',
+        'ordered_quantity': '5',
+        'unit_price': '100',
+        'received_quantity': '3.5',
+        'accepted_quantity': '3.0',
+        'rejected_quantity': '0.5',
+        'damaged_quantity': '0',
+        'returned_quantity': '1',
+        'invoiced_quantity': '2',
+        'pending_receipt_quantity': '1.5',
+        'to_invoice_quantity': '0',
+      },
+    ],
+  };
+  return PurchaseOrder.fromJson(json);
+}
+
+class _UpdatingPurchaseApi extends _PricingPurchaseApi {
+  PurchaseOrder? updated;
+
+  @override
+  Future<PurchaseOrder> updatePurchaseOrder(PurchaseOrder order) async {
+    updated = order;
+    return order;
+  }
+}
+
+Future<void> _pumpOrderEditor(
+  WidgetTester tester,
+  _PurchaseApi api,
+  PurchaseOrder order,
+) async {
+  _setDesktopSurface(tester);
+  final PermissionService permissions = PermissionService()
+    ..applyAccessToken(_accessToken({
+      'permissions': ['PURCHASE_VIEW', 'PURCHASE_APPROVE'],
+    }));
+  await tester.pumpWidget(MaterialApp(
+    home: Scaffold(
+      body: Phase2Scope(
+        child: PurchaseOrderEditorDialog(
+          api: api,
+          permissions: permissions,
+          mode: PurchaseDialogMode.edit,
+          order: order,
+          vendors: const [_vendor],
+          branches: const [_branch],
+          warehouses: const [_warehouse],
+          products: const [_product],
+          buyers: const [],
+          taxProfiles: const [],
+          storageNodes: const [],
+          canSubmit: true,
+          canApprove: true,
+        ),
+      ),
+    ),
+  ));
+  await tester.pumpAndSettle();
+  await tester.pump(const Duration(milliseconds: 400));
+  await tester.pumpAndSettle();
 }
 
 /// Double-click the seeded row, which is how the workspace opens a document.

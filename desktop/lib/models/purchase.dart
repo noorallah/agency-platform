@@ -57,6 +57,14 @@ class PurchaseOrderLine {
     required this.status,
     required this.createdAt,
     required this.updatedAt,
+    this.receivedQuantity = '',
+    this.acceptedQuantity = '',
+    this.rejectedQuantity = '',
+    this.damagedQuantity = '',
+    this.returnedQuantity = '',
+    this.invoicedQuantity = '',
+    this.pendingReceiptQuantity = '',
+    this.toInvoiceQuantity = '',
   });
 
   final String id;
@@ -90,6 +98,18 @@ class PurchaseOrderLine {
   final String createdAt;
   final String updatedAt;
 
+  /// What has happened to the line since it was ordered (backlog 69 row 5).
+  /// Read-only: the server derives them and forbids them in a write, so
+  /// `toWriteJson` never names them. Empty on a line the server has not sent.
+  final String receivedQuantity;
+  final String acceptedQuantity;
+  final String rejectedQuantity;
+  final String damagedQuantity;
+  final String returnedQuantity;
+  final String invoicedQuantity;
+  final String pendingReceiptQuantity;
+  final String toInvoiceQuantity;
+
   factory PurchaseOrderLine.fromJson(Json json) => PurchaseOrderLine(
         id: stringValue(json['id']),
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
@@ -121,6 +141,14 @@ class PurchaseOrderLine {
         status: stringValue(json['status']),
         createdAt: stringValue(json['created_at']),
         updatedAt: stringValue(json['updated_at']),
+        receivedQuantity: stringValue(json['received_quantity']),
+        acceptedQuantity: stringValue(json['accepted_quantity']),
+        rejectedQuantity: stringValue(json['rejected_quantity']),
+        damagedQuantity: stringValue(json['damaged_quantity']),
+        returnedQuantity: stringValue(json['returned_quantity']),
+        invoicedQuantity: stringValue(json['invoiced_quantity']),
+        pendingReceiptQuantity: stringValue(json['pending_receipt_quantity']),
+        toInvoiceQuantity: stringValue(json['to_invoice_quantity']),
       );
 
   PurchaseOrderLine copyWith({
@@ -177,6 +205,14 @@ class PurchaseOrderLine {
         status: status,
         createdAt: createdAt,
         updatedAt: updatedAt,
+        receivedQuantity: receivedQuantity,
+        acceptedQuantity: acceptedQuantity,
+        rejectedQuantity: rejectedQuantity,
+        damagedQuantity: damagedQuantity,
+        returnedQuantity: returnedQuantity,
+        invoicedQuantity: invoicedQuantity,
+        pendingReceiptQuantity: pendingReceiptQuantity,
+        toInvoiceQuantity: toInvoiceQuantity,
       );
 
   Json toWriteJson() => {
@@ -431,6 +467,8 @@ class PurchaseOrder {
     required this.cancelReason,
     this.sentAt = '',
     this.sentVia = '',
+    this.billingStatus = '',
+    this.isComplete = false,
     required this.isDeleted,
     required this.createdAt,
     required this.updatedAt,
@@ -521,6 +559,11 @@ class PurchaseOrder {
   final String sentAt;
   final String sentVia;
 
+  /// NOT_INVOICED, PARTIALLY_INVOICED or INVOICED, beside the lifecycle
+  /// status and never instead of it (backlog 69 row 5). Read-only.
+  final String billingStatus;
+  final bool isComplete;
+
   /// Approved and not yet finished: a promise the supplier can be sent.
   bool get isSendable =>
       !isDeleted &&
@@ -570,6 +613,8 @@ class PurchaseOrder {
         cancelReason: stringValue(json['cancel_reason']),
         sentAt: stringValue(json['sent_at']),
         sentVia: stringValue(json['sent_via']),
+        billingStatus: stringValue(json['billing_status']),
+        isComplete: boolValue(json['is_complete']),
         isDeleted: boolValue(json['is_deleted']),
         createdAt: stringValue(json['created_at']),
         updatedAt: stringValue(json['updated_at']),
@@ -649,6 +694,10 @@ class PurchaseOrder {
         grandTotal: grandTotal,
         closeReason: closeReason,
         cancelReason: cancelReason,
+        sentAt: sentAt,
+        sentVia: sentVia,
+        billingStatus: billingStatus,
+        isComplete: isComplete,
         isDeleted: isDeleted,
         createdAt: createdAt,
         updatedAt: updatedAt,

@@ -220,6 +220,19 @@ class PurchaseOrderLineResponse(PurchaseSchema):
     status: str
     created_at: datetime
     updated_at: datetime
+    #: What has happened to the line downstream (backlog 69 row 5), in its
+    #: own unit, derived on every read from the live receipts, bills and
+    #: returns against it.
+    received_quantity: Decimal = Decimal("0")
+    accepted_quantity: Decimal = Decimal("0")
+    rejected_quantity: Decimal = Decimal("0")
+    damaged_quantity: Decimal = Decimal("0")
+    returned_quantity: Decimal = Decimal("0")
+    invoiced_quantity: Decimal = Decimal("0")
+    #: Ordered less received.
+    pending_receipt_quantity: Decimal = Decimal("0")
+    #: Accepted, less returned, less invoiced.
+    to_invoice_quantity: Decimal = Decimal("0")
 
 
 class PurchaseDeliveryScheduleResponse(PurchaseSchema):
@@ -275,6 +288,12 @@ class PurchaseOrderResponse(PurchaseSchema):
     """Purchase Order Response contract."""
 
     id: UUID
+    #: ``NOT_INVOICED``, ``PARTIALLY_INVOICED`` or ``INVOICED``, from the
+    #: lines' figures (backlog 69 row 5). Beside ``status``, never in it, so
+    #: billing does not overwrite how far receiving got (OWNER_DECISIONS A33).
+    billing_status: str = "NOT_INVOICED"
+    #: Every line received in full, and nothing kept is left to bill.
+    is_complete: bool = False
     #: The optimistic-concurrency version, published so a client can send
     #: it back as ``If-Match``. It rides in the body as well as the ETag
     #: header because a list carries many records and a header carries
