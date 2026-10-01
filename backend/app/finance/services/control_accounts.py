@@ -38,6 +38,18 @@ from app.finance.models import (
 #: which is what every purchase posted to before the split (D-CMP-20).
 INPUT_TAX_PURPOSE_BY_COMPONENT: dict[str, "ControlAccountPurpose"] = {}
 
+#: The output-tax account each GST component is owed through (backlog 63.3),
+#: the mirror of the input side. A component not named here -- cess, another
+#: tax system's -- posts to `OUTPUT_TAX`, which is also where every sale
+#: posted before the split; that history is left as posted.
+OUTPUT_TAX_PURPOSE_BY_COMPONENT: dict[str, "ControlAccountPurpose"] = {}
+
+#: The account reverse-charge tax on an inward supply is owed through, per
+#: head (backlog 68 row 8). Its own liability rather than output tax: it is
+#: paid in cash only (section 49(4)), so credit must never be set against it,
+#: and keeping it apart lets the GST payment see that without a report.
+RCM_PAYABLE_PURPOSE_BY_COMPONENT: dict[str, "ControlAccountPurpose"] = {}
+
 
 class ControlAccountPurpose(StrEnum):
     """What a posting line means, independent of the account it lands in."""
@@ -48,7 +60,20 @@ class ControlAccountPurpose(StrEnum):
     SALES_RETURNS = "SALES_RETURNS"
     PURCHASE_EXPENSE = "PURCHASE_EXPENSE"
     PURCHASE_RETURNS = "PURCHASE_RETURNS"
+    #: Output tax as one total: the fallback for a component the three below
+    #: do not name (cess, a tax system that is not GST), and where every sale
+    #: posted before backlog 63.3 split it. History stays where it was posted.
     OUTPUT_TAX = "OUTPUT_TAX"
+    OUTPUT_TAX_IGST = "OUTPUT_TAX_IGST"
+    OUTPUT_TAX_CGST = "OUTPUT_TAX_CGST"
+    OUTPUT_TAX_SGST = "OUTPUT_TAX_SGST"
+    #: Tax owed under reverse charge on an inward supply (backlog 68 row 8),
+    #: per head, with `RCM_PAYABLE` taking cess and anything else. Paid in
+    #: cash only, never set off by credit.
+    RCM_PAYABLE = "RCM_PAYABLE"
+    RCM_PAYABLE_IGST = "RCM_PAYABLE_IGST"
+    RCM_PAYABLE_CGST = "RCM_PAYABLE_CGST"
+    RCM_PAYABLE_SGST = "RCM_PAYABLE_SGST"
     #: Input tax as one total: the fallback for a component the three below
     #: do not name (cess, a tax system that is not GST), and where every
     #: purchase posted before D-CMP-20. GSTR-3B claims credit per head --
@@ -112,6 +137,43 @@ INPUT_TAX_PURPOSE_BY_COMPONENT.update(
 )
 
 
+OUTPUT_TAX_PURPOSE_BY_COMPONENT.update(
+    {
+        "IGST": ControlAccountPurpose.OUTPUT_TAX_IGST,
+        "CGST": ControlAccountPurpose.OUTPUT_TAX_CGST,
+        "SGST": ControlAccountPurpose.OUTPUT_TAX_SGST,
+        "UTGST": ControlAccountPurpose.OUTPUT_TAX_SGST,
+    }
+)
+
+RCM_PAYABLE_PURPOSE_BY_COMPONENT.update(
+    {
+        "IGST": ControlAccountPurpose.RCM_PAYABLE_IGST,
+        "CGST": ControlAccountPurpose.RCM_PAYABLE_CGST,
+        "SGST": ControlAccountPurpose.RCM_PAYABLE_SGST,
+        "UTGST": ControlAccountPurpose.RCM_PAYABLE_SGST,
+    }
+)
+
+
+def output_tax_purpose(component_code: str | None) -> ControlAccountPurpose:
+    """Return the output-tax account a component is owed through."""
+    if component_code is None:
+        return ControlAccountPurpose.OUTPUT_TAX
+    return OUTPUT_TAX_PURPOSE_BY_COMPONENT.get(
+        component_code.upper(), ControlAccountPurpose.OUTPUT_TAX
+    )
+
+
+def rcm_payable_purpose(component_code: str | None) -> ControlAccountPurpose:
+    """Return the reverse-charge payable account a component is owed through."""
+    if component_code is None:
+        return ControlAccountPurpose.RCM_PAYABLE
+    return RCM_PAYABLE_PURPOSE_BY_COMPONENT.get(
+        component_code.upper(), ControlAccountPurpose.RCM_PAYABLE
+    )
+
+
 def input_tax_purpose(component_code: str | None) -> ControlAccountPurpose:
     """Return the input-tax account a component is claimed through."""
     if component_code is None:
@@ -132,6 +194,13 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     ControlAccountPurpose.PURCHASE_EXPENSE: frozenset({"EXPENSE"}),
     ControlAccountPurpose.PURCHASE_RETURNS: frozenset({"EXPENSE", "INCOME"}),
     ControlAccountPurpose.OUTPUT_TAX: frozenset({"LIABILITY", "CONTROL"}),
+    ControlAccountPurpose.OUTPUT_TAX_IGST: frozenset({"LIABILITY", "CONTROL"}),
+    ControlAccountPurpose.OUTPUT_TAX_CGST: frozenset({"LIABILITY", "CONTROL"}),
+    ControlAccountPurpose.OUTPUT_TAX_SGST: frozenset({"LIABILITY", "CONTROL"}),
+    ControlAccountPurpose.RCM_PAYABLE: frozenset({"LIABILITY", "CONTROL"}),
+    ControlAccountPurpose.RCM_PAYABLE_IGST: frozenset({"LIABILITY", "CONTROL"}),
+    ControlAccountPurpose.RCM_PAYABLE_CGST: frozenset({"LIABILITY", "CONTROL"}),
+    ControlAccountPurpose.RCM_PAYABLE_SGST: frozenset({"LIABILITY", "CONTROL"}),
     ControlAccountPurpose.INPUT_TAX: frozenset({"ASSET", "CONTROL"}),
     ControlAccountPurpose.INPUT_TAX_IGST: frozenset({"ASSET", "CONTROL"}),
     ControlAccountPurpose.INPUT_TAX_CGST: frozenset({"ASSET", "CONTROL"}),
@@ -201,6 +270,13 @@ PURPOSE_LABELS: dict[ControlAccountPurpose, str] = {
     ControlAccountPurpose.PURCHASE_EXPENSE: "Purchases",
     ControlAccountPurpose.PURCHASE_RETURNS: "Purchase returns",
     ControlAccountPurpose.OUTPUT_TAX: "Output tax",
+    ControlAccountPurpose.OUTPUT_TAX_IGST: "Output IGST",
+    ControlAccountPurpose.OUTPUT_TAX_CGST: "Output CGST",
+    ControlAccountPurpose.OUTPUT_TAX_SGST: "Output SGST",
+    ControlAccountPurpose.RCM_PAYABLE: "Reverse charge payable",
+    ControlAccountPurpose.RCM_PAYABLE_IGST: "Reverse charge IGST payable",
+    ControlAccountPurpose.RCM_PAYABLE_CGST: "Reverse charge CGST payable",
+    ControlAccountPurpose.RCM_PAYABLE_SGST: "Reverse charge SGST payable",
     ControlAccountPurpose.INPUT_TAX: "Input tax",
     ControlAccountPurpose.INPUT_TAX_IGST: "Input IGST",
     ControlAccountPurpose.INPUT_TAX_CGST: "Input CGST",

@@ -162,6 +162,59 @@ CHART: tuple[SeedAccount, ...] = (
         "CL",
         ControlAccountPurpose.OUTPUT_TAX,
     ),
+    # One account per GST head, the mirror of input tax (backlog 63.3); 2200
+    # stays for cess and keeps what was posted before the split. Reverse
+    # charge on inward supplies is owed through accounts of its own, because
+    # it is paid in cash and credit may never be set against it (68 row 8).
+    SeedAccount(
+        "2210",
+        "Output IGST",
+        AccountTypeEnum.LIABILITY,
+        "CL",
+        ControlAccountPurpose.OUTPUT_TAX_IGST,
+    ),
+    SeedAccount(
+        "2220",
+        "Output CGST",
+        AccountTypeEnum.LIABILITY,
+        "CL",
+        ControlAccountPurpose.OUTPUT_TAX_CGST,
+    ),
+    SeedAccount(
+        "2230",
+        "Output SGST",
+        AccountTypeEnum.LIABILITY,
+        "CL",
+        ControlAccountPurpose.OUTPUT_TAX_SGST,
+    ),
+    SeedAccount(
+        "2250",
+        "Reverse Charge Payable",
+        AccountTypeEnum.LIABILITY,
+        "CL",
+        ControlAccountPurpose.RCM_PAYABLE,
+    ),
+    SeedAccount(
+        "2260",
+        "Reverse Charge IGST Payable",
+        AccountTypeEnum.LIABILITY,
+        "CL",
+        ControlAccountPurpose.RCM_PAYABLE_IGST,
+    ),
+    SeedAccount(
+        "2270",
+        "Reverse Charge CGST Payable",
+        AccountTypeEnum.LIABILITY,
+        "CL",
+        ControlAccountPurpose.RCM_PAYABLE_CGST,
+    ),
+    SeedAccount(
+        "2280",
+        "Reverse Charge SGST Payable",
+        AccountTypeEnum.LIABILITY,
+        "CL",
+        ControlAccountPurpose.RCM_PAYABLE_SGST,
+    ),
     SeedAccount(
         "4000",
         "Sales",
