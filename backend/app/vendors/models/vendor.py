@@ -139,6 +139,8 @@ class Vendor(BaseEntity):
     )
     gstin: Mapped[str | None] = mapped_column(String(32))
     pan: Mapped[str | None] = mapped_column(String(32))
+    #: Why the supplier is BLOCKED (backlog 69 row 4); NULL otherwise.
+    blocked_reason: Mapped[str | None] = mapped_column(Text)
     #: Days of credit the supplier gives; a bill's due date defaults from it
     #: (backlog 68 row 1), as a customer's terms default a sales bill's.
     payment_terms_days: Mapped[int] = mapped_column(

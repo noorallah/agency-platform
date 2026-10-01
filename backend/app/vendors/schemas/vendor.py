@@ -19,6 +19,9 @@ class VendorStatus(StrEnum):
     ACTIVE = "ACTIVE"
     INACTIVE = "INACTIVE"
     ARCHIVED = "ARCHIVED"
+    #: No new orders or bills; what is already raised can still be received,
+    #: paid and returned (backlog 69 row 4). Needs a reason.
+    BLOCKED = "BLOCKED"
 
 
 class AddressType(StrEnum):
@@ -168,6 +171,8 @@ class VendorWrite(VendorSchema):
     category_id: UUID | None = None
     type_id: UUID | None = None
     status: VendorStatus = VendorStatus.ACTIVE
+    #: Why the supplier is BLOCKED; required with that status, cleared with it.
+    blocked_reason: str | None = Field(default=None, max_length=500)
     business_profile_id: UUID | None = None
     gst_registration: bool = False
     gstin: str | None = Field(default=None, max_length=32)
@@ -434,6 +439,7 @@ class VendorResponse(VendorSchema):
     category_id: UUID | None
     type_id: UUID | None
     status: VendorStatus
+    blocked_reason: str | None = None
     business_profile_id: UUID | None
     gst_registration: bool
     gstin: str | None

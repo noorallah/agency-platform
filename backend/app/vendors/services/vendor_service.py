@@ -54,6 +54,7 @@ from app.vendors.schemas import (
     VendorCreate,
     VendorListFilters,
     VendorNoteInput,
+    VendorStatus,
     VendorSummary,
     VendorTaxInput,
     VendorTypeWrite,
@@ -72,6 +73,25 @@ _VENDOR_REFERENCES: MasterReferences = {
 
 #: A vendor write of either kind, kept as the kind it came in as.
 _Write = TypeVar("_Write", VendorCreate, VendorUpdate)
+
+
+def _settle_block(vendor: Vendor) -> None:
+    """Require a reason to block a supplier, and drop it when unblocked.
+
+    A block stops new orders and bills (backlog 69 row 4), so the next person
+    to meet it is told why; an unblocked supplier carries no stale reason.
+    """
+    if vendor.status == VendorStatus.BLOCKED.value:
+        reason = (vendor.blocked_reason or "").strip()
+        if not reason:
+            raise ValidationError(
+                "Say why the supplier is blocked; the reason is shown to "
+                "whoever tries to order from them.",
+                details={"field": "blocked_reason"},
+            )
+        vendor.blocked_reason = reason
+    else:
+        vendor.blocked_reason = None
 
 
 class VendorService:
@@ -216,6 +236,7 @@ class VendorService:
         previous_name = vendor.name
         for field, value in values.items():
             setattr(vendor, field, value)
+        _settle_block(vendor)
         vendor.display_name = display_name_after_edit(
             current=vendor.display_name,
             previous_name=previous_name,
@@ -941,6 +962,7 @@ class VendorService:
             created_by=actor_id,
             updated_by=actor_id,
         )
+        _settle_block(vendor)
         # On create an omitted collection and an empty one mean the same
         # thing: a vendor that does not exist yet has nothing to preserve.
         vendor.contacts = [
@@ -1436,7 +1458,13 @@ class VendorService:
             "category_id": vendor.category_id,
             "type_id": vendor.type_id,
             "business_profile_id": vendor.business_profile_id,
-            "status": vendor.status,
+            # A copy is a new supplier: it starts trading, not blocked
+            # without the reason the original was blocked for.
+            "status": (
+                VendorStatus.ACTIVE.value
+                if vendor.status == VendorStatus.BLOCKED.value
+                else vendor.status
+            ),
             "gst_registration": vendor.gst_registration,
             "gstin": None,
             "pan": vendor.pan,

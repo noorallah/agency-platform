@@ -158,4 +158,40 @@ void main() {
     expect(api.saved?['msme_category'], 'SMALL');
     expect(api.saved?['msme_written_agreement'], isTrue);
   });
+
+  testWidgets('a blocked supplier shows and keeps why (backlog 69 row 4)',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _VendorApi api = _VendorApi(rows: <Json>[
+      <String, dynamic>{
+        ..._vendorJson(),
+        'status': 'BLOCKED',
+        'blocked_reason': 'Quality complaints',
+      },
+    ]);
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => Phase2Scope(child: child!),
+      home: Scaffold(
+        body: VendorManagementPage(
+          api: api,
+          permissions: _permissions(),
+          hasActiveFirm: true,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('V001').first);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Edit').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Quality complaints'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('vendor-save')));
+    await tester.pumpAndSettle();
+    expect(api.saved?['status'], 'BLOCKED');
+    expect(api.saved?['blocked_reason'], 'Quality complaints');
+  });
 }

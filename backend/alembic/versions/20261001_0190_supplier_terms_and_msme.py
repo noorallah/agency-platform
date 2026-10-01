@@ -1,7 +1,8 @@
-"""Supplier payment terms and MSME payment deadlines (backlog 68 rows 1-2).
+"""Supplier terms, MSME deadlines and the blocked supplier (backlog 68, 69 row 4).
 
 * ``vendors``: ``payment_terms_days`` (NOT NULL, default 0), ``udyam_number``,
-  ``msme_category`` and ``msme_written_agreement`` (NOT NULL, default false).
+  ``msme_category`` and ``msme_written_agreement`` (NOT NULL, default false),
+  and ``blocked_reason`` for the new BLOCKED status.
 * ``purchase_invoices.msme_pay_by``: the last day a bill to a micro or small
   supplier may be paid, stamped when the bill is written.
 
@@ -27,6 +28,7 @@ _COLUMNS: tuple[tuple[str, sa.Column[object]], ...] = (
             "payment_terms_days", sa.Integer(), server_default="0", nullable=False
         ),
     ),
+    ("vendors", sa.Column("blocked_reason", sa.Text(), nullable=True)),
     ("vendors", sa.Column("udyam_number", sa.String(30), nullable=True)),
     ("vendors", sa.Column("msme_category", sa.String(10), nullable=True)),
     (

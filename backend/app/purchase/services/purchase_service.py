@@ -1702,6 +1702,13 @@ class PurchaseService(TransactionalDocumentService):
         )
         if vendor is None:
             raise ValidationError("Selected vendor is not available in this firm.")
+        if vendor.status == "BLOCKED":
+            why = f": {vendor.blocked_reason}" if vendor.blocked_reason else ""
+            raise ValidationError(
+                "Inactive or blocked vendors cannot be used in purchases. "
+                f"{vendor.display_name} is blocked{why}; no new order can be "
+                "raised to them."
+            )
         if vendor.status != "ACTIVE":
             raise ValidationError(
                 "Inactive or blocked vendors cannot be used in purchases."

@@ -270,6 +270,7 @@ class Vendor {
     required this.gstRegistration,
     required this.gstin,
     required this.pan,
+    this.blockedReason = '',
     this.paymentTermsDays = 0,
     this.udyamNumber = '',
     this.msmeCategory = '',
@@ -310,6 +311,9 @@ class Vendor {
   final String status;
   final String businessProfileId;
   final bool gstRegistration;
+
+  /// Why the supplier is BLOCKED (backlog 69 row 4); empty otherwise.
+  final String blockedReason;
 
   /// Days of credit; a bill's due date defaults from it (backlog 68 row 1).
   final int paymentTermsDays;
@@ -356,6 +360,7 @@ class Vendor {
         gstRegistration: boolValue(json['gst_registration']),
         gstin: stringValue(json['gstin']),
         pan: stringValue(json['pan']),
+        blockedReason: stringValue(json['blocked_reason']),
         paymentTermsDays: (json['payment_terms_days'] as num?)?.toInt() ?? 0,
         udyamNumber: stringValue(json['udyam_number']),
         msmeCategory: stringValue(json['msme_category']),

@@ -422,7 +422,7 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
             isExpanded: true,
             initialValue: _status,
             decoration: const InputDecoration(labelText: 'Status'),
-            items: const ['DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED']
+            items: const ['DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED', 'BLOCKED']
                 .map((item) => DropdownMenuItem(value: item, child: Text(item)))
                 .toList(),
             onChanged: (value) => setState(() => _status = value),
@@ -668,6 +668,8 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
       TextEditingController(text: widget.vendor?.gstin ?? '');
   late final TextEditingController _pan =
       TextEditingController(text: widget.vendor?.pan ?? '');
+  late final TextEditingController _blockedReason =
+      TextEditingController(text: widget.vendor?.blockedReason ?? '');
   late final TextEditingController _creditDays = TextEditingController(
       text: '${widget.vendor?.paymentTermsDays ?? 0}');
   late final TextEditingController _udyam =
@@ -1045,6 +1047,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
     _gstin.dispose();
     _pan.dispose();
     _creditDays.dispose();
+    _blockedReason.dispose();
     _udyam.dispose();
     _email.dispose();
     _phone.dispose();
@@ -1197,11 +1200,18 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
             isExpanded: true,
             initialValue: _status,
             decoration: const InputDecoration(labelText: 'Status'),
-            items: const ['DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED']
+            items: const ['DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED', 'BLOCKED']
                 .map((item) => DropdownMenuItem(value: item, child: Text(item)))
                 .toList(),
             onChanged: (value) => setState(() => _status = value ?? 'ACTIVE'),
           ),
+          // A block stops new orders and bills and says why to whoever meets
+          // it (backlog 69 row 4); the server refuses one with no reason.
+          if (_status == 'BLOCKED') ...[
+            const SizedBox(height: 12),
+            _field(_blockedReason, 'Why blocked',
+                helper: 'Shown to whoever tries to order from or bill them'),
+          ],
           const SizedBox(height: 12),
           SwitchListTile(
             title: const Text('GST Registration'),
@@ -1673,6 +1683,10 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
             ? _name.text.trim()
             : _displayName.text.trim(),
         'status': _status,
+        'blocked_reason': _status == 'BLOCKED' &&
+                _blockedReason.text.trim().isNotEmpty
+            ? _blockedReason.text.trim()
+            : null,
         // Absent while the lists are still loading or failed to load: see
         // `_loadClassifications`. An explicit null clears the column, which is
         // right when somebody chooses "Not set" and wrong when the dialog

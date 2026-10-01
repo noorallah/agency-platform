@@ -372,6 +372,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         business_profile_id = data.business_profile_id
         if vendor_id != header["vendor_id"]:
             raise ValidationError("Invoice vendor must match all source documents.")
+        self._refuse_blocked(vendor_id)
         if branch_id != header["branch_id"]:
             raise ValidationError("Invoice branch must match all source documents.")
         self._validate_supplier_invoice_number(
@@ -523,6 +524,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             data, firm_scope, own_receipts=own_receipts
         )
         row.vendor_id = data.vendor_id or header["vendor_id"]
+        self._refuse_blocked(row.vendor_id)
         row.branch_id = data.branch_id or header["branch_id"]
         row.business_profile_id = data.business_profile_id
         row.invoice_date = data.invoice_date
@@ -990,6 +992,20 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         return PaymentService(self._session).outstanding_invoices(
             firm_id=firm_scope, party_id=None
         )
+
+    def _refuse_blocked(self, vendor_id: UUID | None) -> None:
+        """Refuse a new or edited bill from a blocked supplier (backlog 69 row 4).
+
+        Approving, paying and returning what was already billed stay open: a
+        block stops new business, it does not cancel what was owed.
+        """
+        vendor = None if vendor_id is None else self._session.get(Vendor, vendor_id)
+        if vendor is not None and vendor.status == "BLOCKED":
+            why = f": {vendor.blocked_reason}" if vendor.blocked_reason else ""
+            raise ValidationError(
+                f"{vendor.display_name} is blocked{why}; no new bill can be "
+                "entered from them."
+            )
 
     def _vendor_names(self, vendor_ids: set[UUID]) -> dict[UUID, str]:
         """Read the display names of the vendors named, in one query."""
