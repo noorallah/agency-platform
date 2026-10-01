@@ -14,6 +14,7 @@ from app.core.exceptions import BusinessRuleError, ConflictError, ResourceNotFou
 from app.core.tenancy import DeploymentMode, TenantStorageLifecycleService
 from app.core.tenancy.lifecycle import RESERVED_DATABASE_NAMES, is_reserved_schema
 from app.core.utils.dates import utc_now
+from app.core.validation import settle_pan
 from app.firms.models import Firm, FirmStorageMapping
 from app.firms.schemas import FirmCreate, FirmUpdate
 from app.identity.models import User, UserFirm
@@ -41,8 +42,18 @@ class FirmService:
 
     def create(self, data: FirmCreate, actor_id: UUID) -> Firm:
         """Create a uniquely coded firm and audit the mutation."""
-        self._assert_unique(data.code, data.gst_number, data.pan_number)
+        # The firm's own PAN meets the same checks as a party's (backlog 53
+        # item 2): its format, and characters 3 to 12 of its GSTIN.
+        pan = settle_pan(
+            pan=data.pan_number,
+            gstin=data.gst_number,
+            creating=True,
+            pan_field="pan_number",
+            gstin_field="gst_number",
+        )
+        self._assert_unique(data.code, data.gst_number, pan)
         payload = data.model_dump()
+        payload["pan_number"] = pan
         payload["is_active"], payload["status"] = _active_and_status(
             data.model_dump(exclude_unset=True), current_is_active=True
         )
@@ -210,6 +221,19 @@ class FirmService:
         values["is_active"], values["status"] = _active_and_status(
             sent, current_is_active=firm.is_active
         )
+        # Checked only where the edit moves the PAN or the GSTIN, so a PAN
+        # stored before the check existed does not block a change of address.
+        pan = settle_pan(
+            pan=_text_or_none(values.get("pan_number")),
+            gstin=_text_or_none(values.get("gst_number")),
+            stored_pan=firm.pan_number,
+            stored_gstin=firm.gst_number,
+            creating=False,
+            pan_field="pan_number",
+            gstin_field="gst_number",
+        )
+        if pan != _text_or_none(values.get("pan_number")):
+            values["pan_number"] = pan
         self._assert_unique(
             str(values["code"]),
             _text_or_none(values.get("gst_number")),

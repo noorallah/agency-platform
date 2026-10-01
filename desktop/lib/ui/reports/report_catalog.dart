@@ -785,6 +785,33 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'status', label: 'Status'),
     ],
   ),
+  // The quarterly TDS return (53.1): one quarter's deductions as Annexure I
+  // of Form 26Q lists them, and the workbook to prepare the return from.
+  ReportDefinition(
+    id: 'tds-26q',
+    label: 'TDS return (26Q)',
+    description: 'One quarter of tax deducted at source on payments other '
+        'than salary, laid out as Form 26Q lists deductees. Download gives '
+        'the workbook to prepare the return from.',
+    path: '/api/v1/finance/reports/tds-26q',
+    permission: 'ACCOUNT_VIEW',
+    area: ReportArea.financial,
+    quarterly: true,
+    file: ReportFile.tds26q,
+    columns: [
+      ReportColumn(key: 'serial', label: 'Sr', numeric: true),
+      ReportColumn(key: 'section', label: 'Section'),
+      ReportColumn(key: 'deductee_code', label: 'Code'),
+      ReportColumn(key: 'pan', label: 'PAN'),
+      ReportColumn(key: 'party_name', label: 'Deductee'),
+      ReportColumn(key: 'payment_date', label: 'Paid on'),
+      ReportColumn(key: 'amount_paid', label: 'Amount', numeric: true),
+      ReportColumn(key: 'tds_amount', label: 'TDS', numeric: true),
+      ReportColumn(key: 'rate_percent', label: 'Rate %', numeric: true),
+      ReportColumn(key: 'higher_rate_reason', label: 'Reason'),
+      ReportColumn(key: 'document_number', label: 'Document'),
+    ],
+  ),
   // What customers deducted from what they paid, by their TAN, to tick the
   // firm's TDS Receivable against Form 26AS (53.1).
   ReportDefinition(

@@ -106,7 +106,7 @@ def _vendor_data(code: str = "VEN-001", gstin: str = "GSTIN-001") -> VendorCreat
             "status": "ACTIVE",
             "gst_registration": True,
             "gstin": gstin,
-            "pan": "PAN-001",
+            "pan": "AAACV0001A",
             "email": "vendors@acme.test",
             "mobile": "+919876543210",
             "contacts": [

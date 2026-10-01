@@ -39,6 +39,7 @@ from app.common.file_import import (
     ImportRow,
     RowReader,
     schema_issues,
+    service_issue,
 )
 from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ApplicationError
@@ -374,7 +375,7 @@ class CustomerFileImporter(FileImporter[Customer]):
             # Every guard runs before the row is written, and the opening
             # balance posting refuses before it books anything, so the session
             # is still sound and the rest of the file can be checked.
-            report.issues.append(ImportIssue(row.number, code, None, error.message))
+            report.issues.append(service_issue(error, row, code, _FIELD_HEADINGS))
             return
         report.records.append(customer)
 

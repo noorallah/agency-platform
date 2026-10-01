@@ -6129,7 +6129,13 @@ def _phone(index: int) -> str:
 
 
 def _pan(index: int) -> str:
-    return f"APL{index:06d}Q"[:10]
+    """Return a PAN in the Income Tax Department's format (backlog 53 item 2).
+
+    Five letters, four digits and a letter -- the fourth letter C, a company --
+    since a customer, vendor or firm is now refused a PAN in any other shape.
+    The GSTIN below is built on it, so the two agree as a real pair must.
+    """
+    return f"APLCA{index % 10000:04d}Q"
 
 
 def _gstin(index: int, state_name: str) -> str:

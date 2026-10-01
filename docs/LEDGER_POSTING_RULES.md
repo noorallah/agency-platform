@@ -265,6 +265,55 @@ already have been paid.
 **Paying the challan** is still a journal: Dr TDS Payable, Cr Bank. **Claiming
 TDS Receivable** against the firm's own tax is the CA's year-end entry.
 
+**The 26Q export (2026-10-01)** -- Reports > Financial > *TDS return (26Q)*,
+`/finance/reports/tds-26q` for the grid and `/finance/tds-returns/26q` for
+the file, both on the TDS registers' permission (`ACCOUNT_VIEW` or
+`REPORT_VIEW`). A return is named by **financial year and quarter**
+(`2026-27`, `Q1`) and nothing else, so it is always exactly one quarter; a
+malformed year or quarter is refused by name. It is built in
+`app/finance/services/tds_return.py` from the *TDS deducted* register and
+stores nothing.
+
+**It is a workbook, not the FVU text file**, deliberately. The File
+Validation Utility's input hangs every deductee row off a challan row, and a
+challan row needs the BSR code, challan serial, date deposited and amount --
+none of which the books record while the challan is a journal. A text file
+with those blank fails the FVU at its first row; one with them guessed is
+worse. So `format=xlsx` (the default) has four sheets: **Deductor** (name,
+TAN, PAN, year, quarter, assessment year, totals, and what will stop the
+return -- no TAN, deductees without a PAN); **Deductees** (Annexure I in the
+Protean RPU deductee sheet's order: section, deductee code `01` company /
+`02` other read off the PAN's fourth letter, PAN, name, date, amount, TDS,
+rate, reason code; the challan serial left for the filer, who pastes the rows
+under the challan in the RPU); **Challans due** (tax by section and month of
+deduction, due the 7th of the next month, March's by 30 April); **Not in this
+return** (deductions on a reversed payment or cancelled expense, and salary,
+which is Form 24Q). `format=csv` is the deductee sheet alone. A deductee with
+no PAN is written `PANNOTAVBL` with reason `C` (deducted at the higher rate,
+206AA). When challans are recorded as documents, the FVU file becomes
+possible and this is where it belongs.
+
+## PAN, TAN and GSTIN are checked when they are set
+
+Backlog 53 item 2, on customers, vendors (header and tax rows) and the firm.
+`settle_pan` and `check_tan_if_set` in `app/core/validation/common.py` are the
+one implementation:
+
+- **Format.** A PAN is `AAAAA9999A`, a TAN `AAAA99999A`, upper-cased; anything
+  else is refused naming the field (`details.field`, which a file import turns
+  into the column -- `service_issue` in `app/common/file_import.py`).
+- **PAN against GSTIN.** Characters 3 to 12 of a GSTIN are its holder's PAN.
+  When the GSTIN is built on one (a UIN is not, and is not compared), a blank
+  PAN is **filled** from it and a different PAN is **refused naming both**.
+- **Only what a write sets is checked** -- a create, a field the write moves,
+  a tax row it adds. A PAN or TAN stored before the check existed is left
+  alone by an edit that resends it unchanged, and checked the next time
+  somebody changes it, so old data never blocks a change of phone number.
+- **A customer's PAN is unique in the firm, and one company holds a GSTIN per
+  state**, so a PAN *filled* from the GSTIN is left blank when another live
+  customer already holds it, rather than refusing the second branch for a PAN
+  nobody typed. A typed PAN still meets the uniqueness check.
+
 ## A month's GST is settled in one journal
 
 Built 2026-10-01 (`docs/BACKLOG.md` §63, `app/gst_returns/services/gst_payment_service.py`). The month's liability per head is GSTR-3B 3.1(a) after credit notes, and its credit is table 4's net input credit plus what the month before carried. The set-off follows section 49(5) and rule 88A: IGST credit first and wholly, split across CGST and SGST in whichever way leaves the least cash; CGST credit never against SGST, nor SGST against CGST; cess only against cess.

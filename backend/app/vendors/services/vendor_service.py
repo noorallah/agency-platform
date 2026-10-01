@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 from decimal import Decimal
+from typing import TypeVar
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -30,6 +31,7 @@ from app.core.exceptions import (
     ValidationError,
 )
 from app.core.utils.dates import utc_now
+from app.core.validation import check_tan_if_set, settle_pan
 from app.vendors.models import (
     Vendor,
     VendorAddress,
@@ -66,6 +68,10 @@ _VENDOR_REFERENCES: MasterReferences = {
     "type_id": (VendorType, "Vendor type"),
     "business_profile_id": (BusinessProfile, "Business profile"),
 }
+
+
+#: A vendor write of either kind, kept as the kind it came in as.
+_Write = TypeVar("_Write", VendorCreate, VendorUpdate)
 
 
 class VendorService:
@@ -189,6 +195,7 @@ class VendorService:
         Flushed at the end, so a later row of the same file claiming this
         vendor's new GSTIN is refused by the uniqueness check.
         """
+        data = self._with_settled_identity(data, current=vendor)
         banking = self._banking_to_write(
             vendor,
             data.banking,
@@ -921,6 +928,7 @@ class VendorService:
         self, data: VendorCreate, *, firm_id: UUID, actor_id: UUID
     ) -> Vendor:
         """Stage one vendor and its audit event without committing."""
+        data = self._with_settled_identity(data, current=None)
         self._assert_unique(firm_id, data)
         self._assert_drug_license_allowed(firm_id, data)
         values = self._vendor_values(data)
@@ -962,6 +970,66 @@ class VendorService:
             after_data=self._audit_snapshot(vendor),
         )
         return vendor
+
+    @staticmethod
+    def _with_settled_identity(data: _Write, *, current: Vendor | None) -> _Write:
+        """Check the PANs, GSTINs and TANs a write sets (backlog 53 item 2).
+
+        The header's PAN against its GSTIN, and each tax row's PAN, GSTIN and
+        TAN. Only what the write **sets** is checked -- a create, a field it
+        moves, a tax row it adds -- so a PAN or TAN typed before the check
+        existed does not block an unrelated edit. A blank PAN is filled from
+        a GSTIN built on one; a PAN that disagrees with its GSTIN is refused
+        naming both. Returned as a copy carrying the filled PANs.
+        """
+        update: dict[str, object] = {}
+        sent = set(data.model_fields_set)
+        creating = current is None
+        if creating or "pan" in sent or "gstin" in sent:
+            pan_now = data.pan if current is None or "pan" in sent else current.pan
+            pan = settle_pan(
+                pan=pan_now,
+                gstin=(
+                    data.gstin if current is None or "gstin" in sent else current.gstin
+                ),
+                stored_pan=current.pan if current is not None else None,
+                stored_gstin=current.gstin if current is not None else None,
+                creating=creating,
+                pan_field="pan",
+                gstin_field="gstin",
+            )
+            if pan != pan_now:
+                update["pan"] = pan
+        if data.tax is not None:
+            stored = {row.id: row for row in (current.tax_details if current else [])}
+            rows: list[VendorTaxInput] = []
+            for item in data.tax:
+                row = stored.get(item.id) if item.id is not None else None
+                tan = check_tan_if_set(
+                    item.tan,
+                    stored_tan=row.tan if row is not None else None,
+                    creating=row is None,
+                    field="tax.tan",
+                )
+                pan = settle_pan(
+                    pan=item.pan,
+                    gstin=item.gstin,
+                    stored_pan=row.pan if row is not None else None,
+                    stored_gstin=row.gstin if row is not None else None,
+                    creating=row is None,
+                    pan_field="tax.pan",
+                    gstin_field="tax.gstin",
+                )
+                rows.append(item.model_copy(update={"tan": tan, "pan": pan}))
+            update["tax"] = rows
+        if not update:
+            return data
+        copy = data.model_copy(update=update)
+        # Marked as sent exactly as the caller sent them, plus a PAN filled
+        # from the GSTIN, so the partial dump on an update still reads which
+        # fields the write names.
+        object.__setattr__(copy, "__pydantic_fields_set__", sent | set(update))
+        return copy
 
     def _assert_unique(
         self,

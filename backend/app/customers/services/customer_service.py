@@ -24,6 +24,7 @@ from app.core.exceptions import (
     ValidationError,
 )
 from app.core.utils.dates import utc_now
+from app.core.validation import settle_pan
 from app.customers.gst_registration import assert_consistent
 from app.customers.models import (
     Customer,
@@ -141,6 +142,14 @@ class CustomerService:
         self, data: CustomerCreate, *, firm_id: UUID, actor_id: UUID
     ) -> Customer:
         """Stage one customer and audit event without committing."""
+        pan = self._settled_pan(
+            firm_id,
+            pan=data.pan_number,
+            gstin=data.gst_number,
+            current=None,
+        )
+        if pan != data.pan_number:
+            data = data.model_copy(update={"pan_number": pan})
         self._assert_unique(firm_id, data)
         values = self._customer_values(data)
         assert_master_references(
@@ -251,6 +260,18 @@ class CustomerService:
         # draft. An explicit null still clears, which is what keeps a complete
         # client able to empty a field.
         values = self._customer_values(data, partial=True)
+        # Checked against what the row will hold, and only where the write
+        # moves the PAN or the GSTIN: a PAN stored before the check existed
+        # does not block an unrelated edit (backlog 53 item 2).
+        sent_pan = values.get("pan_number", customer.pan_number)
+        pan = self._settled_pan(
+            customer.firm_id,
+            pan=sent_pan if isinstance(sent_pan, str) else None,
+            gstin=_text(values.get("gst_number", customer.gst_number)),
+            current=customer,
+        )
+        if pan != customer.pan_number or "pan_number" in values:
+            values["pan_number"] = pan
         assert_master_references(
             self._session,
             values,
@@ -693,6 +714,45 @@ class CustomerService:
                 "Customer code, GST number, or PAN number already exists "
                 "in this firm."
             )
+
+    def _settled_pan(
+        self,
+        firm_id: UUID,
+        *,
+        pan: str | None,
+        gstin: str | None,
+        current: Customer | None,
+    ) -> str | None:
+        """Check the PAN against the GSTIN; return the PAN to store.
+
+        A PAN is unique among a firm's live customers, while one company
+        registers a GSTIN in every state it trades from -- so two customers
+        can be the same company's branches. A PAN *filled* from the GSTIN is
+        therefore left blank when another customer already holds it, rather
+        than refusing the second branch for a PAN nobody typed. A PAN typed
+        into the box still meets the uniqueness check as before.
+        """
+        settled = settle_pan(
+            pan=pan,
+            gstin=gstin,
+            stored_pan=current.pan_number if current is not None else None,
+            stored_gstin=current.gst_number if current is not None else None,
+            creating=current is None,
+            pan_field="pan_number",
+            gstin_field="gst_number",
+        )
+        if pan is None and settled is not None:
+            holder = self._session.scalar(
+                select(Customer.id).where(
+                    Customer.firm_id == firm_id,
+                    Customer.is_deleted.is_(False),
+                    Customer.pan_number == settled,
+                    *([Customer.id != current.id] if current is not None else []),
+                )
+            )
+            if holder is not None:
+                return None
+        return settled
 
     def _commit_unique(self) -> None:
         try:
@@ -1451,3 +1511,8 @@ class CustomerService:
             amount=amount,
             actor_id=actor_id,
         )
+
+
+def _text(value: object) -> str | None:
+    """Read an optional text value out of an untyped dump."""
+    return value if isinstance(value, str) else None

@@ -74,6 +74,10 @@ class FirmMetadata:
     #: The firm's own currency -- what a customer or vendor imported from a
     #: file trades in when the file does not say.
     currency_code: str | None = None
+    #: The firm's PAN and TAN: a TDS return names the deductor by both
+    #: (backlog 53.1).
+    pan_number: str | None = None
+    tan_number: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +130,8 @@ class FirmMetadataReader:
             Firm.name,
             Firm.gst_number,
             Firm.currency_code,
+            Firm.pan_number,
+            Firm.tan_number,
         ).where(Firm.id == firm_id)
         bind = self._session.get_bind()
         if bind.dialect.name != "postgresql":
@@ -135,7 +141,7 @@ class FirmMetadataReader:
 
     @staticmethod
     def _materialise(
-        row: Row[tuple[str, date, str, str | None, str]] | None,
+        row: Row[tuple[str, date, str, str | None, str, str | None, str | None]] | None,
     ) -> FirmMetadata:
         """Turn a result row into metadata, tolerating an unknown firm."""
         if row is None:
@@ -146,6 +152,8 @@ class FirmMetadataReader:
             name=row[2],
             gst_number=row[3],
             currency_code=row[4],
+            pan_number=row[5],
+            tan_number=row[6],
         )
 
     def exists(self, firm_id: UUID) -> bool:

@@ -20,6 +20,13 @@ enum ReportArea {
   financial,
 }
 
+/// A file a report can be downloaded as. Named rather than given as a path,
+/// because endpoint paths live in `api_client.dart`.
+enum ReportFile {
+  /// Form 26Q for the quarter: the workbook to prepare the TDS return from.
+  tds26q,
+}
+
 /// One report the server can produce.
 ///
 /// A definition rather than a screen. Every report endpoint answers with flat
@@ -40,7 +47,18 @@ class ReportDefinition {
     this.asOnDate = false,
     this.rowsKey,
     this.openToReportView = true,
+    this.quarterly = false,
+    this.file,
   });
+
+  /// A report of one return quarter -- the quarterly TDS return (53.1). The
+  /// workspace then asks for a financial year and a quarter rather than a
+  /// From and To, since the return is filed for exactly one quarter and the
+  /// route refuses anything else.
+  final bool quarterly;
+
+  /// The file the report can also be downloaded as, when there is one.
+  final ReportFile? file;
 
   final String id;
   final String label;

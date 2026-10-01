@@ -514,6 +514,24 @@ def schema_issues(
     return issues
 
 
+def service_issue(
+    error: ApplicationError,
+    row: ImportRow,
+    code: str,
+    field_headings: Mapping[str, str],
+) -> ImportIssue:
+    """Turn a service refusal into an issue, naming the column it names.
+
+    A service that refuses one field says which in ``details["field"]`` (the
+    PAN and GSTIN checks do), so a file's row is told which of its cells to
+    correct rather than only what was wrong.
+    """
+    details = error.details if isinstance(error.details, dict) else {}
+    field = details.get("field")
+    heading = field_headings.get(field) if isinstance(field, str) else None
+    return ImportIssue(row.number, code, heading, error.message)
+
+
 def template_workbook(
     *,
     sheet_title: str,

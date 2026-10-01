@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.common.scope import (
@@ -60,6 +61,7 @@ from app.finance.schemas import (
     ProfitCenterUpdate,
     ProfitLossRangeReport,
     ProfitLossReport,
+    Tds26qDeducteeRecord,
     TdsRegisterRecord,
     TrialBalanceReport,
     VoucherTypeCreate,
@@ -82,6 +84,12 @@ from app.finance.services.opening_balances import (
     OpeningTrialBalanceService,
 )
 from app.finance.services.tds_register import TdsRegisterService
+from app.finance.services.tds_return import (
+    TdsReturnService,
+    deductees_csv,
+    return_quarter,
+    return_workbook,
+)
 
 router = APIRouter(
     prefix="/api/v1/finance",
@@ -1096,4 +1104,66 @@ def tds_deducted_by_customers_register(
     rows = TdsRegisterService(db).deducted_by_customers(scope.firm_id, window)
     return window.respond(
         [TdsRegisterRecord.model_validate(row, from_attributes=True) for row in rows]
+    )
+
+
+@router.get(
+    "/reports/tds-26q",
+    response_model=PaginatedResponse[Tds26qDeducteeRecord],
+)
+def tds_26q_deductees(
+    scope: TdsReportScope,
+    financial_year: Annotated[str, Query(max_length=9)],
+    quarter: Annotated[str, Query(max_length=2)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[Tds26qDeducteeRecord]:
+    """List one quarter's Form 26Q deductees, as the return does (53.1).
+
+    Named by financial year (``2026-27``) and quarter (``Q1``), so it is
+    always exactly one return quarter; anything else is refused by name.
+    ``GET /tds-returns/26q`` is the same quarter as a file to file from.
+    """
+    period = return_quarter(financial_year, quarter)
+    rows = TdsReturnService(db).build(scope.firm_id, period).deductees
+    window = ReportWindow(period.start, period.end, page, page_size)
+    return window.respond(
+        [Tds26qDeducteeRecord.model_validate(row, from_attributes=True) for row in rows]
+    )
+
+
+@router.get("/tds-returns/26q")
+def tds_26q_file(
+    scope: TdsReportScope,
+    financial_year: Annotated[str, Query(max_length=9)],
+    quarter: Annotated[str, Query(max_length=2)],
+    format: Literal["xlsx", "csv"] = "xlsx",
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Download one quarter's Form 26Q to prepare the return from (53.1).
+
+    A workbook -- deductor, deductees, challans due, and what the return
+    leaves out -- or with ``format=csv`` the deductee rows alone. Not the
+    FVU text file: that needs challan details the books do not record yet;
+    ``app/finance/services/tds_return.py`` says why.
+    """
+    period = return_quarter(financial_year, quarter)
+    tds_return = TdsReturnService(db).build(scope.firm_id, period)
+    if format == "csv":
+        return StreamingResponse(
+            iter([deductees_csv(tds_return)]),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="{period.file_stem}-deductees.csv"'
+                )
+            },
+        )
+    return StreamingResponse(
+        iter([return_workbook(tds_return)]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{period.file_stem}.xlsx"'
+        },
     )

@@ -52,6 +52,19 @@ class _ReportApi extends ApiClient {
     rowsKeys.add(rowsKey);
     return ReportPage(rows: rows, total: total);
   }
+
+  /// Every Form 26Q file asked for, as `year Qn format`.
+  final List<String> files = [];
+
+  @override
+  Future<List<int>> tds26qFile({
+    required String financialYear,
+    required String quarter,
+    String format = 'xlsx',
+  }) async {
+    files.add('$financialYear $quarter $format');
+    return const [1, 2, 3];
+  }
 }
 
 Future<void> _pump(
@@ -507,5 +520,90 @@ void main() {
     expect(find.text('1,12,050.42'), findsOneWidget);
     expect(find.text('false'), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  group('the quarterly TDS return (53.1)', () {
+    test('a screen opens on the last quarter that has ended', () {
+      expect(lastEndedReturnQuarter(DateTime(2026, 10, 1)), ('2026-27', 2));
+      expect(lastEndedReturnQuarter(DateTime(2026, 7, 15)), ('2026-27', 1));
+      // April to June is Q1, so in May the quarter that ended is last
+      // year's Q4.
+      expect(lastEndedReturnQuarter(DateTime(2026, 5, 2)), ('2025-26', 4));
+      expect(lastEndedReturnQuarter(DateTime(2027, 2, 28)), ('2026-27', 3));
+    });
+
+    testWidgets('26Q asks for a year and a quarter, and downloads the file',
+        (tester) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final _ReportApi api = _ReportApi(rows: [
+        {
+          'serial': 1,
+          'section': '194Q',
+          'deductee_code': '01',
+          'pan': 'AAACP1234C',
+          'party_name': 'Principal Ltd',
+          'payment_date': '2026-05-10',
+          'amount_paid': '100000.00',
+          'tds_amount': '100.00',
+          'rate_percent': '0.1000',
+          'higher_rate_reason': '',
+          'document_number': 'PAY-1',
+        },
+      ]);
+      final List<String> saved = [];
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: ListViewRequestScope(
+              request: const ListViewRequest(
+                path: 'reports/financial',
+                view: 'tds-26q',
+                serial: 1,
+              ),
+              child: ReportsWorkspace(
+                api: api,
+                permissions: _permissionsFor(const ['ACCOUNT_VIEW']),
+                hasActiveFirm: true,
+                tabId: 'financial',
+                saveFile: (name, bytes) async {
+                  saved.add('$name ${bytes.length}');
+                  return 'C:/out/$name';
+                },
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(api.requested.last, '/api/v1/finance/reports/tds-26q');
+      final Map<String, String> query = api.queries.last!;
+      expect(query.keys, containsAll(['financial_year', 'quarter', 'page']));
+      expect(query.containsKey('from_date'), isFalse,
+          reason: 'a return is one quarter, never a span of dates');
+      expect(query['quarter'], matches(RegExp(r'^Q[1-4]$')));
+      expect(find.byKey(const ValueKey<String>('report-financial-year')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('report-quarter')),
+          findsOneWidget);
+      expect(find.text('AAACP1234C'), findsOneWidget);
+
+      await tester.enterText(
+          find.byKey(const ValueKey<String>('report-financial-year')),
+          '2026-27');
+      await tester.tap(find.byKey(const ValueKey<String>('report-quarter')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Q1 Apr-Jun').last);
+      await tester.pumpAndSettle();
+      expect(api.queries.last!['quarter'], 'Q1');
+      expect(api.queries.last!['financial_year'], '2026-27');
+
+      await tester.tap(find.byKey(const ValueKey<String>('report-download')));
+      await tester.pumpAndSettle();
+      expect(api.files, ['2026-27 Q1 xlsx']);
+      expect(saved, ['26Q-2026-27-Q1.xlsx 3']);
+      expect(tester.takeException(), isNull);
+    });
   });
 }

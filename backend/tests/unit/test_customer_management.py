@@ -125,7 +125,7 @@ def _customer_data(code: str = "CUST-001") -> CustomerCreate:
             "customer_type": "BUSINESS",
             "name": "Acme Customer",
             "gst_number": "GST-001",
-            "pan_number": "PAN-001",
+            "pan_number": "AAACP0001A",
             "email": "BILLING@ACME.TEST",
             "phone": "+91 9876543210",
             "credit_limit": "25000.00",
@@ -230,7 +230,7 @@ def test_customer_service_enforces_firm_uniqueness_scope_and_audit() -> None:
             "name": "Acme Customer Updated",
             "opening_balance": "0.00",
             "gst_number": "GST-UPDATED",
-            "pan_number": "PAN-UPDATED",
+            "pan_number": "AAACP0002B",
         }
     )
     service.update(
@@ -1133,7 +1133,7 @@ def test_a_customer_who_owes_money_cannot_be_deleted() -> None:
     )
     in_credit = service.create(
         _customer_data("CUST-ADV").model_copy(
-            update={"gst_number": "GST-ADV", "pan_number": "PAN-ADV"}
+            update={"gst_number": "GST-ADV", "pan_number": "AAACP0003C"}
         ),
         firm_id=firm.id,
         actor_id=actor_id,
@@ -1163,7 +1163,7 @@ def test_a_customer_who_owes_money_cannot_be_deleted() -> None:
     # A settled account goes, and takes nothing out of the ledger with it.
     square = service.create(
         _settled_customer_data("CUST-SQ").model_copy(
-            update={"gst_number": "GST-SQ", "pan_number": "PAN-SQ"}
+            update={"gst_number": "GST-SQ", "pan_number": "AAACP0004D"}
         ),
         firm_id=firm.id,
         actor_id=actor_id,

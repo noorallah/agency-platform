@@ -842,8 +842,33 @@ class TdsRegisterRecord(BaseModel):
     status: str
 
 
+class Tds26qDeducteeRecord(BaseModel):
+    """One deduction as Annexure I of Form 26Q states it (backlog 53.1)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    serial: int
+    section: str
+    section_name: str
+    #: ``01`` a company, ``02`` anybody else; blank where there is no PAN.
+    deductee_code: str
+    #: ``PANNOTAVBL`` where the deductee gave none, as the return spells it.
+    pan: str
+    party_name: str
+    party_code: str | None
+    payment_date: date
+    amount_paid: Decimal
+    tds_amount: Decimal
+    rate_percent: Decimal
+    #: ``C`` where no PAN was given: deducted at the higher rate.
+    higher_rate_reason: str
+    document_type: str
+    document_number: str
+
+
 __all__ = [
     "AccountGroupCreate",
+    "Tds26qDeducteeRecord",
     "ProfitLossRangeLine",
     "ProfitLossRangeMonth",
     "ProfitLossRangeReport",

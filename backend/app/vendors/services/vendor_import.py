@@ -35,6 +35,7 @@ from app.common.file_import import (
     ImportRow,
     RowReader,
     schema_issues,
+    service_issue,
 )
 from app.core.exceptions import ApplicationError
 from app.sales.models.territory import (
@@ -518,7 +519,7 @@ class VendorFileImporter(FileImporter[Vendor]):
         except ApplicationError as error:
             # Every guard runs before the row is written, so the session is
             # still sound and the rest of the file can be checked.
-            report.issues.append(ImportIssue(row.number, code, None, error.message))
+            report.issues.append(service_issue(error, row, code, _FIELD_HEADINGS))
             return
         report.records.append(vendor)
 

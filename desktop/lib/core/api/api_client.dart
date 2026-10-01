@@ -2616,6 +2616,22 @@ class ApiClient {
   ///
   /// `rowsKey` reads the rows out of an endpoint that answers with one object
   /// (the commission report); `query` carries a period where one is required.
+  /// One quarter's Form 26Q as a file to prepare the return from (53.1): a
+  /// workbook by default, or the deductee rows alone with `format: 'csv'`.
+  Future<List<int>> tds26qFile({
+    required String financialYear,
+    required String quarter,
+    String format = 'xlsx',
+  }) =>
+      downloadBytes(
+        '/api/v1/finance/tds-returns/26q',
+        query: {
+          'financial_year': financialYear,
+          'quarter': quarter,
+          'format': format,
+        },
+      );
+
   Future<ReportPage> reportRows(
     String path, {
     Map<String, String>? query,
