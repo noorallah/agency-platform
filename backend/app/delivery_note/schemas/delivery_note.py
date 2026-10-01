@@ -13,6 +13,10 @@ from app.core.validation.common import normalize_gstin
 
 #: How goods can travel, as an e-way bill names it.
 TransportModeValue = Literal["ROAD", "RAIL", "AIR", "SHIP"]
+#: Why a delivery note's goods go out (backlog 77 row 3, decision A35).
+ChallanReasonValue = Literal[
+    "SALE", "ROUTE_SALE", "ON_APPROVAL", "QUANTITY_UNKNOWN", "JOB_WORK", "OTHER"
+]
 
 
 class DeliveryNoteSchema(BaseModel):
@@ -114,6 +118,11 @@ class DeliveryNoteCreate(DeliveryNoteSchema):
     lr_number: str | None = Field(default=None, max_length=60)
     lr_date: date | None = None
     distance_km: int | None = Field(default=None, ge=0, le=4000)
+    #: Why the goods go out (backlog 77 row 3). Absent on a new note is SALE;
+    #: absent on an update keeps the note's own.
+    challan_reason: ChallanReasonValue | None = None
+    #: Required with OTHER, ignored with any other reason.
+    challan_reason_note: str | None = Field(default=None, max_length=200)
     remarks: str | None = None
     additional_charges: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
@@ -322,6 +331,9 @@ class DeliveryNoteResponse(DeliveryNoteSchema):
     transporter_gstin: str | None = None
     transport_mode: str | None = None
     lr_number: str | None = None
+    #: Why the goods go out, and the firm's words for OTHER (backlog 77).
+    challan_reason: str = "SALE"
+    challan_reason_note: str | None = None
     lr_date: date | None = None
     distance_km: int | None = None
     remarks: str | None

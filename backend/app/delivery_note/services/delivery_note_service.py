@@ -150,6 +150,27 @@ TRANSPORT_FIELDS: tuple[str, ...] = (
 )
 
 
+def _challan(reason: str | None, note: str | None) -> tuple[str, str | None]:
+    """Return the reason the goods go out and the words OTHER needs.
+
+    Backlog 77 row 3. None is a sale. OTHER must say what it is; any other
+    reason keeps no words, so a note changed back to a sale prints none.
+
+    Raises:
+        ValidationError: When OTHER is given without saying what it is.
+
+    """
+    chosen = reason or "SALE"
+    words = (note or "").strip() or None
+    if chosen != "OTHER":
+        return chosen, None
+    if words is None:
+        raise ValidationError(
+            "Say why the goods go out when the challan reason is Other."
+        )
+    return chosen, words
+
+
 class DeliveryNoteService(TransactionalDocumentService):
     """Coordinate delivery note lifecycle, validation, and inventory dispatch."""
 
@@ -400,6 +421,13 @@ class DeliveryNoteService(TransactionalDocumentService):
             vehicle=data.vehicle,
             driver=data.driver,
             **{name: getattr(data, name) for name in TRANSPORT_FIELDS},
+            **dict(
+                zip(
+                    ("challan_reason", "challan_reason_note"),
+                    _challan(data.challan_reason, data.challan_reason_note),
+                    strict=True,
+                )
+            ),
             remarks=data.remarks,
             status=DeliveryNoteStatus.DRAFT.value,
             additional_charges=self._q(data.additional_charges),
@@ -520,6 +548,11 @@ class DeliveryNoteService(TransactionalDocumentService):
         for name in TRANSPORT_FIELDS:
             if name in data.model_fields_set:
                 setattr(row, name, getattr(data, name))
+        # The same for why the goods go out (backlog 77 row 3).
+        if "challan_reason" in data.model_fields_set:
+            row.challan_reason, row.challan_reason_note = _challan(
+                data.challan_reason, data.challan_reason_note
+            )
         row.remarks = data.remarks
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
@@ -649,13 +682,48 @@ class DeliveryNoteService(TransactionalDocumentService):
     def dispatch_note(
         self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> DeliveryNote:
-        """Dispatch one delivery note and commit it."""
-        row = self.stage_dispatch(note_id, firm_scope=firm_scope, actor_id=actor_id)
+        """Dispatch one delivery note by hand and commit it.
+
+        By hand, so before any invoice: the firm's GST policy judges it
+        (backlog 77 row 2). A bill dispatching the note it raised goes through
+        `stage_dispatch` and is not judged -- the invoice is what ships it.
+        """
+        row = self.get_note(note_id, firm_scope=firm_scope)
+        warning = (
+            self._gst_dispatch_warning(row, firm_scope=firm_scope)
+            if row.status == DeliveryNoteStatus.APPROVED.value
+            else None
+        )
+        row = self.stage_dispatch(
+            note_id, firm_scope=firm_scope, actor_id=actor_id, gst_warning=warning
+        )
         self._session.commit()
         return row
 
+    def _gst_dispatch_warning(
+        self, row: DeliveryNote, *, firm_scope: UUID
+    ) -> str | None:
+        """Judge a hand dispatch under the firm's GST policy (backlog 77 row 2).
+
+        Raises:
+            ValidationError: When the firm blocks dispatch before the invoice.
+
+        """
+        from app.tax.services.gst_compliance import GstComplianceService
+
+        return GstComplianceService(self._session).judge_dispatch(
+            firm_scope,
+            note_number=row.delivery_note_number,
+            challan_reason=row.challan_reason or "SALE",
+        )
+
     def stage_dispatch(
-        self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID
+        self,
+        note_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        gst_warning: str | None = None,
     ) -> DeliveryNote:
         """Dispatch one delivery note without committing it.
 
@@ -684,6 +752,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             from_state=DeliveryNoteStatus.APPROVED.value,
             to_state=row.status,
             actor_id=actor_id,
+            details={"gst_warning": gst_warning} if gst_warning else None,
         )
         record_audit(
             self._session,
@@ -692,6 +761,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            after_data={"gst_warning": gst_warning} if gst_warning else None,
         )
         stage_document_event(
             self._session,
@@ -729,6 +799,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                 "Cancelled/closed delivery notes cannot be completed."
             )
         before = row.status
+        gst_warning: str | None = None
         if row.status == DeliveryNoteStatus.APPROVED.value:
             # Completing an approved note dispatches it. One already on the
             # road is only being confirmed as received, which a hold on the
@@ -736,6 +807,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             order = self._sales_order(row.sales_order_id, firm_id=firm_scope)
             self._refuse_unless_order_open(order)
             self._refuse_if_held(order)
+            gst_warning = self._gst_dispatch_warning(row, firm_scope=firm_scope)
             self._dispatch_inventory(row=row, actor_id=actor_id)
             row.dispatched_at = row.dispatched_at or utc_now()
         elif row.status != DeliveryNoteStatus.DISPATCHED.value:
@@ -753,6 +825,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             from_state=before,
             to_state=row.status,
             actor_id=actor_id,
+            details={"gst_warning": gst_warning} if gst_warning else None,
         )
         record_audit(
             self._session,
@@ -1108,6 +1181,8 @@ class DeliveryNoteService(TransactionalDocumentService):
             lr_number=row.lr_number,
             lr_date=row.lr_date,
             distance_km=row.distance_km,
+            challan_reason=row.challan_reason or "SALE",
+            challan_reason_note=row.challan_reason_note,
             remarks=row.remarks,
             status=DeliveryNoteStatus(row.status),
             total_ordered_quantity=row.total_ordered_quantity,

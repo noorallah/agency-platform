@@ -167,8 +167,10 @@ Order (approve: stock reserved)
 **The rules:**
 
 1. **Every delivery note says why it goes out**: *Sale* (the default),
-   *On approval*, *Job work*, *Stock transfer*, *Quantity not known*, *Other*
-   (with a note). The reason prints on the challan.
+   *Van or route sale*, *On approval*, *Quantity not known*, *Job work*,
+   *Other* (with a note). The reason prints on the challan. A van or route
+   sale is judged like a sale only if the firm says its CA wants invoices
+   before the van leaves; otherwise each shop is invoiced at delivery.
 2. **A Sale note dispatched with no approved invoice** is judged by a firm
    policy: **warn** (default) or **block**. The warning names the rule
    (CGST s.31) and offers *Dispatch and invoice*. Warn by default for the same

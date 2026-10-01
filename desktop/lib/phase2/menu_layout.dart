@@ -139,6 +139,10 @@ abstract final class MenuLayout {
   /// approve (backlog 68 row 4). A dialog, like the Selling ones.
   static const String approvalLimitsRoute = 'settings/purchase-approval-limits';
 
+  /// GST documents (backlog 77.1): e-invoicing dates and the rule for
+  /// dispatching a sale before its invoice. A dialog, under Tax.
+  static const String gstDocumentsRoute = 'settings/gst-documents';
+
   /// Messaging (backlog 51): the firm's switch, accounts, events and log.
   static const String messagingRoute = 'settings/messaging';
 
@@ -437,6 +441,8 @@ abstract final class MenuLayout {
       MenuItemSpec(
           AppModule.administration, 'tax-execution-log', 'Execution Log'),
       MenuItemSpec(AppModule.administration, 'tax-settings', 'Tax Settings'),
+      MenuItemSpec.setting(gstDocumentsRoute, 'GST Documents',
+          permission: 'TAX_VIEW'),
     ]),
     MenuGroupSpec('Business profile', [
       MenuItemSpec(

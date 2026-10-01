@@ -47,7 +47,12 @@ from app.tax.schemas import (
     TaxSystemResponse,
     TaxSystemWrite,
 )
+from app.tax.schemas.gst_compliance import (
+    GstComplianceSettingsResponse,
+    GstComplianceSettingsWrite,
+)
 from app.tax.services import TaxFrameworkService, TaxRuleService
+from app.tax.services.gst_compliance import GstComplianceService
 
 router = APIRouter(
     prefix="/api/v1/tax-framework",
@@ -796,6 +801,35 @@ def effective_dates(
     """List the dates on which tax records change."""
     rows = TaxFrameworkService(db).effective_dates(firm_scope=scope.firm_id)
     return ApiResponse(data=rows)
+
+
+@router.get(
+    "/gst-compliance-settings",
+    response_model=ApiResponse[GstComplianceSettingsResponse],
+)
+def get_gst_compliance_settings(
+    scope: TaxViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GstComplianceSettingsResponse]:
+    """Return the firm's GST document policy (backlog 77 rows 1-2)."""
+    return ApiResponse(data=GstComplianceService(db).settings_response(scope.firm_id))
+
+
+@router.put(
+    "/gst-compliance-settings",
+    response_model=ApiResponse[GstComplianceSettingsResponse],
+)
+def update_gst_compliance_settings(
+    data: GstComplianceSettingsWrite,
+    scope: TaxSettingsScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GstComplianceSettingsResponse]:
+    """Replace the firm's GST document policy (decision A35)."""
+    return ApiResponse(
+        data=GstComplianceService(db).update_settings(
+            data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
 
 
 @router.get("/settings", response_model=ApiResponse[TaxSettingsResponse])

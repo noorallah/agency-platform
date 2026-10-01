@@ -10,6 +10,7 @@ import '../../models/batch_serial.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
 import '../../models/entities.dart';
+import '../../models/gst_documents.dart';
 import '../../models/inventory.dart';
 import '../../models/product.dart';
 import '../../phase2/document_page.dart';
@@ -223,6 +224,11 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
   String _vehicle = '';
   String _driver = '';
   String _remarks = '';
+
+  /// Why the goods go out (backlog 77.1), phase 2. The words are asked for
+  /// only with Other; the server ignores them with any other reason.
+  String _challanReason = 'SALE';
+  String _challanReasonNote = '';
 
   /// How the goods travel (backlog 67 row 5), phase 2.
   String _transporterName = '';
@@ -517,6 +523,9 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
         // All six sent in phase 2, null when blank: absent would keep what
         // an update finds, and a blank box means none.
         if (phase2) ...<String, dynamic>{
+          'challan_reason': _challanReason,
+          if (_challanReason == 'OTHER')
+            'challan_reason_note': _challanReasonNote.trim(),
           'transporter_name': _blankToNull(_transporterName),
           'transporter_gstin': _blankToNull(_transporterGstin)?.toUpperCase(),
           'transport_mode': _transportMode,

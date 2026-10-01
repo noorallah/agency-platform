@@ -17,6 +17,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     and_,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -316,6 +317,49 @@ class TaxSettings(BaseEntity):
     )
     additional_settings: Mapped[dict[str, object]] = mapped_column(
         JSON, nullable=False, default=dict
+    )
+
+
+class GstComplianceSettings(BaseEntity):
+    """One firm's GST document policy (backlog 77 rows 1-2, decision A35).
+
+    The shape of ``price_floor_settings``: one row per firm, and a firm with no
+    row warns and never blocks -- a check that stops the counter on the day it
+    ships is a check nobody switches on.
+
+    The two dates say from when the firm must e-invoice (aggregate turnover
+    past 5 crore) and from when the 30-day reporting limit applies (10 crore
+    or more). The firm knows its turnover; the platform does not, so it never
+    guesses them.
+    """
+
+    __tablename__ = "gst_compliance_settings"
+    __table_args__ = (
+        Index(
+            "UQ_gst_compliance_settings_firm_active",
+            "firm_id",
+            unique=True,
+            postgresql_where=text("NOT is_deleted"),
+            sqlite_where=text("NOT is_deleted"),
+        ),
+    )
+
+    #: No foreign key: `firms` lives only in the platform schema.
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    #: Null: the firm does not have to e-invoice.
+    einvoice_applicable_from: Mapped[date | None] = mapped_column(Date)
+    #: Null: no 30-day limit on reporting a document to the IRP.
+    thirty_day_rule_from: Mapped[date | None] = mapped_column(Date)
+    #: OFF, WARN or BLOCK: dispatching a sale's delivery note before its
+    #: invoice exists (CGST s.31: the invoice is issued at or before removal).
+    dispatch_without_invoice: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="WARN", server_default="WARN"
+    )
+    #: Whether a van or route sale is judged like any sale. Off: the van goes
+    #: out on a challan and each shop is invoiced at delivery, as many firms'
+    #: CAs allow; on: the invoices are made before the van leaves.
+    route_sale_needs_invoice: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
     )
 
 

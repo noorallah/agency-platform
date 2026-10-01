@@ -235,6 +235,44 @@ extension _Phase2DeliveryNoteEditor on _DeliveryNoteEditorDialogState {
           ),
         ),
       ),
+      DocumentField(
+        label: 'Reason',
+        width: 210,
+        child: DropdownButtonFormField<String>(
+          key: const ValueKey('delivery-note-challan-reason'),
+          initialValue: _challanReason,
+          isExpanded: true,
+          isDense: true,
+          decoration: documentBoxDecoration(context),
+          items: [
+            for (final (String value, String label) in challanReasons)
+              DropdownMenuItem<String>(
+                value: value,
+                child: Text(label, overflow: TextOverflow.ellipsis),
+              ),
+          ],
+          onChanged: _saving
+              ? null
+              : (value) =>
+                  _setState(() => _challanReason = value ?? _challanReason),
+        ),
+      ),
+      if (_challanReason == 'OTHER')
+        DocumentField(
+          label: 'Say why',
+          width: 240,
+          child: TextFormField(
+            key: const ValueKey('delivery-note-challan-reason-note'),
+            initialValue: _challanReasonNote,
+            readOnly: _saving,
+            maxLength: 200,
+            buildCounter: (context,
+                    {required currentLength, required isFocused, maxLength}) =>
+                null,
+            decoration: documentBoxDecoration(context),
+            onChanged: (next) => _setState(() => _challanReasonNote = next),
+          ),
+        ),
       if (widget.features.isEnabled('VEHICLE_TRACKING'))
         _box(
           context,

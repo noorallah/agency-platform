@@ -5464,6 +5464,8 @@ gaps, pinned with a pointer here, each to build when a firm asks:
 
 ## 77. GST documents for the sales chain -- HIGH PRIORITY
 
+**Status, 2026-10-02:** rows 1-3 built. Every delivery note carries a reason (Sale, Van or route sale, Supply on approval, Quantity not known, Job work, Other with words), printed on the challan. A sale dispatched or completed by hand before its invoice is judged by the firm's policy in `gst_compliance_settings` -- Off, Warn (default; kept on the dispatch event and audit row) or Block -- and **Dispatch and invoice** dispatches, bills and approves in one transaction. A van or route sale goes on a challan unless the firm switches on "route sales need the invoice first", so either answer from the firm's CA is a setting. The same table holds the dates e-invoicing and the 30-day limit apply from (used by rows 6-7). Settings > Tax > GST documents.
+
 Owner, 2026-10-02: follow the GST rules and redesign the sales flow to market
 standard. The rules, today's state, the redesigned flow and the work are in
 `docs/GST_DOCUMENT_COMPLIANCE.md` (sections 1-4a); the decisions are

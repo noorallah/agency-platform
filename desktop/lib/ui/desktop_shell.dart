@@ -52,6 +52,7 @@ import 'sales/route_type_management_page.dart';
 import 'sales/sales_invoice_management_page.dart';
 import 'sales/discount_limits_dialog.dart';
 import 'sales/price_floor_settings_dialog.dart';
+import 'tax/gst_documents_settings_dialog.dart';
 import 'settings/messaging_settings_dialog.dart';
 import 'sales/sales_workflow_settings_dialog.dart';
 import 'commission/commission_page.dart';
@@ -447,6 +448,14 @@ class _DesktopShellState extends State<DesktopShell> {
         );
       case MenuLayout.tcsSettingsRoute:
         await showTcsSettings(context, api);
+      case MenuLayout.gstDocumentsRoute:
+        await showDialog<bool>(
+          context: context,
+          builder: (_) => GstDocumentsSettingsDialog(
+            api: api,
+            permissions: widget.permissions,
+          ),
+        );
       case MenuLayout.messagingRoute:
         await showDialog<bool>(
           context: context,
