@@ -49,6 +49,7 @@ from app.purchase.schemas import (
     PurchaseOrderPreview,
     PurchaseOrderRegisterRecord,
     PurchaseOrderResponse,
+    PurchaseOrderSentRequest,
     PurchaseOrderStatus,
     PurchaseOrderUpdate,
     PurchaseSummary,
@@ -121,6 +122,7 @@ def _filters(
     created_from: date | None,
     created_to: date | None,
     include_deleted: bool,
+    sent: bool | None = None,
 ) -> PurchaseOrderListFilters:
     """Collect the purchase order list filters from the query string."""
     try:
@@ -135,6 +137,7 @@ def _filters(
                 "created_from": created_from,
                 "created_to": created_to,
                 "include_deleted": include_deleted,
+                "sent": sent,
             }
         )
     except ValueError as error:
@@ -160,9 +163,10 @@ def list_purchase_orders(
     created_from: date | None = None,
     created_to: date | None = None,
     include_deleted: bool = False,
+    sent: bool | None = None,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[PurchaseOrderResponse]:
-    """List purchase orders."""
+    """List purchase orders; ``sent=false`` finds approved ones never sent."""
     params = PaginationParams(page=page, page_size=page_size)
     rows, total = PurchaseService(db).list_orders(
         firm_scope=scope.firm_id,
@@ -176,6 +180,7 @@ def list_purchase_orders(
             created_from=created_from,
             created_to=created_to,
             include_deleted=include_deleted,
+            sent=sent,
         ),
         page=params.page,
         page_size=params.page_size,
@@ -604,6 +609,21 @@ def approve_purchase_order(
     service = PurchaseService(db)
     row = service.approve_order(
         order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=service.order_response(row))
+
+
+@router.post("/{order_id}/mark-sent", response_model=ApiResponse[PurchaseOrderResponse])
+def mark_purchase_order_sent(
+    order_id: UUID,
+    request: PurchaseOrderSentRequest,
+    scope: PurchaseUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PurchaseOrderResponse]:
+    """Record that an approved order was sent to the supplier, and how."""
+    service = PurchaseService(db)
+    row = service.mark_sent(
+        order_id, via=request.via, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data=service.order_response(row))
 

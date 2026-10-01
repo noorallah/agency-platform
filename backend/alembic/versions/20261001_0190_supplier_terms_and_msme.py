@@ -3,6 +3,8 @@
 * ``vendors``: ``payment_terms_days`` (NOT NULL, default 0), ``udyam_number``,
   ``msme_category`` and ``msme_written_agreement`` (NOT NULL, default false),
   and ``blocked_reason`` for the new BLOCKED status.
+* ``purchase_orders``: ``sent_at``, ``sent_via``, ``sent_by`` -- when and how
+  an approved order reached the supplier (backlog 69 row 6).
 * ``purchase_invoices.msme_pay_by``: the last day a bill to a micro or small
   supplier may be paid, stamped when the bill is written.
 
@@ -15,6 +17,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 
 from alembic import op
+from app.core.database.types import UUIDType
 
 revision: str = "20261001_0190"
 down_revision: str | Sequence[str] | None = "20261001_0184"
@@ -41,6 +44,12 @@ _COLUMNS: tuple[tuple[str, sa.Column[object]], ...] = (
         ),
     ),
     ("purchase_invoices", sa.Column("msme_pay_by", sa.Date(), nullable=True)),
+    (
+        "purchase_orders",
+        sa.Column("sent_at", sa.DateTime(timezone=True), nullable=True),
+    ),
+    ("purchase_orders", sa.Column("sent_via", sa.String(20), nullable=True)),
+    ("purchase_orders", sa.Column("sent_by", UUIDType(), nullable=True)),
 )
 
 

@@ -3755,6 +3755,19 @@ class ApiClient {
         },
       )));
 
+  /// Record that an approved order reached the supplier, and how: EMAIL,
+  /// PRINT, WHATSAPP or OTHER (backlog 69 row 6).
+  Future<PurchaseOrder> markPurchaseOrderSent(String id, String via) async =>
+      PurchaseOrder.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/purchases/$id/mark-sent',
+            body: {'via': via},
+          ),
+        ),
+      );
+
   Future<PurchaseOrder> cancelPurchaseOrder(String id,
           {String reason = ''}) async =>
       PurchaseOrder.fromJson(

@@ -404,6 +404,8 @@ class PurchaseOrder {
     required this.grandTotal,
     required this.closeReason,
     required this.cancelReason,
+    this.sentAt = '',
+    this.sentVia = '',
     required this.isDeleted,
     required this.createdAt,
     required this.updatedAt,
@@ -488,6 +490,17 @@ class PurchaseOrder {
   final String grandTotal;
   final String closeReason;
   final String cancelReason;
+
+  /// When and how (EMAIL, PRINT, WHATSAPP, OTHER) the approved order reached
+  /// the supplier (backlog 69 row 6); empty when it never has.
+  final String sentAt;
+  final String sentVia;
+
+  /// Approved and not yet finished: a promise the supplier can be sent.
+  bool get isSendable =>
+      !isDeleted &&
+      const {'APPROVED', 'PARTIALLY_ORDERED', 'ORDERED', 'PARTIALLY_RECEIVED'}
+          .contains(status);
   final bool isDeleted;
   final String createdAt;
   final String updatedAt;
@@ -530,6 +543,8 @@ class PurchaseOrder {
         grandTotal: stringValue(json['grand_total']),
         closeReason: stringValue(json['close_reason']),
         cancelReason: stringValue(json['cancel_reason']),
+        sentAt: stringValue(json['sent_at']),
+        sentVia: stringValue(json['sent_via']),
         isDeleted: boolValue(json['is_deleted']),
         createdAt: stringValue(json['created_at']),
         updatedAt: stringValue(json['updated_at']),

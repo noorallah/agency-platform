@@ -1,12 +1,13 @@
 """Enterprise purchase management persistence models."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import (
     Boolean,
     Date,
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -103,6 +104,13 @@ class PurchaseOrder(BaseEntity):
     )
     close_reason: Mapped[str | None] = mapped_column(Text)
     cancel_reason: Mapped[str | None] = mapped_column(Text)
+    #: When, how (EMAIL / PRINT / WHATSAPP / OTHER) and by whom the approved
+    #: order was sent to the supplier (backlog 69 row 6). A flag beside the
+    #: status rather than a status of its own: sending changes nothing the
+    #: order commits the firm to, so "approved but never sent" is a filter.
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_via: Mapped[str | None] = mapped_column(String(20))
+    sent_by: Mapped[UUID | None] = mapped_column(UUIDType())
     #: The supplier bill that raised this order because the firm switched the
     #: purchase-order stage off (`purchase_workflow_settings`). That bill
     #: approved it for itself, and cancels it when a draft of it is

@@ -1404,6 +1404,34 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         ),
       );
 
+  /// Record how the selected approved order reached the supplier, so one
+  /// approved and never sent can be found (backlog 69 row 6).
+  Future<void> _markSent(PurchaseOrder order) async {
+    final String? via = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: Text('How was ${order.poNumber} sent?'),
+        children: [
+          for (final MapEntry<String, String> entry in const {
+            'EMAIL': 'By email',
+            'WHATSAPP': 'On WhatsApp',
+            'PRINT': 'Printed and handed over',
+            'OTHER': 'Some other way',
+          }.entries)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(dialogContext).pop(entry.key),
+              child: Text(entry.value),
+            ),
+        ],
+      ),
+    );
+    if (via == null || !mounted) return;
+    await _runOrderAction(
+      () => widget.api.markPurchaseOrderSent(order.id, via),
+      done: '${order.poNumber} marked as sent.',
+    );
+  }
+
   /// Send the selected draft for approval.
   Future<void> _submitSelected(PurchaseOrder order) async {
     await _runOrderAction(
@@ -1687,6 +1715,15 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
                   selected.isSubmitted &&
                   _canApprove
               ? () => unawaited(_approveSelected(selected))
+              : null,
+        ),
+        ToolbarCommand(
+          id: 'mark-sent',
+          label: 'Mark as sent',
+          icon: Icons.send_outlined,
+          menuOnly: true,
+          onPressed: selected != null && selected.isSendable && _canUpdate
+              ? () => unawaited(_markSent(selected))
               : null,
         ),
         ToolbarCommand(
