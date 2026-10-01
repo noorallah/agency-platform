@@ -732,6 +732,60 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 
 ---
 
+### TC-BUY-009 — A return the supplier pays back (refund)
+
+- **Covers:** backlog 69 row 7, A34
+- **Fixture:** `po-received`
+- **Also needs:** As *po-received*: a completed receipt of 6 from `<SUFFIX>-V`.
+- **Steps:** as the fixture's **Firm admin**, Purchase Returns → **New** off the **receipt of 6**, return **2**, **Outcome** *Refund* → Save → Approve → Complete. Finance → Payments → **Supplier refunds** → `<SUFFIX>-V` → on the return, **Record refund**: amount **100**, today, Bank → Save. Then **Record refund** again for more than is left. Then **Refunds** → **Reverse** with a reason. Then try **Cancel** on the return while a refund stands (record one again first).
+- **Expect:** the credit shows Outcome *Refund*, Refunded 100, Available reduced by 100; Journal Entries has Dr Bank / Cr Accounts Payable. Over-refund is refused naming what is left. After Reverse the credit is whole again and the mirror journal posts. Cancelling the return while a refund stands is refused: "…Reverse the refund first."
+- **Leaves:** what the steps made.
+
+### TC-BUY-010 — A return to be replaced reopens the order
+
+- **Covers:** backlog 69 row 7
+- **Fixture:** `po-received`
+- **Also needs:** As *po-received* with the order fully received (receipts of 4 and 6).
+- **Steps:** return **2** off the receipt of 6 with **Outcome** *Replacement* → Approve → Complete. Open the purchase order. Then receive 2 more against the order.
+- **Expect:** the order reads **Partially received** with 2 pending; the new receipt of 2 is accepted (no over-receipt refusal) and the order reads **Received** again. Change the return's outcome to *Credit* (list → **Change outcome**) before receiving: the order goes back to **Received**.
+- **Leaves:** what the steps made.
+
+### TC-BUY-011 — A return off a bill already paid leaves a supplier credit
+
+- **Covers:** D-BUY-20
+- **Fixture:** `po-invoiced`
+- **Also needs:** As TC-BUY-008 (the bill paid in full).
+- **Steps:** Purchase Returns → **New** off the **paid bill**, return 2 → Approve → Complete. Finance → Payments → **Supplier credits** → `<SUFFIX>-V`. Raise another bill and **Apply** the credit to it.
+- **Expect:** the paid bill does not reappear in Record Payment; the return appears as a supplier credit for its value; applying it lowers the new bill's outstanding by that much. Deleting `<SUFFIX>-V` is refused while the credit stands.
+- **Leaves:** what the steps made.
+
+### TC-BUY-012 — Input credit blocked on a purchase (a car, catering)
+
+- **Covers:** backlog 78 row 1, D-TAX-1, A36
+- **Fixture:** `buy-ready`
+- **Also needs:** *buy-ready* with the GST template; a product `QA-CAR`.
+- **Steps:** Masters → Products → `QA-CAR` → **Input credit** *Blocked (s.17(5))* → Save. Bill it from a receipt at 18% GST and approve. Open Journal Entries for the bill, and GST → GSTR-3B for the month. Then on another bill line set **Input credit** *Eligible* explicitly.
+- **Expect:** the bill line shows a **Credit blocked** badge. The journal debits **5450 Input Tax Not Claimable** with the whole tax and **no** input CGST/SGST. GSTR-3B shows the tax in 4(A)(5) and again in **4(B)(1)**, net 4(C) without it. The line set to *Eligible* claims as usual. A user without `PRODUCT_TAX_MANAGE` sees the product's Input credit read-only.
+- **Leaves:** what the steps made.
+
+### TC-BUY-013 — A composition supplier charges no GST
+
+- **Covers:** backlog 78 row 2, A37
+- **Fixture:** `buy-ready`
+- **Also needs:** *buy-ready*; a supplier `QA-COMP` with a GSTIN.
+- **Steps:** Suppliers → `QA-COMP` → **GST type** *Composition* → Save. Then set *Unregistered* while the GSTIN is still filled → Save. Order, receive and bill from `QA-COMP` (as Composition).
+- **Expect:** *Unregistered with a GSTIN* is refused with the server's message and the form stays open with what was typed. The bill editor shows "This supplier charges no GST; the bill will carry no tax."; the approved bill has tax 0 and claims no credit. A supplier with GST type *Not set* is taxed as before.
+- **Leaves:** what the steps made.
+
+### TC-BUY-014 — GSTR-2B reconciliation
+
+- **Covers:** backlog 78 row 3, §42.5
+- **Fixture:** `buy-ready`
+- **Also needs:** two approved bills in a month from a supplier with a GSTIN; the sample `docs/qa/tools/gstr2b_sample.json`, edited: `rtnprd` to the month as MMYYYY, `ctin` to the supplier's GSTIN, the two bill numbers, dates and amounts to the two bills' (the sample's second bill carries CGST 5 more than the books on purpose), and one invoice not in the books.
+- **Steps:** GST → **GSTR-2B Reconciliation** → month → **Import 2B file**. Then **Match to bill…** on the *Not in books* row, then **Undo match**. Then Settings → Tax → GST Documents → **Claim input credit** *Only bills matched to GSTR-2B* → GSTR-3B for the month.
+- **Expect:** rows read **Matched**, **Different** ("CGST … in 2B, … in the books"), **Not in books**; the "In books, not in 2B" section lists any bill 2B lacks. Importing the month again replaces it. Under *matched only*, 3B claims only matched bills and shows the rest as *Held back — not yet in GSTR-2B*.
+- **Leaves:** what the steps made.
+
 ## Stock
 
 Everything here lives under **Inventory**, in two groups that must be clicked
@@ -1061,6 +1115,15 @@ promotion, or the customer's standing rate).
 - **Leaves:** an issued proforma and a cancelled order.
 
 ---
+
+### TC-SELL-018 — Why the goods go out, and dispatch before the invoice
+
+- **Covers:** backlog 77 rows 1-3, A35
+- **Fixture:** `selling-ordered`
+- **Also needs:** *sell-ready*: an approved sales order for 10 of `<SUFFIX>-S` with stock.
+- **Steps:** as the fixture's **Firm admin**: Settings (gear) → Tax → **GST Documents**: leave *Dispatch of a sale before its invoice* at **Warn** → Save. Delivery Notes → **New** off the order for 2, **Reason** *Sale* → Save → Approve → **Dispatch**. Repeat with **Reason** *Supply on approval*. Then set the policy to **Block** and dispatch a *Sale* note. Then on another approved *Sale* note use **Dispatch and invoice**. Then a note with **Reason** *Other* and no words. Print one challan.
+- **Expect:** under Warn, Dispatch on a *Sale* note shows the GST message with **Dispatch and invoice / Dispatch anyway / Cancel**; *Dispatch anyway* dispatches and the audit trail keeps the warning. *Supply on approval* dispatches with no question. Under Block there is no *Dispatch anyway*. **Dispatch and invoice** dispatches the note and creates an **approved** invoice of it in one step ("Dispatched and invoiced as SI-…"); if the invoice is refused (e.g. price below its floor) nothing is dispatched. *Other* without words is refused ("Say why…"). The challan print shows **Reason**. *Van or route sale* dispatches freely unless **Van or route sales need the invoice** is switched on.
+- **Leaves:** what the steps made.
 
 ## Pricing, promotions and incentives
 
