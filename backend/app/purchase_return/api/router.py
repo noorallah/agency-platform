@@ -42,6 +42,7 @@ from app.purchase_return.schemas import (
     PurchaseReturnCreate,
     PurchaseReturnImportRequest,
     PurchaseReturnListFilters,
+    PurchaseReturnOutcomeRequest,
     PurchaseReturnPreview,
     PurchaseReturnReconciliationRecord,
     PurchaseReturnRegisterRecord,
@@ -321,6 +322,21 @@ def approve_purchase_return(
     service = PurchaseReturnService(db)
     row = service.approve_return(
         return_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=service.return_response(row))
+
+
+@router.post("/{return_id}/outcome", response_model=ApiResponse[PurchaseReturnResponse])
+def set_purchase_return_outcome(
+    return_id: UUID,
+    data: PurchaseReturnOutcomeRequest,
+    scope: PurchaseReturnUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PurchaseReturnResponse]:
+    """Say whether the return comes back as credit, replacement or refund."""
+    service = PurchaseReturnService(db)
+    row = service.set_outcome(
+        return_id, data.outcome, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data=service.return_response(row))
 

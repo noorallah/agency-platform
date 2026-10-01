@@ -21,7 +21,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
-from uuid import UUID
+from typing import TYPE_CHECKING
+from uuid import UUID, uuid4
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -33,7 +34,15 @@ from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_money
 from app.finance.services.journal_engine import quantize_money as quantize_ledger
 from app.purchase_invoice.models import PurchaseInvoice
-from app.settlements.models import SupplierCreditApplication
+
+if TYPE_CHECKING:
+    from app.purchase_return.models import PurchaseReturn
+
+from app.settlements.models import (
+    SettlementMethod,
+    SupplierCreditApplication,
+    SupplierCreditRefund,
+)
 
 #: The return states whose posting stands: completing debits payables, a
 #: cancelled return has taken that back, and a draft has not posted.
@@ -51,11 +60,17 @@ class SupplierCredit:
     credit_amount: Decimal
     applied_amount: Decimal
     applied_to: list[str] = field(default_factory=list)
+    #: What the supplier has paid back against it (backlog 69 row 7).
+    refunded_amount: Decimal = ZERO
+    #: CREDIT, REPLACEMENT or REFUND: what the return comes back as.
+    outcome: str = "CREDIT"
 
     @property
     def available_amount(self) -> Decimal:
-        """Return what can still be set against a bill."""
-        return max(self.credit_amount - self.applied_amount, ZERO)
+        """Return what can still be set against a bill or paid back."""
+        return max(
+            self.credit_amount - self.applied_amount - self.refunded_amount, ZERO
+        )
 
 
 def supplier_credits(
@@ -140,6 +155,20 @@ def supplier_credits(
             Decimal(str(amount))
         )
         applied_to.setdefault(return_id, []).append(number)
+    refunded: dict[UUID, Decimal] = {}
+    for return_id, amount in session.execute(
+        select(
+            SupplierCreditRefund.purchase_return_id, SupplierCreditRefund.amount
+        ).where(
+            SupplierCreditRefund.firm_id == firm_id,
+            SupplierCreditRefund.purchase_return_id.in_(ids),
+            SupplierCreditRefund.is_deleted.is_(False),
+            SupplierCreditRefund.status == "POSTED",
+        )
+    ).all():
+        refunded[return_id] = refunded.get(return_id, ZERO) + quantize_ledger(
+            Decimal(str(amount))
+        )
     credits: list[SupplierCredit] = []
     for row in returns:
         # What the posting debited payables with, at the ledger's scale.
@@ -156,6 +185,8 @@ def supplier_credits(
                 credit_amount=credit,
                 applied_amount=applied.get(row.id, ZERO),
                 applied_to=applied_to.get(row.id, []),
+                refunded_amount=refunded.get(row.id, ZERO),
+                outcome=row.outcome or "CREDIT",
             )
         )
     return credits
@@ -346,3 +377,207 @@ def apply_supplier_credit(
         },
     )
     return supplier_credits(session, firm_id=firm_id, purchase_return_ids=[row.id])[0]
+
+
+def _locked_return(
+    session: Session, *, firm_id: UUID, purchase_return_id: UUID
+) -> "PurchaseReturn":
+    """Return the purchase return, locked: what is left of it is a sum."""
+    from app.purchase_return.models import PurchaseReturn
+
+    row = session.scalar(
+        select(PurchaseReturn)
+        .where(
+            PurchaseReturn.id == purchase_return_id,
+            PurchaseReturn.firm_id == firm_id,
+            PurchaseReturn.is_deleted.is_(False),
+        )
+        .with_for_update()
+    )
+    if row is None:
+        raise ResourceNotFoundError("Purchase return not found.")
+    return row
+
+
+def refund_supplier_credit(
+    session: Session,
+    *,
+    firm_id: UUID,
+    purchase_return_id: UUID,
+    amount: Decimal,
+    refunded_on: date,
+    method: SettlementMethod,
+    actor_id: UUID,
+    reference: str | None = None,
+    remarks: str | None = None,
+) -> SupplierCreditRefund:
+    """Receive money a supplier paid back against a return's credit (69.7).
+
+    Posts ``Dr cash or bank / Cr accounts payable`` and uses that much of the
+    credit, under a lock on the return for the same reason applying it takes
+    one. Only a return whose outcome is a refund is paid back; one meant to be
+    replaced or set against a bill is refused by name. Does not commit.
+
+    Raises:
+        ResourceNotFoundError: If the firm has no such return.
+        ValidationError: If the return is not a refund, gives no credit, has
+            less left than asked, or the date is in the future.
+
+    """
+    from app.finance.services.control_accounts import ControlAccountService
+    from app.finance.services.document_posting import DocumentPostingService
+    from app.settlements.services.settlement_service import METHOD_PURPOSE
+
+    asked = quantize_ledger(amount)
+    if asked <= ZERO:
+        raise ValidationError("A refund must be for more than nothing.")
+    if refunded_on > utc_now().date():
+        raise ValidationError("A refund cannot be received on a future date.")
+    row = _locked_return(
+        session, firm_id=firm_id, purchase_return_id=purchase_return_id
+    )
+    if (row.outcome or "CREDIT") != "REFUND":
+        raise ValidationError(
+            f"{row.return_number} is to come back as "
+            f"{(row.outcome or 'CREDIT').lower()}, not a refund; change its "
+            "outcome first."
+        )
+    found = supplier_credits(session, firm_id=firm_id, purchase_return_ids=[row.id])
+    if not found:
+        raise ValidationError(
+            f"{row.return_number} leaves no credit on the supplier's account: "
+            "it is not completed, or its lines already came off the bill they "
+            "were returned against."
+        )
+    credit = found[0]
+    if asked > credit.available_amount:
+        raise ValidationError(
+            f"{row.return_number} has only {credit.available_amount} of credit "
+            "left to be paid back."
+        )
+    if refunded_on < row.return_date:
+        raise ValidationError(
+            f"A refund is received on or after the return, "
+            f"{row.return_date.isoformat()}."
+        )
+    money_account_id = ControlAccountService(session).resolve(
+        firm_id, METHOD_PURPOSE[method]
+    )
+    refund_id = uuid4()
+    count = session.scalar(
+        select(func.count())
+        .select_from(SupplierCreditRefund)
+        .where(
+            SupplierCreditRefund.firm_id == firm_id,
+            SupplierCreditRefund.purchase_return_id == row.id,
+        )
+    )
+    reference_number = f"{row.return_number}-RF{int(count or 0) + 1}"
+    entry = DocumentPostingService(session).post_supplier_refund(
+        firm_id=firm_id,
+        refund_id=refund_id,
+        reference_number=reference_number,
+        refunded_on=refunded_on,
+        amount=asked,
+        money_account_id=money_account_id,
+        actor_id=actor_id,
+    )
+    refund = SupplierCreditRefund(
+        id=refund_id,
+        firm_id=firm_id,
+        vendor_id=row.vendor_id,
+        purchase_return_id=row.id,
+        refunded_on=refunded_on,
+        amount=asked,
+        method=method.value,
+        ledger_account_id=money_account_id,
+        reference=(reference or "").strip() or None,
+        remarks=(remarks or "").strip() or None,
+        status="POSTED",
+        journal_entry_id=entry.id,
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    session.add(refund)
+    session.flush()
+    record_audit(
+        session,
+        action="supplier_credit.refunded",
+        entity_type="supplier_credit_refund",
+        entity_id=refund.id,
+        actor_id=actor_id,
+        firm_id=firm_id,
+        after_data={
+            "purchase_return": row.return_number,
+            "amount": str(asked),
+            "method": method.value,
+            "refunded_on": refunded_on.isoformat(),
+        },
+    )
+    return refund
+
+
+def reverse_supplier_refund(
+    session: Session,
+    *,
+    firm_id: UUID,
+    refund_id: UUID,
+    reason: str,
+    actor_id: UUID,
+) -> SupplierCreditRefund:
+    """Take back a supplier refund recorded in error; does not commit.
+
+    Posts the mirror of its journal and frees that much of the return's
+    credit again. Refused once already reversed.
+    """
+    from app.finance.services.journal_engine import JournalEntryEngine
+
+    if not reason.strip():
+        raise ValidationError("Say why the refund is being reversed.")
+    refund = session.get(SupplierCreditRefund, refund_id)
+    if refund is None or refund.firm_id != firm_id or refund.is_deleted:
+        raise ResourceNotFoundError("Supplier refund not found.")
+    if refund.status != "POSTED":
+        raise ValidationError("This refund has already been reversed.")
+    _locked_return(
+        session, firm_id=firm_id, purchase_return_id=refund.purchase_return_id
+    )
+    mirror = JournalEntryEngine(session).reverse_entry(
+        refund.journal_entry_id,
+        firm_id=firm_id,
+        reference_number=f"{refund.id.hex[:8].upper()}-REV",
+        actor_id=actor_id,
+    )
+    refund.status = "REVERSED"
+    refund.reversal_journal_entry_id = mirror.id
+    refund.reversed_at = utc_now()
+    refund.reversal_reason = reason.strip()
+    refund.updated_by = actor_id
+    session.flush()
+    record_audit(
+        session,
+        action="supplier_credit.refund_reversed",
+        entity_type="supplier_credit_refund",
+        entity_id=refund.id,
+        actor_id=actor_id,
+        firm_id=firm_id,
+        after_data={"amount": str(refund.amount), "reason": refund.reversal_reason},
+    )
+    return refund
+
+
+def live_refunds(
+    session: Session, *, firm_id: UUID, purchase_return_id: UUID
+) -> list[SupplierCreditRefund]:
+    """Return a return's refunds, oldest first, reversed ones included."""
+    return list(
+        session.scalars(
+            select(SupplierCreditRefund)
+            .where(
+                SupplierCreditRefund.firm_id == firm_id,
+                SupplierCreditRefund.purchase_return_id == purchase_return_id,
+                SupplierCreditRefund.is_deleted.is_(False),
+            )
+            .order_by(SupplierCreditRefund.created_at.asc())
+        ).all()
+    )

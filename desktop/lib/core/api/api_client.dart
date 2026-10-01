@@ -6725,6 +6725,73 @@ class ApiClient {
         ),
       );
 
+  /// What the supplier handed back against a credit whose return came back
+  /// as a refund, newest first as the server lists them.
+  Future<List<SupplierRefund>> supplierRefunds(String returnId) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/payments/supplier-credits/$returnId/refunds',
+        ),
+        SupplierRefund.fromJson,
+      );
+
+  /// Record money received from the supplier against a credit. Posts to the
+  /// ledger; only a return whose outcome is REFUND accepts one.
+  Future<SupplierRefund> recordSupplierRefund({
+    required String returnId,
+    required String amount,
+    required String refundedOn,
+    required String method,
+    String? reference,
+    String? remarks,
+  }) async =>
+      SupplierRefund.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/payments/supplier-credits/$returnId/refunds',
+            body: <String, dynamic>{
+              'amount': amount,
+              'refunded_on': refundedOn,
+              'method': method,
+              if (reference != null && reference.isNotEmpty)
+                'reference': reference,
+              if (remarks != null && remarks.isNotEmpty) 'remarks': remarks,
+            },
+          ),
+        ),
+      );
+
+  /// Take a supplier refund back: the original stays and a mirror journal
+  /// cancels it.
+  Future<SupplierRefund> reverseSupplierRefund({
+    required String refundId,
+    required String reason,
+  }) async =>
+      SupplierRefund.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/payments/supplier-credits/refunds/$refundId/reverse',
+            body: <String, dynamic>{'reason': reason},
+          ),
+        ),
+      );
+
+  /// What a purchase return comes back as: CREDIT, REPLACEMENT or REFUND.
+  Future<Json> setPurchaseReturnOutcome({
+    required String returnId,
+    required String outcome,
+  }) async =>
+      _unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/purchase-returns/$returnId/outcome',
+          body: <String, dynamic>{'outcome': outcome},
+        ),
+      );
+
   /// What a customer has paid against one sales order.
   Future<Json> salesOrderAdvances(String orderId) async =>
       _unwrapMap(await request(

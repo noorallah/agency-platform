@@ -363,6 +363,7 @@ class PurchaseReturnService(TransactionalDocumentService):
             reference_grn_number=data.reference_grn_number,
             reference_invoice_number=data.reference_invoice_number,
             return_reason=data.return_reason,
+            outcome=(data.outcome or "CREDIT"),
             currency_code=(
                 data.currency_code.strip().upper() if data.currency_code else None
             ),
@@ -461,6 +462,9 @@ class PurchaseReturnService(TransactionalDocumentService):
         row.reference_grn_number = data.reference_grn_number
         row.reference_invoice_number = data.reference_invoice_number
         row.return_reason = data.return_reason
+        # Absent keeps what the return comes back as (69 row 7).
+        if data.outcome is not None:
+            row.outcome = data.outcome
         row.currency_code = (
             data.currency_code.strip().upper() if data.currency_code else None
         )
@@ -670,6 +674,10 @@ class PurchaseReturnService(TransactionalDocumentService):
         before = row.status
         row.status = PurchaseReturnStatus.COMPLETED.value
         row.updated_by = actor_id
+        if row.outcome == "REPLACEMENT":
+            # The goods sent back are owed again on the order (69 row 7).
+            self._session.flush()
+            self._resync_replaced_orders(row, firm_scope=firm_scope, actor_id=actor_id)
         self._record_event(
             firm_id=firm_scope,
             document_type=self._document_type(firm_scope),
@@ -746,6 +754,7 @@ class PurchaseReturnService(TransactionalDocumentService):
             PurchaseReturnStatus.CLOSED.value,
         }:
             raise ValidationError("This purchase return can no longer be cancelled.")
+        self._refuse_while_refunded(row, firm_scope=firm_scope, doing="cancelled")
         before = row.status
         reversed_lines, stock_value = self._reverse_inventory(
             row, firm_scope=firm_scope, actor_id=actor_id, reason=reason
@@ -793,8 +802,145 @@ class PurchaseReturnService(TransactionalDocumentService):
                 "reversed_inventory_lines": reversed_lines,
             },
         )
+        if row.outcome == "REPLACEMENT":
+            # The goods it sent back are no longer owed again.
+            self._resync_replaced_orders(row, firm_scope=firm_scope, actor_id=actor_id)
         self._session.commit()
         return row
+
+    def set_outcome(
+        self,
+        return_id: UUID,
+        outcome: str,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> PurchaseReturn:
+        """Say what the return comes back as, at any point before cancelling.
+
+        Backlog 69 row 7. The supplier often decides after the goods have
+        gone, so this is not tied to the draft. A return the supplier has
+        already paid money back against stays a refund; one turned into, or
+        out of, a replacement moves the order it reopens.
+        """
+        if outcome not in {"CREDIT", "REPLACEMENT", "REFUND"}:
+            raise ValidationError(
+                "A return comes back as CREDIT, REPLACEMENT or REFUND."
+            )
+        row = self.get_return(return_id, firm_scope=firm_scope)
+        if row.status == PurchaseReturnStatus.CANCELLED.value:
+            raise ValidationError("A cancelled return comes back as nothing.")
+        before = row.outcome or "CREDIT"
+        if before == outcome:
+            return row
+        if before == "REFUND":
+            self._refuse_while_refunded(
+                row, firm_scope=firm_scope, doing="changed from a refund"
+            )
+        row.outcome = outcome
+        row.updated_by = actor_id
+        self._session.flush()
+        if "REPLACEMENT" in (before, outcome) and row.status in {
+            PurchaseReturnStatus.COMPLETED.value,
+            PurchaseReturnStatus.CLOSED.value,
+        }:
+            self._resync_replaced_orders(row, firm_scope=firm_scope, actor_id=actor_id)
+        record_audit(
+            self._session,
+            action="purchase_return.outcome_changed",
+            entity_type="purchase_return",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            before_data={"outcome": before},
+            after_data={"outcome": outcome},
+        )
+        self._session.commit()
+        return row
+
+    def _refuse_while_refunded(
+        self, row: PurchaseReturn, *, firm_scope: UUID, doing: str
+    ) -> None:
+        """Refuse while the supplier's money against the return stands."""
+        from app.settlements.services.supplier_credits import live_refunds
+
+        standing = [
+            refund
+            for refund in live_refunds(
+                self._session, firm_id=firm_scope, purchase_return_id=row.id
+            )
+            if refund.status == "POSTED"
+        ]
+        if standing:
+            raise ValidationError(
+                f"{row.return_number} cannot be {doing}: the supplier has paid "
+                f"{sum((refund.amount for refund in standing), ZERO)} back against "
+                "it. Reverse the refund first."
+            )
+
+    def _resync_replaced_orders(
+        self, row: PurchaseReturn, *, firm_scope: UUID, actor_id: UUID
+    ) -> None:
+        """Walk each order a replacement return reopens to what it now owes."""
+        from app.goods_receipt.models import GoodsReceiptLine
+        from app.goods_receipt.services.goods_receipt_service import (
+            GoodsReceiptService,
+        )
+        from app.purchase.models import PurchaseOrder, PurchaseOrderLine
+        from app.purchase_invoice.models import PurchaseInvoiceLine
+
+        po_lines: set[UUID] = set()
+        receipt_lines: set[UUID] = set()
+        for line in self._session.scalars(
+            select(PurchaseReturnLine).where(
+                PurchaseReturnLine.purchase_return_id == row.id,
+                PurchaseReturnLine.is_deleted.is_(False),
+            )
+        ).all():
+            if (
+                line.source_document_type
+                == PurchaseReturnSourceType.PURCHASE_ORDER.value
+            ):
+                po_lines.add(line.source_document_line_id)
+            elif (
+                line.source_document_type
+                == PurchaseReturnSourceType.GOODS_RECEIPT.value
+            ):
+                receipt_lines.add(line.source_document_line_id)
+            elif (
+                line.source_document_type
+                == PurchaseReturnSourceType.PURCHASE_INVOICE.value
+            ):
+                bill_line = self._session.get(
+                    PurchaseInvoiceLine, line.source_document_line_id
+                )
+                if bill_line is None:
+                    continue
+                if bill_line.source_document_type == "PURCHASE_ORDER":
+                    po_lines.add(bill_line.source_document_line_id)
+                elif bill_line.source_document_type == "GOODS_RECEIPT":
+                    receipt_lines.add(bill_line.source_document_line_id)
+        if receipt_lines:
+            po_lines.update(
+                self._session.scalars(
+                    select(GoodsReceiptLine.purchase_order_line_id).where(
+                        GoodsReceiptLine.id.in_(list(receipt_lines))
+                    )
+                ).all()
+            )
+        if not po_lines:
+            return
+        receipts = GoodsReceiptService(self._session)
+        for order in self._session.scalars(
+            select(PurchaseOrder)
+            .join(
+                PurchaseOrderLine,
+                PurchaseOrderLine.purchase_order_id == PurchaseOrder.id,
+            )
+            .where(PurchaseOrderLine.id.in_(list(po_lines)))
+            .distinct()
+        ).all():
+            receipts.resync_order_status(order, firm_id=firm_scope, actor_id=actor_id)
 
     def _reverse_inventory(
         self,
@@ -1066,6 +1212,7 @@ class PurchaseReturnService(TransactionalDocumentService):
             reference_grn_number=row.reference_grn_number,
             reference_invoice_number=row.reference_invoice_number,
             return_reason=row.return_reason,
+            outcome=row.outcome or "CREDIT",
             currency_code=row.currency_code,
             exchange_rate=row.exchange_rate,
             payment_terms=row.payment_terms,

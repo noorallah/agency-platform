@@ -55,11 +55,13 @@ class LineQuantities:
     damaged: Decimal = ZERO
     returned: Decimal = ZERO
     invoiced: Decimal = ZERO
+    #: The part of ``returned`` the supplier is to replace (69 row 7).
+    replaced: Decimal = ZERO
 
     @property
     def pending_receipt(self) -> Decimal:
-        """Return what the supplier still owes."""
-        return max(self.ordered - self.received, ZERO)
+        """Return what the supplier still owes, replacements included."""
+        return max(self.ordered - self.received + self.replaced, ZERO)
 
     @property
     def to_invoice(self) -> Decimal:
@@ -209,11 +211,12 @@ def order_line_quantities(
                 PurchaseReturnLine.source_document_line_id.in_(list(bill_of)),
             )
         )
-    for kind, source_line_id, quantity in session.execute(
+    for kind, source_line_id, quantity, outcome in session.execute(
         select(
             PurchaseReturnLine.source_document_type,
             PurchaseReturnLine.source_document_line_id,
             PurchaseReturnLine.current_return_quantity,
+            PurchaseReturn.outcome,
         )
         .join(
             PurchaseReturn,
@@ -233,6 +236,8 @@ def order_line_quantities(
         else:
             po_line_id = bill_of[source_line_id]
         sums[po_line_id]["returned"] += Decimal(str(quantity))
+        if outcome == "REPLACEMENT":
+            sums[po_line_id]["replaced"] += Decimal(str(quantity))
 
     return {
         line.id: LineQuantities(
@@ -243,6 +248,7 @@ def order_line_quantities(
             damaged=sums[line.id]["damaged"],
             returned=sums[line.id]["returned"],
             invoiced=sums[line.id]["invoiced"],
+            replaced=sums[line.id]["replaced"],
         )
         for line in lines
     }

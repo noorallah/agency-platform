@@ -307,3 +307,57 @@ class SupplierCreditApplication(BaseEntity):
     )
     applied_on: Mapped[date] = mapped_column(Date, nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+
+
+class SupplierCreditRefund(BaseEntity):
+    """Money a supplier paid back against one return's credit (69 row 7).
+
+    A purchase return whose outcome is a refund leaves its credit on the
+    supplier's account until the money arrives. Receiving it posts ``Dr cash or
+    bank / Cr accounts payable`` -- the payable the return debited comes back
+    to nil -- and uses that much of the return's credit, exactly as setting it
+    against a bill does. Reversing posts the mirror and frees the credit.
+    """
+
+    __tablename__ = "supplier_credit_refunds"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="CK_supplier_credit_refunds_positive"),
+        Index("IX_supplier_credit_refunds_return", "firm_id", "purchase_return_id"),
+        Index("IX_supplier_credit_refunds_vendor", "firm_id", "vendor_id"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    vendor_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("vendors.id", ondelete="RESTRICT"), nullable=False
+    )
+    purchase_return_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("purchase_returns.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    refunded_on: Mapped[date] = mapped_column(Date, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    #: ``CASH`` or ``BANK``, which decides the account the money landed in.
+    method: Mapped[str] = mapped_column(String(10), nullable=False)
+    ledger_account_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("ledger_accounts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    #: The cheque, UTR or note the supplier's money came with.
+    reference: Mapped[str | None] = mapped_column(String(120))
+    remarks: Mapped[str | None] = mapped_column(Text)
+    #: ``POSTED`` or ``REVERSED``.
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="POSTED", server_default="POSTED"
+    )
+    journal_entry_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("journal_entries.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    reversal_journal_entry_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("journal_entries.id", ondelete="RESTRICT")
+    )
+    reversed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    reversal_reason: Mapped[str | None] = mapped_column(Text)

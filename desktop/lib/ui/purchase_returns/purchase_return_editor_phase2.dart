@@ -250,6 +250,11 @@ extension _Phase2PurchaseReturnEditor on _PurchaseReturnEditorDialogState {
           ),
         ),
       ),
+      DocumentField(
+        label: 'Outcome',
+        width: 150,
+        child: _outcomeMenu(width: 150),
+      ),
       _box(
         context,
         label: 'Why it is going back',

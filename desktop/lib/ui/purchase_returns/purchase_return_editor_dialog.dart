@@ -16,6 +16,15 @@ import '../workspace/desktop_framework.dart';
 
 part 'purchase_return_editor_phase2.dart';
 
+/// What a purchase return comes back as, in the order a firm meets them:
+/// a credit on the supplier's account (the default), replacement goods, or
+/// money handed back. The codes are the server's.
+const Map<String, String> purchaseReturnOutcomes = {
+  'CREDIT': 'Credit',
+  'REPLACEMENT': 'Replacement',
+  'REFUND': 'Refund',
+};
+
 /// One line going back to the supplier, as it is being edited.
 ///
 /// A return line always belongs to a source document line -- the backend
@@ -142,6 +151,7 @@ class _PurchaseReturnEditorDialogState
   String _supplierReturnNumber = '';
   String _returnReason = '';
   String _remarks = '';
+  String _outcome = 'CREDIT';
   bool _saving = false;
   bool _loadingLines = false;
   String? _error;
@@ -369,6 +379,7 @@ class _PurchaseReturnEditorDialogState
         'supplier_return_number': _supplierReturnNumber.trim(),
       if (_returnReason.trim().isNotEmpty) 'return_reason': _returnReason.trim(),
       if (_remarks.trim().isNotEmpty) 'remarks': _remarks.trim(),
+      'outcome': _outcome,
       'reference_grn_number': _receipt!.grnNumber,
       'source_documents': [
         {
@@ -532,8 +543,39 @@ class _PurchaseReturnEditorDialogState
           _text('Supplier Return Number', _supplierReturnNumber,
               (value) => _supplierReturnNumber = value, null),
           _text('Reason', _returnReason, (value) => _returnReason = value, null),
+          SizedBox(width: 220, child: _outcomeMenu(width: 220)),
           _text('Remarks', _remarks, (value) => _remarks = value, null),
         ],
+      );
+
+  /// Credit, replacement or refund. A menu rather than a form dropdown, so
+  /// the receipt and batch pickers stay the only form dropdowns on the screen.
+  Widget _outcomeMenu({required double width}) => DropdownMenu<String>(
+        key: const ValueKey('purchase-return-outcome'),
+        initialSelection: _outcome,
+        width: width,
+        enabled: !_saving,
+        label: _phase2 ? null : const Text('Outcome'),
+        helperText: _phase2 ? null : 'What the supplier gives back',
+        inputDecorationTheme: _phase2
+            ? InputDecorationTheme(
+                isDense: true,
+                filled: true,
+                fillColor: Theme.of(context).colorScheme.surfaceContainerLowest,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                constraints: const BoxConstraints(maxHeight: 36),
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(5)),
+              )
+            : null,
+        dropdownMenuEntries: [
+          for (final MapEntry<String, String> entry
+              in purchaseReturnOutcomes.entries)
+            DropdownMenuEntry<String>(value: entry.key, label: entry.value),
+        ],
+        onSelected: (value) {
+          if (value != null) setState(() => _outcome = value);
+        },
       );
 
   Widget _text(

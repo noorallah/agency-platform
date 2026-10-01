@@ -1252,6 +1252,71 @@ class DocumentPostingService:
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
 
+    def post_supplier_refund(
+        self,
+        *,
+        firm_id: UUID,
+        refund_id: UUID,
+        reference_number: str,
+        refunded_on: date,
+        amount: Decimal,
+        money_account_id: UUID,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Post money a supplier paid back against a return's credit (69.7).
+
+        The purchase return debited payables when it completed, leaving the
+        supplier owing the firm. Their money arriving clears that:
+        ``Dr cash or bank / Cr accounts payable``. The mirror of a payment, and
+        kept apart from one because a payment settles what the firm owes and
+        this collects what it is owed.
+
+        Args:
+            firm_id: The owning firm.
+            refund_id: The supplier refund row this posts for.
+            reference_number: The journal reference, unique per entry.
+            refunded_on: The date the money arrived.
+            amount: How much the supplier paid back.
+            money_account_id: The cash or bank account it landed in.
+            actor_id: The user recording it.
+
+        Returns:
+            The posted journal entry.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        accounts = self._require_mapping(firm_id, PAYMENT_PURPOSES)
+        context = self.context_for(firm_id, refunded_on)
+        total = quantize_ledger(quantize_money(amount))
+        lines = [
+            JournalLineData(
+                ledger_account_id=money_account_id,
+                debit_amount=total,
+                description=f"Supplier refund {reference_number}",
+            ),
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.ACCOUNTS_PAYABLE],
+                credit_amount=total,
+                description=f"Supplier refund {reference_number}",
+            ),
+        ]
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=refunded_on,
+            reference_number=reference_number,
+            description=f"Supplier refund {reference_number}",
+            lines=lines,
+            source_module="supplier_credit_refund",
+            source_id=refund_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
     def post_settlement(
         self,
         *,
