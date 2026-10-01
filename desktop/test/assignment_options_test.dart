@@ -42,7 +42,45 @@ class _PagedApi extends ApiClient {
   }
 }
 
+/// Answers one page of business features, one of them not built yet.
+class _FeatureApi extends ApiClient {
+  _FeatureApi()
+      : super(
+          baseUrl: 'http://localhost:8000',
+          accessToken: () => null,
+          refreshAccessToken: () async => false,
+          activeFirmId: () => null,
+        );
+
+  @override
+  Future<Json> request(
+    String method,
+    String path, {
+    Json? body,
+    Map<String, String>? query,
+    bool authenticated = true,
+    bool retrying = false,
+    int? expectedVersion,
+  }) async =>
+      {
+        'data': [
+          {'id': 'f1', 'code': 'BATCH', 'name': 'Batches', 'is_implemented': true},
+          {'id': 'f2', 'code': 'IMEI', 'name': 'IMEI', 'is_implemented': false},
+          {'id': 'f3', 'code': 'SERIAL', 'name': 'Serials', 'is_implemented': false},
+        ],
+        'pagination': {'total_records': 3},
+      };
+}
+
 void main() {
+  test('a feature not built yet says so in the picker (backlog 31.6)', () async {
+    final List<AssignmentOption> options =
+        await _FeatureApi().options('business-framework/features');
+
+    expect(options.map((option) => option.detail).toList(),
+        ['Batches', 'not built yet', 'Serials (not built yet)']);
+  });
+
   test('every option is loaded when the catalogue exceeds one page', () async {
     final api = _PagedApi(163);
     final List<AssignmentOption> options = await api.options('permissions');

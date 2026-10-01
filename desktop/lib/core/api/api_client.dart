@@ -3395,6 +3395,24 @@ class ApiClient {
   /// The API caps page_size at 100. Fetching a single page silently truncated
   /// any catalogue larger than that: with 163 permissions, 63 of them could not
   /// be granted to a role because the selector never showed them.
+  /// The name beside a code, and whether the option can be used at all.
+  ///
+  /// A business feature the codebase has not built yet (`is_implemented`
+  /// false) is listed so the roadmap shows, but the server refuses to enable
+  /// it; the only way to learn that was to be refused on save (backlog
+  /// 31.6), so the picker says it up front.
+  static String? _optionDetail(Json json) {
+    final String? name = json['code'] != null &&
+            json['name'] != null &&
+            stringValue(json['name']) != stringValue(json['code'])
+        ? stringValue(json['name'])
+        : null;
+    if (json['is_implemented'] == false) {
+      return name == null ? 'not built yet' : '$name (not built yet)';
+    }
+    return name;
+  }
+
   Future<List<AssignmentOption>> options(String resource) async {
     // The generic list below returns every row a firm holds, active or not --
     // fine for most catalogues, wrong for a licence type: a picker that
@@ -3424,11 +3442,7 @@ class ApiClient {
         (json) => AssignmentOption(
           id: stringValue(json['id']),
           label: stringValue(json['code'] ?? json['name'] ?? json['email']),
-          detail: json['code'] != null &&
-                  json['name'] != null &&
-                  stringValue(json['name']) != stringValue(json['code'])
-              ? stringValue(json['name'])
-              : null,
+          detail: _optionDetail(json),
           group:
               json['category'] == null ? null : stringValue(json['category']),
         ),
