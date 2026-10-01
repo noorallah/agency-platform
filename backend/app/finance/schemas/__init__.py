@@ -767,6 +767,57 @@ class OpeningTrialBalanceResponse(FinanceSchema):
     equity_difference: Decimal
 
 
+class ProfitLossRangeMonth(FinanceSchema):
+    """One month of a profit and loss span, as a column header."""
+
+    accounting_period_id: UUID
+    name: str
+    starts_on: date
+
+
+class ProfitLossRangeLine(FinanceSchema):
+    """One account over a span: the total, month by month, and last year's.
+
+    ``months`` lines up with the report's ``months``. ``comparison_amount``
+    is the same months of the previous financial year, or None when the
+    comparison was not asked for or that year has no such months.
+    """
+
+    ledger_account_id: UUID
+    account_code: str
+    account_name: str
+    account_type: AccountTypeEnum
+    amount: Decimal
+    months: list[Decimal]
+    comparison_amount: Decimal | None = None
+
+
+class ProfitLossRangeReport(FinanceSchema):
+    """The profit and loss over a run of months in one financial year (50).
+
+    A span never crosses a year: profit resets at the year end, and the year's
+    close is the boundary the books keep.
+    """
+
+    financial_year_id: UUID
+    from_period_id: UUID
+    to_period_id: UUID
+    generated_at: datetime
+    months: list[ProfitLossRangeMonth]
+    income: list[ProfitLossRangeLine]
+    expenses: list[ProfitLossRangeLine]
+    total_income: Decimal
+    total_expense: Decimal
+    net_profit: Decimal
+    #: Net profit month by month, in the order of ``months``.
+    monthly_net_profit: list[Decimal]
+    #: The previous financial year's same months, when asked for and present.
+    comparison_year_id: UUID | None = None
+    comparison_income: Decimal | None = None
+    comparison_expense: Decimal | None = None
+    comparison_net_profit: Decimal | None = None
+
+
 class TdsRegisterRecord(BaseModel):
     """One deduction in a TDS register (backlog 53.1 item 4)."""
 
@@ -793,6 +844,9 @@ class TdsRegisterRecord(BaseModel):
 
 __all__ = [
     "AccountGroupCreate",
+    "ProfitLossRangeLine",
+    "ProfitLossRangeMonth",
+    "ProfitLossRangeReport",
     "TdsRegisterRecord",
     "AccountGroupResponse",
     "AccountGroupUpdate",
