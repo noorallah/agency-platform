@@ -51,6 +51,10 @@ from app.purchase_invoice.models import (
     PurchaseInvoiceLine,
     PurchaseInvoiceLineTax,
 )
+from app.purchase_invoice.services.reverse_charge import (
+    ReverseChargeShare,
+    reverse_charge_share,
+)
 
 HUNDRED = Decimal("100")
 
@@ -426,6 +430,9 @@ class DebitNoteService(TransactionalDocumentService):
             taxable_amount=Decimal(str(row.taxable_amount)),
             tax_amount=Decimal(str(row.tax_amount)),
             tax_by_component=debit_note_tax_by_component(self._session, row.id),
+            reverse_charge_by_component=debit_note_reverse_charge(
+                self._session, row.id
+            ).owed,
             actor_id=actor_id,
         )
         row.journal_entry_id = None if entry is None else entry.id
@@ -1055,4 +1062,30 @@ def debit_note_tax_by_component(session: Session, note_id: UUID) -> dict[str, De
     return totals
 
 
-__all__ = ["DebitNoteService", "debit_note_tax_by_component"]
+def debit_note_reverse_charge(session: Session, note_id: UUID) -> ReverseChargeShare:
+    """Return the reverse charge a debit note takes off its bill.
+
+    Backlog 68 row 8, the twin of ``return_reverse_charge``: each line takes
+    the share of its bill line's reverse charge that its taxable value is of
+    the bill line's. The posting and GSTR-3B both read this.
+    """
+    lines = session.scalars(
+        select(DebitNoteLine).where(
+            DebitNoteLine.debit_note_id == note_id,
+            DebitNoteLine.is_deleted.is_(False),
+        )
+    ).all()
+    return reverse_charge_share(
+        session,
+        (
+            (line.purchase_invoice_line_id, Decimal(str(line.taxable_amount)))
+            for line in lines
+        ),
+    )
+
+
+__all__ = [
+    "DebitNoteService",
+    "debit_note_reverse_charge",
+    "debit_note_tax_by_component",
+]

@@ -563,9 +563,18 @@ supplier charges nothing and the firm owes the tax itself:
   keeps it.
 - Cancelling mirrors the journal, so the liability and the credit go with it.
 - GSTR-3B: 3.1(d) `inward_reverse_charge`, 4(A)(3) `itc_reverse_charge`; the
-  rows are left out of 4(A)(5), and returns and debit notes off the bill
-  ignore them. A return off a reverse-charge bill does not yet reverse the
-  liability (open).
+  rows are left out of 4(A)(5) and out of the ordinary reversal in 4(B).
+- **A purchase return or a debit note off the bill takes its share off**
+  (2026-10-02, `app/purchase_invoice/services/reverse_charge.py`). The
+  supplier charged nothing, so the note's own tax is zero; its share is of the
+  bill line's **value** -- the returned line's net, a debit note line's
+  taxable amount -- and that share of each reverse-charge component comes
+  off: **Dr reverse-charge payable per head, Cr input tax per head**, the
+  bill's legs mirrored. 3.1(d) and 4(A)(3) are reduced in the period the
+  return was completed or the note approved (the credit by the recoverable
+  part only, as the bill claimed it). The GST payment reads 3B, so it pays
+  less. Cancelling the return or the note mirrors its journal, legs included,
+  and 3B leaves a cancelled one out.
 
 ## Input tax is claimed head by head
 

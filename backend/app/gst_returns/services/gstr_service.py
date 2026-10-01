@@ -879,14 +879,27 @@ class GstReturnService:
         counted once however many components it carries; the credit is the
         recoverable part of the tax.
 
+        Less what the period's purchase returns and debit notes took off such
+        bills, in the period each was completed or approved -- the same share
+        their postings debit back out of reverse-charge payable. A supply the
+        firm no longer received owes no tax, and no credit stands for it.
+
         Returns:
             ((taxable value, tax per head), credit per head).
 
         """
+        from app.debit_note.services.debit_note_service import (
+            debit_note_reverse_charge,
+        )
         from app.purchase_invoice.models import (
             PurchaseInvoice,
             PurchaseInvoiceLine,
             PurchaseInvoiceLineTax,
+        )
+        from app.purchase_invoice.services.reverse_charge import ReverseChargeShare
+        from app.purchase_return.models import PurchaseReturn
+        from app.purchase_return.services.purchase_return_service import (
+            return_reverse_charge,
         )
 
         taxable = ZERO
@@ -938,6 +951,37 @@ class GstReturnService:
             owed = owed.plus(bucket)
             if recoverable:
                 credit = credit.plus(bucket)
+
+        taken_off: list[ReverseChargeShare] = [
+            return_reverse_charge(self._session, return_id)
+            for return_id in self._session.scalars(
+                select(PurchaseReturn.id).where(
+                    PurchaseReturn.firm_id == firm_scope,
+                    PurchaseReturn.is_deleted.is_(False),
+                    PurchaseReturn.status.in_(("COMPLETED", "CLOSED")),
+                    PurchaseReturn.return_date >= from_date,
+                    PurchaseReturn.return_date <= to_date,
+                )
+            ).all()
+        ]
+        taken_off += [
+            debit_note_reverse_charge(self._session, note_id)
+            for note_id in self._session.scalars(
+                select(DebitNote.id).where(
+                    DebitNote.firm_id == firm_scope,
+                    DebitNote.is_deleted.is_(False),
+                    DebitNote.status == DebitNoteStatus.APPROVED.value,
+                    DebitNote.debit_note_date >= from_date,
+                    DebitNote.debit_note_date <= to_date,
+                )
+            ).all()
+        ]
+        for share in taken_off:
+            taxable -= share.taxable
+            for code, amount in share.owed.items():
+                owed = owed.plus(_bucket(code, amount).negated())
+            for code, amount in share.credit.items():
+                credit = credit.plus(_bucket(code, amount).negated())
         return (taxable, owed), credit
 
     # ---- reading -------------------------------------------------------
