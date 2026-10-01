@@ -17,6 +17,7 @@ import '../../models/sales_territory.dart';
 import '../../models/trade_licence.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/opening_bill_import_dialog.dart';
 import '../workspace/reason_prompt.dart';
 import '../workspace/trade_licence_quick_add.dart';
 import 'credit_settings_dialog.dart';
@@ -413,6 +414,25 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
     );
   }
 
+  /// Bring the customers' opening bills in from one file, posted on the
+  /// cutover day, all or none (D-GOLIVE-1).
+  Future<void> _runOpeningBillImport() async {
+    final FileImportReport? report = await showDialog<FileImportReport>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) =>
+          OpeningBillImportDialog(api: widget.api, side: 'customers'),
+    );
+    if (!mounted || report == null) return;
+    await _controller.load();
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      'Posted ${report.toCreate} opening bills.',
+      kind: AppNotificationKind.success,
+    );
+  }
+
   Future<void> _export() async {
     try {
       final String csv = await _controller.export();
@@ -533,6 +553,19 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
       ],
       // Phase 2 keeps the groups under Masters > Parties > Customer Groups;
       // phase 1 keeps its button here.
+      // D-GOLIVE-1. Phase 2 draws commands; phase 1 does not.
+      commands: [
+        if (_canImport)
+          ToolbarCommand(
+            id: 'import-opening-bills',
+            label: 'Import opening bills',
+            icon: Icons.upload_file_outlined,
+            tooltip: 'Bring the opening bills in from a file',
+            onPressed: widget.hasActiveFirm ? _runOpeningBillImport : null,
+            // Done once, at cutover: behind "...", never a button on the line.
+            menuOnly: true,
+          ),
+      ],
       trailing: Phase2Scope.of(context)
           ? const []
           : [

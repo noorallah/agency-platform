@@ -1,6 +1,7 @@
 """Firm-scoped REST endpoints for the enterprise inventory foundation."""
 
 from datetime import date
+from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -15,6 +16,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -23,13 +25,18 @@ from app.common.file_import import (
     file_format_of,
     report_response,
 )
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    ResolvedFirmScope,
+    firm_any_permission_scope,
+    firm_permission_scope,
+)
 from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
+from app.core.pagination.reports import ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.core.utils.dates import utc_now
 from app.inventory.models import InventoryTransaction, PhysicalCount
@@ -68,6 +75,7 @@ from app.inventory.services.opening_stock_import import (
 from app.inventory.services.opening_stock_import import (
     template_workbook as opening_stock_template_workbook,
 )
+from app.inventory.services.stock_valuation import StockValuationService
 
 router = APIRouter(
     prefix="/api/v1/inventory",
@@ -158,6 +166,60 @@ def list_inventory(
     return PaginatedResponse(
         data=service.inventory_responses(rows),
         pagination=params.metadata(total),
+    )
+
+
+class StockValuationRecord(BaseModel):
+    """One line of the stock valuation: an item, or a closing total."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    #: ITEM, or TOTAL / BOOKS / DIFFERENCE for the three closing rows.
+    row_type: str
+    product_code: str
+    product_name: str
+    category: str
+    unit: str
+    quantity: Decimal | None
+    rate: Decimal | None
+    value: Decimal
+
+
+StockValuationScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("INVENTORY_VIEW", "REPORT_VIEW")
+]
+
+
+@router.get(
+    "/reports/stock-valuation",
+    response_model=PaginatedResponse[StockValuationRecord],
+)
+def stock_valuation(
+    scope: StockValuationScope,
+    to_date: date | None = None,
+    from_date: date | None = None,
+    warehouse_id: UUID | None = None,
+    include_zero: bool = False,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[StockValuationRecord]:
+    """Value the stock as on ``to_date`` (today when left out).
+
+    Tally's Stock Summary (D-GOLIVE-3): each item's quantity, its moving
+    average cost and value, then the grand total, the Inventory account's
+    balance on the same day and the difference. ``from_date`` is accepted and
+    ignored -- a valuation is as on a day, not over a period -- so the dated
+    report screen can call it like its siblings.
+    """
+    del from_date
+    on = min(to_date or utc_now().date(), utc_now().date())
+    rows = StockValuationService(db).valuation(
+        scope.firm_id, on=on, warehouse_id=warehouse_id, include_zero=include_zero
+    )
+    window = ReportWindow(None, None, page, page_size)
+    return window.respond(
+        [StockValuationRecord.model_validate(row, from_attributes=True) for row in rows]
     )
 
 

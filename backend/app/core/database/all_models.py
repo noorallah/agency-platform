@@ -36,6 +36,7 @@ from app.expenses.models import expense  # noqa: F401
 from app.finance.models import finance  # noqa: F401
 from app.firms.models import firm  # noqa: F401
 from app.goods_receipt.models import goods_receipt  # noqa: F401
+from app.gst_returns.models import gst_payment  # noqa: F401
 from app.identity.models import identity  # noqa: F401
 from app.inventory.models import (
     inventory,  # noqa: F401

@@ -9,6 +9,7 @@ import '../../models/bulk_action.dart';
 import '../../models/finance.dart';
 import '../../models/physical_count.dart';
 import '../../models/expense.dart';
+import '../../models/gst_payment.dart';
 import '../../models/settlement.dart';
 import '../../models/settlement_direction.dart';
 import '../../models/batch_serial.dart';
@@ -2425,6 +2426,49 @@ class ApiClient {
     return FileImportReport.fromJson(_unwrapMap(response));
   }
 
+  /// The blank opening-bills import file for one side of the books --
+  /// `customers` or `vendors` -- as bytes: xlsx (with notes and the firm's
+  /// parties) or csv (D-GOLIVE-1).
+  Future<List<int>> openingBillImportTemplate(
+    String side, {
+    String format = 'xlsx',
+  }) =>
+      downloadBytes(
+        side == 'vendors'
+            ? '/api/v1/vendors/opening-bills/import-template'
+            : '/api/v1/customers/opening-bills/import-template',
+        query: {'format': format},
+      );
+
+  /// Check (`apply: false`, writes nothing) or import a file of opening bills
+  /// for `customers` or `vendors`, every bill posted on [postingDate]
+  /// (`yyyy-mm-dd`), all of them or none.
+  Future<FileImportReport> checkOpeningBillImportFile(
+    String side, {
+    required String fileName,
+    required List<int> bytes,
+    required String postingDate,
+    required bool apply,
+  }) async {
+    final Json response = await multipartRequest(
+      'POST',
+      side == 'vendors'
+          ? '/api/v1/vendors/opening-bills/import-file'
+          : '/api/v1/customers/opening-bills/import-file',
+      fields: {
+        'posting_date': postingDate,
+        'apply': apply ? 'true' : 'false',
+      },
+      fileField: 'file',
+      fileName: fileName,
+      fileBytes: bytes,
+      fileContentType: fileName.toLowerCase().endsWith('.xlsx')
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'text/csv',
+    );
+    return FileImportReport.fromJson(_unwrapMap(response));
+  }
+
   // Counting a warehouse. The sheet is drawn up from what the system holds,
   // walked over hours, and posted once at the end -- so it is a document with
   // a draft the client saves into, not a form that applies on submit.
@@ -4670,6 +4714,50 @@ class ApiClient {
         'GET',
         '/api/v1/gst-returns/gstr3b',
         query: {'from_date': fromDate, 'to_date': toDate},
+      ));
+
+  // ---- paying the tax (backlog 63) -------------------------------------
+
+  /// A month's set-off and cash payable, by the statutory order; writes
+  /// nothing. [openingCredit] is the first month's credit brought forward,
+  /// keyed igst/cgst/sgst/cess.
+  Future<GstPaymentPreview> gstPaymentPreview({
+    required String returnPeriod,
+    String? paymentDate,
+    Map<String, String> openingCredit = const {},
+  }) async =>
+      GstPaymentPreview.fromJson(await request(
+        'GET',
+        '/api/v1/gst-returns/payments/preview',
+        query: {
+          'return_period': returnPeriod,
+          if (paymentDate != null) 'payment_date': paymentDate,
+          for (final MapEntry<String, String> entry in openingCredit.entries)
+            if (entry.value.trim().isNotEmpty)
+              'opening_credit_${entry.key}': entry.value.trim(),
+        },
+      ));
+
+  /// Every month recorded as settled, newest first.
+  Future<List<GstPaymentRecord>> gstPayments() async => _unwrapList(
+        await request('GET', '/api/v1/gst-returns/payments'),
+        GstPaymentRecord.fromJson,
+      );
+
+  /// Record a month's challan; posts the set-off and the cash in one journal.
+  Future<GstPaymentRecord> recordGstPayment(Json data) async =>
+      GstPaymentRecord.fromJson(await request(
+        'POST',
+        '/api/v1/gst-returns/payments',
+        body: data,
+      ));
+
+  /// Take back the latest month's settlement.
+  Future<GstPaymentRecord> reverseGstPayment(String id, String reason) async =>
+      GstPaymentRecord.fromJson(await request(
+        'POST',
+        '/api/v1/gst-returns/payments/$id/reverse',
+        body: {'reason': reason},
       ));
 
   // ---- credit notes ---------------------------------------------------

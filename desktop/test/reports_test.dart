@@ -223,6 +223,22 @@ void main() {
       expect(find.text('Customer outstanding'), findsOneWidget);
     });
 
+    testWidgets('the stock valuation asks for one day, not a period',
+        (tester) async {
+      // D-GOLIVE-3: a valuation is as on a day; From and To would ask the
+      // accountant a question the report cannot answer.
+      final _ReportApi api = _ReportApi();
+      await _pump(tester, api, tabId: 'financial');
+      await tester.scrollUntilVisible(find.text('Stock valuation'), 200,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(find.text('Stock valuation'));
+      await tester.pumpAndSettle();
+
+      expect(api.requested.last, '/api/v1/inventory/reports/stock-valuation');
+      expect(find.byKey(const ValueKey<String>('report-from')), findsNothing);
+      expect(find.widgetWithText(TextField, 'As on'), findsOneWidget);
+    });
+
     testWidgets('a report says what question it answers', (tester) async {
       // "Reconciliation" tells nobody what is being reconciled.
       await _pump(tester, _ReportApi());

@@ -2836,7 +2836,7 @@ permission codes' worth, and never had.
 
 ## 36. Onboarding a firm from its previous tool -- opening position built 2026-10-01
 
-**Status, 2026-10-01: the opening position can be loaded from files.** The four gaps below are closed by the shared import framework (`app/common/file_import.py`: template, check with every problem by row and column, all-or-nothing apply, update by code) and these imports: products (#843), customers (#851), suppliers (#861), supplier opening bills (#841) and customer opening bills (#855) bill by bill, the opening trial balance on a cutover date (#842), and opening stock with batches (#862). An item's opening stock is posted once, on the form and from the file alike (decided 2026-10-01); a second document for a warehouse is allowed for what was missed. The *Opening balances* step on the firm's Set up panel lists them in that order and ticks each as its store fills (2026-10-01, go-live plan tier 1 item 4). Left: Tally XML import, and the opening bills from a file -- today they are entered one by one on each party's form (D-GOLIVE-1).
+**Status, 2026-10-01: the opening position can be loaded from files.** The four gaps below are closed by the shared import framework (`app/common/file_import.py`: template, check with every problem by row and column, all-or-nothing apply, update by code) and these imports: products (#843), customers (#851), suppliers (#861), supplier opening bills (#841) and customer opening bills (#855) bill by bill, the opening trial balance on a cutover date (#842), and opening stock with batches (#862). An item's opening stock is posted once, on the form and from the file alike (decided 2026-10-01); a second document for a warehouse is allowed for what was missed. The *Opening balances* step on the firm's Set up panel lists them in that order and ticks each as its store fills (2026-10-01, go-live plan tier 1 item 4). The opening bills come from a file too since D-GOLIVE-1 (2026-10-01). Left: Tally XML import.
 
 Raised 2026-09-16. **Everything here is a provisional recommendation, not a
 decision** -- how much data comes across, and who converts it, are still open.
@@ -2924,7 +2924,8 @@ good enough that onboarding is a day's work rather than a project.
   with nothing to clear) and not a purchase invoice (the GST returns would
   read it as trading). Entered on the vendor form's *Opening bills* section;
   `POST /vendors/opening-bills/import` takes a batch by supplier code, all or
-  nothing, for the file wizard of §46. Still open: supplier credit from a
+  nothing; the file import (template, check, post) is
+  `POST /vendors/opening-bills/import-file` (D-GOLIVE-1, 2026-10-01). Still open: supplier credit from a
   return cannot be set against an opening bill yet.
 - **Customers had only a single-figure opening balance.** Every receipt
   against it was money on account with nothing to clear, and the ageing could
@@ -2943,7 +2944,8 @@ good enough that onboarding is a day's work rather than a project.
   non-zero, and a non-zero opening balance while live bills stand. Entered on
   the phase 2 customer form's *Opening bills* section;
   `POST /customers/opening-bills/import` takes a batch by customer code, all
-  or nothing. Not a sales invoice, so GST returns, sales registers,
+  or nothing; the file import is `POST /customers/opening-bills/import-file`
+  (D-GOLIVE-1, 2026-10-01). Not a sales invoice, so GST returns, sales registers,
   e-invoicing and TCS turnover never see it, and neither does
   collection-based commission (it joins sales invoices).
 - **No opening trial balance loader.** `LedgerBalance.opening_balance` is
@@ -4400,7 +4402,7 @@ phase 2 menu tests are what to extend.
 
 ## 58. One invoice for several delivery notes (D-SELL-39) -- built 2026-09-30
 
-**Status, 2026-10-01:** items 1-3, 5 and 6 built (#844), for supplier bills against several goods receipts too (D-BUY-18). Item 7, the printed bill naming every note, is still to build.
+**Status, 2026-10-01:** items 1-3, 5 and 6 built (#844), for supplier bills against several goods receipts too (D-BUY-18). **Item 7 built 2026-10-01:** the printed bill's head lists each delivery note and the sales order behind it, each with its date, and the buyer's own order number where the order carries one (Tally's "Delivery Note No." and "Buyer's Order No."); past three it says "Several - see lines", and whenever a bill has more than one note every line names its note. Left: the tick list and on-screen refusal of items 2 and 4.
 
 Noticed on 2026-09-28, discussing the sales chain with the owner.
 
@@ -4648,6 +4650,8 @@ design once this lands; the existing Purchase Analytics screen is not offered
 in phase 2.
 
 ## 63. Paying the tax: GST payable, set-off and payment; TCS deposit
+
+**Status, 2026-10-01: items 1, 2 and 6 built.** Accounts > GST Payment works out a month from its GSTR-3B -- output tax per head after credit notes, net input credit per head, plus the credit the month before carried -- and sets the credit off by section 49(5) and rule 88A (IGST credit first and wholly, split across CGST and SGST to leave the least cash; CGST never against SGST nor SGST against CGST; cess only against cess), showing cash payable and credit carried per head, with interest at 18% a year suggested for days after the 20th. Recording the challan (CPIN, CIN, bank, interest and late fee to expense accounts the user picks) posts one journal and keeps the month in `gst_payments` (migration `20261001_0176`); one standing settlement per month, and only the latest month can be reversed. A firm's first month takes its opening credit from the portal's electronic credit ledger. Recording needs `JOURNAL_POST`. Left: item 3 (output tax split by head in the ledger), 4 (tax calendar on Home), 5 (TCS deposit and 27EQ -- 206C(1H) TCS ended on 1 April 2025, so low).
 
 Owner, 2026-09-28: sales collect tax -- is anything to be paid, and does the
 product show it?

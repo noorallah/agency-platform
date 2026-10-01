@@ -53,6 +53,7 @@ import 'commission/commission_page.dart';
 import 'commission/sales_target_page.dart';
 import 'sales/credit_note_page.dart';
 import 'sales/einvoice_page.dart';
+import 'sales/gst_payment_page.dart';
 import 'sales/gst_return_page.dart';
 import 'sales/proforma_page.dart';
 import 'sales/tcs_page.dart';
@@ -2739,6 +2740,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),
+      'gst-payment' => GstPaymentPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+        ),
       'tcs' => TcsPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -2797,6 +2803,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           'E-Invoice',
           'What the tax authority knows about this firm’s invoices and their '
               'movement. A reference marked sandbox filed nothing.',
+        ),
+      'gst-payment' => (
+          'GST Payment',
+          'What the month owes, what its input credit pays in the order the '
+              'law sets, and the challan for the rest, posted in one journal.',
         ),
       'gst-returns' => (
           'GST Returns',
