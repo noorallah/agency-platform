@@ -74,6 +74,7 @@ import 'uom/packaging_levels_page.dart';
 import 'uom/uom_management_page.dart';
 import 'vendors/vendor_management_page.dart';
 import 'branches/branch_warehouse_management_page.dart';
+import 'branches/work_defaults_dialog.dart';
 import 'firms/firm_settings_page.dart';
 import 'firms/firm_setup_dialog.dart';
 import 'dashboard_page.dart';
@@ -411,6 +412,11 @@ class _DesktopShellState extends State<DesktopShell> {
         );
       case MenuLayout.tcsSettingsRoute:
         await showTcsSettings(context, api);
+      case MenuLayout.workDefaultsRoute:
+        await showDialog<Object>(
+          context: context,
+          builder: (_) => WorkDefaultsDialog(api: api),
+        );
     }
   }
 
