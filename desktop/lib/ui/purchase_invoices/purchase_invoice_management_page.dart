@@ -13,12 +13,16 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
+import '../../models/bulk_action.dart';
 import '../../models/document_framework.dart';
+import '../../phase2/indian_format.dart';
 import '../../models/goods_receipt.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../document_framework/document_status_gate.dart';
 import '../document_framework/document_view_dialog.dart';
+import '../workspace/bulk_action.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/reason_prompt.dart';
 import 'purchase_invoice_editor_dialog.dart';
 
 class PurchaseInvoiceManagementPage extends StatefulWidget {
@@ -56,6 +60,9 @@ class _PurchaseInvoiceManagementPageState
   Map<String, dynamic> _summary = const {};
   List<_PurchaseInvoiceRecord> _invoices = const [];
   _PurchaseInvoiceRecord? _selected;
+
+  /// The rows ticked for a bulk approve or cancel (backlog 56 A).
+  Set<String> _ticked = <String>{};
   List<DocumentTimelineSnapshot> _history = const [];
   // Reference data the editor needs, loaded once with the workspace.
   List<GoodsReceiptRecord> _billableReceipts = const [];
@@ -331,6 +338,9 @@ class _PurchaseInvoiceManagementPageState
         _invoices = invoices;
         _total = pagedTotal(page, fallback: invoices.length);
         _selected = selected;
+        _ticked = _ticked
+            .where((id) => invoices.any((row) => row.id == id))
+            .toSet();
         _history = history;
       });
     } catch (error) {
@@ -384,6 +394,88 @@ class _PurchaseInvoiceManagementPageState
     );
   }
 
+  /// More than one row ticked: the bar names the batch and offers the two
+  /// bulk actions instead of the one row's.
+  bool get _bulkMode => _ticked.length > 1;
+
+  List<_PurchaseInvoiceRecord> get _tickedRows =>
+      _invoices.where((row) => _ticked.contains(row.id)).toList();
+
+  List<BulkRow> _bulkRows() => [
+        for (final _PurchaseInvoiceRecord row in _tickedRows)
+          (id: row.id, version: null),
+      ];
+
+  SelectionSummary _bulkSummary() {
+    double total = 0;
+    for (final _PurchaseInvoiceRecord row in _tickedRows) {
+      total += double.tryParse(row.grandTotal) ?? 0;
+    }
+    return SelectionSummary(
+      title: '${_ticked.length} selected',
+      detail: indianAmount(total, full: true),
+      onClear: () => setState(() => _ticked = <String>{}),
+    );
+  }
+
+  /// The two bulk actions, each behind the permission the single one takes.
+  List<ToolbarCommand> _bulkCommands() => [
+        ToolbarCommand(
+          id: 'bulk-approve',
+          label: 'Approve selected',
+          icon: Icons.check_circle_outline,
+          onPressed: _loading || !_mayApprove()
+              ? null
+              : () => unawaited(_bulkApprove()),
+        ),
+        ToolbarCommand(
+          id: 'cancel',
+          label: 'Cancel selected',
+          icon: Icons.cancel_outlined,
+          onPressed:
+              _loading || !widget.permissions.hasPermission('PURCHASE_CANCEL')
+                  ? null
+                  : () => unawaited(_bulkCancel()),
+        ),
+      ];
+
+  Future<void> _bulkApprove() async {
+    final List<BulkRow> rows = _bulkRows();
+    await runBulkAction(
+      context,
+      verb: 'Approved',
+      rows: rows,
+      send: widget.api.bulkApprovePurchaseInvoices,
+    );
+    await _afterBulk();
+  }
+
+  Future<void> _bulkCancel() async {
+    final List<BulkRow> rows = _bulkRows();
+    final String? reason = await askForReason(
+      context,
+      title: 'Cancel ${rows.length} invoices',
+      explanation: 'Each invoice is cancelled on its own and its stock and '
+          'journal are reversed; one the server refuses does not stop the '
+          'others. The reason is recorded on every invoice cancelled.',
+      confirmLabel: 'Cancel invoices',
+    );
+    if (reason == null || !mounted) return;
+    await runBulkAction(
+      context,
+      verb: 'Cancelled',
+      rows: rows,
+      send: (rows) => widget.api.bulkCancelPurchaseInvoices(rows, reason),
+    );
+    await _afterBulk();
+  }
+
+  Future<void> _afterBulk() async {
+    if (!mounted) return;
+    setState(() => _ticked = <String>{});
+    await _load();
+  }
+
   Widget _buildGridWorkspace() => ManagementWorkspaceLayout(
         toolbar: _buildToolbar(),
         searchPanel: SearchFilterPanel(
@@ -394,7 +486,9 @@ class _PurchaseInvoiceManagementPageState
         // Option C (owner, 2026-09-27): the invoice's actions on a bar that
         // names it and its supplier, above the grid.
         selectionBar: true,
-        selection: _selected == null
+        selection: _bulkMode
+            ? _bulkSummary()
+            : _selected == null
             ? null
             : SelectionSummary.document(
                 number: _selected!.invoiceNumber,
@@ -445,7 +539,7 @@ class _PurchaseInvoiceManagementPageState
               // directly -- a product behind it, so nothing to bill against
               // is a disabled button rather than an empty dialog.
               ToolbarAction.newItem => _canCreate && _canStartBill,
-              ToolbarAction.view => _selected != null,
+              ToolbarAction.view => _selected != null && !_bulkMode,
               ToolbarAction.refresh => true,
               _ => false,
             },
@@ -469,7 +563,9 @@ class _PurchaseInvoiceManagementPageState
         // nothing. New is the standard action above, not one of these.
         // Phase 2 (4.11): the same steps as commands, folded into "..."
         // when the line is short.
-        commands: Phase2Scope.of(context)
+        commands: _bulkMode
+            ? _bulkCommands()
+            : Phase2Scope.of(context)
             ? [
                 _command(
                   'Approve',
@@ -646,6 +742,10 @@ class _PurchaseInvoiceManagementPageState
         items: _invoices,
         id: (item) => item.id,
         selectedId: _selected?.id,
+        // Ticks, for a bulk approve or cancel. A single row is still chosen
+        // by clicking it.
+        selectedIds: _ticked,
+        onSelectionChanged: (ticked) => setState(() => _ticked = ticked),
         cells: _columns.cells,
         onSelect: (item) => unawaited(_selectInvoice(item)),
         onOpen: (item) => unawaited(_openInvoice(item)),

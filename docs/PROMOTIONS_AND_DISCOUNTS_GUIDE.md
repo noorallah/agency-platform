@@ -329,28 +329,23 @@ salesman, document type or date.
 
 ## 13. Trying an offer before it goes live
 
-A quotation is the safe place to try an offer: it **reserves no stock, posts
-nothing to the books and uses up no offer limits**, and it is priced by
-exactly the same engine as an order. Two things stop the obvious approach:
+Use **Try offers** on the Promotions screen (the "..." in the toolbar). It asks
+the same engine every order uses what a made-up document would earn. **Nothing
+is saved, no stock is reserved and no offer limit is used up**, so it is safe
+to try as often as you like.
 
-- A **DRAFT** offer never applies, so it cannot be seen on a quotation.
-- The **quotation date is always today**, so an offer dated for next week's
-  festival does not show on today's quotation.
+**Step 1 -- describe the document.** Type the **Date** -- a future date is the
+point: put the festival's first day and see today what that offer does. Choose
+the document (order or quotation), and optionally a customer, a coupon code and
+a delivery charge. An offer aimed at one customer or group needs that customer.
 
-So try it on a **test customer** first, then open it to everyone.
+**Step 2 -- add lines.** Pick a product, a quantity and a rate for each line;
+the rate fills in from the product's price. Add as many lines as you need.
 
-**Step 1 -- a test customer, once.** Masters → Parties → Customers → New:
-code `ZZTEST`, name "TEST - do not bill", no standing discount, no group.
-Keep it for every future offer.
-
-**Step 2 -- create the offer, limited to the test customer.** Set it up as in
-section 12 with Status **ACTIVE**, **From today**, and one extra condition:
-**Customer is ZZTEST**. Nobody else can receive it.
-
-**Step 3 -- try it on quotations.** Sell → Quotations → New, customer
-`ZZTEST`. For each row below add the lines, then read each line's **side
-panel** (Discount, and "from a promotion" or "from the price list") and the
-totals:
+**Step 3 -- press Try.** You see each line's discount and free quantity, the
+bill discount, delivery waived, any free goods, and the **total saved**. Below
+that, **every offer tried** is listed with its priority, whether it applied and
+the reason -- so when an offer does not apply, the table says why.
 
 | Try | You are checking |
 | --- | --- |
@@ -358,30 +353,15 @@ totals:
 | A line just **below** the condition (24 when it needs 25) | it does **not** apply |
 | A line **exactly at** the condition (25) | it **does** apply ("is at least" includes 25) |
 | The largest realistic order | the combined discount with the other live offers is what you intend (section 4) |
-| A line with a discount **typed** | the offer is not applied to that line (section 5) |
 | An offer that should end the stack | the offers after it are absent |
 
-Write the quotation numbers down.
+A **DRAFT** offer never applies, so make it ACTIVE with its dates before
+trying it. A discount typed on a real line beats every offer (section 5); Try
+shows what the offers alone would give.
 
-**Coupon offers:** type the code in **Coupon** on a quotation for ZZTEST
-(D-SELL-43) and read the price -- a quotation uses no limit. To see the order
-side, use a **sales order**, type the code, **Create draft** and read it --
-**do not approve it**. A draft uses no limit and reserves nothing.
-
-**Step 4 -- open it to everyone.** Edit the offer: remove the **Customer is
-ZZTEST** condition and set **From / Until** to the festival dates. Saving
-makes a new revision and switches the tested one off.
-
-**Step 5 -- clean up.** Cancel the test quotations and delete the draft
-orders, so they never reach a report.
-
-**Step 6 -- on the first day.** Open the first real order that should get the
-offer and check its side panel. Reports → Operational Reports → **Promotion
-performance** and **Promotion claims** show every approved use.
-
-A proper "try this offer" screen, and a quotation dated in the future, are
-backlog item 60 (row 13): the server already has a trial endpoint
-(`POST /api/v1/promotions/simulate`) that no screen calls.
+**On the first day.** Open the first real order that should get the offer and
+check its side panel. Reports → Operational Reports → **Promotion performance**
+and **Promotion claims** show every approved use.
 
 ### Testing before a software release (QA)
 
@@ -431,4 +411,4 @@ described where they apply above.
 | Id | Gap |
 | --- | --- |
 | Backlog 59 | No "best offer only" mode: matching promotions always combine. |
-| Backlog 60 | No screen to try an offer and no future-dated quotation (row 13); offer types still missing against market practice -- a percent capped at an amount, buy X get Y at a discount, combo prices, festival bonus points, bulk coupon codes, first-order offers, offer templates, scheme claims, offers on the print. |
+| Backlog 60 | Offer types still missing against market practice -- a percent capped at an amount, buy X get Y at a discount, combo prices, festival bonus points, bulk coupon codes, first-order offers, offer templates, scheme claims, offers on the print. |

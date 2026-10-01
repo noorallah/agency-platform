@@ -6,13 +6,16 @@ import '../../core/api/api_client.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
+import '../../models/bulk_action.dart';
 import '../../models/document_framework.dart';
+import '../../phase2/indian_format.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../document_framework/document_status_gate.dart';
 import '../document_framework/document_line_labels.dart';
 import '../document_framework/document_view_dialog.dart';
 import '../../models/entities.dart';
 import '../trade_licences/licence_check_dialog.dart';
+import '../workspace/bulk_action.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
 import 'sales_invoice_editor_dialog.dart';
@@ -107,6 +110,10 @@ class _SalesInvoiceManagementPageState
   List<Map<String, dynamic>> _invoices = const [];
   Map<String, dynamic>? _selected;
   Map<String, dynamic> _summary = const {};
+
+  /// The rows ticked for a bulk approve or cancel (backlog 56 A). Only rows
+  /// on the page being read stay ticked.
+  Set<String> _ticked = <String>{};
 
   /// What the invoice view prints for a line's product, unit and tax profile.
   DocumentLineLabels _labels = const DocumentLineLabels();
@@ -243,6 +250,9 @@ class _SalesInvoiceManagementPageState
         _invoices = rows;
         _total = total;
         _selected = selected;
+        _ticked = _ticked
+            .where((id) => rows.any((row) => '${row['id']}' == id))
+            .toSet();
       });
     } on ApiException catch (error) {
       if (!mounted) return;
@@ -250,6 +260,90 @@ class _SalesInvoiceManagementPageState
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  /// More than one row ticked: the bar names the batch and offers the two
+  /// bulk actions instead of the one row's.
+  bool get _bulkMode => _ticked.length > 1;
+
+  List<Map<String, dynamic>> get _tickedRows => [
+        for (final Map<String, dynamic> row in _invoices)
+          if (_ticked.contains('${row['id']}')) row,
+      ];
+
+  List<BulkRow> _bulkRows() => [
+        for (final Map<String, dynamic> row in _tickedRows)
+          (id: '${row['id']}', version: (row['version'] as num?)?.toInt()),
+      ];
+
+  SelectionSummary _bulkSummary() {
+    double total = 0;
+    for (final Map<String, dynamic> row in _tickedRows) {
+      total += double.tryParse('${row['grand_total'] ?? ''}') ?? 0;
+    }
+    return SelectionSummary(
+      title: '${_ticked.length} selected',
+      detail: indianAmount(total, full: true),
+      onClear: () => setState(() => _ticked = <String>{}),
+    );
+  }
+
+  /// The two bulk actions, each behind the permission the single one takes.
+  List<ToolbarCommand> _bulkCommands() => [
+        ToolbarCommand(
+          id: 'bulk-approve',
+          label: 'Approve selected',
+          icon: Icons.check_circle_outline,
+          onPressed: _loading || !_mayApprove()
+              ? null
+              : () => unawaited(_bulkApprove()),
+        ),
+        ToolbarCommand(
+          id: 'cancel',
+          label: 'Cancel selected',
+          icon: Icons.cancel_outlined,
+          onPressed:
+              _loading || !widget.permissions.hasPermission('SALES_CANCEL')
+                  ? null
+                  : () => unawaited(_bulkCancel()),
+        ),
+      ];
+
+  Future<void> _bulkApprove() async {
+    final List<BulkRow> rows = _bulkRows();
+    await runBulkAction(
+      context,
+      verb: 'Approved',
+      rows: rows,
+      send: widget.api.bulkApproveSalesInvoices,
+    );
+    await _afterBulk();
+  }
+
+  Future<void> _bulkCancel() async {
+    final List<BulkRow> rows = _bulkRows();
+    final String? reason = await askForReason(
+      context,
+      title: 'Cancel ${rows.length} invoices',
+      explanation: 'Each invoice is cancelled on its own and its journal is '
+          'reversed; one the server refuses does not stop the others. The '
+          'reason is recorded on every invoice cancelled.',
+      confirmLabel: 'Cancel invoices',
+    );
+    if (reason == null || !mounted) return;
+    await runBulkAction(
+      context,
+      verb: 'Cancelled',
+      rows: rows,
+      send: (rows) => widget.api.bulkCancelSalesInvoices(rows, reason),
+    );
+    await _afterBulk();
+  }
+
+  Future<void> _afterBulk() async {
+    if (!mounted) return;
+    setState(() => _ticked = <String>{});
+    await _load();
   }
 
   Future<void> _act(String suffix, {String? overrideReason}) async {
@@ -571,7 +665,9 @@ class _SalesInvoiceManagementPageState
         // Option C (owner, 2026-09-27): the invoice's actions on a bar that
         // names it, above the grid.
         selectionBar: true,
-        selection: _selected == null
+        selection: _bulkMode
+            ? _bulkSummary()
+            : _selected == null
             ? null
             : SelectionSummary.document(
                 number: '${_selected!['invoice_number'] ?? ''}',
@@ -635,8 +731,9 @@ class _SalesInvoiceManagementPageState
       isEnabled: (action) =>
           !_loading &&
           switch (action) {
-            ToolbarAction.view => selected != null,
-            ToolbarAction.edit => selected != null && status == 'DRAFT',
+            ToolbarAction.view => selected != null && !_bulkMode,
+            ToolbarAction.edit =>
+              selected != null && status == 'DRAFT' && !_bulkMode,
             ToolbarAction.refresh => true,
             ToolbarAction.newItem => widget.hasActiveFirm,
             _ => false,
@@ -655,7 +752,9 @@ class _SalesInvoiceManagementPageState
             break;
         }
       },
-      commands: [
+      commands: _bulkMode
+          ? _bulkCommands()
+          : [
         ToolbarCommand(
           id: 'print',
           label: 'Print',
@@ -692,16 +791,17 @@ class _SalesInvoiceManagementPageState
           menuOnly: true,
           onPressed: () => unawaited(_openWorkflowSettings()),
         ),
-      ],
+              ],
     );
   }
 
   Widget _phase1Toolbar() => WorkspaceToolbar(
         actions: const [ToolbarAction.view, ToolbarAction.refresh],
+        commands: _bulkMode ? _bulkCommands() : const [],
         isEnabled: (action) =>
             !_loading &&
             switch (action) {
-              ToolbarAction.view => _selected != null,
+              ToolbarAction.view => _selected != null && !_bulkMode,
               ToolbarAction.refresh => true,
               _ => false,
             },
@@ -1007,6 +1107,10 @@ class _SalesInvoiceManagementPageState
         items: _invoices,
         id: (item) => '${item['id']}',
         selectedId: _selected == null ? null : '${_selected!['id']}',
+        // Ticks, for a bulk approve or cancel. A single row is still chosen
+        // by clicking it.
+        selectedIds: _ticked,
+        onSelectionChanged: (ticked) => setState(() => _ticked = ticked),
         cells: _columns.cells,
         onSelect: _selectInvoice,
         onOpen: (item) => unawaited(_openInvoice(item)),
