@@ -24,6 +24,7 @@ from app.document_framework.services.print_support import (
     load_template,
 )
 from app.products.models import Product
+from app.promotions.models import Promotion, PromotionRedemption
 from app.sales_invoice.models import (
     SalesInvoice,
     SalesInvoiceLine,
@@ -325,6 +326,31 @@ class SalesInvoicePrintService:
             "Buyer's order no.",
             sorted({o.customer_reference for o in orders if o.customer_reference}),
         )
+        # The offers the customer was given (backlog 60 item 12): claimed on
+        # the orders this bill continues, so a festival offer is named on the
+        # bill that delivers it, with what the bill took off in all.
+        if orders:
+            codes = sorted(
+                set(
+                    self._session.scalars(
+                        select(Promotion.code)
+                        .join(
+                            PromotionRedemption,
+                            PromotionRedemption.promotion_id == Promotion.id,
+                        )
+                        .where(
+                            PromotionRedemption.document_id.in_([o.id for o in orders]),
+                            PromotionRedemption.status == "CLAIMED",
+                            PromotionRedemption.is_deleted.is_(False),
+                        )
+                    ).all()
+                )
+            )
+            if codes:
+                rows.append(("Offers", ", ".join(codes)))
+        saved = invoice.line_discount_total + invoice.bill_discount_amount
+        if saved > 0:
+            rows.append(("You saved", f"{saved:.2f}"))
 
         per_line: dict[UUID, str] = {}
         if len(notes) > 1:
