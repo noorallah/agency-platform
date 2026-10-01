@@ -294,6 +294,14 @@ order are `docs/BACKLOG.md` §73. Paths below are under `desktop/lib/`.
 
 None open (2026-10-01).
 
+### Go-live -- found building the *Opening balances* step, 2026-10-01
+
+Tier 1 item 4 of `docs/GO_LIVE_PLAN.md`.
+
+| Id | Severity | Summary | Evidence |
+| --- | --- | --- | --- |
+| D-GOLIVE-1 | Medium | Opening bills cannot be brought in from a file. `POST /api/v1/customers/opening-bills/import` and `POST /api/v1/vendors/opening-bills/import` take JSON records naming parties by code and have no screen, template or check; the desktop only offers one bill at a time on each party's form, so a firm with hundreds of outstanding bills types them all. `docs/BACKLOG.md` §36 and the go-live plan both say the opening bills come from files. | Code: no caller in `desktop/lib`. `test_routes_have_a_caller.py` misses it because some call builds `'/api/v1/$a/$b/$c'`, and an all-hole shape matches every five-segment route. |
+
 ### Found in manual testing and not yet fixed -- `docs/BACKLOG.md` §31
 
 | Id | Severity | Summary | Evidence |

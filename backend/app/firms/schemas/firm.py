@@ -170,6 +170,10 @@ class FirmReadinessResponse(FirmSchema):
     #: Every step, required or recommended, is done.
     ready: bool
     steps: list[FirmReadinessStep]
+    #: What the firm has brought over from its old tool, in import order.
+    #: Never counted in ``can_post`` or ``ready``: a new business has
+    #: nothing to bring.
+    opening: list[FirmReadinessStep] = []
 
 
 class OpenBooksRequest(FirmSchema):

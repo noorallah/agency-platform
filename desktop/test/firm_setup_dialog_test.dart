@@ -44,6 +44,7 @@ Map<String, dynamic> _readiness({
   String storage = 'DONE',
   String books = 'MISSING',
   String others = 'MISSING',
+  Map<String, String> opening = const {},
 }) =>
     {
       'firm_id': 'firm-1',
@@ -71,7 +72,23 @@ Map<String, dynamic> _readiness({
         _step('members', 'People', others,
             required: false, detail: 'Nobody belongs to this firm yet.'),
       ],
+      'opening': [
+        for (final (String key, String label) in _openingShape)
+          _step(key, label, opening[key] ?? 'MISSING',
+              required: false,
+              detail: opening[key] == 'DONE' ? '3 rows.' : 'None yet.'),
+      ],
     };
+
+const List<(String, String)> _openingShape = [
+  ('products', 'Products'),
+  ('customers', 'Customers'),
+  ('suppliers', 'Suppliers'),
+  ('customer_opening_bills', "Customers' opening bills"),
+  ('supplier_opening_bills', "Suppliers' opening bills"),
+  ('opening_trial_balance', 'Opening trial balance'),
+  ('opening_stock', 'Opening stock'),
+];
 
 class _Api extends ApiClient {
   _Api({required this.answers, this.refuse})
@@ -392,6 +409,51 @@ void main() {
 
       expect(find.text('Finished. Every step is done.'), findsOneWidget);
       expect(find.byType(FilledButton), findsNothing);
+    });
+
+    testWidgets('lists the opening imports in order, ticked as each fills',
+        (tester) async {
+      await _open(
+        tester,
+        _Api(answers: [
+          _readiness(opening: const {
+            'products': 'DONE',
+            'customers': 'DONE',
+          }),
+        ]),
+      );
+
+      expect(find.text('Opening balances'), findsOneWidget);
+      expect(find.textContaining('2 of 7 done.'), findsOneWidget);
+      final List<double> tops = [
+        for (final (String key, _) in _openingShape)
+          tester
+              .getTopLeft(find.byKey(ValueKey('firm-setup-opening-$key')))
+              .dy,
+      ];
+      expect(tops, List<double>.of(tops)..sort(),
+          reason: 'drawn in the order the firm brings them over');
+      // A missing import says where it is done; a done one does not.
+      expect(
+        find.textContaining(openingBalanceHints['suppliers']!),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining(openingBalanceHints['products']!),
+        findsNothing,
+      );
+      // Every key the server sends has a screen to name.
+      for (final (String key, _) in _openingShape) {
+        expect(openingBalanceHints[key], isNotNull, reason: key);
+      }
+    });
+
+    testWidgets('an empty opening never holds back a finished firm',
+        (tester) async {
+      await _open(
+          tester, _Api(answers: [_readiness(books: 'DONE', others: 'DONE')]));
+      expect(find.text('Finished. Every step is done.'), findsOneWidget);
+      expect(find.textContaining('0 of 7 done.'), findsOneWidget);
     });
 
     testWidgets('fits an 800x600 window', (tester) async {
