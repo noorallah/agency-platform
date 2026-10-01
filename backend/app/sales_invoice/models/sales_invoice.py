@@ -168,6 +168,13 @@ class SalesInvoice(BaseEntity):
     received_now_reference: Mapped[str | None] = mapped_column(String(120))
     #: The receipt approval recorded; set once, never re-recorded.
     received_now_settlement_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    #: Whether the rates typed on this bill include GST (backlog 64 row 4). A
+    #: typed rate is then stored as its pre-tax equivalent in each line's
+    #: ``unit_price`` and kept as typed in ``entered_rate``; a line continuing
+    #: an order or a delivery note keeps the price it inherited.
+    rate_includes_tax: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: When it was cancelled, so an ageing as of an earlier day still
@@ -263,6 +270,11 @@ class SalesInvoiceLine(BaseEntity):
     unit_price: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: The rate as typed, GST included, where the bill's ``rate_includes_tax``
+    #: read it so (backlog 64 row 4); ``unit_price`` is the pre-tax rate it
+    #: derived to, which is what every posting and return reads. Null on a
+    #: line whose rate was not typed inclusive.
+    entered_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     discount_percent: Mapped[Decimal] = mapped_column(
         Numeric(9, 4), nullable=False, default=Decimal("0"), server_default="0"
     )

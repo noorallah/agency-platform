@@ -491,6 +491,8 @@ class SalesWorkflowSettingsResponse(SalesOrderSchema):
     promotion_mode: str = "COMBINE"
     #: Combine mode's cap on one line's offer discount, % of gross; null none.
     max_line_discount_percent: Decimal | None = None
+    #: Whether a new counter bill reads a typed rate as including GST.
+    rate_includes_tax: bool = False
     is_configured: bool
 
 
@@ -519,6 +521,9 @@ class SalesWorkflowSettingsWrite(SalesOrderSchema):
     max_line_discount_percent: Decimal | None = Field(
         default=None, ge=0, le=100, max_digits=5, decimal_places=2
     )
+    #: The default for a new counter bill's "Rate includes GST" switch
+    #: (backlog 64 row 4). Omitted is left as it is.
+    rate_includes_tax: bool | None = None
 
 
 class SalesOrderPreview(SalesOrderSchema):

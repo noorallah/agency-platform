@@ -162,6 +162,10 @@ class InvoiceLineBlock:
     expiry: str | None = None
     #: (code, percentage, amount) as recorded on the line.
     taxes: tuple[tuple[str, Decimal, Decimal], ...] = ()
+    #: The rate as typed, GST included, on a bill whose rates include GST
+    #: (backlog 64 row 4). ``rate`` is then the taxable rate it derived to,
+    #: and both are printed.
+    entered_rate: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,6 +240,10 @@ class TemplateSettings:
     copy_labels: tuple[str, ...] = ()
     page_size: str = "A4"
     margin_mm: Decimal = Decimal("12")
+
+
+#: The column a bill typed with GST-inclusive rates adds (backlog 64 row 4).
+INCLUSIVE_RATE = "Rate incl. GST"
 
 
 def _money(value: Decimal) -> str:
@@ -464,9 +472,16 @@ class InvoicePdfRenderer:
         table.setStyle(style)
         return table
 
-    def _line_columns(self) -> list[str]:
-        """Return the columns this firm prints, statutory ones always included."""
-        columns = ["Sl", "Description", "HSN", "Qty", "UOM", "Rate"]
+    def _line_columns(self, inclusive: bool = False) -> list[str]:
+        """Return the columns this firm prints, statutory ones always included.
+
+        ``inclusive`` adds the rate as typed, GST included, before the taxable
+        rate, for a bill whose rates were typed so (backlog 64 row 4).
+        """
+        columns = ["Sl", "Description", "HSN", "Qty", "UOM"]
+        if inclusive:
+            columns.append(INCLUSIVE_RATE)
+        columns.append("Rate")
         if self._template.show_batch_column:
             columns.append("Batch")
         if self._template.show_expiry_column:
@@ -484,7 +499,8 @@ class InvoicePdfRenderer:
                 if code not in component_codes:
                     component_codes.append(code)
 
-        header = self._line_columns()
+        inclusive = any(line.entered_rate is not None for line in document.lines)
+        header = self._line_columns(inclusive)
         for code in component_codes:
             header.extend([f"{code} %", f"{code} amt"])
         header.append("Amount")
@@ -505,8 +521,12 @@ class InvoicePdfRenderer:
                     else _quantity(line.quantity)
                 ),
                 line.uom or "",
-                _money(line.rate),
             ]
+            if inclusive:
+                cells.append(
+                    "" if line.entered_rate is None else _money(line.entered_rate)
+                )
+            cells.append(_money(line.rate))
             if self._template.show_batch_column:
                 cells.append(line.batch or "")
             if self._template.show_expiry_column:
@@ -542,6 +562,7 @@ class InvoicePdfRenderer:
         "Qty": 0.050,
         "UOM": 0.052,
         "Rate": 0.070,
+        INCLUSIVE_RATE: 0.070,
         "Batch": 0.064,
         "Expiry": 0.062,
         "Disc.": 0.060,

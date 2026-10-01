@@ -191,6 +191,11 @@ class SalesInvoicePrintService:
                         (item.component_code, item.percentage, item.amount)
                         for item in taxes.get(line.id, [])
                     ),
+                    # Both rates print where the bill typed them with GST in
+                    # (backlog 64 row 4).
+                    entered_rate=(
+                        line.entered_rate if invoice.rate_includes_tax else None
+                    ),
                 )
             )
 
