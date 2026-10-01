@@ -5,9 +5,10 @@ from __future__ import annotations
 import csv
 import io
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from decimal import Decimal
+from functools import partial
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
@@ -113,7 +114,12 @@ from app.sales_order.services.discount_limit import (
 )
 from app.sales_order.services.price_floor import PriceFloorService, order_lines
 from app.settlements.models import Settlement
-from app.tax.schemas import TaxRuleSimulationRequest
+from app.tax.schemas import TaxRuleSimulationRequest, TaxRuleSimulationResponse
+from app.tax.services.inclusive_rate import (
+    EnteredRate,
+    billed_rate,
+    lines_before_tax,
+)
 from app.tax.services.place_of_supply import SALES_INTERSTATE
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
@@ -476,19 +482,26 @@ class SalesOrderService(TransactionalDocumentService):
             status=SalesOrderStatus.DRAFT.value,
             additional_charges=self._q(data.additional_charges),
             round_off=self._q(data.round_off),
+            # Off unless the caller says so: a converted quotation, a counter
+            # bill and an import all hand over rates already before tax.
+            rate_includes_tax=bool(data.rate_includes_tax),
             created_by=actor_id,
             updated_by=actor_id,
         )
         self._session.add(row)
         self._session.flush()
+        lines, entered = self._typed_rates_before_tax(
+            row, data.lines, actor_id=actor_id
+        )
         totals = self._replace_lines(
             row,
-            lines=data.lines,
+            lines=lines,
             bill_percent=data.bill_discount_percent,
             bill_amount=data.bill_discount_amount,
             freight_amount=data.freight_amount,
             raised_as=raised_as,
             actor_id=actor_id,
+            entered=entered,
         )
         row.line_discount_total = totals["line_discount_total"]
         row.subtotal = totals["subtotal"]
@@ -605,14 +618,22 @@ class SalesOrderService(TransactionalDocumentService):
         row.outstanding_balance_snapshot = self._q(customer.current_outstanding)
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
+        # Absent keeps the order's own switch; the lines sent are read the
+        # way it says, so an editor sends back the rates as typed.
+        if data.rate_includes_tax is not None:
+            row.rate_includes_tax = data.rate_includes_tax
         row.updated_by = actor_id
+        lines, entered = self._typed_rates_before_tax(
+            row, data.lines, actor_id=actor_id
+        )
         totals = self._replace_lines(
             row,
-            lines=data.lines,
+            lines=lines,
             bill_percent=data.bill_discount_percent,
             bill_amount=data.bill_discount_amount,
             freight_amount=data.freight_amount,
             actor_id=actor_id,
+            entered=entered,
         )
         row.line_discount_total = totals["line_discount_total"]
         row.subtotal = totals["subtotal"]
@@ -1342,6 +1363,7 @@ class SalesOrderService(TransactionalDocumentService):
             bill_discount_amount=row.bill_discount_amount,
             bill_discount_source=row.bill_discount_source,
             coupon_code=row.coupon_code,
+            rate_includes_tax=bool(row.rate_includes_tax),
             freight_amount=row.freight_amount,
             freight_waived_amount=row.freight_waived_amount,
             line_discount_total=row.line_discount_total,
@@ -2053,7 +2075,11 @@ class SalesOrderService(TransactionalDocumentService):
         freight_amount: Decimal | None = None,
         raised_as: str = "sales order",
         actor_id: UUID,
+        entered: Mapping[int, EnteredRate] | None = None,
     ) -> dict[str, Decimal]:
+        # ``entered`` is what was typed GST-inclusive on each line, by line
+        # number, kept beside the pre-tax figures (backlog 64 row 4).
+        #
         # Lines are matched on their line number and updated in place. Deleting
         # and re-inserting them, as this did, minted a new UUID for every line on
         # every save. Downstream documents record source_document_line_id as a
@@ -2257,6 +2283,11 @@ class SalesOrderService(TransactionalDocumentService):
             version = conversion["version"]
             line.conversion_version = None if version is None else int(version)
             line.unit_price = self._q(item.unit_price)
+            typed = (entered or {}).get(item.line_number)
+            line.entered_rate = None if typed is None else typed.entered_rate
+            line.entered_discount_amount = (
+                None if typed is None else typed.entered_discount_amount
+            )
             line.discount_percent = line_discount.percent
             line.discount_source = line_discount.source
             line.discount_amount = discount
@@ -2503,8 +2534,43 @@ class SalesOrderService(TransactionalDocumentService):
         line_number: int | None = None,
         shipping_address_id: UUID | None = None,
     ) -> Decimal:
+        response = self._tax_response(
+            order_date=order_date,
+            firm_id=firm_id,
+            actor_id=actor_id,
+            business_profile_id=business_profile_id,
+            customer_id=customer_id,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            product_id=product_id,
+            tax_profile_id=tax_profile_id,
+            invoice_value=invoice_value,
+            document_id=document_id,
+            line_number=line_number,
+            shipping_address_id=shipping_address_id,
+        )
+        return ZERO if response is None else self._q(response.total_tax_amount)
+
+    def _tax_response(
+        self,
+        *,
+        order_date: date,
+        firm_id: UUID,
+        actor_id: UUID,
+        business_profile_id: UUID | None,
+        customer_id: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID | None,
+        product_id: UUID,
+        tax_profile_id: UUID | None,
+        invoice_value: Decimal,
+        document_id: UUID | None = None,
+        line_number: int | None = None,
+        shipping_address_id: UUID | None = None,
+    ) -> TaxRuleSimulationResponse | None:
+        """Ask the tax engine about one line; None where nothing is taxed."""
         if invoice_value <= ZERO:
-            return ZERO
+            return None
         # A product names a tax group, not a version, so the rate is decided by
         # the document date. An explicitly named profile must also have been in
         # force then, or the document would carry a rate that never applied.
@@ -2519,7 +2585,7 @@ class SalesOrderService(TransactionalDocumentService):
                 else None
             )
             if resolved is None:
-                return ZERO
+                return None
             tax_profile_id = resolved.id
         else:
             tax_service.assert_profile_effective_on(
@@ -2548,14 +2614,60 @@ class SalesOrderService(TransactionalDocumentService):
                 "document_type": "SALES_ORDER",
             },
         )
-        response = self._tax.simulate(
+        return self._tax.simulate(
             request,
             firm_scope=firm_id,
             actor_id=actor_id,
             document_id=document_id,
             line_number=line_number,
         )
-        return self._q(response.total_tax_amount)
+
+    def _typed_rates_before_tax(
+        self,
+        row: SalesOrder,
+        lines: list[SalesOrderLineWrite],
+        *,
+        actor_id: UUID,
+    ) -> tuple[list[SalesOrderLineWrite], dict[int, EnteredRate]]:
+        """Read the order's GST-inclusive rates back to pre-tax (64 row 4).
+
+        Nothing changes on an order whose rates do not include GST. The tax
+        asked about is the one each line will be charged -- same buyer,
+        branch, ship-to, product and date -- through ``simulate``, which
+        never commits.
+        """
+        if not row.rate_includes_tax:
+            return lines, {}
+
+        def rate_for(line: SalesOrderLineWrite) -> Callable[[Decimal], Decimal]:
+            """Return the billed rate of tax for this line at a value."""
+            return partial(self._billed_rate_at, row=row, line=line, actor_id=actor_id)
+
+        return lines_before_tax(lines, rate_for=rate_for)
+
+    def _billed_rate_at(
+        self,
+        value: Decimal,
+        *,
+        row: SalesOrder,
+        line: SalesOrderLineWrite,
+        actor_id: UUID,
+    ) -> Decimal:
+        """Return the tax billed on a line of this value, as a fraction."""
+        response = self._tax_response(
+            order_date=row.order_date,
+            firm_id=row.firm_id,
+            actor_id=actor_id,
+            business_profile_id=row.business_profile_id,
+            customer_id=row.customer_id,
+            branch_id=row.branch_id,
+            warehouse_id=line.warehouse_id or row.warehouse_id,
+            product_id=line.product_id,
+            tax_profile_id=line.tax_profile_id,
+            invoice_value=value,
+            shipping_address_id=row.shipping_address_id,
+        )
+        return ZERO if response is None else billed_rate(response)
 
     def _conversion(
         self,

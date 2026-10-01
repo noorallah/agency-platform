@@ -120,6 +120,14 @@ class SalesOrderCreate(SalesOrderSchema):
     #: saveable -- a typo in a field that gives money away must not refuse a
     #: sale.
     coupon_code: str | None = Field(default=None, max_length=40)
+    #: Whether each ``unit_price`` (and ``discount_amount``) on the lines
+    #: includes GST (backlog 64 row 4). The line stores the pre-tax rate it
+    #: derives to and keeps what was typed in ``entered_rate``. Absent on a
+    #: new order is off -- an order is also raised by a converted
+    #: quotation, a counter bill and an import, none of which types a
+    #: shelf price -- and absent on an update keeps the
+    #: order's own.
+    rate_includes_tax: bool | None = None
     additional_charges: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
@@ -221,6 +229,12 @@ class SalesOrderLineResponse(SalesOrderSchema):
     conversion_factor: Decimal
     conversion_version: int | None
     unit_price: Decimal
+    #: The rate as typed, GST included, where the document's rates include
+    #: GST (backlog 64 row 4); ``unit_price`` is the pre-tax rate. Null
+    #: otherwise.
+    entered_rate: Decimal | None = None
+    #: The discount amount as typed with it, GST included; null otherwise.
+    entered_discount_amount: Decimal | None = None
     discount_percent: Decimal
     #: See the line model: typed (``percent``/``amount``) or resolved.
     discount_source: str | None = None
@@ -316,6 +330,8 @@ class SalesOrderResponse(SalesOrderSchema):
     #: editor reopened an order with an empty Coupon box and saving it
     #: removed the coupon and the offer it reached (plan item 10.7).
     coupon_code: str | None = None
+    #: Whether the rates typed on this order include GST (backlog 64 row 4).
+    rate_includes_tax: bool = False
     #: What was charged for delivery, split across the lines and taxed there.
     freight_amount: Decimal = Decimal("0")
     #: What a free-shipping offer took off it. The two together are what the

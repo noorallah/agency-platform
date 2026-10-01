@@ -104,6 +104,12 @@ class QuotationCreate(QuotationSchema):
     #: The code the customer presented, if any. The quote is priced with the
     #: offer it unlocks; a code nobody recognises leaves the quote saveable.
     coupon_code: str | None = Field(default=None, max_length=40)
+    #: Whether each ``unit_price`` (and ``discount_amount``) on the lines
+    #: includes GST (backlog 64 row 4). The line stores the pre-tax rate it
+    #: derives to and keeps what was typed in ``entered_rate``. Absent on a
+    #: new quotation is off -- an import types no shelf price -- and absent
+    #: on an update keeps the quotation's own.
+    rate_includes_tax: bool | None = None
     additional_charges: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
@@ -231,6 +237,12 @@ class QuotationLineResponse(QuotationSchema):
     inventory_uom_id: UUID | None
     packaging_type_id: UUID | None
     unit_price: Decimal
+    #: The rate as typed, GST included, where the document's rates include
+    #: GST (backlog 64 row 4); ``unit_price`` is the pre-tax rate. Null
+    #: otherwise.
+    entered_rate: Decimal | None = None
+    #: The discount amount as typed with it, GST included; null otherwise.
+    entered_discount_amount: Decimal | None = None
     discount_percent: Decimal
     #: See the line model: typed (``percent``/``amount``) or resolved.
     discount_source: str | None = None
@@ -280,6 +292,8 @@ class QuotationResponse(QuotationSchema):
     exchange_rate: Decimal | None
     remarks: str | None
     coupon_code: str | None = None
+    #: Whether the rates typed on this quotation include GST (backlog 64 row 4).
+    rate_includes_tax: bool = False
     status: QuotationStatus
     #: The customer's standing discount on the day this was raised.
     customer_discount_percent: Decimal

@@ -24,9 +24,10 @@ a paisa, the tax engine's figure stands and the difference is the round-off's
 to absorb -- the tax is never adjusted to make the total come out.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Protocol, Self
 
 from app.core.utils.money import quantize_money
 from app.tax.schemas import TaxRuleSimulationResponse
@@ -125,3 +126,73 @@ def derive_pre_tax(
         entered_rate=entered_rate,
         tax_rate=rate,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class EnteredRate:
+    """What a person typed on one line, kept beside the pre-tax figures."""
+
+    #: The rate as typed, GST included.
+    entered_rate: Decimal
+    #: The discount amount as typed, GST included; None where none was typed.
+    entered_discount_amount: Decimal | None
+
+
+class TypedLine(Protocol):
+    """A line write a sales order or a quotation is given."""
+
+    line_number: int
+    quantity: Decimal
+    unit_price: Decimal
+    discount_percent: Decimal | None
+    discount_amount: Decimal | None
+
+    def model_copy(
+        self, *, update: dict[str, object] | None = None, deep: bool = False
+    ) -> Self:
+        """Return a copy with the named fields replaced."""
+        ...
+
+
+def lines_before_tax[LineT: TypedLine](
+    lines: Sequence[LineT],
+    *,
+    rate_for: Callable[[LineT], Callable[[Decimal], Decimal]],
+) -> tuple[list[LineT], dict[int, EnteredRate]]:
+    """Read every rate typed on a document with GST in it back to pre-tax.
+
+    Backlog 64 row 4, for the sales order and the quotation, whose every line
+    is typed. A line whose rate is zero states no price, so it is left as it
+    is and keeps no typed rate.
+
+    Args:
+        lines: The document's lines as sent, rates GST-inclusive.
+        rate_for: Given a line, the billed tax rate for a line of that value.
+
+    Returns:
+        The lines with pre-tax rates and discount amounts, and what was typed
+        on each, by line number.
+
+    """
+    written: list[LineT] = []
+    entered: dict[int, EnteredRate] = {}
+    for line in lines:
+        if line.unit_price <= ZERO:
+            written.append(line)
+            continue
+        derived = derive_pre_tax(
+            quantity=line.quantity,
+            entered_rate=line.unit_price,
+            discount_percent=line.discount_percent,
+            discount_amount=line.discount_amount,
+            rate_at=rate_for(line),
+        )
+        entered[line.line_number] = EnteredRate(
+            entered_rate=derived.entered_rate,
+            entered_discount_amount=line.discount_amount,
+        )
+        update: dict[str, object] = {"unit_price": derived.unit_price}
+        if derived.discount_amount is not None:
+            update["discount_amount"] = derived.discount_amount
+        written.append(line.model_copy(update=update))
+    return written, entered

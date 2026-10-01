@@ -24,7 +24,6 @@ from app.sales_invoice.schemas import (
     SalesInvoiceSourceType,
 )
 from app.sales_invoice.services import SalesInvoiceService
-from app.sales_invoice.services.inclusive_rate import derive_pre_tax
 from app.sales_invoice.services.invoice_pdf import (
     InvoiceDocument,
     InvoicePdfRenderer,
@@ -39,6 +38,7 @@ from app.sales_order.schemas import (
 from app.sales_order.services.sales_order_service import SalesOrderService
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
 from app.tax.services.gst_template import apply_india_gst_template
+from app.tax.services.inclusive_rate import derive_pre_tax
 from tests.unit.test_invoice_print import _document, _text_of
 from tests.unit.test_sales_chain_synthesis import _Firm, _session_factory
 

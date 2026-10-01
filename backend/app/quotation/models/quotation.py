@@ -18,6 +18,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     ForeignKey,
@@ -90,6 +91,13 @@ class SalesQuotation(BaseEntity):
     #: priced with it and the order it becomes carries it; only that order's
     #: approval counts the claim -- a quotation is an offer, not a claim.
     coupon_code: Mapped[str | None] = mapped_column(String(40))
+    #: Whether the rates typed on this quotation include GST (backlog 64 row
+    #: 4). Each typed rate is stored before tax in ``unit_price`` and kept as
+    #: typed in the line's ``entered_rate``; the order it becomes is raised
+    #: from the typed rates the same way.
+    rate_includes_tax: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     #: The customer's standing discount when this document was raised. The
     #: rate is a starting point and every line may override it, so this says
     #: what it would have been rather than what any line was charged.
@@ -211,6 +219,13 @@ class SalesQuotationLine(BaseEntity):
     unit_price: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: The rate as typed, GST included, on a quotation whose rates include GST
+    #: (backlog 64 row 4); ``unit_price`` is the pre-tax rate it derived to.
+    #: Null on a line whose rate was not typed inclusive.
+    entered_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    #: The discount amount as typed with it, GST included; ``discount_amount``
+    #: is its pre-tax equivalent. Null where no amount was typed so.
+    entered_discount_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     discount_percent: Mapped[Decimal] = mapped_column(
         Numeric(9, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
