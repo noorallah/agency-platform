@@ -205,6 +205,63 @@ void main() {
   });
 
   group('the customer workspace in phase 2', () {
+    testWidgets('offers the opening bills from a file behind ..., fitting at 800x600',
+        (tester) async {
+      // D-GOLIVE-1: the opening bills come in from a file, beside Import.
+      await tester.binding.setSurfaceSize(const Size(800, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: CustomerManagementPage(
+              api: _CustomerApi(),
+              permissions: _withPermissions(
+                  ['CUSTOMER_VIEW', 'CUSTOMER_CREATE', 'CUSTOMER_IMPORT']),
+              hasActiveFirm: true,
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      // Done once at cutover, so behind "..." rather than on the line.
+      await tester.tap(find.byKey(const ValueKey('toolbar-more')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(
+            const ValueKey('toolbar-command-import-opening-bills-menu')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('without CUSTOMER_IMPORT the button is not offered',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: CustomerManagementPage(
+              api: _CustomerApi(),
+              permissions: _withPermissions(['CUSTOMER_VIEW']),
+              hasActiveFirm: true,
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('toolbar-command-import-opening-bills-menu')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('toolbar-command-import-opening-bills')),
+        findsNothing,
+      );
+    });
+
     testWidgets('picking a customer names them on the selection bar',
         (tester) async {
       // Option C (owner, 2026-09-27): the master lists get the bar the

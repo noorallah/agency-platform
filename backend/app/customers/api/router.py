@@ -25,6 +25,7 @@ from app.core.exceptions import AuthorizationError, ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.core.utils.dates import utc_now
 from app.customers.models import Customer
 from app.customers.schemas import (
     CreditControlSettingsResponse,
@@ -66,6 +67,7 @@ from app.customers.services.customer_import import (
     template_csv,
     template_workbook,
 )
+from app.customers.services.opening_bill_import import CustomerOpeningBillFileImporter
 from app.customers.services.opening_bill_service import CustomerOpeningBillService
 
 router = APIRouter(
@@ -341,6 +343,77 @@ def import_customer_opening_bills(
     return ApiResponse(
         data=[service.response_for(row, firm_id=firm_id) for row in rows]
     )
+
+
+@router.get("/opening-bills/import-template")
+def customer_opening_bill_import_template(
+    scope: CustomerImportScope,
+    format: Literal["csv", "xlsx"] = "xlsx",
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Download the customers' opening-bill template (D-GOLIVE-1).
+
+    The workbook carries the sheet to fill, a notes sheet naming every column,
+    and a lists sheet with this firm's customers; the example row names one of
+    them, so the template imports as it comes.
+    """
+    importer = CustomerOpeningBillFileImporter(db)
+    firm_id = _firm(scope)
+    if format == "csv":
+        return StreamingResponse(
+            iter([importer.template_csv(firm_id)]),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": (
+                    'attachment; filename="customer-opening-bills-template.csv"'
+                )
+            },
+        )
+    return StreamingResponse(
+        iter([importer.template_workbook(firm_id)]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": (
+                'attachment; filename="customer-opening-bills-template.xlsx"'
+            )
+        },
+    )
+
+
+@router.post(
+    "/opening-bills/import-file", response_model=ApiResponse[ImportReportResponse]
+)
+async def import_customer_opening_bill_file(
+    scope: CustomerImportScope,
+    file: Annotated[UploadFile, File()],
+    db: Session = Depends(get_db),
+    posting_date: Annotated[str | None, Form()] = None,
+    apply: Annotated[bool, Form()] = False,
+) -> ApiResponse[ImportReportResponse]:
+    """Check a CSV or XLSX file of opening bills, and with ``apply`` post it.
+
+    Every bill is posted on ``posting_date`` (today when left out). Every
+    problem is returned with its row and column; an apply that finds any
+    writes nothing and says so with ``imported: false``.
+    """
+    firm_id = _firm(scope)
+    file_format = file_format_of(file.filename)
+    if posting_date:
+        try:
+            on = date.fromisoformat(posting_date)
+        except ValueError as error:
+            raise ValidationError("posting_date must be a date, yyyy-mm-dd.") from error
+    else:
+        on = utc_now().date()
+    report = CustomerOpeningBillFileImporter(db).run(
+        await file.read(),
+        file_format=file_format,
+        firm_id=firm_id,
+        actor_id=scope.actor_id,
+        posting_date=on,
+        apply=apply,
+    )
+    return ApiResponse(data=report_response(report))
 
 
 @router.post(

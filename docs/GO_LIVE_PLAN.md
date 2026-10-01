@@ -12,8 +12,8 @@ item names the backlog section or defect that holds its detail.
 
 ## Where things stand, 2026-10-01
 
-- **Defects: none open.** Every defect in `docs/DEFECTS.md` is fixed and names
-  its PR.
+- **Defects: one Low open** (D-GOLIVE-2, a test guard that needs triage).
+  Every other defect in `docs/DEFECTS.md` is fixed and names its PR.
 - **Built for go-live since 2026-09-29:**
   - Trade licences, all five steps (§54): register, printing, Home alert,
     required licence per product, sale and purchase checks.
@@ -40,7 +40,7 @@ item names the backlog section or defect that holds its detail.
 | 1 | **Install on a clean PC from `Setup.exe`** and run `docs/INSTALLER_QA_CHECKLIST.md`, including the new port rows A15a and A15b (D-SETUP-9 was driven by its script, never by a full install) | A firm's first day is the installer | Half a day | Owner |
 | 2 | **Time the reports on the minimum hardware** in `docs/INSTALL_GUIDE.md` with `scripts/time_routes.py` against PERF01 | Every timing so far is on the development machine | Half a day | Owner + Claude |
 | 3 | **Walk the onboarding on a copy of a real firm's data**: products, customers, suppliers, opening bills, trial balance and stock from their own files, in that order, then check that the trial balance, the stock valuation and the outstanding lists agree with the old tool | Proves §36 end to end on real data, not seeded data | 1-2 days | Owner with the firm |
-| 4 | **An *Opening balances* step on the firm's Set up panel** that lists the imports above in order and ticks each one done | Today the imports live on five screens; a firm's first day should not depend on knowing where. **Built 2026-10-01**; it found that the opening bills have no file import (D-GOLIVE-1) | 1-2 days | Claude |
+| 4 | **An *Opening balances* step on the firm's Set up panel** that lists the imports above in order and ticks each one done | Today the imports live on five screens; a firm's first day should not depend on knowing where. **Built 2026-10-01** (#869); it found that the opening bills had no file import, fixed the same day (D-GOLIVE-1) | 1-2 days | Claude |
 | 5 | **Expenses (#814, merged)**: the owner's laptop test of the merged screen | Expenses are a daily entry for every trade | Owner's test | Owner |
 | 6 | **The go-live guide**: the TDS interim steps (§53, "docs only"), how to close a month and a year, how to bulk-approve, what to do when a licence check refuses | The firm's accountant reads it before the CA does | 1 day | Claude |
 | 7 | **The printed bill names every delivery note it bills** (§58 item 7) | A bill made of three dispatches must say so on paper. **Built 2026-10-01** | 1 day | Claude |
