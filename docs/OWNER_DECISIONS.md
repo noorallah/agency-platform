@@ -25,6 +25,9 @@ a question only the owner, a go-live firm or its CA can answer.
 | A14 | Party adjustments (§74 row 2) | Rounding on a receipt or payment is capped at 10.00 (per-firm setting); bank charges are a receipt's only; a write-off / write-back / set-off above 1,000.00 needs `PARTY_ADJUSTMENT_APPROVE` and someone other than its drafter | Confirm the two amounts |
 | A15 | Set-off | Refused only when both parties have a PAN and they differ | OK, or require the PANs to be known? |
 | A16 | TCS (206C(1H)) | Still charged on a receipt's full amount, deductions included | Low -- the section ended 1 April 2025 |
+| A17 | Business profiles (§17) | A profile written at runtime -- including a seeded one's features -- is written to every store, each reported as written or failed; deleting one now answers per store | OK that editing a seeded profile changes it for every firm? |
+| A18 | Reorder (§42.9) | Draft orders are grouped per supplier per warehouse; the supplier is the one last billed (there is no preferred-supplier field); with no maximum level the suggestion is only the shortfall | Add a preferred supplier per product (§69 rows 1-3)? |
+| A19 | Offer cap (§59 item 3) | Over the cap, the latest-applied offer gives back first | OK? |
 
 ## B. Open questions the backlog already records
 
