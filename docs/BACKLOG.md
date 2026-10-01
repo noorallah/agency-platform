@@ -5335,3 +5335,23 @@ opening balances §36; firm bank details §74.1 row 13; HSN kept on the line
 **Suggested order:** 2 (tax: SEZ and composition buyers are billed wrong
 without it) -> 5, 7 (small, and weekly work) -> 1 -> 3 (decide first) -> 4
 -> 6 -> 9, 10 -> 8 -> 11.
+
+## 76. Routes with no screen, found tightening the orphan-route guard (D-GOLIVE-2)
+
+Found 2026-10-01. `tests/unit/test_routes_have_a_caller.py` used to count a
+route as reached whenever a generic helper (`'/api/v1/$resource/$id'`) could
+in principle build it, which reached everything; it now expands those helpers
+with the resource names the desktop actually hands them. 53 routes turned out
+to have no caller. Most are deliberate surface (JSON batch imports for scripted
+migration, machine exports) and are pinned with that reason. These are screen
+gaps, pinned with a pointer here, each to build when a firm asks:
+
+| Gap | Routes |
+| --- | --- |
+| Bulk status, category and profile on the Vendors, Branches and Warehouses lists | `POST /vendors/bulk-status`, `/vendors/bulk-category`, `/vendors/bulk-profile`, `/branches/bulk-status`, `/warehouses/bulk-status` |
+| Bulk delete / restore / status on tax systems, components and profiles | `POST /tax-framework/{systems,components,profiles}/bulk-*` |
+| Managing document lifecycle states and editing or retiring a document type | `GET/POST/PUT/DELETE /document-framework/document-states`, `PUT/DELETE /document-framework/document-types/{id}` |
+| Editing or deleting a financial year (only create, close and reopen are offered) | `PATCH/DELETE /finance/financial-years/{id}` |
+| The branch-warehouse settings read | `GET /branch-warehouse/settings` |
+| Stock summary by product | `GET /inventory/summary/by-product` |
+| The sales returns list's summary cards | `GET /sales-returns/summary` |
