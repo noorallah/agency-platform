@@ -104,6 +104,8 @@ class DebitNoteRecord {
     this.reason = 'OTHER',
     this.status = 'DRAFT',
     this.referenceNumber = '',
+    this.supplierCreditNoteNumber = '',
+    this.supplierCreditNoteDate = '',
     this.remarks = '',
     this.cancelReason = '',
     this.journalEntryId = '',
@@ -125,6 +127,11 @@ class DebitNoteRecord {
   final String taxAmount;
   final String totalAmount;
   final String referenceNumber;
+
+  /// The supplier's own credit note this note records, when it is one the
+  /// supplier issued (backlog 68 row 10); empty for a claim the firm raised.
+  final String supplierCreditNoteNumber;
+  final String supplierCreditNoteDate;
   final String remarks;
   final String cancelReason;
   final String journalEntryId;
@@ -138,6 +145,7 @@ class DebitNoteRecord {
   String get reasonLabel => switch (reason) {
         'PRICE_DIFFERENCE' => 'Price difference',
         'SHORT_SUPPLY' => 'Short supply',
+        'DISCOUNT' => 'Discount after billing',
         _ => 'Other',
       };
 
@@ -160,6 +168,9 @@ class DebitNoteRecord {
         taxAmount: stringValue(json['tax_amount']),
         totalAmount: stringValue(json['total_amount']),
         referenceNumber: stringValue(json['reference_number']),
+        supplierCreditNoteNumber:
+            stringValue(json['supplier_credit_note_number']),
+        supplierCreditNoteDate: stringValue(json['supplier_credit_note_date']),
         remarks: stringValue(json['remarks']),
         cancelReason: stringValue(json['cancel_reason']),
         journalEntryId: stringValue(json['journal_entry_id']),

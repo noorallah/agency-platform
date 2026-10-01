@@ -79,6 +79,9 @@ class _DebitNoteApi extends ApiClient {
   /// The status the server answers a fresh read of the note with.
   String detailStatus = 'DRAFT';
 
+  /// Fields the fresh read adds to the note, such as a supplier's credit note.
+  Json detailExtra = const <String, dynamic>{};
+
   @override
   Future<Json> request(
     String method,
@@ -175,6 +178,7 @@ class _DebitNoteApi extends ApiClient {
       return <String, dynamic>{
         'data': <String, dynamic>{
           ..._note(status: detailStatus),
+          ...detailExtra,
           'remarks': 'Rate was 84, billed 91',
           'lines': <Json>[
             <String, dynamic>{
@@ -479,10 +483,93 @@ void main() {
         'debit_note_date',
         'reason',
         'reference_number',
+        'supplier_credit_note_number',
+        'supplier_credit_note_date',
         'remarks',
         'lines',
       }),
       isEmpty,
+    );
+    // Nothing recorded, so an edit sends the pair cleared.
+    expect(api.updated?['supplier_credit_note_number'], isNull);
+    expect(api.updated?['supplier_credit_note_date'], isNull);
+  });
+
+  testWidgets(
+      "raising one records the supplier's credit note number and date "
+      '(68 row 10)', (tester) async {
+    final _DebitNoteApi api = _DebitNoteApi(notes: <Json>[_note()]);
+    await _pump(tester, api, size: const Size(1366, 768));
+    await tester.tap(find.textContaining('New').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('debit-note-vendor')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Patel Traders').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('debit-note-bill-ven-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('PI-2026-0009').last);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('debit-note-reason')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Discount after billing').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('debit-note-supplier-credit-note')),
+      'PT-CN-12',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('debit-note-supplier-credit-note-date')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('debit-note-amount-bill-1-0')),
+      '40',
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('debit-note-save')));
+    await tester.pumpAndSettle();
+
+    expect(api.raised?['reason'], 'DISCOUNT');
+    expect(api.raised?['supplier_credit_note_number'], 'PT-CN-12');
+    final DateTime now = DateTime.now();
+    expect(
+      api.raised?['supplier_credit_note_date'],
+      DateTime(now.year, now.month, now.day)
+          .toIso8601String()
+          .split('T')
+          .first,
+    );
+  });
+
+  testWidgets("a supplier's credit note reads as one in the list and the detail",
+      (tester) async {
+    final _DebitNoteApi api = _DebitNoteApi(notes: <Json>[
+      <String, dynamic>{
+        ..._note(),
+        'reason': 'DISCOUNT',
+        'supplier_credit_note_number': 'PT-CN-12',
+        'supplier_credit_note_date': '2026-09-01',
+      },
+    ]);
+    api.detailExtra = <String, dynamic>{
+      'supplier_credit_note_number': 'PT-CN-12',
+      'supplier_credit_note_date': '2026-09-01',
+    };
+    await _pump(tester, api);
+    expect(find.text('Discount after billing'), findsOneWidget);
+
+    await tester.tap(find.text('DN-2026-0001').first);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(find.text('DN-2026-0001').first);
+    await tester.pumpAndSettle();
+    expect(
+      find.text("Supplier's credit note PT-CN-12 dated 2026-09-01"),
+      findsOneWidget,
     );
   });
 }

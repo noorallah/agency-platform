@@ -56,6 +56,7 @@ class _DebitNotePageState extends State<DebitNotePage> {
   final TextEditingController _search = TextEditingController();
   DatePeriod _period = const DatePeriod.all();
 
+
   String? get _from =>
       _period.from == null ? null : DatePeriod.iso(_period.from!);
   String? get _to => _period.to == null ? null : DatePeriod.iso(_period.to!);
@@ -227,6 +228,7 @@ class _DebitNotePageState extends State<DebitNotePage> {
       toolbar: _toolbar(picked),
       searchPanel: SearchFilterPanel(
         controller: _search,
+        // The supplier's own credit note number is searched too (68 row 10).
         hintText: 'Search number, vendor or bill',
         onSearch: (_) => unawaited(_load()),
       ),
@@ -393,6 +395,14 @@ class _DebitNotePageState extends State<DebitNotePage> {
         cell: (item) => item.referenceNumber,
       ),
       ChoosableColumn(
+        column: const GridColumn(
+            key: 'supplier-credit-note', label: "Supplier's Credit Note"),
+        cell: (item) => item.supplierCreditNoteNumber.isEmpty
+            ? ''
+            : '${item.supplierCreditNoteNumber} '
+                '(${item.supplierCreditNoteDate})',
+      ),
+      ChoosableColumn(
         column: const GridColumn(key: 'remarks', label: 'Remarks'),
         cell: (item) => item.remarks,
       ),
@@ -441,6 +451,13 @@ class _DebitNotePageState extends State<DebitNotePage> {
                   ),
                   if (note.referenceNumber.isNotEmpty)
                     Text('Reference ${note.referenceNumber}', style: small),
+                  if (note.supplierCreditNoteNumber.isNotEmpty)
+                    Text(
+                      "Supplier's credit note "
+                      '${note.supplierCreditNoteNumber} dated '
+                      '${note.supplierCreditNoteDate}',
+                      style: small,
+                    ),
                   const SizedBox(height: AppSpacing.md),
                   for (final DebitNoteLineRecord line in note.lines)
                     Padding(
@@ -539,6 +556,11 @@ class _DebitNoteDialogState extends State<DebitNoteDialog> {
   final TextEditingController _remarks = TextEditingController();
   final TextEditingController _reference = TextEditingController();
 
+  /// The supplier's own credit note this records, if any (backlog 68 row
+  /// 10): its number, and its date as yyyy-mm-dd. Both or neither.
+  final TextEditingController _supplierNote = TextEditingController();
+  String _supplierNoteDate = '';
+
   String _reason = 'PRICE_DIFFERENCE';
   String? _error;
   bool _saving = false;
@@ -577,6 +599,8 @@ class _DebitNoteDialogState extends State<DebitNoteDialog> {
       _billId = note.purchaseInvoiceId;
       _reason = note.reason;
       _reference.text = note.referenceNumber;
+      _supplierNote.text = note.supplierCreditNoteNumber;
+      _supplierNoteDate = note.supplierCreditNoteDate;
       _remarks.text = note.remarks;
       _bills = <Json>[
         <String, dynamic>{
@@ -625,6 +649,7 @@ class _DebitNoteDialogState extends State<DebitNoteDialog> {
     _previewTimer?.cancel();
     _remarks.dispose();
     _reference.dispose();
+    _supplierNote.dispose();
     super.dispose();
   }
 
@@ -774,6 +799,16 @@ class _DebitNoteDialogState extends State<DebitNoteDialog> {
         'reference_number': _reference.text.trim(),
       if (forUpdate || _remarks.text.trim().isNotEmpty)
         'remarks': _remarks.text.trim(),
+      // Both or neither; on an edit a cleared pair clears the record.
+      if (forUpdate ||
+          _supplierNote.text.trim().isNotEmpty ||
+          _supplierNoteDate.isNotEmpty) ...{
+        'supplier_credit_note_number': _supplierNote.text.trim().isEmpty
+            ? null
+            : _supplierNote.text.trim(),
+        'supplier_credit_note_date':
+            _supplierNoteDate.isEmpty ? null : _supplierNoteDate,
+      },
       'lines': [
         for (int i = 0; i < claiming.length; i++)
           <String, dynamic>{
