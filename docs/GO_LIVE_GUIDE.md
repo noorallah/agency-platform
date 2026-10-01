@@ -53,9 +53,11 @@ one is.
 the cutover date:
 
 - **Accounts > Trial Balance** matches the old trial balance.
-- **Reports > Stock valuation** matches the old closing stock value.
-- **Reports > Outstanding** (customers and suppliers) matches the old
-  outstanding lists, party by party.
+- **Reports > Financial > Stock valuation** (as on the cutover date) matches
+  the old closing stock value; its last rows also show the Inventory account
+  beside it, which must agree.
+- **Reports > Financial > Customer outstanding** and **Vendor outstanding**
+  match the old outstanding lists, party by party.
 
 If any one differs, find the difference before the first invoice. It is ten
 minutes' work on day one and a week's work at the year end.
@@ -207,7 +209,7 @@ When it **blocks**:
 | Daily | Expenses | Accounts > Expenses |
 | By the 7th | TDS challan for last month, as a journal | Accounts > Journal Entries |
 | By the 11th | GSTR-1 | Accounts > GST Returns |
-| By the 20th | GSTR-3B | Accounts > GST Returns |
+| By the 20th | GSTR-3B, and pay the GST due: credit set off, the rest by challan | Accounts > GST Returns, then Accounts > GST Payment |
 | Month end | Reconcile, then close the month | Gear > Financial Years |
 | Quarter end | TDS deducted list to the CA for 26Q; tick TDS by customers against 26AS | Reports > Financial |
 | Year end | Close every month, then the year | Gear > Financial Years |
