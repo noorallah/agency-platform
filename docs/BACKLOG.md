@@ -5492,6 +5492,8 @@ OWNER_DECISIONS A35. Summary of the rows (numbered as in that doc's section 4):
 
 ## 78. Purchases under GST: blocked credit, supplier type, GSTR-2B -- HIGH PRIORITY
 
+**Status, 2026-10-02:** row 1 built (fixes D-TAX-1). Each bill line has an input-credit eligibility -- Eligible, Blocked (s.17(5)) or Ineligible -- taken from the line, else the product (a `PRODUCT_TAX_MANAGE` field), else a tax rule's *Input credit blocked*. Blocked or ineligible tax is booked to *Input Tax Not Claimable* (5450), never to input tax, and returns and debit notes take their share back off it. GSTR-3B: blocked in 4(A)(5) and reversed in 4(B)(1) (CBIC circular 170/02/2022); ineligible in 4(D)(2).
+
 Owner, 2026-10-02: the purchase side of §77, against industry standard, with
 what each firm configures. The rules, the comparison with Zoho Books, ERPNext
 and TallyPrime, and the work are `docs/GST_DOCUMENT_COMPLIANCE.md` section 6;
