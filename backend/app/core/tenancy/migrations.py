@@ -155,7 +155,11 @@ def count_firms(platform: DatabaseManager) -> int | None:
 
 
 def migration_targets(
-    platform: DatabaseManager, settings: Settings, *, platform_only: bool = False
+    platform: DatabaseManager,
+    settings: Settings,
+    *,
+    platform_only: bool = False,
+    include_deleted: bool = False,
 ) -> list[MigrationTarget]:
     """Return every distinct store: platform, then shared, then dedicated.
 
@@ -167,6 +171,9 @@ def migration_targets(
     store is the only thing to migrate. The shared store is added all the same
     when it has already been built, so a database that once held firms keeps
     every store it has at head.
+
+    ``include_deleted`` adds the stores of soft-deleted firms, which a backup
+    needs and a migration does not: their data is still there.
     """
     base = platform.config
     platform_schema = base.default_schema or "platform"
@@ -199,15 +206,16 @@ def migration_targets(
         return list(targets.values())
 
     with platform.sessions(schema=platform_schema).session() as session:
-        rows = session.execute(
-            select(Firm, FirmStorageMapping)
-            .join(FirmStorageMapping, FirmStorageMapping.firm_id == Firm.id)
-            .where(
+        statement = select(Firm, FirmStorageMapping).join(
+            FirmStorageMapping, FirmStorageMapping.firm_id == Firm.id
+        )
+        if not include_deleted:
+            statement = statement.where(
                 Firm.is_deleted.is_(False),
                 FirmStorageMapping.is_deleted.is_(False),
                 FirmStorageMapping.is_active.is_(True),
             )
-        ).all()
+        rows = session.execute(statement).all()
         for firm, mapping in rows:
             if DeploymentMode(mapping.deployment_mode) is DeploymentMode.SHARED:
                 # Every shared firm resolves to the one schema added above.

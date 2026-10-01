@@ -90,6 +90,7 @@ import 'settings/settings_workspace.dart';
 import 'resource_management_page.dart';
 import '../phase2/app_menu_bar.dart';
 import '../phase2/command_box.dart';
+import '../phase2/backups_page.dart';
 import '../phase2/customer_groups_page.dart';
 import '../phase2/home_page.dart';
 import '../phase2/menu_layout.dart';
@@ -479,7 +480,9 @@ class _DesktopShellState extends State<DesktopShell> {
     // A phase 2 screen follows the catalogue screen it is gated on.
     final MenuItemSpec? phase2Item = MenuLayout.itemFor(path);
     if (phase2Item != null && phase2Item.module == null) {
+      final String? code = phase2Item.requiredPermission;
       return widget.phase2 &&
+          (code == null || widget.permissions.hasPermission(code)) &&
           (phase2Item.gate == null || _pathAllowed(phase2Item.gate!));
     }
     final WorkspaceLocation location = WorkspaceLocation.parse(path);
@@ -665,7 +668,14 @@ class _DesktopShellState extends State<DesktopShell> {
                             api: widget.session.api,
                             permissions: widget.permissions,
                           )
-                        : _page(widget.session.api, section);
+                        : widget.phase2 &&
+                                _router.current.path ==
+                                    MenuLayout.backupsRoute
+                            ? BackupsPage(
+                                key: const ValueKey('backups'),
+                                api: widget.session.api,
+                              )
+                            : _page(widget.session.api, section);
                 if (!_classicLayout && constraints.maxWidth >= 600) {
                   return _menuLayout(page);
                 }

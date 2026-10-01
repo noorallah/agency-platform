@@ -12,6 +12,7 @@ class MenuItemSpec {
   const MenuItemSpec(AppModule this.module, this.tab, this.label)
       : route = null,
         gate = null,
+        requiredPermission = null,
         permission = null;
 
   /// A module with no tabs of its own (Quotations, the Dashboard).
@@ -19,12 +20,14 @@ class MenuItemSpec {
       : tab = null,
         route = null,
         gate = null,
+        requiredPermission = null,
         permission = null;
 
   /// A screen only the phase 2 app has, with no catalogue module behind it
   /// -- Home (4.9). Offered to everybody signed in; what it shows inside is
   /// cut to the user's permissions.
-  const MenuItemSpec.phase2(String this.route, this.label, {this.gate})
+  const MenuItemSpec.phase2(String this.route, this.label,
+      {this.gate, this.requiredPermission})
       : module = null,
         tab = null,
         permission = null;
@@ -39,6 +42,7 @@ class MenuItemSpec {
       {String this.permission = noPermission})
       : module = null,
         tab = null,
+        requiredPermission = null,
         gate = null;
 
   /// The [permission] of a setting that every member of a firm may open
@@ -55,6 +59,11 @@ class MenuItemSpec {
   /// -- Customer Groups is offered to whoever may open Customers. Null
   /// offers it to everybody signed in (Home).
   final String? gate;
+
+  /// For a phase 2 screen with no catalogue screen to follow, the permission
+  /// code that offers it (Backups: `SYSTEM_BACKUP`, which only the platform
+  /// tier holds). Asked in addition to [gate]; the server stays the authority.
+  final String? requiredPermission;
 
   /// The catalogue module, or null for a phase 2 screen.
   final AppModule? module;
@@ -114,6 +123,9 @@ abstract final class MenuLayout {
 
   /// Customer Groups: a phase 2 page, opened in a tab of its own.
   static const String customerGroupsRoute = 'customer-groups';
+
+  /// Backups: a phase 2 page for the platform tier.
+  static const String backupsRoute = 'backups';
 
   /// The Selling settings behind the gear: dialogs, not screens.
   static const String salesStagesRoute = 'settings/sales-stages';
@@ -353,6 +365,10 @@ abstract final class MenuLayout {
         MenuItemSpec(AppModule.settings, 'audit-logs', 'Audit Logs'),
         MenuItemSpec(AppModule.settings, 'diagnostics', 'Diagnostics'),
         MenuItemSpec.module(AppModule.licensing, 'Licensing'),
+        // Platform tier only: the permission is the whole gate, and it needs
+        // no firm (a backup is of the installation, not of one firm).
+        MenuItemSpec.phase2(backupsRoute, 'Backups',
+            requiredPermission: 'SYSTEM_BACKUP'),
         // Phase 1's Dashboard: platform-wide counts of firms, users and
         // roles, for a platform administrator. Home is everybody's (4.9).
         MenuItemSpec.module(AppModule.dashboard, 'Platform Dashboard'),
@@ -451,6 +467,10 @@ abstract final class MenuLayout {
                 visibility.permissions.hasPermission(item.permission!));
       }
       if (item.module == null) {
+        if (item.requiredPermission != null &&
+            !visibility.permissions.hasPermission(item.requiredPermission!)) {
+          return false;
+        }
         final MenuItemSpec? gate =
             item.gate == null ? null : itemFor(item.gate!);
         return item.gate == null || (gate != null && offered(gate));

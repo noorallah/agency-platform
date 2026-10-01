@@ -164,6 +164,15 @@ class Settings(BaseSettings):
     tenancy_dedicated_schema_prefix: str = "firm_"
     tenancy_dedicated_database_prefix: str = "erp_"
     tenancy_connection_profiles: str | None = None
+    #: Where `Back up now` writes (`manual/<stamp>`) and where the backups
+    #: screen looks for the nightly (`daily/`) and pre-upgrade ones. Setup
+    #: points it at `<data root>/backups` through the service definition.
+    backup_directory: Path = Path("backups")
+    #: How many manual backups are kept; the oldest beyond this are deleted.
+    backup_keep_manual: int = Field(default=10, ge=1)
+    #: The folder holding `pg_dump` and `pg_restore`. Unset, the server looks
+    #: beside itself (`<install>/pgsql/bin`), then on PATH.
+    backup_pg_bin: Path | None = None
 
     model_config = SettingsConfigDict(
         case_sensitive=False,
