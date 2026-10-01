@@ -721,6 +721,12 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['PURCHASE_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'purchase-analysis',
+          label: 'Purchase Analysis',
+          requiredPermissions: ['PURCHASE_VIEW', 'REPORT_VIEW'],
+          requiresAnyPermission: true,
+        ),
+        ModuleTabDefinition(
           id: 'purchase-orders',
           label: 'Purchase Orders',
           requiredPermissions: ['PURCHASE_VIEW'],

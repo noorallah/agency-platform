@@ -4707,6 +4707,46 @@ class ApiClient {
         AnalysisInvoice.fromJson,
       );
 
+  // ---- purchase analysis ----------------------------------------------
+
+  /// Purchases pivoted by one or two dimensions; the same shape as the sales
+  /// analysis.
+  Future<SalesAnalysis> purchaseAnalysis({
+    required String rows,
+    String? columns,
+    required String fromDate,
+    required String toDate,
+    bool netOfReturns = true,
+    Map<String, String> filters = const {},
+  }) async =>
+      SalesAnalysis.fromJson(_unwrapMap(await request(
+        'GET',
+        '/api/v1/purchase-invoices/reports/analysis',
+        query: {
+          'rows': rows,
+          if (columns != null && columns.isNotEmpty) 'columns': columns,
+          'from_date': fromDate,
+          'to_date': toDate,
+          'net_of_returns': netOfReturns ? 'true' : 'false',
+          ...filters,
+        },
+      )));
+
+  /// The bills behind one cell of the purchase analysis.
+  Future<List<AnalysisBill>> purchaseAnalysisBills({
+    required String fromDate,
+    required String toDate,
+    Map<String, String> filters = const {},
+  }) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/purchase-invoices/reports/analysis/bills',
+          query: {'from_date': fromDate, 'to_date': toDate, ...filters},
+        ),
+        AnalysisBill.fromJson,
+      );
+
   // ---- GST returns ----------------------------------------------------
 
   /// Outward supplies for a period, section by section.

@@ -197,6 +197,8 @@ abstract final class MenuLayout {
       MenuGroupSpec('Insight', [
         MenuItemSpec(
             AppModule.purchases, 'purchase-dashboard', 'Purchase Dashboard'),
+        MenuItemSpec(
+            AppModule.purchases, 'purchase-analysis', 'Purchase Analysis'),
         // Purchase Analytics is left out: its screen only says the backend
         // has no analytics yet (MenuLayout.notOffered).
       ]),

@@ -165,3 +165,28 @@ class AnalysisInvoice {
   final String customerId;
   final double net;
 }
+
+/// A purchase bill behind a cell of the purchase analysis.
+class AnalysisBill {
+  const AnalysisBill({
+    required this.id,
+    required this.invoiceNumber,
+    required this.invoiceDate,
+    required this.vendorId,
+    required this.net,
+  });
+
+  factory AnalysisBill.fromJson(Map<String, dynamic> json) => AnalysisBill(
+        id: (json['id'] ?? '').toString(),
+        invoiceNumber: (json['invoice_number'] ?? '').toString(),
+        invoiceDate: (json['invoice_date'] ?? '').toString(),
+        vendorId: (json['vendor_id'] ?? '').toString(),
+        net: _number(json['net']),
+      );
+
+  final String id;
+  final String invoiceNumber;
+  final String invoiceDate;
+  final String vendorId;
+  final double net;
+}
