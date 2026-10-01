@@ -25,6 +25,7 @@ from app.sales_invoice.schemas import (
     SalesInvoiceSourceType,
 )
 from app.sales_invoice.services import SalesInvoiceService
+from app.sales_invoice.services.invoice_pdf import PartyBlock
 from app.sales_invoice.services.invoice_print_service import (
     SEVERAL,
     SalesInvoicePrintService,
@@ -37,6 +38,20 @@ from tests.unit.test_sales_invoice_module import (
 )
 
 pytestmark = pytest.mark.typed_document_numbers
+
+
+@pytest.fixture(autouse=True)
+def _no_platform_store(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Name the seller without opening the platform store.
+
+    `firm_party` reads `firms` through `platform_reader`, a real connection;
+    the unit suite has none, and the seller is not what these tests are about.
+    """
+    monkeypatch.setattr(
+        SalesInvoicePrintService,
+        "_seller",
+        lambda self, firm_scope: PartyBlock(name="Seller", address_lines=[]),
+    )
 
 
 def _second_note(setup: _Billing, quantity: Decimal, on: date) -> DeliveryNote:
