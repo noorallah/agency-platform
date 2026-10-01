@@ -12,8 +12,8 @@ item names the backlog section or defect that holds its detail.
 
 ## Where things stand, 2026-10-01
 
-- **Defects: one Low open** (D-GOLIVE-2, a test guard that needs triage).
-  Every other defect in `docs/DEFECTS.md` is fixed and names its PR.
+- **Defects: none open.** Every defect in `docs/DEFECTS.md` is fixed and
+  names its PR; D-GOLIVE-2, the last, was fixed by #884.
 - **Built for go-live since 2026-09-29:**
   - Trade licences, all five steps (§54): register, printing, Home alert,
     required licence per product, sale and purchase checks.
@@ -30,8 +30,15 @@ item names the backlog section or defect that holds its detail.
     (`docs/PERFORMANCE_AT_VOLUME.md`).
   - Accounts > Expenses (#814): rent, fuel and salaries recorded and posted to
     the journal, refused in a locked year.
-- **Open PRs:** none. Every branch was merged on 2026-10-01 at the owner's
-  word, including the report speed-ups part 2 (#866) and #814.
+- **Built on 2026-10-01 for release 1.1.0** (#869-#887; the owner's single
+  test list is `docs/RELEASE_NOTES_1.1.0.md`): the Opening balances
+  checklist and opening bills from a file, TDS on payments, receipts and
+  expenses with both registers, GST Payment, Profit and loss by months and
+  against last year, stock valuation, purchase price variance, bulk approve
+  and cancel on six lists and bulk post on journals, each person's branch and
+  warehouse, Sales and Purchase Analysis, offers on the printed bill, Try
+  offers, percent off up to a limit, best offer only, money received on the
+  bill, and the go-live guide.
 
 ## Tier 1 -- before the first firm starts (weeks 1-4)
 
@@ -55,7 +62,7 @@ in parallel. Whatever item 3 finds goes to the top of the list.
 | What | Backlog | Size |
 | --- | --- | --- |
 | ~~*TDS deducted* on payments, expenses and receipts, and the quarterly TDS list for the CA~~ **Built 2026-10-01**, ahead of go-live | §53 items 3-4 | Done |
-| Bulk approval for invoices, credit notes, returns and journals (the framework is built; about a day each) | §56 A | 4-5 days |
+| ~~Bulk approval for invoices, credit notes, returns and journals~~ **Built 2026-10-01** (#876) | §56 A | Done |
 | Global search under a second: trigram indexes, one migration | §56 C | 1-2 days |
 | GSTR-1 and 3B for a month under 3 s, and the outstanding reports | §56 C | 2-3 days |
 | Set-based back-dated balance carry | §56 C | 2-3 days |
@@ -69,10 +76,13 @@ The market reviews in the backlog list what a full ERP has and this one does
 not. **None is built until a go-live firm says it needs it** (§55): a
 feature nobody uses is a feature nobody tests.
 
-- Sales: §59-60 offers to market standard, §62 sales analysis, §64 special
-  rates and discount limits, §67 the nine sales gaps.
-- Buying: §61 supplier free goods, §65-66 purchase gaps and analysis, §68-69
-  the procurement checklist.
+- Sales: the rest of §60 (offer types still missing), §64 special rates and
+  discount limits, §67 the nine sales gaps. **Built ahead of a firm asking,
+  2026-10-01:** §59 best offer only, §60 items 1, 12 and 13, §62 sales
+  analysis, §64 row 5 money received on the bill.
+- Buying: §61 supplier free goods, §65 the rest of the purchase gaps, §68-69
+  the procurement checklist. **Built 2026-10-01:** §65.5 price variance, §66
+  purchase analysis.
 - Stock: §70 the inventory checklist, FIFO costing if an accountant requires
   it.
 - Messaging (email, WhatsApp, SMS) and field collections, designed in #848.

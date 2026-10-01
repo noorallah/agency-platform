@@ -45,14 +45,14 @@ no seeded row satisfies.
 | Quotations `app/quotation` | 17 | 2 | Built | Offer, accept, convert. Expiry derives from `valid_until`, never a stored status. |
 | Sales orders `app/sales_order` | 22 | 6 | Built | Status follows its deliveries. A hold is a flag, not a status, so part-shipped progress survives it. |
 | Delivery notes `app/delivery_note` | 20 | 6 | Built | Moves stock and cost of goods sold. Inherits the order line's price rather than re-reading the masters. |
-| Sales invoices `app/sales_invoice` | 18 | 6 | Built | Prints a real GST invoice with the CGST/SGST split and an HSN summary. |
+| Sales invoices `app/sales_invoice` | 23 | 8 | Built | Prints a real GST invoice with the CGST/SGST split and an HSN summary, the offers given and what was saved. Money taken at the counter is entered on the bill and becomes a receipt on approval. Sales Analysis: any one or two dimensions, with drill-down (2026-10-01). |
 | Sales returns `app/sales_return` | 18 | 4 | Built | Reverses stock, cost and the customer balance by the deltas the original row stored. |
 | Credit notes `app/credit_note` | 9 | 3 | Built | Names the invoice **line**, so the tax reversed is the tax charged. Approval is a separate permission. |
 | Proformas `app/proforma` | 8 | 2 | Built | Posts nothing, and draws its own `PI` series so GSTR-1's declared invoice range stays whole. |
 | Receipts and refunds `app/settlements` | 15 | 0 | Built | Money in and out through one document. Allocating posts no journal — the receipt already did. |
 | Customers `app/customers` | 24 | 0 | **Partial** | Statements and ageing reconcile to the account. Credit control ships in **warn** mode; no firm has chosen **block**. |
 | Price lists `app/pricing` | 5 | 0 | Built | Quantity ladders. A customer's own list **replaces** the firm-wide one rather than amending it. |
-| Promotions `app/promotions` | 14 | 3 | Built | Offers stack and compound; coupons, gifts and free shipping. A claim counts at approval, never while pricing. |
+| Promotions `app/promotions` | 14 | 3 | Built | Offers stack and compound, or a firm gives the best one only; a percentage may be capped. Coupons, gifts and free shipping; *Try offers* before launch. A claim counts at approval, never while pricing. |
 | Loyalty `app/loyalty` | 10 | 3 | Built | One ledger for points and cashback. Redeeming **settles** the bill, so the full GST is charged. |
 | Commission `app/commission` | 13 | 0 | Built | Ladders, margin basis, caps and targets. A payout is snapshotted at accrual and posts on approval. |
 | Territory and beats `app/sales` | 62 | 0 | Built | Routes, salesman coverage, beat plans, call lists. Nine plans a firm, weekly through monthly. |
@@ -64,7 +64,7 @@ no seeded row satisfies.
 | --- | ---: | ---: | --- | --- |
 | Purchase orders `app/purchase` | 21 | 6 | Built | Approval cannot be skipped; status follows the receipts. Reports added 2026-09-04. |
 | Goods receipts `app/goods_receipt` | 16 | 5 | Built | Posts stock and the ledger. A cancellation values the reversal from the **movement**, not the document. |
-| Purchase invoices `app/purchase_invoice` | 16 | 5 | Built | Approval clears the accrual, after which the receipt can no longer be cancelled. |
+| Purchase invoices `app/purchase_invoice` | 22 | 8 | Built | Approval clears the accrual, after which the receipt can no longer be cancelled. Purchase price variance and Purchase Analysis (2026-10-01). |
 | Purchase returns `app/purchase_return` | 18 | 6 | Built | Damaged and expired reports have rows only since 2026-09-04 — no seeded line carried the flags before. |
 | Vendors `app/vendors` | 23 | 0 | Built | Categories and types reachable since the route-order fix. Child collections merge on a partial edit. |
 

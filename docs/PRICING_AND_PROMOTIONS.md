@@ -80,6 +80,27 @@ against before the collapse existed. The result feeds one new tier in
 skipped and the trace says so: a log that reports a benefit the line never
 received is a lie told to the person asking why the price is what it is.
 
+**A firm may choose one offer instead of a stack** (backlog 59,
+`sales_workflow_settings.promotion_mode`, migration `20261001_0178`).
+`COMBINE` is the default and is everything above. `BEST_OFFER` values each
+matching offer **alone, on a fresh copy of the lines** -- discounts, the bill
+discount, free units at the line's own rate, a free product at its selling
+price, a waived delivery at its charge -- and applies only the most valuable;
+a tie goes to the earlier in the ordering above, and every loser's trace says
+what it was worth against the winner. Valuing runs through the same `_apply`
+that applies, so a cap below is honoured in the comparison: 20% up to 100 on
+a 1,000 line is worth 100, not 200. A mode is a firm setting, never a
+property of a promotion -- an offer that decided whether it combined would
+make the outcome depend on which offers happened to match.
+
+**A percentage may be capped** (backlog 60 item 1): `max_amount` on a
+`LINE_DISCOUNT_PERCENT` or `BILL_DISCOUNT_PERCENT` action -- "20% off, up to
+500" -- bounds what the offer takes off the **document**, not each line. On
+line percentages the cap is split across the matched lines with `apportion`
+in proportion to what each would have had, so the lines sum to the cap
+exactly. A cap is written only for a percentage; on an amount it is refused,
+because an amount is already its own limit.
+
 ## A delivery note ships the deal the order struck
 
 **A delivery note ships the deal the order struck.** It re-read the customer's

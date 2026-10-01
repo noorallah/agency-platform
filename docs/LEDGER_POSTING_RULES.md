@@ -35,6 +35,18 @@ advance". `_advance_part_of` reads the split off the receipt's own
 receivable row and subtracts what earlier allocations used, or the last of
 an advance is stranded for ever.
 
+## Money received on the bill posts as a receipt, not as part of the bill
+
+A counter payment entered on a sales invoice (backlog 64 row 5) posts **two
+journals**, the invoice's and a receipt's (`Dr Cash or Bank / Cr Trade
+Receivables`), staged in the one approval. Folding it into the invoice's
+journal as `Dr Cash` instead of `Dr Receivables` would be one entry fewer and
+would leave the customer's statement, the receipt register and the day book
+without the payment -- and nothing to reverse when the money turns out not to
+have arrived. Cancelling the bill afterwards is refused while the receipt is
+applied to it, naming the receipt, as for any money applied to a bill: reverse
+the receipt first, then cancel.
+
 ## A proforma posts nothing
 
 **A proforma posts nothing, and the absence of anywhere to record that it
