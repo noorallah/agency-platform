@@ -15,7 +15,8 @@ from sqlalchemy.orm import Session
 from app.branches.models import Branch, Warehouse
 from app.branches.models.user_work_default import UserWorkDefault
 from app.common.audit.services import record_audit
-from app.core.exceptions import ValidationError
+from app.common.firm_metadata import FirmMetadataReader
+from app.core.exceptions import ResourceNotFoundError, ValidationError
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,21 @@ class UserWorkDefaultService:
     def __init__(self, session: Session) -> None:
         """Bind to the firm's store."""
         self._session = session
+
+    def assert_member(self, firm_id: UUID, user_id: UUID) -> None:
+        """Refuse an administrator's read or write for a non-member.
+
+        The person an administrator sets defaults for must be an active
+        member of the firm -- checked through `FirmMetadataReader`, because
+        `users` and `user_firms` live only in the platform store. Answered as
+        not found rather than forbidden, so the route says nothing about
+        people outside the firm.
+        """
+        if (
+            FirmMetadataReader(self._session).active_member_count(firm_id, [user_id])
+            != 1
+        ):
+            raise ResourceNotFoundError("That person is not a member of this firm.")
 
     def current(self, firm_id: UUID, user_id: UUID) -> WorkDefaults:
         """Return the person's defaults that still stand, and what was dropped."""

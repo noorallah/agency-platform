@@ -12,10 +12,26 @@ import '../workspace/save_in_dialog.dart';
 /// It only fills a blank -- the document's own value, when it continues one,
 /// comes first, and every branch and warehouse stays selectable. Any member of
 /// the firm may set their own; nothing here is a permission.
+///
+/// With [userId] it is the administrator's path instead: the same form for
+/// another member, opened from the users grid and saved through
+/// `PUT /branches/work-defaults/{user_id}` (`USER_UPDATE`). It never touches
+/// the signed-in person's own cached defaults.
 class WorkDefaultsDialog extends StatefulWidget {
-  const WorkDefaultsDialog({super.key, required this.api});
+  const WorkDefaultsDialog({
+    super.key,
+    required this.api,
+    this.userId,
+    this.personName = '',
+  });
 
   final ApiClient api;
+
+  /// The member being set up; null is the signed-in person themselves.
+  final String? userId;
+
+  /// Their name, for the title when [userId] is given.
+  final String personName;
 
   @override
   State<WorkDefaultsDialog> createState() => _WorkDefaultsDialogState();
@@ -47,7 +63,10 @@ class _WorkDefaultsDialogState extends State<WorkDefaultsDialog>
         (int page) =>
             widget.api.warehouses(page: page, pageSize: maxApiPageSize),
       );
-      final WorkDefaults mine = await widget.api.myWorkDefaults();
+      final String? member = widget.userId;
+      final WorkDefaults mine = member == null
+          ? await widget.api.myWorkDefaults()
+          : await widget.api.memberWorkDefaults(member);
       if (!mounted) return;
       setState(() {
         _branches = branches.where((b) => !b.isDeleted).toList();
@@ -74,6 +93,14 @@ class _WorkDefaultsDialogState extends State<WorkDefaultsDialog>
 
   Future<void> _save({required bool clear}) =>
       saveAndClose<WorkDefaults>(() async {
+        final String? member = widget.userId;
+        if (member != null) {
+          return widget.api.setMemberWorkDefaults(
+            member,
+            branchId: clear ? null : _branchId,
+            warehouseId: clear ? null : _warehouseId,
+          );
+        }
         final WorkDefaults saved = await widget.api.setMyWorkDefaults(
           branchId: clear ? null : _branchId,
           warehouseId: clear ? null : _warehouseId,
@@ -92,7 +119,9 @@ class _WorkDefaultsDialogState extends State<WorkDefaultsDialog>
         _branches.any((b) => b.id == _branchId) ? _branchId : null;
     return AlertDialog(
       icon: const Icon(Icons.warehouse_outlined),
-      title: const Text('My branch and warehouse'),
+      title: Text(widget.userId == null
+          ? 'My branch and warehouse'
+          : 'Branch and warehouse · ${widget.personName}'),
       content: SizedBox(
         width: 460,
         child: _loading
@@ -109,9 +138,13 @@ class _WorkDefaultsDialogState extends State<WorkDefaultsDialog>
                     Text(_loadError!,
                         style: TextStyle(color: theme.colorScheme.error)),
                   Text(
-                    'New documents open with these. A document that continues '
-                    'another keeps that one\'s branch and warehouse, and you '
-                    'can always pick a different one.',
+                    widget.userId != null
+                        ? 'Where ${widget.personName} usually works: their new '
+                            'documents open with these. It fills a form, it '
+                            'restricts nothing, and they can change it.'
+                        : 'New documents open with these. A document that '
+                            'continues another keeps that one\'s branch and '
+                            'warehouse, and you can always pick a different one.',
                     style: theme.textTheme.bodySmall,
                   ),
                   for (final String message in _ignored) ...[

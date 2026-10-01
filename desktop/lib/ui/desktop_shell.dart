@@ -4071,6 +4071,30 @@ ResourceDefinition<PlatformUser> userDefinition(
             return '';
           },
         ),
+        // Backlog 44: an administrator sets where somebody usually works in
+        // the firm the switcher shows. Their own default lives in that
+        // firm's store, so with no firm chosen there is nothing to set.
+        ResourceAction<PlatformUser>(
+          label: 'Branch and warehouse',
+          icon: Icons.warehouse_outlined,
+          isVisible: (_) =>
+              permissions.hasAllPermissions(['USER_VIEW', 'USER_UPDATE']) &&
+              (api.activeFirmId?.call() ?? '').isNotEmpty,
+          onInvoke: (user) async {
+            final Object? saved = await showDialog<Object?>(
+              context: context,
+              builder: (_) => WorkDefaultsDialog(
+                api: api,
+                userId: user!.id,
+                personName: user.fullName.isEmpty ? user.email : user.fullName,
+              ),
+            );
+            return saved == null
+                ? ''
+                : 'Saved where ${user!.fullName.isEmpty ? user.email : user.fullName} '
+                    'usually works.';
+          },
+        ),
       ],
     ],
     canUseAction: (action, _) => _canUseResourceAction(

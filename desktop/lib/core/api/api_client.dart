@@ -1573,6 +1573,31 @@ class ApiClient {
         ),
       );
 
+  /// Another member's usual branch and warehouse, for an administrator
+  /// (backlog 44): `USER_VIEW` to read, held to this firm's members.
+  Future<WorkDefaults> memberWorkDefaults(String userId) async =>
+      WorkDefaults.fromJson(
+        _unwrapMap(await request(
+            'GET', '/api/v1/branches/work-defaults/$userId')),
+      );
+
+  /// Set, or with both null clear, another member's defaults
+  /// (`USER_UPDATE`).
+  Future<WorkDefaults> setMemberWorkDefaults(
+    String userId, {
+    String? branchId,
+    String? warehouseId,
+  }) async =>
+      WorkDefaults.fromJson(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/branches/work-defaults/$userId',
+            body: {'branch_id': branchId, 'warehouse_id': warehouseId},
+          ),
+        ),
+      );
+
   Future<BranchRecord> createBranch(Json data) async => BranchRecord.fromJson(
         _unwrapMap(await request('POST', '/api/v1/branches', body: data)),
       );
