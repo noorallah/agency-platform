@@ -179,6 +179,21 @@ class DeliveryNote(BaseEntity):
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancel_reason: Mapped[str | None] = mapped_column(Text)
     close_reason: Mapped[str | None] = mapped_column(Text)
+    #: Proof of delivery (backlog 67 row 6). A **flag beside the status, not
+    #: a status**: a note is "delivered" when `delivered_at` is set, and only
+    #: a recorded proof sets it. DISPATCHED and COMPLETED both mean "the
+    #: goods left" to everything downstream -- billing, returns, the order's
+    #: progress -- and a new status between them would have to be taught to
+    #: every one of those readers for no change in what they decide.
+    #: `delivered_at` is when the customer received the goods, as the proof
+    #: says; `delivery_recorded_at` / `_by` are when and by whom it was keyed.
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivery_received_by: Mapped[str | None] = mapped_column(String(120))
+    delivery_remarks: Mapped[str | None] = mapped_column(Text)
+    delivery_recorded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    delivery_recorded_by: Mapped[UUID | None] = mapped_column(UUIDType())
 
 
 class DeliveryNoteLine(BaseEntity):

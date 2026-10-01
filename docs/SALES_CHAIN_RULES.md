@@ -206,3 +206,26 @@ whatever the person leaves blank -- distance, mode, transporter, vehicle --
 from the latest delivery note the invoice billed, and sends its LR as
 `TransDocNo` / `TransDocDt`. A distance is still required from one or the
 other.
+
+## A note is delivered only with a proof -- and delivered is a flag
+
+Backlog 67 row 6, 2026-10-01. `POST /api/v1/delivery-notes/{id}/proof-of-delivery`
+records when the goods were received (`delivered_at`), who received them,
+remarks and optionally a photo or signature (kept with the note's attachments
+as `PROOF_OF_DELIVERY`). It needs `SALES_UPDATE`: it records what the signed
+paper shows, and the clerk filing it is not the person who approves sales.
+
+**Delivered is a flag beside the status, not a status**, for the reason a
+hold is: DISPATCHED and COMPLETED both mean "the goods left" to billing,
+returns, the order's progress and every report, and a DELIVERED status
+between them would have to be taught to each of those readers without
+changing anything they decide. A note is delivered when `delivered_at` is
+set, and only a proof sets it. Recording a proof on a DISPATCHED note also
+completes it -- the confirmation of receipt that completing always meant; a
+note completed earlier without one is still "not yet delivered". The proof
+cannot predate the note or lie in the future, and may be recorded again to
+correct it (audited as `delivery_note.delivery_corrected`).
+
+The list's `awaiting_delivery_proof=true` filter, and the summary count of
+the same name, are the notes dispatched or completed with no proof yet. A
+list filter rather than a report, so it has no report-catalogue entry.

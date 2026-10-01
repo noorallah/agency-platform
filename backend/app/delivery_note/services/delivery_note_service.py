@@ -7,11 +7,11 @@ import io
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import ColumnElement, and_, func, or_, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.batch_serial.models import BatchRecord, SerialNumber
@@ -37,7 +37,7 @@ from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.chunks import chunks
-from app.core.utils.dates import utc_now
+from app.core.utils.dates import as_utc, utc_now
 from app.core.utils.pricing import (
     LineDiscount,
     apportion,
@@ -75,6 +75,7 @@ from app.delivery_note.schemas import (
     DeliveryNoteResponse,
     DeliveryNoteStatus,
     DeliveryNoteSummary,
+    DeliveryProofWrite,
 )
 from app.document_framework.models import (
     DocumentLifecycleEvent,
@@ -133,6 +134,10 @@ class _HeldAt:
     warehouse_id: UUID
     storage_node_id: UUID | None
 
+
+#: The kind a proof-of-delivery photo or signature is filed under among the
+#: note's attachments (backlog 67 row 6).
+PROOF_OF_DELIVERY = "PROOF_OF_DELIVERY"
 
 #: The note's transport details (backlog 67 row 5), written and kept together.
 TRANSPORT_FIELDS: tuple[str, ...] = (
@@ -233,6 +238,10 @@ class DeliveryNoteService(TransactionalDocumentService):
                 DeliveryNote.delivery_date <= filters.delivery_to
             )
             count = count.where(DeliveryNote.delivery_date <= filters.delivery_to)
+        if filters.awaiting_delivery_proof:
+            awaiting = self._awaiting_proof()
+            statement = statement.where(awaiting)
+            count = count.where(awaiting)
         if search:
             token = f"%{search.strip()}%"
             condition = or_(
@@ -289,7 +298,20 @@ class DeliveryNoteService(TransactionalDocumentService):
             return by_status.get(status.value, (0, ZERO))[0]
 
         progress = self.partially_delivered_orders(firm_scope=firm_scope)
+        awaiting = int(
+            self._session.scalar(
+                select(func.count())
+                .select_from(DeliveryNote)
+                .where(
+                    DeliveryNote.firm_id == firm_scope,
+                    DeliveryNote.is_deleted.is_(False),
+                    self._awaiting_proof(),
+                )
+            )
+            or 0
+        )
         return DeliveryNoteSummary(
+            awaiting_delivery_proof=awaiting,
             total=sum(number for number, _ in by_status.values()),
             draft=count(DeliveryNoteStatus.DRAFT),
             approved=count(DeliveryNoteStatus.APPROVED),
@@ -743,6 +765,117 @@ class DeliveryNoteService(TransactionalDocumentService):
         self._session.commit()
         return row
 
+    @staticmethod
+    def _awaiting_proof() -> ColumnElement[bool]:
+        """Match notes whose goods have left with no proof of delivery yet."""
+        return and_(
+            DeliveryNote.status.in_(
+                (
+                    DeliveryNoteStatus.DISPATCHED.value,
+                    DeliveryNoteStatus.COMPLETED.value,
+                )
+            ),
+            DeliveryNote.delivered_at.is_(None),
+        )
+
+    def record_delivery_proof(
+        self,
+        note_id: UUID,
+        data: DeliveryProofWrite,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> DeliveryNote:
+        """Record that the customer received a note's goods (backlog 67 row 6).
+
+        A note is **delivered** only with a proof: when, who received the
+        goods, remarks, and optionally a photo or signature. It is a flag
+        beside the status -- see the model -- so recording it changes nothing
+        any other module reads, except that a DISPATCHED note is completed:
+        the proof is the confirmation of receipt that completing always meant.
+        A proof may be recorded again to correct it; the trail keeps both.
+        """
+        assert_feature_fields(
+            self._session,
+            firm_scope,
+            feature="ATTACHMENTS",
+            values={"attachment": data.attachment},
+        )
+        row = self.get_note(note_id, firm_scope=firm_scope)
+        if row.status not in {
+            DeliveryNoteStatus.DISPATCHED.value,
+            DeliveryNoteStatus.COMPLETED.value,
+        }:
+            raise ValidationError(
+                "Proof of delivery is recorded for a note whose goods have "
+                "left: dispatch it first."
+            )
+        delivered_at = as_utc(data.delivered_at)
+        now = utc_now()
+        if delivered_at > now + timedelta(minutes=5):
+            raise ValidationError("The goods cannot have been received in the future.")
+        if delivered_at.date() < row.delivery_date:
+            raise ValidationError(
+                "The goods cannot have been received before the note's own date."
+            )
+        before = row.status
+        corrected = row.delivered_at is not None
+        row.delivered_at = delivered_at
+        row.delivery_received_by = data.received_by
+        row.delivery_remarks = data.remarks
+        row.delivery_recorded_at = now
+        row.delivery_recorded_by = actor_id
+        if row.status == DeliveryNoteStatus.DISPATCHED.value:
+            row.status = DeliveryNoteStatus.COMPLETED.value
+            row.completed_at = now
+        row.updated_by = actor_id
+        if data.attachment is not None:
+            self._session.add(
+                DeliveryNoteAttachment(
+                    delivery_note_id=row.id,
+                    firm_id=firm_scope,
+                    file_name=data.attachment.file_name,
+                    mime_type=data.attachment.mime_type,
+                    file_path=data.attachment.file_path,
+                    attachment_kind=PROOF_OF_DELIVERY,
+                    created_by=actor_id,
+                    updated_by=actor_id,
+                )
+            )
+        self._record_event(
+            firm_id=firm_scope,
+            document_type=self._document_type(firm_scope),
+            document=row,
+            action="DELIVERED",
+            from_state=before,
+            to_state=row.status,
+            actor_id=actor_id,
+            remarks=data.remarks,
+            details={
+                "delivered_at": delivered_at.isoformat(),
+                "received_by": data.received_by,
+            },
+        )
+        record_audit(
+            self._session,
+            action=(
+                "delivery_note.delivery_corrected"
+                if corrected
+                else "delivery_note.delivered"
+            ),
+            entity_type="delivery_note",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            after_data={
+                "delivered_at": delivered_at.isoformat(),
+                "received_by": data.received_by,
+                "status": row.status,
+            },
+        )
+        self._session.commit()
+        return row
+
     def cancel_note(
         self,
         note_id: UUID,
@@ -997,6 +1130,11 @@ class DeliveryNoteService(TransactionalDocumentService):
             closed_at=row.closed_at,
             cancel_reason=row.cancel_reason,
             close_reason=row.close_reason,
+            is_delivered=row.delivered_at is not None,
+            delivered_at=row.delivered_at,
+            delivery_received_by=row.delivery_received_by,
+            delivery_remarks=row.delivery_remarks,
+            delivery_recorded_at=row.delivery_recorded_at,
             is_deleted=row.is_deleted,
             created_at=row.created_at,
             updated_at=row.updated_at,

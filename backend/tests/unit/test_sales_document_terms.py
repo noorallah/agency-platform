@@ -2,10 +2,13 @@
 
 Row 3: the ship-to address is chosen on the order, inherited by the delivery
 note and the invoice, validated as the customer's own, printed, and -- for an
-unregistered buyer -- decides the place of supply.
+unregistered buyer -- decides the place of supply. Row 4: payment terms are
+agreed on the order and the bill inherits them. Row 5: the delivery note
+records how the goods travel, for the challan and the e-way bill. Row 6: a
+note is delivered only with a proof.
 """
 
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -13,10 +16,18 @@ import pytest
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.orm import Session
 
+from app.common.audit.models import AuditLog
 from app.core.exceptions import ValidationError
+from app.core.utils.dates import as_utc
 from app.customers.models import Customer, CustomerAddress
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
-from app.delivery_note.schemas import DeliveryNoteCreate, DeliveryNoteLineWrite
+from app.delivery_note.schemas import (
+    DeliveryNoteCreate,
+    DeliveryNoteLineWrite,
+    DeliveryNoteListFilters,
+    DeliveryProofAttachmentWrite,
+    DeliveryProofWrite,
+)
 from app.delivery_note.services.challan_print_service import (
     DeliveryChallanPrintService,
 )
@@ -567,3 +578,118 @@ def test_an_eway_bill_reads_what_the_note_recorded_when_left_blank() -> None:
     assert row.request_payload is not None
     assert row.request_payload["TransDocNo"] == "LR-778"
     assert row.request_payload["TransDocDt"] == "03/08/2026"
+
+
+# ---- row 6: proof of delivery ------------------------------------------
+
+
+def _proof(**fields: object) -> DeliveryProofWrite:
+    """Describe a proof: received the day after dispatch, with a photo."""
+    values: dict[str, object] = {
+        "delivered_at": datetime(2026, 8, 4, 15, 30, tzinfo=UTC),
+        "received_by": "  R. Kumar ",
+        "remarks": "Two cartons, seal intact",
+        "attachment": DeliveryProofAttachmentWrite(
+            file_name="pod.jpg", mime_type="image/jpeg", file_path="pod/dn-1.jpg"
+        ),
+    }
+    values.update(fields)
+    return DeliveryProofWrite(**values)  # type: ignore[arg-type]
+
+
+def _dispatched(setup: _Firm) -> DeliveryNote:
+    """Raise, approve and dispatch one note."""
+    note = _persons_note(setup)
+    DeliveryNoteService(setup.session).dispatch_note(
+        note.id, firm_scope=setup.firm.id, actor_id=uuid4()
+    )
+    return note
+
+
+def test_a_proof_marks_the_note_delivered_and_completes_it() -> None:
+    """Delivered only with a proof; the photo is kept with the attachments."""
+    session = _session_factory()()
+    setup = _Firm(session)
+    note = _dispatched(setup)
+    service = DeliveryNoteService(session)
+    assert service.note_response(note).is_delivered is False
+
+    row = service.record_delivery_proof(
+        note.id, _proof(), firm_scope=setup.firm.id, actor_id=uuid4()
+    )
+
+    response = service.note_response(row)
+    assert response.is_delivered is True
+    assert response.status == "COMPLETED"
+    assert response.delivery_received_by == "R. Kumar"
+    assert response.delivered_at is not None
+    assert as_utc(response.delivered_at) == datetime(2026, 8, 4, 15, 30, tzinfo=UTC)
+    assert [item.attachment_kind for item in response.attachments] == [
+        "PROOF_OF_DELIVERY"
+    ]
+    audit = session.query(AuditLog).filter_by(action="delivery_note.delivered")
+    assert audit.count() == 1
+
+
+def test_no_proof_for_goods_that_have_not_left() -> None:
+    """An approved note is still in the warehouse; nothing was delivered."""
+    session = _session_factory()()
+    setup = _Firm(session)
+    note = _persons_note(setup)
+
+    with pytest.raises(ValidationError, match="dispatch it first"):
+        DeliveryNoteService(session).record_delivery_proof(
+            note.id, _proof(), firm_scope=setup.firm.id, actor_id=uuid4()
+        )
+
+
+@pytest.mark.parametrize(
+    ("when", "message"),
+    [
+        (datetime(2026, 8, 1, 10, 0, tzinfo=UTC), "before the note"),
+        (datetime(2999, 1, 1, tzinfo=UTC), "future"),
+    ],
+)
+def test_a_proof_dated_before_the_note_or_in_the_future_is_refused(
+    when: datetime, message: str
+) -> None:
+    """Received before it was sent, or not yet: neither is a delivery."""
+    session = _session_factory()()
+    setup = _Firm(session)
+    note = _dispatched(setup)
+
+    with pytest.raises(ValidationError, match=message):
+        DeliveryNoteService(session).record_delivery_proof(
+            note.id,
+            _proof(delivered_at=when),
+            firm_scope=setup.firm.id,
+            actor_id=uuid4(),
+        )
+
+
+def test_the_list_finds_notes_dispatched_but_not_yet_proven_delivered() -> None:
+    """The filter and the summary count agree, and a proof takes a note off."""
+    session = _session_factory()()
+    setup = _Firm(session)
+    note = _dispatched(setup)
+    service = DeliveryNoteService(session)
+
+    def awaiting() -> list[UUID]:
+        rows, _ = service.list_notes(
+            firm_scope=setup.firm.id,
+            filters=DeliveryNoteListFilters(awaiting_delivery_proof=True),
+            page=1,
+            page_size=20,
+            search=None,
+            sort_by="created_at",
+            descending=True,
+        )
+        return [row.id for row in rows]
+
+    assert awaiting() == [note.id]
+    assert service.summary(firm_scope=setup.firm.id).awaiting_delivery_proof == 1
+    service.record_delivery_proof(
+        note.id, _proof(attachment=None), firm_scope=setup.firm.id, actor_id=uuid4()
+    )
+    assert awaiting() == []
+    assert service.summary(firm_scope=setup.firm.id).awaiting_delivery_proof == 0

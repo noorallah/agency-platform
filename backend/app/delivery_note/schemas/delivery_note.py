@@ -167,6 +167,36 @@ class DeliveryNoteCreate(DeliveryNoteSchema):
         return token or None
 
 
+class DeliveryProofAttachmentWrite(DeliveryNoteSchema):
+    """The photo or signed copy a proof of delivery carries."""
+
+    file_name: str = Field(min_length=1, max_length=260)
+    mime_type: str | None = Field(default=None, max_length=120)
+    file_path: str = Field(min_length=1, max_length=1024)
+
+
+class DeliveryProofWrite(DeliveryNoteSchema):
+    """Record that the customer received a dispatched note (backlog 67 row 6)."""
+
+    #: When the goods were received, as the proof says. A naive value is
+    #: read as UTC, like every timestamp here.
+    delivered_at: datetime
+    received_by: str = Field(min_length=1, max_length=120)
+    remarks: str | None = None
+    #: A photo of the signed challan or the signature itself, kept with the
+    #: note's attachments as ``PROOF_OF_DELIVERY``.
+    attachment: DeliveryProofAttachmentWrite | None = None
+
+    @field_validator("received_by")
+    @classmethod
+    def _named(cls, value: str) -> str:
+        """Refuse a name that is only spaces."""
+        token = value.strip()
+        if not token:
+            raise ValueError("Name who received the goods.")
+        return token
+
+
 class DeliveryNoteUpdate(DeliveryNoteCreate):
     """Replace one delivery note."""
 
@@ -319,6 +349,12 @@ class DeliveryNoteResponse(DeliveryNoteSchema):
     closed_at: datetime | None
     cancel_reason: str | None
     close_reason: str | None
+    #: Proof of delivery (backlog 67 row 6): a flag beside the status.
+    is_delivered: bool = False
+    delivered_at: datetime | None = None
+    delivery_received_by: str | None = None
+    delivery_remarks: str | None = None
+    delivery_recorded_at: datetime | None = None
     is_deleted: bool
     created_at: datetime
     updated_at: datetime
@@ -338,6 +374,8 @@ class DeliveryNoteListFilters(DeliveryNoteSchema):
     status: DeliveryNoteStatus | None = None
     delivery_from: date | None = None
     delivery_to: date | None = None
+    #: Only notes whose goods have left with no proof of delivery yet.
+    awaiting_delivery_proof: bool = False
     include_deleted: bool = False
 
 
@@ -354,6 +392,8 @@ class DeliveryNoteSummary(DeliveryNoteSchema):
     total_value: Decimal
     pending_orders: int
     partial_orders: int
+    #: Dispatched or completed, with no proof of delivery (67 row 6).
+    awaiting_delivery_proof: int = 0
 
 
 class DeliveryNoteRegisterRecord(DeliveryNoteSchema):
