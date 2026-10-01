@@ -543,6 +543,17 @@ const List<ReportDefinition> reportCatalog = [
     area: ReportArea.financial,
   ),
   ReportDefinition(
+    id: 'contra-register',
+    label: 'Contra register',
+    description:
+        'Every deposit, withdrawal and transfer between the firm\'s own '
+        'cash and bank accounts.',
+    path: '/api/v1/contra-vouchers/reports/register',
+    needsPeriod: true,
+    permission: 'JOURNAL_VIEW',
+    area: ReportArea.financial,
+  ),
+  ReportDefinition(
     id: 'credit-note-by-customer',
     label: 'Credits by customer',
     description: 'What each customer has been credited, cancelled notes out.',

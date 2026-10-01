@@ -1009,6 +1009,12 @@ abstract final class ModuleCatalog {
           label: 'Party Adjustments',
           requiredPermissions: ['PARTY_ADJUSTMENT_VIEW'],
         ),
+        // Money moved between the firm's own cash and bank accounts.
+        ModuleTabDefinition(
+          id: 'contra-vouchers',
+          label: 'Contra Vouchers',
+          requiredPermissions: ['JOURNAL_VIEW'],
+        ),
         ModuleTabDefinition(
           id: 'ledgers',
           label: 'Ledgers',
@@ -1048,6 +1054,7 @@ abstract final class ModuleCatalog {
         'CREDIT_NOTE_VIEW',
         'DEBIT_NOTE_VIEW',
         'PARTY_ADJUSTMENT_VIEW',
+        'JOURNAL_VIEW',
         'PROFORMA_VIEW',
         'LOYALTY_VIEW',
         'PROMOTION_VIEW',

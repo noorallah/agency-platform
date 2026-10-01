@@ -32,6 +32,9 @@ from sqlalchemy.orm import Session
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.business.models import BusinessProfile
 from app.common.scope import ResolvedFirmScope
+from app.contra.api.router import list_contra_vouchers
+from app.contra.models import ContraVoucher
+from app.contra.services import ContraVoucherService
 from app.core.enums import TokenType
 from app.core.pagination import PaginationParams
 from app.core.security.authorization import Principal
@@ -699,6 +702,26 @@ def _seed_party_adjustments(session: Session, world: _World, rows: int) -> None:
             )
 
 
+def _seed_contra_vouchers(session: Session, world: _World, rows: int) -> None:
+    """Deposits from the world's cash into one bank account."""
+    bank = uuid.uuid4()
+    _add(session, LedgerAccount, id=bank, firm_id=world.firm, code="1010", name="Bank")
+    for index in range(rows):
+        _add(
+            session,
+            ContraVoucher,
+            firm_id=world.firm,
+            voucher_number=f"CV-{index:03d}",
+            voucher_date=date(2026, 4, 1),
+            kind="DEPOSIT",
+            from_account_id=world.account,
+            to_account_id=bank,
+            amount=Decimal("10.00"),
+            status="POSTED",
+            journal_entry_id=uuid.uuid4(),
+        )
+
+
 def _seed_quotations(session: Session, world: _World, rows: int) -> None:
     """Quotations with two lines and a note each."""
     for index in range(rows):
@@ -986,6 +1009,11 @@ CASES: dict[str, _Case] = {
         _seed_party_adjustments,
         lambda s, w: list_party_adjustments(scope=_scope(w.firm), db=s, page_size=50),
         lambda s, r: PartyAdjustmentService(s).response(_get(s, PartyAdjustment, r.id)),
+    ),
+    "contra vouchers": _Case(
+        _seed_contra_vouchers,
+        lambda s, w: list_contra_vouchers(scope=_scope(w.firm), db=s, page_size=50),
+        lambda s, r: ContraVoucherService(s).response(_get(s, ContraVoucher, r.id)),
     ),
     "quotations": _Case(
         _seed_quotations,

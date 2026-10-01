@@ -1372,6 +1372,74 @@ class DocumentPostingService:
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
 
+    def post_contra_voucher(
+        self,
+        *,
+        firm_id: UUID,
+        voucher_id: UUID,
+        voucher_number: str,
+        voucher_date: date,
+        from_account_id: UUID,
+        to_account_id: UUID,
+        amount: Decimal,
+        description: str,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Post money moved between two of the firm's own accounts (74 row 3).
+
+        Dr the account the money arrived in, Cr the one it left. Two legs,
+        both cash or bank, so no party and no tax: the firm is no richer or
+        poorer, only its money is somewhere else. The caller has already
+        checked both are money accounts.
+
+        Args:
+            firm_id: The owning firm.
+            voucher_id: The source document.
+            voucher_number: Its number, used as the journal reference.
+            voucher_date: The day the money moved.
+            from_account_id: The cash or bank account credited.
+            to_account_id: The cash or bank account debited.
+            amount: How much moved.
+            description: The narration both legs carry.
+            actor_id: The user recording it.
+
+        Returns:
+            The posted journal entry.
+
+        Raises:
+            ValidationError: If no open period covers the date.
+
+        """
+        context = self.context_for(firm_id, voucher_date)
+        value = quantize_ledger(quantize_money(amount))
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=voucher_date,
+            reference_number=voucher_number,
+            description=description,
+            lines=[
+                JournalLineData(
+                    ledger_account_id=to_account_id,
+                    debit_amount=value,
+                    credit_amount=ZERO,
+                    description=description,
+                ),
+                JournalLineData(
+                    ledger_account_id=from_account_id,
+                    debit_amount=ZERO,
+                    credit_amount=value,
+                    description=description,
+                ),
+            ],
+            source_module="contra",
+            source_id=voucher_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
     def post_commission_accrual(
         self,
         *,

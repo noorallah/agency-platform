@@ -389,6 +389,58 @@ customer's receivable row by its stored deltas (`receivable_transaction_id`),
 dated the mirror's day; the bills owe again because a cancelled adjustment is
 no longer counted.
 
+## Money moved between the firm's own accounts is a contra voucher
+
+Backlog 74 row 3. `app/contra`, `/api/v1/contra-vouchers`, table
+`contra_vouchers` (migration `20261001_0199`). Before it, cash paid into the
+bank was a hand journal with no number of its own and no word when the cash it
+moved was not there.
+
+| Kind (derived, never typed) | Dr | Cr |
+| --- | --- | --- |
+| Deposit -- cash to bank | the bank account | the cash account |
+| Withdrawal -- bank to cash | the cash account | the bank account |
+| Bank transfer | the receiving bank | the paying bank |
+| Cash transfer | the receiving cash account | the paying cash account |
+
+**It posts on save** (`DocumentPostingService.post_contra_voucher`, source
+`contra`), as a receipt or an expense does: the money has moved before anybody
+records it, so there is nothing to approve. Two legs, no party, no tax.
+Numbered in its own `CV` series through the document framework, with a
+timeline event and an audit row for posting and for cancelling. **A mistake is
+cancelled, never edited**: a reason is required, the journal is mirrored under
+`<number>-CAN` dated as every reversal is (the day it happens, never before the
+original), and the original stays.
+
+**Which accounts hold money** (decided by convention, 2026-10-01): the firm's
+`CASH` and `BANK` control accounts, and every other active ASSET account in
+the same account group as either that no other control purpose claims -- a
+second bank account, petty cash. In the seeded chart cash and bank share
+*Current Assets* with receivables, inventory and input tax; those are mapped to
+their own purposes and kept by their own documents, so they are never offered.
+An asset account a firm opens itself in that group (a deposit, an advance to
+staff) **is** offered; a firm that wants it kept out gives cash and bank a
+group of their own. **Cash or bank**: the CASH account is cash and the BANK
+account a bank; any other is cash when it sits in cash's group and not
+bank's, a bank in the reverse case, and -- where the two share a group, as
+seeded -- cash when its name says "cash" and a bank otherwise.
+
+**Below zero is a warning, never a refusal.** When the account the money
+leaves would stand below zero at the end of the voucher's own date -- summed
+from every posting dated on or before it, so a back-dated deposit is judged
+on the day it says -- the voucher still posts, and the response says so in
+`message` and `balance_warning`. The books are often a day behind (takings
+not yet keyed), and refusing would make the clerk enter things out of order
+to get past it. Cancelling checks the account the money goes back out of the
+same way.
+
+Read with `JOURNAL_VIEW`, recorded with `JOURNAL_POST` (it writes a posted
+journal), cancelled with `JOURNAL_REVERSE` -- the codes a hand journal needs,
+so no new permission and no grant migration. The register
+(`/reports/register`) reads with `JOURNAL_VIEW` or `REPORT_VIEW`; each voucher
+prints on the firm's letterhead (`/{id}/print`,
+`app/document_framework/services/letter_pdf.py`).
+
 ## PAN, TAN and GSTIN are checked when they are set
 
 Backlog 53 item 2, on customers, vendors (header and tax rows) and the firm.

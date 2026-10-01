@@ -15,6 +15,7 @@ from app.business.api import router as business_framework_router
 from app.commission.api import router as commission_router
 from app.common.audit.api import router as audit_logs_router
 from app.common.directory.api import router as firm_members_router
+from app.contra.api.router import router as contra_router
 from app.core.config.settings import Settings
 from app.core.database.engine import DatabaseManager
 from app.core.exceptions.handlers import register_exception_handlers
@@ -166,6 +167,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(credit_notes_router)
     application.include_router(debit_notes_router)
     application.include_router(party_adjustments_router)
+    application.include_router(contra_router)
     application.include_router(einvoice_router)
     application.include_router(gst_returns_router)
     application.include_router(sales_orders_router)

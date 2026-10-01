@@ -27,6 +27,7 @@ import '../../models/commission.dart';
 import '../../models/credit_note.dart';
 import '../../models/debit_note.dart';
 import '../../models/party_adjustment.dart';
+import '../../models/contra_voucher.dart';
 import '../../models/einvoice.dart';
 import '../../models/proforma.dart';
 import '../../models/tcs.dart';
@@ -5572,6 +5573,90 @@ class ApiClient {
       PartyAdjustmentSettings.fromJson(_unwrapMap(
         await request('PUT', '/api/v1/party-adjustments/settings', body: body),
       ));
+
+  // ---- contra vouchers ------------------------------------------------
+
+  Future<PagedResult<ContraVoucher>> contraVouchers({
+    int page = 1,
+    int pageSize = 50,
+    String? kind,
+    String? status,
+    String? accountId,
+    String? search,
+    String? dateFrom,
+    String? dateTo,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/contra-vouchers',
+      query: {
+        'page': '$page',
+        'page_size': '$pageSize',
+        if (kind != null && kind.isNotEmpty) 'kind': kind,
+        if (status != null && status.isNotEmpty) 'status': status,
+        if (accountId != null && accountId.isNotEmpty)
+          'account_id': accountId,
+        if (search != null && search.isNotEmpty) 'search': search,
+        if (dateFrom != null) 'date_from': dateFrom,
+        if (dateTo != null) 'date_to': dateTo,
+      },
+    );
+    final dynamic data = response['data'];
+    return PagedResult<ContraVoucher>(
+      items: data is List
+          ? data
+              .whereType<Map>()
+              .map((item) =>
+                  ContraVoucher.fromJson(Map<String, dynamic>.from(item)))
+              .toList()
+          : const [],
+      total: _totalOf(response),
+    );
+  }
+
+  /// The cash and bank accounts a voucher may move money between.
+  Future<List<MoneyAccount>> contraMoneyAccounts() async {
+    final Json response =
+        await request('GET', '/api/v1/contra-vouchers/money-accounts');
+    final dynamic data = response['data'];
+    return data is List
+        ? data
+            .whereType<Map>()
+            .map((item) =>
+                MoneyAccount.fromJson(Map<String, dynamic>.from(item)))
+            .toList()
+        : const <MoneyAccount>[];
+  }
+
+  /// Post one voucher. The save succeeds even when the From account goes
+  /// below zero; that shows as [ContraVoucher.balanceWarning].
+  Future<ContraVoucher> createContraVoucher(Json body) async =>
+      ContraVoucher.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/contra-vouchers', body: body)),
+      );
+
+  Future<ContraVoucher> contraVoucher(String id) async =>
+      ContraVoucher.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/contra-vouchers/$id')),
+      );
+
+  /// Reverse a voucher; the server refuses a cancel with no [reason].
+  Future<ContraVoucher> cancelContraVoucher(
+    String id,
+    String reason, {
+    int? expectedVersion,
+  }) async =>
+      ContraVoucher.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/contra-vouchers/$id/cancel',
+        body: {'reason': reason},
+        expectedVersion: expectedVersion,
+      )));
+
+  /// The voucher as a PDF.
+  Future<List<int>> contraVoucherPdf(String id) =>
+      downloadBytes('/api/v1/contra-vouchers/$id/print');
 
   // ---- commission payouts ---------------------------------------------
 
