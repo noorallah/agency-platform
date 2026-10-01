@@ -4908,7 +4908,7 @@ the bank (§42.2); one bill for several notes (§58).
 
 ## 68. Purchases against a full ERP checklist: what else to consider
 
-**Status, 2026-10-02:** rows 1-2 built -- supplier payment terms default a bill's due date; Udyam number and MSME category on the supplier, `msme_pay_by` (45 days with a written agreement, 15 without) stamped on each micro/small supplier's bill, warned at approval, and Reports > Financial > *MSME payments due*.
+**Status, 2026-10-02:** rows 1-2 built -- supplier payment terms default a bill's due date; Udyam number and MSME category on the supplier, `msme_pay_by` (45 days with a written agreement, 15 without) stamped on each micro/small supplier's bill, warned at approval, and Reports > Financial > *MSME payments due*. Row 4 built 2026-10-01: `role_purchase_approval_limits` gives each role a largest order (grand total incl. tax) it may approve per firm, with the discount limit's rules (largest among a person's roles, none for a platform administrator, nobody limited until set); above it the order stays submitted and the refusal names the amount needed, the APPROVED event records both figures, bulk approval judges each row; Settings > Buying > Approval Limits (OWNER_DECISIONS A28).
 
 Owner, 2026-09-28: purchasing is well built; compare it anyway with a full ERP
 purchase module (the same shape as the sales checklist in §67): suppliers,

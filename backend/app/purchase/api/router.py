@@ -37,6 +37,7 @@ from app.document_framework.schemas.bulk_actions import (
     BulkCancelRequest,
 )
 from app.document_framework.services.bulk_actions import run_each
+from app.purchase.models import RolePurchaseApprovalLimit
 from app.purchase.schemas import (
     PurchaseOrderByBuyerRecord,
     PurchaseOrderByProductRecord,
@@ -57,8 +58,12 @@ from app.purchase.schemas import (
     PurchaseType,
     PurchaseWorkflowSettingsResponse,
     PurchaseWorkflowSettingsWrite,
+    RolePurchaseApprovalLimitItem,
+    RolePurchaseApprovalLimitsResponse,
+    RolePurchaseApprovalLimitsWrite,
 )
 from app.purchase.services import PurchaseService
+from app.purchase.services.approval_limit import PurchaseApprovalLimitService
 from app.purchase.services.purchase_print_service import (
     PurchaseOrderPrintService,
 )
@@ -464,6 +469,56 @@ def update_purchase_workflow_settings(
         data, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data=settings)
+
+
+# Declared above `/{order_id}` for the same reason as the settings above.
+@router.get(
+    "/approval-limits",
+    response_model=ApiResponse[RolePurchaseApprovalLimitsResponse],
+)
+def get_purchase_approval_limits(
+    scope: PurchaseViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[RolePurchaseApprovalLimitsResponse]:
+    """List the largest order each role may approve (backlog 68 row 4)."""
+    rows = PurchaseApprovalLimitService(db).limits(scope.firm_id)
+    return ApiResponse(data=_approval_limits_response(rows))
+
+
+@router.put(
+    "/approval-limits",
+    response_model=ApiResponse[RolePurchaseApprovalLimitsResponse],
+)
+def replace_purchase_approval_limits(
+    data: RolePurchaseApprovalLimitsWrite,
+    scope: PurchaseWorkflowSettingsScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[RolePurchaseApprovalLimitsResponse]:
+    """Replace the whole list; a role left out has no limit afterwards.
+
+    Under `PURCHASE_MANAGE_SETTINGS`, like the buying stages: whoever an
+    approval limit constrains is not the one who should be able to lift it.
+    """
+    rows = PurchaseApprovalLimitService(db).replace_limits(
+        [(item.role_code, item.max_order_amount) for item in data.limits],
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(data=_approval_limits_response(rows))
+
+
+def _approval_limits_response(
+    rows: list[RolePurchaseApprovalLimit],
+) -> RolePurchaseApprovalLimitsResponse:
+    """Describe the firm's approval limits."""
+    return RolePurchaseApprovalLimitsResponse(
+        limits=[
+            RolePurchaseApprovalLimitItem(
+                role_code=row.role_code, max_order_amount=row.max_order_amount
+            )
+            for row in rows
+        ]
+    )
 
 
 class BelowReorderRecord(BaseModel):

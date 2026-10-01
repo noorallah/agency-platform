@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -365,3 +366,36 @@ class PurchaseWorkflowSettings(BaseEntity):
     default_warehouse_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("warehouses.id", ondelete="RESTRICT")
     )
+
+
+class RolePurchaseApprovalLimit(BaseEntity):
+    """The largest purchase order one role may approve, in one firm.
+
+    BACKLOG 68 row 4, the buying sibling of ``role_discount_limits``: anybody
+    holding ``PURCHASE_APPROVE`` could commit the firm to any amount. An order
+    whose grand total (tax included) is above the approver's limit is refused
+    at approval, naming the amount it needs, and stays submitted for somebody
+    allowed more; the approval that clears it records both figures.
+
+    Keyed by role **code**, per firm. A role with no row has no limit of its
+    own; a person's limit is the largest among their roles that have one, and
+    somebody none of whose roles has one -- or a platform administrator -- is
+    not limited, so a firm that never sets one behaves as before.
+    """
+
+    __tablename__ = "role_purchase_approval_limits"
+    __table_args__ = (
+        Index(
+            "UQ_role_purchase_approval_limits_firm_role_active",
+            "firm_id",
+            "role_code",
+            unique=True,
+            postgresql_where=text("NOT is_deleted"),
+            sqlite_where=text("NOT is_deleted"),
+        ),
+    )
+
+    #: No foreign key: `firms` and `roles` live only in the platform schema.
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    role_code: Mapped[str] = mapped_column(String(100), nullable=False)
+    max_order_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)

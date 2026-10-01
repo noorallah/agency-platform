@@ -64,6 +64,20 @@ needs `PURCHASE_APPROVE`; a user with only `PURCHASE_UPDATE` sees Submit and
 not Approve, so the person raising an order need not be the one committing the
 firm's money.
 
+**Approval limits by amount** (backlog 68 row 4, 2026-10-01).
+`role_purchase_approval_limits` gives each role a largest order it may approve,
+per firm, judged on the order's grand total including tax --
+`PurchaseApprovalLimitService` in `app/purchase/services/approval_limit.py`,
+the buying sibling of the discount limit. A person's limit is the largest among
+their roles that have one; nobody is limited until a limit is set, and a
+platform administrator never is. Above it `approve` is refused naming the
+amount it needs and the order stays SUBMITTED; the approval that clears it puts
+`approval_limit: {order_amount, approver_limit}` on the APPROVED event. Bulk
+approve goes through the same `approve_order`, so each row is judged alone. An
+order a bill raises (order stage off) is approved with `enforce_limit=False`.
+`GET/PUT /api/v1/purchases/approval-limits` (view / `PURCHASE_MANAGE_SETTINGS`);
+Settings > Buying > Approval Limits on the desktop.
+
 **Both steps are reachable from two places**, as of 2026-08-18: the workspace
 toolbar, acting on the selected row, and the toolbar inside the open order
 itself. The second is the one that matches how the decision is actually made
