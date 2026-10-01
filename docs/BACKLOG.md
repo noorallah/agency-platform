@@ -4750,7 +4750,7 @@ supplier bill -> payment, with returns off the receipt or the bill.
 | 2 | **Several receipts on one bill** on the screen | One receipt per bill | D-BUY-18, with §58 |
 | 3 | **Purchase order discount on the whole order** reaching tax, receipt and bill | Subtracted after tax, not carried on | D-BUY-19 |
 | 4 | **Supplier rates**: a vendor's standing discount, a supplier price list with quantity breaks, and the **last purchase rate** while typing | Only a typed discount; the product's one `purchase_price` | Mirror sales: vendor standing % and supplier price lists ranked in `app/core/utils/pricing.py`; last rate is §55 G6 |
-| 5 | **Purchase price variance** explained per bill | Posted to its account, seen only as a P&L line | A bill shows receipt value vs billed value per line, and a report lists variances by supplier and product |
+| 5 | **Purchase price variance** explained per bill | Posted to its account, seen only as a P&L line | **Report built 2026-10-01**: Reports > Financial > *Purchase price variance* lists every approved bill line charged at a rate other than its receipt's -- supplier, product, both rates, quantity, variance; a bill in another unit is flagged. Left: the same on the bill's own screen |
 | 6 | **Debit note** to a supplier for a price difference or a short-supply claim with no goods going back | Purchase return (goods back) only | §55 G8 |
 | 7 | **Supplier free goods and gifts** | Same-item free quantity only | §61 |
 | 8 | **Scheme claims** from the principal | Nothing | §42.7 |
