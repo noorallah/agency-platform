@@ -146,6 +146,17 @@ class SalesInvoice(BaseEntity):
     grand_total: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: Money taken at the counter as the bill is made (backlog 64 row 5):
+    #: approving the bill records a receipt for it against this invoice, in
+    #: the same transaction, so a counter sale is settled the moment it is.
+    received_now_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: CASH or BANK, as a receipt's method.
+    received_now_method: Mapped[str | None] = mapped_column(String(10))
+    received_now_reference: Mapped[str | None] = mapped_column(String(120))
+    #: The receipt approval recorded; set once, never re-recorded.
+    received_now_settlement_id: Mapped[UUID | None] = mapped_column(UUIDType())
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: When it was cancelled, so an ageing as of an earlier day still

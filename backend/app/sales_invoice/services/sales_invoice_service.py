@@ -518,6 +518,9 @@ class SalesInvoiceService(TransactionalDocumentService):
             place_of_supply=self._place_of_supply(customer),
             reference_number=data.reference_number,
             remarks=data.remarks,
+            received_now_amount=self._q(data.received_now_amount),
+            received_now_method=data.received_now_method,
+            received_now_reference=data.received_now_reference,
             # A record of how this bill was raised, not a permission: true
             # when the bill raised the note that ships its goods. What the
             # bill may do with a note is decided by the note's own stamp.
@@ -656,6 +659,14 @@ class SalesInvoiceService(TransactionalDocumentService):
         )
         row.reference_number = data.reference_number
         row.remarks = data.remarks
+        # Absent means leave alone: an editor that never showed the counter
+        # payment must not clear it.
+        if "received_now_amount" in data.model_fields_set:
+            row.received_now_amount = self._q(data.received_now_amount)
+        if "received_now_method" in data.model_fields_set:
+            row.received_now_method = data.received_now_method
+        if "received_now_reference" in data.model_fields_set:
+            row.received_now_reference = data.received_now_reference
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
         row.updated_by = actor_id
@@ -762,6 +773,49 @@ class SalesInvoiceService(TransactionalDocumentService):
         )
         self._session.commit()
         return row
+
+    def _stage_received_now(
+        self, row: SalesInvoice, *, firm_scope: UUID, actor_id: UUID
+    ) -> None:
+        """Record the money taken at the counter as a receipt (backlog 64 row 5).
+
+        Through the receipt service, so it posts the same journal, moves the
+        customer's balance by the same rule and is reversed the same way as
+        any receipt; staged, so the bill and its payment land together or
+        not at all. More than the bill comes to is refused rather than turned
+        into an advance -- change is handed back, not kept on account.
+        """
+        amount = Decimal(str(row.received_now_amount or 0))
+        if amount <= Decimal("0") or row.received_now_settlement_id is not None:
+            return
+        if amount > Decimal(str(row.grand_total)):
+            raise ValidationError(
+                f"{amount} was received against a bill of {row.grand_total}. "
+                "Enter what the bill is paid with; change is handed back."
+            )
+        from app.settlements.schemas import (
+            SettlementAllocationWrite,
+            SettlementCreate,
+            SettlementMethodEnum,
+        )
+        from app.settlements.services import ReceiptService
+
+        receipt = ReceiptService(self._session).create(
+            SettlementCreate(
+                party_id=row.customer_id,
+                settlement_date=row.invoice_date,
+                amount=amount,
+                method=SettlementMethodEnum(row.received_now_method or "CASH"),
+                instrument_reference=row.received_now_reference,
+                narration=f"Received with {row.invoice_number}",
+                allocations=[
+                    SettlementAllocationWrite(invoice_id=row.id, amount=amount)
+                ],
+            ),
+            firm_id=firm_scope,
+            actor_id=actor_id,
+        )
+        row.received_now_settlement_id = receipt.id
 
     def stage_approval(
         self,
@@ -897,6 +951,10 @@ class SalesInvoiceService(TransactionalDocumentService):
             firm_id=firm_scope,
             after_data=licence_details,
         )
+        # Inside the staged approval, not after it: anything composing
+        # approval then settles the counter payment too, which is the trap
+        # loyalty earning fell into (D-SELL-1).
+        self._stage_received_now(row, firm_scope=firm_scope, actor_id=actor_id)
         return row
 
     def _restate_own_serials(
@@ -1489,6 +1547,10 @@ class SalesInvoiceService(TransactionalDocumentService):
             additional_charges=row.additional_charges,
             round_off=row.round_off,
             grand_total=row.grand_total,
+            received_now_amount=row.received_now_amount,
+            received_now_method=row.received_now_method,
+            received_now_reference=row.received_now_reference,
+            received_now_settlement_id=row.received_now_settlement_id,
             approved_at=row.approved_at,
             closed_at=row.closed_at,
             cancel_reason=row.cancel_reason,
