@@ -209,11 +209,19 @@ class ThermalReceiptRenderer:
             quantity = f"{_quantity(line.quantity)} {line.uom or ''}".strip()
             if line.free_quantity:
                 quantity += f" +{_quantity(line.free_quantity)} free"
+            # Typed with GST in it (backlog 64 row 4): the shelf price the
+            # customer saw first, the taxable rate it derived to beneath.
+            typed = line.rate if line.entered_rate is None else line.entered_rate
             story.append(
-                self._pair(
-                    width, f"{quantity} x {_money(line.rate)}", _money(line.total)
-                )
+                self._pair(width, f"{quantity} x {_money(typed)}", _money(line.total))
             )
+            if line.entered_rate is not None:
+                story.append(
+                    Paragraph(
+                        f"rate incl. GST; taxable rate {_money(line.rate)}",
+                        self._small,
+                    )
+                )
             if line.discount:
                 story.append(
                     Paragraph(f"less discount {_money(line.discount)}", self._small)
