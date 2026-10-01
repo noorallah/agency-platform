@@ -5542,3 +5542,8 @@ Tally has a batch allocation sub-screen; ERPNext auto-picks by expiry with a
 | 5 | One printed row per batch on the challan and invoice (batch, expiry, MRP) | P1 |
 | 6 | Firm settings (Settings > Stock): near-expiry days (30), near-expiry warn / need a reason, FEFO skip allowed / need a reason, minimum shelf life per customer | P2 |
 | 7 | Price from the batch where the batch carries its own MRP or rate | P2 |
+
+**Status, 2026-10-02:** rows 1, 3 and 5 built, row 2 on the delivery note
+(availability API, checked picks, FEFO skip audited, challan one row per
+batch; `docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`). Open: row 2 on the counter
+bill, rows 4, 6 and 7.

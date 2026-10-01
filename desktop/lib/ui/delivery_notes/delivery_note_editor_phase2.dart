@@ -528,7 +528,7 @@ extension _Phase2DeliveryNoteEditor on _DeliveryNoteEditorDialogState {
         DocumentSideHeading('Dispatching'),
         DocumentSideNote(
           'Choose the order going out. Each line starts at what is reserved '
-          'for it; batches are chosen at dispatch, earliest expiry first.',
+          'for it; batches can be chosen per line, earliest expiry first by default.',
         ),
       ]);
     }
@@ -538,11 +538,6 @@ extension _Phase2DeliveryNoteEditor on _DeliveryNoteEditorDialogState {
     final DeliveryDraftLine line = _lines[index];
     final Product? product = _product(line.productId);
     final double delivering = _number(line.deliveryQuantity);
-    final List<InventoryRecord> stock = _stockByProduct[line.productId] ?? [];
-    final List<BatchDraw> draws =
-        delivering > 0 ? previewAllocation(stock, delivering) : const [];
-    final double covered =
-        draws.fold<double>(0, (total, draw) => total + draw.quantity);
     final List<SerialRecord> onShelf =
         _serialsOnShelf[_DeliveryNoteEditorDialogState._shelfKey(
               line.productId,
@@ -610,27 +605,7 @@ extension _Phase2DeliveryNoteEditor on _DeliveryNoteEditorDialogState {
                 },
         ),
       ),
-      const DocumentSideHeading('Expected to ship from'),
-      if (stock.isEmpty)
-        const DocumentSideNote('no stock of this product in that warehouse')
-      else if (delivering <= 0)
-        const DocumentSideNote('enter a quantity to see the batches')
-      else ...[
-        for (final BatchDraw draw in draws)
-          DocumentSidePair(
-            draw.batchNumber.isEmpty ? 'untracked stock' : draw.batchNumber,
-            _trim(draw.quantity),
-          ),
-        if (covered < delivering)
-          DocumentSidePair(
-            'Short by',
-            _trim(delivering - covered),
-            tone: scheme.error,
-          ),
-        const DocumentSideNote(
-          'earliest expiry first; decided when the note is dispatched',
-        ),
-      ],
+      if (!line.trackSerial) ..._batchPicker(context, line, index),
       if (line.trackSerial) ...[
         DocumentSideHeading(
           needed == null
@@ -676,5 +651,227 @@ extension _Phase2DeliveryNoteEditor on _DeliveryNoteEditorDialogState {
         ),
       ),
     ]);
+  }
+
+  String _availabilityKey(DeliveryDraftLine line) => [
+        line.productId,
+        line.warehouseId,
+        _deliveryDate,
+        line.deliveryQuantity.trim(),
+      ].join('|');
+
+  /// Ask for a line's batches when what they depend on has changed, a moment
+  /// after the last change so typing a quantity is not a request per key.
+  void _watchAvailability(DeliveryDraftLine line) {
+    if (line.trackSerial || line.warehouseId.isEmpty) return;
+    final String id = line.salesOrderLineId;
+    final String key = _availabilityKey(line);
+    if (_availabilityAsked[id] == key) return;
+    _availabilityAsked[id] = key;
+    _availabilityTimers[id]?.cancel();
+    _availabilityTimers[id] = Timer(
+      const Duration(milliseconds: 350),
+      () => unawaited(_loadAvailability(line, key)),
+    );
+  }
+
+  Future<void> _loadAvailability(DeliveryDraftLine line, String key) async {
+    final String id = line.salesOrderLineId;
+    final double quantity = _number(line.deliveryQuantity);
+    try {
+      final List<BatchAvailabilityRecord> rows =
+          await widget.api.batchAvailability(
+        productId: line.productId,
+        warehouseId: line.warehouseId,
+        asOf: DateTime.tryParse(_deliveryDate) == null ? null : _deliveryDate,
+        quantity: quantity > 0 ? quantity : null,
+        salesOrderLineId: id,
+      );
+      if (!mounted || _availabilityAsked[id] != key) return;
+      _setState(() {
+        _availability[id] = rows;
+        _availabilityFailed.remove(id);
+      });
+    } on Object {
+      // The picker is a courtesy: without it the server still goes earliest
+      // expiry first at dispatch.
+      if (!mounted || _availabilityAsked[id] != key) return;
+      _setState(() => _availabilityFailed.add(id));
+    }
+  }
+
+  /// What a batch's box shows: the person's own figure once they have made a
+  /// choice, otherwise the earliest-expiry-first share the server suggests.
+  double _shownPick(DeliveryDraftLine line, BatchAvailabilityRecord batch) {
+    if (batch.expired) return 0;
+    final Map<String, double>? picks = line.batchPicks;
+    if (picks != null && picks.isNotEmpty) return picks[batch.batchId] ?? 0;
+    return batch.fefo;
+  }
+
+  void _pickBatch(
+    DeliveryDraftLine line,
+    List<BatchAvailabilityRecord> batches,
+    BatchAvailabilityRecord edited,
+    String text,
+  ) {
+    // The first edit makes the whole split the person's own, starting from
+    // what the boxes were showing.
+    final Map<String, double> next = {
+      for (final BatchAvailabilityRecord batch in batches)
+        if (!batch.expired) batch.batchId: _shownPick(line, batch),
+    };
+    next[edited.batchId] = _number(text);
+    _setState(() => line.batchPicks = next);
+  }
+
+  List<Widget> _batchPicker(
+    BuildContext context,
+    DeliveryDraftLine line,
+    int index,
+  ) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final TextStyle? small = theme.textTheme.bodySmall?.copyWith(fontSize: 11);
+    final TextStyle? quiet = small?.copyWith(color: scheme.onSurfaceVariant);
+    _watchAvailability(line);
+    final String id = line.salesOrderLineId;
+    final List<BatchAvailabilityRecord>? batches = _availability[id];
+    final double delivering = _number(line.deliveryQuantity);
+    final Map<String, double>? picks = line.batchPicks;
+    final bool explicit = picks != null && picks.isNotEmpty;
+    final List<Widget> out = [const DocumentSideHeading('Batches')];
+    if (batches == null) {
+      out.add(DocumentSideNote(_availabilityFailed.contains(id)
+          ? 'could not read the batches; they will go earliest expiry first '
+              'when the note is dispatched'
+          : line.warehouseId.isEmpty
+              ? 'choose the warehouse to see its batches'
+              : 'reading the batches...'));
+      return out;
+    }
+    if (batches.isEmpty) {
+      out.add(const DocumentSideNote(
+          'no stock of this product in that warehouse'));
+      return out;
+    }
+    double chosen = 0;
+    for (final BatchAvailabilityRecord batch in batches) {
+      chosen += _shownPick(line, batch);
+    }
+    // A line entered in another unit than stock is converted by the server,
+    // so the editor cannot say whether the split adds up.
+    final bool comparable = line.salesUomId.isEmpty ||
+        line.inventoryUomId.isEmpty ||
+        line.salesUomId == line.inventoryUomId;
+    final bool mismatch =
+        comparable && delivering > 0 && (chosen - delivering).abs() > 0.0005;
+    final int epoch = _pickEpoch[id] ?? 0;
+    out.add(Column(
+      key: const ValueKey('delivery-note-batch-picker'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final BatchAvailabilityRecord batch in batches)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Opacity(
+              opacity: batch.expired ? 0.5 : 1,
+              child: Row(children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        batch.batchNumber.isEmpty
+                            ? 'untracked stock'
+                            : batch.batchNumber,
+                        overflow: TextOverflow.ellipsis,
+                        style: small?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                      Text(
+                        [
+                          if (batch.expiryDate.isNotEmpty)
+                            'exp ${_dayOf(batch.expiryDate)}'
+                          else
+                            'no expiry',
+                          if (batch.daysToExpiry != null && !batch.expired)
+                            '${batch.daysToExpiry}d left',
+                          'can take ${_trim(batch.availableToLine)}',
+                        ].join(' · '),
+                        overflow: TextOverflow.ellipsis,
+                        style: quiet,
+                      ),
+                      if (batch.expired || batch.nearExpiry)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: StatusBadge(
+                            label: batch.expired ? 'Expired' : 'Near expiry',
+                            tone: batch.expired
+                                ? StatusBadgeTone.danger
+                                : StatusBadgeTone.warning,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                SizedBox(
+                  width: 64,
+                  child: KeyedSubtree(
+                    key: ValueKey<String>(
+                      'batch-pick-box-$id-${batch.batchId}-$epoch-'
+                      '${_trim(batch.fefo)}',
+                    ),
+                    child: TextFormField(
+                      key: ValueKey<String>('batch-pick-$id-${batch.batchId}'),
+                      initialValue: _trim(_shownPick(line, batch)),
+                      enabled: !batch.expired,
+                      readOnly: _saving,
+                      textAlign: TextAlign.right,
+                      keyboardType: TextInputType.number,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontSize: 13,
+                        color: _shownPick(line, batch) > batch.availableToLine
+                            ? scheme.error
+                            : null,
+                      ),
+                      decoration: documentCellDecoration(context),
+                      onChanged: (value) =>
+                          _pickBatch(line, batches, batch, value),
+                    ),
+                  ),
+                ),
+              ]),
+            ),
+          ),
+        DocumentSidePair(
+          'Chosen ${_trim(chosen)} of ${_trim(delivering)}',
+          explicit ? 'your choice' : 'earliest expiry',
+          bold: true,
+          tone: mismatch ? scheme.error : null,
+        ),
+        if (mismatch)
+          Text(
+            'The batches do not add up to what this line delivers; '
+            'dispatch will be refused.',
+            style: small?.copyWith(color: scheme.error),
+          ),
+        if (line.batchPicks != null)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              key: const ValueKey('delivery-note-batch-reset'),
+              onPressed: _saving
+                  ? null
+                  : () => _setState(() {
+                        line.batchPicks = {};
+                        _pickEpoch[id] = epoch + 1;
+                      }),
+              child: const Text('Use earliest expiry'),
+            ),
+          ),
+      ],
+    ));
+    return out;
   }
 }

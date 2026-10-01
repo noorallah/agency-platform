@@ -377,9 +377,37 @@ Each of `batches`, `lots`, `serial_numbers`, and `inventory_transactions` has FK
 - `SerialNumber.warranty_end` is the extension point
 - Warranty claim module reads serial status and flips to `returned` / `repaired`
 
-### FEFO / FIFO (future)
-- Batch `expiry_date` + `available_qty` are the data foundation
-- Allocation engine will query batches ordered by `expiry_date ASC` (FEFO)
+### FEFO, and choosing a batch on a sale (backlog 79, decision A38)
+
+Reservation and dispatch draw **earliest expiry first among batches in date**
+(judged on the document's own date; a batch is out of date *on* its expiry day,
+and one marked EXPIRED by hand is too -- `BatchRecord.expired_condition`).
+Since 2026-10-02 a person may override that per delivery line:
+
+- **`GET /api/v1/batch-serial/batches/availability`** -- a product's batches in
+  one warehouse, nearest expiry first: on hand, reserved, available,
+  `available_to_line` (adds back the asking order line's own hold, which
+  dispatch lets go first), days to expiry, `expired`, `near_expiry` (window
+  `near_expiry_days`, default 30) and `fefo`, the split dispatch would draw for
+  `quantity` -- the picker's pre-fill. Open to `BATCH_VIEW`, `INVENTORY_VIEW`
+  or `SALES_VIEW`, because whoever writes the note holds a sales code.
+- **`delivery_note_line_batches`** (migration 0214) -- `batches` on a delivery
+  line write: absent keeps the choice, `[]` clears it to FEFO. Refused on
+  write: another product's batch, a batch named twice, any pick on a
+  serial-tracked product (its units decide the batch). Refused at dispatch:
+  picks that do not add up to the line's stock quantity, an expired batch.
+  Release prefers the chosen batches (`allocate_for_release(prefer=)`), so the
+  order's own hold never stands in the way of its own pick.
+- **After dispatch the table is what left**, chosen or not: with no choice the
+  FEFO split drawn is written there. The challan prints **one row per batch**
+  (quantity, free goods and value apportioned, residual on the last row) and
+  turns on the batch and expiry columns whenever a line carries a batch.
+- **A choice that is not the FEFO split** is audited as
+  `delivery_note.fefo_skipped`, with both splits.
+
+Still open (backlog 79): batch picks on the counter bill, *pin batch* on the
+sales order line, firm settings for the near-expiry window and reasons, price
+from the batch (a batch carries no MRP yet).
 
 ---
 

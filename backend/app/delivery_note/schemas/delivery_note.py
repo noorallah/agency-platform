@@ -54,6 +54,13 @@ class DeliveryNoteNoteWrite(DeliveryNoteSchema):
     note: str = Field(min_length=1)
 
 
+class DeliveryNoteBatchPick(DeliveryNoteSchema):
+    """One batch a delivery line takes, and how much of it (79)."""
+
+    batch_id: UUID
+    quantity: Decimal = Field(gt=0, max_digits=18, decimal_places=4)
+
+
 class DeliveryNoteLineWrite(DeliveryNoteSchema):
     """Carry one delivery note line into a request."""
 
@@ -94,6 +101,10 @@ class DeliveryNoteLineWrite(DeliveryNoteSchema):
     #: leaving. None (or absent) leaves the line's picks as they are; an empty
     #: list clears them. A product nobody tracks by serial takes none.
     serial_ids: list[UUID] | None = Field(default=None, max_length=10000)
+    #: Which batches this line takes, in stock units (backlog 79, A38). None
+    #: leaves the line's choice as it was -- none means earliest expiry first
+    #: at dispatch -- and an empty list clears it back to that.
+    batches: list[DeliveryNoteBatchPick] | None = Field(default=None, max_length=200)
     manufacturing_date: date | None = None
     expiry_date: date | None = None
     remarks: str | None = None
@@ -294,6 +305,9 @@ class DeliveryNoteLineResponse(DeliveryNoteSchema):
     serials: list[PickedSerial] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+    #: The batches the line takes, as chosen; empty means earliest expiry
+    #: first at dispatch (backlog 79).
+    batches: list[DeliveryNoteBatchPick] = Field(default_factory=list)
 
 
 class DeliveryNoteResponse(DeliveryNoteSchema):

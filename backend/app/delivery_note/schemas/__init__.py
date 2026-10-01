@@ -3,6 +3,7 @@
 from app.delivery_note.schemas.delivery_note import (
     DeliveryNoteAttachmentResponse,
     DeliveryNoteAttachmentWrite,
+    DeliveryNoteBatchPick,
     DeliveryNoteByDimensionRecord,
     DeliveryNoteCreate,
     DeliveryNoteImportRequest,
@@ -28,6 +29,7 @@ __all__ = [
     "DeliveryNoteCreate",
     "DeliveryNoteImportRequest",
     "DeliveryNoteLineResponse",
+    "DeliveryNoteBatchPick",
     "DeliveryNoteLineWrite",
     "DeliveryNoteListFilters",
     "DeliveryNoteNoteResponse",

@@ -126,6 +126,12 @@ class DeliveryDraftLine {
   /// The serials picked for this line, by id.
   final List<String> serialIds;
 
+  /// The batches chosen for the line, by batch id, in stock units. `null` is
+  /// no choice at all -- the key is left out and the server goes earliest
+  /// expiry first; an empty map is sent as `[]`, which clears a choice back to
+  /// that; anything else is the person's own split.
+  Map<String, double>? batchPicks;
+
   /// How many serials the line must name, where the editor can tell.
   ///
   /// Delivered plus free, when both are in the unit stock is kept in. A line
@@ -177,6 +183,13 @@ class DeliveryDraftLine {
         if (warehouseId.isNotEmpty) 'warehouse_id': warehouseId,
         if (remarks.trim().isNotEmpty) 'remarks': remarks.trim(),
         if (trackSerial) 'serial_ids': [...serialIds],
+        // Serial-tracked lines name units, never batches.
+        if (!trackSerial && batchPicks != null)
+          'batches': [
+            for (final MapEntry<String, double> pick in batchPicks!.entries)
+              if (pick.value > 0)
+                {'batch_id': pick.key, 'quantity': _trim(pick.value)},
+          ],
       };
 }
 
@@ -252,6 +265,24 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
 
   /// Phase 2: the line the side panel follows.
   int _current = 0;
+
+  /// Phase 2: what each line's batch picker offers, by order line id, read
+  /// from the server once the line, warehouse, date and quantity settle.
+  final Map<String, List<BatchAvailabilityRecord>> _availability = {};
+  final Map<String, String> _availabilityAsked = {};
+  final Set<String> _availabilityFailed = {};
+  final Map<String, Timer> _availabilityTimers = {};
+
+  /// Bumped whenever a line's boxes are reset, so they are rebuilt.
+  final Map<String, int> _pickEpoch = {};
+
+  @override
+  void dispose() {
+    for (final Timer timer in _availabilityTimers.values) {
+      timer.cancel();
+    }
+    super.dispose();
+  }
 
   void _setState(VoidCallback change) => setState(change);
 

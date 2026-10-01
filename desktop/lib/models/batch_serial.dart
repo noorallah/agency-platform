@@ -294,6 +294,62 @@ class SerialRecord {
   }
 }
 
+/// One batch of a product on a shelf, as the delivery note's batch picker
+/// shows it (`GET /batch-serial/batches/availability`). Quantities are in
+/// stock units; [availableToLine] counts the order line's own reservation as
+/// its own, and [fefo] is the earliest-expiry-first share of the quantity
+/// asked about.
+class BatchAvailabilityRecord {
+  const BatchAvailabilityRecord({
+    required this.batchId,
+    required this.batchNumber,
+    required this.manufacturingDate,
+    required this.expiryDate,
+    required this.daysToExpiry,
+    required this.onHand,
+    required this.reserved,
+    required this.available,
+    required this.availableToLine,
+    required this.expired,
+    required this.nearExpiry,
+    required this.fefo,
+  });
+
+  final String batchId;
+  final String batchNumber;
+  final String manufacturingDate;
+  final String expiryDate;
+  final int? daysToExpiry;
+  final double onHand;
+  final double reserved;
+  final double available;
+  final double availableToLine;
+  final bool expired;
+  final bool nearExpiry;
+  final double fefo;
+
+  static double _num(dynamic value) =>
+      value is num ? value.toDouble() : double.tryParse('${value ?? ''}') ?? 0;
+
+  factory BatchAvailabilityRecord.fromJson(Json json) =>
+      BatchAvailabilityRecord(
+        batchId: stringValue(json['batch_id']),
+        batchNumber: stringValue(json['batch_number']),
+        manufacturingDate: stringValue(json['manufacturing_date']),
+        expiryDate: stringValue(json['expiry_date']),
+        daysToExpiry: json['days_to_expiry'] == null
+            ? null
+            : _intValue(json['days_to_expiry']),
+        onHand: _num(json['on_hand']),
+        reserved: _num(json['reserved']),
+        available: _num(json['available']),
+        availableToLine: _num(json['available_to_line']),
+        expired: json['expired'] == true,
+        nearExpiry: json['near_expiry'] == true,
+        fefo: _num(json['fefo']),
+      );
+}
+
 class BatchSummaryRecord {
   const BatchSummaryRecord({
     required this.totalBatches,

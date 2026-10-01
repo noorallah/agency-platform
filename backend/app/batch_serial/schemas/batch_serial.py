@@ -170,6 +170,29 @@ class ExpiryDashboard(BatchSchema):
     recalled: int
 
 
+class BatchAvailability(BatchSchema):
+    """One batch of a product in one warehouse, as a batch picker shows it (79).
+
+    Quantities are stock units. ``available`` is on hand less every order's
+    hold; ``available_to_line`` adds back what the asking order line holds
+    itself, because dispatch lets that hold go before it draws. ``fefo`` is
+    what dispatch would take with nobody choosing -- the picker's pre-fill.
+    """
+
+    batch_id: UUID
+    batch_number: str
+    manufacturing_date: date | None = None
+    expiry_date: date | None = None
+    days_to_expiry: int | None = None
+    on_hand: Decimal
+    reserved: Decimal
+    available: Decimal
+    available_to_line: Decimal
+    expired: bool
+    near_expiry: bool
+    fefo: Decimal = Decimal("0")
+
+
 # ── Lot schemas ──────────────────────────────────────────────────────────────
 
 

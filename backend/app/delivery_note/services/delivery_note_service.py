@@ -51,6 +51,7 @@ from app.delivery_note.models import (
     DeliveryNote,
     DeliveryNoteAttachment,
     DeliveryNoteLine,
+    DeliveryNoteLineBatch,
     DeliveryNoteNote,
 )
 from app.delivery_note.rules import (
@@ -62,6 +63,7 @@ from app.delivery_note.rules import (
 from app.delivery_note.schemas import (
     DeliveryNoteAttachmentResponse,
     DeliveryNoteAttachmentWrite,
+    DeliveryNoteBatchPick,
     DeliveryNoteByDimensionRecord,
     DeliveryNoteCreate,
     DeliveryNoteImportRequest,
@@ -1127,6 +1129,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         every_line = [item for group in lines.values() for item in group]
         products = self._products_named(every_line)
         serials = self._trail.picked_serials(line.id for line in every_line)
+        batch_picks = self._batch_picks([line.id for line in every_line])
         names = customer_labels(self._session, (row.customer_id for row in rows))
         warnings = self._duplicate_warnings(rows)
         return [
@@ -1137,6 +1140,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                 notes=notes[row.id],
                 products=products,
                 serials=serials,
+                batch_picks=batch_picks,
                 customer_name=names.get(row.customer_id, ""),
                 warning=warnings.get(row.id),
             )
@@ -1154,6 +1158,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         serials: dict[UUID, list[PickedSerial]],
         customer_name: str,
         warning: str | None,
+        batch_picks: dict[UUID, list[DeliveryNoteBatchPick]] | None = None,
     ) -> DeliveryNoteResponse:
         """Build one note's response from what the page already read."""
         return DeliveryNoteResponse(
@@ -1215,7 +1220,10 @@ class DeliveryNoteService(TransactionalDocumentService):
             updated_at=row.updated_at,
             lines=[
                 self._line_response(item, products.get(item.product_id)).model_copy(
-                    update={"serials": serials.get(item.id, [])}
+                    update={
+                        "serials": serials.get(item.id, []),
+                        "batches": (batch_picks or {}).get(item.id, []),
+                    }
                 )
                 for item in lines
             ],
@@ -1857,9 +1865,226 @@ class DeliveryNoteService(TransactionalDocumentService):
         for line_number, obsolete in existing.items():
             if line_number not in seen:
                 self._trail.clear_lines([obsolete.id])
+                # Explicitly, not by the key's CASCADE, which SQLite skips.
+                self._session.query(DeliveryNoteLineBatch).filter(
+                    DeliveryNoteLineBatch.delivery_note_line_id == obsolete.id
+                ).delete(synchronize_session=False)
                 self._session.delete(obsolete)
         self._replace_serial_picks(row, lines, actor_id=actor_id)
+        self._replace_batch_picks(row, lines, actor_id=actor_id)
         return {key: self._q(value) for key, value in totals.items()}
+
+    def _replace_batch_picks(
+        self,
+        row: DeliveryNote,
+        lines: list[DeliveryNoteLineWrite],
+        *,
+        actor_id: UUID,
+    ) -> None:
+        """Record which batches each line takes, as a person chose (backlog 79).
+
+        As with serial picks, only lines that said something are touched:
+        ``batches`` absent keeps the line's choice, an empty list clears it
+        back to earliest expiry first. Each batch must be the line's product's;
+        whether it is in date and free to take is judged at dispatch, when the
+        stock is what it is then.
+
+        Raises:
+            ValidationError: When a batch is not the line's product's.
+
+        """
+        stated = {
+            item.line_number: item.batches for item in lines if item.batches is not None
+        }
+        if not stated:
+            return
+        self._session.flush()
+        persisted = {
+            line.line_number: line
+            for line in self._session.scalars(
+                select(DeliveryNoteLine).where(
+                    DeliveryNoteLine.delivery_note_id == row.id,
+                    DeliveryNoteLine.is_deleted.is_(False),
+                )
+            ).all()
+        }
+        for line_number, picks in stated.items():
+            line = persisted[line_number]
+            if picks and self._trail.is_serialised(line.product_id):
+                raise ValidationError(
+                    f"Line {line_number}: a serial-tracked product leaves from "
+                    "the batch of each unit picked, so its batches are not "
+                    "chosen separately."
+                )
+            if len({pick.batch_id for pick in picks}) != len(picks):
+                raise ValidationError(
+                    f"Line {line_number}: a batch is named twice; give it once "
+                    "with the whole quantity."
+                )
+            for old in self._session.scalars(
+                select(DeliveryNoteLineBatch).where(
+                    DeliveryNoteLineBatch.delivery_note_line_id == line.id
+                )
+            ).all():
+                self._session.delete(old)
+            for pick in picks:
+                batch = self._session.get(BatchRecord, pick.batch_id)
+                if (
+                    batch is None
+                    or batch.firm_id != row.firm_id
+                    or batch.product_id != line.product_id
+                    or batch.is_deleted
+                ):
+                    raise ValidationError(
+                        f"Line {line.line_number}: that batch is not this product's."
+                    )
+                self._session.add(
+                    DeliveryNoteLineBatch(
+                        delivery_note_line_id=line.id,
+                        firm_id=row.firm_id,
+                        batch_id=batch.id,
+                        quantity=self._q(pick.quantity),
+                        created_by=actor_id,
+                        updated_by=actor_id,
+                    )
+                )
+        self._session.flush()
+
+    def _batch_picks(
+        self, line_ids: Sequence[UUID]
+    ) -> dict[UUID, list[DeliveryNoteBatchPick]]:
+        """Return each line's chosen batches, for a page of lines at once."""
+        if not line_ids:
+            return {}
+        found: dict[UUID, list[DeliveryNoteBatchPick]] = {}
+        for pick in self._session.scalars(
+            select(DeliveryNoteLineBatch)
+            .where(
+                DeliveryNoteLineBatch.delivery_note_line_id.in_(list(line_ids)),
+                DeliveryNoteLineBatch.is_deleted.is_(False),
+            )
+            .order_by(DeliveryNoteLineBatch.created_at.asc())
+        ).all():
+            found.setdefault(pick.delivery_note_line_id, []).append(
+                DeliveryNoteBatchPick(batch_id=pick.batch_id, quantity=pick.quantity)
+            )
+        return found
+
+    def _chosen_split(
+        self, line: DeliveryNoteLine, *, as_of: date
+    ) -> list[tuple[UUID | None, Decimal]] | None:
+        """Return the batches a person chose for a line, checked; None if none.
+
+        They must add up to what the line delivers and each be in date on the
+        note's own date. Whether each batch has the stock is the dispatch
+        movement's to refuse, after this line's own hold is let go.
+
+        Raises:
+            ValidationError: When the quantities disagree or a batch expired.
+
+        """
+        picks = self._batch_picks([line.id]).get(line.id, [])
+        if not picks:
+            return None
+        total = sum((pick.quantity for pick in picks), ZERO)
+        if self._q(total) != self._q(line.delivered_quantity):
+            raise ValidationError(
+                f"Line {line.line_number}: the batches chosen add up to "
+                f"{self._q(total)}, and the line delivers "
+                f"{self._q(line.delivered_quantity)}."
+            )
+        # The same test dispatch applies when nobody chooses: a batch is out of
+        # date on its expiry day, and one marked EXPIRED by hand is too.
+        expired = self._session.scalars(
+            select(BatchRecord).where(
+                BatchRecord.id.in_([pick.batch_id for pick in picks]),
+                BatchRecord.expired_condition(as_of),
+            )
+        ).first()
+        if expired is not None:
+            when = (
+                f" on {expired.expiry_date.isoformat()}"
+                if expired.expiry_date is not None
+                else ""
+            )
+            raise ValidationError(
+                f"Line {line.line_number}: batch {expired.batch_number} "
+                f"expired{when}."
+            )
+        return [(pick.batch_id, self._q(pick.quantity)) for pick in picks]
+
+    def _record_drawn(
+        self,
+        line: DeliveryNoteLine,
+        allocation: list[tuple[UUID | None, Decimal]],
+        *,
+        actor_id: UUID,
+    ) -> None:
+        """Write down the batches dispatch drew when nobody chose (backlog 79).
+
+        After dispatch a line's picks are what left, chosen or not, so the
+        challan prints one row per batch and the note shows the split without
+        rebuilding it from movements -- which carry a reference and a product,
+        not a line, and cannot tell two lines of one product apart.
+        """
+        for batch_id, quantity in allocation:
+            if batch_id is None:
+                continue
+            self._session.add(
+                DeliveryNoteLineBatch(
+                    delivery_note_line_id=line.id,
+                    firm_id=line.firm_id,
+                    batch_id=batch_id,
+                    quantity=self._q(quantity),
+                    created_by=actor_id,
+                    updated_by=actor_id,
+                )
+            )
+
+    def _record_fefo_skip(
+        self,
+        row: DeliveryNote,
+        line: DeliveryNoteLine,
+        chosen: list[tuple[UUID | None, Decimal]],
+        *,
+        branch_id: UUID,
+        actor_id: UUID,
+    ) -> None:
+        """Audit a chosen split that is not the one expiry order would draw (79).
+
+        Choosing a later batch while an earlier one sits on the shelf is the
+        decision a pharmacy is asked about afterwards, so the trail keeps both
+        splits. Asked after this line's own hold is let go, as the allocation
+        it is compared with would be.
+        """
+        if line.warehouse_id is None:
+            return
+        try:
+            fefo = self._inventory.allocate_for_dispatch(
+                firm_scope=row.firm_id,
+                branch_id=branch_id,
+                warehouse_id=line.warehouse_id,
+                storage_node_id=line.storage_node_id,
+                product_id=line.product_id,
+                quantity=line.delivered_quantity,
+                as_of=row.delivery_date,
+            )
+        except ValidationError:
+            fefo = []
+        as_split = {str(batch_id): str(self._q(qty)) for batch_id, qty in fefo}
+        chose = {str(batch_id): str(self._q(qty)) for batch_id, qty in chosen}
+        if as_split == chose:
+            return
+        record_audit(
+            self._session,
+            action="delivery_note.fefo_skipped",
+            entity_type="delivery_note",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=row.firm_id,
+            before_data={"line_number": line.line_number, "earliest_expiry": as_split},
+            after_data={"line_number": line.line_number, "chosen": chose},
+        )
 
     def _replace_serial_picks(
         self,
@@ -2209,6 +2434,11 @@ class DeliveryNoteService(TransactionalDocumentService):
             )
             if available < line.delivered_quantity:
                 raise ValidationError("Insufficient available stock for dispatch line.")
+            chosen = (
+                None
+                if serialised
+                else self._chosen_split(line, as_of=row.delivery_date)
+            )
             release_qty = self._q(
                 min(source_line.reserved_quantity, line.delivered_quantity)
             )
@@ -2234,6 +2464,9 @@ class DeliveryNoteService(TransactionalDocumentService):
                     storage_node_id=held_at.storage_node_id,
                     product_id=line.product_id,
                     quantity=release_qty,
+                    # The batches a person chose are let go first, so this
+                    # order's own hold never stands in the way of its own pick.
+                    prefer=[batch_id for batch_id, _ in chosen or [] if batch_id],
                 )
                 entered_release = self._q(
                     line.current_delivery_quantity + line.free_quantity
@@ -2292,6 +2525,20 @@ class DeliveryNoteService(TransactionalDocumentService):
                     for batch_id, share in by_batch.items()
                 ]
                 shares = list(by_batch.values())
+            elif chosen is not None:
+                # A person chose the batches (backlog 79): those, and only
+                # those, leave.
+                allocation = chosen
+                self._record_fefo_skip(
+                    row,
+                    line,
+                    chosen,
+                    branch_id=goods_branch_id,
+                    actor_id=actor_id,
+                )
+                shares = self._trail.deal(
+                    picks, [allocated for _, allocated in allocation]
+                )
             else:
                 allocation = self._inventory.allocate_for_dispatch(
                     firm_scope=row.firm_id,
@@ -2356,6 +2603,8 @@ class DeliveryNoteService(TransactionalDocumentService):
                     line.batch_id = batch_id
             if dispatched is None:
                 raise ValidationError("Insufficient available stock for dispatch line.")
+            if chosen is None:
+                self._record_drawn(line, allocation, actor_id=actor_id)
             line.inventory_transaction_id = dispatched.id
             line.updated_by = actor_id
         self._session.flush()

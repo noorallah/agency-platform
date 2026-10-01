@@ -2715,8 +2715,13 @@ class InventoryService:
         storage_node_id: UUID | None,
         product_id: UUID,
         quantity: Decimal,
+        prefer: Sequence[UUID] = (),
     ) -> list[tuple[UUID | None, Decimal]]:
         """Choose which reservations to let go, earliest expiry first.
+
+        ``prefer`` puts those batches first, in the order given: the batches a
+        person chose for a delivery line (backlog 79), so the order's own hold
+        on them is let go before the line draws from them.
 
         The mirror of ``allocate_for_reservation``, and it has to walk the rows
         that actually hold a reservation rather than the ones holding stock:
@@ -2739,6 +2744,11 @@ class InventoryService:
             product_id=product_id,
             column=InventoryRecord.reserved_quantity,
         )
+        if prefer:
+            rank: dict[UUID | None, int] = {
+                batch_id: index for index, batch_id in enumerate(prefer)
+            }
+            rows.sort(key=lambda row: rank.get(row.batch_id, len(rank)))
         outstanding = Decimal(str(quantity))
         allocation: list[tuple[UUID | None, Decimal]] = []
         for row in rows:

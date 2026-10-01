@@ -2212,6 +2212,33 @@ class ApiClient {
   Future<void> deleteLot(String id) =>
       request('DELETE', '/api/v1/batch-serial/lots/$id');
 
+  /// Every batch of a product in a warehouse with what a dispatch may take
+  /// from each, nearest expiry first (the delivery note's batch picker).
+  Future<List<BatchAvailabilityRecord>> batchAvailability({
+    required String productId,
+    required String warehouseId,
+    String? storageNodeId,
+    String? asOf,
+    num? quantity,
+    String? salesOrderLineId,
+  }) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/batch-serial/batches/availability',
+          query: {
+            'product_id': productId,
+            'warehouse_id': warehouseId,
+            if (storageNodeId != null) 'storage_node_id': storageNodeId,
+            if (asOf != null) 'as_of': asOf,
+            if (quantity != null) 'quantity': '$quantity',
+            if (salesOrderLineId != null && salesOrderLineId.isNotEmpty)
+              'sales_order_line_id': salesOrderLineId,
+          },
+        ),
+        BatchAvailabilityRecord.fromJson,
+      );
+
   Future<PagedResult<SerialRecord>> serials({
     int page = 1,
     int pageSize = 20,
