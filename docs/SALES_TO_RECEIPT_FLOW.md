@@ -1,5 +1,7 @@
 # Sale to receipt: stock, and the money
 
+Updated 2026-10-02: what a firm configures (table below); the delivery note's challan reason; the dispatch-before-invoice check; Dispatch and invoice.
+
 How an offer becomes goods off the shelf and money in the bank, which document
 does each part, and where every rupee is recorded.
 
@@ -42,6 +44,49 @@ decided, [`TAX_FRAMEWORK.md`](TAX_FRAMEWORK.md).
 
 A quotation moves nothing at all. Neither does raising an order, a draft
 delivery note, or a draft invoice.
+
+---
+
+## What a firm configures
+
+Every row is a setting a firm changes without a release. **Where** gives the
+phase 2 path (Settings gear, then the group) and the API. A firm that has set
+nothing gets the default in the third column; most defaults warn rather than
+block, because a check that stops the counter on the day it ships is a check
+nobody switches on.
+
+### Selling
+
+| Setting | Where | Choices / default | What it changes in the chain |
+| --- | --- | --- | --- |
+| Sales Stages (`sales_workflow_settings`) | Settings > Selling > Sales Stages; `GET/PUT /api/v1/sales-orders/workflow-settings` | `quotation_stage`, `sales_order_stage`, `delivery_note_stage`: each on by default. An off stage means the service raises that document itself | Steps 1-5. Stock still leaves at dispatch and cost of goods sold still belongs to the delivery note; the document is only no longer typed by hand |
+| Default branch and warehouse (same row) | Same screen | `default_branch_id`, `default_warehouse_id`: null falls back to the firm's default branch and warehouse | Where a raised-for-you delivery note ships from; dispatch refuses a line with no warehouse |
+| Promotions meeting on a document (same row) | Same screen | `promotion_mode`: `COMBINE` (default) or `BEST_OFFER`. `max_line_discount_percent`: null = no cap, used in COMBINE | How many offers stack on a line, and the most they may take off it. See `PRICING_AND_PROMOTIONS.md` |
+| Rate includes tax (same row) | Same screen | `rate_includes_tax`: off by default | Only the default for a new counter bill; each bill carries its own switch |
+| Credit Control (`credit_control_settings`) | Settings > Selling > Credit Control; `GET/PUT /api/v1/customers/credit-settings` | `enforcement` OFF / `WARN` (default) / BLOCK; `warn_at_percent` 80; `block_at_percent` 100 (ignored unless BLOCK). A customer's `credit_limit` of zero means unset | Steps 3 and 7: assessed when an order is approved and again when an invoice is. Writing it needs `CUSTOMER_MANAGE_SETTINGS` |
+| Price Floor (`price_floor_settings`) | Settings > Selling > Price Floor; `GET/PUT /api/v1/sales-orders/price-floor-settings` | `enforcement` OFF / `WARN` (default) / BLOCK; `include_cost` on by default | Judged when an order or a bill is approved: a line below the product's `minimum_selling_price`, and below cost if `include_cost`. A person holding `SALES_PRICE_OVERRIDE` may go below it |
+| Discount Limits (`role_discount_limits`) | Settings > Selling > Discount Limits; `GET/PUT /api/v1/sales-orders/discount-limits` | One `max_discount_percent` (0-100) per role code. The list is replaced whole; a role left out has no limit | At approval, a **typed** discount above the approver's largest limit is refused, naming the limit needed. A price list's, a promotion's or the customer's standing rate is never limited |
+| Loyalty Scheme (`loyalty_settings`) | Settings > Selling > Loyalty Scheme; `GET/PUT /api/v1/loyalty/settings` | `is_enabled` off by default; `points_per_amount` 1 per hundred billed; `amount_per_point` 1; `minimum_redemption_points` 0; `expiry_months` null = never expire | Points are earned on the invoice and may settle a later bill |
+| TCS Settings (`tcs_settings`) | Settings > Selling > TCS Settings; `GET/PUT /api/v1/tcs/settings` | `is_enabled` off by default; `threshold_amount` 5,000,000; `rate_percent` 0.1; `rate_without_pan_percent` 1; `preceding_year_turnover` 0; `seller_turnover_threshold` 100,000,000 | Tax collected at source on the **receipt** (step 8), once the buyer's year passes the threshold |
+| Trade licences (`trade_licence_settings`) | `app/trade_licences`; `GET/PUT /api/v1/trade-licences/settings` | `sale_enforcement` OFF / `WARN` (default) / BLOCK for orders, delivery notes and invoices | A sale of a licensed product to a buyer with no valid licence warns or is refused. The buying side never blocks |
+| GST Documents (`gst_compliance_settings`) | Settings > Tax > GST Documents; `GET/PUT /api/v1/tax-framework/gst-compliance-settings` | `dispatch_without_invoice` OFF / `WARN` (default) / BLOCK; `route_sale_needs_invoice` off; `einvoice_applicable_from` and `thirty_day_rule_from`: null = does not apply | Step 5, the dispatch-before-invoice check. The two dates say from when the firm must e-invoice and from when the 30-day reporting limit applies; the platform never guesses them. `GST_DOCUMENT_COMPLIANCE.md` is the reference |
+| Numbering Series | Settings > Firm > Numbering Series; `/api/v1/document-framework/numbering-rules` | Per document type; see `app/document_framework` for the fields | The number on every document above |
+| Messaging (`messaging_settings`) | Settings > Firm > Messaging; `GET/PUT /api/v1/messaging/settings` | `is_enabled` off: a firm with no row queues, skips and records nothing. `due_soon_days` 3; `overdue_every_days` 7. Each channel has the firm's own account | Messages about the bill and its reminders. `MESSAGING_FRAMEWORK.md` |
+| Print templates (`document_print_templates`) | Beside the Print button; changing needs `PLATFORM_SETTINGS` | See "Sending the bill" below | What the printed bill carries around its fixed statutory spine |
+
+### On the customer and the product
+
+These are on the master record, not in Settings, and they change what a sale
+does.
+
+| Setting | Where | Choices / default | What it changes in the chain |
+| --- | --- | --- | --- |
+| GST registration type | Customer, `gst_registration_type` (`app/customers/gst_registration.py`) | REGULAR, COMPOSITION, UNREGISTERED, SEZ_WITH_PAYMENT, SEZ_WITHOUT_PAYMENT, DEEMED_EXPORT, OVERSEAS. Null: a GSTIN reads as REGULAR, none as UNREGISTERED | Tax charged (an SEZ buyer is inter-state, so IGST), GSTR-1 section, e-invoice type. A "without payment" buyer billed tax is warned about, not refused |
+| Credit limit | Customer, `credit_limit` | Zero means unset | Compared in steps 3 and 7 under the firm's Credit Control policy |
+| Standing discount | Customer, `default_discount_percent` | 0 | The third answer in "What a line is discounted by" |
+| Customer group, price list | Customer group and price lists | See `PRICING_AND_PROMOTIONS.md` | A group's rate and a price list's price rank beside the standing rate in the same order |
+| Tax group | Product, `tax_profile_group_code` | Null | Part of the context tax rules match on; rules attach to the transaction, never the product |
+| Minimum selling price, MRP | Product, `minimum_selling_price`, `mrp` | Both null | The floor the Price Floor check reads |
 
 ---
 
@@ -104,6 +149,14 @@ order does not contain.
 
 A draft or approved note still moves nothing.
 
+**Every note says why it goes out** (`challan_reason`, 2026-10-02, decision
+A35). One of `SALE` (the default), `ROUTE_SALE` (van or route sale),
+`ON_APPROVAL` (supply on approval), `QUANTITY_UNKNOWN` (quantity not known at
+removal), `JOB_WORK` or `OTHER`. `OTHER` needs `challan_reason_note`, up to 200
+characters, in the firm's words. The reason prints on the challan
+(`challan_print_service.py`) and decides whether step 5 judges the dispatch.
+A transfer between branches is a stock transfer, not a reason here.
+
 ### 5. Dispatch — **the goods leave**
 
 `POST /api/v1/delivery-notes/{id}/dispatch`
@@ -132,6 +185,34 @@ and a reservation that does not cover it -- for every note, since no request can
 waive either (D-SELL-31).
 A failed posting **fails the dispatch** — stock that has moved with no
 accounting entry behind it is the gap this closes.
+
+**Dispatching before the invoice is checked** (2026-10-02, A35). A tax invoice
+for goods is issued at or before their removal (CGST s.31). When a person
+presses Dispatch, or Complete on an approved note,
+`GstComplianceService.judge_dispatch` reads the firm's
+`dispatch_without_invoice`:
+
+| Policy | A `SALE` note, no approved invoice |
+| --- | --- |
+| `OFF` | Dispatches, nothing said |
+| `WARN` (default) | Dispatches. The warning names the rule and offers Dispatch and invoice; it is kept on the DISPATCHED lifecycle event and the audit row (`gst_warning`) |
+| `BLOCK` | Refused with the same words |
+
+Only `SALE` is judged, plus `ROUTE_SALE` when the firm has switched on
+`route_sale_needs_invoice`. `ON_APPROVAL`, `QUANTITY_UNKNOWN`, `JOB_WORK` and
+`OTHER` leave on a challan and are billed later, possibly one invoice for
+several notes. **A bill that dispatches the note it raised is never judged**:
+that path goes through `stage_dispatch`, because the invoice is what ships it.
+
+**Dispatch and invoice** is the one-click compliant path:
+`POST /api/v1/delivery-notes/{id}/dispatch-and-invoice`
+(`SalesInvoiceService.dispatch_and_invoice`). On an `APPROVED` note it
+dispatches, raises a bill of the whole note and approves it **in one
+transaction**, so the invoice exists when the goods leave. Each bill line
+inherits the note's price, discount and free goods; the bill is dated the day
+it happens. It needs `SALES_APPROVE` and `SALES_CREATE`. If the bill's own
+approval refuses (a licence, a price below its floor), nothing is dispatched
+either.
 
 ### 6. Raise the invoice
 
