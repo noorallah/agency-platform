@@ -9,10 +9,14 @@ name: CI
 # hatch outlived its reason: two pull requests merged on 2026-08-23 carrying
 # ruff findings, and the pipeline said nothing about either. It gates now.
 
+# Once a day on main, not per push or pull request (owner, 2026-10-01): a
+# change is checked by its own targeted tests before it merges, and this run
+# is the daily net over everything merged since. "Run workflow" on the
+# Actions tab starts it by hand on any branch.
 on:
-  push:
-    branches: [main]
-  pull_request:
+  schedule:
+    - cron: "30 20 * * *"   # 02:00 IST
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
