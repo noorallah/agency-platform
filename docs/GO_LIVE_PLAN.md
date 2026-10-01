@@ -28,8 +28,10 @@ item names the backlog section or defect that holds its detail.
   - Reports at volume: a firm with two years and 110,000 invoices was
     built and every report timed; the minute-long ones were fixed
     (`docs/PERFORMANCE_AT_VOLUME.md`).
-- **Open PRs:** the second part of the report speed-ups and the documentation
-  pass; #814 *Expenses* waits on the owner's laptop test.
+  - Accounts > Expenses (#814): rent, fuel and salaries recorded and posted to
+    the journal, refused in a locked year.
+- **Open PRs:** none. Every branch was merged on 2026-10-01 at the owner's
+  word, including the report speed-ups part 2 (#866) and #814.
 
 ## Tier 1 -- before the first firm starts (weeks 1-4)
 
@@ -39,7 +41,7 @@ item names the backlog section or defect that holds its detail.
 | 2 | **Time the reports on the minimum hardware** in `docs/INSTALL_GUIDE.md` with `scripts/time_routes.py` against PERF01 | Every timing so far is on the development machine | Half a day | Owner + Claude |
 | 3 | **Walk the onboarding on a copy of a real firm's data**: products, customers, suppliers, opening bills, trial balance and stock from their own files, in that order, then check that the trial balance, the stock valuation and the outstanding lists agree with the old tool | Proves §36 end to end on real data, not seeded data | 1-2 days | Owner with the firm |
 | 4 | **An *Opening balances* step on the firm's Set up panel** that lists the imports above in order and ticks each one done | Today the imports live on five screens; a firm's first day should not depend on knowing where | 1-2 days | Claude |
-| 5 | **#814 Expenses**: the owner's laptop test, then merge | Expenses are a daily entry for every trade | Owner's test | Owner |
+| 5 | **Expenses (#814, merged)**: the owner's laptop test of the merged screen | Expenses are a daily entry for every trade | Owner's test | Owner |
 | 6 | **The go-live guide**: the TDS interim steps (§53, "docs only"), how to close a month and a year, how to bulk-approve, what to do when a licence check refuses | The firm's accountant reads it before the CA does | 1 day | Claude |
 | 7 | **The printed bill names every delivery note it bills** (§58 item 7) | A bill made of three dispatches must say so on paper | 1 day | Claude |
 | 8 | **Backup and restore drill** on the installed copy: scheduled backup (#812) runs, and a restore into a fresh install brings the firm back | A firm must not be able to lose its books | Half a day | Owner + Claude |
