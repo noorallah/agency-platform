@@ -3882,6 +3882,8 @@ every part cut to the user's role (`desktop/lib/phase2/home_page.dart`).
 
 ## 50. Profit and loss for a financial year or chosen months
 
+**Status, 2026-10-01: items 1-4 built.** `GET /api/v1/finance/profit-loss/range?from_period_id=&to_period_id=&compare=previous_year` sums any run of months inside one financial year (a span across two is refused), returns each month's amount per account beside the total and the month-by-month net profit, and with `compare=previous_year` the previous year's same months by period number. The screen's *Show* picker adds **Months or year**: presets (This financial year, Year to date, This quarter, Last financial year, Custom), *Month by month* columns and *Compare with last year*. Checked on WHOLE01: every year's total equals the one-month report's year to date. Left: item 5, the same range on the trial balance and the ledger statement.
+
 Owner, 2026-09-26: Profit & Loss shows one month at a time; it should also
 show a whole financial year, or the months a user picks.
 

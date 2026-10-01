@@ -5,13 +5,14 @@ Reports read the balances and posting trail written by
 recompute totals from journal lines, so a report and the ledger cannot drift.
 """
 
+from datetime import timedelta
 from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import ResourceNotFoundError
+from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.finance.models import (
     DEBIT_BALANCE_ACCOUNT_TYPES,
@@ -34,6 +35,9 @@ from app.finance.schemas import (
     GeneralLedgerLine,
     GeneralLedgerReport,
     ProfitLossLine,
+    ProfitLossRangeLine,
+    ProfitLossRangeMonth,
+    ProfitLossRangeReport,
     ProfitLossReport,
     TrialBalanceLine,
     TrialBalanceReport,
@@ -480,6 +484,217 @@ class GeneralLedgerService:
             year_to_date_expense=ytd_expense,
             year_to_date_net_profit=ytd_income - ytd_expense,
         )
+
+    def profit_and_loss_range(
+        self,
+        *,
+        firm_id: UUID,
+        from_period_id: UUID,
+        to_period_id: UUID,
+        compare_previous_year: bool = False,
+    ) -> ProfitLossRangeReport:
+        """Return the profit and loss over a run of months (backlog 50).
+
+        The Tally and Zoho convention: a whole financial year, a quarter, or
+        any run of months, each month as its own column beside the total, and
+        optionally the same months of the year before. Periods stay the unit,
+        so a span can never cut a month in half; both ends must lie in one
+        financial year, because profit resets at the year end.
+
+        Args:
+            firm_id: The firm.
+            from_period_id: The first month of the span.
+            to_period_id: The last month of the span, inclusive.
+            compare_previous_year: Add the previous financial year's same
+                months (by period number) as a comparison.
+
+        Raises:
+            ResourceNotFoundError: If either period is not the firm's.
+            ValidationError: If the two periods are in different years, or the
+                span runs backwards.
+
+        """
+        first = self._require_period(
+            firm_id=firm_id, accounting_period_id=from_period_id
+        )
+        last = self._require_period(firm_id=firm_id, accounting_period_id=to_period_id)
+        if first.financial_year_id != last.financial_year_id:
+            raise ValidationError(
+                "A profit and loss runs within one financial year; choose two "
+                "months of the same year."
+            )
+        if first.starts_on > last.starts_on:
+            raise ValidationError("The first month must come before the last.")
+        months = list(
+            self._session.scalars(
+                select(AccountingPeriod)
+                .where(
+                    AccountingPeriod.firm_id == firm_id,
+                    AccountingPeriod.financial_year_id == first.financial_year_id,
+                    AccountingPeriod.is_deleted.is_(False),
+                    AccountingPeriod.starts_on >= first.starts_on,
+                    AccountingPeriod.starts_on <= last.starts_on,
+                )
+                .order_by(AccountingPeriod.starts_on.asc())
+            ).all()
+        )
+        position = {period.id: index for index, period in enumerate(months)}
+        accounts, movements = self._movements(firm_id, list(position))
+
+        comparison_year: FinancialYear | None = None
+        compared: dict[UUID, Decimal] = {}
+        if compare_previous_year:
+            comparison_year, compared_periods = self._previous_year_periods(
+                firm_id,
+                first.financial_year_id,
+                [period.period_number for period in months],
+            )
+            if compared_periods:
+                compared_accounts, compared_moves = self._movements(
+                    firm_id, compared_periods
+                )
+                accounts.update(compared_accounts)
+                for (account_id, _), amount in compared_moves.items():
+                    compared[account_id] = compared.get(account_id, ZERO) + amount
+
+        per_account: dict[UUID, list[Decimal]] = {}
+        for (account_id, period_id), amount in movements.items():
+            row = per_account.setdefault(account_id, [ZERO] * len(months))
+            row[position[period_id]] += amount
+        for account_id in compared:
+            per_account.setdefault(account_id, [ZERO] * len(months))
+
+        income: list[ProfitLossRangeLine] = []
+        expenses: list[ProfitLossRangeLine] = []
+        for account_id, by_month in per_account.items():
+            account = accounts[account_id]
+            total = sum(by_month, ZERO)
+            comparison = compared.get(account_id, ZERO) if comparison_year else None
+            if total == ZERO and not comparison:
+                continue
+            line = ProfitLossRangeLine(
+                ledger_account_id=account.id,
+                account_code=account.code,
+                account_name=account.name,
+                account_type=AccountTypeEnum(account.account_type),
+                amount=total,
+                months=by_month,
+                comparison_amount=comparison,
+            )
+            if account.account_type in DEBIT_BALANCE_ACCOUNT_TYPES:
+                expenses.append(line)
+            else:
+                income.append(line)
+        income.sort(key=lambda line: line.account_code)
+        expenses.sort(key=lambda line: line.account_code)
+
+        total_income = sum((line.amount for line in income), ZERO)
+        total_expense = sum((line.amount for line in expenses), ZERO)
+        compared_income: Decimal | None = None
+        compared_expense: Decimal | None = None
+        if comparison_year is not None:
+            compared_income = sum(
+                (line.comparison_amount or ZERO for line in income), ZERO
+            )
+            compared_expense = sum(
+                (line.comparison_amount or ZERO for line in expenses), ZERO
+            )
+        monthly = [
+            sum((line.months[index] for line in income), ZERO)
+            - sum((line.months[index] for line in expenses), ZERO)
+            for index in range(len(months))
+        ]
+        return ProfitLossRangeReport(
+            financial_year_id=first.financial_year_id,
+            from_period_id=from_period_id,
+            to_period_id=to_period_id,
+            generated_at=utc_now(),
+            months=[
+                ProfitLossRangeMonth(
+                    accounting_period_id=period.id,
+                    name=period.name,
+                    starts_on=period.starts_on,
+                )
+                for period in months
+            ],
+            income=income,
+            expenses=expenses,
+            total_income=total_income,
+            total_expense=total_expense,
+            net_profit=total_income - total_expense,
+            monthly_net_profit=monthly,
+            comparison_year_id=(
+                None if comparison_year is None else comparison_year.id
+            ),
+            comparison_income=compared_income,
+            comparison_expense=compared_expense,
+            comparison_net_profit=(
+                None
+                if compared_income is None or compared_expense is None
+                else compared_income - compared_expense
+            ),
+        )
+
+    def _movements(
+        self, firm_id: UUID, period_ids: list[UUID]
+    ) -> tuple[dict[UUID, LedgerAccount], dict[tuple[UUID, UUID], Decimal]]:
+        """Return each income and expense account's signed movement per period.
+
+        Income counts on the credit side and expense on the debit, so a
+        positive figure is always this much income or this much cost.
+        """
+        accounts: dict[UUID, LedgerAccount] = {}
+        movements: dict[tuple[UUID, UUID], Decimal] = {}
+        if not period_ids:
+            return accounts, movements
+        rows = self._session.execute(
+            select(LedgerBalance, LedgerAccount)
+            .join(LedgerAccount, LedgerAccount.id == LedgerBalance.ledger_account_id)
+            .where(
+                LedgerBalance.firm_id == firm_id,
+                LedgerAccount.is_deleted.is_(False),
+                LedgerAccount.account_type.in_(PROFIT_LOSS_ACCOUNT_TYPES),
+                LedgerBalance.accounting_period_id.in_(period_ids),
+            )
+        ).all()
+        for balance, account in rows:
+            accounts[account.id] = account
+            movement = (
+                balance.period_debit - balance.period_credit
+                if account.account_type in DEBIT_BALANCE_ACCOUNT_TYPES
+                else balance.period_credit - balance.period_debit
+            )
+            key = (account.id, balance.accounting_period_id)
+            movements[key] = movements.get(key, ZERO) + movement
+        return accounts, movements
+
+    def _previous_year_periods(
+        self, firm_id: UUID, financial_year_id: UUID, period_numbers: list[int]
+    ) -> tuple[FinancialYear | None, list[UUID]]:
+        """Return the year ending the day before this one, and its same months."""
+        year = self._session.get(FinancialYear, financial_year_id)
+        if year is None:
+            return None, []
+        previous = self._session.scalar(
+            select(FinancialYear).where(
+                FinancialYear.firm_id == firm_id,
+                FinancialYear.is_deleted.is_(False),
+                FinancialYear.ends_on == year.starts_on - timedelta(days=1),
+            )
+        )
+        if previous is None:
+            return None, []
+        periods = list(
+            self._session.scalars(
+                select(AccountingPeriod.id).where(
+                    AccountingPeriod.firm_id == firm_id,
+                    AccountingPeriod.financial_year_id == previous.id,
+                    AccountingPeriod.is_deleted.is_(False),
+                    AccountingPeriod.period_number.in_(period_numbers),
+                )
+            ).all()
+        )
+        return previous, periods
 
     def account_summary(
         self, *, firm_id: UUID, accounting_period_id: UUID
