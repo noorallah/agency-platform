@@ -1015,6 +1015,7 @@ is split so that the role a policy constrains cannot rewrite it.
 | **Sales targets** | The numbers a salesman is measured on | `SALES_TARGET_VIEW` | `SALES_TARGET_MANAGE` | Sales › Targets | `/api/v1/sales-targets` |
 | **UOM conversion rules** | How a purchase unit becomes an inventory unit | `UOM_VIEW` | `CONVERSION_RULE_MANAGE`, `PACKAGING_MANAGE`, `UOM_MANAGE` | Administration › Configuration › UOM & Packaging | `/api/v1/uom-framework` |
 | **Tax rules** | Which rate applies to which transaction | `TAX_RULE_VIEW` | `TAX_RULE_CREATE` / `_UPDATE` / `_DELETE` | Administration › Tax Rules | `/api/v1/tax-framework/rules` |
+| **Messaging** | Whether the firm sends email / WhatsApp / SMS at all, its provider accounts (sealed, never shown again), which events send on which channels. Off by default; no business-profile gate (owner, 2026-10-01) | `SETTINGS_VIEW` | `SETTINGS_UPDATE`; sending and resending a document is `DOCUMENT_SEND` (held by `FIRM_ADMIN`, `FIRM_MANAGER`, `SALES_MANAGER`, `ACCOUNTANT`, `BILLING_EXECUTIVE`) | Settings › Messaging | `/api/v1/messaging` (`docs/MESSAGING_FRAMEWORK.md`) |
 
 ## Layer 5 — Per-user preferences
 

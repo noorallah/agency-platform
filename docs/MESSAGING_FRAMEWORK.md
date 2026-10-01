@@ -1,197 +1,280 @@
 # Messaging — email, WhatsApp and SMS, switched on by the firm
 
-Design for sending documents, payment reminders and other notifications by
-email, WhatsApp and SMS. **Not built yet.** The plan and its open decisions are
-`docs/BACKLOG.md` §51 (which takes up §14 and §42.1); this doc is the detail
-behind Phase B of that plan and the rule that the whole thing ships **off** and
-is turned on by each firm with its own provider account.
-
-Written 2026-09-30. Prices are indicative for India as of that date -- re-check
-before building.
+Sending documents, payment reminders and notices by email, WhatsApp and SMS.
+**Built 2026-10-01** (`backend/app/messaging`, migration `20261001_0185`),
+from `docs/BACKLOG.md` §51 and the owner's decisions of 2026-10-01, which
+override the design this doc carried before (recorded under *What changed from
+the design* below). How a firm sets up its accounts is
+`docs/MESSAGING_SETUP_GUIDE.md`.
 
 ## The rule: built in, off, and the firm brings its own account
 
-Every installation carries the code. Nothing is sent until:
+Every installation carries the code. Nothing is sent until the firm's
+administrator, on the firm's own **Settings → Messaging** page:
 
-1. the firm's **business profile** allows the feature (the platform decides --
-   this is where it can be sold as an add-on), and
-2. the firm's administrator has entered **its own** provider account in
-   **Settings → Messaging**, passed **Test**, and switched the channel on.
+1. switches messaging on for the firm (the master switch, off by default);
+2. enters **its own** provider account for a channel, passes **Test**, and
+   switches the channel on;
+3. chooses which **events** send, on which channels, with which template.
 
 The provider bills the firm directly. The platform never holds a shared
 account, never pays for a message, and one firm's spam complaint cannot stop
-another firm's messages (§51, decision 1).
+another firm's messages (§51, decision 1). Each firm has its own page and its
+own settings; there is deliberately no "copy from another firm".
 
-When messaging is off, every document behaves exactly as it does today. A
-failed or skipped send never blocks, delays or undoes a document (§51,
-decision 4).
+**When messaging is off, every document behaves exactly as it did before** --
+not one row is written for it, not even a skipped one. A failed or skipped send
+never blocks, delays or undoes a document (§51, decision 4).
 
 ## Four switches, each a different owner
 
 | Level | Where it lives | Who turns it | What it means |
 | --- | --- | --- | --- |
-| **Feature** | `business_features` codes, per profile through `profile_features` | Platform administrator | The firm may use this at all. Enforced with `require_feature(...)` on the messaging write endpoints (`app/business/gating.py`) |
-| **Channel** | The firm's messaging settings | Firm administrator (`SETTINGS_UPDATE`) | Email / WhatsApp / SMS on or off, with the provider and its credentials |
-| **Event** | The firm's messaging settings | Firm administrator | Which events send automatically (invoice raised, reminder before due, overdue, receipt), and by which channels |
-| **Party** | The customer / vendor | Staff | *No reminders* opt-out (§51, decision 7); preferred channel; WhatsApp opt-in |
+| **Firm** | `messaging_settings.is_enabled` | Firm administrator (`SETTINGS_UPDATE`) | Messaging on or off for the whole firm |
+| **Channel** | `messaging_channel_configs` | Firm administrator (`SETTINGS_UPDATE`) | Email / WhatsApp / SMS: the provider account, its health, on or off |
+| **Event** | `messaging_event_configs` | Firm administrator (`SETTINGS_UPDATE`) | Which events send, on which channels in which order, with which template |
+| **Party** | `customers.no_reminders`, `preferred_channel`, `whatsapp_opt_in` | Staff with customer edit rights | Opt out of reminders; channel tried first; consent to WhatsApp |
 
-Proposed feature codes (seeded **`default_enabled = false`**, **`is_implemented
-= false`** until the code ships -- see the `is_implemented` note in
-`app/business/models/framework.py`):
+There is **no business-profile gate** (owner, 2026-10-01): messaging is not a
+`business_features` code and no route calls `require_feature`. The firm's own
+master switch is the gate.
 
-- `MESSAGING_EMAIL` -- email a document, Phase A1.
-- `MESSAGING_PROVIDER` -- automatic sending through a paid provider: WhatsApp
-  Business API and SMS, Phase B1-B3.
-- `PAYMENT_LINKS` -- Razorpay / Cashfree links, Phase B4.
+Reading the page takes `SETTINGS_VIEW`; changing it `SETTINGS_UPDATE` -- the
+codes the firm's numbering series and print templates already use, and which
+`FIRM_ADMIN` holds. Sending a document by hand and resending take
+**`DOCUMENT_SEND`** (§51, decision 5), seeded in its own `messaging` group,
+operational (so `FIRM_ADMIN` and `FIRM_MANAGER` hold it) and granted to
+`SALES_MANAGER`, `ACCOUNTANT` and `BILLING_EXECUTIVE`. The message log opens to
+either `DOCUMENT_SEND` or `SETTINGS_VIEW`.
 
-Phase A2 (open WhatsApp on the PC with the text typed in) and A3 (UPI QR on the
-invoice) cost nothing and need no account, so they need no feature code.
+## Channels and providers
 
-**A channel cannot be switched on until its credentials are saved and Test has
-passed.** If the provider later refuses (expired token, balance exhausted,
-template withdrawn), the channel is marked *needs attention*, a strip says so in
-the desktop client, and sends fall to the next channel the firm enabled.
+One provider per channel in this release (owner, 2026-10-01). Each is an
+adapter behind one interface (`app/messaging/providers/base.py`):
 
-## Channels and what the firm has to arrange (India)
+```
+required_fields() -> the account form's fields (name, label, secret, kind, ...)
+send(message)     -> provider message id, or ProviderError(permanent=...)
+fetch_status(id)  -> DELIVERED / READ / FAILED, or None when it cannot say
+test_connection() -> proves the account, messages nobody
+```
 
-### Email -- no cost
+The settings page draws its account form from `required_fields`, so a second
+provider for a channel is one more adapter in `ADAPTERS` and no screen change.
 
-The firm's own mail account over SMTP: Gmail or Outlook with an app password,
-or its domain mail. Attach, not link (§51, decision 3).
+| Channel | Provider | Fields | Test does | Status |
+| --- | --- | --- | --- | --- |
+| Email | `SMTP` -- the firm's own mailbox (Gmail/Outlook app password, or domain mail) | host, port, security (STARTTLS/SSL/NONE), username, **password**, from address, sender name | connect, secure, sign in, NOOP | stays *sent*: SMTP has no status to fetch; a bounce returns to the firm's mailbox |
+| WhatsApp | `META_CLOUD` -- Meta WhatsApp Cloud API, direct | phone number ID, business account ID, **access token** | reads the phone number's own record | stays *sent*: the Cloud API reports delivery only by webhook |
+| SMS | `MSG91` on the firm's DLT registration | **auth key**, DLT sender ID (6 chars), DLT entity ID | reads the transactional balance | stays *sent*: MSG91 reports delivery only by webhook |
 
-### WhatsApp Business API
+**Bold** fields are secret. HTTP is `urllib` and mail is `smtplib` -- no new
+dependency, nothing the Nuitka build has to learn about.
 
-- A Meta Business account (verification recommended) and a phone number **not**
-  already on the WhatsApp app.
-- Every message is a **template approved by Meta**. Billing messages are the
-  *Utility* category.
-- The party must have opted in.
-- Two ways to connect, both behind the same adapter:
-  - **Meta Cloud API direct** -- no platform fee, only Meta's per-message rate.
-  - **A partner (BSP)** -- Interakt, AiSensy, Gupshup, MSG91 -- adds a dashboard
-    and support for about ₹999-9,999 a month or ₹0.10-0.30 a message on top.
-- Approximate Meta rates, India, 2026, before 18% GST: utility and
-  authentication about ₹0.115 a message; marketing about ₹0.86. Replies inside
-  the 24-hour customer-service window were free; reported to become chargeable
-  from 1 Oct 2026, with 1,000 a month free per number.
-
-### SMS
-
-- **DLT registration** with a telecom operator is mandatory (TRAI): the firm
-  registers as a principal entity (about ₹5,900 once), a 6-character sender ID,
-  and each message template (usually approved in 24-48 hours). Documents: GST
-  certificate, PAN, CIN or Udyam certificate, the signatory's ID. **The firm's
-  paperwork, not ours** -- the product only stores the sender ID and each DLT
-  template ID.
-- Providers: MSG91, 2Factor, Textlocal, Twilio's Indian route.
-- Transactional SMS about ₹0.12-0.20 a message; reaches DND numbers.
+**WhatsApp and SMS send templates only.** WhatsApp delivers business-initiated
+messages only as templates Meta has approved; Indian SMS only as DLT-registered
+templates. So each event names, per channel, the provider's template (Meta
+template name and language; MSG91 template id) and the event's **variables are
+filled in order** -- `{{1}}` / `var1` is the first variable the event lists,
+`{{2}}` / `var2` the second. That order is a contract with every template a
+firm has had approved, so `app/messaging/events.py` may only ever append to it.
+Email uses the firm's subject and body (with `{customer_name}` placeholders),
+or the defaults, and **attaches the invoice PDF** (§51, decision 3) from the
+same builder `GET /sales-invoices/{id}/print` uses.
 
 ### Not supported, deliberately
 
 Unofficial WhatsApp libraries (pywhatkit, whatsapp-web.js) and "phone as SMS
-gateway" apps. They break the providers' terms, get the firm's number banned,
-and fail at volume. A2 (open WhatsApp with the text typed in) is the free
-option, and it is honest about needing a person to press send.
+gateway" apps: they break the providers' terms, get the firm's number banned,
+and fail at volume.
 
-## No webhooks: the server fetches status
+## Events
 
-The server sits inside the office and a provider cannot call in (§51). So:
+| Code | When | Document | Variables, in order |
+| --- | --- | --- | --- |
+| `SALES_INVOICE_APPROVED` | a bill is approved | sales invoice (email attaches the PDF) | customer_name, document_number, document_date, amount, due_date, firm_name |
+| `SALES_ORDER_APPROVED` | an order is approved | sales order | customer_name, document_number, document_date, amount, firm_name |
+| `DELIVERY_DISPATCHED` | a delivery note is dispatched | delivery note | customer_name, document_number, document_date, firm_name |
+| `RECEIPT_POSTED` | a customer receipt is recorded | receipt | customer_name, document_number, document_date, amount, firm_name |
+| `PAYMENT_DUE_SOON` | daily scan: an unpaid bill falls due within *n* days (`due_soon_days`, default 3) | sales invoice | customer_name, document_number, amount_due, due_date, firm_name |
+| `PAYMENT_OVERDUE` | daily scan: the day after due, then every *n* days while owed (`overdue_every_days`, default 7) | sales invoice | customer_name, document_number, amount_due, due_date, days_overdue, firm_name |
 
-- Sending is outbound only.
-- Delivery status (sent / delivered / read / failed) is **fetched** by the
-  server on a timer from the provider's API, where the provider offers it.
-- Where a provider has no status API, the record stops at *sent*. It is never
-  shown as *delivered* on a guess.
+The two payment events are **reminders**: a customer marked *no reminders* gets
+a SKIPPED row with the reason instead (§51, decision 7). What a bill still owes
+is read from `ReceiptService.outstanding_invoices`, the same derivation the
+ageing uses -- never a stored figure.
 
-A firm that does expose its server publicly may later get a webhook receiver as
-an option; the design must not depend on it.
-
-## Shape of the code
+## How a message travels
 
 ```
-document service / reminder schedule
-        │  event: SALES_INVOICE_RAISED, PAYMENT_DUE, PAYMENT_OVERDUE, RECEIPT_POSTED
+document service (in its own transaction)          daily reminder scan
+        │  stage_document_event(...)                     │
+        ▼                                                 ▼
+MessagingService.stage_event  ── savepoint; any failure is logged and swallowed
+        │  firm switched on?  event chosen?  already asked for?
+        │  reminder and customer opted out?  → SKIPPED, on the timeline
+        │  first usable channel in the event's order (customer's preferred first):
+        │     channel on and Test passed, customer has an address, WhatsApp opt-in
+        │  none usable                                  → SKIPPED, reasons on the timeline
         ▼
-MessagingService.request(firm, event, party, document)
-        │  feature allowed?  event on?  channel on and healthy?  party opted in?
-        │  otherwise: record *skipped* with the reason, return -- never raise
+messaging_outbox row, QUEUED  ── commits or rolls back WITH the document
         ▼
-outbox row (queued)  ── the server may be offline when a send is asked for
+outbox worker (thread in the server; `agency-server messaging-run-once`)
+        │  claim: SENDING, attempts+1, COMMIT  -- before the provider is called
         ▼
-outbox worker, with retry and back-off
+adapter.send
+   ├─ ok                → SENT, provider id; MESSAGE_SENT on the timeline
+   ├─ unreachable       → QUEUED again after 1, 5, 15, 60 minutes; then as refused
+   └─ refused           → FAILED; channel NEEDS_ATTENTION; MESSAGE_FAILED on the
+                          timeline; a new QUEUED row on the next usable channel
         ▼
-channel adapter  ── one interface for every provider
-   ├─ SmtpAdapter
-   ├─ WhatsAppCloudAdapter / WhatsAppPartnerAdapter
-   └─ SmsAdapter (MSG91, ...)
-        ▼
-status fetcher (timer) ── updates the outbox row and the document timeline
+status fetch (every 15 min for 3 days, where the adapter supports it)
 ```
 
-- **One adapter interface:** `send(to, template, variables, attachment) ->
-  provider_message_id`, `fetch_status(provider_message_id)`,
-  `test_connection()`, and `required_fields()` -- the list of credential fields
-  that provider needs. The settings screen draws its form from that list, so
-  adding a provider changes no screen.
-- **Idempotent:** one send per `(event, document, channel)` unless a person
-  presses *Resend*.
-- **Every send is on the document's timeline** -- channel, to whom, by whom,
-  when, and sent / failed / skipped with the reason (§51, A5).
-  `document_timeline.email_recipient` and `document_states.allows_email` already
-  exist for this.
-- **Sending is its own permission**, `DOCUMENT_SEND` (§51, decision 5).
+- **In the document's transaction.** `stage_event` adds the outbox row to the
+  session the document is being written on and never commits. A document that
+  rolls back leaves no message; one that commits has its message queued. It
+  runs inside `begin_nested()` and swallows every exception, so a missing table
+  in an unmigrated store or a bug here cannot block or undo the document.
+- **Once only.** One message per `(event, document, channel, occurrence)`,
+  held by the partial unique index `UQ_messaging_outbox_firm_dedupe_active`
+  and checked before staging. The occurrence is empty for a document event,
+  `DUE-<date>` for a due-soon reminder and `OVERDUE-<cycle>` for each overdue
+  cycle. **Resend** (and a person's Send) carries no key, which is what makes
+  it the only way anything goes twice.
+- **Never sent twice by itself.** A row is marked SENDING and committed before
+  the provider is called. A row still SENDING after 15 minutes was interrupted:
+  whether it reached the customer cannot be known, so it is marked FAILED with
+  "use Resend" and never retried automatically.
+- **No webhooks.** The server sits inside the office and a provider cannot call
+  in (§51), so status is fetched on a timer where the provider offers a way; a
+  message is never shown *delivered* on a guess. None of the three providers
+  offers one today, so their messages stop at *sent*; the fetch loop is there
+  for the next adapter that can say.
+- **Every send is on the document's timeline** -- `document_lifecycle_events`
+  with action `MESSAGE_SENT`, `MESSAGE_FAILED` or `MESSAGE_SKIPPED`, the channel,
+  recipient (`email_recipient` for email), reason and message id in
+  `details_json`, and the requesting user as actor. The whole log, across
+  documents, is `GET /api/v1/messaging/messages` and the page's Message log.
 
 ## Credentials
 
-- Entered once in Settings → Messaging by the firm administrator.
-- Stored **encrypted**, with the key in the server's config and not in the
-  database (§51, decision 2).
-- Never shown again after saving: the screen offers only *Replace* and *Test*.
-- Never logged -- `docs/LOGGING.md` already redacts `token`, `secret`,
-  `api_key` and `password`; check each provider's own key names (MSG91's
-  `authkey`, Meta's `access_token`) are covered, and add any that are not.
-- Every change is audited: who, when, which channel, never the value.
+- Entered on the firm's Messaging page by its administrator; **never returned**
+  -- a channel reports its public fields and the *names* of the secrets it
+  holds (`secrets_set`), and the page offers only *Replace* and *Test*. A
+  secret left blank on Replace keeps the one saved.
+- **Sealed at rest** in `messaging_channel_configs.credentials_encrypted` under
+  `AGENCY_MESSAGING_KEY` from `config\.env`, never under anything in the
+  database (§51, decision 2). `app/core/security/secret_box.py` is standard
+  library only (the release is compiled with Nuitka): purpose-bound keys
+  derived with HMAC-SHA256, a random 16-byte nonce, an HMAC-SHA256 counter-mode
+  keystream, and **encrypt-then-MAC** with a constant-time tag check before
+  anything is decrypted. Stored as `v1.<base64>`, so a later release can change
+  the construction and still read this one's.
+- **The key, like the JWT key.** Development and testing fall back to a fixed,
+  published development key. **Staging and production have no fallback**: with
+  no key (or the development one) the server still starts -- messaging is
+  optional -- but no firm can save an account, and the page says the operator
+  must set `AGENCY_MESSAGING_KEY`. `install\install.ps1` generates one on a
+  fresh install and adds one to an existing `config\.env` that lacks it. **Never
+  change it on a server where firms have saved accounts**: they would have to
+  enter them again (Test reports the account as unreadable).
+- **Never logged.** `docs/LOGGING.md`'s redaction list carries `authkey`,
+  `access_token`, `password` and `credentials`; a provider's error text has
+  every saved secret value scrubbed out before it is stored or shown; HTTP
+  errors never include the URL (MSG91's balance check carries the key in one).
+- **Every change is audited** -- who, when, which channel, which fields, never
+  a secret's value.
+- Saving an account switches the channel **off** and back to *untested*: a
+  changed account has not been shown to work, and **only a passed Test lets a
+  channel on**. A refusal from the provider later marks it *needs attention*,
+  and a channel needing attention is passed over until it is tested again.
 
-## Data (draft -- confirm against `docs/TABLE_CATALOGUE.md` before migrating)
+## Data
 
-- **`messaging_channel_configs`** -- per firm and channel: provider,
-  `is_enabled` (default false), encrypted credentials, health (`NOT_CONFIGURED`
-  / `OK` / `NEEDS_ATTENTION`), last tested at, last error.
-- **`messaging_event_configs`** -- per firm and event: enabled, channels in
-  order, the template per channel.
-- **`messaging_templates`** -- per firm: code, channel, the provider's template
-  ID (Meta template name or DLT template ID), language, variables, preview text.
-- **`messaging_outbox`** -- one row per send: firm, event, document, party,
-  channel, rendered variables, provider message ID, status, attempts, last
-  error, timestamps.
-- Party fields: `no_reminders`, preferred channel, WhatsApp opt-in with the date
-  it was given.
-- Reminder schedule per firm (for example 3 days before the due date, on it,
-  then every 7 days) -- §51, open question 4.
+All firm-owned, in every firm store; none carries a foreign key to `firms`.
 
-## Order of work
+- **`messaging_settings`** -- per firm: `is_enabled` (default false),
+  `due_soon_days` (3), `overdue_every_days` (7), `last_reminder_scan_on`.
+- **`messaging_channel_configs`** -- per firm and channel: `provider`,
+  `is_enabled`, `public_settings` (JSON), `credentials_encrypted`, `health`
+  (`NOT_CONFIGURED` / `UNTESTED` / `OK` / `NEEDS_ATTENTION`), `last_tested_at`,
+  `last_error`.
+- **`messaging_event_configs`** -- per firm, event and channel: `is_enabled`,
+  `priority` (the fallback order), `template_name`, `template_language`,
+  `subject`, `body`.
+- **`messaging_outbox`** -- one row per message: event, document type / id /
+  number, customer, channel, provider, recipient, status (`QUEUED`, `SENDING`,
+  `SENT`, `DELIVERED`, `READ`, `FAILED`, `SKIPPED`), reason, rendered subject
+  and body, template and ordered `variables`, `attach_pdf`,
+  `fallback_channels`, `occurrence`, `dedupe_key`, `is_resend`,
+  `previous_message_id`, `requested_by`, attempts, `next_attempt_at`,
+  provider message id, sent / delivered / status-checked times.
+- **Customers** -- `no_reminders`, `preferred_channel`, `whatsapp_opt_in` and
+  `whatsapp_opt_in_at` (set by the server when the box is ticked, cleared when
+  unticked; a client cannot send it). Audited with the customer.
 
-1. Feature codes seeded off; channel config table with encryption; Settings →
-   Messaging screen with Test.
-2. `MessagingService`, outbox and worker; the timeline record; `DOCUMENT_SEND`.
-3. SMTP adapter and *Email* on each document's bar (A1). A2-A5 alongside.
-4. WhatsApp adapter (Meta Cloud API first), templates, automatic reminders (B2,
-   B3), status fetcher.
-5. SMS adapter (B1).
-6. Payment links with the draft receipt (B4).
-7. A guide for firms: how to open a Meta WhatsApp Business account, and how to
-   do DLT registration.
+## API
 
-Tests to write with it: messaging off changes nothing about a document; a
-channel without a passing Test cannot be enabled; a provider failure falls back
-and is on the timeline; a resend is the only way to send twice; no credential
-appears in any log line or response body.
+All under `/api/v1/messaging`, firm-scoped by `X-Firm-ID`.
 
-## Open (adds to §51's list)
+| Route | Permission | Does |
+| --- | --- | --- |
+| `GET /settings`, `PUT /settings` | `SETTINGS_VIEW` / `SETTINGS_UPDATE` | master switch and schedule; `can_store_credentials` |
+| `GET /providers`, `GET /events` | `SETTINGS_VIEW` | the account forms' fields; the events and their variables |
+| `GET /channels` | `SETTINGS_VIEW` | each channel's provider, health, public fields, secret names |
+| `PUT /channels/{channel}` | `SETTINGS_UPDATE` | save or replace an account (`{provider, settings}`) |
+| `POST /channels/{channel}/test`, `/enable`, `/disable` | `SETTINGS_UPDATE` | Test; switch on (refused unless Test passed); switch off |
+| `GET /event-configs`, `PUT /event-configs/{event_code}` | `SETTINGS_VIEW` / `SETTINGS_UPDATE` | which channels each event uses, in order, with templates |
+| `GET /messages` | `DOCUMENT_SEND` or `SETTINGS_VIEW` | the message log, paginated, newest first |
+| `POST /send` | `DOCUMENT_SEND` | send an approved invoice now on one channel (email attaches the PDF) |
+| `POST /messages/{id}/resend` | `DOCUMENT_SEND` | send a message again |
 
-- Sell `MESSAGING_PROVIDER` as a paid add-on through the profile, or allow it
-  for every profile and let the provider cost be the only gate?
-- Which WhatsApp route first: Meta direct or one partner?
+A person's **Send** on an invoice borrows the template the firm named for
+`SALES_INVOICE_APPROVED` on that channel, so WhatsApp and SMS need one named
+there first; it is refused while messaging is off or the channel cannot send.
+
+## Running it
+
+- The server starts the worker in its lifespan (`AGENCY_MESSAGING_WORKER_ENABLED`,
+  default on; `AGENCY_MESSAGING_WORKER_INTERVAL_SECONDS`, default 60). Each pass
+  walks every live firm from the registry and opens **that firm's own store**
+  (`app/messaging/services/runtime.py`), so a DATABASE-mode firm on another
+  server is reached where its outbox lives; a store it cannot read is logged
+  and the pass continues.
+- `agency-server messaging-run-once` runs one pass over every firm and exits
+  non-zero if a store could not be reached -- for operators and tests.
+- The reminder scan runs once per UTC day per firm, inside the first pass of
+  the day.
+- A firm that switches messaging **off** stops sending at once: what it had
+  queued waits, and goes when it switches back on.
+
+## What changed from the design (owner, 2026-10-01)
+
+- **No business-profile gate.** The design had `MESSAGING_EMAIL` /
+  `MESSAGING_PROVIDER` feature codes the platform administrator would allow per
+  profile; the owner decided messaging is a feature the firm turns on itself.
+  No feature code was seeded.
+- **Per firm, no copying** between firms.
+- **Providers chosen**: SMTP, Meta Cloud API direct (not a partner/BSP), MSG91.
+- **Templates live on the event**, not in a separate `messaging_templates`
+  table: one event's channel row names the provider template it uses.
+- **Reminder defaults**: 3 days before due; overdue the day after due and every
+  7 days (§51, open question 4).
+
+## Not built yet
+
+- Phase A2 (open WhatsApp on the PC with the text typed in), A3 (UPI QR on the
+  invoice), A4 (Remind from the overdue list and statements) and B4 (payment
+  links) of §51.
+- Sending documents other than the sales invoice by hand; attaching a PDF to
+  any event but the invoice's.
+- WhatsApp media (a PDF in a document-header template) -- WhatsApp and SMS send
+  link-free template text.
+- Vendors: the party preferences exist on customers only.
+- **Verification against the real providers** needs a firm's own accounts; the
+  adapters were built from the providers' published APIs and are tested only
+  against fakes. Check each with a real account before a firm relies on it.
 
 ## Sources
 
