@@ -30,7 +30,9 @@ import '../models/sales_invoice.dart';
 import '../models/trade_licence.dart';
 import '../models/vendor.dart';
 import 'customers/customer_management_page.dart';
+import 'customers/credit_settings_dialog.dart';
 import 'customers/customer_statement_page.dart';
+import 'customers/loyalty_settings_dialog.dart';
 import 'customers/loyalty_page.dart';
 import 'inventory/inventory_management_page.dart';
 import 'inventory/inventory_details_dialog.dart';
@@ -46,6 +48,7 @@ import 'sales/route_builder_page.dart';
 import 'sales/territory_coverage_page.dart';
 import 'sales/route_type_management_page.dart';
 import 'sales/sales_invoice_management_page.dart';
+import 'sales/sales_workflow_settings_dialog.dart';
 import 'commission/commission_page.dart';
 import 'commission/sales_target_page.dart';
 import 'sales/credit_note_page.dart';
@@ -374,7 +377,48 @@ class _DesktopShellState extends State<DesktopShell> {
     unawaited(_saveShellState());
   }
 
+  /// A Selling setting from the Settings gear or the command box: the same
+  /// dialog the owning screen's "..." menu opens, shown over whatever is on
+  /// screen without adding a tab. A saved sales-stage change is re-read so the
+  /// sidebar and menu follow it at once.
+  Future<void> _openSettingDialog(MenuItemSpec item) async {
+    final ApiClient api = widget.session.api;
+    switch (item.path) {
+      case MenuLayout.salesStagesRoute:
+        final bool? saved = await showDialog<bool>(
+          context: context,
+          builder: (_) => SalesWorkflowSettingsDialog(
+            api: api,
+            permissions: widget.permissions,
+          ),
+        );
+        if (saved == true) await _refreshSalesStages();
+      case MenuLayout.creditControlRoute:
+        await showDialog<bool>(
+          context: context,
+          builder: (_) => CreditSettingsDialog(
+            api: api,
+            permissions: widget.permissions,
+          ),
+        );
+      case MenuLayout.loyaltySchemeRoute:
+        await showDialog<bool>(
+          context: context,
+          builder: (_) => LoyaltySettingsDialog(
+            api: api,
+            permissions: widget.permissions,
+          ),
+        );
+      case MenuLayout.tcsSettingsRoute:
+        await showTcsSettings(context, api);
+    }
+  }
+
   void _openFromMenu(MenuItemSpec item, {String? view}) {
+    if (item.isSetting) {
+      unawaited(_openSettingDialog(item));
+      return;
+    }
     _activeDocument = null;
     _viewRequest = view == null
         ? null

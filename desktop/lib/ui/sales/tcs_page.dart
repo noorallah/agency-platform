@@ -534,3 +534,29 @@ class _TcsSettingsDialogState extends State<_TcsSettingsDialog> {
         ],
       );
 }
+
+/// Open the TCS policy from outside the TCS screen -- the Selling group behind
+/// the Settings gear -- reading the current policy first, because the form
+/// edits what is there and must not start from a guess. The same dialog the
+/// screen's "..." menu opens; nothing is duplicated.
+Future<bool> showTcsSettings(BuildContext context, ApiClient api) async {
+  final TcsSettings current;
+  try {
+    current = await api.tcsSettings();
+  } on ApiException catch (error) {
+    if (context.mounted) {
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+    return false;
+  }
+  if (!context.mounted) return false;
+  final bool? saved = await showDialog<bool>(
+    context: context,
+    builder: (context) => _TcsSettingsDialog(api: api, settings: current),
+  );
+  return saved == true;
+}

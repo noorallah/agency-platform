@@ -145,6 +145,18 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('menu-area-settings')));
     await tester.pumpAndSettle();
     expect(find.text('BUSINESS PROFILE'), findsOneWidget);
+    // Selling (backlog 57): the four settings that were only behind a
+    // screen's "..." menu, in the gear without overflowing the panel.
+    expect(find.text('SELLING'), findsOneWidget);
+    for (final String label in [
+      'Sales Stages',
+      'Credit Control',
+      'Loyalty Scheme',
+      'TCS Settings',
+    ]) {
+      expect(find.text(label), findsOneWidget, reason: label);
+    }
+    expect(tester.takeException(), isNull);
     await tester.tap(find.text('Financial Years'));
     await tester.pumpAndSettle();
     expect(opened.single.path, 'masters/financial-years');
