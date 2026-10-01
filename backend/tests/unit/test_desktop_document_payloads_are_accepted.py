@@ -18,6 +18,7 @@ import re
 from pathlib import Path
 
 from app.delivery_note.schemas.delivery_note import (
+    DeliveryNoteBatchPick,
     DeliveryNoteCreate,
     DeliveryNoteLineWrite,
 )
@@ -147,10 +148,21 @@ def test_a_delivery_note_line_carries_only_line_fields() -> None:
     ``serial_ids`` arrived with the serial picker (D-STK-4, 2026-09-19): a
     line for a serial-tracked product names the units going out.
     """
-    sent = _keys_between(_NOTE, "sales_order_line_id", "};")
+    # The line's own keys run up to its nested list of batch picks, which
+    # are asked about against their own schema (backlog 79).
+    sent = _keys_between(_NOTE, "sales_order_line_id", "'batches': [") | {"batches"}
     assert "serial_ids" in sent
     unknown = sent - set(DeliveryNoteLineWrite.model_fields)
     assert not unknown, unknown
+    text = _NOTE.read_text(encoding="utf-8")
+    picks_start = text.index("'batches': [")
+    picks = set(
+        re.findall(
+            r"'([a-z_]+)':", text[picks_start + 1 : text.index("};", picks_start)]
+        )
+    ) - {"batches"}
+    assert picks == {"batch_id", "quantity"}, picks
+    assert not picks - set(DeliveryNoteBatchPick.model_fields)
 
 
 def test_a_delivery_note_carries_only_document_fields() -> None:
