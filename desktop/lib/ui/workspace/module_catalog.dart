@@ -1627,6 +1627,12 @@ abstract final class ModuleCatalog {
           path: 'purchase-analytics',
           icon: Icons.query_stats_outlined,
         ),
+      if (visibleTabIds.contains('purchase-analysis'))
+        const WorkspaceNavigationNode(
+          label: 'Purchase Analysis',
+          path: 'purchase-analysis',
+          icon: Icons.pivot_table_chart_outlined,
+        ),
       if (visibleTabIds.contains('purchase-settings'))
         const WorkspaceNavigationNode(
           label: 'Settings',
