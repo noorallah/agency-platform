@@ -161,6 +161,14 @@ promotion, or the customer's standing rate).
 - **Steps:** as the prepared **Firm admin**: Settings (gear) → Tax → **GST Documents**: leave *Dispatch of a sale before its invoice* at **Warn** → Save. Delivery Notes → **New** off the order for 2, **Reason** *Sale* → Save → Approve → **Dispatch**. Repeat with **Reason** *Supply on approval*. Then set the policy to **Block** and dispatch a *Sale* note. Then on another approved *Sale* note use **Dispatch and invoice**. Then a note with **Reason** *Other* and no words. Print one challan.
 - **Expect:** under Warn, Dispatch on a *Sale* note shows the GST message with **Dispatch and invoice / Dispatch anyway / Cancel**; *Dispatch anyway* dispatches and the audit trail keeps the warning. *Supply on approval* dispatches with no question. Under Block there is no *Dispatch anyway*. **Dispatch and invoice** dispatches the note and creates an **approved** invoice of it in one step ("Dispatched and invoiced as SI-…"); if the invoice is refused (e.g. price below its floor) nothing is dispatched. *Other* without words is refused ("Say why…"). The challan print shows **Reason**. *Van or route sale* dispatches freely unless **Van or route sales need the invoice** is switched on.
 
+### TC-SELL-019 — Choosing batches on a delivery note
+
+*Added 2026-10-02 (backlog 79, A38).*
+
+- **Preconditions:** a batch-tracked product with three batches in one warehouse: one **expired** (expiry before today), one expiring within 30 days, one later -- 10 each (Stock → Opening stock, or goods receipts). An approved sales order for 8 of it.
+- **Steps:** Delivery Notes → **New** off the order. Look at the side panel's batch list. (a) Change nothing → Save → Approve → **Dispatch**. On a second order: (b) type 8 against the *later* batch and 0 against the earlier → Save → Approve → Dispatch. (c) Split 5 + 3 across the two in-date batches → dispatch → **Print** the challan. (d) Type only 6 in total → Save → Approve → Dispatch. (e) Edit a box, then **Use earliest expiry**.
+- **Expect:** every batch is listed nearest expiry first with expiry, days left and *can take*; the expired one is greyed with an **Expired** badge and cannot be typed into; the next one shows **Near expiry**; the boxes start at the earliest-expiry split. (a) ships the nearest in-date batch, exactly as before. (b) ships the later batch; the earlier one's stock is back to free; Settings → Audit trail shows **delivery_note.fefo_skipped** with both splits. (c) the challan prints **two rows** for the line -- batch and expiry columns shown, the second row without a line number, quantities 5 and 3, values adding up to the line. (d) the panel says *Chosen 6 of 8* in red, Save works, and Dispatch is refused ("the batches chosen add up to 6…"). (e) the boxes return to the earliest-expiry split.
+
 ---
 
 ## Screen checks
