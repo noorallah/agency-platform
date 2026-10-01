@@ -280,7 +280,7 @@ receipt brought in. There is no free-text batch box, by design.
 A rate difference or a discount after billing that the **supplier** credits
 is recorded as a debit note (`app/debit_note`) carrying the supplier's credit
 note number and date -- one event seen from two sides, so one document
-(OWNER_DECISIONS A29). It needs nothing of its own: the debit note names the
+(OWNER_DECISIONS A31). It needs nothing of its own: the debit note names the
 bill, approving it posts Dr payable / Cr input tax (by head) and price
 variance, the bill's outstanding is derived lower, the supplier statement
 names the supplier's note, and GSTR-3B 4(B)(2) reverses the credit; cancelling

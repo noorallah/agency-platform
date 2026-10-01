@@ -1,7 +1,7 @@
 """The supplier's own credit note, with no goods back (BACKLOG 68 row 10).
 
 Recorded as the debit note it is from our side, with the supplier's number and
-date on it (OWNER_DECISIONS A29): a rate difference or a discount after
+date on it (OWNER_DECISIONS A31): a rate difference or a discount after
 billing. These hold it to what the row asks -- against a bill, the payable and
 the input credit come down, GSTR-3B reports the reversal, the supplier
 statement names it -- and to its reversal putting all of that back.
