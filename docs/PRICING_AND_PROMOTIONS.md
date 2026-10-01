@@ -446,3 +446,30 @@ document stays a draft and the refusal names the percentage it needs. A bill
 line records `discount_source`, `inherited` when it took its order's, so an
 order's discount is judged once; a counter bill reads the source from the
 order it raised for itself.
+
+## A rate typed with GST in it is stored before tax
+
+BACKLOG 64 row 4 (`app/sales_invoice/services/inclusive_rate.py`). A counter
+bill whose **Rate includes GST** is on (`sales_invoices.rate_includes_tax`,
+defaulting from `sales_workflow_settings.rate_includes_tax`) reads each rate
+typed on a bare line as the shelf price. Before the order behind the bill is
+raised, the rate is divided by the tax the buyer is **billed** -- the
+components `TaxRuleService.simulate` adds to the line, so not one already
+`included_in_price` and nothing under reverse charge -- for the same buyer,
+branch, ship-to, product and date the line is then taxed at. A value-slabbed
+rule is asked at the gross value and again at the taxable value; a different
+second answer is taken, once. `unit_price` keeps the pre-tax rate, so every
+posting, return, GSTR-1/3B and e-invoice reads it as before, and
+`entered_rate` keeps the figure typed for the print and the editor. A typed
+discount **amount** is gross like the rate and becomes whatever the line's own
+gross leaves above the derived taxable value; a percentage applies unchanged.
+
+Only a rate typed on the bill: a line continuing an order or a note keeps the
+price it inherited, and a line that types no rate takes the product's price,
+which is before tax. The bill discount and freight stay before tax. The
+taxable value is kept at the documents' four decimals rather than rounded to
+the paisa first, because rounding it first leaves taxable + tax a paisa off the
+typed total about one time in seven (100 incl. 18% is 84.75 + 15.26 = 100.01,
+against 84.7458 + 15.2542); a residual left by the tax engine's own rounding on
+a large quantity is the round-off's, never an adjusted tax. Sales orders and
+quotations do not have the switch yet.

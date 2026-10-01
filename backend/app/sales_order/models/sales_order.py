@@ -394,6 +394,11 @@ class SalesWorkflowSettings(BaseEntity):
     default_warehouse_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("warehouses.id", ondelete="RESTRICT")
     )
+    #: Whether a new counter bill reads a typed rate as including GST
+    #: (backlog 64 row 4). Only the default: each bill carries its own switch.
+    rate_includes_tax: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
 
 class PriceFloorSettings(BaseEntity):

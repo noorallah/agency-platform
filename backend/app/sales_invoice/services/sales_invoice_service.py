@@ -5,10 +5,11 @@ from __future__ import annotations
 import csv
 import io
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import Decimal
+from functools import partial
 from types import SimpleNamespace
 from uuid import UUID
 
@@ -112,6 +113,11 @@ from app.sales_invoice.schemas import (
     SalesInvoiceStatus,
     SalesInvoiceSummary,
 )
+from app.sales_invoice.services.inclusive_rate import (
+    PreTaxLine,
+    billed_rate,
+    derive_pre_tax,
+)
 from app.sales_invoice.services.sales_chain_service import (
     SalesChainService,
     refuse_coupon_on_documents,
@@ -192,6 +198,9 @@ class _LineTax:
     profile_id: UUID | None
     total: Decimal
     components: list[_LineTaxComponent]
+    #: The fraction of the line's value billed as tax, which a rate typed
+    #: with GST in it is divided by (backlog 64 row 4).
+    billed_rate: Decimal = ZERO
 
 
 @dataclass(frozen=True, slots=True)
@@ -443,7 +452,46 @@ class SalesInvoiceService(TransactionalDocumentService):
         # A firm on the whole chain gets its payload back untouched, so this
         # costs one settings read and changes nothing for anybody else.
         chain = SalesChainService(self._session)
-        data = chain.ensure_invoice_source(data, firm_id=firm_id, actor_id=actor_id)
+        rate_includes_tax = (
+            data.rate_includes_tax
+            if data.rate_includes_tax is not None
+            else bool(
+                SalesWorkflowService(self._session)
+                .settings_for(firm_id)
+                .rate_includes_tax
+            )
+        )
+        typed: dict[int, PreTaxLine] = {}
+
+        def before_tax(
+            bill: SalesInvoiceCreate, branch_id: UUID, warehouse_id: UUID
+        ) -> SalesInvoiceCreate:
+            """Read the bill's typed GST-inclusive rates back to pre-tax."""
+            return self._typed_rates_before_tax(
+                bill,
+                branch_id=branch_id,
+                warehouse_id=warehouse_id,
+                firm_id=firm_id,
+                actor_id=actor_id,
+                typed=typed,
+            )
+
+        data = chain.ensure_invoice_source(
+            data,
+            firm_id=firm_id,
+            actor_id=actor_id,
+            inclusive=before_tax if rate_includes_tax else None,
+        )
+        # The chain numbers the order, the note and the bill's lines after the
+        # lines typed, so the line number finds the note line each one bills.
+        entered_rates = {
+            line.source_document_line_id: (
+                typed[line.line_number].entered_rate,
+                typed[line.line_number].unit_price,
+            )
+            for line in data.lines
+            if line.line_number in typed and line.source_document_line_id is not None
+        }
         own_notes = frozenset(note.id for note in chain.raised_notes)
         document_type, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
@@ -553,6 +601,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             received_now_amount=self._q(data.received_now_amount),
             received_now_method=data.received_now_method,
             received_now_reference=data.received_now_reference,
+            rate_includes_tax=rate_includes_tax,
             # A record of how this bill was raised, not a permission: true
             # when the bill raised the note that ships its goods. What the
             # bill may do with a note is decided by the note's own stamp.
@@ -578,6 +627,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             invoice_date=data.invoice_date,
             business_profile_id=business_profile_id,
             actor_id=actor_id,
+            entered_rates=entered_rates,
         )
         row.total_source_quantity = line_totals["total_source_quantity"]
         row.total_already_invoiced_quantity = line_totals[
@@ -646,6 +696,25 @@ class SalesInvoiceService(TransactionalDocumentService):
         own_notes = self._notes_raised_by(row)
         data = self._restate_own_serials(
             data, row=row, own_notes=own_notes, firm_id=firm_id, actor_id=actor_id
+        )
+        # An edit bills the lines the first save priced, so a rate typed with
+        # GST in it is kept for each line still billed at the rate it derived
+        # to (backlog 64 row 4). Absent leaves the bill's switch as it is.
+        if data.rate_includes_tax is not None:
+            row.rate_includes_tax = data.rate_includes_tax
+        entered_rates = (
+            {
+                line.source_document_line_id: (line.entered_rate, line.unit_price)
+                for line in self._session.scalars(
+                    select(SalesInvoiceLine).where(
+                        SalesInvoiceLine.sales_invoice_id == row.id,
+                        SalesInvoiceLine.entered_rate.is_not(None),
+                    )
+                ).all()
+                if line.entered_rate is not None
+            }
+            if row.rate_includes_tax
+            else {}
         )
         self._delete_children(row.id)
         header, source_rows, line_specs = self._prepare_invoice_sources(
@@ -770,6 +839,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             invoice_date=data.invoice_date,
             business_profile_id=data.business_profile_id,
             actor_id=actor_id,
+            entered_rates=entered_rates,
         )
         row.total_source_quantity = line_totals["total_source_quantity"]
         row.total_already_invoiced_quantity = line_totals[
@@ -1734,6 +1804,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             received_now_method=row.received_now_method,
             received_now_reference=row.received_now_reference,
             received_now_settlement_id=row.received_now_settlement_id,
+            rate_includes_tax=bool(row.rate_includes_tax),
             approved_at=row.approved_at,
             closed_at=row.closed_at,
             cancel_reason=row.cancel_reason,
@@ -2244,7 +2315,14 @@ class SalesInvoiceService(TransactionalDocumentService):
         invoice_date: date,
         business_profile_id: UUID | None,
         actor_id: UUID,
+        entered_rates: Mapping[UUID, tuple[Decimal, Decimal]] | None = None,
     ) -> dict[str, Decimal]:
+        """Write the bill's lines, priced, discounted and taxed.
+
+        ``entered_rates`` names, per source line, the GST-inclusive rate a
+        person typed and the pre-tax rate it derived to; a line still billed
+        at that pre-tax rate keeps the typed one beside it (backlog 64 row 4).
+        """
         self._session.query(SalesInvoiceLine).filter(
             SalesInvoiceLine.sales_invoice_id == row.id
         ).delete(synchronize_session=False)
@@ -2461,6 +2539,9 @@ class SalesInvoiceService(TransactionalDocumentService):
                 current_invoice_quantity=invoice_quantity,
                 free_quantity=free_quantity,
                 unit_price=unit_price,
+                entered_rate=self._entered_rate(
+                    entered_rates, priced_source.id, unit_price
+                ),
                 discount_percent=line_discount.percent,
                 discount_source=line_discount.source,
                 discount_amount=line_discount.amount,
@@ -2527,6 +2608,112 @@ class SalesInvoiceService(TransactionalDocumentService):
             totals["line_charges_total"] += charges_amount
             totals["tax_total"] += tax_amount
         return {key: self._q(value) for key, value in totals.items()}
+
+    @staticmethod
+    def _entered_rate(
+        entered_rates: Mapping[UUID, tuple[Decimal, Decimal]] | None,
+        source_line_id: UUID,
+        unit_price: Decimal,
+    ) -> Decimal | None:
+        """Return the inclusive rate typed for a line, if it still applies.
+
+        Only while the line bills at the pre-tax rate it was derived to: a
+        rate changed since makes the typed figure a statement about another
+        price.
+        """
+        if not entered_rates:
+            return None
+        kept = entered_rates.get(source_line_id)
+        if kept is None or kept[1] != unit_price:
+            return None
+        return kept[0]
+
+    def _billed_rate_at(
+        self,
+        value: Decimal,
+        *,
+        invoice_date: date,
+        firm_id: UUID,
+        actor_id: UUID,
+        business_profile_id: UUID | None,
+        customer_id: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        product_id: UUID,
+        tax_profile_id: UUID | None,
+        shipping_address_id: UUID | None,
+    ) -> Decimal:
+        """Return the tax billed on a line of this value, as a fraction."""
+        return self._resolve_tax(
+            invoice_date=invoice_date,
+            firm_id=firm_id,
+            actor_id=actor_id,
+            business_profile_id=business_profile_id,
+            customer_id=customer_id,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            product_id=product_id,
+            tax_profile_id=tax_profile_id,
+            invoice_value=value,
+            shipping_address_id=shipping_address_id,
+        ).billed_rate
+
+    def _typed_rates_before_tax(
+        self,
+        data: SalesInvoiceCreate,
+        *,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        firm_id: UUID,
+        actor_id: UUID,
+        typed: dict[int, PreTaxLine],
+    ) -> SalesInvoiceCreate:
+        """Read each rate typed with GST in it back to its pre-tax rate.
+
+        Backlog 64 row 4. Only a rate the bill states is read so: a line that
+        types none takes the product's price, which is before tax, exactly as
+        it always has. The tax asked about is the one the line will be
+        charged -- same buyer, branch, ship-to, product and date -- through
+        ``TaxRuleService.simulate``, which never commits. ``typed`` collects
+        each line's figures by its line number for the lines written later.
+        """
+        customer_id = data.customer_id
+        if customer_id is None:
+            return data
+        ship_to = self._ship_to(
+            data.shipping_address_id, customer_id=customer_id, source_rows=[]
+        )
+        lines: list[SalesInvoiceLineWrite] = []
+        for line in data.lines:
+            product_id = line.product_id
+            if line.unit_price is None or product_id is None:
+                lines.append(line)
+                continue
+            derived = derive_pre_tax(
+                quantity=line.current_invoice_quantity,
+                entered_rate=line.unit_price,
+                discount_percent=line.discount_percent,
+                discount_amount=line.discount_amount,
+                rate_at=partial(
+                    self._billed_rate_at,
+                    invoice_date=data.invoice_date,
+                    firm_id=firm_id,
+                    actor_id=actor_id,
+                    business_profile_id=data.business_profile_id,
+                    customer_id=customer_id,
+                    branch_id=branch_id,
+                    warehouse_id=line.warehouse_id or warehouse_id,
+                    product_id=product_id,
+                    tax_profile_id=line.tax_profile_id,
+                    shipping_address_id=ship_to,
+                ),
+            )
+            typed[line.line_number] = derived
+            update: dict[str, object] = {"unit_price": derived.unit_price}
+            if derived.discount_amount is not None:
+                update["discount_amount"] = derived.discount_amount
+            lines.append(line.model_copy(update=update))
+        return data.model_copy(update={"lines": lines})
 
     def _replace_attachments(
         self,
@@ -2973,6 +3160,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             # names none still gets the product's, and the line should say so.
             profile_id=response.applied_tax_profile_id or tax_profile_id,
             total=self._q(response.total_tax_amount),
+            billed_rate=billed_rate(response),
             components=[
                 _LineTaxComponent(
                     tax_component_id=component.tax_component_id,
@@ -4040,6 +4228,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             already_invoiced_quantity=row.already_invoiced_quantity,
             current_invoice_quantity=row.current_invoice_quantity,
             unit_price=row.unit_price,
+            entered_rate=row.entered_rate,
             discount_percent=row.discount_percent,
             free_quantity=row.free_quantity,
             discount_amount=row.discount_amount,

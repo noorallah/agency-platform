@@ -16,6 +16,7 @@ the caller's transaction, so a bill that fails leaves no order and no note
 behind it. That is the whole reason the `stage_*` methods exist.
 """
 
+from collections.abc import Callable
 from decimal import Decimal
 from uuid import UUID
 
@@ -40,6 +41,12 @@ from app.sales_order.services.sales_order_service import SalesOrderService
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
 
 ZERO = Decimal("0")
+
+#: Re-prices a bare bill's typed rates once the chain knows where the goods
+#: ship from: given the bill, its branch and its warehouse, returns the bill
+#: with each typed GST-inclusive rate read back to its pre-tax rate (backlog
+#: 64 row 4). The chain owns no tax, so the invoice service supplies it.
+InclusiveRates = Callable[[SalesInvoiceCreate, UUID, UUID], SalesInvoiceCreate]
 
 
 def refuse_coupon_on_documents(data: SalesInvoiceCreate) -> None:
@@ -71,13 +78,22 @@ class SalesChainService:
         self.raised_notes: list[DeliveryNote] = []
 
     def ensure_invoice_source(
-        self, data: SalesInvoiceCreate, *, firm_id: UUID, actor_id: UUID
+        self,
+        data: SalesInvoiceCreate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        inclusive: InclusiveRates | None = None,
     ) -> SalesInvoiceCreate:
         """Return an invoice payload whose every line names a delivery note.
 
         Unchanged for a firm on the whole chain, which is every firm until one
         turns a stage off -- the bare-line and order-sourced paths below are
         the only ones that write anything.
+
+        ``inclusive`` is applied to a bill of bare lines only -- the one place
+        a rate is typed rather than inherited -- before the order is raised,
+        so the order, the note and the bill all carry the pre-tax rate.
         """
         settings = SalesWorkflowService(self._session).settings_for(firm_id)
         bare = [line for line in data.lines if line.source_document_line_id is None]
@@ -92,7 +108,11 @@ class SalesChainService:
                 "product lines, never a mixture of the two."
             )
         return self._order_and_note(
-            data, firm_id=firm_id, actor_id=actor_id, settings=settings
+            data,
+            firm_id=firm_id,
+            actor_id=actor_id,
+            settings=settings,
+            inclusive=inclusive,
         )
 
     def _order_and_note(
@@ -102,6 +122,7 @@ class SalesChainService:
         firm_id: UUID,
         actor_id: UUID,
         settings: SalesWorkflowSettings,
+        inclusive: InclusiveRates | None = None,
     ) -> SalesInvoiceCreate:
         """Raise the order and the delivery note a bare bill implies."""
         if settings.sales_order_stage or settings.delivery_note_stage:
@@ -118,6 +139,8 @@ class SalesChainService:
             branch_id=data.branch_id or settings.default_branch_id,
             configured_warehouse_id=settings.default_warehouse_id,
         )
+        if inclusive is not None:
+            data = inclusive(data, branch_id, warehouse_id)
         order = SalesOrderService(self._session).stage_order(
             SalesOrderCreate(
                 customer_id=data.customer_id,

@@ -35,6 +35,7 @@ a question only the owner, a go-live firm or its CA can answer.
 | A24 | Supplier statement | Read from whichever account is set for Accounts Payable now; lines posted under an earlier mapping would not show | OK -- the mapping should never change once trading |
 | A25 | Slow and dead stock (§55 S7) | Only dispatches to customers count as demand; stock ageing assumes what is on hand is the latest received (FIFO) | OK? |
 | A26 | Reports, As on | Phase 2 reports that are "as on" a day now show one "As on" box and no "From" (Stock valuation included) | OK? |
+| A27 | Rate includes GST (§64 row 4) | A **Rate includes GST** switch per counter bill, defaulting from Settings > Selling > Sales Stages. Only a rate (and a discount amount) typed on the bill is read as including GST; a line continuing an order or a delivery note, and a product's own list price, stay before tax. The line stores the pre-tax rate, so postings, returns and GST returns are unchanged, and keeps the typed rate to print beside it. The taxable value is kept at four decimals so taxable + tax adds back to the typed total (100 incl. 18% is 84.7458 + 15.2542, not 84.75 + 15.26 = 100.01); the bill discount and freight stay before tax. Sales orders and quotations do not have the switch yet | OK? |
 
 ## B. Open questions the backlog already records
 
