@@ -6,6 +6,7 @@ import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/entities.dart';
 import '../../models/settlement.dart';
+import '../../models/tds.dart';
 import '../../models/settlement_direction.dart';
 import '../workspace/desktop_framework.dart';
 
@@ -71,6 +72,12 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   final TextEditingController _narration = TextEditingController();
   final Map<String, TextEditingController> _allocations = {};
 
+  /// Tax deducted at source out of the amount (backlog 53.1): on a payment
+  /// the firm deducted it, on a receipt the customer did. The amount stays
+  /// what settles the party; the bank moves the rest.
+  final TextEditingController _tds = TextEditingController();
+  String? _tdsSection;
+
   /// The party picker's own text. It holds the chosen party's label once one
   /// is picked, and whatever is being typed before that.
   final TextEditingController _partySearch = TextEditingController();
@@ -117,6 +124,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   void dispose() {
     _partySearch.removeListener(_onPartyQueryChanged);
     _amount.dispose();
+    _tds.dispose();
     _reference.dispose();
     _narration.dispose();
     for (final TextEditingController controller in _allocations.values) {
@@ -200,10 +208,18 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
       allocations: allocations,
       invoices: _invoices,
     );
-    if (problem != null) {
-      setState(() => _error = problem);
+    final String? tdsProblemText = widget.direction.allocates
+        ? tdsProblem(
+            amount: _amount.text,
+            tdsAmount: _tds.text,
+            section: _tdsSection,
+          )
+        : null;
+    if (problem != null || tdsProblemText != null) {
+      setState(() => _error = problem ?? tdsProblemText);
       return;
     }
+    final double deducted = double.tryParse(_tds.text.trim()) ?? 0;
     setState(() {
       _busy = true;
       _error = null;
@@ -224,6 +240,10 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
             'instrument_reference': _reference.text.trim(),
           if (_narration.text.trim().isNotEmpty)
             'narration': _narration.text.trim(),
+          if (widget.direction.allocates && deducted > 0) ...{
+            'tds_amount': _tds.text.trim(),
+            'tds_section': _tdsSection,
+          },
           'allocations': [
             for (final MapEntry<String, String> entry in allocations.entries)
               {'invoice_id': entry.key, 'amount': entry.value},
@@ -307,6 +327,12 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
                   ),
                 ),
               ]),
+              // A refund hands the customer's own money back; nobody
+              // deducts tax from that, and the server refuses it.
+              if (widget.direction.allocates) ...[
+                const SizedBox(height: AppSpacing.md),
+                _tdsRow(context, amount),
+              ],
               if (widget.direction == SettlementDirection.receipt) ...[
                 const SizedBox(height: AppSpacing.md),
                 _orderPicker(),
@@ -393,6 +419,64 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
     } on ApiException {
       if (mounted) setState(() => _tcs = null);
     }
+  }
+
+  /// TDS deducted, its section, and what the cash or bank actually moves.
+  Widget _tdsRow(BuildContext context, double amount) {
+    final double deducted = double.tryParse(_tds.text.trim()) ?? 0;
+    final bool receipt = widget.direction == SettlementDirection.receipt;
+    final String party = receipt ? 'customer' : 'supplier';
+    final String account = _method == 'CASH' ? 'cash' : 'bank';
+    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      SizedBox(
+        width: 160,
+        child: TextField(
+          key: const ValueKey('settlement-tds-amount'),
+          controller: _tds,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(
+            labelText: 'TDS deducted',
+            helperText: receipt ? 'By the customer' : 'By us',
+          ),
+        ),
+      ),
+      const SizedBox(width: AppSpacing.md),
+      SizedBox(
+        width: 280,
+        child: DropdownButtonFormField<String>(
+          key: const ValueKey('settlement-tds-section'),
+          initialValue: _tdsSection,
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: 'TDS section'),
+          items: [
+            for (final MapEntry<String, String> entry in tdsSections.entries)
+              DropdownMenuItem(
+                value: entry.key,
+                child: Text(
+                  '${entry.key} - ${entry.value}',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
+          onChanged: (value) => setState(() => _tdsSection = value),
+        ),
+      ),
+      const SizedBox(width: AppSpacing.md),
+      Expanded(
+        child: Padding(
+          padding: const EdgeInsets.only(top: AppSpacing.md),
+          child: Text(
+            deducted > 0 && amount > deducted
+                ? '${receipt ? 'Received in' : 'Paid from'} $account: '
+                    '${(amount - deducted).toStringAsFixed(2)}. The amount '
+                    'above is what settles the $party.'
+                : 'Leave blank when nothing was deducted.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+      ),
+    ]);
   }
 
   /// Which order this money came in against, where it came in against one.

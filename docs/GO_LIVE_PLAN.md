@@ -54,7 +54,7 @@ in parallel. Whatever item 3 finds goes to the top of the list.
 
 | What | Backlog | Size |
 | --- | --- | --- |
-| *TDS deducted* on payments, expenses and receipts, and the quarterly TDS list for the CA -- **move to tier 1 if a go-live firm deducts TDS on many payments** | §53 items 3-4 | About a week |
+| ~~*TDS deducted* on payments, expenses and receipts, and the quarterly TDS list for the CA~~ **Built 2026-10-01**, ahead of go-live | §53 items 3-4 | Done |
 | Bulk approval for invoices, credit notes, returns and journals (the framework is built; about a day each) | §56 A | 4-5 days |
 | Global search under a second: trigram indexes, one migration | §56 C | 1-2 days |
 | GSTR-1 and 3B for a month under 3 s, and the outstanding reports | §56 C | 2-3 days |
