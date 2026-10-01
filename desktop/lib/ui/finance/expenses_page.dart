@@ -363,6 +363,15 @@ class _ExpensesPageState extends State<ExpensesPage> {
         cell: (item) => item.amount,
         shownByDefault: true,
       ),
+      // Tax deducted at source (53.1); Columns turns these on.
+      ChoosableColumn(
+        column: const GridColumn(key: 'tds', label: 'TDS', numeric: true),
+        cell: (item) => item.tdsAmount,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'tds_section', label: 'TDS Section'),
+        cell: (item) => item.tdsSection,
+      ),
       ChoosableColumn(
         column: const GridColumn(key: 'narration', label: 'Narration'),
         cell: (item) => item.narration,

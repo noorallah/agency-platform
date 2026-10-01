@@ -701,6 +701,56 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'position', label: 'Position'),
     ],
   ),
+  // What the quarterly TDS return (26Q) is filed from (53.1): every
+  // deduction the firm made on payments and expenses, by deductee and PAN.
+  ReportDefinition(
+    id: 'tds-deducted',
+    label: 'TDS deducted',
+    description: 'Every tax deducted at source on payments and expenses in '
+        'the dates: deductee, PAN, section and return quarter.',
+    path: '/api/v1/finance/reports/tds-deducted',
+    permission: 'ACCOUNT_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    columns: [
+      ReportColumn(key: 'date', label: 'Date'),
+      ReportColumn(key: 'quarter', label: 'Quarter'),
+      ReportColumn(key: 'document_type', label: 'Document'),
+      ReportColumn(key: 'document_number', label: 'Number'),
+      ReportColumn(key: 'party_name', label: 'Deductee'),
+      ReportColumn(key: 'pan', label: 'PAN'),
+      ReportColumn(key: 'section', label: 'Section'),
+      ReportColumn(key: 'gross_amount', label: 'Amount', numeric: true),
+      ReportColumn(key: 'tds_amount', label: 'TDS', numeric: true),
+      ReportColumn(key: 'net_amount', label: 'Paid', numeric: true),
+      ReportColumn(key: 'status', label: 'Status'),
+    ],
+  ),
+  // What customers deducted from what they paid, by their TAN, to tick the
+  // firm's TDS Receivable against Form 26AS (53.1).
+  ReportDefinition(
+    id: 'tds-deducted-by-customers',
+    label: 'TDS deducted by customers',
+    description: 'Tax customers deducted at source from their payments in '
+        'the dates, with their TAN, to match against Form 26AS.',
+    path: '/api/v1/finance/reports/tds-deducted-by-customers',
+    permission: 'ACCOUNT_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    columns: [
+      ReportColumn(key: 'date', label: 'Date'),
+      ReportColumn(key: 'quarter', label: 'Quarter'),
+      ReportColumn(key: 'document_number', label: 'Receipt'),
+      ReportColumn(key: 'party_name', label: 'Customer'),
+      ReportColumn(key: 'tan', label: 'TAN'),
+      ReportColumn(key: 'pan', label: 'PAN'),
+      ReportColumn(key: 'section', label: 'Section'),
+      ReportColumn(key: 'gross_amount', label: 'Amount', numeric: true),
+      ReportColumn(key: 'tds_amount', label: 'TDS', numeric: true),
+      ReportColumn(key: 'net_amount', label: 'Received', numeric: true),
+      ReportColumn(key: 'status', label: 'Status'),
+    ],
+  ),
 ];
 
 /// The reports belonging to one tab, narrowed to what `canRead` allows.

@@ -56,6 +56,8 @@ class Settlement {
     required this.reversalReason,
     required this.allocations,
     this.salesOrderNumber = '',
+    this.tdsAmount = '0',
+    this.tdsSection = '',
   });
 
   final String id;
@@ -89,6 +91,17 @@ class Settlement {
   /// not make the deposit vanish.
   final String salesOrderNumber;
 
+  /// Tax deducted at source out of [amount] (backlog 53.1), and the section
+  /// it is filed under. [amount] settles the party; the cash or bank moved
+  /// [cashAmount].
+  final String tdsAmount;
+  final String tdsSection;
+
+  double get tdsValue => double.tryParse(tdsAmount) ?? 0;
+
+  String get cashAmount =>
+      ((double.tryParse(amount) ?? 0) - tdsValue).toStringAsFixed(2);
+
   /// Taken back. The original stays and a mirror journal cancels it, so a
   /// reversed settlement is still a record of money that arrived and was then
   /// unrecorded -- not an absence.
@@ -110,6 +123,10 @@ class Settlement {
       settlementNumber: stringValue(d['settlement_number']),
       settlementDate: stringValue(d['settlement_date']),
       salesOrderNumber: stringValue(d['sales_order_number']),
+      tdsAmount: stringValue(d['tds_amount']).isEmpty
+          ? '0'
+          : stringValue(d['tds_amount']),
+      tdsSection: stringValue(d['tds_section']),
       amount: stringValue(d['amount']),
       allocatedAmount: stringValue(d['allocated_amount']),
       unallocatedAmount: stringValue(d['unallocated_amount']),

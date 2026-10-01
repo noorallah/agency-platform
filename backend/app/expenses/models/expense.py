@@ -78,6 +78,15 @@ class Expense(BaseEntity):
     #: Who was paid -- the landlord, the fuel station. Free text: most payees
     #: of an expense are nobody the firm keeps a vendor record for.
     payee: Mapped[str | None] = mapped_column(String(200))
+    #: Tax deducted at source out of ``amount`` (backlog 53.1): the expense is
+    #: the whole ``amount``, the money paid out is ``amount - tds_amount``, and
+    #: the deduction is owed to the government (TDS Payable).
+    tds_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0.00"), server_default="0"
+    )
+    tds_section: Mapped[str | None] = mapped_column(String(10))
+    #: The payee's PAN, which the TDS return names the deductee by.
+    payee_pan: Mapped[str | None] = mapped_column(String(10))
     #: The bill or receipt number, as printed on the paper.
     reference: Mapped[str | None] = mapped_column(String(120))
     narration: Mapped[str | None] = mapped_column(Text())

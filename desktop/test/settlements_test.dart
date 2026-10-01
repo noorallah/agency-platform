@@ -254,6 +254,98 @@ Future<void> _pump(
 }
 
 void main() {
+  group('tax deducted at source (53.1)', () {
+    Future<void> openReceipt(WidgetTester tester, _SettlementApi api) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RecordSettlementDialog(
+              api: api,
+              direction: SettlementDirection.receipt,
+              parties: const [
+                PartyOption(id: 'c-1', code: 'C1', name: 'Kumar Stores'),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _chooseParty(tester, 'Kumar Stores');
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Amount'), '10000');
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a receipt short by TDS sends the deduction and its section',
+        (tester) async {
+      final _SettlementApi api = _SettlementApi(rows: [_settlement()]);
+      await openReceipt(tester, api);
+
+      await tester.enterText(
+          find.byKey(const ValueKey('settlement-tds-amount')), '10');
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Received in bank: 9990.00'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('settlement-tds-section')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('194Q - Purchase of goods').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Record receipt'));
+      await tester.pumpAndSettle();
+
+      expect(api.recorded?['amount'], '10000');
+      expect(api.recorded?['tds_amount'], '10');
+      expect(api.recorded?['tds_section'], '194Q');
+    });
+
+    testWidgets('a deduction with no section is refused before the server',
+        (tester) async {
+      final _SettlementApi api = _SettlementApi(rows: [_settlement()]);
+      await openReceipt(tester, api);
+
+      await tester.enterText(
+          find.byKey(const ValueKey('settlement-tds-amount')), '10');
+      await tester.tap(find.text('Record receipt'));
+      await tester.pumpAndSettle();
+
+      expect(api.recorded, isNull);
+      expect(find.textContaining('Choose the TDS section'), findsOneWidget);
+    });
+
+    testWidgets('nothing deducted sends no TDS at all', (tester) async {
+      final _SettlementApi api = _SettlementApi(rows: [_settlement()]);
+      await openReceipt(tester, api);
+      await tester.tap(find.text('Record receipt'));
+      await tester.pumpAndSettle();
+      expect(api.recorded?.containsKey('tds_amount'), isFalse);
+      expect(api.recorded?.containsKey('tds_section'), isFalse);
+    });
+
+    testWidgets('a refund offers no TDS', (tester) async {
+      final _SettlementApi api = _SettlementApi(rows: [_settlement()]);
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RecordSettlementDialog(
+              api: api,
+              direction: SettlementDirection.refund,
+              parties: const [
+                PartyOption(id: 'c-1', code: 'C1', name: 'Kumar Stores'),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('settlement-tds-amount')), findsNothing);
+    });
+  });
+
   group('spreading money over invoices', () {
     test('oldest first, and it stops when the money runs out', () {
       // What a cashier does by hand with a stack of invoices and a cheque.

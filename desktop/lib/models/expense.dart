@@ -20,7 +20,13 @@ class Expense {
     required this.journalEntryId,
     required this.cancelReason,
     required this.version,
+    this.tdsAmount = '',
+    this.tdsSection = '',
   });
+
+  /// Tax deducted at source out of [amount] (53.1), and its section.
+  final String tdsAmount;
+  final String tdsSection;
 
   final String id;
   final String expenseNumber;
@@ -67,6 +73,10 @@ class Expense {
       journalEntryId: stringValue(d['journal_entry_id']),
       cancelReason: stringValue(d['cancel_reason']),
       version: int.tryParse(stringValue(d['version'])) ?? 0,
+      tdsAmount: (double.tryParse(stringValue(d['tds_amount'])) ?? 0) > 0
+          ? stringValue(d['tds_amount'])
+          : '',
+      tdsSection: stringValue(d['tds_section']),
     );
   }
 }

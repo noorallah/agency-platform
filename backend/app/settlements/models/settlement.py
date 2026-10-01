@@ -111,6 +111,17 @@ class Settlement(BaseEntity):
     unallocated_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 2), nullable=False, default=Decimal("0.00"), server_default="0"
     )
+    #: Tax deducted at source out of ``amount`` (backlog 53.1): the part of
+    #: what settles the party that never moved as money. On a payment the firm
+    #: deducted it and owes it to the government (TDS Payable); on a receipt
+    #: the customer deducted it and the firm claims it (TDS Receivable). The
+    #: cash or bank leg is ``amount - tds_amount``; the party is settled for
+    #: the whole ``amount``, as Tally's voucher does.
+    tds_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0.00"), server_default="0"
+    )
+    #: The section it is filed under (``app.finance.tds.TDS_SECTIONS``).
+    tds_section: Mapped[str | None] = mapped_column(String(10))
     method: Mapped[str] = mapped_column(String(20), nullable=False)
     #: The cash or bank account the money actually moved through, resolved from
     #: the firm's control accounts at the time and then stored. Re-deriving it
