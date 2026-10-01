@@ -5489,3 +5489,24 @@ OWNER_DECISIONS A35. Summary of the rows (numbered as in that doc's section 4):
 | 14 | Bill of supply | P3 |
 
 **Order:** 3 + 2 + 1 → 5 → 4 → 9, 10, 11 → 6, 7 → 8 once a GSP is chosen → 12-14.
+
+## 78. Purchases under GST: blocked credit, supplier type, GSTR-2B -- HIGH PRIORITY
+
+Owner, 2026-10-02: the purchase side of §77, against industry standard, with
+what each firm configures. The rules, the comparison with Zoho Books, ERPNext
+and TallyPrime, and the work are `docs/GST_DOCUMENT_COMPLIANCE.md` section 6;
+decisions OWNER_DECISIONS A36. Rows, numbered as there:
+
+| # | Item | Pri |
+| --- | --- | --- |
+| 1 | Credit eligibility per bill line (eligible / blocked 17(5) / ineligible), defaulting from product, expense account and tax rule; blocked tax goes to cost (fixes D-TAX-1) | P1 |
+| 2 | Supplier GST treatment: regular, composition, unregistered, overseas, SEZ | P1 |
+| 3 | GSTR-2B import and matching (§42.5); 3B claims all bills or only matched, per firm | P1 |
+| 4 | 180-day unpaid-bill reversal and reclaim (rule 37) | P2 |
+| 5 | Supplier's IRN on the bill; warn when an e-invoicing supplier's bill has none | P2 |
+| 6 | E-way bill number on the goods receipt above the firm's limit | P2 |
+| 7 | Warn on a bill entered after its credit's last date (30 November) | P3 |
+| 8 | Import bill of entry (§68) | P3 |
+| 9 | Common credit reversal for a firm with exempt sales (rules 42/43) | P3 |
+
+**Order:** 1 → 2 → 3 → 4, 5, 6 → 7-9, interleaved with §77 by priority.

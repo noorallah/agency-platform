@@ -1,4 +1,4 @@
-# GST documents -- what the law needs from the sales chain
+# GST documents -- what the law needs from the sales and purchase chains
 
 Which document GST requires for each movement of goods and each correction to
 a sale, what the platform already does about it, and what it must change. The
@@ -245,9 +245,71 @@ goes live; **P2** for every firm; **P3** completes the picture.
 5. **Bill of supply:** later, unless the owner names a composition or exempt
    firm today -- **owner**.
 
+## 6. Purchases under GST -- backlog §78
+
+Owner, 2026-10-02: "same way regarding purchases ... as per industry
+standards what we need to change ... what we can configure, compare with all
+other apps". Checked against the code on that date; to confirm with the CA.
+
+### 6.1 The rules
+
+| Rule | What it says | Law |
+| --- | --- | --- |
+| Blocked credit | No input credit on motor vehicles (with exceptions), food and catering, club membership, personal use, gifts and free samples, goods lost or destroyed; the tax is part of the cost. Reported as a permanent reversal | s.17(5); 3B 4(B)(1) |
+| Supplier type | Only a regular registered supplier's tax invoice gives credit. A composition supplier issues a bill of supply with no tax; an unregistered one charges none (reverse charge aside) | s.16(2), s.10 |
+| Supplier filed it | Credit only on what the supplier reported (GSTR-1, seen in GSTR-2B) | s.16(2)(aa) |
+| 180 days | Supplier not paid (value plus tax) within 180 days of the bill: reverse the credit on the unpaid part, with interest; claim it back when paid | r.37; 3B 4(B)(2) and 4(D)(1) |
+| Supplier's IRN | A supplier past ₹5 crore must e-invoice; a B2B bill from them without an IRN is not a valid invoice | r.48(4) |
+| Inward e-way bill | Goods over ₹50,000 travel with one; buying from an unregistered supplier, the buyer raises it | r.138 |
+| Time limit | A year's credit is claimed by 30 November after it ends | s.16(4) |
+
+### 6.2 Today, and what other products do
+
+| Control | Here today | Zoho Books | ERPNext (India Compliance) | TallyPrime |
+| --- | --- | --- | --- | --- |
+| Reverse charge with self-invoice | **Built** (§68 row 8) | Yes | Yes | Yes |
+| Debit note, supplier's credit note | **Built** | Yes | Yes | Yes |
+| Credit per bill line: eligible / blocked 17(5) / ineligible other | **No.** A tax rule's *Input credit blocked* is computed and then read by nothing: the bill still claims the credit (D-TAX-1) | Yes, per bill line ("Eligible for ITC") | Yes, an ineligibility reason on the bill | Yes, by ledger and voucher |
+| Supplier GST treatment (regular / composition / unregistered / overseas / SEZ) | **No.** A supplier is registered yes or no | Yes | Yes | Yes (registration type) |
+| GSTR-2B matching | **No** (§42.5) | Yes | Yes (purchase reconciliation) | Yes |
+| 180-day reversal | **No** | Not verified | Not verified | Not verified |
+| Supplier IRN on the bill | **No** | Not verified | Not verified | Not verified |
+| E-way bill number on the receipt | **No** (vehicle only) | Yes (on bills) | Yes (purchase receipt) | Yes |
+
+"Not verified" means no source was read for it on this date, not that the
+product lacks it.
+
+### 6.3 What changes, and what each firm configures
+
+| # | Change | Configurable | Default | Pri |
+| --- | --- | --- | --- | --- |
+| 1 | **Credit eligibility per bill line**: Eligible, Blocked (17(5)), Ineligible (other). Defaults from the product's or expense account's setting, then from a tax rule's *Input credit blocked*, and can be changed on the line. Blocked or ineligible tax is added to the cost of the goods or expense, not to input tax, and 3B shows it as a permanent reversal. Fixes D-TAX-1 | Per product and per expense account | Eligible | P1 |
+| 2 | **Supplier GST treatment**: Regular, Composition, Unregistered, Overseas, SEZ, as customers already have. A composition or unregistered supplier's bill charges no tax (reverse charge aside) and gives no credit | Per supplier | Regular if a GSTIN is on file, else Unregistered | P1 |
+| 3 | **GSTR-2B matching**: import the 2B file from the portal; match by supplier GSTIN, bill number and date, and amounts within a tolerance; list Matched, Different, In 2B only, In books only | Tolerance per firm; and whether 3B claims **all** bills (as today) or **only matched** ones | ₹1; all bills, with the unmatched listed | P1 |
+| 4 | **180-day check**: a list of bills unpaid past 180 days with the credit to reverse; the reversal posted on request, and the reclaim when paid | Off / Report / Report and post | Report | P2 |
+| 5 | **Supplier's IRN** on the bill, and a flag on the supplier that it e-invoices; warn when that supplier's bill has none | Off / Warn | Warn | P2 |
+| 6 | **E-way bill number on the goods receipt**, asked for above the firm's limit (the same setting as sales, §77 row 10) | Limit per firm | ₹50,000 | P2 |
+| 7 | **30 November warning** on a bill entered after its year's credit can be claimed | -- | On | P3 |
+| 8 | **Import bill of entry** (IGST on imports) | -- | -- | P3 (§68) |
+| 9 | **Common credit reversal** for a firm with exempt sales | -- | -- | P3 |
+
+**Order:** 1 (it overstates credit today) → 2 → 3 → 4, 5, 6 → 7-9.
+
+**Decided by Claude** (OWNER_DECISIONS A36), by the products above: the
+eligibility lives on the line with a default from the master, as Zoho and
+ERPNext keep it; 3B keeps claiming every bill by default and lists what 2B
+does not show, because blocking credit on a supplier's late filing would cost
+the firm money for the supplier's mistake -- a firm whose CA wants only
+matched credit switches it.
+
 ## Sources (read 2026-10-02)
 
 - [Tally -- e-invoicing rules in India, 2026](https://tallysolutions.com/accounting/e-invoicing-rules-in-india/)
 - [ClearTax -- GST changes from April 2026](https://cleartax.in/s/gst-changes-from-april-2026)
 - [GimBooks -- the ₹5 crore e-invoice rule, 2026](https://www.gimbooks.com/blog/5-crore-e-invoice-turnover-rule-2026/)
 - [The e-invoice 30-day reporting rule](https://righttoinformation.wiki/gst-e-invoice-30-day-reporting-time-limit-india)
+- [Zoho Books -- a bill on which ITC cannot be claimed](https://www.zoho.com/in/books/kb/gst/my-vendor-has-issued-a-bill-for-which-i-cannot-claim-itc.html)
+- [Zoho Books -- composition scheme FAQ](https://www.zoho.com/in/books/gst/faq/composition-scheme.html)
+- [TallyPrime -- reconciling GSTR-2B](https://help.tallysolutions.com/tally-prime/gstr-2b/india-gst-status-gstr-2b-reconciliation-tally-2/)
+- [ClearTax -- ITC reversal](https://cleartax.in/s/itc-reversal-gst)
+- [Rule 37: the 180-day reversal](https://fillgst.com/guides/rule-37-itc-reversal)
