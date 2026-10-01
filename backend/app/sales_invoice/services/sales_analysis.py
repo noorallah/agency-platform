@@ -146,7 +146,9 @@ def _bucket(
             if postgres
             else func.strftime("%Y-W%W", column)
         )
-    quarter = cast((month + 8) % 12 / 3 + 1, Integer)
+    # Floor division: in SQLAlchemy 2.0 `/` between integers is true
+    # division, and June's 2/3 + 1 rounded to the second quarter.
+    quarter = cast((month + 8) % 12 // 3 + 1, Integer)
     if dimension == "quarter":
         return (
             func.concat(
