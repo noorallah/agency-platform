@@ -360,6 +360,14 @@ def test_no_service_resolves_firms_on_a_tenant_session() -> None:
         # with `_PLATFORM_TABLES`, and
         # `test_a_firm_caller_searches_only_the_firms_own_people` is the read.
         "app/search/services/search_service.py",
+        # Lists every firm's store to copy a business profile into; reads the
+        # registry on the `platform_db` session it is handed, never the
+        # caller's store (backlog, 2026-10-01).
+        "app/business/services/profile_replication.py",
+        # The outbox worker's firm list, read on a session it opens on the
+        # platform schema by name; each firm's outbox is then reached through
+        # that firm's own store.
+        "app/messaging/services/runtime.py",
     }
     # Known offenders, kept empty. Five instances of this defect shipped before
     # the guard existed; all are fixed. Anything added here needs a fix, not a
