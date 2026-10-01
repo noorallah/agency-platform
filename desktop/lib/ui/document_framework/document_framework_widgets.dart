@@ -320,9 +320,24 @@ class EnterpriseDocumentLines extends StatelessWidget {
                             DataCell(Text(
                                 line.unitPrice.isEmpty ? '0' : line.unitPrice)),
                             DataCell(Text(discountCell(line))),
-                            DataCell(Text(line.taxProfile.isEmpty
-                                ? '-'
-                                : line.taxProfile)),
+                            DataCell(Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(line.taxProfile.isEmpty
+                                    ? '-'
+                                    : line.taxProfile),
+                                if (line.itcEligibility.isNotEmpty &&
+                                    line.itcEligibility != 'ELIGIBLE') ...[
+                                  const SizedBox(width: AppSpacing.sm),
+                                  StatusBadge(
+                                    label: line.itcEligibility == 'BLOCKED'
+                                        ? 'Credit blocked'
+                                        : 'Credit ineligible',
+                                    tone: StatusBadgeTone.warning,
+                                  ),
+                                ],
+                              ],
+                            )),
                             DataCell(
                                 Text(line.amount.isEmpty ? '0' : line.amount)),
                             DataCell(Text(

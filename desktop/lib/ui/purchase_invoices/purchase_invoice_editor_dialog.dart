@@ -71,6 +71,10 @@ class PurchaseInvoiceDraftLine {
   String unitPrice;
   String remarks;
 
+  /// Blank takes the product's input credit setting (backlog 78 row 1);
+  /// otherwise ELIGIBLE, BLOCKED or INELIGIBLE. Never prefilled.
+  String itcEligibility = '';
+
   bool get billsAnOrder => sourceDocumentType == 'PURCHASE_ORDER';
 
   /// What the receipt (or the order) still has to be billed for.
@@ -98,6 +102,7 @@ class PurchaseInvoiceDraftLine {
         // No discount either way: silence takes the rate the receipt line
         // carries, and a literal zero would refuse it.
         if (taxProfileId.isNotEmpty) 'tax_profile_id': taxProfileId,
+        if (itcEligibility.isNotEmpty) 'itc_eligibility': itcEligibility,
         if (purchaseUomId.isNotEmpty) 'purchase_uom_id': purchaseUomId,
         if (purchaseUomId.isNotEmpty) 'invoice_uom_id': purchaseUomId,
         if (warehouseId.isNotEmpty) 'warehouse_id': warehouseId,
@@ -120,6 +125,9 @@ class PurchaseDirectLine {
   String expiryDate = '';
   String remarks = '';
 
+  /// Blank takes the product's input credit setting; never prefilled.
+  String itcEligibility = '';
+
   /// Bumped when a value is filled in for the user, so its box re-reads it.
   int epoch = 0;
 
@@ -136,6 +144,7 @@ class PurchaseDirectLine {
         if (unitPrice.trim().isNotEmpty) 'unit_price': unitPrice.trim(),
         if (discountPercent.trim().isNotEmpty)
           'discount_percent': discountPercent.trim(),
+        if (itcEligibility.isNotEmpty) 'itc_eligibility': itcEligibility,
         if (freeQuantity.trim().isNotEmpty)
           'free_quantity': freeQuantity.trim(),
         if (batchNumber.trim().isNotEmpty) 'batch_number': batchNumber.trim(),

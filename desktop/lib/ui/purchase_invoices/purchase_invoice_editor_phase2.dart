@@ -923,6 +923,38 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
     );
   }
 
+  /// The line's input credit choice. Blank is "From product" -- never a
+  /// prefilled Eligible, because the server then takes the product's setting
+  /// and a tax rule's, and an explicit Eligible would override both.
+  Widget _itcField(
+    BuildContext context, {
+    required String keyPart,
+    required String value,
+    required ValueChanged<String> onChanged,
+  }) =>
+      DocumentField(
+        label: 'Input credit',
+        width: 258,
+        child: DropdownButtonFormField<String>(
+          key: ValueKey<String>('purchase-invoice-itc-$keyPart'),
+          isExpanded: true,
+          initialValue: value,
+          decoration: documentBoxDecoration(context),
+          items: const [
+            DropdownMenuItem<String>(value: '', child: Text('From product')),
+            DropdownMenuItem<String>(
+                value: 'ELIGIBLE', child: Text('Eligible')),
+            DropdownMenuItem<String>(
+                value: 'BLOCKED', child: Text('Blocked (s.17(5))')),
+            DropdownMenuItem<String>(
+                value: 'INELIGIBLE', child: Text('Ineligible')),
+          ],
+          onChanged: _saving
+              ? null
+              : (picked) => _setState(() => onChanged(picked ?? '')),
+        ),
+      );
+
   /// The batch and expiry boxes for a line whose receipt this bill raises:
   /// nobody else will record them.
   List<Widget> _batchFields(
@@ -1051,6 +1083,12 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
           onExpiry: (value) => line.expiryDate = value,
           product: product,
         ),
+      _itcField(
+        context,
+        keyPart: '${_receipt?.id ?? _order?.id}-$index',
+        value: line.itcEligibility,
+        onChanged: (picked) => line.itcEligibility = picked,
+      ),
       DocumentField(
         label: 'Line remarks',
         width: 258,
@@ -1133,6 +1171,12 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
           onBatch: (value) => line.batchNumber = value,
           onExpiry: (value) => line.expiryDate = value,
           product: product,
+        ),
+        _itcField(
+          context,
+          keyPart: 'direct-$index-${line.productId}',
+          value: line.itcEligibility,
+          onChanged: (picked) => line.itcEligibility = picked,
         ),
         DocumentField(
           label: 'Line remarks',
