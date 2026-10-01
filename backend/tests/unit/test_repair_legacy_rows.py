@@ -20,6 +20,7 @@ from app.core.database.base import Base
 from app.core.utils.dates import utc_now
 from app.customers.models import Customer, CustomerGroup
 from app.finance.models import JournalEntry, JournalLine, LedgerAccount
+from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.inventory.models import InventoryRecord
@@ -369,3 +370,131 @@ def test_a_second_run_finds_nothing_to_do() -> None:
     assert second.skipped == []
     assert second.lines(dry_run=False) == ["store", "  nothing to repair"]
     assert _payable(store) == Decimal("50.00"), "the true-up is posted once"
+
+
+def test_a_deleted_customer_holding_only_an_advance_is_restored() -> None:
+    """D-DATA-2: an advance is a balance, so a customer holding one comes back."""
+    store = _Store()
+    advance = store.customer("TILL", deleted=True)
+    advance.unapplied_advance_balance = Decimal("100.00")
+    store.session.commit()
+
+    result = store.run()
+
+    store.session.refresh(advance)
+    assert advance.is_deleted is False
+    assert [line.split(" (")[0] for line in result.restored_customers] == ["REPA TILL"]
+    assert "advance 100.00" in result.restored_customers[0]
+
+
+def _scheme(store: _Store, rate: str) -> None:
+    """Give our firm a loyalty scheme at ``rate`` a point."""
+    LoyaltyService(store.session).write_settings(
+        store.ours.id,
+        LoyaltySettingsWrite(
+            is_enabled=True,
+            points_per_amount=Decimal("1"),
+            amount_per_point=Decimal(rate),
+        ),
+        actor_id=store.actor_id,
+    )
+
+
+def _legacy_entry(store: _Store, kind: LoyaltyEntryKind, points: str) -> LoyaltyEntry:
+    """Record an entry against LOYAL's first goodwill batch."""
+    batch = store.session.scalars(
+        select(LoyaltyEntry).where(LoyaltyEntry.kind == LoyaltyEntryKind.ADJUSTED.value)
+    ).first()
+    assert batch is not None
+    row = LoyaltyEntry(
+        firm_id=store.ours.id,
+        customer_id=batch.customer_id,
+        kind=kind.value,
+        points=Decimal(points),
+        amount=Decimal("0"),
+        earned_on=date(2026, 6, 1),
+        reverses_id=batch.id if kind is LoyaltyEntryKind.EXPIRED else None,
+    )
+    store.session.add(row)
+    store.session.commit()
+    return row
+
+
+def test_goodwill_already_spent_is_accrued_by_a_second_true_up() -> None:
+    """D-DATA-3: the first true-up left out what a redemption had spent.
+
+    100 points given; 30 redeemed at 2.00, which debited 2600 by 60; the first
+    true-up accrued the 70 left, 140. The account holds 80 against 70 points
+    worth 140, so the second true-up posts the missing 60 -- once.
+    """
+    store = _Store()
+    _scheme(store, "2")
+    _goodwill(store, "100")
+    redeemed = _legacy_entry(store, LoyaltyEntryKind.REDEEMED, "-30")
+    redeemed.amount = Decimal("60")
+    store.session.commit()
+    posting = DocumentPostingService(store.session)
+    posting.post_loyalty(
+        firm_id=store.ours.id,
+        entry_id=redeemed.id,
+        reference=f"LOY-RED-{redeemed.id}",
+        on=utc_now().date(),
+        amount=Decimal("60"),
+        earning=False,
+        actor_id=store.actor_id,
+    )
+    posting.post_loyalty(
+        firm_id=store.ours.id,
+        entry_id=store.ours.id,
+        reference="LOY-GOODWILL-TRUEUP-REPA",
+        on=utc_now().date(),
+        amount=Decimal("140"),
+        earning=True,
+        actor_id=store.actor_id,
+    )
+    store.session.commit()
+    assert _payable(store) == Decimal("80.00")
+
+    first = store.run()
+    second = store.run()
+
+    assert first.goodwill_trueups == [
+        "REPA LOY-GOODWILL-TRUEUP2-REPA: 100.0000 points at 2.0000 = 200.00, "
+        "140.00 already booked, so 60.00"
+    ]
+    assert _payable(store) == Decimal("140.00")
+    assert second.changes == 0, "the second true-up is posted once"
+    assert _payable(store) == Decimal("140.00")
+
+
+def test_a_first_true_up_counts_what_was_granted_less_what_lapsed() -> None:
+    """D-DATA-3: spending does not reduce the accrual; an expiry does.
+
+    100 given, 30 redeemed (debiting 30 at 1.00), 20 lapsed releasing
+    nothing: 80 is accrued, leaving 2600 at 50 for the 50 points held.
+    """
+    store = _Store()
+    _scheme(store, "1")
+    _goodwill(store, "100")
+    redeemed = _legacy_entry(store, LoyaltyEntryKind.REDEEMED, "-30")
+    redeemed.amount = Decimal("30")
+    store.session.commit()
+    DocumentPostingService(store.session).post_loyalty(
+        firm_id=store.ours.id,
+        entry_id=redeemed.id,
+        reference=f"LOY-RED-{redeemed.id}",
+        on=utc_now().date(),
+        amount=Decimal("30"),
+        earning=False,
+        actor_id=store.actor_id,
+    )
+    store.session.commit()
+    _legacy_entry(store, LoyaltyEntryKind.EXPIRED, "-20")
+
+    result = store.run()
+
+    assert result.goodwill_trueups == [
+        "REPA LOY-GOODWILL-TRUEUP-REPA: 80.0000 points at 1.0000 = 80.00"
+    ]
+    assert _payable(store) == Decimal("50.00")
+    assert store.run().changes == 0

@@ -6,7 +6,8 @@ Claude, industry standard) is to repair that legacy data once, by script,
 rather than leave it for a screen to trip over:
 
 * **A debtor cannot be deleted.** A soft-deleted customer still carrying a
-  balance is restored -- the delete guard refuses the same thing today, and a
+  balance -- an outstanding or an unapplied advance (D-DATA-2) -- is
+  restored -- the delete guard refuses the same thing today, and a
   balance nobody can see is one nobody collects.
 * **A product that holds stock cannot be deleted.** A soft-deleted product
   still holding a quantity in any bucket (``find_stock_holdings``, the product
@@ -20,13 +21,18 @@ rather than leave it for a screen to trip over:
   in the store, so nothing about it is foreign.
 * **Goodwill points are a liability from the day they are granted
   (D-SELL-19, IFRS 15).** Points given by hand before #477 were never
-  accrued. The value of what is still held of them, at the scheme's value
-  per point, is booked as one true-up per firm, ``Dr 5700 Loyalty Expense /
-  Cr 2600 Loyalty Payable``, dated today -- a correction is booked in the
-  current period -- under the reference ``LOY-GOODWILL-TRUEUP-<firm code>``.
+  accrued. The value of what was granted of them -- less only what lapsed or
+  was taken back without touching the ledger, since a redemption had already
+  debited Loyalty Payable for what was spent (D-DATA-3) -- at the scheme's
+  value per point, is booked as one true-up per firm, ``Dr 5700 Loyalty
+  Expense / Cr 2600 Loyalty Payable``, dated today -- a correction is booked
+  in the current period -- under the reference
+  ``LOY-GOODWILL-TRUEUP-<firm code>``. A firm trued up before D-DATA-3, for
+  only what was left, gets the missing part under
+  ``LOY-GOODWILL-TRUEUP2-<firm code>``.
 
 **It is idempotent.** A restored row is no longer deleted, a cleared
-reference is no longer foreign, and a firm whose true-up reference exists is
+reference is no longer foreign, and a firm whose true-up is complete is
 skipped, so a second run finds nothing to do. Every change writes an audit row
 on the store it changes: a restore goes through the owning service's own
 ``restore``, which is also what refuses a restore into a code a live row has
@@ -45,7 +51,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, aliased
 
 from app.common.audit.services import record_audit
@@ -65,6 +71,13 @@ from app.vendors.models import Vendor, VendorCategory, VendorType
 #: The journal reference a firm's goodwill true-up is posted under. Unique per
 #: firm, which is what makes a second run skip the firm.
 TRUEUP_REFERENCE = "LOY-GOODWILL-TRUEUP-{code}"
+
+#: The reference the corrective second true-up is posted under (D-DATA-3).
+#: The first accrued only what was still *held* of the goodwill, but a
+#: redemption had already debited Loyalty Payable for what was spent of it,
+#: so the liability stayed short by that much. This one posts the missing
+#: part, and its existing is what makes a later run skip the firm.
+TRUEUP_TOPUP_REFERENCE = "LOY-GOODWILL-TRUEUP2-{code}"
 
 #: ``(record, field on it, master it names)`` for every master reference a
 #: firm could have been handed from another firm's rows (D-MST-3).
@@ -181,12 +194,20 @@ def _restore_customers(
         .where(
             Customer.firm_id == firm.id,
             Customer.is_deleted.is_(True),
-            Customer.current_outstanding != 0,
+            # An advance is a balance too -- money the firm holds and owes
+            # back (D-DATA-2) -- and the delete guard refuses it as a debt.
+            or_(
+                Customer.current_outstanding != 0,
+                Customer.unapplied_advance_balance != 0,
+            ),
         )
         .order_by(Customer.code)
     ).all()
     for row in rows:
-        what = f"{firm.code} {row.code} (outstanding {row.current_outstanding})"
+        what = (
+            f"{firm.code} {row.code} (outstanding {row.current_outstanding}, "
+            f"advance {row.unapplied_advance_balance})"
+        )
         if dry_run:
             result.restored_customers.append(what)
             continue
@@ -277,38 +298,44 @@ def _clear_foreign_references(
 
 
 def _unbooked_goodwill(session: Session, firm_id: UUID) -> Decimal:
-    """Return the goodwill points still held that were never accrued.
+    """Return the goodwill points never accrued that the ledger still owes.
 
     Unbooked goodwill is what ``LoyaltyService`` itself treats as such: an
-    ADJUSTED credit with no value and no journal -- given before D-SELL-19.
-    What is left of each batch comes from ``unspent_batches``, the same
-    oldest-first walk a redemption and the expiry sweep use.
+    ADJUSTED entry with no value and no journal -- given, or taken back,
+    before D-SELL-19.
+
+    **What was granted, not what is left (D-DATA-3).** A redemption spending
+    those points debited Loyalty Payable at the rate of the day, so the
+    account has to have been credited with the whole grant to come out
+    right. Only what never touched the ledger reduces it: a take-back of the
+    same era, which posted nothing, and an expiry or reversal naming one of
+    these batches, which released their recorded value -- nothing. Counted
+    per customer, never below zero.
     """
-    service = LoyaltyService(session)
-    customers = session.scalars(
-        select(LoyaltyEntry.customer_id)
-        .where(
+    entries = session.scalars(
+        select(LoyaltyEntry).where(
             LoyaltyEntry.firm_id == firm_id,
             LoyaltyEntry.is_deleted.is_(False),
-            LoyaltyEntry.kind == LoyaltyEntryKind.ADJUSTED.value,
-            LoyaltyEntry.points > 0,
-            LoyaltyEntry.amount == 0,
-            LoyaltyEntry.journal_entry_id.is_(None),
         )
-        .group_by(LoyaltyEntry.customer_id)
     ).all()
-    held = ZERO
-    for customer_id in customers:
-        for batch, remaining in service.unspent_batches(
-            customer_id, firm_scope=firm_id
-        ):
-            if (
-                batch.kind == LoyaltyEntryKind.ADJUSTED.value
-                and Decimal(str(batch.amount)) == ZERO
-                and batch.journal_entry_id is None
-            ):
-                held += remaining
-    return held
+    unbooked = {
+        row.id
+        for row in entries
+        if row.kind == LoyaltyEntryKind.ADJUSTED.value
+        and Decimal(str(row.amount)) == ZERO
+        and row.journal_entry_id is None
+    }
+    attributed = {LoyaltyEntryKind.EXPIRED.value, LoyaltyEntryKind.REVERSED.value}
+    owed: dict[UUID, Decimal] = {}
+    for row in entries:
+        counts = row.id in unbooked or (
+            row.kind in attributed and row.reverses_id in unbooked
+        )
+        if counts:
+            owed[row.customer_id] = owed.get(row.customer_id, ZERO) + Decimal(
+                str(row.points)
+            )
+    return sum((max(points, ZERO) for points in owed.values()), ZERO)
 
 
 def _true_up_goodwill(
@@ -319,15 +346,27 @@ def _true_up_goodwill(
     dry_run: bool,
     actor: UUID,
 ) -> None:
-    """Accrue, once, the goodwill points a firm still owes but never booked."""
+    """Accrue, once, the goodwill points a firm owes but never booked.
+
+    A firm with no true-up gets one under ``TRUEUP_REFERENCE`` for the whole
+    of it. A firm trued up before D-DATA-3 was accrued only what was left, so
+    it gets the missing part under ``TRUEUP_TOPUP_REFERENCE``, whose existing
+    is what makes a replay skip the firm. A first true-up that already covers
+    everything needs no second.
+    """
     reference = TRUEUP_REFERENCE.format(code=firm.code)
-    exists = session.scalar(
-        select(JournalEntry.id).where(
-            JournalEntry.firm_id == firm.id,
-            JournalEntry.reference_number == reference,
-        )
-    )
-    if exists is not None:
+    topup = TRUEUP_TOPUP_REFERENCE.format(code=firm.code)
+    booked = {
+        ref: Decimal(str(total))
+        for ref, total in session.execute(
+            select(JournalEntry.reference_number, JournalEntry.total_credit).where(
+                JournalEntry.firm_id == firm.id,
+                JournalEntry.is_deleted.is_(False),
+                JournalEntry.reference_number.in_((reference, topup)),
+            )
+        ).all()
+    }
+    if topup in booked:
         return
     points = _unbooked_goodwill(session, firm.id)
     if points <= ZERO:
@@ -337,9 +376,20 @@ def _true_up_goodwill(
     settings = LoyaltyService(session).settings_for(firm.id)
     rate = ZERO if settings is None else Decimal(str(settings.amount_per_point))
     value = quantize_ledger(points * rate)
-    if value <= ZERO:
+    already = booked.get(reference, ZERO)
+    if reference in booked:
+        post_as = topup
+        amount = quantize_ledger(value - already)
+        what = (
+            f"{firm.code} {topup}: {points} points at {rate} = {value}, "
+            f"{already} already booked, so {amount}"
+        )
+    else:
+        post_as = reference
+        amount = value
+        what = f"{firm.code} {reference}: {points} points at {rate} = {value}"
+    if amount <= ZERO:
         return
-    what = f"{firm.code} {reference}: {points} points at {rate} = {value}"
     if dry_run:
         result.goodwill_trueups.append(what)
         return
@@ -347,9 +397,9 @@ def _true_up_goodwill(
         posted = DocumentPostingService(session).post_loyalty(
             firm_id=firm.id,
             entry_id=firm.id,
-            reference=reference,
+            reference=post_as,
             on=utc_now().date(),
-            amount=value,
+            amount=amount,
             earning=True,
             description="Goodwill points never accrued (D-SELL-19 true-up)",
             actor_id=actor,
@@ -369,11 +419,17 @@ def _true_up_goodwill(
         actor_id=actor,
         firm_id=firm.id,
         after_data={
-            "reference": reference,
+            "reference": post_as,
             "points": str(points),
             "amount_per_point": str(rate),
-            "amount": str(value),
-            "reason": "D-SELL-19: goodwill granted before #477 was never accrued.",
+            "value": str(value),
+            "already_booked": str(already),
+            "amount": str(amount),
+            "reason": (
+                "D-SELL-19: goodwill granted before #477 was never accrued."
+                if post_as == reference
+                else "D-DATA-3: the first true-up left out goodwill already spent."
+            ),
         },
     )
     session.commit()
