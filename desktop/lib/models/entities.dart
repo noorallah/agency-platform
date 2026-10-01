@@ -199,6 +199,7 @@ class FirmReadiness {
     required this.canPost,
     required this.ready,
     required this.steps,
+    this.opening = const [],
   });
 
   final String firmId, code, name, deploymentMode;
@@ -211,6 +212,11 @@ class FirmReadiness {
   final bool ready;
   final List<FirmReadinessStep> steps;
 
+  /// What the firm has brought over from its old tool, in the order it is
+  /// brought. Outside [canPost] and [ready]: a new business has nothing to
+  /// bring.
+  final List<FirmReadinessStep> opening;
+
   factory FirmReadiness.fromJson(Json json) => FirmReadiness(
         firmId: stringValue(json['firm_id']),
         code: stringValue(json['code']),
@@ -219,12 +225,16 @@ class FirmReadiness {
         storageProvisioned: boolValue(json['storage_provisioned']),
         canPost: boolValue(json['can_post']),
         ready: boolValue(json['ready']),
-        steps: (json['steps'] as List? ?? const [])
-            .whereType<Map>()
-            .map((item) =>
-                FirmReadinessStep.fromJson(Map<String, dynamic>.from(item)))
-            .toList(),
+        steps: _readinessSteps(json['steps']),
+        opening: _readinessSteps(json['opening']),
       );
+
+  static List<FirmReadinessStep> _readinessSteps(Object? value) =>
+      (value as List? ?? const [])
+          .whereType<Map>()
+          .map((item) =>
+              FirmReadinessStep.fromJson(Map<String, dynamic>.from(item)))
+          .toList();
 }
 
 class Firm {

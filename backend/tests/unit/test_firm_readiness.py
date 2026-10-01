@@ -11,7 +11,8 @@ open-books action that closes the one step with no other screen.
 # ruff: noqa: D101,D102,D103
 
 from datetime import UTC, date, datetime
-from uuid import UUID
+from decimal import Decimal
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import create_engine, select
@@ -23,6 +24,7 @@ from app.common.audit.models import AuditLog
 from app.core.database.base import Base
 from app.core.exceptions import BusinessRuleError
 from app.core.tenancy import DeploymentMode
+from app.customers.models import Customer, CustomerOpeningBill
 from app.finance.models import AccountingPeriod, FinancialYear, LedgerAccount
 from app.finance.services.control_accounts import ControlAccountService
 from app.finance.services.opening_setup import CHART
@@ -685,3 +687,125 @@ def test_the_default_branch_route_is_platform_only() -> None:
     from tests.unit.test_platform_only_routes import _EXPECTED
 
     assert ("POST", "/api/v1/firms/{firm_id}/create-default-branch") in _EXPECTED
+
+
+class TestOpeningBalances:
+    """What a firm has brought over from its old tool, on the same read.
+
+    Go-live plan tier 1 item 4: the imports live on five screens, and a
+    firm's first day should not depend on knowing where.
+    """
+
+    def _customer(self, session: Session, firm: Firm) -> Customer:
+        customer = Customer(
+            firm_id=firm.id,
+            code="CUST-001",
+            customer_type="RETAIL",
+            name="Acme Medical",
+            display_name="Acme Medical",
+            currency_code="INR",
+            status="ACTIVE",
+            created_by=_ACTOR,
+            updated_by=_ACTOR,
+        )
+        session.add(customer)
+        session.flush()
+        return customer
+
+    def _bill(
+        self, session: Session, firm: Firm, customer: Customer, number: str, status: str
+    ) -> None:
+        session.add(
+            CustomerOpeningBill(
+                firm_id=firm.id,
+                customer_id=customer.id,
+                bill_number=number,
+                bill_date=date(2026, 3, 1),
+                posting_date=date(2026, 3, 31),
+                amount=Decimal("1500.00"),
+                status=status,
+                journal_entry_id=uuid4(),
+                created_by=_ACTOR,
+                updated_by=_ACTOR,
+            )
+        )
+
+    def test_the_imports_are_listed_in_the_order_they_are_brought(self) -> None:
+        session = _session()
+        firm = _firm(session)
+
+        readiness = FirmReadinessService(session).readiness(firm, session)
+
+        assert [step.key for step in readiness.opening] == [
+            "products",
+            "customers",
+            "suppliers",
+            "customer_opening_bills",
+            "supplier_opening_bills",
+            "opening_trial_balance",
+            "opening_stock",
+        ]
+        assert all(step.status is ReadinessStatus.MISSING for step in readiness.opening)
+        assert not any(step.required for step in readiness.opening)
+
+    def test_an_empty_opening_never_holds_back_the_verdict(self) -> None:
+        # A business that opened yesterday has nothing to bring over; that is
+        # not an unfinished firm, so the opening list is outside `ready`.
+        session = _session()
+        firm = _firm(session)
+        readiness = FirmReadinessService(session).readiness(firm, session)
+        assert readiness.opening
+        assert all(step not in readiness.steps for step in readiness.opening)
+        assert {step.key for step in readiness.steps}.isdisjoint(
+            step.key for step in readiness.opening
+        )
+
+    def test_a_cancelled_opening_bill_is_not_one_brought_over(self) -> None:
+        session = _session()
+        firm = _firm(session)
+        customer = self._customer(session, firm)
+        self._bill(session, firm, customer, "OB-1", "CANCELLED")
+        session.commit()
+
+        opening = {
+            step.key: step
+            for step in FirmReadinessService(session).readiness(firm, session).opening
+        }
+        assert opening["customers"].status is ReadinessStatus.DONE
+        assert opening["customers"].detail == "1 customer."
+        assert opening["customer_opening_bills"].status is ReadinessStatus.MISSING
+
+        self._bill(session, firm, customer, "OB-2", "POSTED")
+        session.commit()
+        opening = {
+            step.key: step
+            for step in FirmReadinessService(session).readiness(firm, session).opening
+        }
+        assert opening["customer_opening_bills"].status is ReadinessStatus.DONE
+        assert opening["customer_opening_bills"].detail == "1 opening bill."
+        assert opening["products"].status is ReadinessStatus.MISSING
+
+    def test_an_unprovisioned_firm_reports_every_import_blocked(self) -> None:
+        session = _session()
+        firm = _firm(session, mode=DeploymentMode.SCHEMA)
+        readiness = FirmReadinessService(session).readiness(firm, None)
+        assert len(readiness.opening) == 7
+        assert all(step.status is ReadinessStatus.BLOCKED for step in readiness.opening)
+
+
+def test_the_route_carries_the_opening_list() -> None:
+    from app.firms.api.router import _readiness_response
+
+    session = _session()
+    firm = _firm(session)
+    response = _readiness_response(
+        FirmReadinessService(session).readiness(firm, session)
+    )
+    assert [step.key for step in response.opening][:3] == [
+        "products",
+        "customers",
+        "suppliers",
+    ]
+    assert response.opening[0].status == "MISSING"
+    # Outside the verdict: `ready` is about the steps alone.
+    assert response.ready is False
