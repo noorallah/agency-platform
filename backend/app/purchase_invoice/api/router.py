@@ -580,6 +580,7 @@ class PriceVarianceRecord(BaseModel):
 
     invoice_date: date
     invoice_number: str
+    line_number: int
     supplier_invoice_number: str
     supplier_name: str
     receipt_number: str
@@ -600,13 +601,20 @@ def purchase_price_variance(
     scope: PurchaseInvoiceReportScope,
     from_date: date | None = None,
     to_date: date | None = None,
+    purchase_invoice_id: UUID | None = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[PriceVarianceRecord]:
-    """List bill lines charged at a rate other than the receipt's (65.5)."""
+    """List bill lines charged at a rate other than the receipt's (65.5).
+
+    ``purchase_invoice_id`` narrows it to one bill in any status: the bill's
+    own screen shows the same answer (65 row 5).
+    """
     window = ReportWindow(from_date, to_date, page, page_size)
-    rows = PriceVarianceService(db).report(scope.firm_id, window)
+    rows = PriceVarianceService(db).report(
+        scope.firm_id, window, purchase_invoice_id=purchase_invoice_id
+    )
     return window.respond([PriceVarianceRecord.model_validate(row) for row in rows])
 
 

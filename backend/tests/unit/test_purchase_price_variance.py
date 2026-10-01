@@ -96,3 +96,17 @@ def test_the_window_bounds_the_bills() -> None:
     service = PriceVarianceService(session)
     assert service.report(firm.id, ReportWindow(from_date=date(2026, 9, 1))) == []
     assert len(service.report(firm.id, ReportWindow(to_date=date(2026, 8, 31)))) == 1
+
+
+def test_one_bill_is_answered_in_any_status_for_its_own_screen() -> None:
+    from app.purchase_invoice.models import PurchaseInvoice
+
+    session, firm = _billed_at("90", status="DRAFT")
+    bill_id = session.scalar(select(PurchaseInvoice.id))
+    service = PriceVarianceService(session)
+
+    [row] = service.report(firm.id, ReportWindow(), purchase_invoice_id=bill_id)
+
+    assert row.line_number == 1
+    assert row.variance == Decimal("40.00")
+    assert service.report(firm.id, ReportWindow(), purchase_invoice_id=uuid4()) == []

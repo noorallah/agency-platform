@@ -5115,6 +5115,25 @@ class ApiClient {
         AnalysisBill.fromJson,
       );
 
+  /// One bill's lines charged at a rate other than their receipt's (backlog
+  /// 65 row 5): the price variance report, narrowed to the bill, in any
+  /// status -- the bill's own screen and the report give one answer.
+  Future<List<Json>> purchaseInvoicePriceVariance(String invoiceId) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/purchase-invoices/reports/price-variance',
+      query: <String, String>{
+        'purchase_invoice_id': invoiceId,
+        'page': '1',
+        'page_size': '100',
+      },
+    );
+    final dynamic data = response['data'];
+    return data is List
+        ? data.whereType<Map>().map(Map<String, dynamic>.from).toList()
+        : const <Json>[];
+  }
+
   // ---- GST returns ----------------------------------------------------
 
   /// Outward supplies for a period, section by section.

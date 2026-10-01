@@ -57,6 +57,9 @@ class _DocumentApi extends ApiClient {
   /// checked against what it actually calls rather than against its label.
   final List<String> actions = <String>[];
 
+  /// What the bill's price variance was asked with.
+  final List<Map<String, String>> varianceQueries = <Map<String, String>>[];
+
   @override
   Future<Json> request(
     String method,
@@ -82,6 +85,21 @@ class _DocumentApi extends ApiClient {
     }
     if (path.contains('/history') || path.contains('/timeline')) {
       return <String, dynamic>{'success': true, 'data': <Json>[]};
+    }
+    if (path.contains('/price-variance')) {
+      // Backlog 65 row 5: the bill's own lines charged off the receipt rate.
+      varianceQueries.add(query ?? const <String, String>{});
+      return _page('data', <Json>[
+        <String, dynamic>{
+          'line_number': 1,
+          'product_name': 'Basmati 5kg',
+          'quantity': '4',
+          'receipt_rate': '90',
+          'bill_rate': '100',
+          'variance': '40.00',
+          'note': '',
+        },
+      ]);
     }
     return _page('data', <Json>[
       <String, dynamic>{
@@ -188,6 +206,25 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(DocumentViewDialog), findsOneWidget);
+    });
+
+    testWidgets('the opened bill shows its own price variance', (tester) async {
+      // Backlog 65 row 5: the report's answer, narrowed to this bill.
+      final _DocumentApi api = await open(tester);
+
+      final Finder row = find.text('PINV-0001').first;
+      await tester.tap(row);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+
+      expect(api.varianceQueries.single['purchase_invoice_id'], 'doc-1');
+      expect(
+          find.byKey(const ValueKey('purchase-invoice-price-variance')),
+          findsOneWidget);
+      expect(
+          find.textContaining('received at 90, billed at 100 × 4 = 40.00'),
+          findsOneWidget);
     });
 
     testWidgets('only the actions the backend has are offered', (tester) async {
