@@ -41,6 +41,7 @@ from app.goods_receipt.models import goods_receipt  # noqa: F401
 from app.gst_returns.models import (
     gst_payment,  # noqa: F401
     gst_return_filing,  # noqa: F401
+    gstr2b,  # noqa: F401
 )
 from app.identity.models import identity  # noqa: F401
 from app.inventory.models import (

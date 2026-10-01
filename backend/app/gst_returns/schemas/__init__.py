@@ -153,3 +153,29 @@ class GstReturnFilingResponse(GstSchema):
     filed_on: date
     arn: str | None = None
     remarks: str | None = None
+
+
+class Gstr2bImportCreate(GstSchema):
+    """One month's GSTR-2B JSON, as downloaded from the portal (78.3)."""
+
+    return_period: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    #: The file's text. A 2B for a busy month runs to a few megabytes.
+    content: str = Field(min_length=2, max_length=20_000_000)
+    source_name: str | None = Field(default=None, max_length=260)
+
+
+class Gstr2bImportResponse(GstSchema):
+    """What an import read."""
+
+    id: UUID
+    return_period: str
+    gstin: str | None
+    source_name: str | None
+    document_count: int
+    skipped_sections: str | None
+
+
+class Gstr2bMatchRequest(GstSchema):
+    """Match a 2B row to a bill by hand; null undoes a hand match."""
+
+    purchase_invoice_id: UUID | None

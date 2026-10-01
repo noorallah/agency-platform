@@ -5,7 +5,7 @@
 // with Other); dispatching asks the server's dispatch check first, offers
 // three choices under WARN and no "Dispatch anyway" under BLOCK; "Dispatch and
 // invoice" calls its own route; and the GST documents settings load and PUT
-// exactly the four keys the server declares.
+// exactly the six keys the server declares.
 
 import 'dart:convert';
 import 'dart:io';
@@ -446,6 +446,8 @@ void main() {
         'thirty_day_rule_from': null,
         'dispatch_without_invoice': 'BLOCK',
         'route_sale_needs_invoice': true,
+        'itc_claim_basis': 'ALL',
+        'gstr2b_tolerance': '1.00',
       });
     });
 

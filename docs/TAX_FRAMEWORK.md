@@ -333,6 +333,20 @@ their own accounts (`docs/LEDGER_POSTING_RULES.md`, "Input tax is claimed
 head by head"), so the return and the trial balance can be reconciled per
 head.
 
+
+### Blocked credit, supplier type and GSTR-2B (backlog 78 rows 1-3)
+
+- **Per bill line** `itc_eligibility` -- Eligible, Blocked (s.17(5)), Ineligible
+  -- from the line, else the product, else a tax rule's *Input credit blocked*.
+  Blocked is shown in 4(A)(5) and reversed in 4(B)(1); ineligible stays out of
+  4(A) and is shown in 4(D)(2); either posts to *Input Tax Not Claimable* (5450).
+- **Per supplier** `gst_registration_type`; a **declared** Composition,
+  Unregistered or Overseas supplier charges no GST on any purchase document
+  (reverse charge aside). The type reaches the rules as `vendor_type`.
+- **GSTR-2B**: `itc_claim_basis` ALL (default) claims every bill and lists what
+  2B lacks; MATCHED_ONLY holds unmatched credit out of 4(A)(5) as
+  `itc_awaiting_2b` until a 2B import matches it.
+
 ## Where the code is
 
 | Concern | File |

@@ -36,6 +36,9 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
   String? _thirtyDayFrom;
   String _dispatch = 'OFF';
   bool _routeSaleNeedsInvoice = false;
+  String _itcBasis = 'ALL';
+  final TextEditingController _tolerance =
+      TextEditingController(text: '1.00');
   bool _isConfigured = false;
   bool _loading = true;
   String? _loadError;
@@ -46,6 +49,12 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _tolerance.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -60,6 +69,9 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
             ? settings.dispatchWithoutInvoice
             : 'OFF';
         _routeSaleNeedsInvoice = settings.routeSaleNeedsInvoice;
+        _itcBasis =
+            settings.itcClaimBasis == 'MATCHED_ONLY' ? 'MATCHED_ONLY' : 'ALL';
+        _tolerance.text = settings.gstr2bTolerance;
         _isConfigured = settings.isConfigured;
         _loading = false;
       });
@@ -80,6 +92,10 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
             dispatchWithoutInvoice: _dispatch,
             routeSaleNeedsInvoice: _routeSaleNeedsInvoice,
             isConfigured: true,
+            itcClaimBasis: _itcBasis,
+            gstr2bTolerance: _tolerance.text.trim().isEmpty
+                ? '1.00'
+                : _tolerance.text.trim(),
           ),
         );
         if (mounted) {
@@ -250,6 +266,42 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
                           ? (value) =>
                               setState(() => _routeSaleNeedsInvoice = value)
                           : null,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    DropdownButtonFormField<String>(
+                      key: const ValueKey('gst-itc-basis'),
+                      isExpanded: true,
+                      initialValue: _itcBasis,
+                      decoration: const InputDecoration(
+                        labelText: 'Claim input credit',
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'ALL',
+                          child: Text('All bills (list what 2B lacks)'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'MATCHED_ONLY',
+                          child: Text('Only bills matched to GSTR-2B'),
+                        ),
+                      ],
+                      onChanged: editable && !saving
+                          ? (value) =>
+                              setState(() => _itcBasis = value ?? _itcBasis)
+                          : null,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    TextField(
+                      key: const ValueKey('gst-2b-tolerance'),
+                      controller: _tolerance,
+                      enabled: editable && !saving,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(
+                        labelText: 'Matching tolerance (₹)',
+                        helperText: 'How far a bill may differ from GSTR-2B '
+                            'and still count as matched.',
+                      ),
                     ),
                   ],
                   if (!_mayManage) ...[

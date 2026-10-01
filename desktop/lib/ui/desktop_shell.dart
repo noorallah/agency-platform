@@ -63,6 +63,7 @@ import 'sales/credit_note_page.dart';
 import 'sales/einvoice_page.dart';
 import 'sales/gst_payment_page.dart';
 import 'sales/gst_return_page.dart';
+import 'sales/gstr2b_page.dart';
 import 'sales/sales_analysis_page.dart';
 import 'sales/proforma_page.dart';
 import 'sales/tcs_page.dart';
@@ -2813,6 +2814,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),
+      'gstr2b' => Gstr2bPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+        ),
       'gst-payment' => GstPaymentPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -2881,6 +2887,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           'Sales Analysis',
           'Billed sales by any one or two dimensions, net of returns. Click '
               'a figure to see the invoices behind it.',
+        ),
+      'gstr2b' => (
+          'GSTR-2B Reconciliation',
+          'What suppliers filed against the bills in the books. Input credit '
+              'is claimable only on what a supplier has filed.',
         ),
       'gst-payment' => (
           'GST Payment',

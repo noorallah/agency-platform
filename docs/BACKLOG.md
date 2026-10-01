@@ -3457,6 +3457,8 @@ TCS, an audit trail, currency and exchange-rate fields, and a low-stock view.
 
 ### 42.5 GSTR-2A / 2B matching
 
+**Built 2026-10-02 as §78 row 3.**
+
 - **Who has it:** TallyPrime (download and auto-reconcile), Zoho Books.
 - **Here:** GSTR-1 and 3B are derived from the documents (`app/gst_returns`);
   3B carries the input credit from purchase bills (table 4, since D-CMP-20)
@@ -5494,6 +5496,7 @@ OWNER_DECISIONS A35. Summary of the rows (numbered as in that doc's section 4):
 
 **Status, 2026-10-02:** row 1 built (fixes D-TAX-1). Each bill line has an input-credit eligibility -- Eligible, Blocked (s.17(5)) or Ineligible -- taken from the line, else the product (a `PRODUCT_TAX_MANAGE` field), else a tax rule's *Input credit blocked*. Blocked or ineligible tax is booked to *Input Tax Not Claimable* (5450), never to input tax, and returns and debit notes take their share back off it. GSTR-3B: blocked in 4(A)(5) and reversed in 4(B)(1) (CBIC circular 170/02/2022); ineligible in 4(D)(2).
 Row 2 built 2026-10-02: a supplier's GST type (Regular, Composition, Unregistered, Overseas, SEZ; blank read off the GSTIN), checked against the GSTIN on the form and the import (`GstType`). A supplier **declared** Composition, Unregistered or Overseas is billed no GST and gives no credit on every purchase document, reverse charge aside; one never declared is taxed by the rules as before (A37). The type reaches the tax rules as `vendor_type`.
+Row 3 built 2026-10-02 (also §42.5): GST > GSTR-2B Reconciliation imports the month's 2B JSON from the portal (invoices and supplier credit/debit notes; other sections named as not read), matches each supplier invoice to the bill by GSTIN and the supplier's number read loosely (case, punctuation, leading zeros ignored), and the date and each head of tax within the firm's tolerance (₹1): Matched, Different (what differs), Not in books, or matched by hand; plus the bills 2B lacks. A supplier's credit note matches the debit note that recorded it. Settings > Tax > GST Documents: claim all bills (default) or only matched ones; under matched-only, unmatched credit is held out of 4(A)(5) and shown as awaiting 2B.
 
 Owner, 2026-10-02: the purchase side of §77, against industry standard, with
 what each firm configures. The rules, the comparison with Zoho Books, ERPNext
