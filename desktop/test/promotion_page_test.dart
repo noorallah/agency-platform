@@ -680,6 +680,24 @@ void main() {
       expect(action.containsKey('percent'), isFalse);
     });
 
+    testWidgets('a percentage with a cap sends the cap; without, none',
+        (tester) async {
+      // 60 item 1: "20% off, up to 500".
+      final _PromotionApi api = _PromotionApi();
+      await _pumpDialog(tester, api);
+      await nameIt(tester);
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Percent'), '20');
+      await tester.enterText(
+          find.byKey(const ValueKey('promotion-action-cap-0')), '500');
+      await save(tester);
+
+      final Map<dynamic, dynamic> action =
+          (api.savedBody!['actions'] as List).single as Map;
+      expect(action['percent'], '20');
+      expect(action['max_amount'], '500');
+    });
+
     testWidgets('the new fields and tests are all on offer', (tester) async {
       await _pumpDialog(tester, _PromotionApi());
       await addCondition(tester);
