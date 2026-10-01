@@ -772,11 +772,19 @@ class _PurchaseInvoiceManagementPageState
       variance = null;
     }
     if (!mounted) return;
+    // Backlog 68 row 8, phase 2 only: a reverse-charge bill names the
+    // self-invoice raised for it and the tax the firm owes itself.
+    final String selfInvoice = Phase2Scope.of(context) &&
+            record.selfInvoiceNumber.isNotEmpty
+        ? ' · Self-invoice ${record.selfInvoiceNumber}'
+            ' (reverse charge ${record.reverseChargeTaxTotal})'
+        : '';
     await showDialog<void>(
       context: context,
       builder: (_) => DocumentViewDialog(
         title: record.invoiceNumber,
-        subtitle: 'Supplier invoice ${record.supplierInvoiceNumber}',
+        subtitle:
+            'Supplier invoice ${record.supplierInvoiceNumber}$selfInvoice',
         icon: Icons.request_quote_outlined,
         header: record.toHeader(),
         lines: [
@@ -933,6 +941,8 @@ class _PurchaseInvoiceRecord {
     this.vendorName = '',
     this.dueDate = '',
     this.createdAt = '',
+    this.selfInvoiceNumber = '',
+    this.reverseChargeTaxTotal = '0',
     required this.currencyCode,
     required this.exchangeRate,
     required this.paymentTerms,
@@ -959,6 +969,11 @@ class _PurchaseInvoiceRecord {
   final String vendorName;
   final String dueDate;
   final String createdAt;
+
+  /// The self-invoice raised for a reverse-charge supply, and the tax the
+  /// firm owes itself on it -- outside the payable (backlog 68 row 8).
+  final String selfInvoiceNumber;
+  final String reverseChargeTaxTotal;
   final String currencyCode;
   final String exchangeRate;
   final String paymentTerms;
@@ -991,6 +1006,8 @@ class _PurchaseInvoiceRecord {
       vendorName: stringValue(json['vendor_name']),
       dueDate: stringValue(json['due_date']),
       createdAt: stringValue(json['created_at']),
+      selfInvoiceNumber: stringValue(json['self_invoice_number']),
+      reverseChargeTaxTotal: stringValue(json['reverse_charge_tax_total']),
       currencyCode: stringValue(json['currency_code']),
       exchangeRate: stringValue(json['exchange_rate']),
       paymentTerms: stringValue(json['payment_terms']),

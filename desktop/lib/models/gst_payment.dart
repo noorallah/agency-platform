@@ -11,6 +11,7 @@ class GstHeadRow {
     required this.cash,
     required this.creditUsed,
     required this.carriedForward,
+    this.reverseCharge = '0',
   });
 
   final String head;
@@ -22,6 +23,10 @@ class GstHeadRow {
   final String creditUsed;
   final String carriedForward;
 
+  /// Reverse charge on inward supplies (3.1(d)): paid in cash only, on top
+  /// of [cash], never by credit (backlog 68 row 8).
+  final String reverseCharge;
+
   factory GstHeadRow.fromJson(Json json) => GstHeadRow(
         head: stringValue(json['head']),
         liability: stringValue(json['liability']),
@@ -31,6 +36,9 @@ class GstHeadRow {
         cash: stringValue(json['cash']),
         creditUsed: stringValue(json['credit_used']),
         carriedForward: stringValue(json['carried_forward']),
+        reverseCharge: json['reverse_charge'] == null
+            ? '0'
+            : stringValue(json['reverse_charge']),
       );
 }
 

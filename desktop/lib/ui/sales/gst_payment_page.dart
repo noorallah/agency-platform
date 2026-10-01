@@ -350,6 +350,13 @@ class _GstPaymentPageState extends State<GstPaymentPage> {
                   DataColumn(label: Text('Credit available'), numeric: true),
                   DataColumn(label: Text('Paid by credit'), numeric: true),
                   DataColumn(label: Text('Cash'), numeric: true),
+                  DataColumn(
+                      label: Tooltip(
+                        message: 'Reverse charge on purchases (3B 3.1(d)): '
+                            'paid in cash only, never by credit',
+                        child: Text('Reverse charge (cash)'),
+                      ),
+                      numeric: true),
                   DataColumn(label: Text('Credit carried'), numeric: true),
                 ],
                 rows: [
@@ -361,6 +368,8 @@ class _GstPaymentPageState extends State<GstPaymentPage> {
                       DataCell(Text(row.creditAvailable)),
                       DataCell(Text(row.paidByCredit)),
                       DataCell(Text(row.cash)),
+                      DataCell(Text(row.reverseCharge,
+                          key: ValueKey('gst-pay-rcm-${row.head}'))),
                       DataCell(Text(row.carriedForward)),
                     ]),
                 ],
