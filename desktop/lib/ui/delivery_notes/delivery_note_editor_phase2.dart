@@ -250,6 +250,7 @@ extension _Phase2DeliveryNoteEditor on _DeliveryNoteEditorDialogState {
         width: 160,
         onChanged: (value) => _driver = value,
       ),
+      ..._transportFields(context),
       _box(
         context,
         label: 'Remarks',
@@ -258,6 +259,110 @@ extension _Phase2DeliveryNoteEditor on _DeliveryNoteEditorDialogState {
         onChanged: (value) => _remarks = value,
       ),
     ]);
+  }
+
+  /// How the goods travel (backlog 67 row 5): beside the vehicle and driver.
+  /// The e-way bill takes whatever is blank on it from these.
+  List<Widget> _transportFields(BuildContext context) {
+    final DateTime? lrDay = DateTime.tryParse(_lrDate);
+    return [
+      _box(
+        context,
+        label: 'Transporter',
+        value: _transporterName,
+        width: 170,
+        onChanged: (value) => _transporterName = value,
+      ),
+      DocumentField(
+        label: 'Transporter GSTIN',
+        width: 160,
+        child: TextFormField(
+          key: const ValueKey('delivery-note-transporter-gstin'),
+          initialValue: _transporterGstin,
+          readOnly: _saving,
+          textCapitalization: TextCapitalization.characters,
+          decoration: documentBoxDecoration(context),
+          onChanged: (next) => _setState(() => _transporterGstin = next),
+        ),
+      ),
+      DocumentField(
+        label: 'Moving by',
+        width: 110,
+        child: DropdownButtonFormField<String?>(
+          key: const ValueKey('delivery-note-transport-mode'),
+          initialValue: _transportMode,
+          isExpanded: true,
+          isDense: true,
+          decoration: documentBoxDecoration(context),
+          items: const [
+            DropdownMenuItem<String?>(value: null, child: Text('—')),
+            DropdownMenuItem<String?>(value: 'ROAD', child: Text('Road')),
+            DropdownMenuItem<String?>(value: 'RAIL', child: Text('Rail')),
+            DropdownMenuItem<String?>(value: 'AIR', child: Text('Air')),
+            DropdownMenuItem<String?>(value: 'SHIP', child: Text('Ship')),
+          ],
+          onChanged: _saving
+              ? null
+              : (value) => _setState(() => _transportMode = value),
+        ),
+      ),
+      _box(
+        context,
+        label: 'LR / docket no.',
+        value: _lrNumber,
+        width: 130,
+        onChanged: (value) => _lrNumber = value,
+      ),
+      DocumentField(
+        label: 'LR date',
+        width: 130,
+        child: InkWell(
+          key: const ValueKey('delivery-note-lr-date'),
+          onTap: _saving
+              ? null
+              : () async {
+                  final DateTime? picked = await showDatePicker(
+                    context: context,
+                    initialDate: lrDay ?? DateTime.now(),
+                    firstDate: DateTime(2000),
+                    lastDate: DateTime(2100),
+                  );
+                  if (picked == null) return;
+                  _setState(() =>
+                      _lrDate = picked.toIso8601String().split('T').first);
+                },
+          child: InputDecorator(
+            decoration: documentBoxDecoration(context).copyWith(
+              suffixIcon: _lrDate.isEmpty || _saving
+                  ? const Icon(Icons.event, size: 16)
+                  : IconButton(
+                      tooltip: 'Clear',
+                      iconSize: 14,
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => _setState(() => _lrDate = ''),
+                      icon: const Icon(Icons.close),
+                    ),
+              suffixIconConstraints:
+                  const BoxConstraints(minWidth: 28, minHeight: 20),
+            ),
+            child: Text(lrDay == null ? '—' : documentDate(lrDay)),
+          ),
+        ),
+      ),
+      DocumentField(
+        label: 'Distance (km)',
+        width: 100,
+        child: TextFormField(
+          key: const ValueKey('delivery-note-distance'),
+          initialValue: _distanceKm,
+          readOnly: _saving,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          decoration: documentBoxDecoration(context),
+          onChanged: (next) => _setState(() => _distanceKm = next),
+        ),
+      ),
+    ];
   }
 
   Widget _noteLines(BuildContext context) {

@@ -274,6 +274,28 @@ void main() {
     expect(api.sentBody!['vehicle_number'], 'MH12AB1234');
   });
 
+  testWidgets('a blank distance is left out and takes the delivery note\'s',
+      (tester) async {
+    // Backlog 67 row 5: the server fills what is blank from the notes billed.
+    final _EInvoiceApi api =
+        _EInvoiceApi(registrations: <Json>[_sandboxRegistration()]);
+    await _pump(tester, api);
+
+    await tester.tap(find.text('Raise e-way bill'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining("Blank takes the delivery note's"),
+        findsOneWidget);
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Vehicle number'), 'MH12AB1234');
+    await tester.tap(find.widgetWithText(FilledButton, 'Raise'));
+    await tester.pumpAndSettle();
+
+    expect(api.sentBody, isNotNull);
+    expect(api.sentBody!.containsKey('distance_km'), isFalse);
+    expect(api.sentBody!.containsKey('transporter_id'), isFalse);
+    expect(api.sentBody!.containsKey('transporter_name'), isFalse);
+  });
+
   testWidgets('a refused e-way bill keeps the dialog open with what was typed',
       (tester) async {
     // D-DLG-1: the dialog closed on Raise and the page made the call, so the

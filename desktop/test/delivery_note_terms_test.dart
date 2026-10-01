@@ -154,12 +154,102 @@ Future<void> _open(WidgetTester tester, _NoteApi api) async {
   await tester.pumpAndSettle();
 }
 
+/// Type into the box a header field label names.
+Future<void> _fill(WidgetTester tester, String label, String text) async {
+  final Finder box = find.descendant(
+    of: find.ancestor(
+      of: find.text(label),
+      matching: find.byType(Column),
+    ).first,
+    matching: find.byType(TextFormField),
+  );
+  await tester.enterText(box.first, text);
+}
+
 Future<void> _save(WidgetTester tester) async {
   await tester.tap(find.byKey(const ValueKey('delivery-note-save')));
   await tester.pumpAndSettle();
 }
 
 void main() {
+  group('transport (backlog 67 row 5)', () {
+    testWidgets('a note with nothing typed sends all six as null',
+        (tester) async {
+      final _NoteApi api = _NoteApi();
+      await _open(tester, api);
+      await _save(tester);
+      for (final String key in const <String>[
+        'transporter_name',
+        'transporter_gstin',
+        'transport_mode',
+        'lr_number',
+        'lr_date',
+        'distance_km',
+      ]) {
+        expect(api.sent!.containsKey(key), isTrue, reason: key);
+        expect(api.sent![key], isNull, reason: key);
+      }
+    });
+
+    testWidgets('what is typed is sent, the GSTIN upper-cased',
+        (tester) async {
+      final _NoteApi api = _NoteApi();
+      await _open(tester, api);
+      await _fill(tester, 'Transporter', 'Speedy Carriers');
+      await tester.enterText(
+          find.byKey(const ValueKey('delivery-note-transporter-gstin')),
+          '27aaapl1234c1zv');
+      await _fill(tester, 'LR / docket no.', 'LR-8841');
+      await tester.enterText(
+          find.byKey(const ValueKey('delivery-note-distance')), '320');
+      await tester.tap(find.byKey(const ValueKey('delivery-note-transport-mode')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Rail').last);
+      await tester.pumpAndSettle();
+      await _save(tester);
+      expect(api.sent!['transporter_name'], 'Speedy Carriers');
+      expect(api.sent!['transporter_gstin'], '27AAAPL1234C1ZV');
+      expect(api.sent!['transport_mode'], 'RAIL');
+      expect(api.sent!['lr_number'], 'LR-8841');
+      expect(api.sent!['lr_date'], isNull);
+      expect(api.sent!['distance_km'], 320);
+    });
+
+    testWidgets('the screen stays overflow-free at 1366 by 768',
+        (tester) async {
+      final _NoteApi api = _NoteApi();
+      await _open(tester, api);
+      tester.view.physicalSize = const Size(1366, 768);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const ValueKey('delivery-note-distance')),
+          findsOneWidget);
+    });
+
+    testWidgets('a malformed GSTIN is refused before it is sent',
+        (tester) async {
+      final _NoteApi api = _NoteApi();
+      await _open(tester, api);
+      await tester.enterText(
+          find.byKey(const ValueKey('delivery-note-transporter-gstin')),
+          '27AAAPL');
+      await _save(tester);
+      expect(api.sent, isNull);
+      expect(find.textContaining('not a valid 15-character GSTIN'),
+          findsOneWidget);
+    });
+
+    testWidgets('a distance past 4000 km is refused', (tester) async {
+      final _NoteApi api = _NoteApi();
+      await _open(tester, api);
+      await tester.enterText(
+          find.byKey(const ValueKey('delivery-note-distance')), '4001');
+      await _save(tester);
+      expect(api.sent, isNull);
+      expect(find.textContaining('0 to 4000'), findsOneWidget);
+    });
+  });
+
   group('ship to (backlog 67 row 3)', () {
     testWidgets('is preselected with the order\'s own address',
         (tester) async {

@@ -224,6 +224,18 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
   String _driver = '';
   String _remarks = '';
 
+  /// How the goods travel (backlog 67 row 5), phase 2.
+  String _transporterName = '';
+  String _transporterGstin = '';
+  String? _transportMode;
+  String _lrNumber = '';
+  String _lrDate = '';
+  String _distanceKm = '';
+
+  /// A GSTIN as the server reads it, after upper-casing.
+  static final RegExp _gstin =
+      RegExp(r'^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$');
+
   /// Where this note's goods go (backlog 67 row 3): the customer's addresses
   /// as read for the chosen order, preselected with the order's own.
   List<CustomerAddress> _addresses = const [];
@@ -367,6 +379,9 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
     return byProduct;
   }
 
+  String? _blankToNull(String value) =>
+      value.trim().isEmpty ? null : value.trim();
+
   bool _isSerialised(String productId) {
     for (final Product product in widget.products) {
       if (product.id == productId) return product.trackSerial;
@@ -443,6 +458,19 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
 
   String? _validation() {
     if (_order == null) return 'Choose the sales order being delivered.';
+    final String gstin = _transporterGstin.trim().toUpperCase();
+    if (Phase2Scope.of(context)) {
+      if (gstin.isNotEmpty && !_gstin.hasMatch(gstin)) {
+        return 'The transporter GSTIN is not a valid 15-character GSTIN.';
+      }
+      final String distance = _distanceKm.trim();
+      if (distance.isNotEmpty) {
+        final int? km = int.tryParse(distance);
+        if (km == null || km < 0 || km > 4000) {
+          return 'Distance is a whole number of kilometres, 0 to 4000.';
+        }
+      }
+    }
     final List<DeliveryDraftLine> sending = _sendableLines();
     if (sending.isEmpty) {
       return 'Enter a delivery quantity on at least one line. A line with '
@@ -486,6 +514,16 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
         // null is what lets the server inherit the order's.
         if (phase2 && _addresses.isNotEmpty)
           'shipping_address_id': _shippingAddressId,
+        // All six sent in phase 2, null when blank: absent would keep what
+        // an update finds, and a blank box means none.
+        if (phase2) ...<String, dynamic>{
+          'transporter_name': _blankToNull(_transporterName),
+          'transporter_gstin': _blankToNull(_transporterGstin)?.toUpperCase(),
+          'transport_mode': _transportMode,
+          'lr_number': _blankToNull(_lrNumber),
+          'lr_date': _lrDate.isEmpty ? null : _lrDate,
+          'distance_km': int.tryParse(_distanceKm.trim()),
+        },
         if (_vehicle.trim().isNotEmpty) 'vehicle': _vehicle.trim(),
         if (_driver.trim().isNotEmpty) 'driver': _driver.trim(),
         if (_remarks.trim().isNotEmpty) 'remarks': _remarks.trim(),
