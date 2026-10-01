@@ -155,9 +155,15 @@ reference.
   (`POST /vendors/opening-bills/import`): every unknown code is named with its
   row number before anything is written, then the batch is staged and
   committed once.
+- **From a file** (2026-10-01, D-GOLIVE-1): `GET .../opening-bills/import-template`
+  and `POST .../opening-bills/import-file` on both `/vendors` and `/customers`,
+  behind *Import opening bills* in the "..." of the phase 2 lists. One posting
+  date for the file, chosen on screen; every problem by row and column before
+  anything is written; then each bill goes through the service's own
+  `_stage`, so the journal, the balance and every refusal are the form's.
+  `app/common/opening_bill_import.py` is the one importer, a subclass per side.
 - **Not yet:** a purchase return's supplier credit cannot be set against an
-  opening bill (refused by name), and there is no file wizard on the desktop
-  (backlog 46).
+  opening bill (refused by name).
 
 ## A customer's opening balance is one figure or bills, never both
 
@@ -203,27 +209,49 @@ never go with them.
 - **Not a sale.** No row in `sales_invoices`, so GST returns, the sales
   register, e-invoicing, TCS turnover and collection commission never read it.
 
-## Tax deducted at source has accounts, and no posting yet
+## Tax deducted at source posts with the money
 
-Built 2026-09-30 (`docs/BACKLOG.md` 53.1, items 1 and 2): a firm records its
-TAN (Firms grid, beside PAN) and a customer's TAN (customer form); both are
-format-checked -- four letters, five digits, a letter -- and nothing posts
-from them yet. Every firm's chart has **TDS Payable** (`2700`, current
-liabilities, purpose `TDS_PAYABLE`) and **TDS Receivable** (`1400`, current
-assets, purpose `TDS_RECEIVABLE`); `20260930_0166` gave them to firms whose
-books were already open, only where missing. Each is its own account, not
-TCS's: TDS is a different return (26Q/24Q) on a different challan.
+Built in two steps (`docs/BACKLOG.md` 53.1). **2026-09-30:** a firm records its
+TAN (Firms grid, beside PAN) and a customer's TAN (customer form), both
+format-checked; every chart has **TDS Payable** (`2700`, purpose
+`TDS_PAYABLE`) and **TDS Receivable** (`1400`, purpose `TDS_RECEIVABLE`),
+backfilled by `20260930_0166`. Each is its own account, not TCS's: TDS is a
+different return (26Q/24Q) on a different challan.
 
-**Until *TDS deducted* is on payments and receipts (1.1), a firm records it by
-hand:**
+**2026-10-01 (items 3 and 4, migration `20261001_0175`):** a payment, a
+receipt and an expense each carry `tds_amount` and `tds_section`, as Tally's
+voucher does. **`amount` stays what settles the party** -- the bill's whole
+value -- so allocations, the customer's balance, statements and ageing are
+unchanged; only the journal splits the money leg:
 
-- **TDS it deducts from a supplier** (194Q, rent, fees, transport): record
-  the payment for the **net** amount paid, then a journal -- debit the
-  supplier, credit *TDS Payable* -- for the deduction, so the supplier is
-  settled in full. When the challan is paid: debit *TDS Payable*, credit Bank.
-- **TDS a customer deducted from what it paid**: record the receipt for the
-  net amount received, then a journal -- debit *TDS Receivable*, credit the
-  customer -- so the invoice is settled in full.
+- **Payment:** Dr Payables `amount`; Cr Bank `amount - tds`; Cr TDS Payable
+  `tds`.
+- **Receipt:** Dr Bank `amount - tds`; Dr TDS Receivable `tds`; Cr
+  Receivables `amount`.
+- **Expense:** Dr the expense `amount`; Cr the money account `amount - tds`;
+  Cr TDS Payable `tds`. An expense with a deduction names its payee, and
+  takes the payee's PAN (`payee_pan`, format-checked).
+- **A refund carries none**, and is refused if asked.
+- **Reversal mirrors every leg**, the deduction included, because
+  `reverse_entry` copies the journal.
+
+**The section is required and closed** (`app/finance/tds.py`: 194Q, 194C,
+194J, 194I, 194H, 194A, 194R, 194T, 192, 194O) -- the Act's list. **No rate is
+held anywhere**: rates and thresholds change every Finance Act, so the person
+recording states the amount deducted, as the challan and the return will.
+
+**The two registers** (`app/finance/services/tds_register.py`, read from the
+documents, storing nothing): *TDS deducted* (`/finance/reports/tds-deducted`)
+-- payments and expenses, by deductee, PAN and section, with the return
+quarter (April-June is Q1, whatever the firm's year) -- is what 26Q is filed
+from; *TDS deducted by customers* (`/finance/reports/tds-deducted-by-customers`)
+carries each customer's TAN, to tick TDS Receivable against Form 26AS. A
+missing PAN reads "PAN not given" (section 206AA's higher rate applies). A
+reversed or cancelled document stays listed with its status: a challan may
+already have been paid.
+
+**Paying the challan** is still a journal: Dr TDS Payable, Cr Bank. **Claiming
+TDS Receivable** against the firm's own tax is the CA's year-end entry.
 
 ## Input tax is claimed head by head
 

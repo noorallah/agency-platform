@@ -27,7 +27,8 @@ String _accessToken(Map<String, dynamic> claims) =>
 PermissionService _permissions() => PermissionService()
   ..applyAccessToken(_accessToken({
     'roles': <String>['user'],
-    'permissions': <String>['VENDOR_VIEW', 'VENDOR_CREATE', 'VENDOR_UPDATE'],
+    'permissions': <String>['VENDOR_VIEW', 'VENDOR_CREATE', 'VENDOR_UPDATE',
+      'VENDOR_IMPORT'],
   }));
 
 Json _vendorJson() => <String, dynamic>{
@@ -199,6 +200,18 @@ Future<void> _openVendor(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('the list offers the opening bills from a file (D-GOLIVE-1)',
+      (tester) async {
+    final _VendorApi api = _VendorApi();
+    await _pump(tester, api);
+    await tester.tap(find.byKey(const ValueKey('toolbar-more')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+        find.byKey(const ValueKey('toolbar-command-import-opening-bills-menu')));
+    await tester.pumpAndSettle();
+    expect(find.text("Import suppliers' opening bills"), findsOneWidget);
+  });
+
   testWidgets('the section is hidden while a vendor is still being created',
       (tester) async {
     final _VendorApi api = _VendorApi();

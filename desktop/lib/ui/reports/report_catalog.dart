@@ -679,6 +679,30 @@ const List<ReportDefinition> reportCatalog = [
     rowsKey: 'rows',
     openToReportView: false,
   ),
+  // Tally's Stock Summary (D-GOLIVE-3): what the stock is worth as on a day,
+  // at moving average cost, with the Inventory account beside the total so a
+  // gap between the stock and the books shows. Quarantined goods count: they
+  // are still owned.
+  ReportDefinition(
+    id: 'stock-valuation',
+    label: 'Stock valuation',
+    description: "Every item's quantity, average cost and value as on the "
+        'day, the grand total, and the Inventory account in the books.',
+    path: '/api/v1/inventory/reports/stock-valuation',
+    permission: 'INVENTORY_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    asOnDate: true,
+    columns: [
+      ReportColumn(key: 'product_code', label: 'Code'),
+      ReportColumn(key: 'product_name', label: 'Item'),
+      ReportColumn(key: 'category', label: 'Category'),
+      ReportColumn(key: 'unit', label: 'Unit'),
+      ReportColumn(key: 'quantity', label: 'Quantity', numeric: true),
+      ReportColumn(key: 'rate', label: 'Rate', numeric: true),
+      ReportColumn(key: 'value', label: 'Value', numeric: true),
+    ],
+  ),
   // A collection is never rewritten, so a reversed or back-dated receipt
   // leaves a buyer over- or under-collected until they pay again; this is
   // where that shows (D-CMP-21). The year today falls in: a snapshot.
@@ -699,6 +723,56 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'tcs_charged', label: 'TCS charged', numeric: true),
       ReportColumn(key: 'difference', label: 'Difference', numeric: true),
       ReportColumn(key: 'position', label: 'Position'),
+    ],
+  ),
+  // What the quarterly TDS return (26Q) is filed from (53.1): every
+  // deduction the firm made on payments and expenses, by deductee and PAN.
+  ReportDefinition(
+    id: 'tds-deducted',
+    label: 'TDS deducted',
+    description: 'Every tax deducted at source on payments and expenses in '
+        'the dates: deductee, PAN, section and return quarter.',
+    path: '/api/v1/finance/reports/tds-deducted',
+    permission: 'ACCOUNT_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    columns: [
+      ReportColumn(key: 'date', label: 'Date'),
+      ReportColumn(key: 'quarter', label: 'Quarter'),
+      ReportColumn(key: 'document_type', label: 'Document'),
+      ReportColumn(key: 'document_number', label: 'Number'),
+      ReportColumn(key: 'party_name', label: 'Deductee'),
+      ReportColumn(key: 'pan', label: 'PAN'),
+      ReportColumn(key: 'section', label: 'Section'),
+      ReportColumn(key: 'gross_amount', label: 'Amount', numeric: true),
+      ReportColumn(key: 'tds_amount', label: 'TDS', numeric: true),
+      ReportColumn(key: 'net_amount', label: 'Paid', numeric: true),
+      ReportColumn(key: 'status', label: 'Status'),
+    ],
+  ),
+  // What customers deducted from what they paid, by their TAN, to tick the
+  // firm's TDS Receivable against Form 26AS (53.1).
+  ReportDefinition(
+    id: 'tds-deducted-by-customers',
+    label: 'TDS deducted by customers',
+    description: 'Tax customers deducted at source from their payments in '
+        'the dates, with their TAN, to match against Form 26AS.',
+    path: '/api/v1/finance/reports/tds-deducted-by-customers',
+    permission: 'ACCOUNT_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    columns: [
+      ReportColumn(key: 'date', label: 'Date'),
+      ReportColumn(key: 'quarter', label: 'Quarter'),
+      ReportColumn(key: 'document_number', label: 'Receipt'),
+      ReportColumn(key: 'party_name', label: 'Customer'),
+      ReportColumn(key: 'tan', label: 'TAN'),
+      ReportColumn(key: 'pan', label: 'PAN'),
+      ReportColumn(key: 'section', label: 'Section'),
+      ReportColumn(key: 'gross_amount', label: 'Amount', numeric: true),
+      ReportColumn(key: 'tds_amount', label: 'TDS', numeric: true),
+      ReportColumn(key: 'net_amount', label: 'Received', numeric: true),
+      ReportColumn(key: 'status', label: 'Status'),
     ],
   ),
 ];

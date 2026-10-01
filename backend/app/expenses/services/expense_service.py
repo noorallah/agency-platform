@@ -276,6 +276,7 @@ class ExpenseService(TransactionalDocumentService):
         amount = quantize_ledger(data.amount)
         if amount <= Decimal("0"):
             raise ValidationError("An expense must be for more than zero.")
+        tds_amount = quantize_ledger(data.tds_amount or Decimal("0"))
         _, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
@@ -317,6 +318,7 @@ class ExpenseService(TransactionalDocumentService):
             paid_from_account_id=paid_from.id,
             description=description[:500],
             actor_id=actor_id,
+            tds_amount=tds_amount,
         )
         row = Expense(
             id=expense_id,
@@ -326,6 +328,9 @@ class ExpenseService(TransactionalDocumentService):
             expense_account_id=expense_account.id,
             paid_from_account_id=paid_from.id,
             amount=amount,
+            tds_amount=tds_amount,
+            tds_section=data.tds_section if tds_amount > 0 else None,
+            payee_pan=data.payee_pan,
             payee=payee,
             reference=reference,
             narration=narration,
@@ -347,6 +352,7 @@ class ExpenseService(TransactionalDocumentService):
                 "expense_number": number,
                 "expense_date": data.expense_date.isoformat(),
                 "amount": str(amount),
+                "tds_amount": str(tds_amount),
                 "expense_account": expense_account.code,
                 "paid_from_account": paid_from.code,
                 "journal_entry_id": str(entry.id),

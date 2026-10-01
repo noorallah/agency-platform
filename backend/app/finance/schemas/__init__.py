@@ -816,6 +816,28 @@ class ProfitLossRangeReport(FinanceSchema):
     comparison_income: Decimal | None = None
     comparison_expense: Decimal | None = None
     comparison_net_profit: Decimal | None = None
+class TdsRegisterRecord(BaseModel):
+    """One deduction in a TDS register (backlog 53.1 item 4)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    date: date
+    #: The return quarter, April to June first: ``Q1 2026-27``.
+    quarter: str
+    document_type: str
+    document_number: str
+    party_code: str | None
+    party_name: str
+    #: "PAN not given" where none was recorded: deducted at the higher rate.
+    pan: str
+    #: The deductor's TAN, on the register of what customers deducted.
+    tan: str | None
+    section: str
+    section_name: str
+    gross_amount: Decimal
+    tds_amount: Decimal
+    net_amount: Decimal
+    status: str
 
 
 __all__ = [
@@ -823,6 +845,7 @@ __all__ = [
     "ProfitLossRangeLine",
     "ProfitLossRangeMonth",
     "ProfitLossRangeReport",
+    "TdsRegisterRecord",
     "AccountGroupResponse",
     "AccountGroupUpdate",
     "AccountSummary",

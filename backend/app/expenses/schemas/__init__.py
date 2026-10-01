@@ -4,7 +4,10 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.core.validation import normalize_pan
+from app.finance.tds import check_tds
 
 
 class ExpenseSchema(BaseModel):
@@ -23,6 +26,32 @@ class ExpenseCreate(ExpenseSchema):
     payee: str | None = Field(default=None, max_length=200)
     reference: str | None = Field(default=None, max_length=120)
     narration: str | None = Field(default=None, max_length=2000)
+    #: Tax deducted at source out of ``amount`` (backlog 53.1): rent, fees and
+    #: transport commonly carry it. The expense is the whole ``amount``; the
+    #: money paid out is the rest. Blank or 0 means nothing was deducted.
+    tds_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=2
+    )
+    tds_section: str | None = Field(default=None, max_length=10)
+    #: The payee's PAN, which the TDS return names the deductee by.
+    payee_pan: str | None = Field(default=None, max_length=10)
+
+    @field_validator("payee_pan")
+    @classmethod
+    def _pan(cls, value: str | None) -> str | None:
+        return normalize_pan(value)
+
+    @model_validator(mode="after")
+    def _tds_can_be_filed(self) -> "ExpenseCreate":
+        """Refuse a deduction that the quarterly return could not carry."""
+        if self.tds_section is not None:
+            self.tds_section = self.tds_section.strip().upper() or None
+        check_tds(self.amount, self.tds_amount, self.tds_section)
+        if (self.tds_amount or 0) > 0 and not (self.payee and self.payee.strip()):
+            raise ValueError(
+                "Name the payee: the TDS return lists every deduction by deductee."
+            )
+        return self
 
 
 class ExpenseCancelRequest(ExpenseSchema):
@@ -44,6 +73,11 @@ class ExpenseResponse(ExpenseSchema):
     paid_from_account_code: str
     paid_from_account_name: str
     amount: Decimal
+    tds_amount: Decimal = Decimal("0")
+    tds_section: str | None = None
+    payee_pan: str | None = None
+    #: What left the cash or bank account: ``amount - tds_amount``.
+    paid_amount: Decimal | None = None
     payee: str | None
     reference: str | None
     narration: str | None
