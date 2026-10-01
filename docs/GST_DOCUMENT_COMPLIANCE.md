@@ -269,8 +269,8 @@ other apps". Checked against the code on that date; to confirm with the CA.
 | --- | --- | --- | --- | --- |
 | Reverse charge with self-invoice | **Built** (§68 row 8) | Yes | Yes | Yes |
 | Debit note, supplier's credit note | **Built** | Yes | Yes | Yes |
-| Credit per bill line: eligible / blocked 17(5) / ineligible other | **No.** A tax rule's *Input credit blocked* is computed and then read by nothing: the bill still claims the credit (D-TAX-1) | Yes, per bill line ("Eligible for ITC") | Yes, an ineligibility reason on the bill | Yes, by ledger and voucher |
-| Supplier GST treatment (regular / composition / unregistered / overseas / SEZ) | **No.** A supplier is registered yes or no | Yes | Yes | Yes (registration type) |
+| Credit per bill line: eligible / blocked 17(5) / ineligible other | **Built 2026-10-02** (#905; was D-TAX-1) | Yes, per bill line ("Eligible for ITC") | Yes, an ineligibility reason on the bill | Yes, by ledger and voucher |
+| Supplier GST treatment (regular / composition / unregistered / overseas / SEZ) | **Built 2026-10-02** (§78 row 2, A37) | Yes | Yes | Yes (registration type) |
 | GSTR-2B matching | **No** (§42.5) | Yes | Yes (purchase reconciliation) | Yes |
 | 180-day reversal | **No** | Not verified | Not verified | Not verified |
 | Supplier IRN on the bill | **No** | Not verified | Not verified | Not verified |
