@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.business.schemas import AttributeValueResponse
+from app.common.balance_confirmation import BalanceConfirmationService, PartySide
 from app.common.file_import import (
     ImportReportResponse,
     file_format_of,
@@ -46,9 +47,11 @@ from app.vendors.schemas.opening_bill import (
     VendorOpeningBillResponse,
     VendorOpeningBillWrite,
 )
+from app.vendors.schemas.statement import SupplierStatement
 from app.vendors.services import VendorService
 from app.vendors.services.opening_bill_import import VendorOpeningBillFileImporter
 from app.vendors.services.opening_bill_service import VendorOpeningBillService
+from app.vendors.services.statement_service import SupplierStatementService
 from app.vendors.services.vendor_import import VendorFileImporter
 from app.vendors.services.vendor_import import template_csv as vendor_template_csv
 from app.vendors.services.vendor_import import (
@@ -560,6 +563,29 @@ async def import_vendor_file(
 # answer 422 -- which is exactly what it did until 2026-08-22, making both
 # lists unreachable from the day they were written. Same trap as
 # `sales_territories`, whose /{territory_id} hid four literal paths.
+# Declared above `/{vendor_id}`: FastAPI matches in declaration order.
+@router.get("/balance-confirmations", response_class=StreamingResponse)
+def vendor_balance_confirmations(
+    scope: VendorViewScope,
+    as_of: date | None = None,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Draw a balance confirmation letter for every supplier with a balance.
+
+    One PDF per supplier, zipped, because each goes to its own address.
+    `as_of` defaults to today in UTC.
+    """
+    day = as_of or utc_now().date()
+    archive, filename, _ = BalanceConfirmationService(db).letters_for_everyone(
+        PartySide.SUPPLIER, firm_id=scope.firm_id, as_of=day
+    )
+    return StreamingResponse(
+        iter([archive]),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/categories", response_model=PaginatedResponse[VendorCategoryResponse])
 def list_vendor_categories(
     scope: VendorViewScope,
@@ -803,6 +829,56 @@ def delete_vendor(
         vendor_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{vendor_id}/statement", response_model=ApiResponse[SupplierStatement])
+def vendor_statement(
+    vendor_id: UUID,
+    scope: VendorViewScope,
+    from_date: Annotated[date, Query()],
+    to_date: Annotated[date, Query()],
+    db: Session = Depends(get_db),
+) -> ApiResponse[SupplierStatement]:
+    """Return one supplier's account movement over a period (backlog 74 row 4).
+
+    Read off the payables ledger and traced to the supplier through the
+    document that posted each line, so the closing balance is the ledger's.
+    The opening balance is summed from everything dated before the period and
+    the running balance is recomputed in date order.
+    """
+    return ApiResponse(
+        data=SupplierStatementService(db).statement(
+            vendor_id,
+            firm_scope=scope.firm_id,
+            from_date=from_date,
+            to_date=to_date,
+        )
+    )
+
+
+@router.get("/{vendor_id}/balance-confirmation", response_class=StreamingResponse)
+def vendor_balance_confirmation(
+    vendor_id: UUID,
+    scope: VendorViewScope,
+    as_of: date | None = None,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Draw one supplier's balance confirmation letter as of a day.
+
+    The balance is the supplier statement's closing balance for that day.
+    `as_of` defaults to today in UTC.
+    """
+    pdf, filename = BalanceConfirmationService(db).letter(
+        PartySide.SUPPLIER,
+        vendor_id,
+        firm_id=scope.firm_id,
+        as_of=as_of or utc_now().date(),
+    )
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @router.post("/{vendor_id}/restore", response_model=ApiResponse[VendorResponse])

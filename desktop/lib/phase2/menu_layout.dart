@@ -207,6 +207,8 @@ abstract final class MenuLayout {
       ]),
       MenuGroupSpec('Money', [
         MenuItemSpec(AppModule.accounting, 'payments', 'Payments'),
+        MenuItemSpec(
+            AppModule.masters, 'supplier-statements', 'Supplier Statements'),
       ]),
       MenuGroupSpec('Insight', [
         MenuItemSpec(

@@ -404,6 +404,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['CUSTOMER_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'supplier-statements',
+          label: 'Supplier Statements',
+          requiredPermissions: ['VENDOR_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'loyalty',
           label: 'Loyalty',
           requiredPermissions: ['LOYALTY_VIEW'],
@@ -1472,6 +1477,12 @@ abstract final class ModuleCatalog {
         const WorkspaceNavigationNode(
           label: 'Statements',
           path: 'customer-statements',
+          icon: Icons.receipt_long_outlined,
+        ),
+      if (visibleTabIds.contains('supplier-statements'))
+        const WorkspaceNavigationNode(
+          label: 'Supplier Statements',
+          path: 'supplier-statements',
           icon: Icons.receipt_long_outlined,
         ),
       if (visibleTabIds.contains('loyalty'))

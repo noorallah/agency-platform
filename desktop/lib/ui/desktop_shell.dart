@@ -33,6 +33,7 @@ import '../models/vendor.dart';
 import 'customers/customer_management_page.dart';
 import 'customers/credit_settings_dialog.dart';
 import 'customers/customer_statement_page.dart';
+import 'vendors/supplier_statement_page.dart';
 import 'customers/loyalty_settings_dialog.dart';
 import 'customers/loyalty_page.dart';
 import 'inventory/inventory_management_page.dart';
@@ -2474,6 +2475,11 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
         ),
+      'supplier-statements' => SupplierStatementPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: hasActiveFirm,
+        ),
       'loyalty' => LoyaltyPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -2574,6 +2580,7 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
       title: switch (tabId) {
         'customers' => 'Customer Management',
         'customer-statements' => 'Customer Statements',
+        'supplier-statements' => 'Supplier Statements',
         'loyalty' => 'Loyalty',
         'products' => 'Product Management',
         'product-categories' => 'Product Categories',
@@ -2597,6 +2604,8 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           'Manage firm-scoped customer masters, addresses, and contacts.',
         'customer-statements' =>
           'What each account did over a period, and what of it is overdue.',
+        'supplier-statements' =>
+          'What the firm owes each supplier, and what moved it, over a period.',
         'loyalty' =>
           'Credit a customer earns on what they buy, and spends on what they '
               'buy next. Spending it settles a bill; it does not discount one.',

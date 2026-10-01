@@ -5102,6 +5102,56 @@ class ApiClient {
         : const <Json>[];
   }
 
+  // ---- supplier statement and balance confirmations ------------------
+
+  /// One supplier's account movement over a period. A positive balance is
+  /// what the firm owes them; a negative one is an advance with them.
+  Future<Json> supplierStatement(
+    String vendorId, {
+    required String fromDate,
+    required String toDate,
+  }) async =>
+      _unwrapMap(await request(
+        'GET',
+        '/api/v1/vendors/$vendorId/statement',
+        query: {'from_date': fromDate, 'to_date': toDate},
+      ));
+
+  /// The letter asking one customer to confirm their balance, as a PDF.
+  Future<List<int>> customerBalanceConfirmation(
+    String customerId, {
+    required String asOf,
+  }) =>
+      downloadBytes(
+        '/api/v1/customers/$customerId/balance-confirmation',
+        query: {'as_of': asOf},
+      );
+
+  /// The letter asking one supplier to confirm their balance, as a PDF.
+  Future<List<int>> supplierBalanceConfirmation(
+    String vendorId, {
+    required String asOf,
+  }) =>
+      downloadBytes(
+        '/api/v1/vendors/$vendorId/balance-confirmation',
+        query: {'as_of': asOf},
+      );
+
+  /// One letter per customer with a balance, zipped. The server refuses with
+  /// a message when nobody has one.
+  Future<List<int>> customerBalanceConfirmations({required String asOf}) =>
+      downloadBytes(
+        '/api/v1/customers/balance-confirmations',
+        query: {'as_of': asOf},
+      );
+
+  /// One letter per supplier with a balance, zipped.
+  Future<List<int>> supplierBalanceConfirmations({required String asOf}) =>
+      downloadBytes(
+        '/api/v1/vendors/balance-confirmations',
+        query: {'as_of': asOf},
+      );
+
   // ---- sales analysis -------------------------------------------------
 
   /// Billed sales pivoted by one or two dimensions, net of returns by default.

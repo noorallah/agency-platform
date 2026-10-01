@@ -7,6 +7,7 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/customers/customer_statement_page.dart';
+import 'package:agency_desktop/ui/workspace/balance_confirmation.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -39,6 +40,18 @@ class _StatementApi extends ApiClient {
   final Json? statement;
   final String? failStatementWith;
   final List<String> requested = <String>[];
+  final List<Map<String, String>> downloads = <Map<String, String>>[];
+
+  @override
+  Future<List<int>> downloadBytes(
+    String path, {
+    Map<String, String>? query,
+    bool retrying = false,
+  }) async {
+    requested.add(path);
+    downloads.add(query ?? const <String, String>{});
+    return <int>[1, 2, 3];
+  }
 
   @override
   Future<Json> request(
@@ -105,6 +118,7 @@ Future<void> _pump(
   _StatementApi api, {
   PermissionService? permissions,
   bool phase2 = false,
+  BalanceConfirmationActions letters = const BalanceConfirmationActions(),
 }) async {
   tester.view.physicalSize = const Size(1366, 768);
   tester.view.devicePixelRatio = 1;
@@ -116,6 +130,7 @@ Future<void> _pump(
         api: api,
         permissions: permissions ?? _permissions(),
         hasActiveFirm: true,
+        letters: letters,
       ),
     ),
   ));
@@ -225,5 +240,48 @@ void main() {
     expect(find.text('SI-1'), findsOneWidget);
     expect(find.textContaining('closed at'), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('phase 2: a letter for the picked customer, and one for everyone',
+      (tester) async {
+    final List<String> shown = <String>[];
+    final List<String> saved = <String>[];
+    final _StatementApi api =
+        _StatementApi(ageing: <Json>[_ageingRow()], statement: _statement());
+    await _pump(
+      tester,
+      api,
+      phase2: true,
+      letters: BalanceConfirmationActions(
+        openPdfOverride: (name, bytes) async => shown.add(name),
+        saveBytesOverride: (name, bytes) async => saved.add(name),
+      ),
+    );
+    final Finder row = find.text('Kumar Stores').first;
+    await tester.tap(row);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('toolbar-more')));
+    await tester.pumpAndSettle();
+    await tester.tap(find
+        .byKey(const ValueKey('toolbar-command-balance-confirmation-menu')));
+    await tester.pumpAndSettle();
+
+    expect(
+      api.requested,
+      contains('/api/v1/customers/cust-1/balance-confirmation'),
+    );
+    expect(api.downloads.last.keys, ['as_of']);
+    expect(shown, hasLength(1));
+
+    await tester.tap(find.byKey(const ValueKey('toolbar-more')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+        find.byKey(const ValueKey('toolbar-command-letters-everyone-menu')));
+    await tester.pumpAndSettle();
+
+    expect(api.requested, contains('/api/v1/customers/balance-confirmations'));
+    expect(saved.single, endsWith('.zip'));
   });
 }

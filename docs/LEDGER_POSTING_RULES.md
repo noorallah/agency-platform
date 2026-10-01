@@ -360,8 +360,8 @@ counts approved adjustments only and honours `as_of` the way receipts do: one
 dated on or before the day, and approved, or cancelled only after it. A bill
 named by a live adjustment cannot be cancelled. The customer statement reads
 the `WRITE_OFF` and `SET_OFF` receivable rows, so it reconciles with the
-ledger; nothing keeps a running vendor balance, so the supplier side is the
-bills alone.
+ledger; the supplier statement reads the payables ledger, which the
+adjustment's journal reaches (see below).
 
 **Caps.** A write-off or set-off cannot exceed what the customer owes on
 account (`customers.current_outstanding` -- more would turn given-up debt into
@@ -440,6 +440,55 @@ so no new permission and no grant migration. The register
 (`/reports/register`) reads with `JOURNAL_VIEW` or `REPORT_VIEW`; each voucher
 prints on the firm's letterhead (`/{id}/print`,
 `app/document_framework/services/letter_pdf.py`).
+
+## A supplier's statement is read off the payables ledger
+
+Backlog 74 row 4. `GET /api/v1/vendors/{vendor_id}/statement?from_date&to_date`
+(`app/vendors/services/statement_service.py`, `VENDOR_VIEW`, as the customer
+statement is `CUSTOMER_VIEW`). A customer has a sub-ledger,
+`customer_receivable_transactions`, and the customer statement reads it. A
+supplier has none -- what the firm owes is the bills still owing -- so the
+supplier statement reads **the payables lines of the general ledger** and
+traces each to its supplier through the document that posted it:
+`purchase_invoice` (bill, Cr), `vendor_opening_bills` (opening bill, Cr),
+`settlements` (payment, Dr), `purchase_return`, `debit_note` and
+`party_adjustments` (write-back or set-off), each Dr. A cancelled document's
+mirror carries the same source, so it appears on the day it was undone as a
+`*_REVERSAL` line. Hand journals are refused on payables (D-FIN-11), so nothing
+else moves the account.
+
+Two properties follow by construction, and `tests/unit/test_supplier_statement.py`
+holds it to both: **the closing balance is the payables ledger's balance for
+that supplier** (and agrees with what Record Payment shows the open bills
+owing, less any advance), and **the running balance is recomputed in date
+order** -- opening summed from every line dated before the period, then the
+lines by journal date -- never read off a stored snapshot, for the reason the
+customer statement's is. Positive is what the firm owes; negative is an
+advance or a credit the supplier owes back. It reads the account currently
+nominated for `ACCOUNTS_PAYABLE`; a firm that re-points the purpose after
+posting will see only what posted to the new account.
+
+## A balance confirmation letter states the statement's own balance
+
+Backlog 74 row 4. `GET /api/v1/customers/{id}/balance-confirmation?as_of` and
+`GET /api/v1/vendors/{id}/balance-confirmation?as_of` draw one party's letter
+as a PDF on the firm's letterhead (`app/common/balance_confirmation.py`,
+`letter_pdf.py`, the firm block from `print_support.firm_party` and the accent
+from the firm's invoice template). `GET /api/v1/customers/balance-confirmations`
+and `/api/v1/vendors/balance-confirmations` zip one letter per party with a
+balance that day -- one file each, because each goes to its own address -- and
+refuse, by name, a day on which nobody had one. `as_of` defaults to today in
+UTC.
+
+**The balance is the statement's arithmetic for the same day**, so the letter
+and the statement cannot disagree: a customer's is their receivable movements
+dated on or before the day, outstanding less what is held on account
+(`outstanding_delta - advance_delta`); a supplier's is the payables ledger's
+lines for them, as above. The letter says in words who owes whom -- "due from
+you to us" or "due from us to you", in rupees and in Indian words -- rather
+than printing a sign, asks the party to sign and return it or send their
+statement, and says that silence for 15 days is taken as confirmation (the
+usual audit wording, decided by convention).
 
 ## PAN, TAN and GSTIN are checked when they are set
 

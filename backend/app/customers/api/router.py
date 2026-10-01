@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.business.schemas import AttributeValueResponse
+from app.common.balance_confirmation import BalanceConfirmationService, PartySide
 from app.common.file_import import (
     ImportReportResponse,
     file_format_of,
@@ -564,6 +565,29 @@ def customer_ageing(
     )
 
 
+# Declared above `/{customer_id}`, for the reason `/ageing` is.
+@router.get("/balance-confirmations", response_class=StreamingResponse)
+def customer_balance_confirmations(
+    scope: CustomerViewScope,
+    as_of: date | None = None,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Draw a balance confirmation letter for every customer with a balance.
+
+    One PDF per customer, zipped, because each goes to its own address.
+    `as_of` defaults to today in UTC.
+    """
+    day = as_of or utc_now().date()
+    archive, filename, _ = BalanceConfirmationService(db).letters_for_everyone(
+        PartySide.CUSTOMER, firm_id=scope.firm_id, as_of=day
+    )
+    return StreamingResponse(
+        iter([archive]),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/groups", response_model=PaginatedResponse[CustomerGroupResponse])
 def list_customer_groups(
     scope: CustomerViewScope,
@@ -844,6 +868,33 @@ def customer_statement(
             from_date=from_date,
             to_date=to_date,
         )
+    )
+
+
+@router.get("/{customer_id}/balance-confirmation", response_class=StreamingResponse)
+def customer_balance_confirmation(
+    customer_id: UUID,
+    scope: CustomerViewScope,
+    as_of: date | None = None,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Draw one customer's balance confirmation letter as of a day.
+
+    The balance is the statement's own arithmetic -- receivable movements
+    dated on or before the day, less what is held on account -- so the letter
+    and the statement printed for the same day agree. `as_of` defaults to
+    today in UTC.
+    """
+    pdf, filename = BalanceConfirmationService(db).letter(
+        PartySide.CUSTOMER,
+        customer_id,
+        firm_id=scope.firm_id,
+        as_of=as_of or utc_now().date(),
+    )
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
 
 
