@@ -1461,6 +1461,45 @@ class ApiClient {
         ),
       );
 
+  /// The largest order each role may approve (backlog 68 row 4). Readable by
+  /// any purchase viewer.
+  Future<List<RolePurchaseApprovalLimit>> purchaseApprovalLimits() async =>
+      _approvalLimitsFrom(
+        _unwrapMap(
+          await request('GET', '/api/v1/purchases/approval-limits'),
+        ),
+      );
+
+  /// Replaces the whole list: a role left out has no limit. Needs
+  /// `PURCHASE_MANAGE_SETTINGS`.
+  Future<List<RolePurchaseApprovalLimit>> updatePurchaseApprovalLimits(
+    List<RolePurchaseApprovalLimit> limits,
+  ) async =>
+      _approvalLimitsFrom(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/purchases/approval-limits',
+            body: <String, dynamic>{
+              'limits': [for (final limit in limits) limit.toJson()],
+            },
+          ),
+        ),
+      );
+
+  static List<RolePurchaseApprovalLimit> _approvalLimitsFrom(Json data) {
+    final Object? raw = data['limits'];
+    return raw is List
+        ? [
+            for (final item in raw)
+              if (item is Map)
+                RolePurchaseApprovalLimit.fromJson(
+                  Map<String, dynamic>.from(item),
+                ),
+          ]
+        : const <RolePurchaseApprovalLimit>[];
+  }
+
   /// The segments this firm sells to.
   ///
   /// Readable with `CUSTOMER_VIEW` -- a segment decides a price, so anyone

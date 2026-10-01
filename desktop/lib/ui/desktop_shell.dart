@@ -57,6 +57,7 @@ import 'sales/sales_workflow_settings_dialog.dart';
 import 'commission/commission_page.dart';
 import 'commission/sales_target_page.dart';
 import 'purchases/debit_note_page.dart';
+import 'purchases/purchase_approval_limits_dialog.dart';
 import 'sales/credit_note_page.dart';
 import 'sales/einvoice_page.dart';
 import 'sales/gst_payment_page.dart';
@@ -423,6 +424,14 @@ class _DesktopShellState extends State<DesktopShell> {
         await showDialog<bool>(
           context: context,
           builder: (_) => DiscountLimitsDialog(
+            api: api,
+            permissions: widget.permissions,
+          ),
+        );
+      case MenuLayout.approvalLimitsRoute:
+        await showDialog<bool>(
+          context: context,
+          builder: (_) => PurchaseApprovalLimitsDialog(
             api: api,
             permissions: widget.permissions,
           ),
