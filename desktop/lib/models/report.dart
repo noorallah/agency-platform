@@ -37,6 +37,7 @@ class ReportDefinition {
     required this.permission,
     this.columns = const [],
     this.needsPeriod = false,
+    this.asOnDate = false,
     this.rowsKey,
     this.openToReportView = true,
   });
@@ -66,6 +67,11 @@ class ReportDefinition {
   /// what is pending, overdue or owed as of now -- takes neither, because a
   /// window would hide the old item it exists to show.
   final bool needsPeriod;
+
+  /// A dated report answered as on one day rather than over a period -- a
+  /// stock valuation, a balance. The workspace then offers one "As on" box
+  /// (its To date) instead of From and To; the route ignores `from_date`.
+  final bool asOnDate;
 
   /// Where the rows are when the endpoint answers with one object rather than
   /// a list -- the commission report carries its totals beside `rows`.
