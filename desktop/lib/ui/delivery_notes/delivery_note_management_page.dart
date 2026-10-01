@@ -12,14 +12,18 @@ import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/batch_serial.dart';
 import '../../models/branch_warehouse.dart';
+import '../../models/bulk_action.dart';
 import '../../models/document_framework.dart';
 import '../../models/entities.dart';
 import '../../models/product.dart';
+import '../../phase2/indian_format.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../document_framework/document_status_gate.dart';
 import '../document_framework/document_view_dialog.dart';
 import '../trade_licences/licence_check_dialog.dart';
+import '../workspace/bulk_action.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/reason_prompt.dart';
 import '../workspace/printed_document.dart';
 import '../workspace/print_settings_dialog.dart';
 import 'delivery_note_editor_dialog.dart';
@@ -113,6 +117,9 @@ class _DeliveryNoteManagementPageState
   Json _summary = const {};
   List<_DeliveryNoteRecord> _notes = const [];
   _DeliveryNoteRecord? _selected;
+
+  /// The rows ticked for a bulk approve or cancel (backlog 56 A).
+  Set<String> _ticked = <String>{};
   // Reference data the editor needs, loaded once with the workspace.
   List<Json> _deliverableOrders = const [];
   List<WarehouseRecord> _warehouses = const [];
@@ -339,6 +346,8 @@ class _DeliveryNoteManagementPageState
         _notes = notes;
         _total = pagedTotal(page, fallback: notes.length);
         _selected = selected;
+        _ticked =
+            _ticked.where((id) => notes.any((row) => row.id == id)).toSet();
       });
     } catch (error) {
       if (!mounted) return;
@@ -445,12 +454,96 @@ class _DeliveryNoteManagementPageState
         ),
       );
 
+  /// More than one row ticked: the bar names the batch and offers the two
+  /// bulk actions instead of the one row's.
+  bool get _bulkMode => _ticked.length > 1;
+
+  List<_DeliveryNoteRecord> get _tickedRows =>
+      _notes.where((row) => _ticked.contains(row.id)).toList();
+
+  List<BulkRow> _bulkRows() => [
+        for (final _DeliveryNoteRecord row in _tickedRows)
+          (id: row.id, version: null),
+      ];
+
+  SelectionSummary _bulkSummary() {
+    double total = 0;
+    for (final _DeliveryNoteRecord row in _tickedRows) {
+      total += double.tryParse(row.grandTotal) ?? 0;
+    }
+    return SelectionSummary(
+      title: '${_ticked.length} selected',
+      detail: indianAmount(total, full: true),
+      onClear: () => setState(() => _ticked = <String>{}),
+    );
+  }
+
+  /// The two bulk actions, each behind the permission the single one takes.
+  List<ToolbarCommand> _bulkCommands() => [
+        ToolbarCommand(
+          id: 'bulk-approve',
+          label: 'Approve selected',
+          icon: Icons.check_circle_outline,
+          onPressed: _loading || !_mayApprove()
+              ? null
+              : () => unawaited(_bulkApprove()),
+        ),
+        ToolbarCommand(
+          id: 'cancel',
+          label: 'Cancel selected',
+          icon: Icons.cancel_outlined,
+          onPressed:
+              _loading || !widget.permissions.hasPermission('SALES_CANCEL')
+                  ? null
+                  : () => unawaited(_bulkCancel()),
+        ),
+      ];
+
+  Future<void> _bulkApprove() async {
+    final List<BulkRow> rows = _bulkRows();
+    await runBulkAction(
+      context,
+      verb: 'Approved',
+      rows: rows,
+      send: widget.api.bulkApproveDeliveryNotes,
+    );
+    await _afterBulk();
+  }
+
+  Future<void> _bulkCancel() async {
+    final List<BulkRow> rows = _bulkRows();
+    final String? reason = await askForReason(
+      context,
+      title: 'Cancel ${rows.length} delivery notes',
+      explanation: 'Each note is cancelled on its own and any stock it had '
+          'taken is put back; one the server refuses does not stop the '
+          'others. The reason is recorded on every note cancelled.',
+      confirmLabel: 'Cancel notes',
+    );
+    if (reason == null || !mounted) return;
+    await runBulkAction(
+      context,
+      verb: 'Cancelled',
+      rows: rows,
+      send: (rows) => widget.api.bulkCancelDeliveryNotes(rows, reason),
+    );
+    await _afterBulk();
+  }
+
+  Future<void> _afterBulk() async {
+    if (!mounted) return;
+    setState(() => _ticked = <String>{});
+    await _load();
+  }
+
   Widget _buildGridWorkspace() => ManagementWorkspaceLayout(
         toolbar: _buildToolbar(),
         // Option C (owner, 2026-09-27): the note's actions on a bar that
         // names it, above the grid.
         selectionBar: true,
-        selection: _selected == null
+        selection: _bulkMode
+            ? _bulkSummary()
+            : _selected == null
             ? null
             : SelectionSummary.document(
                 number: _selected!.deliveryNoteNumber,
@@ -505,7 +598,7 @@ class _DeliveryNoteManagementPageState
               // rather than an empty dialog.
               ToolbarAction.newItem =>
                 _canCreate && _deliverableOrders.isNotEmpty,
-              ToolbarAction.view => _selected != null,
+              ToolbarAction.view => _selected != null && !_bulkMode,
               ToolbarAction.refresh => true,
               _ => false,
             },
@@ -524,7 +617,9 @@ class _DeliveryNoteManagementPageState
         },
         // Phase 2 (4.11): the same steps as commands that fold into "..."
         // when the line is short, the print settings behind it.
-        commands: !Phase2Scope.of(context)
+        commands: _bulkMode
+            ? _bulkCommands()
+            : !Phase2Scope.of(context)
             ? const []
             : [
                 ToolbarCommand(
@@ -784,6 +879,10 @@ class _DeliveryNoteManagementPageState
         items: _notes,
         id: (item) => item.id,
         selectedId: _selected?.id,
+        // Ticks, for a bulk approve or cancel. A single row is still chosen
+        // by clicking it.
+        selectedIds: _ticked,
+        onSelectionChanged: (ticked) => setState(() => _ticked = ticked),
         cells: _columns.cells,
         onSelect: _selectNote,
         onOpen: (item) => unawaited(_openNote(item)),
