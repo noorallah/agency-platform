@@ -34,7 +34,11 @@ from app.firms.schemas import (
     TaxTemplateResponse,
 )
 from app.firms.services import FirmReadinessService, FirmService
-from app.firms.services.readiness import FirmReadiness, storage_is_ready
+from app.firms.services.readiness import (
+    FirmReadiness,
+    ReadinessStep,
+    storage_is_ready,
+)
 
 router = APIRouter(
     prefix="/api/v1/firms", tags=["Firms"], responses=STANDARD_ERROR_RESPONSES
@@ -182,16 +186,18 @@ def _readiness_response(readiness: FirmReadiness) -> FirmReadinessResponse:
         storage_provisioned=readiness.storage_provisioned,
         can_post=readiness.can_post,
         ready=readiness.ready,
-        steps=[
-            FirmReadinessStep(
-                key=step.key,
-                label=step.label,
-                status=step.status.value,
-                detail=step.detail,
-                required=step.required,
-            )
-            for step in readiness.steps
-        ],
+        steps=[_step_response(step) for step in readiness.steps],
+        opening=[_step_response(step) for step in readiness.opening],
+    )
+
+
+def _step_response(step: ReadinessStep) -> FirmReadinessStep:
+    return FirmReadinessStep(
+        key=step.key,
+        label=step.label,
+        status=step.status.value,
+        detail=step.detail,
+        required=step.required,
     )
 
 

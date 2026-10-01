@@ -60,6 +60,14 @@ def _print_steps(platform: Session, store: Session | None, firm: Firm) -> bool:
         }[step.status]
         need = "required" if step.required else "recommended"
         print(f"  {marker}{step.label:<24}: {step.detail}  [{need}]")
+    print("  Opening balances (brought over from the old tool):")
+    for step in readiness.opening:
+        marker = {
+            ReadinessStatus.DONE: "ok ",
+            ReadinessStatus.MISSING: "-- ",
+            ReadinessStatus.BLOCKED: "?? ",
+        }[step.status]
+        print(f"    {marker}{step.label:<26}: {step.detail}")
     return readiness.can_post
 
 

@@ -41,6 +41,7 @@ from app.core.database.entity import BaseEntity
 from app.core.exceptions import BusinessRuleError
 from app.core.tenancy import DeploymentMode
 from app.core.utils.dates import utc_now
+from app.customers.models import Customer, CustomerOpeningBill
 from app.finance.models import (
     AccountingPeriod,
     FinancialYear,
@@ -51,12 +52,16 @@ from app.finance.services.control_accounts import (
     ControlAccountPurpose,
     ControlAccountService,
 )
+from app.finance.services.opening_balances import OpeningTrialBalanceService
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.identity.models import User, UserFirm
+from app.inventory.models import OpeningStockBatch
+from app.products.models import Product
 from app.sales.models import GeoCountry
 from app.tax.models import TaxProfile, TaxRule, TaxSystem
 from app.tax.services.gst_template import INDIA_GST, apply_india_gst_template
+from app.vendors.models import Vendor, VendorOpeningBill
 
 
 class ReadinessStatus(StrEnum):
@@ -90,6 +95,12 @@ class FirmReadiness:
     deployment_mode: DeploymentMode
     storage_provisioned: bool
     steps: list[ReadinessStep] = field(default_factory=list)
+    #: What the firm brought over from its old tool, in the order it is
+    #: brought: masters first, because every bill and every stock line names
+    #: one. Kept apart from ``steps`` and out of both verdicts -- a business
+    #: that opened yesterday has no opening bills to bring, and that is not
+    #: an unfinished firm.
+    opening: list[ReadinessStep] = field(default_factory=list)
 
     @property
     def can_post(self) -> bool:
@@ -378,6 +389,98 @@ _STORE_STEP_SHAPE: tuple[tuple[str, str, bool], ...] = (
 )
 
 
+#: The opening imports, in the order a firm brings them over.
+_OPENING_SHAPE: tuple[tuple[str, str], ...] = (
+    ("products", "Products"),
+    ("customers", "Customers"),
+    ("suppliers", "Suppliers"),
+    ("customer_opening_bills", "Customers' opening bills"),
+    ("supplier_opening_bills", "Suppliers' opening bills"),
+    ("opening_trial_balance", "Opening trial balance"),
+    ("opening_stock", "Opening stock"),
+)
+
+
+def _standing_bills(
+    session: Session,
+    model: type[CustomerOpeningBill] | type[VendorOpeningBill],
+    firm_id: UUID,
+) -> int:
+    """Count a firm's opening bills that still stand -- cancelled ones do not."""
+    return int(
+        session.scalar(
+            select(func.count())
+            .select_from(model)
+            .where(
+                model.firm_id == firm_id,
+                model.is_deleted.is_(False),
+                model.status == "POSTED",
+            )
+        )
+        or 0
+    )
+
+
+def opening_steps(session: Session, firm_id: UUID) -> list[ReadinessStep]:
+    """Read what the firm has brought over from its old tool.
+
+    Each item is DONE once its store holds a row of that kind, however the
+    row got there: a product typed by hand is as much a product as an
+    imported one, and the question a first day asks is what is still empty.
+    """
+    trial_balance = OpeningTrialBalanceService(session).current(firm_id)
+    stock_batches = int(
+        session.scalar(
+            select(func.count())
+            .select_from(OpeningStockBatch)
+            .where(
+                OpeningStockBatch.firm_id == firm_id,
+                OpeningStockBatch.is_deleted.is_(False),
+                OpeningStockBatch.status == "POSTED",
+            )
+        )
+        or 0
+    )
+    counts: dict[str, tuple[int, str]] = {
+        "products": (_count(session, Product, firm_id), "product"),
+        "customers": (_count(session, Customer, firm_id), "customer"),
+        "suppliers": (_count(session, Vendor, firm_id), "supplier"),
+        "customer_opening_bills": (
+            _standing_bills(session, CustomerOpeningBill, firm_id),
+            "opening bill",
+        ),
+        "supplier_opening_bills": (
+            _standing_bills(session, VendorOpeningBill, firm_id),
+            "opening bill",
+        ),
+        "opening_stock": (stock_batches, "posted opening stock document"),
+    }
+    steps: list[ReadinessStep] = []
+    for key, label in _OPENING_SHAPE:
+        if key == "opening_trial_balance":
+            standing = trial_balance.journal_entry_id is not None
+            detail = (
+                f"Standing as of {trial_balance.as_of_date:%d-%m-%Y}, "
+                f"{_plural(len(trial_balance.lines), 'account')}."
+                if standing
+                else "Not entered yet."
+            )
+        else:
+            count, noun = counts[key]
+            standing = count > 0
+            detail = f"{_plural(count, noun)}." if standing else "None yet."
+        steps.append(
+            ReadinessStep(
+                key=key,
+                label=label,
+                status=ReadinessStatus.DONE if standing else ReadinessStatus.MISSING,
+                detail=detail,
+                required=False,
+            )
+        )
+    return steps
+
+
 class FirmReadinessService:
     """Answer whether a firm is set up, and open its books.
 
@@ -422,11 +525,15 @@ class FirmReadinessService:
         ]
         if store is not None and provisioned:
             steps.extend(store_steps(store, firm.id, utc_now().date()))
+            opening = opening_steps(store, firm.id)
         else:
             steps.extend(
                 _blocked(key, label, required=required)
                 for key, label, required in _STORE_STEP_SHAPE
             )
+            opening = [
+                _blocked(key, label, required=False) for key, label in _OPENING_SHAPE
+            ]
         members = int(
             self._platform.scalar(
                 select(func.count())
@@ -465,6 +572,7 @@ class FirmReadinessService:
             deployment_mode=mode,
             storage_provisioned=provisioned,
             steps=steps,
+            opening=opening,
         )
 
     def open_books(

@@ -19,6 +19,11 @@ import '../../models/entities.dart';
 /// profile row joined the same day: with them a fresh firm goes from created
 /// to able to trade without leaving the panel.
 ///
+/// Under the steps, **Opening balances** lists what the firm brings over from
+/// its old tool -- products, customers, suppliers, opening bills both sides,
+/// the opening trial balance, opening stock -- in that order, ticked as each
+/// store fills, with the screen for the rest. It is outside the verdict.
+///
 /// Returns true when something was changed, so the grid can reload.
 Future<bool> showFirmSetupDialog(
   BuildContext context, {
@@ -39,6 +44,24 @@ const Map<String, String> firmSetupHints = {
       'Applying the GST template adds the country.',
   'members': 'Administration → Users → Add existing user, or '
       'User-Firm Assignments.',
+};
+
+/// Where each opening import is done, for the *Opening balances* rows.
+///
+/// The imports live on five screens, and a firm's first day should not depend
+/// on knowing where (go-live plan, tier 1 item 4). Listed in the order they
+/// are brought over: masters first, because every bill and every stock line
+/// names one.
+const Map<String, String> openingBalanceHints = {
+  'products': 'Masters → Products → Import.',
+  'customers': 'Masters → Customers → Import.',
+  'suppliers': 'Masters → Vendors → Import.',
+  'customer_opening_bills':
+      'Masters → Customers → open the customer → Opening bills.',
+  'supplier_opening_bills':
+      'Masters → Vendors → open the supplier → Opening bills.',
+  'opening_trial_balance': 'Accounts → Opening Balances.',
+  'opening_stock': 'Stock → Opening Stock → Import from file.',
 };
 
 class FirmSetupDialog extends StatefulWidget {
@@ -280,6 +303,72 @@ class _FirmSetupDialogState extends State<FirmSetupDialog> {
     );
   }
 
+  /// The opening imports as a checklist under the steps: a tick for each one
+  /// whose store holds rows, and where to do the rest.
+  ///
+  /// Apart from the steps and out of the verdict, because a business that
+  /// opened yesterday has nothing to bring over and is not unfinished.
+  List<Widget> _opening(BuildContext context, FirmReadiness readiness) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colors = theme.colorScheme;
+    final int done = readiness.opening.where((step) => step.isDone).length;
+    return [
+      const Divider(height: 24),
+      Text('Opening balances', style: theme.textTheme.titleSmall),
+      const SizedBox(height: 2),
+      Text(
+        'What the firm brings over from its old tool, in this order. '
+        '$done of ${readiness.opening.length} done.',
+        style: theme.textTheme.bodySmall
+            ?.copyWith(color: colors.onSurfaceVariant),
+      ),
+      for (final FirmReadinessStep step in readiness.opening)
+        Padding(
+          key: ValueKey('firm-setup-opening-${step.key}'),
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Icon(
+                  switch (step.status) {
+                    'DONE' => Icons.check_circle_outline,
+                    'BLOCKED' => Icons.block_outlined,
+                    _ => Icons.radio_button_unchecked,
+                  },
+                  size: 18,
+                  color: step.isDone ? colors.primary : colors.outline,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text.rich(
+                  TextSpan(children: [
+                    TextSpan(
+                      text: step.label,
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                    TextSpan(
+                      text: '  ${step.detail}',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                    if (step.isMissing &&
+                        openingBalanceHints[step.key] != null)
+                      TextSpan(
+                        text: '  ${openingBalanceHints[step.key]}',
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: colors.onSurfaceVariant),
+                      ),
+                  ]),
+                ),
+              ),
+            ],
+          ),
+        ),
+    ];
+  }
+
   Widget _verdict(BuildContext context, FirmReadiness readiness) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme colors = theme.colorScheme;
@@ -340,6 +429,8 @@ class _FirmSetupDialogState extends State<FirmSetupDialog> {
                   const Divider(height: 16),
                   for (final FirmReadinessStep step in readiness.steps)
                     _step(context, step),
+                  if (readiness.opening.isNotEmpty)
+                    ..._opening(context, readiness),
                 ],
               ],
             ],
