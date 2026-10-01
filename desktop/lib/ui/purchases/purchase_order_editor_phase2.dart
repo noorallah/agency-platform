@@ -80,6 +80,9 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
                   if (number.isNotEmpty)
                     widget.isCreating ? '$number (new)' : number,
                   _statusWords(_draft.status),
+                  if (_showsProgress && _draft.billingStatus.isNotEmpty)
+                    _billingWords(_draft.billingStatus),
+                  if (_showsProgress && _draft.isComplete) 'Complete',
                 ],
                 hint: _locked
                     ? ''
@@ -179,6 +182,17 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
       ),
     );
   }
+
+  /// Whether receipt and billing progress is worth showing: a saved order
+  /// that has left draft. A draft has had nothing happen to it.
+  bool get _showsProgress =>
+      _draft.id.isNotEmpty && _draft.status != 'DRAFT' && _draft.status != '';
+
+  String _billingWords(String status) => switch (status) {
+        'PARTIALLY_INVOICED' => 'Part billed',
+        'INVOICED' => 'Billed',
+        _ => 'Not billed',
+      };
 
   String _statusWords(String status) => switch (status) {
         '' || 'DRAFT' => 'Draft',
@@ -974,6 +988,9 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
     );
   }
 
+  String _qty(String value) =>
+      value.trim().isEmpty ? '—' : documentQuantity(value);
+
   Widget _orderSidePanel(BuildContext context) {
     final int index = _current.clamp(0, _draft.lines.length - 1);
     final PurchaseOrderLine line = _draft.lines[index];
@@ -1049,6 +1066,15 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
           if (product.taxProfileGroupCode.isNotEmpty)
             'tax group ${product.taxProfileGroupCode}',
         ].join(' · ')),
+      if (_showsProgress && line.id.isNotEmpty) ...[
+        const DocumentSideHeading('Received and billed'),
+        DocumentSidePair('Received', _qty(line.receivedQuantity)),
+        DocumentSidePair('Rejected', _qty(line.rejectedQuantity)),
+        DocumentSidePair('Returned', _qty(line.returnedQuantity)),
+        DocumentSidePair('Billed', _qty(line.invoicedQuantity)),
+        DocumentSidePair('Pending', _qty(line.pendingReceiptQuantity)),
+        DocumentSidePair('To bill', _qty(line.toInvoiceQuantity)),
+      ],
       const DocumentSideHeading('Stock'),
       DocumentSidePair(
         'Where it is received',

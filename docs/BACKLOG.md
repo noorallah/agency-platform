@@ -4992,7 +4992,7 @@ first; tax) -> 7 -> 10 -> 4 -> 9 -> 3, 5, 6 -> the rest.
 
 ## 69. The full procurement specification: what it adds to §61, §65, §66, §68
 
-**Status, 2026-10-02:** row 4 (BLOCKED supplier with a reason: no new orders or bills, existing ones still received, paid and returned) and row 6 (a purchase order marked sent, with when and how; "approved but never sent" is a list filter) built.
+**Status, 2026-10-02:** row 4 (BLOCKED supplier with a reason: no new orders or bills, existing ones still received, paid and returned) and row 6 (a purchase order marked sent, with when and how; "approved but never sent" is a list filter) built. Row 5 built 2026-10-02: every order line carries its quantity picture -- received, accepted, rejected, damaged, returned (traced through a receipt or a bill), invoiced (approved bills), pending receipt and to invoice -- derived per read for a page in a fixed number of statements (`app/purchase/services/line_quantities.py`), and the order a `billing_status` (NOT / PARTIALLY / INVOICED) and `is_complete` beside its lifecycle status rather than as new statuses (OWNER_DECISIONS A33); shown on the phase 2 purchase order.
 
 Owner, 2026-09-28, supplied a 53-section "complete Purchase module"
 specification (requisition -> RFQ -> supplier quotations -> comparison -> PO ->

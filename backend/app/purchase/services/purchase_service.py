@@ -72,6 +72,12 @@ from app.purchase.schemas import (
     PurchaseSummary,
 )
 from app.purchase.services.approval_limit import PurchaseApprovalLimitService
+from app.purchase.services.line_quantities import (
+    LineQuantities,
+    billing_status,
+    is_complete,
+    order_line_quantities,
+)
 from app.sales.services.document_preview import purchase_line_companions
 from app.tax.models import TaxProfile
 from app.tax.schemas import TaxRuleSimulationRequest
@@ -1338,9 +1344,15 @@ class PurchaseService(TransactionalDocumentService):
             PurchaseNote.purchase_order_id,
             ids,
         )
+        # What the page's lines have been through downstream, read once for
+        # the page (backlog 69 row 5).
+        quantities = order_line_quantities(
+            self._session, [item for group in lines.values() for item in group]
+        )
         return [
             self._order_response(
                 row,
+                quantities=quantities,
                 lines=lines[row.id],
                 # A schedule counts only under its own firm, as it always did.
                 schedules=[
@@ -1360,13 +1372,33 @@ class PurchaseService(TransactionalDocumentService):
         schedules: list[PurchaseDeliverySchedule],
         attachments: list[PurchaseAttachment],
         notes: list[PurchaseNote],
+        quantities: dict[UUID, LineQuantities] | None = None,
     ) -> PurchaseOrderResponse:
         """Build one order's response from what the page already read."""
         payload = PurchaseOrderResponse.model_validate(row).model_dump(mode="python")
-        payload["lines"] = [
-            PurchaseOrderLineResponse.model_validate(item).model_dump(mode="python")
+        figures = [
+            (quantities or {}).get(item.id)
+            or LineQuantities(ordered=item.ordered_quantity)
             for item in lines
         ]
+        payload["lines"] = [
+            {
+                **PurchaseOrderLineResponse.model_validate(item).model_dump(
+                    mode="python"
+                ),
+                "received_quantity": figure.received,
+                "accepted_quantity": figure.accepted,
+                "rejected_quantity": figure.rejected,
+                "damaged_quantity": figure.damaged,
+                "returned_quantity": figure.returned,
+                "invoiced_quantity": figure.invoiced,
+                "pending_receipt_quantity": figure.pending_receipt,
+                "to_invoice_quantity": figure.to_invoice,
+            }
+            for item, figure in zip(lines, figures, strict=True)
+        ]
+        payload["billing_status"] = billing_status(figures)
+        payload["is_complete"] = is_complete(figures)
         payload["delivery_schedules"] = [
             PurchaseDeliveryScheduleResponse.model_validate(
                 {
