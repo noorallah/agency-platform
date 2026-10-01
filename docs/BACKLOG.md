@@ -3884,6 +3884,8 @@ every part cut to the user's role (`desktop/lib/phase2/home_page.dart`).
 
 ## 50. Profit and loss for a financial year or chosen months
 
+**Status, 2026-10-01: items 1-4 built.** `GET /api/v1/finance/profit-loss/range?from_period_id=&to_period_id=&compare=previous_year` sums any run of months inside one financial year (a span across two is refused), returns each month's amount per account beside the total and the month-by-month net profit, and with `compare=previous_year` the previous year's same months by period number. The screen's *Show* picker adds **Months or year**: presets (This financial year, Year to date, This quarter, Last financial year, Custom), *Month by month* columns and *Compare with last year*. Checked on WHOLE01: every year's total equals the one-month report's year to date. Left: item 5, the same range on the trial balance and the ledger statement.
+
 Owner, 2026-09-26: Profit & Loss shows one month at a time; it should also
 show a whole financial year, or the months a user picks.
 
@@ -4335,7 +4337,7 @@ entry, S10 §44 and §37, S13 §43, G1 §54, G2 §53, G3 §52, N3 §42.14, N4
 
 ## 56. Bulk approval, migration from other tools, and data over the years -- HIGH PRIORITY
 
-**Status, 2026-10-01.** *A -- bulk approval:* sales and purchase orders built (#864): `POST .../bulk-approve` and `.../bulk-cancel` (a reason), up to 100 rows, each row through the single action's service and committed on its own, refusals reported per row with *Retry the refused*; `run_each` in `app/document_framework/services/bulk_actions.py` is the pattern for invoices, credit notes, returns and journals next. Neither order has a *reject* transition, so the second action is Cancel with a reason. *B -- migration:* see §36 and §46. *C -- performance:* steps 1-3 and 5 merged (#854, #856, #857, #859), step 4 in #860 and a second part after it; results in `docs/PERFORMANCE_AT_VOLUME.md`. *Year-end close:* built (#865) -- close refuses while a period is open or a draft journal is dated in the year, then locks; reopen needs `FINANCIAL_YEAR_REOPEN` and a reason. **No closing entry is posted** (decided 2026-10-01, as Tally does): the balance sheet already derives retained earnings and the trial balance brings profit forward (D-FIN-22).
+**Status, 2026-10-01.** *A -- bulk approval:* sales and purchase orders built (#864); **sales and purchase invoices, delivery notes, credit notes (approve only), sales and purchase returns and draft journals (post) built 2026-10-01** -- the same `run_each`, each row through its single action's service, ticked on the phase 2 lists. Sales and purchase orders: `POST .../bulk-approve` and `.../bulk-cancel` (a reason), up to 100 rows, each row through the single action's service and committed on its own, refusals reported per row with *Retry the refused*; `run_each` in `app/document_framework/services/bulk_actions.py` is the pattern for invoices, credit notes, returns and journals next. Neither order has a *reject* transition, so the second action is Cancel with a reason. *B -- migration:* see §36 and §46. *C -- performance:* steps 1-3 and 5 merged (#854, #856, #857, #859), step 4 in #860 and a second part after it; results in `docs/PERFORMANCE_AT_VOLUME.md`. *Year-end close:* built (#865) -- close refuses while a period is open or a draft journal is dated in the year, then locks; reopen needs `FINANCIAL_YEAR_REOPEN` and a reason. **No closing entry is posted** (decided 2026-10-01, as Tally does): the balance sheet already derives retained earnings and the trial balance brings profit forward (D-FIN-22).
 
 Owner, 2026-09-27: three streams to run in parallel, designed from how
 Tally, BUSY, Marg, Vyapar, Zoho, Odoo and ERPNext do it. **The design is
@@ -4522,7 +4524,7 @@ branch, salesman, document type and date, and the tests "is one of", "between",
 | 10 | **Offer templates** | "copy last Diwali's offers, new dates" | copy a promotion, or a set of them |
 | 11 | **Manufacturer scheme claims** | free goods given on the company's scheme, claimed back | track the value per scheme to claim from the supplier |
 | 12 | **Offer shown on the print** | "Diwali offer: 250 saved" on the bill | print each applied offer and the total saved |
-| 13 | **Try an offer before launch** | see today what next week's Diwali offer does to an order | a Try screen on Promotions over `POST /api/v1/promotions/simulate` (built, no caller) taking a date, a customer and lines, and showing each offer tried and why it applied or not; the workaround today is a test customer (`docs/PROMOTIONS_AND_DISCOUNTS_GUIDE.md` section 13) |
+| 13 | **Try an offer before launch** | see today what next week's Diwali offer does to an order | **Built.** *Try offers* on the Promotions screen (behind "...") over `POST /api/v1/promotions/simulate`: a date, document, optional customer, coupon and delivery charge, and lines; it shows each line's discount and free goods, the bill discount, delivery waived, gifts, the total saved, and every offer tried with why it applied or not |
 
 **Rules that stay** (from `docs/PRICING_AND_PROMOTIONS.md`): one engine for
 every document; a typed discount beats every offer; offers are counted at
@@ -4758,7 +4760,7 @@ supplier bill -> payment, with returns off the receipt or the bill.
 | 2 | **Several receipts on one bill** on the screen | One receipt per bill | D-BUY-18, with §58 |
 | 3 | **Purchase order discount on the whole order** reaching tax, receipt and bill | Subtracted after tax, not carried on | D-BUY-19 |
 | 4 | **Supplier rates**: a vendor's standing discount, a supplier price list with quantity breaks, and the **last purchase rate** while typing | Only a typed discount; the product's one `purchase_price` | Mirror sales: vendor standing % and supplier price lists ranked in `app/core/utils/pricing.py`; last rate is §55 G6 |
-| 5 | **Purchase price variance** explained per bill | Posted to its account, seen only as a P&L line | A bill shows receipt value vs billed value per line, and a report lists variances by supplier and product |
+| 5 | **Purchase price variance** explained per bill | Posted to its account, seen only as a P&L line | **Report built 2026-10-01**: Reports > Financial > *Purchase price variance* lists every approved bill line charged at a rate other than its receipt's -- supplier, product, both rates, quantity, variance; a bill in another unit is flagged. Left: the same on the bill's own screen |
 | 6 | **Debit note** to a supplier for a price difference or a short-supply claim with no goods going back | Purchase return (goods back) only | §55 G8 |
 | 7 | **Supplier free goods and gifts** | Same-item free quantity only | §61 |
 | 8 | **Scheme claims** from the principal | Nothing | §42.7 |

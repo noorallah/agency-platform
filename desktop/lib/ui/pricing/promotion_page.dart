@@ -12,6 +12,7 @@ import '../../core/dialogs/app_dialogs.dart';
 import '../workspace/desktop_framework.dart';
 import 'coupon_dialog.dart';
 import 'promotion_dialog.dart';
+import 'promotion_try_dialog.dart';
 
 /// The offers a firm is running, in the order they apply.
 ///
@@ -322,6 +323,23 @@ class _PromotionPageState extends State<PromotionPage> {
     final bool picked = offer != null || coupon != null;
     return WorkspaceToolbar(
       trailing: [_switch()],
+      commands: [
+        // Not about the picked row: it tries the whole set of live offers on
+        // a made-up document.
+        ToolbarCommand(
+          id: 'try-offers',
+          label: 'Try offers',
+          icon: Icons.science_outlined,
+          tooltip: 'See what a document would earn, and why',
+          // About the whole set of offers, not the picked one: with a
+          // selection bar the list line keeps only what is menu-only.
+          menuOnly: true,
+          onPressed: () => unawaited(showDialog<void>(
+            context: context,
+            builder: (_) => PromotionTryDialog(api: widget.api),
+          )),
+        ),
+      ],
       actions: [
         if (!_showingCoupons) ToolbarAction.view,
         if (_mayManage) ToolbarAction.edit,
