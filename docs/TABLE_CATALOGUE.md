@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**199 tables**, of which **14** live only in the platform store.
+**209 tables**, of which **16** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -98,7 +98,7 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `commission_clawbacks` | firm store ¹ | What one payout recovered from one earlier, paid payout whose period was later credited or returned against. | `commission_payouts` |
+| `commission_clawbacks` | firm store ¹ | What one payout recovered from one earlier, paid payout. | `commission_payouts` |
 | `commission_payouts` | firm store ¹ | One period's commission for one salesman, from accrual to payment. | `users`, `ledger_accounts`, `journal_entries` |
 | `commission_rule_slabs` | firm store ¹ | One rung of a rule's ladder: a band of value, and its rate. | `commission_rules` |
 | `commission_rules` | firm store ¹ | Store one flat commission percentage, scoped and effective-dated. | `users`, `products`, `product_categories` |
@@ -165,6 +165,12 @@ trigger each schema owns its own copy of.
 | `einvoice_registrations` | firm store ¹ | One sales invoice, as the Invoice Registration Portal knows it. | `sales_invoices` |
 | `eway_bills` | firm store ¹ | One consignment's e-way bill, raised against an invoice. | `sales_invoices` |
 
+### `app/expenses`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `expenses` | firm store ¹ | Store one amount the firm spent, and the journal that records it. | `firms`, `ledger_accounts`, `journal_entries` |
+
 ### `app/finance`
 
 | Table | Store | Holds | Points at |
@@ -215,8 +221,8 @@ trigger each schema owns its own copy of.
 | `user_firms` | platform ¹ | Associate a user with a firm and designate its primary active firm. | `users`, `firms` |
 | `user_preferences` | platform ¹ | Persist versioned, user-owned desktop and workspace preferences. | `users`, `firms` |
 | `user_roles` | platform ¹ | Associate a user with a configurable role. | `users`, `roles`, `firms` |
-| `user_template_roles` | firm store ¹ | One role in a template's bundle. | `user_templates`, `roles` |
-| `user_templates` | firm store ¹ | A named bundle of roles for one job, so a firm hires by naming the job. | `firms` |
+| `user_template_roles` | platform ¹ | One role in a template's bundle. | `user_templates`, `roles` |
+| `user_templates` | platform ¹ | A named bundle of roles for one job, so a firm hires by naming the job. | `firms` |
 | `users` | platform ¹ | Represent an interactive platform user. |  |
 
 ### `app/inventory`
@@ -283,6 +289,7 @@ trigger each schema owns its own copy of.
 | `purchase_order_history` | firm store ¹ | Store immutable history events for purchase orders. | `purchase_orders`, `firms` |
 | `purchase_order_lines` | firm store ¹ | Store one purchase order line item. | `purchase_orders`, `firms`, `products`, `uoms`, `tax_profiles`, `warehouses`, `warehouse_storage_nodes` |
 | `purchase_orders` | firm store ¹ | Store one enterprise purchase order header. | `firms`, `branches`, `warehouses`, `vendors`, `users`, `tax_profiles` |
+| `purchase_workflow_settings` | firm store ¹ | Store which buying stages one firm fills in by hand. | `firms`, `branches`, `warehouses` |
 
 ### `app/purchase_invoice`
 
@@ -290,7 +297,7 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `purchase_invoice_accounting_events` | firm store ¹ | Store reusable accounting placeholder events. | `purchase_invoices`, `firms` |
 | `purchase_invoice_attachments` | firm store ¹ | Store purchase invoice attachments. | `purchase_invoices`, `firms` |
-| `purchase_invoice_line_taxes` | firm store ¹ | Store the tax components one bill line was actually charged, so input credit is claimed and filed per head (D-CMP-20). | `purchase_invoice_lines` |
+| `purchase_invoice_line_taxes` | firm store ¹ | Store the tax components one bill line was actually charged. | `purchase_invoice_lines` |
 | `purchase_invoice_lines` | firm store ¹ | Store one purchase invoice line. | `purchase_invoices`, `firms`, `products`, `tax_profiles`, `packaging_types`, `uoms`, `warehouses`, `warehouse_storage_nodes` |
 | `purchase_invoice_notes` | firm store ¹ | Store purchase invoice notes. | `purchase_invoices`, `firms` |
 | `purchase_invoice_sources` | firm store ¹ | Store supplier invoice source document references. | `purchase_invoices`, `firms`, `vendors`, `branches` |
@@ -413,9 +420,9 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `trade_licence_types` | firm store ¹ | One kind of trade licence (drug, FSSAI, insecticide ...) and whether it expires. |  |
-| `trade_licences` | firm store ¹ | One licence held by the firm (per branch), a customer or a vendor, with its validity. | `trade_licence_types`, `branches`, `customers`, `vendors` |
-| `trade_licence_settings` | firm store ¹ | One firm's licence-check policy: sale OFF / WARN / BLOCK, purchase OFF / WARN. No row warns on both. |  |
+| `trade_licence_settings` | firm store ¹ | One firm's policy on selling and buying goods without a licence. |  |
+| `trade_licence_types` | firm store ¹ | One kind of licence, such as a wholesale drug licence or FSSAI. |  |
+| `trade_licences` | firm store ¹ | One licence held by the firm, a customer or a vendor. | `trade_licence_types`, `branches`, `customers`, `vendors` |
 
 ### `app/uom`
 

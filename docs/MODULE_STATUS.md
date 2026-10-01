@@ -2,8 +2,10 @@
 
 What each module is for, what is built, and what is still open.
 
-Compiled on **2026-09-05** from the running application and the four demo
-firms, not from memory. Route and report counts are read off the OpenAPI
+The summary counts were re-derived on **2026-10-01** from the running
+application (OpenAPI, `Base.metadata`, the module catalogue and the suites);
+the per-module rows below were compiled on **2026-09-05** from the running
+application and the four demo firms. Neither is from memory. Route and report counts are read off the OpenAPI
 schema; table and row counts off the deployed schemas. Re-derive them rather
 than trusting this file after a few months — a stale status line is worse than
 no status line, because it talks the next reader out of checking. The finance
@@ -13,13 +15,13 @@ nobody re-derived it.
 
 | | |
 | --- | ---: |
-| Backend modules | 39 |
-| API endpoints | 672 |
-| Report endpoints | 57 |
-| Desktop screens | 87 |
-| Tables per firm store | 182 |
-| Tests passing | 1,127 backend + 1,074 desktop |
-| Migration head | `20260903_0127` |
+| Backend modules (packages with a router) | 38 |
+| API endpoints | 761 |
+| Report endpoints | 58 |
+| Desktop screens (catalog tabs) | 99 |
+| Tables per firm store | 193 (209 with the platform's 16) |
+| Tests passing | 2,376 backend unit + 52 integration + 2,221 desktop |
+| Migration head | `20261001_0174` |
 
 ## How to read this
 
