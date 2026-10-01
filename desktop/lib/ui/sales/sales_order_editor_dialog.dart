@@ -219,6 +219,11 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   int _previewSerial = 0;
   bool _phase2 = false;
 
+  /// Phase 2, backlog 64 row 4: whether the rates typed on this order include
+  /// GST. A new order starts from the firm's setting; a draft keeps its own,
+  /// and the switch can move it.
+  bool _rateIncludesTax = false;
+
   void _setState(VoidCallback change) => setState(change);
 
   @override
@@ -256,7 +261,10 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     for (final _LineDraft line in _lines) {
       if (line.productId == null) return null;
       if ((double.tryParse(line.quantity.text.trim()) ?? 0) <= 0) return null;
-      if ((double.tryParse(line.unitPrice.text.trim()) ?? 0) <= 0) return null;
+      if (!_rateIncludesTax &&
+          (double.tryParse(line.unitPrice.text.trim()) ?? 0) <= 0) {
+        return null;
+      }
       if (_percentage(line.discountPercent.text) != null) return null;
     }
     return _buildPayload();
@@ -324,8 +332,20 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
       final String? id = widget.orderId;
       final Json? existing =
           id == null ? null : _unwrap(await widget.api.salesOrder(id));
+      // The firm's default for a new order's switch. Unreadable settings
+      // leave it off, which is what the order always did.
+      bool firmDefault = false;
+      if (id == null && _phase2) {
+        try {
+          firmDefault = (await widget.api.salesWorkflowSettings())
+              .rateIncludesTax;
+        } on ApiException {
+          firmDefault = false;
+        }
+      }
       if (!mounted) return;
       setState(() {
+        if (existing == null) _rateIncludesTax = firmDefault;
         _customers = (loaded[0] as List<dynamic>).cast<Customer>();
         _products = (loaded[1] as List<dynamic>).cast<Product>();
         _branches = (loaded[2] as List<dynamic>).cast<BranchRecord>();
@@ -404,6 +424,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     _coupon.text = stringValue(order['coupon_code']);
     _paymentTerms.text = stringValue(order['payment_terms']);
     _paymentTermsDays.text = stringValue(order['payment_terms_days']);
+    _rateIncludesTax = order['rate_includes_tax'] == true;
     _remarks.text = stringValue(order['remarks']);
     // Blank rather than '0' where there was none, so the box reads as empty
     // and the payload omits it.
@@ -436,11 +457,20 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
         order['lines'] is List ? order['lines'] as List : const [];
     for (final dynamic raw in lines) {
       final Json line = Map<String, dynamic>.from(raw as Map);
+      // Typed with GST in the rate: the boxes read what was typed, which the
+      // server derives the stored pre-tax figures from.
+      final String enteredRate = stringValue(line['entered_rate']);
+      final String enteredDiscount = _rateIncludesTax &&
+              stringValue(line['discount_source']) == 'amount'
+          ? stringValue(line['entered_discount_amount'])
+          : '';
       _lines.add(
         _LineDraft(
           productId: _blankToNull(stringValue(line['product_id'])),
           quantity: stringValue(line['quantity']),
-          unitPrice: stringValue(line['unit_price']),
+          unitPrice: _rateIncludesTax && enteredRate.isNotEmpty
+              ? enteredRate
+              : stringValue(line['unit_price']),
           free: _positiveOrBlank(line['free_quantity']),
           // A typed rate is echoed **including a zero**, because the document
           // is the record of what was agreed. A rate the server resolved is
@@ -449,10 +479,11 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
           // beside it: a flat amount wins over a rate and would pin the
           // discount to a figure that no longer matches once the quantity
           // moves.
-          discountPercent:
-              discountWasTyped(stringValue(line['discount_source']))
-                  ? stringValue(line['discount_percent'])
-                  : '',
+          discountPercent: enteredDiscount.isEmpty &&
+                  discountWasTyped(stringValue(line['discount_source']))
+              ? stringValue(line['discount_percent'])
+              : '',
+          discountAmount: enteredDiscount,
           lastRate: discountWasTyped(stringValue(line['discount_source']))
               ? ''
               : stringValue(line['discount_percent']),
@@ -495,6 +526,9 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   /// incomplete, not one that means "the usual". The API requires an explicit
   /// price for the same reason.
   String _priceOf(String? productId) {
+    // Blank on an order whose rates include GST: the product's price is
+    // before tax, and a blank rate takes it as such on the server.
+    if (_rateIncludesTax) return '';
     for (final Product item in _products) {
       if (item.id != productId) continue;
       final double price = double.tryParse(item.sellingPrice.trim()) ?? 0;
@@ -573,6 +607,13 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
 
   String _iso(DateTime value) => value.toIso8601String().split('T').first;
 
+  /// The rate box: required, except where the order's rates include GST and
+  /// a blank takes the product's own (before-tax) price.
+  String? _priceBox(String? value) {
+    if (_rateIncludesTax && (value ?? '').trim().isEmpty) return null;
+    return _positive(value, 'price');
+  }
+
   String? _positive(String? value, String what) {
     final double parsed = double.tryParse((value ?? '').trim()) ?? -1;
     if (parsed <= 0) return 'Enter the $what.';
@@ -637,6 +678,10 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
       'branch_id': _branchId,
       'warehouse_id': _warehouseId,
       'order_date': _iso(_orderDate),
+      // Sent on every save: absent is off on a new order and keeps the
+      // order's own on an update, and the switch is the user's to say.
+      // Phase 1 has no switch, so a new order there is typed before tax.
+      'rate_includes_tax': _rateIncludesTax,
       if (delivery != null) 'delivery_date': _iso(delivery),
       if (_customerReference.text.trim().isNotEmpty)
         'customer_reference': _customerReference.text.trim(),
@@ -669,7 +714,11 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
             'line_number': index + 1,
             'product_id': _lines[index].productId,
             'quantity': _lines[index].quantity.text.trim(),
-            'unit_price': _lines[index].unitPrice.text.trim(),
+            // With GST included, blank is the product's own price -- before
+            // tax, as the server resolves it -- not a typed shelf price.
+            if (!(_rateIncludesTax &&
+                _lines[index].unitPrice.text.trim().isEmpty))
+              'unit_price': _lines[index].unitPrice.text.trim(),
             if (_lines[index].free.text.trim().isNotEmpty)
               'free_quantity': _lines[index].free.text.trim(),
             // Blank is omitted and zero is sent. Absent means the server

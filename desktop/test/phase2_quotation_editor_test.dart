@@ -15,7 +15,8 @@ QuotationPreviewRecord _priced(Json draft) {
   final List<dynamic> lines = draft['lines'] as List<dynamic>;
   final Map<String, dynamic> line = lines.first as Map<String, dynamic>;
   final double quantity = double.parse('${line['quantity']}');
-  final double net = quantity * double.parse('${line['unit_price']}');
+  final double net =
+      quantity * double.parse('${line['unit_price'] ?? '26'}');
   return QuotationPreviewRecord.fromJson({
     'interstate': false,
     'quotation': {
@@ -30,7 +31,7 @@ QuotationPreviewRecord _priced(Json draft) {
           'line_number': 1,
           'product_id': line['product_id'],
           'quantity': line['quantity'],
-          'unit_price': line['unit_price'],
+          'unit_price': line['unit_price'] ?? '26',
           'discount_percent': '0',
           'discount_source': 'none',
           'net_amount': net.toStringAsFixed(4),
@@ -166,6 +167,7 @@ void main() {
   Future<List<Json>> pumpEditor(
     WidgetTester tester, {
     Quotation? existing,
+    bool rateIncludesTax = false,
     required void Function(Json?) onResult,
   }) async {
     tester.view.physicalSize = const Size(1600, 900);
@@ -183,6 +185,7 @@ void main() {
                     body: Phase2Scope(
                       child: QuotationEditorDialog(
                         existing: existing,
+                        rateIncludesTax: rateIncludesTax,
                         customers: [
                           Customer.fromJson({
                             'id': 'c1',
@@ -241,8 +244,14 @@ void main() {
     return asked;
   }
 
-  Quotation saved({String coupon = 'SAVE10', String free = '0'}) =>
+  Quotation saved({
+    String coupon = 'SAVE10',
+    String free = '0',
+    bool rateIncludesTax = false,
+    String enteredRate = '',
+  }) =>
       Quotation.fromJson({
+        'rate_includes_tax': rateIncludesTax,
         'id': 'q1',
         'version': 3,
         'customer_id': 'c1',
@@ -259,6 +268,7 @@ void main() {
             'product_id': 'p1',
             'quantity': '10',
             'unit_price': '26.00',
+            if (enteredRate.isNotEmpty) 'entered_rate': enteredRate,
             'discount_percent': '0',
             'free_quantity': free,
           },
@@ -269,6 +279,80 @@ void main() {
         of: find.byKey(const ValueKey('quotation-line-0')),
         matching: find.byType(EditableText),
       );
+
+  // Backlog 64 row 4: an offer quotes the shelf price.
+  testWidgets('a new quotation starts from the firm default for GST rates',
+      (tester) async {
+    Json? result;
+    final List<Json> asked = await pumpEditor(tester,
+        rateIncludesTax: true, onResult: (value) => result = value);
+    final Finder toggle =
+        find.byKey(const ValueKey('quotation-rate-includes-tax'));
+    expect(tester.widget<Switch>(toggle).value, isTrue);
+    expect(find.text('Rate incl. GST'), findsOneWidget);
+    expect(find.text('Shelf price'), findsOneWidget);
+    // The product's own price is before tax: the box starts blank and the
+    // preview is asked without a rate.
+    expect(asked.last['rate_includes_tax'], isTrue);
+    expect(asked.last['lines'][0].containsKey('unit_price'), isFalse);
+
+    await tester.enterText(lineBoxes().at(3), '118');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(asked.last['lines'][0]['unit_price'], '118');
+
+    await tester.tap(find.byKey(const ValueKey('quotation-save-print')));
+    await tester.pumpAndSettle();
+    expect(result?['rate_includes_tax'], isTrue);
+    expect(result?['lines'][0]['unit_price'], '118');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the switch moves the product price out and back',
+      (tester) async {
+    Json? result;
+    await pumpEditor(tester, onResult: (value) => result = value);
+    final Finder toggle =
+        find.byKey(const ValueKey('quotation-rate-includes-tax'));
+    expect(tester.widget<Switch>(toggle).value, isFalse);
+    expect(find.text('Rate incl. GST'), findsNothing);
+    expect(
+        tester.widget<EditableText>(lineBoxes().at(3)).controller.text, '26.00');
+
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(find.text('Rate incl. GST'), findsOneWidget);
+    expect(
+        tester.widget<EditableText>(lineBoxes().at(3)).controller.text, isEmpty);
+
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(find.text('Rate incl. GST'), findsNothing);
+    expect(
+        tester.widget<EditableText>(lineBoxes().at(3)).controller.text, '26.00');
+
+    await tester.tap(find.byKey(const ValueKey('quotation-save-print')));
+    await tester.pumpAndSettle();
+    expect(result?['rate_includes_tax'], isFalse);
+    expect(result?['lines'][0]['unit_price'], '26.00');
+  });
+
+  testWidgets('a quotation typed with GST shows its rate back as typed',
+      (tester) async {
+    Json? result;
+    await pumpEditor(tester,
+        existing: saved(rateIncludesTax: true, enteredRate: '30.68'),
+        onResult: (value) => result = value);
+    expect(find.text('Rate incl. GST'), findsOneWidget);
+    expect(
+        tester.widget<EditableText>(lineBoxes().at(3)).controller.text,
+        '30.68');
+
+    await tester.tap(find.byKey(const ValueKey('quotation-save-print')));
+    await tester.pumpAndSettle();
+    expect(result?['rate_includes_tax'], isTrue);
+    expect(result?['lines'][0]['unit_price'], '30.68');
+  });
 
   // D-SELL-43: a quotation is priced with the customer's coupon.
   testWidgets('a new quotation sends its coupon, trimmed, and prices with it',

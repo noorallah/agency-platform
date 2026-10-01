@@ -169,6 +169,18 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
       if (mounted) setState(() => _loading = false);
     }
     if (!mounted) return;
+    // The firm's default for a new offer's "Rate includes GST" switch;
+    // unreadable settings leave it off, as every offer was before.
+    bool rateIncludesTax = false;
+    if (existing == null && Phase2Scope.of(context)) {
+      try {
+        rateIncludesTax =
+            (await widget.api.salesWorkflowSettings()).rateIncludesTax;
+      } on ApiException {
+        rateIncludesTax = false;
+      }
+      if (!mounted) return;
+    }
     final Json? payload = await showDocument<Json>(
       context,
       title: existing == null ? 'New quotation' : 'Edit quotation',
@@ -179,6 +191,7 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
         warehouses: warehouses,
         today: widget.today ?? DateTime.now(),
         existing: existing,
+        rateIncludesTax: rateIncludesTax,
         // Phase 2's screen prices the offer as it is typed.
         preview: Phase2Scope.of(context) ? widget.api.previewQuotation : null,
       ),
