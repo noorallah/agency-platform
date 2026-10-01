@@ -3442,17 +3442,66 @@ class InventoryService:
         self, row: OpeningStockBatch
     ) -> OpeningStockBatchResponse:
         """Expose one opening-stock batch."""
+        return self.opening_stock_batch_responses([row])[0]
+
+    def opening_stock_batch_responses(
+        self, rows: Sequence[OpeningStockBatch]
+    ) -> list[OpeningStockBatchResponse]:
+        """Expose a page of opening-stock batches, naming them once per table.
+
+        A batch carries every line of a firm's opening count, so four look-ups
+        per line made three batches of fifteen thousand lines take 54 s on the
+        volume firm (backlog 56 C, step 4). The single-batch builder is this
+        with a list of one.
+        """
+        if not rows:
+            return []
+        lines = [line for row in rows for line in row.lines if not line.is_deleted]
+        labels = _Labels(
+            branches=_pairs(
+                self._session,
+                Branch.id,
+                (Branch.code, Branch.name),
+                (row.branch_id for row in rows),
+            ),
+            warehouses=_pairs(
+                self._session,
+                Warehouse.id,
+                (Warehouse.code, Warehouse.name),
+                (row.warehouse_id for row in rows),
+            ),
+            storage=_pairs(
+                self._session,
+                WarehouseStorageNode.id,
+                (WarehouseStorageNode.code, WarehouseStorageNode.name),
+                (line.storage_node_id for line in lines),
+            ),
+            products=_pairs(
+                self._session,
+                Product.id,
+                (Product.code, Product.name),
+                (line.product_id for line in lines),
+            ),
+            batches={},
+            profiles={},
+        )
+        return [self._opening_stock_batch_response(row, labels) for row in rows]
+
+    def _opening_stock_batch_response(
+        self, row: OpeningStockBatch, labels: _Labels
+    ) -> OpeningStockBatchResponse:
+        """Build one opening-stock batch's response from a page's labels."""
         return OpeningStockBatchResponse.model_validate(
             {
                 "id": row.id,
                 "version": row.version,
                 "firm_id": row.firm_id,
                 "branch_id": row.branch_id,
-                "branch_code": self._lookup_branch_code(row.branch_id),
-                "branch_name": self._lookup_branch_name(row.branch_id),
+                "branch_code": labels.branch_code(row.branch_id),
+                "branch_name": labels.branch_name(row.branch_id),
                 "warehouse_id": row.warehouse_id,
-                "warehouse_code": self._lookup_warehouse_code(row.warehouse_id),
-                "warehouse_name": self._lookup_warehouse_name(row.warehouse_id),
+                "warehouse_code": labels.warehouse_code(row.warehouse_id),
+                "warehouse_name": labels.warehouse_name(row.warehouse_id),
                 "reference_number": row.reference_number,
                 "posting_date": row.posting_date,
                 "source_format": row.source_format,
@@ -3460,7 +3509,7 @@ class InventoryService:
                 "remarks": row.remarks,
                 "posted_at": row.posted_at,
                 "lines": [
-                    self._opening_stock_line_response(line)
+                    self._opening_stock_line_response(line, labels)
                     for line in row.lines
                     if not line.is_deleted
                 ],
@@ -3470,18 +3519,18 @@ class InventoryService:
         )
 
     def _opening_stock_line_response(
-        self, row: OpeningStockLine
+        self, row: OpeningStockLine, labels: _Labels
     ) -> OpeningStockLineResponse:
         return OpeningStockLineResponse.model_validate(
             {
                 "id": row.id,
                 "line_number": row.line_number,
                 "product_id": row.product_id,
-                "product_code": self._lookup_product_code(row.product_id),
-                "product_name": self._lookup_product_name(row.product_id),
+                "product_code": labels.product_code(row.product_id),
+                "product_name": labels.product_name(row.product_id),
                 "storage_node_id": row.storage_node_id,
-                "storage_node_code": self._lookup_storage_code(row.storage_node_id),
-                "storage_node_name": self._lookup_storage_name(row.storage_node_id),
+                "storage_node_code": labels.storage_code(row.storage_node_id),
+                "storage_node_name": labels.storage_name(row.storage_node_id),
                 "business_profile_id": row.business_profile_id,
                 "quantity": row.quantity,
                 "unit_cost": row.unit_cost,

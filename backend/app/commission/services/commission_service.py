@@ -41,6 +41,7 @@ from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader
 from app.core.concurrency import assert_version
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
+from app.core.utils.chunks import chunks
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO
 from app.core.utils.pricing import apportion
@@ -940,8 +941,16 @@ class CommissionService:
         ]
         # What each invoice is made of, so a rule that names a product can be
         # resolved against the lines rather than against the whole bill.
+        # Only where a rule could pay: money that names no salesman earns
+        # nothing (`_rule_for`), and nor does anything when the firm has no
+        # rule. Pricing every line of a year for a firm with neither took 12 s
+        # on the volume firm (backlog 56 C, step 4).
         goods = self._lines_of(
-            {invoice_id for _, invoice_id, _, _, _ in measured},
+            (
+                {invoice_id for owner, invoice_id, _, _, _ in measured if owner}
+                if rules
+                else set()
+            ),
             on_document_total=on_document_total,
         )
         # Quantities are accumulated separately from money: a per-unit rate
@@ -1280,25 +1289,31 @@ class CommissionService:
         """
         if not invoice_ids:
             return {}
-        rows = self._session.execute(
-            select(
-                SalesInvoiceLine.sales_invoice_id,
-                SalesInvoiceLine.product_id,
-                SalesInvoiceLine.current_invoice_quantity,
-                SalesInvoiceLine.net_amount,
-                SalesInvoiceLine.gross_amount,
-                SalesInvoiceLine.discount_amount,
-                SalesInvoiceLine.bill_discount_amount,
-                SalesInvoiceLine.charges_amount,
-                Product.category_id,
-                SalesInvoiceLine.cost_amount,
-            )
-            .join(Product, Product.id == SalesInvoiceLine.product_id, isouter=True)
-            .where(
-                SalesInvoiceLine.sales_invoice_id.in_(invoice_ids),
-                SalesInvoiceLine.is_deleted.is_(False),
-            )
-        ).all()
+        # In chunks: a year of a busy firm's invoices is more ids than one
+        # statement may name.
+        rows = [
+            row
+            for part in chunks(list(invoice_ids))
+            for row in self._session.execute(
+                select(
+                    SalesInvoiceLine.sales_invoice_id,
+                    SalesInvoiceLine.product_id,
+                    SalesInvoiceLine.current_invoice_quantity,
+                    SalesInvoiceLine.net_amount,
+                    SalesInvoiceLine.gross_amount,
+                    SalesInvoiceLine.discount_amount,
+                    SalesInvoiceLine.bill_discount_amount,
+                    SalesInvoiceLine.charges_amount,
+                    Product.category_id,
+                    SalesInvoiceLine.cost_amount,
+                )
+                .join(Product, Product.id == SalesInvoiceLine.product_id, isouter=True)
+                .where(
+                    SalesInvoiceLine.sales_invoice_id.in_(part),
+                    SalesInvoiceLine.is_deleted.is_(False),
+                )
+            ).all()
+        ]
         headers = {
             invoice_id: (
                 Decimal(str(total)),
@@ -1317,16 +1332,20 @@ class CommissionService:
                 extras,
                 round_off,
                 freight,
-            ) in self._session.execute(
-                select(
-                    SalesInvoice.id,
-                    SalesInvoice.grand_total,
-                    SalesInvoice.tax_total,
-                    SalesInvoice.additional_charges,
-                    SalesInvoice.round_off,
-                    SalesInvoice.freight_amount,
-                ).where(SalesInvoice.id.in_(invoice_ids))
-            ).all()
+            ) in (
+                header
+                for part in chunks(list(invoice_ids))
+                for header in self._session.execute(
+                    select(
+                        SalesInvoice.id,
+                        SalesInvoice.grand_total,
+                        SalesInvoice.tax_total,
+                        SalesInvoice.additional_charges,
+                        SalesInvoice.round_off,
+                        SalesInvoice.freight_amount,
+                    ).where(SalesInvoice.id.in_(part))
+                ).all()
+            )
         }
         grouped: dict[
             UUID, list[tuple[UUID, Decimal, Decimal, UUID | None, Decimal | None]]

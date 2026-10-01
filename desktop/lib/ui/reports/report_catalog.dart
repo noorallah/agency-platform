@@ -471,6 +471,9 @@ const List<ReportDefinition> reportCatalog = [
     label: 'Sales invoice reconciliation',
     description: 'Invoices against the dispatches they were raised from.',
     path: '/api/v1/sales-invoices/reports/reconciliation',
+    // Windowed on the invoice date since backlog 56 C step 4: over the whole
+    // history it answered every line the firm ever billed.
+    needsPeriod: true,
     permission: 'SALES_VIEW',
     area: ReportArea.financial,
   ),
