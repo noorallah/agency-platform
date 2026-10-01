@@ -27,6 +27,7 @@ class DebitNoteReasonEnum(StrEnum):
 
     PRICE_DIFFERENCE = "PRICE_DIFFERENCE"
     SHORT_SUPPLY = "SHORT_SUPPLY"
+    DISCOUNT = "DISCOUNT"
     OTHER = "OTHER"
 
 
@@ -64,6 +65,9 @@ class DebitNoteCreate(DebitNoteSchema):
     reason: DebitNoteReasonEnum = DebitNoteReasonEnum.OTHER
     debit_note_number: str | None = Field(default=None, max_length=80)
     reference_number: str | None = Field(default=None, max_length=120)
+    #: The supplier's own credit note this records (backlog 68 row 10).
+    supplier_credit_note_number: str | None = Field(default=None, max_length=80)
+    supplier_credit_note_date: date | None = None
     remarks: str | None = None
     lines: list[DebitNoteLineWrite] = Field(min_length=1, max_length=200)
 
@@ -90,6 +94,8 @@ class DebitNoteUpdate(DebitNoteSchema):
     debit_note_date: date | None = None
     reason: DebitNoteReasonEnum | None = None
     reference_number: str | None = Field(default=None, max_length=120)
+    supplier_credit_note_number: str | None = Field(default=None, max_length=80)
+    supplier_credit_note_date: date | None = None
     remarks: str | None = None
     #: Omitted leaves the lines alone; a list replaces them all.
     lines: list[DebitNoteLineWrite] | None = Field(
@@ -149,6 +155,8 @@ class DebitNoteResponse(DebitNoteSchema):
     tax_amount: Decimal
     total_amount: Decimal
     reference_number: str | None
+    supplier_credit_note_number: str | None
+    supplier_credit_note_date: date | None
     remarks: str | None
     cancel_reason: str | None
     journal_entry_id: UUID | None
@@ -188,6 +196,7 @@ class DebitNoteRegisterRecord(DebitNoteSchema):
     purchase_invoice_id: UUID
     purchase_invoice_number: str
     reason: DebitNoteReasonEnum
+    supplier_credit_note_number: str | None = None
     taxable_amount: Decimal
     tax_amount: Decimal
     total_amount: Decimal
