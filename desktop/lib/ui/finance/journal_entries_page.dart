@@ -56,6 +56,7 @@ const List<(String, String)> journalSourceModules = [
   ('goods_receipt', 'Goods receipts'),
   ('inventory', 'Inventory'),
   ('loyalty', 'Loyalty'),
+  ('party_adjustments', 'Party adjustments'),
   ('physical_count', 'Physical counts'),
   ('purchase_invoice', 'Purchase invoices'),
   ('purchase_return', 'Purchase returns'),

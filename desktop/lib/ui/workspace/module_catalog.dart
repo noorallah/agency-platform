@@ -936,6 +936,7 @@ abstract final class ModuleCatalog {
         'RECEIPT_VIEW',
         'PAYMENT_VIEW',
         'EXPENSE_VIEW',
+        'PARTY_ADJUSTMENT_VIEW',
       ],
       requiresAnyPermission: true,
       tabs: [
@@ -1001,6 +1002,13 @@ abstract final class ModuleCatalog {
           label: 'Refunds',
           requiredPermissions: ['ACCOUNT_VIEW'],
         ),
+        // Clears a balance with no money: a write-off, a write-back or a
+        // set-off of what a firm owes against what it is owed.
+        ModuleTabDefinition(
+          id: 'party-adjustments',
+          label: 'Party Adjustments',
+          requiredPermissions: ['PARTY_ADJUSTMENT_VIEW'],
+        ),
         ModuleTabDefinition(
           id: 'ledgers',
           label: 'Ledgers',
@@ -1039,6 +1047,7 @@ abstract final class ModuleCatalog {
         'PURCHASE_VIEW',
         'CREDIT_NOTE_VIEW',
         'DEBIT_NOTE_VIEW',
+        'PARTY_ADJUSTMENT_VIEW',
         'PROFORMA_VIEW',
         'LOYALTY_VIEW',
         'PROMOTION_VIEW',

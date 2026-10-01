@@ -533,6 +533,16 @@ const List<ReportDefinition> reportCatalog = [
     area: ReportArea.financial,
   ),
   ReportDefinition(
+    id: 'party-adjustment-register',
+    label: 'Party adjustment register',
+    description:
+        'Every write-off, write-back and set-off, with its reason and status.',
+    path: '/api/v1/party-adjustments/reports/register',
+    needsPeriod: true,
+    permission: 'PARTY_ADJUSTMENT_VIEW',
+    area: ReportArea.financial,
+  ),
+  ReportDefinition(
     id: 'credit-note-by-customer',
     label: 'Credits by customer',
     description: 'What each customer has been credited, cancelled notes out.',

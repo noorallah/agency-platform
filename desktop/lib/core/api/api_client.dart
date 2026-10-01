@@ -26,6 +26,7 @@ import '../../models/pricing.dart';
 import '../../models/commission.dart';
 import '../../models/credit_note.dart';
 import '../../models/debit_note.dart';
+import '../../models/party_adjustment.dart';
 import '../../models/einvoice.dart';
 import '../../models/proforma.dart';
 import '../../models/tcs.dart';
@@ -5369,6 +5370,124 @@ class ApiClient {
         body: {'reason': reason},
         expectedVersion: expectedVersion,
       )));
+
+  // ---- party adjustments ----------------------------------------------
+
+  Future<PagedResult<PartyAdjustment>> partyAdjustments({
+    int page = 1,
+    int pageSize = 50,
+    String? kind,
+    String? status,
+    String? customerId,
+    String? vendorId,
+    String? search,
+    String? dateFrom,
+    String? dateTo,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/party-adjustments',
+      query: {
+        'page': '$page',
+        'page_size': '$pageSize',
+        if (kind != null && kind.isNotEmpty) 'kind': kind,
+        if (status != null && status.isNotEmpty) 'status': status,
+        if (customerId != null && customerId.isNotEmpty)
+          'customer_id': customerId,
+        if (vendorId != null && vendorId.isNotEmpty) 'vendor_id': vendorId,
+        if (search != null && search.isNotEmpty) 'search': search,
+        if (dateFrom != null) 'date_from': dateFrom,
+        if (dateTo != null) 'date_to': dateTo,
+      },
+    );
+    final dynamic data = response['data'];
+    return PagedResult<PartyAdjustment>(
+      items: data is List
+          ? data
+              .whereType<Map>()
+              .map((item) =>
+                  PartyAdjustment.fromJson(Map<String, dynamic>.from(item)))
+              .toList()
+          : const [],
+      total: _totalOf(response),
+    );
+  }
+
+  /// Draft one adjustment; nothing is posted until it is approved.
+  Future<PartyAdjustment> createPartyAdjustment(Json body) async =>
+      PartyAdjustment.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/party-adjustments', body: body)),
+      );
+
+  Future<PartyAdjustment> partyAdjustment(String id) async =>
+      PartyAdjustment.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/party-adjustments/$id')),
+      );
+
+  /// Change a draft. Send only the keys the server declares: the kind and the
+  /// status are not among them.
+  Future<PartyAdjustment> updatePartyAdjustment(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) async =>
+      PartyAdjustment.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/party-adjustments/$id',
+        body: body,
+        expectedVersion: expectedVersion,
+      )));
+
+  Future<PartyAdjustment> approvePartyAdjustment(
+    String id, {
+    int? expectedVersion,
+  }) async =>
+      PartyAdjustment.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/party-adjustments/$id/approve',
+        expectedVersion: expectedVersion,
+      )));
+
+  /// Withdraw an adjustment; the server refuses a cancel with no [reason].
+  Future<PartyAdjustment> cancelPartyAdjustment(
+    String id,
+    String reason, {
+    int? expectedVersion,
+  }) async =>
+      PartyAdjustment.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/party-adjustments/$id/cancel',
+        body: {'reason': reason},
+        expectedVersion: expectedVersion,
+      )));
+
+  /// The bills an adjustment can clear for the party or parties named.
+  Future<PartyAdjustmentOpenBills> partyAdjustmentOpenBills({
+    String? customerId,
+    String? vendorId,
+  }) async =>
+      PartyAdjustmentOpenBills.fromJson(_unwrapMap(await request(
+        'GET',
+        '/api/v1/party-adjustments/open-bills',
+        query: {
+          if (customerId != null && customerId.isNotEmpty)
+            'customer_id': customerId,
+          if (vendorId != null && vendorId.isNotEmpty) 'vendor_id': vendorId,
+        },
+      )));
+
+  Future<PartyAdjustmentSettings> partyAdjustmentSettings() async =>
+      PartyAdjustmentSettings.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/party-adjustments/settings')),
+      );
+
+  Future<PartyAdjustmentSettings> savePartyAdjustmentSettings(
+    Json body,
+  ) async =>
+      PartyAdjustmentSettings.fromJson(_unwrapMap(
+        await request('PUT', '/api/v1/party-adjustments/settings', body: body),
+      ));
 
   // ---- commission payouts ---------------------------------------------
 

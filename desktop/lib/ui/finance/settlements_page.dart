@@ -512,6 +512,16 @@ class _SettlementsPageState extends State<SettlementsPage> {
         ),
         ChoosableColumn(
           column: const GridColumn(
+              key: 'deductions', label: 'Other Deductions', numeric: true),
+          cell: (item) => item.hasDeductions
+              ? (item.roundingValue +
+                      item.bankChargesValue +
+                      item.discountValue)
+                  .toStringAsFixed(2)
+              : '',
+        ),
+        ChoosableColumn(
+          column: const GridColumn(
               key: 'cash', label: 'Cash or Bank', numeric: true),
           cell: (item) => item.cashAmount,
         ),
@@ -561,9 +571,20 @@ class _SettlementsPageState extends State<SettlementsPage> {
                   ),
                   fact('Date', row.settlementDate),
                   fact('Amount', row.amount),
-                  if (row.tdsValue > 0) ...[
-                    fact('TDS deducted',
-                        '${row.tdsAmount} under ${row.tdsSection}'),
+                  if (row.tdsValue > 0 || row.hasDeductions) ...[
+                    if (row.tdsValue > 0)
+                      fact('TDS deducted',
+                          '${row.tdsAmount} under ${row.tdsSection}'),
+                    if (row.roundingValue > 0)
+                      fact('Rounding / short paid', row.roundingAmount),
+                    if (row.bankChargesValue > 0)
+                      fact('Bank charges', row.bankChargesAmount),
+                    if (row.discountValue > 0)
+                      fact(
+                          row.direction == 'RECEIPT'
+                              ? 'Discount allowed'
+                              : 'Discount received',
+                          row.discountAmount),
                     fact(
                         row.direction == 'RECEIPT'
                             ? 'Received in cash or bank'
