@@ -12,6 +12,7 @@ import '../../models/settlement.dart';
 import '../../models/settlement_direction.dart';
 import '../workspace/desktop_framework.dart';
 import 'record_settlement_dialog.dart';
+import 'supplier_credit_refunds.dart';
 
 /// Money in and money out.
 ///
@@ -208,6 +209,12 @@ class _SettlementsPageState extends State<SettlementsPage> {
                 label: const Text('Supplier credits'),
               ),
               const SizedBox(width: AppSpacing.sm),
+              OutlinedButton.icon(
+                onPressed: () => unawaited(_supplierRefunds()),
+                icon: const Icon(Icons.currency_exchange),
+                label: const Text('Supplier refunds'),
+              ),
+              const SizedBox(width: AppSpacing.sm),
             ],
             if (_canCreate)
               FilledButton.icon(
@@ -328,6 +335,12 @@ class _SettlementsPageState extends State<SettlementsPage> {
                 onPressed: () => unawaited(_supplierCredits()),
                 icon: const Icon(Icons.assignment_return_outlined, size: 16),
                 label: const Text('Supplier credits'),
+              ),
+            if (_canCreate && widget.direction == SettlementDirection.payment)
+              OutlinedButton.icon(
+                onPressed: () => unawaited(_supplierRefunds()),
+                icon: const Icon(Icons.currency_exchange, size: 16),
+                label: const Text('Supplier refunds'),
               ),
           ],
           commands: [
@@ -762,24 +775,21 @@ class _SettlementsPageState extends State<SettlementsPage> {
     }
   }
 
-  /// Set a supplier's credit from returns against one of their bills.
-  ///
-  /// Nothing is posted: the return debited payables when it completed and the
-  /// bill credited them when it was approved. The screen says so.
-  Future<void> _supplierCredits() async {
+  /// Ask whose credit, from the money screens' own supplier list.
+  Future<PartyOption?> _pickVendor() async {
     setState(() => _loading = true);
     List<PartyOption> parties = const [];
     try {
       parties = await widget.api.settlementParties(direction: widget.direction);
     } on ApiException catch (exception) {
-      if (!mounted) return;
+      if (!mounted) return null;
       setState(() => _error = exception.message);
-      return;
+      return null;
     } finally {
       if (mounted) setState(() => _loading = false);
     }
-    if (!mounted || parties.isEmpty) return;
-    final PartyOption? vendor = await showDialog<PartyOption>(
+    if (!mounted || parties.isEmpty) return null;
+    return showDialog<PartyOption>(
       context: context,
       builder: (dialogContext) => SimpleDialog(
         title: const Text('Whose credit?'),
@@ -792,6 +802,30 @@ class _SettlementsPageState extends State<SettlementsPage> {
         ],
       ),
     );
+  }
+
+  /// What a supplier's returns left on their account, how each came back, and
+  /// the refunds recorded against the ones that came back as money.
+  Future<void> _supplierRefunds() async {
+    final PartyOption? vendor = await _pickVendor();
+    if (vendor == null || !mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => SupplierCreditsDialog(
+        api: widget.api,
+        vendorId: vendor.id,
+        vendorName: vendor.name,
+        canManage: _canCreate,
+      ),
+    );
+  }
+
+  /// Set a supplier's credit from returns against one of their bills.
+  ///
+  /// Nothing is posted: the return debited payables when it completed and the
+  /// bill credited them when it was approved. The screen says so.
+  Future<void> _supplierCredits() async {
+    final PartyOption? vendor = await _pickVendor();
     if (vendor == null || !mounted) return;
     final List<SupplierCredit> credits;
     final List<OutstandingInvoice> bills;

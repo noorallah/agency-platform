@@ -526,6 +526,18 @@ class _PurchaseReturnManagementPageState
                   DocumentLifecycleAction.close,
                   '/close',
                 ),
+                // Not a lifecycle step: say what the return comes back as,
+                // any time before it is cancelled.
+                ToolbarCommand(
+                  id: 'change-outcome',
+                  label: 'Change outcome',
+                  icon: Icons.swap_horiz,
+                  onPressed: _selected == null ||
+                          _selected!.status.toUpperCase() == 'CANCELLED' ||
+                          !_mayRun(DocumentToolbarAction.save)
+                      ? null
+                      : () => unawaited(_changeOutcome(_selected!)),
+                ),
               ]
             : const [],
         // Period right after the search, then Columns, as every sales list
@@ -648,6 +660,11 @@ class _PurchaseReturnManagementPageState
         shownByDefault: true,
       ),
       ChoosableColumn(
+        column: const GridColumn(key: 'outcome', label: 'Outcome'),
+        cell: (item) => purchaseReturnOutcomes[item.outcome] ?? item.outcome,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
         column: const GridColumn(key: 'reason', label: 'Reason'),
         cell: (item) => item.returnReason,
       ),
@@ -711,7 +728,8 @@ class _PurchaseReturnManagementPageState
       context: context,
       builder: (_) => DocumentViewDialog(
         title: record.returnNumber,
-        subtitle: 'Supplier return ${record.supplierReturnNumber}',
+        subtitle: 'Supplier return ${record.supplierReturnNumber}  ·  '
+            'Outcome: ${purchaseReturnOutcomes[record.outcome] ?? record.outcome}',
         icon: Icons.assignment_return_outlined,
         header: record.toHeader(),
         lines: [
@@ -735,6 +753,48 @@ class _PurchaseReturnManagementPageState
         history: _history,
       ),
     );
+  }
+
+  /// Choose Credit, Replacement or Refund for the return. The server decides
+  /// whether the change is allowed (a refund that stands pins it), and its
+  /// message is shown as it is.
+  Future<void> _changeOutcome(_PurchaseReturnRecord record) async {
+    final String? chosen = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: Text('Outcome of ${record.returnNumber}'),
+        children: [
+          for (final MapEntry<String, String> entry
+              in purchaseReturnOutcomes.entries)
+            SimpleDialogOption(
+              key: ValueKey<String>('outcome-${entry.key}'),
+              onPressed: () => Navigator.pop(dialogContext, entry.key),
+              child: Text(
+                entry.key == record.outcome
+                    ? '${entry.value} (current)'
+                    : entry.value,
+              ),
+            ),
+        ],
+      ),
+    );
+    if (chosen == null || chosen == record.outcome || !mounted) return;
+    try {
+      await widget.api
+          .setPurchaseReturnOutcome(returnId: record.id, outcome: chosen);
+      await _load();
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '${record.returnNumber} now comes back as '
+        '${purchaseReturnOutcomes[chosen] ?? chosen}.',
+        kind: AppNotificationKind.success,
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(context, error.message,
+          kind: AppNotificationKind.error);
+    }
   }
 
   Future<void> _act(String suffix) async {
@@ -832,6 +892,7 @@ class _PurchaseReturnRecord {
     required this.vendorId,
     this.vendorName = '',
     this.returnReason = '',
+    this.outcome = 'CREDIT',
     this.createdAt = '',
     required this.currencyCode,
     required this.exchangeRate,
@@ -858,6 +919,9 @@ class _PurchaseReturnRecord {
   /// Whose document it is, so the list can say so (owner, 2026-09-27).
   final String vendorName;
   final String returnReason;
+
+  /// CREDIT, REPLACEMENT or REFUND; CREDIT on an answer that names none.
+  final String outcome;
   final String createdAt;
   final String currencyCode;
   final String exchangeRate;
@@ -890,6 +954,9 @@ class _PurchaseReturnRecord {
       vendorId: stringValue(json['vendor_id']),
       vendorName: stringValue(json['vendor_name']),
       returnReason: stringValue(json['return_reason']),
+      outcome: stringValue(json['outcome']).isEmpty
+          ? 'CREDIT'
+          : stringValue(json['outcome']),
       createdAt: stringValue(json['created_at']),
       currencyCode: stringValue(json['currency_code']),
       exchangeRate: stringValue(json['exchange_rate']),

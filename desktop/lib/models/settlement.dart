@@ -234,6 +234,8 @@ class SupplierCredit {
     required this.appliedAmount,
     required this.availableAmount,
     required this.appliedTo,
+    this.refundedAmount = '0.00',
+    this.outcome = 'CREDIT',
   });
 
   final String purchaseReturnId;
@@ -244,6 +246,15 @@ class SupplierCredit {
   final String availableAmount;
   final List<String> appliedTo;
 
+  /// Money the supplier handed back against this credit, and what the return
+  /// came back as: CREDIT, REPLACEMENT or REFUND. `availableAmount` already
+  /// nets the refunds.
+  final String refundedAmount;
+  final String outcome;
+
+  /// Only a return that comes back as a refund can be refunded.
+  bool get isRefundOutcome => outcome == 'REFUND';
+
   double get available => double.tryParse(availableAmount) ?? 0;
 
   factory SupplierCredit.fromJson(Json json) => SupplierCredit(
@@ -253,11 +264,58 @@ class SupplierCredit {
         creditAmount: stringValue(json['credit_amount']),
         appliedAmount: stringValue(json['applied_amount']),
         availableAmount: stringValue(json['available_amount']),
+        refundedAmount: stringValue(json['refunded_amount']).isEmpty
+            ? '0.00'
+            : stringValue(json['refunded_amount']),
+        outcome: stringValue(json['outcome']).isEmpty
+            ? 'CREDIT'
+            : stringValue(json['outcome']),
         appliedTo: [
           for (final dynamic number
               in json['applied_to'] is List ? json['applied_to'] : const [])
             stringValue(number),
         ],
+      );
+}
+
+/// Money a supplier handed back against a purchase return's credit.
+class SupplierRefund {
+  const SupplierRefund({
+    required this.id,
+    required this.purchaseReturnId,
+    required this.refundedOn,
+    required this.amount,
+    required this.method,
+    required this.reference,
+    required this.remarks,
+    required this.status,
+    required this.reversalReason,
+  });
+
+  final String id;
+  final String purchaseReturnId;
+  final String refundedOn;
+  final String amount;
+  final String method;
+  final String reference;
+  final String remarks;
+
+  /// POSTED, or REVERSED once taken back.
+  final String status;
+  final String reversalReason;
+
+  bool get isReversed => status == 'REVERSED';
+
+  factory SupplierRefund.fromJson(Json json) => SupplierRefund(
+        id: stringValue(json['id']),
+        purchaseReturnId: stringValue(json['purchase_return_id']),
+        refundedOn: stringValue(json['refunded_on']),
+        amount: stringValue(json['amount']),
+        method: stringValue(json['method']),
+        reference: stringValue(json['reference']),
+        remarks: stringValue(json['remarks']),
+        status: stringValue(json['status']),
+        reversalReason: stringValue(json['reversal_reason']),
       );
 }
 
