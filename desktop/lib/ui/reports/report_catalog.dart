@@ -679,6 +679,30 @@ const List<ReportDefinition> reportCatalog = [
     rowsKey: 'rows',
     openToReportView: false,
   ),
+  // Tally's Stock Summary (D-GOLIVE-3): what the stock is worth as on a day,
+  // at moving average cost, with the Inventory account beside the total so a
+  // gap between the stock and the books shows. Quarantined goods count: they
+  // are still owned.
+  ReportDefinition(
+    id: 'stock-valuation',
+    label: 'Stock valuation',
+    description: "Every item's quantity, average cost and value as on the "
+        'day, the grand total, and the Inventory account in the books.',
+    path: '/api/v1/inventory/reports/stock-valuation',
+    permission: 'INVENTORY_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    asOnDate: true,
+    columns: [
+      ReportColumn(key: 'product_code', label: 'Code'),
+      ReportColumn(key: 'product_name', label: 'Item'),
+      ReportColumn(key: 'category', label: 'Category'),
+      ReportColumn(key: 'unit', label: 'Unit'),
+      ReportColumn(key: 'quantity', label: 'Quantity', numeric: true),
+      ReportColumn(key: 'rate', label: 'Rate', numeric: true),
+      ReportColumn(key: 'value', label: 'Value', numeric: true),
+    ],
+  ),
   // A collection is never rewritten, so a reversed or back-dated receipt
   // leaves a buyer over- or under-collected until they pay again; this is
   // where that shows (D-CMP-21). The year today falls in: a snapshot.
