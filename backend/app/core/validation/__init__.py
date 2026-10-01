@@ -2,6 +2,7 @@
 
 from app.core.validation.common import (
     ensure_business_rule,
+    normalize_pan,
     normalize_tan,
     refuse_explicit_nulls,
     validate_date_range,
@@ -12,6 +13,7 @@ from app.core.validation.common import (
 
 __all__ = [
     "ensure_business_rule",
+    "normalize_pan",
     "normalize_tan",
     "refuse_explicit_nulls",
     "validate_date_range",

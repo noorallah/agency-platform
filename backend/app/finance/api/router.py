@@ -7,11 +7,16 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    ResolvedFirmScope,
+    firm_any_permission_scope,
+    firm_permission_scope,
+)
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
+from app.core.pagination.reports import ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.document_framework.schemas.bulk_actions import (
     BulkActionResult,
@@ -54,6 +59,7 @@ from app.finance.schemas import (
     ProfitCenterResponse,
     ProfitCenterUpdate,
     ProfitLossReport,
+    TdsRegisterRecord,
     TrialBalanceReport,
     VoucherTypeCreate,
     VoucherTypeResponse,
@@ -74,6 +80,7 @@ from app.finance.services.opening_balances import (
     OpeningLineInput,
     OpeningTrialBalanceService,
 )
+from app.finance.services.tds_register import TdsRegisterService
 
 router = APIRouter(
     prefix="/api/v1/finance",
@@ -1013,3 +1020,57 @@ def account_summaries(
         firm_id=scope.firm_id, accounting_period_id=accounting_period_id
     )
     return ApiResponse(data=rows)
+
+
+# A report opens to whoever may read the books or holds REPORT_VIEW (D-RPT-4).
+TdsReportScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("ACCOUNT_VIEW", "REPORT_VIEW")
+]
+
+
+@router.get(
+    "/reports/tds-deducted",
+    response_model=PaginatedResponse[TdsRegisterRecord],
+)
+def tds_deducted_register(
+    scope: TdsReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[TdsRegisterRecord]:
+    """Every TDS the firm deducted, from payments and expenses (53.1).
+
+    What the quarterly 26Q return is filed from: deductee, PAN, section,
+    quarter, the amount it was deducted from and the amount deducted.
+    """
+    window = ReportWindow(from_date, to_date, page, page_size)
+    rows = TdsRegisterService(db).deducted_by_firm(scope.firm_id, window)
+    return window.respond(
+        [TdsRegisterRecord.model_validate(row, from_attributes=True) for row in rows]
+    )
+
+
+@router.get(
+    "/reports/tds-deducted-by-customers",
+    response_model=PaginatedResponse[TdsRegisterRecord],
+)
+def tds_deducted_by_customers_register(
+    scope: TdsReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[TdsRegisterRecord]:
+    """Every TDS a customer deducted from what it paid the firm (53.1).
+
+    Each row names the customer's TAN, the deductor as Form 26AS names it, so
+    the firm's TDS Receivable can be ticked against the government's record.
+    """
+    window = ReportWindow(from_date, to_date, page, page_size)
+    rows = TdsRegisterService(db).deducted_by_customers(scope.firm_id, window)
+    return window.respond(
+        [TdsRegisterRecord.model_validate(row, from_attributes=True) for row in rows]
+    )

@@ -499,6 +499,23 @@ class _SettlementsPageState extends State<SettlementsPage> {
         cell: (item) => item.amount,
         shownByDefault: true,
       ),
+      // Tax deducted at source (53.1): off by default, since most firms
+      // deduct on few settlements; Columns turns them on.
+      if (widget.direction.allocates) ...[
+        ChoosableColumn(
+          column: const GridColumn(key: 'tds', label: 'TDS', numeric: true),
+          cell: (item) => item.tdsValue > 0 ? item.tdsAmount : '',
+        ),
+        ChoosableColumn(
+          column: const GridColumn(key: 'tds_section', label: 'TDS Section'),
+          cell: (item) => item.tdsSection,
+        ),
+        ChoosableColumn(
+          column: const GridColumn(
+              key: 'cash', label: 'Cash or Bank', numeric: true),
+          cell: (item) => item.cashAmount,
+        ),
+      ],
       ChoosableColumn(
         column: const GridColumn(key: 'narration', label: 'Narration'),
         cell: (item) => item.narration,
@@ -544,6 +561,15 @@ class _SettlementsPageState extends State<SettlementsPage> {
                   ),
                   fact('Date', row.settlementDate),
                   fact('Amount', row.amount),
+                  if (row.tdsValue > 0) ...[
+                    fact('TDS deducted',
+                        '${row.tdsAmount} under ${row.tdsSection}'),
+                    fact(
+                        row.direction == 'RECEIPT'
+                            ? 'Received in cash or bank'
+                            : 'Paid from cash or bank',
+                        row.cashAmount),
+                  ],
                   fact('Method', row.method),
                   fact('Account', row.ledgerAccountName),
                   fact('Reference', row.instrumentReference),
