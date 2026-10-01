@@ -4651,6 +4651,8 @@ in phase 2.
 
 ## 63. Paying the tax: GST payable, set-off and payment; TCS deposit
 
+**Status, 2026-10-01: items 1, 2 and 6 built.** Accounts > GST Payment works out a month from its GSTR-3B -- output tax per head after credit notes, net input credit per head, plus the credit the month before carried -- and sets the credit off by section 49(5) and rule 88A (IGST credit first and wholly, split across CGST and SGST to leave the least cash; CGST never against SGST nor SGST against CGST; cess only against cess), showing cash payable and credit carried per head, with interest at 18% a year suggested for days after the 20th. Recording the challan (CPIN, CIN, bank, interest and late fee to expense accounts the user picks) posts one journal and keeps the month in `gst_payments` (migration `20261001_0176`); one standing settlement per month, and only the latest month can be reversed. A firm's first month takes its opening credit from the portal's electronic credit ledger. Recording needs `JOURNAL_POST`. Left: item 3 (output tax split by head in the ledger), 4 (tax calendar on Home), 5 (TCS deposit and 27EQ -- 206C(1H) TCS ended on 1 April 2025, so low).
+
 Owner, 2026-09-28: sales collect tax -- is anything to be paid, and does the
 product show it?
 

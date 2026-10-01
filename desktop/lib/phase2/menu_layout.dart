@@ -239,6 +239,7 @@ abstract final class MenuLayout {
       ]),
       MenuGroupSpec('Tax filing', [
         MenuItemSpec(AppModule.sales, 'gst-returns', 'GST Returns'),
+        MenuItemSpec(AppModule.sales, 'gst-payment', 'GST Payment'),
         MenuItemSpec(AppModule.sales, 'einvoice', 'E-Invoice'),
         MenuItemSpec(AppModule.sales, 'tcs', 'TCS'),
       ]),
