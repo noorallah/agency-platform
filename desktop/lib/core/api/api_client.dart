@@ -4365,6 +4365,14 @@ class ApiClient {
   Future<void> deletePromotionCoupon(String id) =>
       request('DELETE', '/api/v1/promotions/coupons/$id');
 
+  /// What a document would earn, and why each offer did or did not apply.
+  /// Saves and claims nothing.
+  Future<PromotionTryResult> simulatePromotions(Json body) async =>
+      PromotionTryResult.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/promotions/simulate', body: body)),
+      );
+
   // ---- sales targets --------------------------------------------------
 
   Future<PagedResult<SalesTargetRecord>> salesTargets({
