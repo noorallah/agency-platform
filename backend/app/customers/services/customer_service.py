@@ -24,6 +24,7 @@ from app.core.exceptions import (
     ValidationError,
 )
 from app.core.utils.dates import utc_now
+from app.customers.gst_registration import assert_consistent
 from app.customers.models import (
     Customer,
     CustomerAddress,
@@ -155,6 +156,7 @@ class CustomerService:
             created_by=actor_id,
             updated_by=actor_id,
         )
+        assert_consistent(customer.gst_registration_type, customer.gst_number)
         customer.addresses = [
             self._new_address(address, actor_id) for address in data.addresses
         ]
@@ -289,6 +291,8 @@ class CustomerService:
             )
         for field, value in values.items():
             setattr(customer, field, value)
+        if "gst_registration_type" in values or "gst_number" in values:
+            assert_consistent(customer.gst_registration_type, customer.gst_number)
         if balance_changed:
             # Only reachable when the customer has no receivable activity --
             # the guard above refuses it otherwise -- so recomputing the

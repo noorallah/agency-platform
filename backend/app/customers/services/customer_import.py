@@ -23,6 +23,7 @@ or nothing, match headings loosely, update by code on request -- live in
 
 import re
 from decimal import Decimal
+from typing import get_args
 from uuid import UUID
 
 from pydantic import ValidationError as PydanticValidationError
@@ -41,6 +42,7 @@ from app.common.file_import import (
 )
 from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ApplicationError
+from app.customers.gst_registration import GstRegistrationType
 from app.customers.models import Customer, CustomerGroup
 from app.customers.schemas import CustomerCreate, CustomerUpdate
 from app.customers.schemas.customer import (
@@ -98,6 +100,15 @@ COLUMNS: tuple[Column, ...] = (
         False,
         "GST number; unique among the firm's customers.",
         "33AAAPL1234C1Z5",
+    ),
+    Column(
+        "GstType",
+        ("gstregistrationtype", "gsttreatment", "registrationtype"),
+        False,
+        "One of: "
+        + ", ".join(get_args(GstRegistrationType))
+        + ". Blank is read off the GSTIN: Regular with one, Unregistered without.",
+        "",
     ),
     Column(
         "PAN",
@@ -229,6 +240,7 @@ _FIELD_HEADINGS: dict[str, str] = {
     "customer_type": "Type",
     "customer_group_id": "Segment",
     "gst_number": "GSTIN",
+    "gst_registration_type": "GstType",
     "pan_number": "PAN",
     "tan_number": "TAN",
     "email": "Email",
@@ -398,6 +410,9 @@ class CustomerFileImporter(FileImporter[Customer]):
         for heading, target in _TEXT_FIELDS.items():
             if reader.text(heading):
                 values[target] = reader.text(heading)
+        gst_type = reader.text("GstType").upper().replace(" ", "_")
+        if gst_type:
+            values["gst_registration_type"] = gst_type
         email = reader.email("Email")
         if email:
             values["email"] = email

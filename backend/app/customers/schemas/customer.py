@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.core.validation import normalize_tan, validate_email, validate_phone
+from app.customers.gst_registration import GstRegistrationType
 
 
 class CustomerType(StrEnum):
@@ -161,6 +162,8 @@ class CustomerWrite(CustomerSchema):
     gst_number: str | None = Field(default=None, max_length=32)
     pan_number: str | None = Field(default=None, max_length=32)
     tan_number: str | None = Field(default=None, max_length=10)
+    #: How the buyer stands under GST; blank is read off the GSTIN.
+    gst_registration_type: GstRegistrationType | None = None
     email: str | None = Field(default=None, max_length=320)
     phone: str | None = Field(default=None, max_length=20)
     alternate_phone: str | None = Field(default=None, max_length=20)
@@ -279,6 +282,7 @@ class CustomerResponse(CustomerSchema):
     gst_number: str | None
     pan_number: str | None
     tan_number: str | None = None
+    gst_registration_type: str | None = None
     email: str | None
     phone: str | None
     alternate_phone: str | None

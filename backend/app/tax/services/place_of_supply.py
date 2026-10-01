@@ -51,6 +51,7 @@ from sqlalchemy.orm import Session
 
 from app.branches.models import Branch
 from app.common.firm_metadata import FirmMetadataReader
+from app.customers.gst_registration import SEZ_TYPES
 from app.customers.models import Customer, CustomerAddress
 from app.sales.models.territory import GeoCountry, GeoState
 from app.vendors.models import Vendor, VendorAddress
@@ -252,7 +253,16 @@ class SupplyPlaceResolver:
     def is_interstate(
         self, *, firm_id: UUID, branch_id: UUID | None, customer_id: UUID | None
     ) -> bool:
-        """Return whether the supply is made in a state other than the supplier's."""
+        """Return whether the supply is made in a state other than the supplier's.
+
+        A supply to a Special Economic Zone is inter-state wherever the unit
+        is (IGST Act section 7(5)(b)), so an SEZ buyer is always IGST even in
+        the firm's own state (backlog 75 row 2).
+        """
+        if customer_id is not None:
+            customer = self._session.get(Customer, customer_id)
+            if customer is not None and customer.gst_registration_type in SEZ_TYPES:
+                return True
         seller = self.supplier_state(firm_id=firm_id, branch_id=branch_id)
         buyer = self.buyer_state(customer_id)
         return seller is not None and buyer is not None and seller != buyer
@@ -372,6 +382,9 @@ class SupplyPlaceResolver:
         registered = gst_state_code(customer.gst_number)
         if registered is not None:
             return registered
+        if customer.gst_registration_type == "OVERSEAS":
+            # Declared abroad, whatever address was typed (section 7(5)(a)).
+            return FOREIGN_STATE_CODE
         address = self._addressed_to(customer)
         if address is None:
             return None

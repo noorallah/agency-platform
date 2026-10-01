@@ -128,6 +128,11 @@ class Customer(BaseEntity):
     #: Tax Deduction Account Number, held by one that deducts TDS (backlog
     #: 53.1). Recorded and format-checked; nothing posts from it yet.
     tan_number: Mapped[str | None] = mapped_column(String(10))
+    #: REGULAR, COMPOSITION, UNREGISTERED, SEZ_WITH_PAYMENT,
+    #: SEZ_WITHOUT_PAYMENT, DEEMED_EXPORT or OVERSEAS (backlog 75 row 2,
+    #: `app/customers/gst_registration.py`). NULL is read off the GSTIN, so
+    #: every customer saved before it is billed exactly as it was.
+    gst_registration_type: Mapped[str | None] = mapped_column(String(30))
     email: Mapped[str | None] = mapped_column(String(320))
     phone: Mapped[str | None] = mapped_column(String(20))
     alternate_phone: Mapped[str | None] = mapped_column(String(20))

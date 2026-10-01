@@ -39,6 +39,7 @@ from app.core.utils.pricing import (
     resolve_bill_discount,
     resolve_line_discount,
 )
+from app.customers.gst_registration import effective_type, sez_tax_warning
 from app.customers.models import Customer
 from app.customers.schemas import (
     CustomerReceivableTransactionCreate,
@@ -155,6 +156,17 @@ def _receivable_amount(value: Decimal) -> Decimal:
     and its sibling never saw it.
     """
     return quantize_ledger(value)
+
+
+def _buyer_gst_type(customer: Customer | None) -> str | None:
+    """Return the buyer's GST standing to stamp on a bill (backlog 75 row 2).
+
+    Stamped with the place of supply, and for the same reason: a customer
+    re-classified later must not change how a bill already issued is filed.
+    """
+    if customer is None:
+        return None
+    return effective_type(customer.gst_registration_type, customer.gst_number)
 
 
 @dataclass(frozen=True, slots=True)
@@ -522,6 +534,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             payment_terms=data.payment_terms,
             due_date=data.due_date or self._due_date(customer, data.invoice_date),
             place_of_supply=self._place_of_supply(customer),
+            buyer_gst_registration_type=_buyer_gst_type(customer),
             reference_number=data.reference_number,
             remarks=data.remarks,
             received_now_amount=self._q(data.received_now_amount),
@@ -660,9 +673,9 @@ class SalesInvoiceService(TransactionalDocumentService):
         row.due_date = data.due_date
         # A draft is re-priced on every save, against the buyer as they stand
         # now, so what it prints must follow the same answer (D-CMP-15).
-        row.place_of_supply = self._place_of_supply(
-            self._session.get(Customer, row.customer_id)
-        )
+        buyer = self._session.get(Customer, row.customer_id)
+        row.place_of_supply = self._place_of_supply(buyer)
+        row.buyer_gst_registration_type = _buyer_gst_type(buyer)
         row.reference_number = data.reference_number
         row.remarks = data.remarks
         # Absent means leave alone: an editor that never showed the counter
@@ -909,11 +922,21 @@ class SalesInvoiceService(TransactionalDocumentService):
         discount_details = DiscountLimitService(self._session).enforce(
             firm_scope, actor_id, invoice_discounts(self._judged_discount_lines(row))
         )
+        # A supply to an SEZ under an LUT carries no tax; one that charges some
+        # is warned about rather than refused, because whether the LUT covers
+        # this supply is the firm's to know (backlog 75 row 2).
+        sez_remark, sez_details = sez_tax_warning(customer, row.tax_total)
         approval_remark = (
-            " ".join(part for part in (licence_remark, price_remark) if part) or None
+            " ".join(
+                part for part in (licence_remark, price_remark, sez_remark) if part
+            )
+            or None
         )
         approval_details = (
-            (licence_details or {}) | (price_details or {}) | (discount_details or {})
+            (licence_details or {})
+            | (price_details or {})
+            | (discount_details or {})
+            | (sez_details or {})
         ) or None
         # The goods leave now, not when the draft was saved: a draft is a
         # proposal, and it used to ship the stock and post cost of goods sold

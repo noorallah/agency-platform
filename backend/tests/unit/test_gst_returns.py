@@ -1319,3 +1319,62 @@ def test_correcting_a_products_hsn_does_not_rewrite_a_filed_month() -> None:
     hsn = books.gstr1()["hsn"]
 
     assert [(row["hsn"], row["taxable_value"]) for row in hsn] == [("33061020", 800.0)]
+
+
+def _registered_as(books: _Books, kind: str) -> Customer:
+    """Declare the registered buyer's GST registration type."""
+    books.registered.gst_registration_type = kind
+    books.session.commit()
+    return books.registered
+
+
+def test_sez_and_deemed_export_bills_are_b2b_marked_by_invoice_type() -> None:
+    """SEWP / SEWOP / DE, and an ordinary buyer stays R (backlog 75 row 2)."""
+    for kind, expected in (
+        (None, "R"),
+        ("COMPOSITION", "R"),
+        ("SEZ_WITH_PAYMENT", "SEWP"),
+        ("SEZ_WITHOUT_PAYMENT", "SEWOP"),
+        ("DEEMED_EXPORT", "DE"),
+    ):
+        books = _Books(_session_factory()())
+        if kind is not None:
+            _registered_as(books, kind)
+        books.invoice("SI-1", interstate=True)
+        (invoice,) = books.gstr1()["b2b"][0]["invoices"]
+        assert invoice["invoice_type"] == expected, kind
+
+
+def test_an_export_is_table_6a_not_b2c() -> None:
+    """An overseas buyer's bill goes in EXP, by whether IGST was paid."""
+    books = _Books(_session_factory()())
+    books.walk_in.gst_registration_type = "OVERSEAS"
+    books.session.commit()
+    books.invoice("EX-1", customer=books.walk_in, interstate=True)
+    books.invoice("EX-2", customer=books.walk_in, tax="0", interstate=True)
+
+    answer = books.gstr1()
+
+    assert answer["b2cs"] == [] and answer["b2cl"] == []
+    assert [(row["invoice_number"], row["export_type"]) for row in answer["exp"]] == [
+        ("EX-1", "WPAY"),
+        ("EX-2", "WOPAY"),
+    ]
+    assert all(row["place_of_supply"] == "96" for row in answer["exp"])
+
+
+def test_zero_rated_supplies_are_3_1_b_not_3_1_a() -> None:
+    """An SEZ bill under LUT leaves 3.1(a) and is reported in 3.1(b)."""
+    books = _Books(_session_factory()())
+    # Stamped REGULAR when it was raised, as the service does: re-classifying
+    # the buyer afterwards must not move a bill already issued.
+    books.invoice("SI-1").buyer_gst_registration_type = "REGULAR"
+    books.session.commit()
+    _registered_as(books, "SEZ_WITHOUT_PAYMENT")
+    books.invoice("SZ-1", tax="0", interstate=True)
+
+    summary = books.gstr3b()
+
+    assert summary["outward_taxable_supplies"]["taxable_value"] == 1000.0
+    assert summary["zero_rated_supplies"]["taxable_value"] == 1000.0
+    assert summary["zero_rated_supplies"]["integrated_tax"] == 0.0

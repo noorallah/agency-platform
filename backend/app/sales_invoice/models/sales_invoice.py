@@ -68,6 +68,11 @@ class SalesInvoice(BaseEntity):
     #: and it is stored rather than derived because a customer who moves must
     #: not silently change the tax treatment of an invoice already issued.
     place_of_supply: Mapped[str | None] = mapped_column(String(120))
+    #: The buyer's GST registration type when the bill was raised (backlog 75
+    #: row 2): REGULAR, SEZ_WITHOUT_PAYMENT and so on. Stamped with the place
+    #: of supply, because it decides the return table and the e-invoice supply
+    #: type; NULL on bills raised before it, which read the customer instead.
+    buyer_gst_registration_type: Mapped[str | None] = mapped_column(String(30))
     currency_code: Mapped[str | None] = mapped_column(String(10))
     exchange_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
     payment_terms: Mapped[str | None] = mapped_column(String(200))
