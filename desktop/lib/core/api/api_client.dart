@@ -30,6 +30,7 @@ import '../../models/proforma.dart';
 import '../../models/tcs.dart';
 import '../../models/firm_member.dart';
 import '../../models/sales_invoice.dart';
+import '../../models/sales_analysis.dart';
 import '../../models/sales_return.dart';
 import '../../models/goods_receipt.dart';
 import '../../models/purchase.dart';
@@ -4749,6 +4750,45 @@ class ApiClient {
         ? data.whereType<Map>().map(Map<String, dynamic>.from).toList()
         : const <Json>[];
   }
+
+  // ---- sales analysis -------------------------------------------------
+
+  /// Billed sales pivoted by one or two dimensions, net of returns by default.
+  Future<SalesAnalysis> salesAnalysis({
+    required String rows,
+    String? columns,
+    required String fromDate,
+    required String toDate,
+    bool netOfReturns = true,
+    Map<String, String> filters = const {},
+  }) async =>
+      SalesAnalysis.fromJson(_unwrapMap(await request(
+        'GET',
+        '/api/v1/sales-invoices/reports/analysis',
+        query: {
+          'rows': rows,
+          if (columns != null && columns.isNotEmpty) 'columns': columns,
+          'from_date': fromDate,
+          'to_date': toDate,
+          'net_of_returns': netOfReturns ? 'true' : 'false',
+          ...filters,
+        },
+      )));
+
+  /// The invoices behind one cell of the analysis.
+  Future<List<AnalysisInvoice>> salesAnalysisInvoices({
+    required String fromDate,
+    required String toDate,
+    Map<String, String> filters = const {},
+  }) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/sales-invoices/reports/analysis/invoices',
+          query: {'from_date': fromDate, 'to_date': toDate, ...filters},
+        ),
+        AnalysisInvoice.fromJson,
+      );
 
   // ---- GST returns ----------------------------------------------------
 

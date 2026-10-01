@@ -163,6 +163,9 @@ abstract final class MenuLayout {
         MenuItemSpec(AppModule.sales, 'commission', 'Commission'),
         MenuItemSpec(AppModule.sales, 'targets', 'Targets'),
       ]),
+      MenuGroupSpec('Insight', [
+        MenuItemSpec(AppModule.sales, 'sales-analysis', 'Sales Analysis'),
+      ]),
       MenuGroupSpec('Field sales', [
         MenuItemSpec(AppModule.sales, 'beat-plans', 'Beat Plans'),
         MenuItemSpec(AppModule.sales, 'call-lists', 'Call Lists'),

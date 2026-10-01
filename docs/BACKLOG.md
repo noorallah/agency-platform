@@ -4602,6 +4602,8 @@ should.
 
 ## 62. Sales analysis: any combination of period, product, customer and more
 
+**Status, 2026-10-01: the core built.** Sell > Insight > **Sales Analysis**: rows and optional columns, each any of day, week, month, financial-year quarter, financial year, product, category, customer, customer group, salesman, territory, route, branch; figures quantity, taxable, tax, net sales, invoices (distinct, never summed across cells) and average bill; totals both ways; net of credit notes and completed returns by default, gross on a switch; presets for this month, last month and this financial year; click a cell or row total to list the invoices behind it (`/sales-invoices/reports/analysis` and `.../analysis/invoices`, grouped in SQL). Checked on PERF01: 5,000 products by 12 months over a year in 3.5 s, rows summing to the grand total. Left: filter pickers on the screen (the server takes them), orders-booked mode, margin, compare with last year, chart, export, saved layouts, the Home gadgets, and §66 for purchases.
+
 Owner, 2026-09-28: sales needs a section, and Home gadgets, showing how much
 was sold per day, per month, per product, per customer -- every combination.
 
