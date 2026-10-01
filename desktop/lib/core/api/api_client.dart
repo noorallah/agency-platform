@@ -9,6 +9,7 @@ import '../../models/bulk_action.dart';
 import '../../models/finance.dart';
 import '../../models/physical_count.dart';
 import '../../models/expense.dart';
+import '../../models/gst_payment.dart';
 import '../../models/settlement.dart';
 import '../../models/settlement_direction.dart';
 import '../../models/batch_serial.dart';
@@ -3550,6 +3551,59 @@ class ApiClient {
   ) =>
       _bulk('/api/v1/sales-orders/bulk-cancel', rows, reason: reason);
 
+  /// Approve or cancel several documents of one kind in one call; rows are
+  /// acted on one by one, so some can be refused while others succeed.
+  Future<BulkActionResult> bulkApproveSalesInvoices(List<BulkRow> rows) =>
+      _bulk('/api/v1/sales-invoices/bulk-approve', rows);
+
+  Future<BulkActionResult> bulkCancelSalesInvoices(
+    List<BulkRow> rows,
+    String reason,
+  ) =>
+      _bulk('/api/v1/sales-invoices/bulk-cancel', rows, reason: reason);
+
+  Future<BulkActionResult> bulkApprovePurchaseInvoices(List<BulkRow> rows) =>
+      _bulk('/api/v1/purchase-invoices/bulk-approve', rows);
+
+  Future<BulkActionResult> bulkCancelPurchaseInvoices(
+    List<BulkRow> rows,
+    String reason,
+  ) =>
+      _bulk('/api/v1/purchase-invoices/bulk-cancel', rows, reason: reason);
+
+  Future<BulkActionResult> bulkApproveDeliveryNotes(List<BulkRow> rows) =>
+      _bulk('/api/v1/delivery-notes/bulk-approve', rows);
+
+  Future<BulkActionResult> bulkCancelDeliveryNotes(
+    List<BulkRow> rows,
+    String reason,
+  ) =>
+      _bulk('/api/v1/delivery-notes/bulk-cancel', rows, reason: reason);
+
+  Future<BulkActionResult> bulkApproveCreditNotes(List<BulkRow> rows) =>
+      _bulk('/api/v1/credit-notes/bulk-approve', rows);
+
+  Future<BulkActionResult> bulkApproveSalesReturns(List<BulkRow> rows) =>
+      _bulk('/api/v1/sales-returns/bulk-approve', rows);
+
+  Future<BulkActionResult> bulkCancelSalesReturns(
+    List<BulkRow> rows,
+    String reason,
+  ) =>
+      _bulk('/api/v1/sales-returns/bulk-cancel', rows, reason: reason);
+
+  Future<BulkActionResult> bulkApprovePurchaseReturns(List<BulkRow> rows) =>
+      _bulk('/api/v1/purchase-returns/bulk-approve', rows);
+
+  Future<BulkActionResult> bulkCancelPurchaseReturns(
+    List<BulkRow> rows,
+    String reason,
+  ) =>
+      _bulk('/api/v1/purchase-returns/bulk-cancel', rows, reason: reason);
+
+  Future<BulkActionResult> bulkPostJournalEntries(List<BulkRow> rows) =>
+      _bulk('/api/v1/finance/journal-entries/bulk-post', rows);
+
   /// `version` is left out when unknown: the server rejects unknown fields but
   /// accepts an item without one.
   Future<BulkActionResult> _bulk(
@@ -4312,6 +4366,14 @@ class ApiClient {
   Future<void> deletePromotionCoupon(String id) =>
       request('DELETE', '/api/v1/promotions/coupons/$id');
 
+  /// What a document would earn, and why each offer did or did not apply.
+  /// Saves and claims nothing.
+  Future<PromotionTryResult> simulatePromotions(Json body) async =>
+      PromotionTryResult.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/promotions/simulate', body: body)),
+      );
+
   // ---- sales targets --------------------------------------------------
 
   Future<PagedResult<SalesTargetRecord>> salesTargets({
@@ -4732,6 +4794,50 @@ class ApiClient {
         'GET',
         '/api/v1/gst-returns/gstr3b',
         query: {'from_date': fromDate, 'to_date': toDate},
+      ));
+
+  // ---- paying the tax (backlog 63) -------------------------------------
+
+  /// A month's set-off and cash payable, by the statutory order; writes
+  /// nothing. [openingCredit] is the first month's credit brought forward,
+  /// keyed igst/cgst/sgst/cess.
+  Future<GstPaymentPreview> gstPaymentPreview({
+    required String returnPeriod,
+    String? paymentDate,
+    Map<String, String> openingCredit = const {},
+  }) async =>
+      GstPaymentPreview.fromJson(await request(
+        'GET',
+        '/api/v1/gst-returns/payments/preview',
+        query: {
+          'return_period': returnPeriod,
+          if (paymentDate != null) 'payment_date': paymentDate,
+          for (final MapEntry<String, String> entry in openingCredit.entries)
+            if (entry.value.trim().isNotEmpty)
+              'opening_credit_${entry.key}': entry.value.trim(),
+        },
+      ));
+
+  /// Every month recorded as settled, newest first.
+  Future<List<GstPaymentRecord>> gstPayments() async => _unwrapList(
+        await request('GET', '/api/v1/gst-returns/payments'),
+        GstPaymentRecord.fromJson,
+      );
+
+  /// Record a month's challan; posts the set-off and the cash in one journal.
+  Future<GstPaymentRecord> recordGstPayment(Json data) async =>
+      GstPaymentRecord.fromJson(await request(
+        'POST',
+        '/api/v1/gst-returns/payments',
+        body: data,
+      ));
+
+  /// Take back the latest month's settlement.
+  Future<GstPaymentRecord> reverseGstPayment(String id, String reason) async =>
+      GstPaymentRecord.fromJson(await request(
+        'POST',
+        '/api/v1/gst-returns/payments/$id/reverse',
+        body: {'reason': reason},
       ));
 
   // ---- credit notes ---------------------------------------------------
@@ -5866,6 +5972,25 @@ class ApiClient {
           'GET',
           '/api/v1/finance/profit-loss',
           query: {'accounting_period_id': accountingPeriodId},
+        ),
+      );
+
+  /// The profit and loss over a run of months in one financial year (50),
+  /// month by month, optionally with the previous year's same months.
+  Future<ProfitLossRangeReport> profitAndLossRange({
+    required String fromPeriodId,
+    required String toPeriodId,
+    bool comparePreviousYear = false,
+  }) async =>
+      ProfitLossRangeReport.fromJson(
+        await request(
+          'GET',
+          '/api/v1/finance/profit-loss/range',
+          query: {
+            'from_period_id': fromPeriodId,
+            'to_period_id': toPeriodId,
+            'compare': comparePreviousYear ? 'previous_year' : 'none',
+          },
         ),
       );
 

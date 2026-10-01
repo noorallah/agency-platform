@@ -541,6 +541,120 @@ class ProfitLossReport {
   );
 }
 
+/// One account over a run of months: total, month by month, last year's.
+class ProfitLossRangeLine {
+  const ProfitLossRangeLine({
+    required this.accountCode,
+    required this.accountName,
+    required this.amount,
+    required this.months,
+    required this.comparisonAmount,
+  });
+
+  final String accountCode;
+  final String accountName;
+  final String amount;
+
+  /// In the order of the report's months.
+  final List<String> months;
+
+  /// The previous year's same months; empty when not asked for.
+  final String comparisonAmount;
+
+  factory ProfitLossRangeLine.fromJson(Json json) => ProfitLossRangeLine(
+        accountCode: stringValue(json['account_code']),
+        accountName: stringValue(json['account_name']),
+        amount: stringValue(json['amount']),
+        months: [
+          for (final dynamic value in json['months'] is List
+              ? json['months'] as List
+              : const [])
+            stringValue(value),
+        ],
+        comparisonAmount: stringValue(json['comparison_amount']),
+      );
+}
+
+/// The profit and loss over a run of months in one financial year (50).
+class ProfitLossRangeReport {
+  const ProfitLossRangeReport({
+    required this.monthNames,
+    required this.income,
+    required this.expenses,
+    required this.totalIncome,
+    required this.totalExpense,
+    required this.netProfit,
+    required this.monthlyNetProfit,
+    required this.hasComparison,
+    required this.comparisonIncome,
+    required this.comparisonExpense,
+    required this.comparisonNetProfit,
+  });
+
+  final List<String> monthNames;
+  final List<ProfitLossRangeLine> income;
+  final List<ProfitLossRangeLine> expenses;
+  final String totalIncome;
+  final String totalExpense;
+  final String netProfit;
+  final List<String> monthlyNetProfit;
+
+  /// Whether the previous year's same months were found and are shown.
+  final bool hasComparison;
+  final String comparisonIncome;
+  final String comparisonExpense;
+  final String comparisonNetProfit;
+
+  bool get isEmpty => income.isEmpty && expenses.isEmpty;
+
+  /// A section's total for one month, summed from its lines.
+  static String monthTotal(List<ProfitLossRangeLine> lines, int index) =>
+      lines
+          .fold<double>(
+            0,
+            (sum, line) =>
+                sum +
+                (index < line.months.length
+                    ? double.tryParse(line.months[index]) ?? 0
+                    : 0),
+          )
+          .toStringAsFixed(2);
+
+  factory ProfitLossRangeReport.fromJson(Json json) {
+    final Json d = json.containsKey('data')
+        ? Map<String, dynamic>.from(json['data'] as Map)
+        : json;
+    List<ProfitLossRangeLine> section(String key) => [
+          for (final dynamic line in d[key] is List ? d[key] as List : const [])
+            if (line is Map)
+              ProfitLossRangeLine.fromJson(Map<String, dynamic>.from(line)),
+        ];
+    return ProfitLossRangeReport(
+      monthNames: [
+        for (final dynamic month in d['months'] is List
+            ? d['months'] as List
+            : const [])
+          if (month is Map) stringValue(month['name']),
+      ],
+      income: section('income'),
+      expenses: section('expenses'),
+      totalIncome: stringValue(d['total_income']),
+      totalExpense: stringValue(d['total_expense']),
+      netProfit: stringValue(d['net_profit']),
+      monthlyNetProfit: [
+        for (final dynamic value in d['monthly_net_profit'] is List
+            ? d['monthly_net_profit'] as List
+            : const [])
+          stringValue(value),
+      ],
+      hasComparison: d['comparison_year_id'] != null,
+      comparisonIncome: stringValue(d['comparison_income']),
+      comparisonExpense: stringValue(d['comparison_expense']),
+      comparisonNetProfit: stringValue(d['comparison_net_profit']),
+    );
+  }
+}
+
 /// One movement on an account statement, with the balance it left behind.
 class GeneralLedgerLine {
   const GeneralLedgerLine({

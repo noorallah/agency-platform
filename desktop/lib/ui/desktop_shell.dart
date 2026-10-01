@@ -53,6 +53,7 @@ import 'commission/commission_page.dart';
 import 'commission/sales_target_page.dart';
 import 'sales/credit_note_page.dart';
 import 'sales/einvoice_page.dart';
+import 'sales/gst_payment_page.dart';
 import 'sales/gst_return_page.dart';
 import 'sales/sales_analysis_page.dart';
 import 'sales/proforma_page.dart';
@@ -2739,6 +2740,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),
+      'gst-payment' => GstPaymentPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+        ),
       'tcs' => TcsPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -2802,6 +2808,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           'Sales Analysis',
           'Billed sales by any one or two dimensions, net of returns. Click '
               'a figure to see the invoices behind it.',
+        ),
+      'gst-payment' => (
+          'GST Payment',
+          'What the month owes, what its input credit pays in the order the '
+              'law sets, and the challan for the rest, posted in one journal.',
         ),
       'gst-returns' => (
           'GST Returns',

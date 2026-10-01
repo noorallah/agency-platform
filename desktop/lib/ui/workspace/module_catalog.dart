@@ -570,6 +570,13 @@ abstract final class ModuleCatalog {
           label: 'GST Returns',
           requiredPermissions: ['SALES_VIEW'],
         ),
+        // Paying the month's GST: set-off and challan (backlog 63).
+        ModuleTabDefinition(
+          id: 'gst-payment',
+          label: 'GST Payment',
+          requiredPermissions: ['SALES_VIEW', 'ACCOUNT_VIEW'],
+          requiresAnyPermission: true,
+        ),
         ModuleTabDefinition(
           id: 'tcs',
           label: 'TCS',
