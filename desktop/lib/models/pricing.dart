@@ -383,12 +383,17 @@ class PromotionActionRecord {
     this.buyQuantity = '',
     this.freeQuantity = '',
     this.freeProductId = '',
+    this.maxAmount = '',
   });
 
   final String id;
   final int sequence;
   final String actionType;
   final String percent;
+
+  /// For a percent benefit: the most it may take off the whole document --
+  /// "20% off, up to 500" (backlog 60 item 1). Blank is no cap.
+  final String maxAmount;
   final String amount;
   final String buyQuantity;
   final String freeQuantity;
@@ -416,6 +421,7 @@ class PromotionActionRecord {
       buyQuantity: read('buy_quantity'),
       freeQuantity: read('free_quantity'),
       freeProductId: read('free_product_id'),
+      maxAmount: read('max_amount'),
     );
   }
 
@@ -429,6 +435,7 @@ class PromotionActionRecord {
           'free_quantity': freeQuantity.trim(),
         if (freeProductId.trim().isNotEmpty)
           'free_product_id': freeProductId.trim(),
+        if (maxAmount.trim().isNotEmpty) 'max_amount': maxAmount.trim(),
       };
 }
 

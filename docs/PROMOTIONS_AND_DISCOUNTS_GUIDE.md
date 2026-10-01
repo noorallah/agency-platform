@@ -432,3 +432,5 @@ described where they apply above.
 | --- | --- |
 | Backlog 59 | No "best offer only" mode: matching promotions always combine. |
 | Backlog 60 | No screen to try an offer and no future-dated quotation (row 13); offer types still missing against market practice -- a percent capped at an amount, buy X get Y at a discount, combo prices, festival bonus points, bulk coupon codes, first-order offers, offer templates, scheme claims, offers on the print. |
+
+**Percent off, up to a limit (2026-10-01).** A percentage benefit -- on the line or on the bill -- takes an optional **Up to**: "20% off, up to 500" never takes more than 500 off the document. On line percentages the 500 is shared across the lines the offer matched, in proportion to what each would have had, so the lines still add up to exactly 500. Blank means no limit.

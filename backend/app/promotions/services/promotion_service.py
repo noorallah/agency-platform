@@ -32,6 +32,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.utils.money import quantize_money
+from app.core.utils.pricing import apportion
 from app.products.models import Product
 from app.promotions.models import (
     Promotion,
@@ -570,8 +571,19 @@ class PromotionService:
             kind = action.action_type
             if kind == PromotionActionType.LINE_DISCOUNT_PERCENT.value:
                 rate = Decimal(str(params.get("percent", 0)))
-                for state in matched:
-                    state.discount += quantize_money(state.remaining * rate / HUNDRED)
+                shares = [
+                    quantize_money(state.remaining * rate / HUNDRED)
+                    for state in matched
+                ]
+                cap = _cap(params)
+                if cap is not None and sum(shares, ZERO) > cap:
+                    # "20% off, up to 500" caps the offer on the document,
+                    # not on each line: the cap is spread over the lines in
+                    # proportion to what each would have had, so the shares
+                    # still sum exactly to it.
+                    shares = apportion(cap, shares)
+                for state, share in zip(matched, shares, strict=True):
+                    state.discount += share
             elif kind == PromotionActionType.LINE_DISCOUNT_AMOUNT.value:
                 amount = Decimal(str(params.get("amount", 0)))
                 for state in matched:
@@ -620,7 +632,9 @@ class PromotionService:
                     continue
                 if kind == PromotionActionType.BILL_DISCOUNT_PERCENT.value:
                     rate = Decimal(str(params.get("percent", 0)))
-                    added_bill += quantize_money(taxable * rate / HUNDRED)
+                    off = quantize_money(taxable * rate / HUNDRED)
+                    cap = _cap(params)
+                    added_bill += off if cap is None else min(off, cap)
                 else:
                     amount = Decimal(str(params.get("amount", 0)))
                     added_bill += min(quantize_money(amount), taxable)
@@ -672,3 +686,11 @@ class PromotionService:
             )
         )
         self._session.flush()
+
+
+def _cap(params: dict[str, object]) -> Decimal | None:
+    """Return a percent action's cap on the document, or None for no cap."""
+    raw = params.get("max_amount")
+    if raw in (None, "", "None"):
+        return None
+    return quantize_money(Decimal(str(raw)))

@@ -2346,3 +2346,106 @@ def test_a_typed_zero_refuses_an_offers_free_goods_and_blank_takes_them() -> Non
     assert order(None).free_quantity == Decimal("2.0000")
     assert order(Decimal("0")).free_quantity == Decimal("0.0000")
     assert order(Decimal("1")).free_quantity == Decimal("1.0000")
+
+
+def test_a_capped_percentage_stops_at_its_cap_across_the_document() -> None:
+    """20% off, up to 500: spread over the lines, summing exactly to 500."""
+    session = _session_factory()()
+    firm = _firm(session)
+    first = _product(session, firm_id=firm.id, code="A")
+    second = _product(session, firm_id=firm.id, code="B")
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="DIWALI20",
+        actions=[
+            (
+                PromotionActionType.LINE_DISCOUNT_PERCENT,
+                {"percent": "20", "max_amount": "500"},
+            )
+        ],
+    )
+
+    result = PromotionService(session).evaluate(
+        _request(lines=[(1, first.id, "1", "3000"), (2, second.id, "1", "1000")]),
+        firm_scope=firm.id,
+    )
+
+    # 20% would be 600 + 200 = 800; the cap holds it at 500, in proportion.
+    assert [line.discount_amount for line in result.lines] == [
+        Decimal("375.00"),
+        Decimal("125.00"),
+    ]
+    assert result.applied[0].benefit_amount == Decimal("500.00")
+
+
+def test_a_cap_above_the_discount_changes_nothing() -> None:
+    """A cap only ever lowers a discount; it never raises one."""
+    session = _session_factory()()
+    firm = _firm(session)
+    product = _product(session, firm_id=firm.id)
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="CAPPED",
+        actions=[
+            (
+                PromotionActionType.LINE_DISCOUNT_PERCENT,
+                {"percent": "10", "max_amount": "5000"},
+            )
+        ],
+    )
+    result = PromotionService(session).evaluate(
+        _request(lines=[(1, product.id, "4", "1000")]), firm_scope=firm.id
+    )
+    assert result.lines[0].discount_amount == Decimal("100.00")
+
+
+def test_a_capped_bill_percentage_stops_at_its_cap() -> None:
+    """The cap holds on a bill percentage too."""
+    session = _session_factory()()
+    firm = _firm(session)
+    product = _product(session, firm_id=firm.id)
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="BILL15",
+        actions=[
+            (
+                PromotionActionType.BILL_DISCOUNT_PERCENT,
+                {"percent": "15", "max_amount": "250"},
+            )
+        ],
+    )
+    result = PromotionService(session).evaluate(
+        _request(lines=[(1, product.id, "1", "4000")]), firm_scope=firm.id
+    )
+    assert result.bill_discount_amount == Decimal("250.00")
+
+
+def test_a_cap_is_written_only_for_a_percentage() -> None:
+    """A cap is stored with a percent, absent without one, refused elsewhere."""
+    from pydantic import ValidationError as SchemaError
+
+    from app.promotions.schemas import PromotionActionWrite
+    from app.promotions.services.promotion_crud import PromotionCrudService
+
+    capped = PromotionActionWrite(
+        action_type=PromotionActionType.LINE_DISCOUNT_PERCENT,
+        percent=Decimal("20"),
+        max_amount=Decimal("500"),
+    )
+    assert PromotionCrudService._parameters(capped) == {
+        "percent": "20",
+        "max_amount": "500",
+    }
+    uncapped = PromotionActionWrite(
+        action_type=PromotionActionType.LINE_DISCOUNT_PERCENT, percent=Decimal("20")
+    )
+    assert "max_amount" not in PromotionCrudService._parameters(uncapped)
+    with pytest.raises(SchemaError, match="Only a percentage benefit"):
+        PromotionActionWrite(
+            action_type=PromotionActionType.LINE_DISCOUNT_AMOUNT,
+            amount=Decimal("100"),
+            max_amount=Decimal("50"),
+        )
