@@ -690,7 +690,9 @@ account summary answer "this year", so `GeneralLedgerService._brought_forward`
 takes off what an income or expense account had run up before the financial
 year began, and the trial balance adds one equity row, **Profit and loss
 brought forward**, so it still balances (D-FIN-22, 2026-09-30). A report that
-shows an opening balance for an income or expense account must go through it.
+shows an opening balance for an income or expense account must go through it,
+and must take the same figure off its closing balance, so the closing is where
+the running balance ends (D-FIN-24, 2026-10-02).
 
 ## A credit note that states its lines reverses tax
 
