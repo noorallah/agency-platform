@@ -2013,6 +2013,34 @@ class DeliveryNoteService(TransactionalDocumentService):
             )
         return [(pick.batch_id, self._q(pick.quantity)) for pick in picks]
 
+    def _record_drawn(
+        self,
+        line: DeliveryNoteLine,
+        allocation: list[tuple[UUID | None, Decimal]],
+        *,
+        actor_id: UUID,
+    ) -> None:
+        """Write down the batches dispatch drew when nobody chose (backlog 79).
+
+        After dispatch a line's picks are what left, chosen or not, so the
+        challan prints one row per batch and the note shows the split without
+        rebuilding it from movements -- which carry a reference and a product,
+        not a line, and cannot tell two lines of one product apart.
+        """
+        for batch_id, quantity in allocation:
+            if batch_id is None:
+                continue
+            self._session.add(
+                DeliveryNoteLineBatch(
+                    delivery_note_line_id=line.id,
+                    firm_id=line.firm_id,
+                    batch_id=batch_id,
+                    quantity=self._q(quantity),
+                    created_by=actor_id,
+                    updated_by=actor_id,
+                )
+            )
+
     def _record_fefo_skip(
         self,
         row: DeliveryNote,
@@ -2575,6 +2603,8 @@ class DeliveryNoteService(TransactionalDocumentService):
                     line.batch_id = batch_id
             if dispatched is None:
                 raise ValidationError("Insufficient available stock for dispatch line.")
+            if chosen is None:
+                self._record_drawn(line, allocation, actor_id=actor_id)
             line.inventory_transaction_id = dispatched.id
             line.updated_by = actor_id
         self._session.flush()

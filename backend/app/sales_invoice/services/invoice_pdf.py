@@ -511,7 +511,9 @@ class InvoicePdfRenderer:
         for line in document.lines:
             charged = {code: (percent, amount) for code, percent, amount in line.taxes}
             cells: list[object] = [
-                str(line.number),
+                # Zero marks a continuation row: the same line from another
+                # batch (backlog 79).
+                str(line.number) if line.number else "",
                 Paragraph(line.description, self._body),
                 line.hsn or "",
                 (

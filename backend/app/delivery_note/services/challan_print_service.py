@@ -18,14 +18,20 @@ reads "10 + 1 free", because the storekeeper at the other end counts eleven.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import replace
 from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.batch_serial.models.batch_serial import BatchRecord
 from app.core.exceptions import ResourceNotFoundError
-from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
+from app.delivery_note.models import (
+    DeliveryNote,
+    DeliveryNoteLine,
+    DeliveryNoteLineBatch,
+)
 from app.document_framework.services.print_support import (
     customer_party,
     firm_party,
@@ -43,6 +49,8 @@ from app.tax.services.gst_compliance import CHALLAN_REASONS
 from app.uom.models import Uom
 
 ZERO = Decimal("0")
+QTY = Decimal("0.0001")
+MONEY = Decimal("0.01")
 DOCUMENT_TYPE = "DELIVERY_NOTE"
 #: A challan accompanies goods; it is not a tax invoice and does not say so.
 DEFAULT_TITLE = "DELIVERY CHALLAN"
@@ -53,6 +61,75 @@ DEFAULT_COPIES: tuple[str, ...] = (
     "DUPLICATE FOR TRANSPORTER",
     "TRIPLICATE FOR CONSIGNOR",
 )
+
+
+def _per_batch(
+    whole: InvoiceLineBlock,
+    batches: list[tuple[BatchRecord, Decimal]],
+    stock_quantity: Decimal,
+) -> list[InvoiceLineBlock]:
+    """Print a line once per batch it takes, as a pharmacy challan does (79).
+
+    Each row states its batch and expiry and its share of the quantity, the
+    free goods and the value, in proportion to the stock units it takes; the
+    last row takes what rounding left, so the rows add up to the line exactly.
+    One batch, or none recorded, prints the line as it is.
+    """
+    if not batches:
+        return [whole]
+    if len(batches) == 1 or stock_quantity <= ZERO:
+        batch = batches[0][0]
+        return [
+            replace(
+                whole,
+                batch=batch.batch_number,
+                expiry=batch.expiry_date.isoformat() if batch.expiry_date else None,
+            )
+        ]
+    rows: list[InvoiceLineBlock] = []
+    left = {
+        "quantity": whole.quantity,
+        "free_quantity": whole.free_quantity,
+        "discount": whole.discount,
+        "taxable": whole.taxable,
+        "total": whole.total,
+    }
+    places = {
+        "quantity": QTY,
+        "free_quantity": QTY,
+        "discount": MONEY,
+        "taxable": MONEY,
+        "total": MONEY,
+    }
+    for index, (batch, quantity) in enumerate(batches):
+        last = index == len(batches) - 1
+        share = quantity / stock_quantity
+        values: dict[str, Decimal] = {}
+        for name in left:
+            part = (
+                left[name]
+                if last
+                else (getattr(whole, name) * share).quantize(places[name])
+            )
+            values[name] = part
+            left[name] -= part
+        rows.append(
+            replace(
+                whole,
+                # The line's number goes on its first row only, so the rows
+                # read as one line taken from several batches.
+                number=whole.number if index == 0 else 0,
+                description=whole.description if index == 0 else "",
+                batch=batch.batch_number,
+                expiry=batch.expiry_date.isoformat() if batch.expiry_date else None,
+                quantity=values["quantity"],
+                free_quantity=values["free_quantity"],
+                discount=values["discount"],
+                taxable=values["taxable"],
+                total=values["total"],
+            )
+        )
+    return rows
 
 
 class DeliveryChallanPrintService:
@@ -76,6 +153,12 @@ class DeliveryChallanPrintService:
 
         template = self._template(firm_scope)
         document = self._document(note, firm_scope=firm_scope)
+        if any(line.batch for line in document.lines):
+            # Goods that carry batches travel with their batch and expiry on
+            # the paper (backlog 79), whatever the firm's template hides.
+            template = replace(
+                template, show_batch_column=True, show_expiry_column=True
+            )
         pdf = InvoicePdfRenderer(template).render(document)
         safe = note.delivery_note_number.replace("/", "-").replace(" ", "-")
         return pdf, f"{safe}.pdf"
@@ -112,29 +195,29 @@ class DeliveryChallanPrintService:
         products = self._products(line.product_id for line in lines)
         units = self._units(line.sales_uom_id for line in lines)
 
+        drawn = self._drawn([line.id for line in lines])
         printed: list[InvoiceLineBlock] = []
         for line in lines:
             product = products.get(line.product_id)
             unit = units.get(line.sales_uom_id) if line.sales_uom_id else None
-            printed.append(
-                InvoiceLineBlock(
-                    number=line.line_number,
-                    description=line.description
-                    or (product.name if product else "")
-                    or "",
-                    hsn=product.hsn_sac if product else None,
-                    quantity=line.current_delivery_quantity,
-                    free_quantity=line.free_quantity,
-                    uom=(unit.code if unit else None),
-                    rate=line.unit_price,
-                    discount=line.discount_amount,
-                    taxable=line.gross_amount
-                    - line.discount_amount
-                    - line.bill_discount_amount,
-                    total=line.net_amount,
-                    batch=line.batch_number,
-                    expiry=line.expiry_date.isoformat() if line.expiry_date else None,
-                )
+            whole = InvoiceLineBlock(
+                number=line.line_number,
+                description=line.description or (product.name if product else "") or "",
+                hsn=product.hsn_sac if product else None,
+                quantity=line.current_delivery_quantity,
+                free_quantity=line.free_quantity,
+                uom=(unit.code if unit else None),
+                rate=line.unit_price,
+                discount=line.discount_amount,
+                taxable=line.gross_amount
+                - line.discount_amount
+                - line.bill_discount_amount,
+                total=line.net_amount,
+                batch=line.batch_number,
+                expiry=line.expiry_date.isoformat() if line.expiry_date else None,
+            )
+            printed.extend(
+                _per_batch(whole, drawn.get(line.id, []), line.delivered_quantity)
             )
 
         references: list[tuple[str, str]] = []
@@ -212,6 +295,27 @@ class DeliveryChallanPrintService:
             date_label="Challan date",
             words_label="VALUE OF GOODS, IN WORDS",
         )
+
+    def _drawn(
+        self, line_ids: list[UUID]
+    ) -> dict[UUID, list[tuple[BatchRecord, Decimal]]]:
+        """Return each line's batches -- chosen, or drawn at dispatch (79)."""
+        if not line_ids:
+            return {}
+        found: dict[UUID, list[tuple[BatchRecord, Decimal]]] = {}
+        for pick, batch in self._session.execute(
+            select(DeliveryNoteLineBatch, BatchRecord)
+            .join(BatchRecord, BatchRecord.id == DeliveryNoteLineBatch.batch_id)
+            .where(
+                DeliveryNoteLineBatch.delivery_note_line_id.in_(line_ids),
+                DeliveryNoteLineBatch.is_deleted.is_(False),
+            )
+            .order_by(DeliveryNoteLineBatch.created_at.asc())
+        ).all():
+            found.setdefault(pick.delivery_note_line_id, []).append(
+                (batch, pick.quantity)
+            )
+        return found
 
     def _firm(self, firm_scope: UUID) -> PartyBlock:
         """Describe the dispatching firm."""

@@ -18,16 +18,21 @@ from app.batch_serial.models.batch_serial import BatchRecord
 from app.batch_serial.services import BatchSerialService
 from app.common.audit.models import AuditLog
 from app.core.exceptions import ValidationError
-from app.delivery_note.models import DeliveryNote
+from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.delivery_note.schemas import (
     DeliveryNoteBatchPick,
     DeliveryNoteCreate,
     DeliveryNoteLineWrite,
 )
 from app.delivery_note.services import DeliveryNoteService
+from app.delivery_note.services.challan_print_service import (
+    DeliveryChallanPrintService,
+    _per_batch,
+)
 from app.inventory.models import InventoryRecord, InventoryTransaction
 from app.inventory.services import InventoryService
 from app.products.models import Product
+from app.sales_invoice.services.invoice_pdf import InvoiceLineBlock
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
@@ -392,3 +397,79 @@ def test_an_empty_list_clears_the_choice_and_absent_keeps_it() -> None:
 
     assert _rewrite(None) == [shop.batches["JUNE"].id]
     assert _rewrite([]) == []
+
+
+def test_dispatch_with_no_choice_records_what_it_drew() -> None:
+    """After dispatch a line's batches are what left, chosen or not."""
+    shop = _Shop()
+    note = shop.note(None)
+
+    shop.dispatch(note)
+
+    response = shop.notes.note_response(note)
+    assert [(p.batch_id, p.quantity) for p in response.lines[0].batches] == [
+        (shop.batches["MARCH"].id, Decimal("8.0000"))
+    ]
+
+
+def test_the_challan_prints_one_row_per_batch_that_adds_up() -> None:
+    """Five from MARCH and three from JUNE print as two rows of one line.
+
+    The second row carries no line number or description, and the shares of
+    the quantity and the value add up to the line exactly.
+    """
+    shop = _Shop()
+    note = shop.note(shop.picks(MARCH="5", JUNE="3"))
+    shop.dispatch(note)
+
+    document = DeliveryChallanPrintService(shop.session)._document(
+        note, firm_scope=shop.firm_id
+    )
+
+    assert [(row.number, row.batch) for row in document.lines] == [
+        (1, "MARCH"),
+        (0, "JUNE"),
+    ]
+    assert document.lines[0].expiry == "2027-03-31"
+    assert [row.quantity for row in document.lines] == [
+        Decimal("5.0000"),
+        Decimal("3.0000"),
+    ]
+    line = shop.session.scalar(
+        select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
+    )
+    assert line is not None
+    assert sum(row.total for row in document.lines) == line.net_amount
+    pdf, _name = DeliveryChallanPrintService(shop.session).render(
+        note.id, firm_scope=shop.firm_id
+    )
+    assert pdf.startswith(b"%PDF")
+
+
+def test_a_share_that_does_not_divide_evenly_still_adds_up() -> None:
+    """Three batches of a line worth 100 put the odd paisa on the last row."""
+    whole = InvoiceLineBlock(
+        number=1,
+        description="Strip",
+        hsn=None,
+        quantity=Decimal("3"),
+        uom=None,
+        rate=Decimal("33.3333"),
+        discount=Decimal("0"),
+        taxable=Decimal("100.00"),
+        total=Decimal("100.00"),
+    )
+    batch = BatchRecord(batch_number="B", expiry_date=None)
+
+    rows = _per_batch(
+        whole,
+        [(batch, Decimal("1")), (batch, Decimal("1")), (batch, Decimal("1"))],
+        Decimal("3"),
+    )
+
+    assert [row.total for row in rows] == [
+        Decimal("33.33"),
+        Decimal("33.33"),
+        Decimal("33.34"),
+    ]
+    assert sum(row.quantity for row in rows) == Decimal("3")
