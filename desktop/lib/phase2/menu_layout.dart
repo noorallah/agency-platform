@@ -36,10 +36,14 @@ class MenuItemSpec {
   /// owning screen already asks to read it; each dialog is read-only for
   /// somebody who may not change it.
   const MenuItemSpec.setting(String this.route, this.label,
-      {required String this.permission})
+      {String this.permission = noPermission})
       : module = null,
         tab = null,
         gate = null;
+
+  /// The [permission] of a setting that every member of a firm may open
+  /// (their own preferences), so no code is asked.
+  static const String noPermission = '';
 
   /// For a [MenuItemSpec.setting], the permission that offers it.
   final String? permission;
@@ -117,6 +121,10 @@ abstract final class MenuLayout {
   static const String loyaltySchemeRoute = 'settings/loyalty-scheme';
   static const String tcsSettingsRoute = 'settings/tcs';
 
+  /// The person's own usual branch and warehouse (backlog 44): a dialog, and
+  /// open to every member of a firm.
+  static const String workDefaultsRoute = 'settings/my-branch-warehouse';
+
   static const MenuAreaSpec home = MenuAreaSpec('home', 'Home', [
     MenuGroupSpec('Home', [MenuItemSpec.phase2(MenuLayout.homeRoute, 'Home')]),
   ]);
@@ -154,6 +162,9 @@ abstract final class MenuLayout {
       MenuGroupSpec('Incentives', [
         MenuItemSpec(AppModule.sales, 'commission', 'Commission'),
         MenuItemSpec(AppModule.sales, 'targets', 'Targets'),
+      ]),
+      MenuGroupSpec('Insight', [
+        MenuItemSpec(AppModule.sales, 'sales-analysis', 'Sales Analysis'),
       ]),
       MenuGroupSpec('Field sales', [
         MenuItemSpec(AppModule.sales, 'beat-plans', 'Beat Plans'),
@@ -194,6 +205,8 @@ abstract final class MenuLayout {
       MenuGroupSpec('Insight', [
         MenuItemSpec(
             AppModule.purchases, 'purchase-dashboard', 'Purchase Dashboard'),
+        MenuItemSpec(
+            AppModule.purchases, 'purchase-analysis', 'Purchase Analysis'),
         // Purchase Analytics is left out: its screen only says the backend
         // has no analytics yet (MenuLayout.notOffered).
       ]),
@@ -354,6 +367,7 @@ abstract final class MenuLayout {
       MenuItemSpec(AppModule.masters, 'financial-years', 'Financial Years'),
       MenuItemSpec(
           AppModule.administration, 'numbering-series', 'Numbering Series'),
+      MenuItemSpec.setting(workDefaultsRoute, 'My Branch and Warehouse'),
     ]),
     MenuGroupSpec('Selling', [
       MenuItemSpec.setting(salesStagesRoute, 'Sales Stages',
@@ -433,7 +447,8 @@ abstract final class MenuLayout {
     bool offered(MenuItemSpec item) {
       if (item.isSetting) {
         return visibility.hasActiveFirm &&
-            visibility.permissions.hasPermission(item.permission!);
+            (item.permission == MenuItemSpec.noPermission ||
+                visibility.permissions.hasPermission(item.permission!));
       }
       if (item.module == null) {
         final MenuItemSpec? gate =

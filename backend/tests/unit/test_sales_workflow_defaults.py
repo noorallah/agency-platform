@@ -20,6 +20,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -229,3 +230,19 @@ def test_the_stages_are_audited_by_name() -> None:
         "sales_workflow_settings.updated",
     }
     assert actions[-1] == "sales_workflow_settings.updated"
+
+
+def test_the_offer_mode_is_saved_and_an_omission_leaves_it() -> None:
+    """Backlog 59: COMBINE by default; BEST_OFFER survives a save without it."""
+    setup = _setup()
+    service = SalesWorkflowService(setup.session)
+    assert service.settings_response(setup.firm.id).promotion_mode == "COMBINE"
+
+    _save(setup, promotion_mode="BEST_OFFER")
+    assert service.settings_response(setup.firm.id).promotion_mode == "BEST_OFFER"
+
+    _save(setup)
+    assert service.settings_response(setup.firm.id).promotion_mode == "BEST_OFFER"
+
+    with pytest.raises(PydanticValidationError):
+        _write(promotion_mode="LOUDEST")

@@ -1,6 +1,7 @@
 """Firm-scoped REST endpoints for enterprise sales invoices."""
 
 from datetime import date
+from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
@@ -26,6 +27,7 @@ from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.core.utils.dates import utc_now
 from app.document_framework.schemas import DocumentLifecycleEventResponse
 from app.document_framework.schemas.bulk_actions import (
     BulkActionResult,
@@ -50,6 +52,12 @@ from app.sales_invoice.schemas import (
 from app.sales_invoice.services import SalesInvoiceService
 from app.sales_invoice.services.invoice_print_service import (
     SalesInvoicePrintService,
+)
+from app.sales_invoice.services.sales_analysis import (
+    AnalysisFilters,
+    Cell,
+    SalesAnalysis,
+    SalesAnalysisService,
 )
 from app.trade_licences.api.override import (
     LicenceOverrideReason,
@@ -412,6 +420,208 @@ def get_sales_invoice_timeline(
     return PaginatedResponse(
         data=[DocumentLifecycleEventResponse.model_validate(row) for row in rows],
         pagination=pagination.metadata(total),
+    )
+
+
+class AnalysisFigures(BaseModel):
+    """The figures of one cell or total (backlog 62)."""
+
+    quantity: Decimal
+    taxable: Decimal
+    tax: Decimal
+    net: Decimal
+    invoices: int
+    #: Net sales per invoice; None where no invoice is counted.
+    average_bill: Decimal | None
+
+
+class AnalysisHeading(BaseModel):
+    """One row or column heading, and for a time bucket the dates it covers."""
+
+    key: str
+    label: str
+    from_date: date | None = None
+    to_date: date | None = None
+
+
+class AnalysisCellRecord(BaseModel):
+    """One cell: its row key, column key and figures."""
+
+    row: str
+    column: str
+    figures: AnalysisFigures
+
+
+class SalesAnalysisResponse(BaseModel):
+    """The pivot: headings both ways, cells, totals both ways, grand total."""
+
+    rows: list[AnalysisHeading]
+    columns: list[AnalysisHeading]
+    cells: list[AnalysisCellRecord]
+    row_totals: dict[str, AnalysisFigures]
+    column_totals: dict[str, AnalysisFigures]
+    grand_total: AnalysisFigures
+
+
+class AnalysisInvoiceRecord(BaseModel):
+    """One invoice behind a cell, and what its matching lines came to."""
+
+    id: UUID
+    invoice_number: str
+    invoice_date: date
+    customer_id: UUID
+    net: Decimal
+
+
+def _figures(cell: Cell) -> AnalysisFigures:
+    paise = Decimal("0.01")
+    return AnalysisFigures(
+        quantity=cell.quantity,
+        taxable=cell.taxable.quantize(paise),
+        tax=cell.tax.quantize(paise),
+        net=cell.net.quantize(paise),
+        invoices=cell.invoices,
+        average_bill=(
+            (cell.net / cell.invoices).quantize(Decimal("0.01"))
+            if cell.invoices
+            else None
+        ),
+    )
+
+
+def analysis_response(result: SalesAnalysis) -> SalesAnalysisResponse:
+    """Shape a pivot for the wire; the purchase analysis shares it (66)."""
+    return SalesAnalysisResponse(
+        rows=[AnalysisHeading(**vars(key)) for key in result.rows],
+        columns=[AnalysisHeading(**vars(key)) for key in result.columns],
+        cells=[
+            AnalysisCellRecord(row=row, column=column, figures=_figures(cell))
+            for (row, column), cell in result.cells.items()
+        ],
+        row_totals={k: _figures(v) for k, v in result.row_totals.items()},
+        column_totals={k: _figures(v) for k, v in result.column_totals.items()},
+        grand_total=_figures(result.grand_total),
+    )
+
+
+def _analysis_filters(
+    product_id: UUID | None,
+    category_id: UUID | None,
+    customer_id: UUID | None,
+    customer_group_id: UUID | None,
+    salesman_id: UUID | None,
+    territory_id: UUID | None,
+    route_id: UUID | None,
+    branch_id: UUID | None,
+) -> AnalysisFilters:
+    return AnalysisFilters(
+        product_id=product_id,
+        category_id=category_id,
+        customer_id=customer_id,
+        customer_group_id=customer_group_id,
+        salesman_id=salesman_id,
+        territory_id=territory_id,
+        route_id=route_id,
+        branch_id=branch_id,
+    )
+
+
+@router.get(
+    "/reports/analysis",
+    response_model=ApiResponse[SalesAnalysisResponse],
+)
+def sales_analysis(
+    scope: SalesInvoiceReportScope,
+    db: Annotated[Session, Depends(get_db)],
+    rows: str = "product",
+    columns: str | None = None,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    net_of_returns: bool = True,
+    product_id: UUID | None = None,
+    category_id: UUID | None = None,
+    customer_id: UUID | None = None,
+    customer_group_id: UUID | None = None,
+    salesman_id: UUID | None = None,
+    territory_id: UUID | None = None,
+    route_id: UUID | None = None,
+    branch_id: UUID | None = None,
+) -> ApiResponse[SalesAnalysisResponse]:
+    """Billed sales by one or two dimensions, net of returns (backlog 62).
+
+    ``rows`` and ``columns`` are each one of day, week, month, quarter, year,
+    product, category, customer, customer_group, salesman, territory, route,
+    branch. The period defaults to this month.
+    """
+    today = utc_now().date()
+    first = from_date or today.replace(day=1)
+    last = to_date or today
+    result = SalesAnalysisService(db).analyse(
+        scope.firm_id,
+        rows=rows,
+        columns=columns,
+        from_date=first,
+        to_date=last,
+        filters=_analysis_filters(
+            product_id,
+            category_id,
+            customer_id,
+            customer_group_id,
+            salesman_id,
+            territory_id,
+            route_id,
+            branch_id,
+        ),
+        net_of_returns=net_of_returns,
+    )
+    return ApiResponse(data=analysis_response(result))
+
+
+@router.get(
+    "/reports/analysis/invoices",
+    response_model=ApiResponse[list[AnalysisInvoiceRecord]],
+)
+def sales_analysis_invoices(
+    scope: SalesInvoiceReportScope,
+    db: Annotated[Session, Depends(get_db)],
+    from_date: date,
+    to_date: date,
+    product_id: UUID | None = None,
+    category_id: UUID | None = None,
+    customer_id: UUID | None = None,
+    customer_group_id: UUID | None = None,
+    salesman_id: UUID | None = None,
+    territory_id: UUID | None = None,
+    route_id: UUID | None = None,
+    branch_id: UUID | None = None,
+) -> ApiResponse[list[AnalysisInvoiceRecord]]:
+    """List the invoices behind one cell of the analysis (backlog 62)."""
+    rows = SalesAnalysisService(db).invoices(
+        scope.firm_id,
+        from_date=from_date,
+        to_date=to_date,
+        filters=_analysis_filters(
+            product_id,
+            category_id,
+            customer_id,
+            customer_group_id,
+            salesman_id,
+            territory_id,
+            route_id,
+            branch_id,
+        ),
+    )
+    return ApiResponse(
+        data=[
+            AnalysisInvoiceRecord(
+                id=invoice.id,
+                invoice_number=invoice.invoice_number,
+                invoice_date=invoice.invoice_date,
+                customer_id=invoice.customer_id,
+                net=net,
+            )
+            for invoice, net in rows
+        ]
     )
 
 

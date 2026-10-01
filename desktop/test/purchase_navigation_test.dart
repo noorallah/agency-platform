@@ -6,10 +6,11 @@
 // to one screen, grouped under a node labelled "Orders", which says nothing
 // about whose orders in an application that also sells.
 //
-// These pin the shape that replaced it: four entries and a status bar inside
+// These pin the shape that replaced it: five entries and a status bar inside
 // Purchase Orders that drives the existing filter. It was five until
 // 2026-08-22, when the Sourcing group went: its two children, RFQs and Vendor
-// Quotations, had no backend of any kind behind them.
+// Quotations, had no backend of any kind behind them. Purchase Analysis made
+// it five again on 2026-10-01 (backlog 66): a real screen, not a preset.
 
 import 'dart:convert';
 import 'dart:io';
@@ -257,13 +258,19 @@ void main() {
       expect(ids, contains('purchase-orders'));
     });
 
-    test('four entries, and no group called Orders', () {
+    test('five entries, and no group called Orders', () {
       final List<WorkspaceNavigationNode> nodes =
           ModuleCatalog.navigationChildren(AppModule.purchases, _tabIds());
 
       expect(
         nodes.map((node) => node.label),
-        <String>['Dashboard', 'Purchase Orders', 'Analytics', 'Settings'],
+        <String>[
+          'Dashboard',
+          'Purchase Orders',
+          'Analytics',
+          'Purchase Analysis',
+          'Settings',
+        ],
       );
       expect(
           _flatten(nodes).map((node) => node.label), isNot(contains('Orders')));

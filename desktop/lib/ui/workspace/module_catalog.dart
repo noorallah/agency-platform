@@ -560,6 +560,12 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['EINVOICE_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'sales-analysis',
+          label: 'Sales Analysis',
+          requiredPermissions: ['SALES_VIEW', 'REPORT_VIEW'],
+          requiresAnyPermission: true,
+        ),
+        ModuleTabDefinition(
           id: 'gst-returns',
           label: 'GST Returns',
           requiredPermissions: ['SALES_VIEW'],
@@ -720,6 +726,12 @@ abstract final class ModuleCatalog {
           id: 'purchase-dashboard',
           label: 'Dashboard',
           requiredPermissions: ['PURCHASE_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'purchase-analysis',
+          label: 'Purchase Analysis',
+          requiredPermissions: ['PURCHASE_VIEW', 'REPORT_VIEW'],
+          requiresAnyPermission: true,
         ),
         ModuleTabDefinition(
           id: 'purchase-orders',
@@ -1614,6 +1626,12 @@ abstract final class ModuleCatalog {
           label: 'Analytics',
           path: 'purchase-analytics',
           icon: Icons.query_stats_outlined,
+        ),
+      if (visibleTabIds.contains('purchase-analysis'))
+        const WorkspaceNavigationNode(
+          label: 'Purchase Analysis',
+          path: 'purchase-analysis',
+          icon: Icons.pivot_table_chart_outlined,
         ),
       if (visibleTabIds.contains('purchase-settings'))
         const WorkspaceNavigationNode(

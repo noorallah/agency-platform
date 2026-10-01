@@ -30,6 +30,7 @@ import '../../models/proforma.dart';
 import '../../models/tcs.dart';
 import '../../models/firm_member.dart';
 import '../../models/sales_invoice.dart';
+import '../../models/sales_analysis.dart';
 import '../../models/sales_return.dart';
 import '../../models/goods_receipt.dart';
 import '../../models/purchase.dart';
@@ -1471,6 +1472,27 @@ class ApiClient {
         sortBy: sortBy,
         descending: descending,
         additionalQuery: filters.toQuery(),
+      );
+
+  /// The signed-in person's usual branch and warehouse in this firm
+  /// (backlog 44). Any member may read and set their own.
+  Future<WorkDefaults> myWorkDefaults() async => WorkDefaults.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/branches/my-work-defaults')),
+      );
+
+  /// Set, or with both null clear, the person's own defaults.
+  Future<WorkDefaults> setMyWorkDefaults({
+    String? branchId,
+    String? warehouseId,
+  }) async =>
+      WorkDefaults.fromJson(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/branches/my-work-defaults',
+            body: {'branch_id': branchId, 'warehouse_id': warehouseId},
+          ),
+        ),
       );
 
   Future<BranchRecord> createBranch(Json data) async => BranchRecord.fromJson(
@@ -4365,6 +4387,14 @@ class ApiClient {
   Future<void> deletePromotionCoupon(String id) =>
       request('DELETE', '/api/v1/promotions/coupons/$id');
 
+  /// What a document would earn, and why each offer did or did not apply.
+  /// Saves and claims nothing.
+  Future<PromotionTryResult> simulatePromotions(Json body) async =>
+      PromotionTryResult.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/promotions/simulate', body: body)),
+      );
+
   // ---- sales targets --------------------------------------------------
 
   Future<PagedResult<SalesTargetRecord>> salesTargets({
@@ -4720,6 +4750,85 @@ class ApiClient {
         ? data.whereType<Map>().map(Map<String, dynamic>.from).toList()
         : const <Json>[];
   }
+
+  // ---- sales analysis -------------------------------------------------
+
+  /// Billed sales pivoted by one or two dimensions, net of returns by default.
+  Future<SalesAnalysis> salesAnalysis({
+    required String rows,
+    String? columns,
+    required String fromDate,
+    required String toDate,
+    bool netOfReturns = true,
+    Map<String, String> filters = const {},
+  }) async =>
+      SalesAnalysis.fromJson(_unwrapMap(await request(
+        'GET',
+        '/api/v1/sales-invoices/reports/analysis',
+        query: {
+          'rows': rows,
+          if (columns != null && columns.isNotEmpty) 'columns': columns,
+          'from_date': fromDate,
+          'to_date': toDate,
+          'net_of_returns': netOfReturns ? 'true' : 'false',
+          ...filters,
+        },
+      )));
+
+  /// The invoices behind one cell of the analysis.
+  Future<List<AnalysisInvoice>> salesAnalysisInvoices({
+    required String fromDate,
+    required String toDate,
+    Map<String, String> filters = const {},
+  }) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/sales-invoices/reports/analysis/invoices',
+          query: {'from_date': fromDate, 'to_date': toDate, ...filters},
+        ),
+        AnalysisInvoice.fromJson,
+      );
+
+  // ---- purchase analysis ----------------------------------------------
+
+  /// Purchases pivoted by one or two dimensions; the same shape as the sales
+  /// analysis.
+  Future<SalesAnalysis> purchaseAnalysis({
+    required String rows,
+    String? columns,
+    required String fromDate,
+    required String toDate,
+    bool netOfReturns = true,
+    Map<String, String> filters = const {},
+  }) async =>
+      SalesAnalysis.fromJson(_unwrapMap(await request(
+        'GET',
+        '/api/v1/purchase-invoices/reports/analysis',
+        query: {
+          'rows': rows,
+          if (columns != null && columns.isNotEmpty) 'columns': columns,
+          'from_date': fromDate,
+          'to_date': toDate,
+          'net_of_returns': netOfReturns ? 'true' : 'false',
+          ...filters,
+        },
+      )));
+
+  /// The bills behind one cell of the purchase analysis.
+  Future<List<AnalysisBill>> purchaseAnalysisBills({
+    required String fromDate,
+    required String toDate,
+    Map<String, String> filters = const {},
+  }) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/purchase-invoices/reports/analysis/bills',
+          query: {'from_date': fromDate, 'to_date': toDate, ...filters},
+        ),
+        AnalysisBill.fromJson,
+      );
 
   // ---- GST returns ----------------------------------------------------
 

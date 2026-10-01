@@ -3585,6 +3585,8 @@ and installers (the same place as the phase 2 licence service).
 
 ## 44. A user's own default branch and warehouse
 
+**Status, 2026-10-01: built.** Settings > Firm > **My Branch and Warehouse** (any firm member) sets where a person usually works; `GET/PUT /api/v1/branches/my-work-defaults`, kept in the firm's own store (`user_work_defaults`, migration `20261001_0177`), validated on save (live, the warehouse the branch's) and on use (one retired since is dropped with a notice). The desktop loads it on firm switch and sign-in, clears it on sign-out and before another firm's, and `preferredBranchId` / `preferredWarehouseId` take it ahead of the firm's default, so every document form that opens with a default follows. It only fills; it restricts nothing. Left: an administrator setting it on someone else's record.
+
 Asked for by the owner on 2026-09-25, during the laptop QA round (W39-W43),
 after a sales order was approved with no warehouse and its stock was reserved
 in an empty one (D-QA-17).
@@ -4463,6 +4465,8 @@ printed bill naming every note) is still to build.
 
 ## 59. Promotions: a "best offer only" mode
 
+**Status, 2026-10-01: items 1 and 2 built.** Settings > Selling > Sales Stages carries **When several offers match**: *Combine offers* (the default; every firm keeps today's pricing) or *Best offer only* (`sales_workflow_settings.promotion_mode`, migration `20261001_0178`). In best-offer mode every matching offer is valued on its own -- discounts, bill discount, free units at the line's own rate, a free product at its selling price, waived delivery at its charge -- the most valuable is applied, a tie goes to the earlier *Applies at*, and each loser's decision says what it was worth against the winner. Left: item 3, a maximum combined discount per line in Combine mode (60 item 1's cap covers the per-offer case).
+
 Noticed on 2026-09-28, explaining promotions to the owner
 (`docs/PROMOTIONS_AND_DISCOUNTS_GUIDE.md` section 4).
 
@@ -4508,7 +4512,7 @@ branch, salesman, document type and date, and the tests "is one of", "between",
 
 | # | Offer | Example | Note |
 | --- | --- | --- | --- |
-| 1 | Percent off **with a cap** | 20% off, up to 500 | a `max_amount` on the percent benefits |
+| 1 | Percent off **with a cap** | 20% off, up to 500 | **Built 2026-10-01**: an *Up to* on both percent benefits, the cap on the whole document; on line percentages it is spread over the lines in proportion, summing exactly to the cap |
 | 2 | **Best offer only** | give whichever single offer is worth most | backlog 59 |
 | 3 | **Product and customer sets** | "any of these 12 products" | server has `IN`; needs a multi-pick on the screen (D-SELL-42) |
 | 4 | **Buy X get Y at a discount** | buy 2, second at 50% off | new benefit; today only fully free |
@@ -4519,8 +4523,8 @@ branch, salesman, document type and date, and the tests "is one of", "between",
 | 9 | **Day and time** | weekends only; 4-6 pm | condition on weekday and time; mainly retail |
 | 10 | **Offer templates** | "copy last Diwali's offers, new dates" | copy a promotion, or a set of them |
 | 11 | **Manufacturer scheme claims** | free goods given on the company's scheme, claimed back | track the value per scheme to claim from the supplier |
-| 12 | **Offer shown on the print** | "Diwali offer: 250 saved" on the bill | print each applied offer and the total saved |
-| 13 | **Try an offer before launch** | see today what next week's Diwali offer does to an order | a Try screen on Promotions over `POST /api/v1/promotions/simulate` (built, no caller) taking a date, a customer and lines, and showing each offer tried and why it applied or not; the workaround today is a test customer (`docs/PROMOTIONS_AND_DISCOUNTS_GUIDE.md` section 13) |
+| 12 | **Offer shown on the print** | "Diwali offer: 250 saved" on the bill | **Built 2026-10-01**: the bill head names the offers claimed on the orders it bills (*Offers*) and *You saved* -- line discounts plus the bill discount |
+| 13 | **Try an offer before launch** | see today what next week's Diwali offer does to an order | **Built.** *Try offers* on the Promotions screen (behind "...") over `POST /api/v1/promotions/simulate`: a date, document, optional customer, coupon and delivery charge, and lines; it shows each line's discount and free goods, the bill discount, delivery waived, gifts, the total saved, and every offer tried with why it applied or not |
 
 **Rules that stay** (from `docs/PRICING_AND_PROMOTIONS.md`): one engine for
 every document; a typed discount beats every offer; offers are counted at
@@ -4599,6 +4603,8 @@ journal by who keeps it; the 194R total per supplier crosses 20,000 when it
 should.
 
 ## 62. Sales analysis: any combination of period, product, customer and more
+
+**Status, 2026-10-01: the core built.** Sell > Insight > **Sales Analysis**: rows and optional columns, each any of day, week, month, financial-year quarter, financial year, product, category, customer, customer group, salesman, territory, route, branch; figures quantity, taxable, tax, net sales, invoices (distinct, never summed across cells) and average bill; totals both ways; net of credit notes and completed returns by default, gross on a switch; presets for this month, last month and this financial year; click a cell or row total to list the invoices behind it (`/sales-invoices/reports/analysis` and `.../analysis/invoices`, grouped in SQL). Checked on PERF01: 5,000 products by 12 months over a year in 3.5 s, rows summing to the grand total. Left: filter pickers on the screen (the server takes them), orders-booked mode, margin, compare with last year, chart, export, saved layouts, the Home gadgets, and §66 for purchases.
 
 Owner, 2026-09-28: sales needs a section, and Home gadgets, showing how much
 was sold per day, per month, per product, per customer -- every combination.
@@ -4754,7 +4760,7 @@ supplier bill -> payment, with returns off the receipt or the bill.
 | 2 | **Several receipts on one bill** on the screen | One receipt per bill | D-BUY-18, with §58 |
 | 3 | **Purchase order discount on the whole order** reaching tax, receipt and bill | Subtracted after tax, not carried on | D-BUY-19 |
 | 4 | **Supplier rates**: a vendor's standing discount, a supplier price list with quantity breaks, and the **last purchase rate** while typing | Only a typed discount; the product's one `purchase_price` | Mirror sales: vendor standing % and supplier price lists ranked in `app/core/utils/pricing.py`; last rate is §55 G6 |
-| 5 | **Purchase price variance** explained per bill | Posted to its account, seen only as a P&L line | A bill shows receipt value vs billed value per line, and a report lists variances by supplier and product |
+| 5 | **Purchase price variance** explained per bill | Posted to its account, seen only as a P&L line | **Report built 2026-10-01**: Reports > Financial > *Purchase price variance* lists every approved bill line charged at a rate other than its receipt's -- supplier, product, both rates, quantity, variance; a bill in another unit is flagged. Left: the same on the bill's own screen |
 | 6 | **Debit note** to a supplier for a price difference or a short-supply claim with no goods going back | Purchase return (goods back) only | §55 G8 |
 | 7 | **Supplier free goods and gifts** | Same-item free quantity only | §61 |
 | 8 | **Scheme claims** from the principal | Nothing | §42.7 |
@@ -4769,6 +4775,8 @@ supplier bill -> payment, with returns off the receipt or the bill.
 the rest as the go-live firms confirm them.
 
 ## 66. Purchase analysis: any combination of period, product, supplier and more
+
+**Status, 2026-10-01: built.** Buy > Insight > **Purchase Analysis**, the §62 screen reused as one widget (`AnalysisPage`, configured per side): rows and optional columns, each any of day, week, month, financial-year quarter, year, product, category, supplier, supplier category, branch; figures quantity, taxable, tax, total billed, bills (distinct) and average bill; totals both ways; net of purchase returns by default, gross on a switch; click a cell to list the bills behind it (`/purchase-invoices/reports/analysis` and `.../analysis/bills`, grouped in SQL, open to `PURCHASE_VIEW` or `REPORT_VIEW`). Left: filter pickers on the screen (the server takes them), the goods-received and orders-placed basis, average rate and price-difference figures, compare, chart, export, rate trend, saved layouts and the Home gadgets.
 
 Owner, 2026-09-28: purchase reports like the sales ones (§62) -- by product,
 by month, by year, by supplier, over any date range -- and as Home gadgets.
@@ -5339,3 +5347,23 @@ opening balances §36; firm bank details §74.1 row 13; HSN kept on the line
 **Suggested order:** 2 (tax: SEZ and composition buyers are billed wrong
 without it) -> 5, 7 (small, and weekly work) -> 1 -> 3 (decide first) -> 4
 -> 6 -> 9, 10 -> 8 -> 11.
+
+## 76. Routes with no screen, found tightening the orphan-route guard (D-GOLIVE-2)
+
+Found 2026-10-01. `tests/unit/test_routes_have_a_caller.py` used to count a
+route as reached whenever a generic helper (`'/api/v1/$resource/$id'`) could
+in principle build it, which reached everything; it now expands those helpers
+with the resource names the desktop actually hands them. 53 routes turned out
+to have no caller. Most are deliberate surface (JSON batch imports for scripted
+migration, machine exports) and are pinned with that reason. These are screen
+gaps, pinned with a pointer here, each to build when a firm asks:
+
+| Gap | Routes |
+| --- | --- |
+| Bulk status, category and profile on the Vendors, Branches and Warehouses lists | `POST /vendors/bulk-status`, `/vendors/bulk-category`, `/vendors/bulk-profile`, `/branches/bulk-status`, `/warehouses/bulk-status` |
+| Bulk delete / restore / status on tax systems, components and profiles | `POST /tax-framework/{systems,components,profiles}/bulk-*` |
+| Managing document lifecycle states and editing or retiring a document type | `GET/POST/PUT/DELETE /document-framework/document-states`, `PUT/DELETE /document-framework/document-types/{id}` |
+| Editing or deleting a financial year (only create, close and reopen are offered) | `PATCH/DELETE /finance/financial-years/{id}` |
+| The branch-warehouse settings read | `GET /branch-warehouse/settings` |
+| Stock summary by product | `GET /inventory/summary/by-product` |
+| The sales returns list's summary cards | `GET /sales-returns/summary` |

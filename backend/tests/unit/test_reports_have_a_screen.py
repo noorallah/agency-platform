@@ -42,6 +42,22 @@ _ELSEWHERE: dict[str, str] = {
         "`documentSummary('sales-invoices', path: 'reports/summary')`. The "
         "grid here derives its columns from rows and has none to derive from."
     ),
+    "/api/v1/sales-invoices/reports/analysis": (
+        "a pivot with chosen rows and columns, not a list -- Sell > Sales "
+        "Analysis is its screen (backlog 62)."
+    ),
+    "/api/v1/sales-invoices/reports/analysis/invoices": (
+        "the invoices behind one cell of the Sales Analysis pivot, opened by "
+        "clicking the cell there (backlog 62)."
+    ),
+    "/api/v1/purchase-invoices/reports/analysis": (
+        "a pivot with chosen rows and columns, not a list -- Buy > Purchase "
+        "Analysis is its screen (backlog 66)."
+    ),
+    "/api/v1/purchase-invoices/reports/analysis/bills": (
+        "the bills behind one cell of the Purchase Analysis pivot, opened by "
+        "clicking the cell there (backlog 66)."
+    ),
 }
 
 

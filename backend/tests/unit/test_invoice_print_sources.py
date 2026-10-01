@@ -161,3 +161,52 @@ def test_many_notes_say_several_in_the_head_and_name_each_on_its_line() -> None:
     assert SEVERAL in text
     for note in notes:
         assert f"(note {note.delivery_note_number})" in text
+
+
+def test_the_offers_claimed_on_the_order_and_the_saving_are_printed() -> None:
+    """Backlog 60 item 12: "Diwali offer, you saved 50" on the bill."""
+    from app.promotions.models import Promotion, PromotionRedemption
+
+    setup = _Billing(_session_factory()())
+    note = _dispatched_note(setup, quantity=Decimal("4"))
+    promotion = Promotion(
+        firm_id=setup.firm.id,
+        code="DIWALI20",
+        name="Diwali 20%",
+        priority=100,
+        status="ACTIVE",
+        allow_stacking=True,
+        version_group_id=uuid4(),
+        version_number=1,
+    )
+    setup.session.add(promotion)
+    setup.session.flush()
+    setup.session.add(
+        PromotionRedemption(
+            firm_id=setup.firm.id,
+            promotion_id=promotion.id,
+            customer_id=setup.customer.id,
+            document_type="SALES_ORDER",
+            document_id=setup.order.id,
+            document_number=setup.order.order_number,
+            redeemed_on=date(2026, 8, 3),
+            benefit_amount=Decimal("50"),
+            status="CLAIMED",
+        )
+    )
+    invoice = _bill(setup, [note])
+    invoice.line_discount_total = Decimal("50")
+    setup.session.commit()
+
+    text = _printed(setup, invoice)
+
+    assert "OffersDIWALI20" in text
+    assert "You saved50.00" in text
+
+
+def test_a_bill_with_no_offer_and_no_discount_says_neither() -> None:
+    setup = _Billing(_session_factory()())
+    note = _dispatched_note(setup, quantity=Decimal("4"))
+    text = _printed(setup, _bill(setup, [note]))
+    assert "Offers" not in text
+    assert "You saved" not in text

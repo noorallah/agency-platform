@@ -3,6 +3,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -472,6 +473,8 @@ class SalesWorkflowSettingsResponse(SalesOrderSchema):
     delivery_note_stage: bool
     default_branch_id: UUID | None
     default_warehouse_id: UUID | None
+    #: COMBINE or BEST_OFFER (backlog 59).
+    promotion_mode: str = "COMBINE"
     is_configured: bool
 
 
@@ -493,6 +496,8 @@ class SalesWorkflowSettingsWrite(SalesOrderSchema):
     delivery_note_stage: bool
     default_branch_id: UUID | None = None
     default_warehouse_id: UUID | None = None
+    #: COMBINE or BEST_OFFER. Omitted is left as it is, like the defaults.
+    promotion_mode: Literal["COMBINE", "BEST_OFFER"] | None = None
 
 
 class SalesOrderPreview(SalesOrderSchema):

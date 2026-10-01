@@ -55,11 +55,13 @@ import 'sales/credit_note_page.dart';
 import 'sales/einvoice_page.dart';
 import 'sales/gst_payment_page.dart';
 import 'sales/gst_return_page.dart';
+import 'sales/sales_analysis_page.dart';
 import 'sales/proforma_page.dart';
 import 'sales/tcs_page.dart';
 import 'pricing/price_list_page.dart';
 import 'pricing/promotion_page.dart';
 import 'products/product_management_page.dart';
+import 'purchases/purchase_analysis_page.dart';
 import 'purchases/purchase_management_page.dart';
 import 'trade_licences/licence_check_settings_page.dart';
 import 'quotations/quotation_management_page.dart';
@@ -75,6 +77,7 @@ import 'uom/packaging_levels_page.dart';
 import 'uom/uom_management_page.dart';
 import 'vendors/vendor_management_page.dart';
 import 'branches/branch_warehouse_management_page.dart';
+import 'branches/work_defaults_dialog.dart';
 import 'firms/firm_settings_page.dart';
 import 'firms/firm_setup_dialog.dart';
 import 'dashboard_page.dart';
@@ -412,6 +415,11 @@ class _DesktopShellState extends State<DesktopShell> {
         );
       case MenuLayout.tcsSettingsRoute:
         await showTcsSettings(context, api);
+      case MenuLayout.workDefaultsRoute:
+        await showDialog<Object>(
+          context: context,
+          builder: (_) => WorkDefaultsDialog(api: api),
+        );
     }
   }
 
@@ -2729,6 +2737,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),
+      'sales-analysis' => SalesAnalysisPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+        ),
       'gst-returns' => GstReturnPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -2797,6 +2810,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           'E-Invoice',
           'What the tax authority knows about this firm’s invoices and their '
               'movement. A reference marked sandbox filed nothing.',
+        ),
+      'sales-analysis' => (
+          'Sales Analysis',
+          'Billed sales by any one or two dimensions, net of returns. Click '
+              'a figure to see the invoices behind it.',
         ),
       'gst-payment' => (
           'GST Payment',
@@ -2923,6 +2941,11 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           onNavigateToSection: navigateTo,
           onOpenGlobalSearch: widget.onOpenGlobalSearch,
         ),
+      'purchase-analysis' => PurchaseAnalysisPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: hasActiveFirm,
+        ),
       'purchase-orders' => PurchaseManagementPage(
           api: widget.api,
           preferences: widget.preferences,
@@ -2961,6 +2984,7 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
       title: switch (tabId) {
         'purchase-dashboard' => 'Purchase Dashboard',
         'purchase-orders' => 'Purchase Orders',
+        'purchase-analysis' => 'Purchase Analysis',
         'purchase-analytics' => 'Purchase Analytics',
         'purchase-settings' => 'Purchase Settings',
         _ => module.label,
@@ -2970,6 +2994,9 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           'Enterprise purchase command center with KPI cards, recent orders, and vendor spend insights.',
         'purchase-orders' =>
           'Manage purchase orders with lifecycle actions, import/export, and responsive enterprise editing.',
+        'purchase-analysis' =>
+          'Purchases by any one or two dimensions, net of returns. Click a '
+              'figure to see the bills behind it.',
         'purchase-analytics' =>
           'Analytics shell ready for backend reporting expansion.',
         'purchase-settings' =>
