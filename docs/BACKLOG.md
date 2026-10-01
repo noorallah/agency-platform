@@ -4707,6 +4707,8 @@ collection with the customer's PAN.
 
 ## 64. Sales: five gaps no other entry covers
 
+**Status, 2026-10-01: row 5 built.** The phase 2 sales bill carries **Received now** -- amount, Cash or Bank, and a reference for Bank. Approving the bill records a receipt against it inside the approval's own transaction (the bill, its stock and its money land together or not at all), through the receipt service, so the journal, the balance and the reversal are a receipt's. More than the bill is refused rather than kept as an advance: change is handed back, and the editor warns before the save. UPI and card are Bank, as on a receipt; a separate tender list is §55 M10's.
+
 Found 2026-09-28 reviewing sales end to end with the owner, after §57-§63.
 Checked against §42, §55 and `docs/MARKET_COMPARISON.md` so nothing here is
 listed twice. Each is **to validate** with the go-live firms, as §55 says.
