@@ -745,6 +745,11 @@ abstract final class ModuleCatalog {
         // see `PurchaseOrderView`. `purchaseTabAliases` keeps their ids
         // resolvable so a stored workspace still opens where it left off.
         ModuleTabDefinition(
+          id: 'debit-notes',
+          label: 'Debit Notes',
+          requiredPermissions: ['DEBIT_NOTE_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'purchase-analytics',
           label: 'Analytics',
           requiredPermissions: ['PURCHASE_VIEW'],
@@ -1033,6 +1038,7 @@ abstract final class ModuleCatalog {
         'SALES_VIEW',
         'PURCHASE_VIEW',
         'CREDIT_NOTE_VIEW',
+        'DEBIT_NOTE_VIEW',
         'PROFORMA_VIEW',
         'LOYALTY_VIEW',
         'PROMOTION_VIEW',
@@ -1620,6 +1626,12 @@ abstract final class ModuleCatalog {
           label: 'Purchase Orders',
           path: 'purchase-orders',
           icon: Icons.receipt_long_outlined,
+        ),
+      if (visibleTabIds.contains('debit-notes'))
+        const WorkspaceNavigationNode(
+          label: 'Debit Notes',
+          path: 'debit-notes',
+          icon: Icons.request_page_outlined,
         ),
       if (visibleTabIds.contains('purchase-analytics'))
         const WorkspaceNavigationNode(

@@ -56,6 +56,7 @@ SOURCE_DOCUMENT_NAMES = {
     "sales_invoice": "sales invoice",
     "sales_return": "sales return",
     "credit_note": "credit note",
+    "debit_note": "debit note",
     "delivery_note": "delivery note",
     "goods_receipt": "goods receipt",
     "purchase_invoice": "purchase invoice",

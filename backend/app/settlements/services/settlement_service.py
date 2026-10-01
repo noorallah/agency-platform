@@ -531,8 +531,47 @@ class SettlementService(TransactionalDocumentService):
     def _returned_against(
         self, *, firm_id: UUID, invoice_ids: list[UUID]
     ) -> dict[UUID, Decimal]:
-        """Sum what completed purchase returns sent back off each bill's lines."""
+        """Sum what returns and debit notes took off each bill.
+
+        Completed purchase returns sent back off the bill's lines, and
+        approved debit notes claimed against it (backlog 65 row 6). Both post
+        Dr payable, so both are what the bill no longer owes. A debit note is
+        counted as its journal debited the payable -- each part rounded to the
+        ledger, then summed -- so the bill and the books agree to the paisa.
+        """
         # Imported here: the return module imports settlement-adjacent models.
+        from app.debit_note.models import DebitNote, DebitNoteStatus
+
+        taken: dict[UUID, Decimal] = {}
+        for invoice_id, taxable, tax in self._session.execute(
+            select(
+                DebitNote.purchase_invoice_id,
+                DebitNote.taxable_amount,
+                DebitNote.tax_amount,
+            ).where(
+                DebitNote.firm_id == firm_id,
+                DebitNote.purchase_invoice_id.in_(invoice_ids),
+                # Approval is what posts; a draft has not, a cancelled one is
+                # gone.
+                DebitNote.status == DebitNoteStatus.APPROVED.value,
+                DebitNote.is_deleted.is_(False),
+            )
+        ).all():
+            taken[invoice_id] = (
+                taken.get(invoice_id, ZERO)
+                + quantize_ledger(Decimal(str(taxable)))
+                + quantize_ledger(Decimal(str(tax)))
+            )
+        for invoice_id, total in self._returned_by_goods(
+            firm_id=firm_id, invoice_ids=invoice_ids
+        ).items():
+            taken[invoice_id] = taken.get(invoice_id, ZERO) + total
+        return taken
+
+    def _returned_by_goods(
+        self, *, firm_id: UUID, invoice_ids: list[UUID]
+    ) -> dict[UUID, Decimal]:
+        """Sum what completed purchase returns sent back off each bill's lines."""
         from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
 
         return {

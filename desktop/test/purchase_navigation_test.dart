@@ -10,7 +10,8 @@
 // Purchase Orders that drives the existing filter. It was five until
 // 2026-08-22, when the Sourcing group went: its two children, RFQs and Vendor
 // Quotations, had no backend of any kind behind them. Purchase Analysis made
-// it five again on 2026-10-01 (backlog 66): a real screen, not a preset.
+// it five again on 2026-10-01 (backlog 66): a real screen, not a preset. Debit
+// Notes made it six: a document of its own, not a preset.
 
 import 'dart:convert';
 import 'dart:io';
@@ -258,7 +259,7 @@ void main() {
       expect(ids, contains('purchase-orders'));
     });
 
-    test('five entries, and no group called Orders', () {
+    test('six entries, and no group called Orders', () {
       final List<WorkspaceNavigationNode> nodes =
           ModuleCatalog.navigationChildren(AppModule.purchases, _tabIds());
 
@@ -267,6 +268,7 @@ void main() {
         <String>[
           'Dashboard',
           'Purchase Orders',
+          'Debit Notes',
           'Analytics',
           'Purchase Analysis',
           'Settings',

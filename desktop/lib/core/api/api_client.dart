@@ -25,6 +25,7 @@ import '../../models/quotation.dart';
 import '../../models/pricing.dart';
 import '../../models/commission.dart';
 import '../../models/credit_note.dart';
+import '../../models/debit_note.dart';
 import '../../models/einvoice.dart';
 import '../../models/proforma.dart';
 import '../../models/tcs.dart';
@@ -5059,6 +5060,122 @@ class ApiClient {
       CreditNoteRecord.fromJson(_unwrapMap(await request(
         'POST',
         '/api/v1/credit-notes/$id/cancel',
+        expectedVersion: expectedVersion,
+      )));
+
+  // ---- debit notes ----------------------------------------------------
+
+  Future<PagedResult<DebitNoteRecord>> debitNotes({
+    int page = 1,
+    int pageSize = 50,
+    String? status,
+    String? search,
+    String? vendorId,
+    String? purchaseInvoiceId,
+    String? debitNoteFrom,
+    String? debitNoteTo,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/debit-notes',
+      query: {
+        'page': '$page',
+        'page_size': '$pageSize',
+        if (status != null && status.isNotEmpty) 'status': status,
+        if (search != null && search.isNotEmpty) 'search': search,
+        if (vendorId != null && vendorId.isNotEmpty) 'vendor_id': vendorId,
+        if (purchaseInvoiceId != null && purchaseInvoiceId.isNotEmpty)
+          'purchase_invoice_id': purchaseInvoiceId,
+        if (debitNoteFrom != null) 'debit_note_from': debitNoteFrom,
+        if (debitNoteTo != null) 'debit_note_to': debitNoteTo,
+      },
+    );
+    final dynamic data = response['data'];
+    return PagedResult<DebitNoteRecord>(
+      items: data is List
+          ? data
+              .whereType<Map>()
+              .map((item) =>
+                  DebitNoteRecord.fromJson(Map<String, dynamic>.from(item)))
+              .toList()
+          : const [],
+      total: _totalOf(response),
+    );
+  }
+
+  /// Price a debit note as raising it would, and save nothing.
+  Future<DebitNoteRecord> previewDebitNote(Json body) async =>
+      DebitNoteRecord.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/debit-notes/preview', body: body),
+        ),
+      );
+
+  Future<DebitNoteRecord> createDebitNote(Json body) async =>
+      DebitNoteRecord.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/debit-notes', body: body)),
+      );
+
+  Future<DebitNoteRecord> debitNote(String id) async =>
+      DebitNoteRecord.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/debit-notes/$id')),
+      );
+
+  /// What each line of a bill can still be claimed on. [excludingNoteId] is
+  /// the note being edited, whose own claim must not count against it.
+  Future<List<DebitNoteClaimableLine>> debitNoteClaimableLines(
+    String purchaseInvoiceId, {
+    String? excludingNoteId,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/debit-notes/claimable-lines',
+      query: {
+        'purchase_invoice_id': purchaseInvoiceId,
+        if (excludingNoteId != null && excludingNoteId.isNotEmpty)
+          'excluding_note_id': excludingNoteId,
+      },
+    );
+    final dynamic data = response['data'];
+    return [
+      for (final dynamic row in data is List ? data : const [])
+        if (row is Map)
+          DebitNoteClaimableLine.fromJson(Map<String, dynamic>.from(row)),
+    ];
+  }
+
+  Future<DebitNoteRecord> updateDebitNote(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) async =>
+      DebitNoteRecord.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/debit-notes/$id',
+        body: body,
+        expectedVersion: expectedVersion,
+      )));
+
+  Future<DebitNoteRecord> approveDebitNote(
+    String id, {
+    int? expectedVersion,
+  }) async =>
+      DebitNoteRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/debit-notes/$id/approve',
+        expectedVersion: expectedVersion,
+      )));
+
+  /// Cancel a note; the server refuses a cancel with no [reason].
+  Future<DebitNoteRecord> cancelDebitNote(
+    String id,
+    String reason, {
+    int? expectedVersion,
+  }) async =>
+      DebitNoteRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/debit-notes/$id/cancel',
+        body: {'reason': reason},
         expectedVersion: expectedVersion,
       )));
 

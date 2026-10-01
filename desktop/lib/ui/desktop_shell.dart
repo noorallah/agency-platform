@@ -53,6 +53,7 @@ import 'sales/price_floor_settings_dialog.dart';
 import 'sales/sales_workflow_settings_dialog.dart';
 import 'commission/commission_page.dart';
 import 'commission/sales_target_page.dart';
+import 'purchases/debit_note_page.dart';
 import 'sales/credit_note_page.dart';
 import 'sales/einvoice_page.dart';
 import 'sales/gst_payment_page.dart';
@@ -2974,6 +2975,12 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           onNavigateToSection: navigateTo,
           onOpenGlobalSearch: widget.onOpenGlobalSearch,
         ),
+      'debit-notes' => DebitNotePage(
+          api: widget.api,
+          preferences: widget.preferences,
+          permissions: widget.permissions,
+          hasActiveFirm: hasActiveFirm,
+        ),
       'purchase-analytics' => PurchaseManagementPage(
           api: widget.api,
           preferences: widget.preferences,
@@ -3002,6 +3009,7 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
       title: switch (tabId) {
         'purchase-dashboard' => 'Purchase Dashboard',
         'purchase-orders' => 'Purchase Orders',
+        'debit-notes' => 'Debit Notes',
         'purchase-analysis' => 'Purchase Analysis',
         'purchase-analytics' => 'Purchase Analytics',
         'purchase-settings' => 'Purchase Settings',
@@ -3012,6 +3020,11 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           'Enterprise purchase command center with KPI cards, recent orders, and vendor spend insights.',
         'purchase-orders' =>
           'Manage purchase orders with lifecycle actions, import/export, and responsive enterprise editing.',
+        'debit-notes' =>
+          'Money claimed from a supplier without goods going back — a price '
+              'difference found after the bill, a short supply. It takes the '
+              'input tax off at the rate the bill charged; a purchase return '
+              'is the one that moves stock.',
         'purchase-analysis' =>
           'Purchases by any one or two dimensions, net of returns. Click a '
               'figure to see the bills behind it.',

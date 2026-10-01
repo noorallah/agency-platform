@@ -524,6 +524,15 @@ const List<ReportDefinition> reportCatalog = [
     area: ReportArea.financial,
   ),
   ReportDefinition(
+    id: 'debit-note-register',
+    label: 'Debit note register',
+    description: 'Every debit note raised, with the supplier bill it claims on.',
+    path: '/api/v1/debit-notes/reports/register',
+    needsPeriod: true,
+    permission: 'DEBIT_NOTE_VIEW',
+    area: ReportArea.financial,
+  ),
+  ReportDefinition(
     id: 'credit-note-by-customer',
     label: 'Credits by customer',
     description: 'What each customer has been credited, cancelled notes out.',

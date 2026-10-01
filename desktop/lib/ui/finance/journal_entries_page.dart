@@ -51,6 +51,7 @@ const List<(String, String)> journalSourceModules = [
   ('commission', 'Commission'),
   ('credit_note', 'Credit notes'),
   ('customers', 'Customers'),
+  ('debit_note', 'Debit notes'),
   ('delivery_note', 'Delivery notes'),
   ('goods_receipt', 'Goods receipts'),
   ('inventory', 'Inventory'),

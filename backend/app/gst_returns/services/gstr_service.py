@@ -60,6 +60,7 @@ from app.customers.gst_registration import (
     effective_type,
 )
 from app.customers.models import Customer, CustomerReceivableTransaction
+from app.debit_note.models import DebitNote, DebitNoteStatus
 from app.products.models import Product
 from app.sales_invoice.models import (
     SalesInvoice,
@@ -709,13 +710,17 @@ class GstReturnService:
         (`purchase_invoice_line_taxes`, D-CMP-20 part 1), bucketed by head the
         way the outward side is. 4B(2), "other reversals", is the tax on the
         period's completed purchase returns, split by head in the proportions
-        of the bill each return line came off; a return raised off a receipt or
+        of the bill each return line came off -- and the tax on the period's
+        approved debit notes, split the same way; a return raised off a receipt or
         an order names no bill, and its tax is counted under
         ``unplaced_reversals`` rather than put under a head it may not belong
         to. Bills written before the rows existed contribute nothing here and
         are counted under ``bills_without_components``: said, not silently
         zero.
         """
+        from app.debit_note.services.debit_note_service import (
+            debit_note_tax_by_component,
+        )
         from app.purchase_invoice.models import (
             PurchaseInvoice,
             PurchaseInvoiceLine,
@@ -789,6 +794,28 @@ class GstReturnService:
                 reversed_ = reversed_.plus(_bucket(code, amount))
                 placed += amount
             rest = quantize_money(Decimal(str(purchase_return.tax_total)) - placed)
+            if rest > ZERO:
+                unplaced += rest
+                unplaced_count += 1
+        # A debit note to a supplier reverses the credit its bill claimed
+        # exactly as a return off the bill does, head by head, in the period
+        # it was approved for (backlog 65 row 6). Counted with the returns
+        # rather than in a table of its own: 3B has one reversal row.
+        for note in self._session.scalars(
+            select(DebitNote).where(
+                DebitNote.firm_id == firm_scope,
+                DebitNote.is_deleted.is_(False),
+                DebitNote.status == DebitNoteStatus.APPROVED.value,
+                DebitNote.debit_note_date >= from_date,
+                DebitNote.debit_note_date <= to_date,
+            )
+        ).all():
+            split = debit_note_tax_by_component(self._session, note.id)
+            placed = ZERO
+            for code, amount in split.items():
+                reversed_ = reversed_.plus(_bucket(code, amount))
+                placed += amount
+            rest = quantize_money(Decimal(str(note.tax_amount)) - placed)
             if rest > ZERO:
                 unplaced += rest
                 unplaced_count += 1

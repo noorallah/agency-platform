@@ -227,6 +227,10 @@ RESET_ORDER: tuple[str, ...] = (
     "sales_quotations",
     "credit_note_lines",
     "credit_notes",
+    # A debit note names the supplier bill, its lines and its journal, all
+    # RESTRICT, so it goes before the bills below (backlog 65 row 6).
+    "debit_note_lines",
+    "debit_notes",
     # Proformas hang off the sales orders below. They post nothing, so there
     # is no journal to worry about -- only the order they state.
     "proforma_invoice_lines",

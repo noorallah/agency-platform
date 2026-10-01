@@ -196,6 +196,14 @@ PERMISSION_GROUPS = {
         # `COMMISSION_PAY` is separate from `COMMISSION_MANAGE`.
         "CREDIT_NOTE_APPROVE",
     ),
+    "debit_note": (
+        "DEBIT_NOTE_VIEW",
+        "DEBIT_NOTE_MANAGE",
+        # Approving reduces what the firm owes a supplier **and reverses input
+        # tax it has claimed**. The purchasing twin of `CREDIT_NOTE_APPROVE`,
+        # held back from the role that drafts one for the same reason.
+        "DEBIT_NOTE_APPROVE",
+    ),
     "batch_serial": (
         "BATCH_VIEW",
         "BATCH_CREATE",
@@ -460,6 +468,7 @@ _operational_permissions = _codes(
     "trade_licences",
     "commission",
     "credit_note",
+    "debit_note",
     "proforma",
     "einvoice",
     "loyalty",
@@ -592,7 +601,17 @@ _SEEDED_ROLE_PERMISSION_CODES = {
     # A vendor's licence is vendor master data, which the purchase manager
     # owns; the executive reads it to know a supplier may supply the goods.
     "PURCHASE_MANAGER": (_codes("purchase") - frozenset({"PURCHASE_MANAGE_SETTINGS"}))
-    | frozenset({"TRADE_LICENCE_VIEW", "TRADE_LICENCE_MANAGE"}),
+    | frozenset(
+        {
+            "TRADE_LICENCE_VIEW",
+            "TRADE_LICENCE_MANAGE",
+            # A purchase manager may draft a debit note; approving one reverses
+            # claimed input tax and is not theirs -- the split the sales
+            # manager has on credit notes.
+            "DEBIT_NOTE_VIEW",
+            "DEBIT_NOTE_MANAGE",
+        }
+    ),
     "PURCHASE_EXECUTIVE": (
         _codes("purchase") - frozenset({"PURCHASE_APPROVE", "PURCHASE_MANAGE_SETTINGS"})
     )

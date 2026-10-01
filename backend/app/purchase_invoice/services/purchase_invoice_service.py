@@ -2332,6 +2332,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         refusal names what is in the way, as the sales invoice's does.
         """
         # Imported here: both modules import the invoice model.
+        from app.debit_note.models import DebitNote, DebitNoteStatus
         from app.purchase_return.models import PurchaseReturn, PurchaseReturnSource
         from app.settlements.models import Settlement, SettlementAllocation
 
@@ -2368,6 +2369,17 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         ).all()
         if returns:
             blockers.append("purchase return " + ", ".join(sorted(returns)))
+        # A debit note claims against this bill's lines at the rate it charged;
+        # cancelling the bill under it would leave the claim naming nothing.
+        notes = self._session.scalars(
+            select(DebitNote.debit_note_number).where(
+                DebitNote.purchase_invoice_id == row.id,
+                DebitNote.status != DebitNoteStatus.CANCELLED.value,
+                DebitNote.is_deleted.is_(False),
+            )
+        ).all()
+        if notes:
+            blockers.append("debit note " + ", ".join(sorted(notes)))
         if blockers:
             raise ValidationError(
                 f"{row.invoice_number} cannot be cancelled while it has "

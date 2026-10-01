@@ -40,6 +40,9 @@ from app.credit_note.api.router import list_credit_notes
 from app.credit_note.models import CreditNote, CreditNoteLine
 from app.credit_note.services import CreditNoteService
 from app.customers.models import Customer
+from app.debit_note.api.router import list_debit_notes
+from app.debit_note.models import DebitNote, DebitNoteLine
+from app.debit_note.services import DebitNoteService
 from app.delivery_note.api.router import list_delivery_notes
 from app.delivery_note.models import (
     DeliveryNote,
@@ -609,6 +612,39 @@ def _seed_credit_notes(session: Session, world: _World, rows: int) -> None:
             )
 
 
+def _seed_debit_notes(session: Session, world: _World, rows: int) -> None:
+    """Debit notes against supplier bills, two lines each."""
+    for index in range(rows):
+        invoice = uuid.uuid4()
+        _add(
+            session,
+            PurchaseInvoice,
+            id=invoice,
+            firm_id=world.firm,
+            vendor_id=_pick(world.vendors, index),
+            status="APPROVED",
+        )
+        note = uuid.uuid4()
+        _add(
+            session,
+            DebitNote,
+            id=note,
+            firm_id=world.firm,
+            vendor_id=_pick(world.vendors, index),
+            purchase_invoice_id=invoice,
+            reason="PRICE_DIFFERENCE",
+            status="DRAFT",
+        )
+        for number in (2, 1):
+            _add(
+                session,
+                DebitNoteLine,
+                debit_note_id=note,
+                firm_id=world.firm,
+                **_line_kwargs(world, index, number),
+            )
+
+
 def _seed_quotations(session: Session, world: _World, rows: int) -> None:
     """Quotations with two lines and a note each."""
     for index in range(rows):
@@ -886,6 +922,11 @@ CASES: dict[str, _Case] = {
         _seed_credit_notes,
         lambda s, w: list_credit_notes(scope=_scope(w.firm), db=s, page_size=50),
         lambda s, r: CreditNoteService(s).note_response(_get(s, CreditNote, r.id)),
+    ),
+    "debit notes": _Case(
+        _seed_debit_notes,
+        lambda s, w: list_debit_notes(scope=_scope(w.firm), db=s, page_size=50),
+        lambda s, r: DebitNoteService(s).note_response(_get(s, DebitNote, r.id)),
     ),
     "quotations": _Case(
         _seed_quotations,

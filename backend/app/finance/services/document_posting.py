@@ -137,6 +137,14 @@ CREDIT_NOTE_DOCUMENT_PURPOSES = (
     ControlAccountPurpose.OUTPUT_TAX,
 )
 
+#: A debit note to a supplier: the payable it reduces and the account the
+#: value comes back through. The input tax legs resolve their own purposes per
+#: GST head, as a purchase return's do.
+DEBIT_NOTE_DOCUMENT_PURPOSES = (
+    ControlAccountPurpose.ACCOUNTS_PAYABLE,
+    ControlAccountPurpose.PURCHASE_PRICE_VARIANCE,
+)
+
 PAYMENT_PURPOSES = (ControlAccountPurpose.ACCOUNTS_PAYABLE,)
 
 #: A loyalty scheme. Earning costs the firm money there and then, which is
@@ -1714,6 +1722,94 @@ class DocumentPostingService:
             lines=lines,
             source_module="credit_note",
             source_id=credit_note_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_debit_note_document(
+        self,
+        *,
+        firm_id: UUID,
+        debit_note_id: UUID,
+        debit_note_number: str,
+        note_date: date,
+        taxable_amount: Decimal,
+        tax_amount: Decimal,
+        actor_id: UUID,
+        tax_by_component: dict[str, Decimal] | None = None,
+    ) -> JournalEntry | None:
+        """Post a debit note to a supplier: Dr payable, Cr variance and input tax.
+
+        The purchasing mirror of `post_credit_note_document`. The supplier owes
+        the firm the whole claim, so **accounts payable is debited** with
+        taxable plus tax. The taxable part is credited to purchase price
+        variance -- the account a purchase return already puts the gap between
+        a bill and what the goods cost through -- because no goods move: the
+        firm simply paid, or was billed, more than it should have been. The
+        input tax claimed on that part is reversed head by head, as the bill
+        claimed it (D-CMP-20), through the same legs a purchase return uses.
+
+        Args:
+            firm_id: The owning firm.
+            debit_note_id: The source document.
+            debit_note_number: Its number, used as the journal reference.
+            note_date: The date the claim is booked on.
+            taxable_amount: What is claimed before tax.
+            tax_amount: The input tax reversed with it.
+            actor_id: The user approving it.
+            tax_by_component: The tax per GST component, in the proportions
+                the bill charged; None reverses `INPUT_TAX` as a whole.
+
+        Returns:
+            The posted journal entry, or None where there is nothing to post.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        # Each part rounded, then summed: what the payable is debited with is
+        # exactly what the two credit legs carry.
+        ledger_taxable = quantize_ledger(quantize_money(taxable_amount))
+        ledger_tax = quantize_ledger(quantize_money(tax_amount))
+        ledger_total = ledger_taxable + ledger_tax
+        if ledger_total == ZERO:
+            return None
+        accounts = self._require_mapping(firm_id, DEBIT_NOTE_DOCUMENT_PURPOSES)
+        context = self.context_for(firm_id, note_date)
+        lines = [
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.ACCOUNTS_PAYABLE],
+                debit_amount=ledger_total,
+                description=f"Debit note {debit_note_number}",
+            ),
+            JournalLineData(
+                ledger_account_id=accounts[
+                    ControlAccountPurpose.PURCHASE_PRICE_VARIANCE
+                ],
+                credit_amount=ledger_taxable,
+                description=f"Claimed on debit note {debit_note_number}",
+            ),
+        ]
+        lines.extend(
+            self._input_tax_legs(
+                firm_id=firm_id,
+                ledger_tax=ledger_tax,
+                tax_by_component=tax_by_component,
+                describe=f"reversed on {debit_note_number}",
+                credit=True,
+            )
+        )
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=note_date,
+            reference_number=debit_note_number,
+            description=f"Debit note {debit_note_number}",
+            lines=lines,
+            source_module="debit_note",
+            source_id=debit_note_id,
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
