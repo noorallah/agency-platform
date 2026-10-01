@@ -7,21 +7,72 @@ part of 'sales_order_editor_dialog.dart';
 /// The dialog's state, payload, save and every rule about typed and
 /// inherited prices are reused unchanged; only the layout is phase 2's.
 extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
-  static const List<DocumentColumn> _columns = [
-    DocumentColumn('#', 28),
-    DocumentColumn('Product (code, name or barcode)', 0),
-    DocumentColumn('HSN', 66),
-    DocumentColumn('Qty', 66, numeric: true),
-    DocumentColumn('Free', 56, numeric: true),
-    DocumentColumn('Unit', 50),
-    DocumentColumn('Rate', 84, numeric: true),
-    DocumentColumn('Disc %', 60, numeric: true),
-    DocumentColumn('Disc amt', 76, numeric: true),
-    DocumentColumn('Taxable', 92, numeric: true),
-    DocumentColumn('GST', 48, numeric: true),
-    DocumentColumn('Amount', 100, numeric: true),
-    DocumentColumn('', 28),
+  List<DocumentColumn> get _columns => [
+    const DocumentColumn('#', 28),
+    const DocumentColumn('Product (code, name or barcode)', 0),
+    const DocumentColumn('HSN', 66),
+    const DocumentColumn('Qty', 66, numeric: true),
+    const DocumentColumn('Free', 56, numeric: true),
+    const DocumentColumn('Unit', 50),
+    // The rate and the amount off say which figures they are (backlog 64
+    // row 4): with GST included, both are as typed.
+    _rateIncludesTax
+        ? const DocumentColumn('Rate incl. GST', 104, numeric: true)
+        : const DocumentColumn('Rate', 84, numeric: true),
+    const DocumentColumn('Disc %', 60, numeric: true),
+    _rateIncludesTax
+        ? const DocumentColumn('Disc amt incl.', 104, numeric: true)
+        : const DocumentColumn('Disc amt', 76, numeric: true),
+    const DocumentColumn('Taxable', 92, numeric: true),
+    const DocumentColumn('GST', 48, numeric: true),
+    const DocumentColumn('Amount', 100, numeric: true),
+    const DocumentColumn('', 28),
   ];
+
+  /// Turn the order's "Rate includes GST" switch. A rate still showing the
+  /// product's own price was never typed, and that price is before tax, so
+  /// it is cleared going on (blank takes it, before tax) and put back coming
+  /// off.
+  void _setRateIncludesTax(bool value) {
+    _setState(() {
+      _rateIncludesTax = value;
+      for (final _LineDraft line in _lines) {
+        final Product? product = _product(line.productId);
+        if (product == null) continue;
+        final String price = line.unitPrice.text.trim();
+        if (value && price == product.sellingPrice.trim()) {
+          line.unitPrice.clear();
+          line.priceEdited = false;
+        } else if (!value && price.isEmpty) {
+          final double master = double.tryParse(product.sellingPrice) ?? 0;
+          if (master > 0) line.unitPrice.text = product.sellingPrice.trim();
+        }
+      }
+    });
+    _schedulePreview();
+  }
+
+  Widget _rateIncludesTaxField() => DocumentField(
+        label: 'Rate includes GST',
+        width: 150,
+        child: Row(
+          children: [
+            Switch(
+              key: const ValueKey('sales-order-rate-includes-tax'),
+              value: _rateIncludesTax,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              onChanged: _locked || _saving ? null : _setRateIncludesTax,
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                _rateIncludesTax ? 'Shelf price' : 'Before tax',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      );
 
   Widget _phase2Page(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -394,6 +445,7 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
           ),
         ]),
       ),
+      _rateIncludesTaxField(),
       DocumentField(
         label: "Customer's reference",
         width: 180,
@@ -607,7 +659,8 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
         _cellBox(
           context,
           line.unitPrice,
-          validator: (value) => _positive(value, 'price'),
+          validator: _priceBox,
+          hint: _rateIncludesTax ? 'list rate' : null,
           onTyped: () => line.priceEdited = true,
         ),
         _cellBox(

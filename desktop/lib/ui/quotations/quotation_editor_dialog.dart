@@ -106,6 +106,7 @@ class QuotationEditorDialog extends StatefulWidget {
     required this.today,
     this.existing,
     this.preview,
+    this.rateIncludesTax = false,
   });
 
   /// Set on the payload a phase 2 editor hands back when "Save & print" was
@@ -127,6 +128,10 @@ class QuotationEditorDialog extends StatefulWidget {
 
   /// The quotation being revised, if this is a revision rather than a new one.
   final Quotation? existing;
+
+  /// The firm's default for a new quotation's "Rate includes GST" switch
+  /// (backlog 64 row 4). A revision keeps its own.
+  final bool rateIncludesTax;
 
   @override
   State<QuotationEditorDialog> createState() => _QuotationEditorDialogState();
@@ -159,6 +164,9 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
   Timer? _previewTimer;
   int _previewSerial = 0;
   bool _previewAsked = false;
+
+  /// Whether the rates typed on this offer include GST (backlog 64 row 4).
+  late bool _rateIncludesTax;
 
   void _setState(VoidCallback change) => setState(change);
 
@@ -193,7 +201,10 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
     for (final _LineDraft line in _lines) {
       if (line.productId == null) return null;
       if ((double.tryParse(line.quantity.text.trim()) ?? 0) <= 0) return null;
-      if ((double.tryParse(line.unitPrice.text.trim()) ?? 0) <= 0) return null;
+      if (!_rateIncludesTax &&
+          (double.tryParse(line.unitPrice.text.trim()) ?? 0) <= 0) {
+        return null;
+      }
       final String discount = line.discount.text.trim();
       if (discount.isNotEmpty) {
         final double? rate = double.tryParse(discount);
@@ -221,6 +232,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
     // alternative is an empty field somebody has to fill in every time.
     _validUntil = widget.today.add(const Duration(days: 30));
     final Quotation? existing = widget.existing;
+    _rateIncludesTax = existing?.rateIncludesTax ?? widget.rateIncludesTax;
     _customerId = existing?.customerId ??
         (widget.customers.isEmpty ? null : widget.customers.first.id);
     // The firm's default branch and that branch's default warehouse -- the
@@ -272,7 +284,10 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
           _LineDraft(
             productId: line.productId,
             quantity: line.quantity,
-            unitPrice: line.unitPrice,
+            // Typed with GST in the rate: the box reads what was typed.
+            unitPrice: existing.rateIncludesTax && line.enteredRate.isNotEmpty
+                ? line.enteredRate
+                : line.unitPrice,
             discount: typed ? line.discountPercent : '',
             lastRate: typed ? '' : line.discountPercent,
             lastSource: typed ? '' : line.discountSource,
@@ -308,6 +323,9 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
   /// a document that says nothing about it is incomplete, not one that means
   /// "the usual". The API still requires an explicit price for that reason.
   String _priceOf(String? productId) {
+    // Blank on an offer whose rates include GST: the product's price is
+    // before tax, and a blank rate takes it as such on the server.
+    if (_rateIncludesTax) return '';
     for (final Product item in widget.products) {
       if (item.id != productId) continue;
       final double price = double.tryParse(item.sellingPrice.trim()) ?? 0;
@@ -501,6 +519,13 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
     return null;
   }
 
+  /// The rate box: required, except where the offer's rates include GST and
+  /// a blank takes the product's own (before-tax) price.
+  String? _priceBox(String? value) {
+    if (_rateIncludesTax && (value ?? '').trim().isEmpty) return null;
+    return _positive(value, 'price');
+  }
+
   String _iso(DateTime value) => value.toIso8601String().split('T').first;
 
   Json? _payload() {
@@ -518,6 +543,9 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
       'warehouse_id': _warehouseId,
       'quotation_date': _iso(widget.today),
       'valid_until': _iso(_validUntil),
+      // Sent on every save: absent is off on a new offer and keeps the
+      // offer's own on a revision, and the switch is the user's to say.
+      'rate_includes_tax': _rateIncludesTax,
       if (_reference.text.trim().isNotEmpty)
         'customer_reference': _reference.text.trim(),
       // Omitted when blank: an empty string is a code that matches nothing,
@@ -540,7 +568,11 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
             'line_number': index + 1,
             'product_id': _lines[index].productId,
             'quantity': _lines[index].quantity.text.trim(),
-            'unit_price': _lines[index].unitPrice.text.trim(),
+            // With GST included, blank is the product's own price -- before
+            // tax, as the server resolves it -- not a typed shelf price.
+            if (!(_rateIncludesTax &&
+                _lines[index].unitPrice.text.trim().isEmpty))
+              'unit_price': _lines[index].unitPrice.text.trim(),
             // Omitted rather than sent blank when nobody typed: absent is
             // what tells the server to apply the customer's standing rate,
             // and an empty string is a schema error.

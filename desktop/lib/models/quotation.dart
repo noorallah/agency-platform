@@ -11,6 +11,7 @@ class QuotationLine {
     required this.description,
     required this.quantity,
     required this.unitPrice,
+    this.enteredRate = '',
     required this.discountPercent,
     this.discountSource = '',
     this.freeQuantity = '0',
@@ -29,6 +30,11 @@ class QuotationLine {
   final String description;
   final String quantity;
   final String unitPrice;
+
+  /// The rate as typed, GST included, where the offer's rates include GST
+  /// (backlog 64 row 4); [unitPrice] is then the pre-tax rate it derives to.
+  /// Empty otherwise.
+  final String enteredRate;
 
   /// The rate that was quoted, which is what the editor puts back in the field.
   /// Only the resulting amount was parsed before, so revising a discounted
@@ -53,6 +59,7 @@ class QuotationLine {
         description: stringValue(json['description']),
         quantity: stringValue(json['quantity']),
         unitPrice: stringValue(json['unit_price']),
+        enteredRate: stringValue(json['entered_rate']),
         discountPercent: stringValue(json['discount_percent']),
         discountSource: stringValue(json['discount_source']),
         freeQuantity: stringValue(json['free_quantity']).isEmpty
@@ -85,6 +92,7 @@ class Quotation {
     this.createdAt = '',
     required this.customerReference,
     this.couponCode = '',
+    this.rateIncludesTax = false,
     required this.paymentTerms,
     required this.deliveryTerms,
     required this.status,
@@ -129,6 +137,9 @@ class Quotation {
 
   /// The coupon the offer was priced with, empty when none.
   final String couponCode;
+
+  /// Whether the rates typed on this offer include GST (backlog 64 row 4).
+  final bool rateIncludesTax;
   final String paymentTerms;
   final String deliveryTerms;
   final String status;
@@ -188,6 +199,7 @@ class Quotation {
         createdAt: stringValue(json['created_at']),
         customerReference: stringValue(json['customer_reference']),
         couponCode: stringValue(json['coupon_code']),
+        rateIncludesTax: boolValue(json['rate_includes_tax']),
         paymentTerms: stringValue(json['payment_terms']),
         deliveryTerms: stringValue(json['delivery_terms']),
         status: stringValue(json['status']),

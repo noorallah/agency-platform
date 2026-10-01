@@ -162,6 +162,12 @@ class SalesOrder(BaseEntity):
     #: offer off on the next save (plan item 10.7, 2026-09-13). NULL on
     #: orders saved before it existed, which an editor keeps as typed.
     bill_discount_source: Mapped[str | None] = mapped_column(String(20))
+    #: Whether the rates typed on this order include GST (backlog 64 row 4).
+    #: Each typed rate is stored before tax in ``unit_price`` and kept as
+    #: typed in the line's ``entered_rate``.
+    rate_includes_tax: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     cancel_reason: Mapped[str | None] = mapped_column(Text)
     #: A hold is a **flag, not a status**, and that is the whole design. An
     #: order that is PARTIALLY_DELIVERED can be held, and releasing it has to
@@ -241,6 +247,13 @@ class SalesOrderLine(BaseEntity):
     unit_price: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: The rate as typed, GST included, on an order whose rates include GST
+    #: (backlog 64 row 4); ``unit_price`` is the pre-tax rate it derived to.
+    #: Null on a line whose rate was not typed inclusive.
+    entered_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    #: The discount amount as typed with it, GST included; ``discount_amount``
+    #: is its pre-tax equivalent. Null where no amount was typed so.
+    entered_discount_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     discount_percent: Mapped[Decimal] = mapped_column(
         Numeric(9, 4), nullable=False, default=Decimal("0"), server_default="0"
     )

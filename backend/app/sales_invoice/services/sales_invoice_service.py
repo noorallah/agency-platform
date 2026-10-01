@@ -113,11 +113,6 @@ from app.sales_invoice.schemas import (
     SalesInvoiceStatus,
     SalesInvoiceSummary,
 )
-from app.sales_invoice.services.inclusive_rate import (
-    PreTaxLine,
-    billed_rate,
-    derive_pre_tax,
-)
 from app.sales_invoice.services.output_tax import invoice_tax_by_component
 from app.sales_invoice.services.sales_chain_service import (
     SalesChainService,
@@ -133,6 +128,11 @@ from app.sales_order.services.price_floor import PriceFloorService, invoice_line
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
 from app.settlements.schemas import OutstandingInvoiceRecord
 from app.tax.schemas import TaxRuleSimulationRequest
+from app.tax.services.inclusive_rate import (
+    PreTaxLine,
+    billed_rate,
+    derive_pre_tax,
+)
 from app.tax.services.place_of_supply import SALES_INTERSTATE
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService

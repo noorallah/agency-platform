@@ -14,9 +14,10 @@ from __future__ import annotations
 import csv
 import io
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from decimal import Decimal
+from functools import partial
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
@@ -90,7 +91,12 @@ from app.sales_order.services.sales_order_service import (
     PromotionBenefits,
     normalized_coupon,
 )
-from app.tax.schemas import TaxRuleSimulationRequest
+from app.tax.schemas import TaxRuleSimulationRequest, TaxRuleSimulationResponse
+from app.tax.services.inclusive_rate import (
+    EnteredRate,
+    billed_rate,
+    lines_before_tax,
+)
 from app.tax.services.place_of_supply import SALES_INTERSTATE
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
@@ -424,6 +430,8 @@ class QuotationService(TransactionalDocumentService):
             exchange_rate=data.exchange_rate,
             remarks=data.remarks,
             coupon_code=normalized_coupon(data.coupon_code),
+            # Off unless the caller says so: an import types no shelf price.
+            rate_includes_tax=bool(data.rate_includes_tax),
             status=QuotationStatus.DRAFT.value,
             additional_charges=self._q(data.additional_charges),
             round_off=self._q(data.round_off),
@@ -523,6 +531,10 @@ class QuotationService(TransactionalDocumentService):
         row.coupon_code = normalized_coupon(data.coupon_code)
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
+        # Absent keeps the quotation's own switch; the lines sent are read the
+        # way it says, so an editor sends back the rates as typed.
+        if data.rate_includes_tax is not None:
+            row.rate_includes_tax = data.rate_includes_tax
         row.updated_by = actor_id
         self._apply_children(row, data, actor_id=actor_id)
         self._record_event(
@@ -750,6 +762,10 @@ class QuotationService(TransactionalDocumentService):
                 # the order asks the offers again, and handing it the waived
                 # figure would keep the waiver after the offer had gone.
                 freight_amount=self._q(row.freight_amount + row.freight_waived_amount),
+                # A quote typed at shelf prices is ordered at them: the order
+                # is handed the rates as typed and reads them back to pre-tax
+                # at its own date, as the quote did at its (backlog 64 row 4).
+                rate_includes_tax=bool(row.rate_includes_tax),
                 lines=[
                     SalesOrderLineWrite(
                         line_number=line.line_number,
@@ -763,8 +779,14 @@ class QuotationService(TransactionalDocumentService):
                         sales_uom_id=line.sales_uom_id,
                         inventory_uom_id=line.inventory_uom_id,
                         packaging_type_id=line.packaging_type_id,
-                        unit_price=line.unit_price,
-                        **self._typed_discount(line),
+                        unit_price=(
+                            line.entered_rate
+                            if row.rate_includes_tax and line.entered_rate is not None
+                            else line.unit_price
+                        ),
+                        **self._typed_discount(
+                            line, inclusive=bool(row.rate_includes_tax)
+                        ),
                         tax_profile_id=line.tax_profile_id,
                         warehouse_id=line.warehouse_id,
                         remarks=line.remarks,
@@ -810,7 +832,9 @@ class QuotationService(TransactionalDocumentService):
         return None
 
     @staticmethod
-    def _typed_discount(line: SalesQuotationLine) -> dict[str, Decimal | None]:
+    def _typed_discount(
+        line: SalesQuotationLine, *, inclusive: bool = False
+    ) -> dict[str, Decimal | None]:
         """Return the discount a converted order line is handed, if any.
 
         Only what somebody **typed** on the quotation carries over as typed,
@@ -828,7 +852,14 @@ class QuotationService(TransactionalDocumentService):
         # A line saved before the source was recorded cannot say where its
         # discount came from, so the quoted figure stands as it always did.
         if line.discount_source in (None, "amount"):
-            return {"discount_percent": None, "discount_amount": line.discount_amount}
+            # On a quote typed at shelf prices the amount is handed over as
+            # typed, GST in it, because the order reads it that way.
+            amount = (
+                line.entered_discount_amount
+                if inclusive and line.entered_discount_amount is not None
+                else line.discount_amount
+            )
+            return {"discount_percent": None, "discount_amount": amount}
         if line.discount_source == "percent":
             return {"discount_percent": line.discount_percent, "discount_amount": None}
         return {"discount_percent": None, "discount_amount": None}
@@ -877,13 +908,17 @@ class QuotationService(TransactionalDocumentService):
     def _apply_children(
         self, row: SalesQuotation, data: QuotationCreate, *, actor_id: UUID
     ) -> None:
+        lines, entered = self._typed_rates_before_tax(
+            row, data.lines, actor_id=actor_id
+        )
         totals = self._replace_lines(
             row,
-            lines=data.lines,
+            lines=lines,
             bill_percent=data.bill_discount_percent,
             bill_amount=data.bill_discount_amount,
             freight_amount=data.freight_amount,
             actor_id=actor_id,
+            entered=entered,
         )
         row.line_discount_total = totals["line_discount_total"]
         row.subtotal = totals["subtotal"]
@@ -1097,13 +1132,15 @@ class QuotationService(TransactionalDocumentService):
         bill_amount: Decimal | None,
         freight_amount: Decimal | None = None,
         actor_id: UUID,
+        entered: Mapping[int, EnteredRate] | None = None,
     ) -> dict[str, Decimal]:
         """Reconcile the lines on their line number.
 
         Matched rather than deleted and re-inserted, which is the rule every
         document here follows: re-inserting mints a new id for every line on
         every save, and anything holding a reference to one is left pointing
-        at nothing.
+        at nothing. ``entered`` is what was typed GST-inclusive on each line,
+        by line number, kept beside the pre-tax figures (backlog 64 row 4).
         """
         existing = {
             line.line_number: line
@@ -1285,6 +1322,11 @@ class QuotationService(TransactionalDocumentService):
             line.inventory_uom_id = item.inventory_uom_id
             line.packaging_type_id = item.packaging_type_id
             line.unit_price = self._q(item.unit_price)
+            typed = (entered or {}).get(item.line_number)
+            line.entered_rate = None if typed is None else typed.entered_rate
+            line.entered_discount_amount = (
+                None if typed is None else typed.entered_discount_amount
+            )
             line.discount_percent = line_discount.percent
             line.discount_source = line_discount.source
             line.discount_amount = discount
@@ -1398,8 +1440,41 @@ class QuotationService(TransactionalDocumentService):
         line_number: int | None = None,
     ) -> Decimal:
         """Return the tax the offer would carry if billed on its own date."""
+        response = self._tax_response(
+            quotation_date=quotation_date,
+            firm_id=firm_id,
+            actor_id=actor_id,
+            business_profile_id=business_profile_id,
+            customer_id=customer_id,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            product_id=product_id,
+            tax_profile_id=tax_profile_id,
+            invoice_value=invoice_value,
+            document_id=document_id,
+            line_number=line_number,
+        )
+        return ZERO if response is None else self._q(response.total_tax_amount)
+
+    def _tax_response(
+        self,
+        *,
+        quotation_date: date,
+        firm_id: UUID,
+        actor_id: UUID,
+        business_profile_id: UUID | None,
+        customer_id: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID | None,
+        product_id: UUID,
+        tax_profile_id: UUID | None,
+        invoice_value: Decimal,
+        document_id: UUID | None = None,
+        line_number: int | None = None,
+    ) -> TaxRuleSimulationResponse | None:
+        """Ask the tax engine about one line; None where nothing is taxed."""
         if invoice_value <= ZERO:
-            return ZERO
+            return None
         tax_service = TaxFrameworkService(self._session)
         if tax_profile_id is None:
             product = self._session.get(Product, product_id)
@@ -1411,13 +1486,13 @@ class QuotationService(TransactionalDocumentService):
                 else None
             )
             if resolved is None:
-                return ZERO
+                return None
             tax_profile_id = resolved.id
         else:
             tax_service.assert_profile_effective_on(
                 tax_profile_id, quotation_date, firm_scope=firm_id
             )
-        response = self._tax.simulate(
+        return self._tax.simulate(
             TaxRuleSimulationRequest(
                 # The supply's own nature, not just the document's name: a buyer in
                 # another state is charged IGST (D-CMP-1).
@@ -1445,7 +1520,51 @@ class QuotationService(TransactionalDocumentService):
             document_id=document_id,
             line_number=line_number,
         )
-        return self._q(response.total_tax_amount)
+
+    def _typed_rates_before_tax(
+        self,
+        row: SalesQuotation,
+        lines: list[QuotationLineWrite],
+        *,
+        actor_id: UUID,
+    ) -> tuple[list[QuotationLineWrite], dict[int, EnteredRate]]:
+        """Read the quotation's GST-inclusive rates back to pre-tax.
+
+        Backlog 64 row 4. Nothing changes on a quotation whose rates do not
+        include GST; the tax asked about is the one each line is quoted at,
+        through ``simulate``, which never commits.
+        """
+        if not row.rate_includes_tax:
+            return lines, {}
+
+        def rate_for(line: QuotationLineWrite) -> Callable[[Decimal], Decimal]:
+            """Return the billed rate of tax for this line at a value."""
+            return partial(self._billed_rate_at, row=row, line=line, actor_id=actor_id)
+
+        return lines_before_tax(lines, rate_for=rate_for)
+
+    def _billed_rate_at(
+        self,
+        value: Decimal,
+        *,
+        row: SalesQuotation,
+        line: QuotationLineWrite,
+        actor_id: UUID,
+    ) -> Decimal:
+        """Return the tax billed on a line of this value, as a fraction."""
+        response = self._tax_response(
+            quotation_date=row.quotation_date,
+            firm_id=row.firm_id,
+            actor_id=actor_id,
+            business_profile_id=row.business_profile_id,
+            customer_id=row.customer_id,
+            branch_id=row.branch_id,
+            warehouse_id=line.warehouse_id or row.warehouse_id,
+            product_id=line.product_id,
+            tax_profile_id=line.tax_profile_id,
+            invoice_value=value,
+        )
+        return ZERO if response is None else billed_rate(response)
 
     # ---- import and export ---------------------------------------------
 
@@ -1606,6 +1725,7 @@ class QuotationService(TransactionalDocumentService):
             exchange_rate=row.exchange_rate,
             remarks=row.remarks,
             coupon_code=row.coupon_code,
+            rate_includes_tax=bool(row.rate_includes_tax),
             status=QuotationStatus(row.status),
             customer_discount_percent=row.customer_discount_percent,
             bill_discount_percent=row.bill_discount_percent,

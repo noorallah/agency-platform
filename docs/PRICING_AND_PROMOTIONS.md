@@ -449,7 +449,7 @@ order it raised for itself.
 
 ## A rate typed with GST in it is stored before tax
 
-BACKLOG 64 row 4 (`app/sales_invoice/services/inclusive_rate.py`). A counter
+BACKLOG 64 row 4 (`app/tax/services/inclusive_rate.py`). A counter
 bill whose **Rate includes GST** is on (`sales_invoices.rate_includes_tax`,
 defaulting from `sales_workflow_settings.rate_includes_tax`) reads each rate
 typed on a bare line as the shelf price. Before the order behind the bill is
@@ -471,5 +471,19 @@ taxable value is kept at the documents' four decimals rather than rounded to
 the paisa first, because rounding it first leaves taxable + tax a paisa off the
 typed total about one time in seven (100 incl. 18% is 84.75 + 15.26 = 100.01,
 against 84.7458 + 15.2542); a residual left by the tax engine's own rounding on
-a large quantity is the round-off's, never an adjusted tax. Sales orders and
-quotations do not have the switch yet.
+a large quantity is the round-off's, never an adjusted tax.
+
+The **sales order** and the **quotation** carry the same switch
+(`sales_orders.rate_includes_tax`, `sales_quotations.rate_includes_tax`;
+`lines_before_tax` in the same module, migration `20261002_0207`). Every line
+of those documents is typed, so every line with a rate is read back, and its
+line keeps `entered_rate` and `entered_discount_amount` -- the discount amount
+as typed -- so an editor shows the figures typed and sends them back that way
+on an edit, which reads them again. **Absent on a new order or quotation is
+off**, unlike the bill: a converted quotation, the order a counter bill raises
+and an import all hand over rates already before tax, and a firm default read
+on the server would read them a second time. The editors default the switch
+from the firm's setting and always send it. A quotation typed at shelf prices
+converts into an order typed at them, read back to pre-tax at the order's own
+date, so the customer is billed the price quoted; the quotation print shows
+both rates. A bill continuing an order inherits the pre-tax price, as before.

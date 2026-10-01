@@ -104,6 +104,9 @@ class _OrderApi extends ApiClient {
   /// The order an edit reads back, when one is being corrected.
   Json? existing;
 
+  /// The firm's default for a new order's "Rate includes GST" (backlog 64.4).
+  bool rateIncludesTax = false;
+
   /// Every draft phase 2 asked to be priced.
   final List<Json> previews = <Json>[];
 
@@ -159,6 +162,17 @@ class _OrderApi extends ApiClient {
         },
       ]);
     }
+    if (method == 'GET' && path == '/api/v1/sales-orders/workflow-settings') {
+      return <String, dynamic>{
+        'data': <String, dynamic>{
+          'quotation_stage': true,
+          'sales_order_stage': true,
+          'delivery_note_stage': true,
+          'rate_includes_tax': rateIncludesTax,
+          'is_configured': true,
+        },
+      };
+    }
     if (method == 'GET' && path.startsWith('/api/v1/sales-orders/')) {
       return <String, dynamic>{'data': existing};
     }
@@ -187,7 +201,7 @@ class _OrderApi extends ApiClient {
       for (final dynamic raw in lines) {
         final Json line = raw as Json;
         final double net = double.parse('${line['quantity']}') *
-            double.parse('${line['unit_price']}');
+            double.parse('${line['unit_price'] ?? '100'}');
         subtotal += net;
         priced.add(<String, dynamic>{
           'line_number': line['line_number'],
@@ -747,6 +761,169 @@ void main() {
 
     expect(find.byType(SalesOrderEditorDialog), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  // Backlog 64 row 4: a counter or a phone order quotes the shelf price.
+  group('rate includes GST (phase 2)', () {
+    Future<void> pumpPhase2(
+      WidgetTester tester,
+      _OrderApi api, {
+      String? orderId,
+    }) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (BuildContext context) => TextButton(
+              onPressed: () => Navigator.of(context).push<bool>(
+                MaterialPageRoute<bool>(
+                  builder: (_) => Scaffold(
+                    body: Phase2Scope(
+                      child: SalesOrderEditorDialog(
+                        api: api,
+                        today: DateTime(2026, 8, 14),
+                        orderId: orderId,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> chooseCustomer(WidgetTester tester) async {
+      await tester.tap(find.byKey(const ValueKey('sales-order-customer')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Anand Agencies').last);
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+    }
+
+    Finder lineBoxes() => find.descendant(
+          of: find.byKey(const ValueKey<String>('sales-order-line-0')),
+          matching: find.byType(EditableText),
+        );
+
+    testWidgets('a new order starts from the firm default and sends it',
+        (tester) async {
+      final _OrderApi api = _api()..rateIncludesTax = true;
+      await pumpPhase2(tester, api);
+      final Finder toggle =
+          find.byKey(const ValueKey('sales-order-rate-includes-tax'));
+      expect(tester.widget<Switch>(toggle).value, isTrue);
+      expect(find.text('Rate incl. GST'), findsOneWidget);
+      expect(find.text('Disc amt incl.'), findsOneWidget);
+      expect(find.text('Shelf price'), findsOneWidget);
+
+      await chooseCustomer(tester);
+      // The product's own price is before tax, so the box starts blank and
+      // the preview is asked without a rate.
+      expect(api.previews.last['rate_includes_tax'], isTrue);
+      expect(_firstLine(api.previews.last).containsKey('unit_price'), isFalse);
+
+      await tester.enterText(lineBoxes().at(3), '118');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(_firstLine(api.previews.last)['unit_price'], '118');
+
+      await tester.tap(find.byKey(const ValueKey('sales-order-save')));
+      await tester.pumpAndSettle();
+      expect(api.created!['rate_includes_tax'], isTrue);
+      expect(_firstLine(api.created!)['unit_price'], '118');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the switch moves the product price out and back',
+        (tester) async {
+      final _OrderApi api = _api();
+      await pumpPhase2(tester, api);
+      final Finder toggle =
+          find.byKey(const ValueKey('sales-order-rate-includes-tax'));
+      expect(tester.widget<Switch>(toggle).value, isFalse);
+      expect(find.text('Rate incl. GST'), findsNothing);
+      expect(find.text('Before tax'), findsOneWidget);
+      expect(
+        tester.widget<EditableText>(lineBoxes().at(3)).controller.text,
+        '100',
+      );
+
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(find.text('Rate incl. GST'), findsOneWidget);
+      expect(
+        tester.widget<EditableText>(lineBoxes().at(3)).controller.text,
+        isEmpty,
+      );
+
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(find.text('Rate incl. GST'), findsNothing);
+      expect(
+        tester.widget<EditableText>(lineBoxes().at(3)).controller.text,
+        '100',
+      );
+
+      await chooseCustomer(tester);
+      await tester.tap(find.byKey(const ValueKey('sales-order-save')));
+      await tester.pumpAndSettle();
+      expect(api.created!['rate_includes_tax'], isFalse);
+      expect(_firstLine(api.created!)['unit_price'], '100');
+    });
+
+    testWidgets('a draft typed with GST shows its rate and discount as typed',
+        (tester) async {
+      final _OrderApi api = _api();
+      api.existing = _draft()
+        ..['rate_includes_tax'] = true
+        ..['lines'] = <Json>[
+          <String, dynamic>{
+            'line_number': 1,
+            'product_id': 'p1',
+            'quantity': '3',
+            'free_quantity': '0',
+            'unit_price': '95',
+            'entered_rate': '112.1',
+            'discount_percent': '10',
+            'discount_source': 'amount',
+            'discount_amount': '10',
+            'entered_discount_amount': '11.8',
+          },
+        ];
+      await pumpPhase2(tester, api, orderId: 'so-1');
+      expect(tester.takeException(), isNull);
+      expect(
+        tester.widget<Switch>(
+          find.byKey(const ValueKey('sales-order-rate-includes-tax')),
+        ).value,
+        isTrue,
+      );
+      expect(find.text('Rate incl. GST'), findsOneWidget);
+      expect(
+        tester.widget<EditableText>(lineBoxes().at(3)).controller.text,
+        '112.1',
+      );
+      expect(
+        tester.widget<EditableText>(lineBoxes().at(5)).controller.text,
+        '11.8',
+      );
+
+      await tester.tap(find.byKey(const ValueKey('sales-order-save')));
+      await tester.pumpAndSettle();
+      expect(api.updated!['rate_includes_tax'], isTrue);
+      final Json line = _firstLine(api.updated!);
+      expect(line['unit_price'], '112.1');
+      expect(line['discount_amount'], '11.8');
+      expect(line.containsKey('discount_percent'), isFalse);
+    });
   });
 
   testWidgets('phase 2 draws one screen priced as it is typed', (tester) async {

@@ -13,20 +13,68 @@ part of 'quotation_editor_dialog.dart';
 /// nothing. The state, the payload and every rule about typed and inherited
 /// prices are the dialog's; only the layout is new.
 extension _Phase2QuotationEditor on _QuotationEditorDialogState {
-  static const List<DocumentColumn> _columns = [
-    DocumentColumn('#', 28),
-    DocumentColumn('Product (code, name or barcode)', 0),
-    DocumentColumn('HSN', 66),
-    DocumentColumn('Qty', 66, numeric: true),
-    DocumentColumn('Free', 56, numeric: true),
-    DocumentColumn('Unit', 50),
-    DocumentColumn('Rate', 84, numeric: true),
-    DocumentColumn('Disc %', 60, numeric: true),
-    DocumentColumn('Taxable', 96, numeric: true),
-    DocumentColumn('GST', 48, numeric: true),
-    DocumentColumn('Amount', 104, numeric: true),
-    DocumentColumn('', 28),
+  List<DocumentColumn> get _columns => [
+    const DocumentColumn('#', 28),
+    const DocumentColumn('Product (code, name or barcode)', 0),
+    const DocumentColumn('HSN', 66),
+    const DocumentColumn('Qty', 66, numeric: true),
+    const DocumentColumn('Free', 56, numeric: true),
+    const DocumentColumn('Unit', 50),
+    // The rate says which rate it holds (backlog 64 row 4).
+    _rateIncludesTax
+        ? const DocumentColumn('Rate incl. GST', 104, numeric: true)
+        : const DocumentColumn('Rate', 84, numeric: true),
+    const DocumentColumn('Disc %', 60, numeric: true),
+    const DocumentColumn('Taxable', 96, numeric: true),
+    const DocumentColumn('GST', 48, numeric: true),
+    const DocumentColumn('Amount', 104, numeric: true),
+    const DocumentColumn('', 28),
   ];
+
+  /// Turn the offer's "Rate includes GST" switch. A rate still showing the
+  /// product's own price was never typed, and that price is before tax, so
+  /// it is cleared going on (blank takes it, before tax) and put back coming
+  /// off.
+  void _setRateIncludesTax(bool value) {
+    _setState(() {
+      _rateIncludesTax = value;
+      for (final _LineDraft line in _lines) {
+        final Product? product = _product(line.productId);
+        if (product == null) continue;
+        final String price = line.unitPrice.text.trim();
+        if (value && price == product.sellingPrice.trim()) {
+          line.unitPrice.clear();
+          line.priceEdited = false;
+        } else if (!value && price.isEmpty) {
+          final double master = double.tryParse(product.sellingPrice) ?? 0;
+          if (master > 0) line.unitPrice.text = product.sellingPrice.trim();
+        }
+      }
+    });
+    _schedulePreview();
+  }
+
+  Widget _rateIncludesTaxField() => DocumentField(
+        label: 'Rate includes GST',
+        width: 150,
+        child: Row(
+          children: [
+            Switch(
+              key: const ValueKey('quotation-rate-includes-tax'),
+              value: _rateIncludesTax,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              onChanged: _setRateIncludesTax,
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                _rateIncludesTax ? 'Shelf price' : 'Before tax',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      );
 
   Widget _phase2Page(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
@@ -293,6 +341,7 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
           ),
         ]),
       ),
+      _rateIncludesTaxField(),
       DocumentField(
         label: "Customer's reference",
         width: 200,
@@ -452,7 +501,8 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
         _numberBox(
           context,
           line.unitPrice,
-          validator: (value) => _positive(value, 'price'),
+          validator: _priceBox,
+          hint: _rateIncludesTax ? 'list rate' : null,
           onTyped: () => line.priceEdited = true,
         ),
         _numberBox(

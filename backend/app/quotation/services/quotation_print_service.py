@@ -124,6 +124,9 @@ class QuotationPrintService:
                 - line.discount_amount
                 - line.bill_discount_amount,
                 total=line.net_amount,
+                # A quote typed at shelf prices prints them beside the taxable
+                # rate, as the bill does (backlog 64 row 4).
+                entered_rate=line.entered_rate if row.rate_includes_tax else None,
             )
             for line in lines
         ]
