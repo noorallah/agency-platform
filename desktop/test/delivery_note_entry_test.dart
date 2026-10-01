@@ -1,4 +1,5 @@
 import 'package:agency_desktop/core/api/api_client.dart';
+import 'package:agency_desktop/models/batch_serial.dart';
 import 'package:agency_desktop/models/branch_warehouse.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/inventory.dart';
@@ -57,6 +58,26 @@ class _DeliveryApi extends ApiClient {
 
   final List<InventoryRecord> stock;
   Json? sent;
+
+  @override
+  Future<List<BatchAvailabilityRecord>> batchAvailability({
+    required String productId,
+    required String warehouseId,
+    String? storageNodeId,
+    String? asOf,
+    num? quantity,
+    String? salesOrderLineId,
+  }) async =>
+      [
+        for (final InventoryRecord row in stock)
+          BatchAvailabilityRecord.fromJson({
+            'batch_id': row.batchId,
+            'batch_number': row.batchNumber,
+            'expiry_date': row.batchExpiryDate,
+            'available_to_line': row.availableQuantity,
+            'fefo': '${quantity ?? 0}',
+          }),
+      ];
 
   @override
   Future<Json> documentPage(
@@ -319,6 +340,9 @@ void main() {
 
     // Ten reserved at 40: 400, off batch JUNE.
     expect(find.text('400.00'), findsWidgets);
+    // The picker reads the batches a moment after the line settles.
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
     expect(find.text('JUNE'), findsOneWidget);
     await tester.enterText(
       find.byKey(const ValueKey<String>('delivery-note-delivering-so-1-0')),
