@@ -1,6 +1,7 @@
 """Public schema exports for the batch_serial module."""
 
 from app.batch_serial.schemas.batch_serial import (
+    BatchAvailability,
     BatchCreate,
     BatchListFilters,
     BatchResponse,
@@ -27,6 +28,7 @@ from app.batch_serial.schemas.batch_serial import (
 )
 
 __all__ = [
+    "BatchAvailability",
     "BatchCreate",
     "BatchListFilters",
     "BatchResponse",

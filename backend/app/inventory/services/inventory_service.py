@@ -2745,7 +2745,9 @@ class InventoryService:
             column=InventoryRecord.reserved_quantity,
         )
         if prefer:
-            rank = {batch_id: index for index, batch_id in enumerate(prefer)}
+            rank: dict[UUID | None, int] = {
+                batch_id: index for index, batch_id in enumerate(prefer)
+            }
             rows.sort(key=lambda row: rank.get(row.batch_id, len(rank)))
         outstanding = Decimal(str(quantity))
         allocation: list[tuple[UUID | None, Decimal]] = []

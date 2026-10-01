@@ -1865,6 +1865,10 @@ class DeliveryNoteService(TransactionalDocumentService):
         for line_number, obsolete in existing.items():
             if line_number not in seen:
                 self._trail.clear_lines([obsolete.id])
+                # Explicitly, not by the key's CASCADE, which SQLite skips.
+                self._session.query(DeliveryNoteLineBatch).filter(
+                    DeliveryNoteLineBatch.delivery_note_line_id == obsolete.id
+                ).delete(synchronize_session=False)
                 self._session.delete(obsolete)
         self._replace_serial_picks(row, lines, actor_id=actor_id)
         self._replace_batch_picks(row, lines, actor_id=actor_id)
@@ -1906,6 +1910,17 @@ class DeliveryNoteService(TransactionalDocumentService):
         }
         for line_number, picks in stated.items():
             line = persisted[line_number]
+            if picks and self._trail.is_serialised(line.product_id):
+                raise ValidationError(
+                    f"Line {line_number}: a serial-tracked product leaves from "
+                    "the batch of each unit picked, so its batches are not "
+                    "chosen separately."
+                )
+            if len({pick.batch_id for pick in picks}) != len(picks):
+                raise ValidationError(
+                    f"Line {line_number}: a batch is named twice; give it once "
+                    "with the whole quantity."
+                )
             for old in self._session.scalars(
                 select(DeliveryNoteLineBatch).where(
                     DeliveryNoteLineBatch.delivery_note_line_id == line.id
@@ -1921,7 +1936,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                     or batch.is_deleted
                 ):
                     raise ValidationError(
-                        f"Line {line.line_number}: that batch is not this " "product's."
+                        f"Line {line.line_number}: that batch is not this product's."
                     )
                 self._session.add(
                     DeliveryNoteLineBatch(
@@ -1978,14 +1993,70 @@ class DeliveryNoteService(TransactionalDocumentService):
                 f"{self._q(total)}, and the line delivers "
                 f"{self._q(line.delivered_quantity)}."
             )
-        for pick in picks:
-            batch = self._session.get(BatchRecord, pick.batch_id)
-            if batch is not None and batch.expiry_date and batch.expiry_date < as_of:
-                raise ValidationError(
-                    f"Line {line.line_number}: batch {batch.batch_number} expired "
-                    f"on {batch.expiry_date.isoformat()}."
-                )
+        # The same test dispatch applies when nobody chooses: a batch is out of
+        # date on its expiry day, and one marked EXPIRED by hand is too.
+        expired = self._session.scalars(
+            select(BatchRecord).where(
+                BatchRecord.id.in_([pick.batch_id for pick in picks]),
+                BatchRecord.expired_condition(as_of),
+            )
+        ).first()
+        if expired is not None:
+            when = (
+                f" on {expired.expiry_date.isoformat()}"
+                if expired.expiry_date is not None
+                else ""
+            )
+            raise ValidationError(
+                f"Line {line.line_number}: batch {expired.batch_number} "
+                f"expired{when}."
+            )
         return [(pick.batch_id, self._q(pick.quantity)) for pick in picks]
+
+    def _record_fefo_skip(
+        self,
+        row: DeliveryNote,
+        line: DeliveryNoteLine,
+        chosen: list[tuple[UUID | None, Decimal]],
+        *,
+        branch_id: UUID,
+        actor_id: UUID,
+    ) -> None:
+        """Audit a chosen split that is not the one expiry order would draw (79).
+
+        Choosing a later batch while an earlier one sits on the shelf is the
+        decision a pharmacy is asked about afterwards, so the trail keeps both
+        splits. Asked after this line's own hold is let go, as the allocation
+        it is compared with would be.
+        """
+        if line.warehouse_id is None:
+            return
+        try:
+            fefo = self._inventory.allocate_for_dispatch(
+                firm_scope=row.firm_id,
+                branch_id=branch_id,
+                warehouse_id=line.warehouse_id,
+                storage_node_id=line.storage_node_id,
+                product_id=line.product_id,
+                quantity=line.delivered_quantity,
+                as_of=row.delivery_date,
+            )
+        except ValidationError:
+            fefo = []
+        as_split = {str(batch_id): str(self._q(qty)) for batch_id, qty in fefo}
+        chose = {str(batch_id): str(self._q(qty)) for batch_id, qty in chosen}
+        if as_split == chose:
+            return
+        record_audit(
+            self._session,
+            action="delivery_note.fefo_skipped",
+            entity_type="delivery_note",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=row.firm_id,
+            before_data={"line_number": line.line_number, "earliest_expiry": as_split},
+            after_data={"line_number": line.line_number, "chosen": chose},
+        )
 
     def _replace_serial_picks(
         self,
@@ -2430,6 +2501,13 @@ class DeliveryNoteService(TransactionalDocumentService):
                 # A person chose the batches (backlog 79): those, and only
                 # those, leave.
                 allocation = chosen
+                self._record_fefo_skip(
+                    row,
+                    line,
+                    chosen,
+                    branch_id=goods_branch_id,
+                    actor_id=actor_id,
+                )
                 shares = self._trail.deal(
                     picks, [allocated for _, allocated in allocation]
                 )

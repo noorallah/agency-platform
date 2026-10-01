@@ -4,15 +4,17 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import date, timedelta
+from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.batch_serial.models.batch_serial import BatchRecord, LotRecord, SerialNumber
 from app.batch_serial.schemas.batch_serial import (
+    BatchAvailability,
     BatchCreate,
     BatchListFilters,
     BatchResponse,
@@ -41,6 +43,9 @@ from app.inventory.models import InventoryRecord
 from app.inventory.schemas import BatchStockTotals
 from app.inventory.services import InventoryService
 from app.products.models import Product
+from app.sales_order.models import SalesOrder, SalesOrderLine
+
+ZERO = Decimal("0")
 
 #: What an audit row records of each record, named like the rest of the
 #: platform's ``module.action`` rows rather than bare ``CREATE`` (D-STK-10).
@@ -643,6 +648,143 @@ class BatchSerialService:
             quarantine=quarantine,
             recalled=recalled,
         )
+
+    def batch_availability(
+        self,
+        *,
+        firm_scope: UUID,
+        product_id: UUID,
+        warehouse_id: UUID,
+        as_of: date,
+        storage_node_id: UUID | None = None,
+        quantity: Decimal = Decimal("0"),
+        sales_order_line_id: UUID | None = None,
+        near_expiry_days: int = 30,
+    ) -> list[BatchAvailability]:
+        """List a product's batches in one warehouse for a batch picker (79).
+
+        Every batch with stock on the shelf, nearest expiry first and a batch
+        with no expiry last, expired ones included so the picker can show them
+        greyed out rather than leave somebody hunting for stock the stock
+        screen says is there. Untracked stock (no batch) is not listed: a pick
+        names a batch.
+
+        ``sales_order_line_id`` is the order line a delivery is drawn against.
+        Its own hold is let go before dispatch draws, preferring the batches
+        chosen, so up to that much of each batch's reserved stock is the
+        line's to take -- ``available_to_line``. ``quantity`` asks for the
+        earliest-expiry split dispatch would make with nobody choosing, which
+        the picker fills in so that Enter keeps today's behaviour.
+        """
+        rows = self._session.execute(
+            select(InventoryRecord, BatchRecord)
+            .join(BatchRecord, BatchRecord.id == InventoryRecord.batch_id)
+            .where(
+                InventoryRecord.firm_id == firm_scope,
+                InventoryRecord.warehouse_id == warehouse_id,
+                InventoryRecord.product_id == product_id,
+                InventoryRecord.is_deleted.is_(False),
+                InventoryRecord.current_quantity > 0,
+                BatchRecord.is_deleted.is_(False),
+                *(
+                    [InventoryRecord.storage_node_id == storage_node_id]
+                    if storage_node_id is not None
+                    else []
+                ),
+            )
+            .order_by(
+                case((BatchRecord.expiry_date.is_(None), 1), else_=0).asc(),
+                BatchRecord.expiry_date.asc(),
+                BatchRecord.id.asc(),
+            )
+        ).all()
+        totals: dict[UUID, list[Decimal]] = {}
+        batches: dict[UUID, BatchRecord] = {}
+        for stock, batch in rows:
+            sums = totals.setdefault(batch.id, [ZERO, ZERO, ZERO])
+            sums[0] += Decimal(str(stock.current_quantity))
+            sums[1] += Decimal(str(stock.reserved_quantity))
+            sums[2] += Decimal(str(stock.available_quantity))
+            batches[batch.id] = batch
+        own_hold = self._own_hold(
+            sales_order_line_id, firm_scope=firm_scope, warehouse_id=warehouse_id
+        )
+        expired = {
+            batch_id
+            for batch_id in self._session.scalars(
+                select(BatchRecord.id).where(
+                    BatchRecord.id.in_(list(batches)),
+                    BatchRecord.expired_condition(as_of),
+                )
+            )
+        }
+        result: list[BatchAvailability] = []
+        hold_left = own_hold
+        wanted = Decimal(str(quantity))
+        near_line = as_of + timedelta(days=near_expiry_days)
+        for batch_id, (on_hand, reserved, available) in totals.items():
+            batch = batches[batch_id]
+            # Dispatch frees the line's hold earliest expiry first unless a
+            # batch is chosen, so any one batch can be freed up to the whole
+            # hold; the pre-fill below spends it in the order dispatch would.
+            freeable = min(reserved, own_hold)
+            freed = min(reserved, hold_left)
+            hold_left -= freed
+            is_expired = batch_id in expired
+            fefo = ZERO
+            if not is_expired and wanted > ZERO:
+                fefo = min(wanted, available + freed)
+                wanted -= fefo
+            result.append(
+                BatchAvailability(
+                    batch_id=batch_id,
+                    batch_number=batch.batch_number,
+                    manufacturing_date=batch.manufacturing_date,
+                    expiry_date=batch.expiry_date,
+                    days_to_expiry=(
+                        (batch.expiry_date - as_of).days
+                        if batch.expiry_date is not None
+                        else None
+                    ),
+                    on_hand=on_hand,
+                    reserved=reserved,
+                    available=available,
+                    available_to_line=ZERO if is_expired else available + freeable,
+                    expired=is_expired,
+                    near_expiry=(
+                        not is_expired
+                        and batch.expiry_date is not None
+                        and batch.expiry_date <= near_line
+                    ),
+                    fefo=fefo,
+                )
+            )
+        return result
+
+    def _own_hold(
+        self,
+        sales_order_line_id: UUID | None,
+        *,
+        firm_scope: UUID,
+        warehouse_id: UUID,
+    ) -> Decimal:
+        """Return what an order line holds in this warehouse, in stock units.
+
+        A hold made in another warehouse frees nothing here, so it counts as
+        none -- the same location ``DeliveryNoteService._reservation_location``
+        releases from: the line's warehouse, or else its order's.
+        """
+        if sales_order_line_id is None:
+            return ZERO
+        line = self._session.get(SalesOrderLine, sales_order_line_id)
+        if line is None or line.is_deleted:
+            return ZERO
+        order = self._session.get(SalesOrder, line.sales_order_id)
+        if order is None or order.firm_id != firm_scope:
+            return ZERO
+        if (line.warehouse_id or order.warehouse_id) != warehouse_id:
+            return ZERO
+        return Decimal(str(line.reserved_quantity or ZERO))
 
     # ── Lot ──────────────────────────────────────────────────────────────────
 
