@@ -5374,6 +5374,26 @@ class ApiClient {
         body: {'reason': reason},
       ));
 
+  /// The tax calendar (backlog 63 item 4): what each return and deposit owes,
+  /// when, and whether it is done -- latest month first.
+  Future<List<Json>> gstTaxCalendar() async {
+    final Json response =
+        await request('GET', '/api/v1/gst-returns/calendar');
+    final dynamic data = response['data'];
+    return data is List
+        ? data.whereType<Map>().map(Map<String, dynamic>.from).toList()
+        : const <Json>[];
+  }
+
+  /// Record that a month's GSTR-1 or GSTR-3B was filed on the portal.
+  Future<Json> markGstReturnFiled(Json data) async => _unwrapMap(
+        await request('POST', '/api/v1/gst-returns/filings', body: data),
+      );
+
+  /// Withdraw a filing recorded in error.
+  Future<void> withdrawGstReturnFiling(String id) =>
+      request('DELETE', '/api/v1/gst-returns/filings/$id');
+
   // ---- credit notes ---------------------------------------------------
 
   Future<PagedResult<CreditNoteRecord>> creditNotes({

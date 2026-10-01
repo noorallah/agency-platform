@@ -1,3 +1,4 @@
+import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/theme/theme_manager.dart';
 import 'package:agency_desktop/phase2/home_page.dart';
 import 'package:agency_desktop/phase2/menu_layout.dart';
@@ -15,6 +16,34 @@ class _Source implements HomeSource {
 
   final Set<String> failing;
   final List<String> asked = [];
+  final List<Map<String, dynamic>> marked = [];
+  final List<String> withdrawn = [];
+  String? refuseMarkWith;
+
+  List<Map<String, dynamic>> calendar = [
+    {
+      'kind': 'GSTR3B',
+      'return_period': '2026-08',
+      'due_date': '2026-09-14',
+      'amount': '72.00',
+      'status': 'LATE',
+      'days_late': 12,
+      'done_on': null,
+      'reference': null,
+      'filing_id': null,
+    },
+    {
+      'kind': 'GSTR1',
+      'return_period': '2026-08',
+      'due_date': '2026-09-11',
+      'amount': '180.00',
+      'status': 'DONE',
+      'days_late': 0,
+      'done_on': '2026-09-10',
+      'reference': null,
+      'filing_id': 'f-1',
+    },
+  ];
 
   Future<T> _answer<T>(String what, T value) async {
     asked.add(what);
@@ -86,6 +115,28 @@ class _Source implements HomeSource {
   Future<int> expiringLicences() => _answer('licences', 0);
 
   @override
+  Future<List<Map<String, dynamic>>> taxCalendar() =>
+      _answer('calendar', calendar);
+
+  @override
+  Future<void> markGstReturnFiled(Map<String, dynamic> body) async {
+    if (refuseMarkWith != null) throw ApiException(refuseMarkWith!);
+    marked.add(body);
+    calendar = [
+      for (final Map<String, dynamic> row in calendar)
+        if (row['kind'] == body['return_type'])
+          {...row, 'status': 'DONE', 'done_on': body['filed_on']}
+        else
+          row,
+    ];
+  }
+
+  @override
+  Future<void> withdrawGstReturnFiling(String id) async {
+    withdrawn.add(id);
+  }
+
+  @override
   Future<Map<String, dynamic>> summary(String path) => _answer(path, {
         'draft': 4,
         'pending_orders': 6,
@@ -105,6 +156,8 @@ const Set<String> _owner = {
   'inventory/expiry-monitor',
   'masters/customers',
   'masters/customer-statements',
+  'sales/gst-payment',
+  'sales/gst-returns',
 };
 
 const Set<String> _storeman = {
@@ -368,5 +421,86 @@ void main() {
     // The page is 1366 wide; the page bar has 12 px of padding each side.
     expect(tester.getTopRight(find.byKey(const ValueKey('home-customise'))).dx,
         closeTo(1366 - 12, 1));
+  });
+
+  testWidgets('tax calendar: a late return with its amount, a filed one ticked',
+      (tester) async {
+    await _pump(tester, allowed: _owner, source: _Source());
+    final Finder late = find.byKey(const ValueKey('home-tax-GSTR3B-2026-08'));
+    expect(find.descendant(of: late, matching: find.text('GSTR-3B · Aug 2026')),
+        findsOneWidget);
+    expect(find.descendant(of: late, matching: find.text('72')),
+        findsOneWidget);
+    final Finder lateText =
+        find.descendant(of: late, matching: find.textContaining('12 days late'));
+    expect(lateText, findsOneWidget);
+    expect(tester.widget<Text>(lateText).style?.color,
+        Theme.of(tester.element(lateText)).colorScheme.error);
+    final Finder done = find.byKey(const ValueKey('home-tax-GSTR1-2026-08'));
+    expect(find.descendant(of: done, matching: find.text('Filed 10 Sep')),
+        findsOneWidget);
+    expect(find.descendant(of: done, matching: find.byIcon(Icons.check_circle)),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('home-tax-undo-GSTR1-2026-08')),
+        findsOneWidget);
+  });
+
+  testWidgets('tax calendar: absent without the GST Payment screen',
+      (tester) async {
+    final _Source source = _Source();
+    await _pump(tester,
+        allowed: _owner.difference({'sales/gst-payment'}), source: source);
+    expect(find.text('TAX CALENDAR'), findsNothing);
+    expect(source.asked, isNot(contains('calendar')));
+  });
+
+  testWidgets('tax calendar: a row opens its screen', (tester) async {
+    final List<String> opened =
+        await _pump(tester, allowed: _owner, source: _Source());
+    await tester.tap(find.byKey(const ValueKey('home-tax-GSTR3B-2026-08')));
+    await tester.tap(find.byKey(const ValueKey('home-tax-GSTR1-2026-08')));
+    expect(opened, ['sales/gst-payment', 'sales/gst-returns']);
+  });
+
+  testWidgets('Mark filed sends the filing and reloads the calendar',
+      (tester) async {
+    final _Source source = _Source();
+    await _pump(tester, allowed: _owner, source: source);
+    await tester.tap(find.byKey(const ValueKey('home-tax-mark-GSTR3B-2026-08')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('home-tax-arn')), 'AA123');
+    await tester.tap(find.byKey(const ValueKey('home-tax-save')));
+    await tester.pumpAndSettle();
+    expect(source.marked, [
+      {
+        'return_type': 'GSTR3B',
+        'return_period': '2026-08',
+        'filed_on': '2026-09-26',
+        'arn': 'AA123',
+      },
+    ]);
+    expect(source.asked.where((a) => a == 'calendar').length, 2);
+    expect(find.text('Filed 26 Sep'), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
+  });
+
+  testWidgets('Mark filed stays open with the refusal', (tester) async {
+    final _Source source = _Source()..refuseMarkWith = 'Not yet filable';
+    await _pump(tester, allowed: _owner, source: source);
+    await tester.tap(find.byKey(const ValueKey('home-tax-mark-GSTR3B-2026-08')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('home-tax-save')));
+    await tester.pumpAndSettle();
+    expect(find.text('Not yet filable'), findsOneWidget);
+    expect(find.byType(AlertDialog), findsOneWidget);
+  });
+
+  testWidgets('Undo withdraws the filing and reloads', (tester) async {
+    final _Source source = _Source();
+    await _pump(tester, allowed: _owner, source: source);
+    await tester.tap(find.byKey(const ValueKey('home-tax-undo-GSTR1-2026-08')));
+    await tester.pumpAndSettle();
+    expect(source.withdrawn, ['f-1']);
+    expect(source.asked.where((a) => a == 'calendar').length, 2);
   });
 }
