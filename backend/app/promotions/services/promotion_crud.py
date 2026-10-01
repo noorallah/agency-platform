@@ -364,7 +364,12 @@ class PromotionCrudService:
             PromotionActionType.LINE_DISCOUNT_PERCENT,
             PromotionActionType.BILL_DISCOUNT_PERCENT,
         }:
-            return {"percent": str(getattr(action, "percent", None))}
+            cap = getattr(action, "max_amount", None)
+            return {
+                "percent": str(getattr(action, "percent", None)),
+                # Absent rather than "None": no cap is no key.
+                **({} if cap is None else {"max_amount": str(cap)}),
+            }
         if kind in {
             PromotionActionType.LINE_DISCOUNT_AMOUNT,
             PromotionActionType.BILL_DISCOUNT_AMOUNT,
