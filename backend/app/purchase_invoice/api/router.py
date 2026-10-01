@@ -1,6 +1,7 @@
 """Firm-scoped REST endpoints for enterprise purchase invoices."""
 
 from datetime import date
+from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -29,6 +30,7 @@ from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.core.utils.dates import utc_now
 from app.document_framework.schemas import DocumentLifecycleEventResponse
 from app.purchase_invoice.schemas import (
     PurchaseInvoiceCreate,
@@ -44,6 +46,10 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceVendorOutstandingRecord,
 )
 from app.purchase_invoice.services import PurchaseInvoiceService
+from app.purchase_invoice.services.purchase_analysis import (
+    PurchaseAnalysisService,
+)
+from app.sales_invoice.api.router import SalesAnalysisResponse, analysis_response
 
 router = APIRouter(
     prefix="/api/v1/purchase-invoices",
@@ -229,6 +235,102 @@ def export_purchase_invoices(
         iter([csv_content.encode("utf-8")]),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=purchase_invoices.csv"},
+    )
+
+
+class PurchaseAnalysisBill(BaseModel):
+    """One bill behind a cell, and what its matching lines came to."""
+
+    id: UUID
+    invoice_number: str
+    invoice_date: date
+    vendor_id: UUID
+    net: Decimal
+
+
+def _purchase_filters(**values: UUID | None) -> dict[str, UUID]:
+    return {name: value for name, value in values.items() if value is not None}
+
+
+@router.get("/reports/analysis", response_model=ApiResponse[SalesAnalysisResponse])
+def purchase_analysis(
+    scope: PurchaseInvoiceReportScope,
+    rows: str = "product",
+    columns: str | None = None,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    net_of_returns: bool = True,
+    product_id: UUID | None = None,
+    category_id: UUID | None = None,
+    supplier_id: UUID | None = None,
+    supplier_category_id: UUID | None = None,
+    branch_id: UUID | None = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SalesAnalysisResponse]:
+    """Billed purchases by one or two dimensions, net of returns (backlog 66).
+
+    ``rows`` and ``columns`` are each one of day, week, month, quarter, year,
+    product, category, supplier, supplier_category, branch. The period
+    defaults to this month. The response has the sales analysis's shape.
+    """
+    today = utc_now().date()
+    result = PurchaseAnalysisService(db).analyse(
+        scope.firm_id,
+        rows=rows,
+        columns=columns,
+        from_date=from_date or today.replace(day=1),
+        to_date=to_date or today,
+        filters=_purchase_filters(
+            product_id=product_id,
+            category_id=category_id,
+            supplier_id=supplier_id,
+            supplier_category_id=supplier_category_id,
+            branch_id=branch_id,
+        ),
+        net_of_returns=net_of_returns,
+    )
+    return ApiResponse(data=analysis_response(result))
+
+
+@router.get(
+    "/reports/analysis/bills",
+    response_model=ApiResponse[list[PurchaseAnalysisBill]],
+)
+def purchase_analysis_bills(
+    scope: PurchaseInvoiceReportScope,
+    from_date: date,
+    to_date: date,
+    product_id: UUID | None = None,
+    category_id: UUID | None = None,
+    supplier_id: UUID | None = None,
+    supplier_category_id: UUID | None = None,
+    branch_id: UUID | None = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PurchaseAnalysisBill]]:
+    """List the bills behind one cell of the purchase analysis (backlog 66)."""
+    rows = PurchaseAnalysisService(db).bills(
+        scope.firm_id,
+        from_date=from_date,
+        to_date=to_date,
+        filters=_purchase_filters(
+            product_id=product_id,
+            category_id=category_id,
+            supplier_id=supplier_id,
+            supplier_category_id=supplier_category_id,
+            branch_id=branch_id,
+        ),
+    )
+    return ApiResponse(
+        data=[
+            PurchaseAnalysisBill(
+                id=bill.id,
+                invoice_number=bill.invoice_number,
+                invoice_date=bill.invoice_date,
+                vendor_id=bill.vendor_id,
+                net=net,
+            )
+            for bill, net in rows
+        ]
     )
 
 
