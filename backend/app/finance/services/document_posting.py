@@ -544,6 +544,7 @@ class DocumentPostingService:
         total_amount: Decimal,
         actor_id: UUID,
         tax_by_component: dict[str, Decimal] | None = None,
+        reverse_charge_by_component: dict[str, Decimal] | None = None,
     ) -> JournalEntry:
         """Post goods going back to a supplier.
 
@@ -572,6 +573,9 @@ class DocumentPostingService:
             tax_by_component: The tax per component as the bill the goods came
                 off recorded it, so each head's credit is reversed through its
                 own account (D-CMP-20). None credits `INPUT_TAX` as a whole.
+            reverse_charge_by_component: The returned goods' share of their
+                bill's reverse charge, per component (backlog 68 row 8). The
+                liability and the credit the bill raised both come off.
 
         Returns:
             The posted journal entry.
@@ -624,6 +628,13 @@ class DocumentPostingService:
                     description=f"Price variance on {return_number}",
                 )
             )
+        lines.extend(
+            self._reverse_charge_taken_off(
+                firm_id=firm_id,
+                reverse_charge_by_component=reverse_charge_by_component,
+                describe=return_number,
+            )
+        )
 
         entry = self._journals.create_entry(
             firm_id=firm_id,
@@ -2046,6 +2057,7 @@ class DocumentPostingService:
         tax_amount: Decimal,
         actor_id: UUID,
         tax_by_component: dict[str, Decimal] | None = None,
+        reverse_charge_by_component: dict[str, Decimal] | None = None,
     ) -> JournalEntry | None:
         """Post a debit note to a supplier: Dr payable, Cr variance and input tax.
 
@@ -2068,6 +2080,9 @@ class DocumentPostingService:
             actor_id: The user approving it.
             tax_by_component: The tax per GST component, in the proportions
                 the bill charged; None reverses `INPUT_TAX` as a whole.
+            reverse_charge_by_component: The note's share of its bill's
+                reverse charge, per component (backlog 68 row 8): the
+                liability and the credit come off with the price.
 
         Returns:
             The posted journal entry, or None where there is nothing to post.
@@ -2106,6 +2121,13 @@ class DocumentPostingService:
                 tax_by_component=tax_by_component,
                 describe=f"reversed on {debit_note_number}",
                 credit=True,
+            )
+        )
+        lines.extend(
+            self._reverse_charge_taken_off(
+                firm_id=firm_id,
+                reverse_charge_by_component=reverse_charge_by_component,
+                describe=debit_note_number,
             )
         )
         entry = self._journals.create_entry(
@@ -2566,6 +2588,48 @@ class DocumentPostingService:
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def _reverse_charge_taken_off(
+        self,
+        *,
+        firm_id: UUID,
+        reverse_charge_by_component: dict[str, Decimal] | None,
+        describe: str,
+    ) -> list[JournalLineData]:
+        """Return the legs taking reverse charge off: the bill's, mirrored.
+
+        The bill credited each head's reverse-charge payable and debited its
+        input credit (backlog 68 row 8); goods going back, or a price coming
+        down, owe that much less and claim that much less. Empty where the
+        bill carried no reverse charge.
+        """
+        ledger_rcm = sum(
+            (
+                quantize_ledger(quantize_money(amount))
+                for amount in (reverse_charge_by_component or {}).values()
+            ),
+            ZERO,
+        )
+        if ledger_rcm <= ZERO:
+            return []
+        return [
+            *self._tax_legs(
+                firm_id=firm_id,
+                ledger_tax=ledger_rcm,
+                tax_by_component=reverse_charge_by_component,
+                describe=f"reverse charge taken off on {describe}",
+                purpose_of=rcm_payable_purpose,
+                fallback=ControlAccountPurpose.RCM_PAYABLE,
+                credit=False,
+            ),
+            *self._input_tax_legs(
+                firm_id=firm_id,
+                ledger_tax=ledger_rcm,
+                tax_by_component=reverse_charge_by_component,
+                describe=f"under reverse charge reversed on {describe}",
+                credit=True,
+            ),
+        ]
 
     def post_tcs_collection(
         self,

@@ -54,6 +54,10 @@ from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
 from app.purchase_invoice.models import PurchaseInvoice, PurchaseInvoiceLine
 from app.purchase_invoice.schemas import PurchaseInvoiceStatus
+from app.purchase_invoice.services.reverse_charge import (
+    ReverseChargeShare,
+    reverse_charge_share,
+)
 from app.purchase_return.models import (
     PurchaseReturn,
     PurchaseReturnAccountingEvent,
@@ -659,6 +663,9 @@ class PurchaseReturnService(TransactionalDocumentService):
             total_amount=row.grand_total,
             actor_id=actor_id,
             tax_by_component=self._tax_by_component(row.id),
+            reverse_charge_by_component=return_reverse_charge(
+                self._session, row.id
+            ).owed,
         )
         before = row.status
         row.status = PurchaseReturnStatus.COMPLETED.value
@@ -2373,3 +2380,31 @@ def return_tax_by_component(session: Session, return_id: UUID) -> dict[str, Deci
                 Decimal(str(line.tax_amount)) * amount / charged
             )
     return totals
+
+
+def return_reverse_charge(session: Session, return_id: UUID) -> ReverseChargeShare:
+    """Return the reverse charge a purchase return takes off its bill.
+
+    Backlog 68 row 8. Each line returned off a bill takes the share of its bill
+    line's reverse charge that its value is of the bill line's; a line off a
+    receipt or an order names no bill and takes nothing. The posting and
+    GSTR-3B's 3.1(d) and 4(A)(3) both read this.
+    """
+    lines = session.scalars(
+        select(PurchaseReturnLine).where(
+            PurchaseReturnLine.purchase_return_id == return_id,
+            PurchaseReturnLine.is_deleted.is_(False),
+            PurchaseReturnLine.source_document_type
+            == PurchaseReturnSourceType.PURCHASE_INVOICE.value,
+        )
+    ).all()
+    return reverse_charge_share(
+        session,
+        (
+            (
+                line.source_document_line_id,
+                Decimal(str(line.net_amount)) - Decimal(str(line.tax_amount)),
+            )
+            for line in lines
+        ),
+    )
