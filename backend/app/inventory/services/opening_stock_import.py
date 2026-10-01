@@ -133,6 +133,7 @@ COLUMNS: tuple[Column, ...] = (
     ),
 )
 
+
 def _is_batch_tracked(product: Product) -> bool:
     """Say whether the product's stock is kept in batches.
 
