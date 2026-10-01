@@ -16,6 +16,7 @@ import '../../models/vendor.dart';
 import '../../models/vendor_opening_bill.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/opening_bill_import_dialog.dart';
 import '../workspace/reason_prompt.dart';
 import '../workspace/trade_licence_quick_add.dart';
 import '../../phase2/document_page.dart';
@@ -267,6 +268,25 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
     );
   }
 
+  /// Bring the suppliers' opening bills in from one file, posted on the
+  /// cutover day, all or none (D-GOLIVE-1).
+  Future<void> _runOpeningBillImport() async {
+    final FileImportReport? report = await showDialog<FileImportReport>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) =>
+          OpeningBillImportDialog(api: widget.api, side: 'vendors'),
+    );
+    if (!mounted || report == null) return;
+    await _load();
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      'Posted ${report.toCreate} opening bills.',
+      kind: AppNotificationKind.success,
+    );
+  }
+
   Future<void> _restore(Vendor vendor) async {
     if (!_canRestore || !vendor.isDeleted) return;
     try {
@@ -321,6 +341,19 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
         ToolbarAction.refresh,
         ToolbarAction.import,
         ToolbarAction.export,
+      ],
+      // D-GOLIVE-1. Phase 2 draws commands; phase 1 does not.
+      commands: [
+        if (_canImport)
+          ToolbarCommand(
+            id: 'import-opening-bills',
+            label: 'Import opening bills',
+            icon: Icons.upload_file_outlined,
+            tooltip: 'Bring the opening bills in from a file',
+            onPressed: widget.hasActiveFirm ? _runOpeningBillImport : null,
+            // Done once, at cutover: behind "...", never a button on the line.
+            menuOnly: true,
+          ),
       ],
       isVisible: (action) => switch (action) {
         ToolbarAction.newItem => _canCreate,

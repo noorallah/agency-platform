@@ -2405,6 +2405,49 @@ class ApiClient {
     return FileImportReport.fromJson(_unwrapMap(response));
   }
 
+  /// The blank opening-bills import file for one side of the books --
+  /// `customers` or `vendors` -- as bytes: xlsx (with notes and the firm's
+  /// parties) or csv (D-GOLIVE-1).
+  Future<List<int>> openingBillImportTemplate(
+    String side, {
+    String format = 'xlsx',
+  }) =>
+      downloadBytes(
+        side == 'vendors'
+            ? '/api/v1/vendors/opening-bills/import-template'
+            : '/api/v1/customers/opening-bills/import-template',
+        query: {'format': format},
+      );
+
+  /// Check (`apply: false`, writes nothing) or import a file of opening bills
+  /// for `customers` or `vendors`, every bill posted on [postingDate]
+  /// (`yyyy-mm-dd`), all of them or none.
+  Future<FileImportReport> checkOpeningBillImportFile(
+    String side, {
+    required String fileName,
+    required List<int> bytes,
+    required String postingDate,
+    required bool apply,
+  }) async {
+    final Json response = await multipartRequest(
+      'POST',
+      side == 'vendors'
+          ? '/api/v1/vendors/opening-bills/import-file'
+          : '/api/v1/customers/opening-bills/import-file',
+      fields: {
+        'posting_date': postingDate,
+        'apply': apply ? 'true' : 'false',
+      },
+      fileField: 'file',
+      fileName: fileName,
+      fileBytes: bytes,
+      fileContentType: fileName.toLowerCase().endsWith('.xlsx')
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'text/csv',
+    );
+    return FileImportReport.fromJson(_unwrapMap(response));
+  }
+
   // Counting a warehouse. The sheet is drawn up from what the system holds,
   // walked over hours, and posted once at the end -- so it is a document with
   // a draft the client saves into, not a form that applies on submit.

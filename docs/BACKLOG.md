@@ -2836,7 +2836,7 @@ permission codes' worth, and never had.
 
 ## 36. Onboarding a firm from its previous tool -- opening position built 2026-10-01
 
-**Status, 2026-10-01: the opening position can be loaded from files.** The four gaps below are closed by the shared import framework (`app/common/file_import.py`: template, check with every problem by row and column, all-or-nothing apply, update by code) and these imports: products (#843), customers (#851), suppliers (#861), supplier opening bills (#841) and customer opening bills (#855) bill by bill, the opening trial balance on a cutover date (#842), and opening stock with batches (#862). An item's opening stock is posted once, on the form and from the file alike (decided 2026-10-01); a second document for a warehouse is allowed for what was missed. The *Opening balances* step on the firm's Set up panel lists them in that order and ticks each as its store fills (2026-10-01, go-live plan tier 1 item 4). Left: Tally XML import, and the opening bills from a file -- today they are entered one by one on each party's form (D-GOLIVE-1).
+**Status, 2026-10-01: the opening position can be loaded from files.** The four gaps below are closed by the shared import framework (`app/common/file_import.py`: template, check with every problem by row and column, all-or-nothing apply, update by code) and these imports: products (#843), customers (#851), suppliers (#861), supplier opening bills (#841) and customer opening bills (#855) bill by bill, the opening trial balance on a cutover date (#842), and opening stock with batches (#862). An item's opening stock is posted once, on the form and from the file alike (decided 2026-10-01); a second document for a warehouse is allowed for what was missed. The *Opening balances* step on the firm's Set up panel lists them in that order and ticks each as its store fills (2026-10-01, go-live plan tier 1 item 4). The opening bills come from a file too since D-GOLIVE-1 (2026-10-01). Left: Tally XML import.
 
 Raised 2026-09-16. **Everything here is a provisional recommendation, not a
 decision** -- how much data comes across, and who converts it, are still open.
@@ -2924,7 +2924,8 @@ good enough that onboarding is a day's work rather than a project.
   with nothing to clear) and not a purchase invoice (the GST returns would
   read it as trading). Entered on the vendor form's *Opening bills* section;
   `POST /vendors/opening-bills/import` takes a batch by supplier code, all or
-  nothing, for the file wizard of §46. Still open: supplier credit from a
+  nothing; the file import (template, check, post) is
+  `POST /vendors/opening-bills/import-file` (D-GOLIVE-1, 2026-10-01). Still open: supplier credit from a
   return cannot be set against an opening bill yet.
 - **Customers had only a single-figure opening balance.** Every receipt
   against it was money on account with nothing to clear, and the ageing could
@@ -2943,7 +2944,8 @@ good enough that onboarding is a day's work rather than a project.
   non-zero, and a non-zero opening balance while live bills stand. Entered on
   the phase 2 customer form's *Opening bills* section;
   `POST /customers/opening-bills/import` takes a batch by customer code, all
-  or nothing. Not a sales invoice, so GST returns, sales registers,
+  or nothing; the file import is `POST /customers/opening-bills/import-file`
+  (D-GOLIVE-1, 2026-10-01). Not a sales invoice, so GST returns, sales registers,
   e-invoicing and TCS turnover never see it, and neither does
   collection-based commission (it joins sales invoices).
 - **No opening trial balance loader.** `LedgerBalance.opening_balance` is

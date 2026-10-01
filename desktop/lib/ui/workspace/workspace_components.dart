@@ -1559,7 +1559,11 @@ class WorkspaceToolbar extends StatelessWidget {
                 child: Row(children: [
                   Icon(command.icon, size: 18),
                   const SizedBox(width: 10),
-                  Text(command.label),
+                  // A menu is at most 280 wide; a long label ends in "..."
+                  // rather than overflowing it.
+                  Flexible(
+                    child: Text(command.label, overflow: TextOverflow.ellipsis),
+                  ),
                 ]),
               ),
             if (folded.isNotEmpty && rest.isNotEmpty) const PopupMenuDivider(),
@@ -1570,7 +1574,11 @@ class WorkspaceToolbar extends StatelessWidget {
                 child: Row(children: [
                   Icon(action.icon, size: 18),
                   const SizedBox(width: 10),
-                  Text(action.label),
+                  // A menu is at most 280 wide; a long label ends in "..."
+                  // rather than overflowing it.
+                  Flexible(
+                    child: Text(action.label, overflow: TextOverflow.ellipsis),
+                  ),
                 ]),
               ),
           ],

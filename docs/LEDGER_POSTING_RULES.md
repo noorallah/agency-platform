@@ -155,9 +155,15 @@ reference.
   (`POST /vendors/opening-bills/import`): every unknown code is named with its
   row number before anything is written, then the batch is staged and
   committed once.
+- **From a file** (2026-10-01, D-GOLIVE-1): `GET .../opening-bills/import-template`
+  and `POST .../opening-bills/import-file` on both `/vendors` and `/customers`,
+  behind *Import opening bills* in the "..." of the phase 2 lists. One posting
+  date for the file, chosen on screen; every problem by row and column before
+  anything is written; then each bill goes through the service's own
+  `_stage`, so the journal, the balance and every refusal are the form's.
+  `app/common/opening_bill_import.py` is the one importer, a subclass per side.
 - **Not yet:** a purchase return's supplier credit cannot be set against an
-  opening bill (refused by name), and there is no file wizard on the desktop
-  (backlog 46).
+  opening bill (refused by name).
 
 ## A customer's opening balance is one figure or bills, never both
 
