@@ -58,6 +58,7 @@ from app.finance.schemas import (
     CostCenterCreate,
     CostCenterUpdate,
     FinancialYearCreate,
+    FinancialYearReopen,
     FinancialYearUpdate,
     JournalEntryCreate,
     JournalEntryReject,
@@ -3592,3 +3593,104 @@ def test_a_new_year_opens_income_at_zero_and_brings_the_profit_forward() -> None
     sheet = reports.balance_sheet(firm_id=firm.id, accounting_period_id=april.id)
     assert sheet.retained_earnings_brought_forward == Decimal("100.00")
     assert sheet.is_balanced
+
+
+def test_a_year_closes_only_when_finished_and_reopens_only_with_a_reason() -> None:
+    """Year-end close (backlog 56, design section 4.3), and a recorded reopen.
+
+    Closing refuses, naming what is left, while a period is open or a draft
+    journal is dated in the year; then it locks the year, so nothing posts
+    into it. Reopening needs its own permission and a reason, which the trail
+    keeps; the periods stay closed.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    service = FinanceService(session)
+    engine = JournalEntryEngine(session)
+    draft = engine.create_entry(
+        firm_id=firm.id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 10),
+        reference_number="JV-LEFT",
+        description="Still a draft",
+        lines=_sale_lines(book, "10.00"),
+        actor_id=actor_id,
+    )
+    session.commit()
+
+    with pytest.raises(ValidationError, match="1 of its periods is open: P1"):
+        service.close_financial_year(book.year.id, firm_id=firm.id, actor_id=actor_id)
+    session.rollback()
+    engine.post_entry(draft.id, firm_id=firm.id, actor_id=actor_id)
+    session.commit()
+    second = engine.create_entry(
+        firm_id=firm.id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 11),
+        reference_number="JV-DRAFT-2",
+        description="Another draft",
+        lines=_sale_lines(book, "5.00"),
+        actor_id=actor_id,
+    )
+    service.update_accounting_period(
+        book.period.id,
+        AccountingPeriodUpdate(status=PeriodStatusEnum.CLOSED),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    session.commit()
+    with pytest.raises(
+        ValidationError, match="draft journals are dated in it: JV-DRAFT-2"
+    ):
+        service.close_financial_year(book.year.id, firm_id=firm.id, actor_id=actor_id)
+    session.rollback()
+    session.delete(session.get(JournalEntry, second.id))
+    session.commit()
+
+    closed = service.close_financial_year(
+        book.year.id, firm_id=firm.id, actor_id=actor_id
+    )
+    session.commit()
+    assert closed.is_locked is True
+    assert session.scalars(
+        select(AuditLog).where(AuditLog.action == "finance.financial_year.closed")
+    ).one()
+    with pytest.raises(ValidationError, match="already closed"):
+        service.close_financial_year(book.year.id, firm_id=firm.id, actor_id=actor_id)
+    session.rollback()
+    with pytest.raises(ValidationError, match="reopen it, giving a reason"):
+        service.update_financial_year(
+            book.year.id,
+            FinancialYearUpdate(is_locked=False),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+    session.rollback()
+
+    reopened = service.reopen_financial_year(
+        book.year.id,
+        FinancialYearReopen(reason="  CA found a missed provision  "),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    session.commit()
+    assert reopened.is_locked is False
+    audit = session.scalars(
+        select(AuditLog).where(AuditLog.action == "finance.financial_year.reopened")
+    ).one()
+    assert audit.after_data is not None
+    assert audit.after_data["reason"] == "CA found a missed provision"
+    assert session.get(AccountingPeriod, book.period.id).status == "CLOSED"
+    with pytest.raises(ValidationError, match="is not closed"):
+        service.reopen_financial_year(
+            book.year.id,
+            FinancialYearReopen(reason="again"),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )

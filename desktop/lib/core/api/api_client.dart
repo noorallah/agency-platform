@@ -3617,6 +3617,27 @@ class ApiClient {
         FinancialYear.fromJson,
       );
 
+  /// Close a financial year: nothing can be posted into it afterwards. The
+  /// server refuses while a period is open or a draft journal is dated in it.
+  Future<FinancialYear> closeFinancialYear(String id) async =>
+      FinancialYear.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/finance/financial-years/$id/close'),
+        ),
+      );
+
+  /// Reopen a closed year. The periods inside it stay closed.
+  Future<FinancialYear> reopenFinancialYear(String id, String reason) async =>
+      FinancialYear.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/finance/financial-years/$id/reopen',
+            body: {'reason': reason},
+          ),
+        ),
+      );
+
   /// Delete a period nothing was written into (D-FIN-15).
   Future<void> deleteAccountingPeriod(String id) =>
       request('DELETE', '/api/v1/finance/accounting-periods/$id');
