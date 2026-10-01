@@ -932,6 +932,8 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'warehouse_code', label: 'Warehouse'),
       ReportColumn(key: 'product_code', label: 'Code'),
       ReportColumn(key: 'product_name', label: 'Product'),
+      ReportColumn(key: 'basis', label: 'Basis'),
+      ReportColumn(key: 'average_daily_sales', label: 'Avg/day', numeric: true),
       ReportColumn(key: 'available_quantity', label: 'Available', numeric: true),
       ReportColumn(key: 'reorder_level', label: 'Reorder at', numeric: true),
       ReportColumn(key: 'maximum_level', label: 'Maximum', numeric: true),

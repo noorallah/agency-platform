@@ -130,6 +130,15 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Steps:** GST → **GSTR-2B Reconciliation** → month → **Import 2B file**. Then **Match to bill…** on the *Not in books* row, then **Undo match**. Then Settings → Tax → GST Documents → **Claim input credit** *Only bills matched to GSTR-2B* → GSTR-3B for the month.
 - **Expect:** rows read **Matched**, **Different** ("CGST … in 2B, … in the books"), **Not in books**; the "In books, not in 2B" section lists any bill 2B lacks. Importing the month again replaces it. Under *matched only*, 3B claims only matched bills and shows the rest as *Held back — not yet in GSTR-2B*.
 
+
+### TC-BUY-015 — Reorder from what sold (planning formula)
+
+*Added 2026-10-02 (backlog 69 row 12, A39).*
+
+- **Preconditions:** a product with **no** reorder or minimum level typed, 100 received in one warehouse long ago and 90 delivered to customers within the last 90 days (so 10 are left). A second product with a reorder level typed.
+- **Steps:** as the **Firm admin**: Purchases → **Purchase Settings** → **Reorder planning** → Open. Note it says the firm plans on typed levels. Reports → Operational → **Below reorder level**. Then choose **From sales**, leave 90 / 7 / 7 / 30 → Save. Open the report again, and Purchase Orders → "..." → **Below reorder level...**. Try Cover 0 → Save. Open the dialog as a role without *Manage purchase settings*.
+- **Expect:** on typed levels the first product is **not** listed. On sales it is listed with **Basis Sales**, **Avg/day 1**, reorder level 14, maximum 44 and **suggested 34** (44 − 10), whole units; the second product keeps **Basis Level** with its typed figures. The *Below reorder level...* dialog names the basis above the grid, and **Raise draft orders** raises a draft for 34. Cover 0 is refused with the range. Without the permission the dialog is read-only. Settings → Audit trail shows **purchase.reorder_planning_updated**.
+
 ---
 
 ## Screen checks

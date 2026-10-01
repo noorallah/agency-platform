@@ -35,6 +35,7 @@ import '../../models/document_preview.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import 'purchase_workflow_settings_dialog.dart';
+import 'reorder_planning_dialog.dart';
 import 'reorder_dialog.dart';
 
 part 'purchase_order_editor_phase2.dart';
@@ -1333,6 +1334,28 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
                   onPressed: () => showDialog<bool>(
                     context: context,
                     builder: (_) => PurchaseWorkflowSettingsDialog(
+                      api: widget.api,
+                      permissions: widget.permissions,
+                    ),
+                  ),
+                  child: const Text('Open'),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.inventory_2_outlined),
+                title: const Text('Reorder planning'),
+                subtitle: const Text(
+                  'Whether "below reorder level" uses the levels typed per '
+                  'product or is worked out from sales.',
+                ),
+                trailing: FilledButton.tonal(
+                  key: const ValueKey('reorder-planning-open'),
+                  onPressed: () => showDialog<bool>(
+                    context: context,
+                    builder: (_) => ReorderPlanningDialog(
                       api: widget.api,
                       permissions: widget.permissions,
                     ),

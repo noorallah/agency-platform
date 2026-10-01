@@ -5037,7 +5037,7 @@ reorder suggestions (§42.9); notifications (§55 S12); sending the PO by email
 | 11 | **Quotation comparison** | §65 row 14, rated low | If validated, the spec's side-by-side: effective landed cost per unit, delivery days, payment terms, rating; the chosen supplier and the **reason** recorded; never auto-picks the cheapest. |
 | 12 | **Planning formula** | §42.9 reorder suggestions | Required = demand over lead time + safety stock - on hand + reserved - open orders, rounded up to MOQ / multiple; the formula's parts configurable; suggestions first, automatic POs only with a permission. |
 
-**Row 12 status, 2026-10-02:** built (A39) -- Settings > Buying > *Reorder
+**Row 12 status, 2026-10-02:** built (A39) -- Purchases > Purchase Settings > *Reorder
 planning*: typed levels, or from sales (window, lead time, safety and cover
 days); the *Below reorder level* report and its draft orders follow it
 (`docs/PURCHASE_FRAMEWORK.md`). MOQ / multiple rounding waits for rows 1-2,
