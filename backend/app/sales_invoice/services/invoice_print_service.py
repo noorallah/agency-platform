@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError
+from app.delivery_note.models import DeliveryNote
 from app.document_framework.services.print_support import (
     customer_party,
     firm_party,
@@ -27,6 +28,7 @@ from app.sales_invoice.models import (
     SalesInvoice,
     SalesInvoiceLine,
     SalesInvoiceLineTax,
+    SalesInvoiceSource,
 )
 from app.sales_invoice.services.invoice_pdf import (
     InvoiceDocument,
@@ -35,6 +37,7 @@ from app.sales_invoice.services.invoice_pdf import (
     PartyBlock,
     TemplateSettings,
 )
+from app.sales_order.models import SalesOrder
 from app.trade_licences.services import TradeLicenceService
 from app.uom.models import Uom
 
@@ -57,6 +60,17 @@ NOT_FINAL: dict[str, str] = {
     "DRAFT": "DRAFT - NOT A TAX INVOICE - NOT YET APPROVED",
     "CANCELLED": "CANCELLED - NOT A TAX INVOICE",
 }
+
+#: How many delivery notes (or orders) the bill's header lists one by one.
+#: Beyond it the header says "Several -- see lines" and every line names its
+#: own note, which is how Tally prints a bill made of many dispatches.
+MAX_LISTED_SOURCES = 3
+SEVERAL = "Several - see lines"
+
+
+def _dated(number: str, on: object) -> str:
+    """Render a document number with its date, as the GST bill heads do."""
+    return f"{number} dt. {on:%d %b %Y}" if on is not None else number
 
 
 class SalesInvoicePrintService:
@@ -141,6 +155,8 @@ class SalesInvoicePrintService:
             )
         }
 
+        references, source_of_line = self._sources(invoice, lines)
+
         printed: list[InvoiceLineBlock] = []
         for line in lines:
             product = products.get(line.product_id)
@@ -148,9 +164,10 @@ class SalesInvoicePrintService:
             printed.append(
                 InvoiceLineBlock(
                     number=line.line_number,
-                    description=line.description
-                    or (product.name if product else "")
-                    or "",
+                    description=(
+                        line.description or (product.name if product else "") or ""
+                    )
+                    + source_of_line.get(line.id, ""),
                     # As billed (D-CMP-22); an old line with none stamped
                     # falls back to the product.
                     hsn=line.hsn_sac or (product.hsn_sac if product else None),
@@ -220,12 +237,101 @@ class SalesInvoicePrintService:
             charges=invoice.additional_charges,
             round_off=invoice.round_off,
             grand_total=invoice.grand_total,
-            references=tuple(
-                ("Reference", invoice.reference_number)
-                for _ in (1,)
-                if invoice.reference_number
+            references=(
+                *references,
+                *(
+                    ("Reference", invoice.reference_number)
+                    for _ in (1,)
+                    if invoice.reference_number
+                ),
             ),
         )
+
+    def _sources(
+        self, invoice: SalesInvoice, lines: list[SalesInvoiceLine]
+    ) -> tuple[list[tuple[str, str]], dict[UUID, str]]:
+        """Name every delivery note and order the bill covers (D-SELL-39, 58.7).
+
+        A tax invoice made of dispatches says which: Tally prints "Delivery
+        Note No." and "Buyer's Order No." in its head, and a bill of three
+        dispatches has to say all three, or the buyer cannot match it to the
+        goods received. Up to ``MAX_LISTED_SOURCES`` are listed in the head,
+        each with its date; past that the head says "Several - see lines".
+        Whenever there is more than one note, every line also names the note
+        it came from, so a part-returned dispatch can be found on the bill.
+
+        Returns the head's rows and, per line id, the text to add to its
+        description.
+        """
+        sources = list(
+            self._session.scalars(
+                select(SalesInvoiceSource)
+                .where(
+                    SalesInvoiceSource.sales_invoice_id == invoice.id,
+                    SalesInvoiceSource.is_deleted.is_(False),
+                )
+                .order_by(
+                    SalesInvoiceSource.source_document_date.asc(),
+                    SalesInvoiceSource.source_document_number.asc(),
+                )
+            ).all()
+        )
+        notes = [s for s in sources if s.source_document_type == "DELIVERY_NOTE"]
+        order_ids = {
+            s.source_document_id
+            for s in sources
+            if s.source_document_type == "SALES_ORDER"
+        }
+        if notes:
+            order_ids |= set(
+                self._session.scalars(
+                    select(DeliveryNote.sales_order_id).where(
+                        DeliveryNote.id.in_([s.source_document_id for s in notes])
+                    )
+                ).all()
+            )
+        orders = (
+            list(
+                self._session.scalars(
+                    select(SalesOrder)
+                    .where(SalesOrder.id.in_(order_ids))
+                    .order_by(SalesOrder.order_date.asc(), SalesOrder.order_number)
+                ).all()
+            )
+            if order_ids
+            else []
+        )
+
+        rows: list[tuple[str, str]] = []
+
+        def listed(label: str, values: list[str]) -> None:
+            if not values:
+                return
+            if len(values) > MAX_LISTED_SOURCES:
+                rows.append((f"{label}s", SEVERAL))
+                return
+            for value in values:
+                rows.append((label, value))
+
+        listed(
+            "Delivery note",
+            [_dated(n.source_document_number, n.source_document_date) for n in notes],
+        )
+        listed(
+            "Sales order",
+            [_dated(o.order_number, o.order_date) for o in orders],
+        )
+        listed(
+            "Buyer's order no.",
+            sorted({o.customer_reference for o in orders if o.customer_reference}),
+        )
+
+        per_line: dict[UUID, str] = {}
+        if len(notes) > 1:
+            for line in lines:
+                if line.source_document_type == "DELIVERY_NOTE":
+                    per_line[line.id] = f" (note {line.source_document_number})"
+        return rows, per_line
 
     def _seller(self, firm_scope: UUID) -> PartyBlock:
         """Describe the selling firm."""
