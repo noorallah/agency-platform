@@ -18,7 +18,7 @@ PermissionService _permissions(List<String> codes) {
   return PermissionService()..applyAccessToken('h.$payload.s');
 }
 
-Json _head(String head, String owed, String cash) => {
+Json _head(String head, String owed, String cash, {String rcm = '0.00'}) => {
       'head': head,
       'liability': owed,
       'credit_brought_forward': '0.00',
@@ -27,10 +27,11 @@ Json _head(String head, String owed, String cash) => {
       'cash': cash,
       'credit_used': '0.00',
       'carried_forward': '0.00',
+      'reverse_charge': rcm,
     };
 
 class _Api extends ApiClient {
-  _Api({this.previousSettled = true})
+  _Api({this.previousSettled = true, this.reverseCharge = '0.00'})
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -39,6 +40,9 @@ class _Api extends ApiClient {
         );
 
   final bool previousSettled;
+
+  /// CGST owed under reverse charge on purchases (backlog 68 row 8).
+  final String reverseCharge;
   Json? recorded;
   final List<String> previews = [];
 
@@ -58,7 +62,7 @@ class _Api extends ApiClient {
       'cash_total': '8000.00',
       'heads': [
         _head('IGST', '18000.00', '8000.00'),
-        _head('CGST', '0.00', '0.00'),
+        _head('CGST', '0.00', '0.00', rcm: reverseCharge),
         _head('SGST', '0.00', '0.00'),
         _head('CESS', '0.00', '0.00'),
       ],
@@ -124,6 +128,25 @@ void main() {
     expect(find.textContaining('Cash to pay: 8000.00'), findsOneWidget);
     expect(find.text('18000.00'), findsOneWidget);
     expect(find.textContaining('IGST credit -> IGST: 10000.00'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('reverse charge on purchases shows as cash, head by head',
+      (tester) async {
+    final _Api api = _Api(reverseCharge: '360.00');
+    await _pump(tester, api);
+
+    expect(find.text('Reverse charge (cash)'), findsOneWidget);
+    expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('gst-pay-rcm-CGST')))
+            .data,
+        '360.00');
+    expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('gst-pay-rcm-IGST')))
+            .data,
+        '0.00');
     expect(tester.takeException(), isNull);
   });
 
