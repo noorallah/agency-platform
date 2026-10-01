@@ -364,6 +364,11 @@ def test_what_an_invoice_still_owes_comes_down_as_it_is_settled() -> None:
         firm_id=books.firm.id, party_id=books.customer.id
     )
     assert [row.outstanding_amount for row in remaining] == [Decimal("300.00")]
+    # The firm-wide read sums every invoice at once rather than by id; it
+    # must say what the per-customer read says (backlog 56 C, step 4).
+    assert service.outstanding_invoices(firm_id=books.firm.id, party_id=None) == (
+        remaining
+    )
 
     _receipt(
         books,
@@ -1231,6 +1236,12 @@ def test_returns_and_credit_notes_against_a_bill_come_off_what_it_owes() -> None
         )
     }
     assert owed[bill.id] == Decimal("747.72")
+    assert {
+        record.invoice_id: record.outstanding_amount
+        for record in receipts.outstanding_invoices(
+            firm_id=books.firm.id, party_id=None
+        )
+    } == owed, "the firm-wide read takes returns and credit notes off too"
 
     with pytest.raises(ValidationError, match="747.72 outstanding"):
         _receipt(

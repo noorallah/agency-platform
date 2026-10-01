@@ -10,6 +10,13 @@ rather than running slowly (backlog 56 C, ``docs/PERFORMANCE_AT_VOLUME.md``).
 chunk, and merges the answers. It fits the functions whose answer is keyed by
 those ids -- a dict per id, or a set of ids -- because then a chunk's answer
 never overlaps another's and merging is exact.
+
+``whole_past_a_chunk`` is the other answer, for a function that can also be
+asked about *everything* -- its id argument accepts None. Past one chunk it
+asks once for everything and keeps the ids it was given: one grouped read over
+a firm's allocations is far cheaper than twenty statements naming 5,000 ids
+each, which spent most of their time having the ids bound and parsed (backlog
+56 C, step 4).
 """
 
 from collections.abc import Callable, Iterator, Sequence
@@ -64,6 +71,39 @@ def over_chunks(
                 bound.arguments[argument] = chunk
                 answers.append(function(*bound.args, **bound.kwargs))
             return _merged(answers)
+
+        return run
+
+    return decorate
+
+
+def whole_past_a_chunk[KeyT, ValueT](
+    argument: str,
+) -> Callable[[Callable[..., dict[KeyT, ValueT]]], Callable[..., dict[KeyT, ValueT]]]:
+    """Answer more than a chunk of ``argument`` by asking about everything.
+
+    The decorated function must accept None for ``argument`` and mean "every
+    id", and its answer must be a dict keyed by those ids. A call naming no
+    more than one chunk runs exactly as before.
+    """
+
+    def decorate(
+        function: Callable[..., dict[KeyT, ValueT]],
+    ) -> Callable[..., dict[KeyT, ValueT]]:
+        """Wrap ``function``."""
+        shape = signature(function)
+
+        @wraps(function)
+        def run(*args: object, **kwargs: object) -> dict[KeyT, ValueT]:
+            """Call as given, or once for everything and keep what was asked."""
+            bound = shape.bind(*args, **kwargs)
+            ids = bound.arguments.get(argument)
+            if ids is None or len(ids) <= CHUNK_SIZE:
+                return function(*args, **kwargs)
+            wanted = set(ids)
+            bound.arguments[argument] = None
+            everything = function(*bound.args, **bound.kwargs)
+            return {key: value for key, value in everything.items() if key in wanted}
 
         return run
 

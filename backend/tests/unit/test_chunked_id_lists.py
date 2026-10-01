@@ -11,12 +11,14 @@ from uuid import uuid4
 import pytest
 
 from app.core.utils import chunks as chunk_module
-from app.core.utils.chunks import chunks, over_chunks
+from app.core.utils.chunks import chunks, over_chunks, whole_past_a_chunk
 from tests.unit import (
+    test_commission,
     test_customer_statement,
     test_delivery_note_module,
     test_document_summaries_in_sql,
     test_gst_returns,
+    test_settlements,
 )
 
 
@@ -45,6 +47,42 @@ def test_over_chunks_merges_dicts_and_sets(monkeypatch: pytest.MonkeyPatch) -> N
     assert as_dict("n", [1, 2, 3, 4, 5]) == {i: f"n{i}" for i in range(1, 6)}
     assert calls == [2, 2, 1]
     assert as_set(ids=[1, 2, 3, 4, 5, 6]) == {2, 4, 6}
+
+
+def test_whole_past_a_chunk_asks_once_and_keeps_what_was_asked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Up to a chunk the ids are passed on; past one, None, and the answer is cut."""
+    monkeypatch.setattr(chunk_module, "CHUNK_SIZE", 2)
+    asked: list[list[int] | None] = []
+
+    @whole_past_a_chunk("ids")
+    def doubled(ids: list[int] | None) -> dict[int, int]:
+        """Answer per id; None means every id there is."""
+        asked.append(ids)
+        return {item: item * 2 for item in (range(10) if ids is None else ids)}
+
+    assert doubled([1, 2]) == {1: 2, 2: 4}
+    assert doubled(ids=[3, 5, 7]) == {3: 6, 5: 10, 7: 14}
+    assert asked == [[1, 2], None]
+
+
+def test_what_a_bill_owes_reads_the_same_past_a_chunk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Receipts, returns and credit notes come off a bill the same either way."""
+    monkeypatch.setattr(chunk_module, "CHUNK_SIZE", 1)
+    test_settlements.test_returns_and_credit_notes_against_a_bill_come_off_what_it_owes()
+    test_settlements.test_what_an_invoice_still_owes_comes_down_as_it_is_settled()
+
+
+def test_commission_reads_the_same_past_a_chunk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A credit note comes off the commission base the same either way."""
+    monkeypatch.setattr(chunk_module, "CHUNK_SIZE", 1)
+    test_commission.test_a_credit_note_takes_the_sale_off_what_was_collected()
+    test_commission.test_a_credit_note_takes_the_sale_off_what_was_invoiced()
 
 
 def test_gstr1_reads_the_same_in_chunks(monkeypatch: pytest.MonkeyPatch) -> None:

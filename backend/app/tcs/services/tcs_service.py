@@ -11,12 +11,15 @@ whatever the firm's settings say; a receipt dated before it is charged exactly
 as it always was, and a collection already made is never rewritten (D-CMP-12).
 """
 
+from collections import defaultdict
+from collections.abc import Mapping, Sequence
 from datetime import date
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, lazyload
 
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader
@@ -55,6 +58,41 @@ DEFAULT_THRESHOLD = Decimal("5000000")
 DEFAULT_RATE = Decimal("0.1")
 DEFAULT_RATE_WITHOUT_PAN = Decimal("1")
 DEFAULT_SELLER_TURNOVER = Decimal("100000000")
+
+
+def _replay(
+    rows: Sequence[tuple[UUID, str, Any]], collected: Mapping[UUID, Decimal]
+) -> tuple[Decimal, Decimal]:
+    """Replay a buyer's receipts in the order received; see ``_consideration_so_far``.
+
+    Args:
+        rows: The buyer's standing receipts and refunds of the year, oldest
+            first, as (settlement id, direction, amount).
+        collected: The tax collected on each of those receipts, by id.
+
+    Returns:
+        The consideration received, never below zero, and the tax collected
+        that the receipts have not yet paid.
+
+    """
+    received = owed = ZERO
+    for settlement_id, direction, raw in rows:
+        amount = Decimal(str(raw))
+        if direction == SettlementDirection.REFUND.value:
+            # Net of refunds. A refund hands back money the buyer had
+            # paid in, so it is consideration *un*-received: leaving it in
+            # would keep a buyer over the threshold on money they no
+            # longer have with the firm.
+            received -= amount
+            continue
+        paid_tax = min(amount, owed)
+        owed -= paid_tax
+        received += amount - paid_tax
+        owed += collected.get(settlement_id, ZERO)
+    return (
+        quantize_ledger(received if received > ZERO else ZERO),
+        quantize_ledger(owed),
+    )
 
 
 class TcsService:
@@ -633,28 +671,29 @@ class TcsService:
         customers = {
             row.id: row
             for row in self._session.scalars(
-                select(Customer).where(Customer.id.in_(buyers))
+                select(Customer).where(Customer.id.in_(buyers)).options(lazyload("*"))
             ).all()
         }
+        # Every buyer's year read once and replayed per buyer, the way
+        # `_consideration_so_far` replays one: asked buyer by buyer it was two
+        # pairs of queries each, 8 s for 2,000 buyers (backlog 56 C, step 4).
+        receipts, collected = self._year_of_receipts(
+            firm_id=firm_id, year_start=year_start, year_end=year_end
+        )
 
         answer: list[TcsBuyerPosition] = []
         for customer_id in buyers:
             customer = customers.get(customer_id)
             if customer is None:
                 continue
-            received, _ = self._consideration_so_far(
-                firm_id=firm_id,
-                customer_id=customer_id,
-                year_start=year_start,
-                up_to=last_day,
+            theirs = receipts.get(customer_id, [])
+            received, _ = _replay(
+                [row[:3] for row in theirs if row[3] <= last_day], collected
             )
             chargeable = ZERO
             if applies:
-                within, _ = self._consideration_so_far(
-                    firm_id=firm_id,
-                    customer_id=customer_id,
-                    year_start=year_start,
-                    up_to=cut_off,
+                within, _ = _replay(
+                    [row[:3] for row in theirs if row[3] <= cut_off], collected
                 )
                 chargeable = max(within - threshold, ZERO)
             rate = self._rate(
@@ -686,6 +725,59 @@ class TcsService:
             )
         answer.sort(key=lambda row: (-abs(row.difference), row.customer_name))
         return answer
+
+    def _year_of_receipts(
+        self, *, firm_id: UUID, year_start: date, year_end: date
+    ) -> tuple[dict[UUID, list[tuple[UUID, str, Any, date]]], dict[UUID, Decimal]]:
+        """Read every buyer's standing receipts of a year, and their collections.
+
+        The same receipts, in the same order, that ``_consideration_so_far``
+        reads for one buyer -- keyed by buyer, each row carrying its date so a
+        caller can stop at any day of the year.
+        """
+        standing = (
+            Settlement.firm_id == firm_id,
+            Settlement.customer_id.is_not(None),
+            Settlement.direction.in_(
+                (SettlementDirection.RECEIPT.value, SettlementDirection.REFUND.value)
+            ),
+            Settlement.is_deleted.is_(False),
+            Settlement.status != SettlementStatus.REVERSED.value,
+            Settlement.settlement_date >= year_start,
+            Settlement.settlement_date < year_end,
+        )
+        receipts: dict[UUID, list[tuple[UUID, str, Any, date]]] = defaultdict(list)
+        for customer_id, settlement_id, direction, amount, on in self._session.execute(
+            select(
+                Settlement.customer_id,
+                Settlement.id,
+                Settlement.direction,
+                Settlement.amount,
+                Settlement.settlement_date,
+            )
+            .where(*standing)
+            .order_by(
+                Settlement.settlement_date.asc(),
+                Settlement.created_at.asc(),
+                Settlement.id.asc(),
+            )
+        ).all():
+            receipts[customer_id].append((settlement_id, direction, amount, on))
+        collected = {
+            settlement_id: Decimal(str(amount))
+            for settlement_id, amount in self._session.execute(
+                select(TcsCollection.settlement_id, TcsCollection.tcs_amount)
+                .join(Settlement, Settlement.id == TcsCollection.settlement_id)
+                .where(
+                    *standing,
+                    TcsCollection.firm_id == firm_id,
+                    TcsCollection.customer_id == Settlement.customer_id,
+                    TcsCollection.is_deleted.is_(False),
+                    TcsCollection.status == TcsCollectionStatus.COLLECTED.value,
+                )
+            ).all()
+        }
+        return receipts, collected
 
     @staticmethod
     def reference_for(settlement: Settlement) -> str:
@@ -860,24 +952,7 @@ class TcsService:
                 )
             ).all()
         }
-        received = owed = ZERO
-        for settlement_id, direction, raw in rows:
-            amount = Decimal(str(raw))
-            if direction == SettlementDirection.REFUND.value:
-                # Net of refunds. A refund hands back money the buyer had
-                # paid in, so it is consideration *un*-received: leaving it in
-                # would keep a buyer over the threshold on money they no
-                # longer have with the firm.
-                received -= amount
-                continue
-            paid_tax = min(amount, owed)
-            owed -= paid_tax
-            received += amount - paid_tax
-            owed += collected.get(settlement_id, ZERO)
-        return (
-            quantize_ledger(received if received > ZERO else ZERO),
-            quantize_ledger(owed),
-        )
+        return _replay([(row[0], row[1], row[2]) for row in rows], collected)
 
     def _financial_year_start(self, firm_id: UUID, on: date) -> date:
         """Return the first day of the financial year a date falls in.

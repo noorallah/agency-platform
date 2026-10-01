@@ -427,16 +427,24 @@ def get_customer_outstanding(
 
 @router.get(
     "/reports/reconciliation",
-    response_model=ApiResponse[list[SalesInvoiceReconciliationRecord]],
+    response_model=PaginatedResponse[SalesInvoiceReconciliationRecord],
     status_code=status.HTTP_200_OK,
 )
 def get_sales_invoice_reconciliation(
     scope: SalesInvoiceReportScope,
     db: Annotated[Session, Depends(get_db)],
-) -> ApiResponse[list[SalesInvoiceReconciliationRecord]]:
-    """Get sales invoice vs delivery note reconciliation report."""
-    service = SalesInvoiceService(db)
-    return ApiResponse(data=service.reconciliation_report(firm_scope=scope.firm_id))
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+) -> PaginatedResponse[SalesInvoiceReconciliationRecord]:
+    """Say what is billed against each delivered line billed in the window."""
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        SalesInvoiceService(db).reconciliation_report(
+            firm_scope=scope.firm_id, window=window
+        )
+    )
 
 
 @router.post(

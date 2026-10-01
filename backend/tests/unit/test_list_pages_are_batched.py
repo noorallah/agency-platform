@@ -29,7 +29,7 @@ import pytest
 from sqlalchemy import event
 from sqlalchemy.orm import Session
 
-from app.branches.models import Branch, Warehouse
+from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.business.models import BusinessProfile
 from app.common.scope import ResolvedFirmScope
 from app.core.enums import TokenType
@@ -58,10 +58,17 @@ from app.goods_receipt.models import (
     GoodsReceiptNote,
 )
 from app.goods_receipt.services import GoodsReceiptService
-from app.inventory.api.router import list_inventory, list_ledger, list_transactions
+from app.inventory.api.router import (
+    list_inventory,
+    list_ledger,
+    list_opening_stock,
+    list_transactions,
+)
 from app.inventory.models import (
     InventoryRecord,
     InventoryTransaction,
+    OpeningStockBatch,
+    OpeningStockLine,
     StockLedgerEntry,
 )
 from app.inventory.services import InventoryService
@@ -764,6 +771,39 @@ def _seed_stock(session: Session, world: _World, rows: int) -> None:
         )
 
 
+def _seed_opening_stock(session: Session, world: _World, rows: int) -> None:
+    """Opening-stock batches of three lines, some of them in a named bay."""
+    bay = uuid.uuid4()
+    _add(
+        session,
+        WarehouseStorageNode,
+        id=bay,
+        warehouse_id=world.warehouse,
+        code="BAY1",
+        name="Bay one",
+    )
+    for index in range(rows):
+        batch = uuid.uuid4()
+        _add(
+            session,
+            OpeningStockBatch,
+            id=batch,
+            firm_id=world.firm,
+            branch_id=world.branch,
+            warehouse_id=world.warehouse,
+            reference_number=f"OS-{index:02d}",
+            status="DRAFT",
+        )
+        for number in (3, 1, 2):
+            _add(
+                session,
+                OpeningStockLine,
+                opening_stock_batch_id=batch,
+                storage_node_id=bay if number == 2 else None,
+                **_line_kwargs(world, index, number),
+            )
+
+
 def _seed_journals(session: Session, world: _World, rows: int) -> None:
     """Journal entries of three lines each."""
     for index in range(rows):
@@ -896,6 +936,15 @@ CASES: dict[str, _Case] = {
         lambda s, w: list_ledger(scope=_scope(w.firm), db=s, page_size=50),
         lambda s, r: InventoryService(s).ledger_response(
             _get(s, StockLedgerEntry, r.id)
+        ),
+    ),
+    "opening stock": _Case(
+        _seed_opening_stock,
+        lambda s, w: list_opening_stock(
+            scope=_scope(w.firm), db=s, status_value=None, page_size=50
+        ),
+        lambda s, r: InventoryService(s).opening_stock_batch_response(
+            _get(s, OpeningStockBatch, r.id)
         ),
     ),
     "journal entries": _Case(

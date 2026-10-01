@@ -821,6 +821,14 @@ def test_points_spent_on_a_bill_come_off_what_the_receipts_screen_says_it_owes()
         )
     }
     assert owed["SI-2"] == Decimal("480.00")
+    firm_wide = {
+        record.invoice_number: record.outstanding_amount
+        for record in ReceiptService(books.session).outstanding_invoices(
+            firm_id=books.firm.id, party_id=None
+        )
+        if record.party_id == later.customer_id
+    }
+    assert firm_wide == owed, "the firm-wide read takes points spent off too"
 
 
 def _payable(books: _Books) -> Decimal:

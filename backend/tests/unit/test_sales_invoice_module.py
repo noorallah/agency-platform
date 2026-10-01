@@ -32,7 +32,7 @@ from app.common.scope import (
 from app.core.database.base import Base
 from app.core.enums import TokenType
 from app.core.exceptions import ValidationError
-from app.core.pagination import PaginationParams
+from app.core.pagination import PaginationParams, ReportRows, ReportWindow
 from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
 from app.customers.models import (
@@ -2975,6 +2975,37 @@ def test_the_reconciliation_counts_the_invoices_that_still_stand() -> None:
 
     service.cancel_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
     assert service.reconciliation_report(firm_scope=firm.id) == []
+
+
+def test_the_reconciliation_is_windowed_on_the_invoice_date_and_paged() -> None:
+    """A line billed in the window is reported; one billed outside it is not.
+
+    The report read every invoice line the firm ever wrote and answered them
+    all at once -- 549,057 lines and 95 s on the volume firm (backlog 56 C,
+    step 4). It now takes a period, like every other reconciliation, and
+    pages in SQL.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=uuid4()
+    )
+    service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+    invoice = session.get(SalesInvoice, invoice_id)
+    assert invoice is not None
+    day = invoice.invoice_date
+
+    before = ReportWindow(to_date=day - timedelta(days=1))
+    assert service.reconciliation_report(firm_scope=firm.id, window=before) == []
+    covering = ReportWindow(from_date=day, to_date=day, page=1, page_size=1)
+    rows = service.reconciliation_report(firm_scope=firm.id, window=covering)
+    assert isinstance(rows, ReportRows) and rows.total_records == 1
+    [row] = rows
+    assert row.draft_quantity == Decimal("4.00")
+    beyond = ReportWindow(page=2, page_size=1)
+    later = service.reconciliation_report(firm_scope=firm.id, window=beyond)
+    assert list(later) == [] and isinstance(later, ReportRows)
+    assert later.total_records == 1
 
 
 def test_the_register_and_reconciliation_name_what_they_identify() -> None:

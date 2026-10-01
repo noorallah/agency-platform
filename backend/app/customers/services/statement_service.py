@@ -21,7 +21,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import and_, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, lazyload
 
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
@@ -235,7 +235,10 @@ class CustomerStatementService:
         settled = settled_against(
             self._session,
             firm_id=firm_scope,
-            invoice_ids=[row[0] for row in raised],
+            # For every customer, one grouped read over the firm rather than
+            # every id in chunks: 14 of the ageing's 19 s on a firm with
+            # 110,000 invoices (backlog 56 C, step 4).
+            invoice_ids=None if customer_id is None else [row[0] for row in raised],
             as_of=as_of,
         )
 
@@ -276,7 +279,7 @@ class CustomerStatementService:
         names = {
             row.id: row
             for row in self._session.scalars(
-                select(Customer).where(Customer.id.in_(overdue))
+                select(Customer).where(Customer.id.in_(overdue)).options(lazyload("*"))
             ).all()
         }
         # The account as it stood that day, summed from the dated movements,
