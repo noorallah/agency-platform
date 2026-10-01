@@ -121,7 +121,7 @@ class Settings(BaseSettings):
     """
 
     app_name: str = "Agency Platform Backend"
-    app_version: str = "1.0.2"
+    app_version: str = "1.1.0"
     environment: Environment = Environment.DEVELOPMENT
     debug: bool = False
     log_level: str = "INFO"
