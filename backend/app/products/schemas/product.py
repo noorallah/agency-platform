@@ -139,6 +139,8 @@ class ProductWrite(ProductSchema):
     allow_decimal: bool = True
     purchase_price: Decimal | None = Field(default=None, ge=0, max_digits=18)
     selling_price: Decimal | None = Field(default=None, ge=0, max_digits=18)
+    #: Per stock unit. Below it, a sale warns or is refused (BACKLOG 64 row 2).
+    minimum_selling_price: Decimal | None = Field(default=None, ge=0, max_digits=18)
     mrp: Decimal | None = Field(default=None, ge=0, max_digits=18)
     status: ProductStatus = ProductStatus.ACTIVE
     remarks: str | None = None
@@ -261,6 +263,7 @@ class ProductResponse(ProductSchema):
     allow_decimal: bool
     purchase_price: Decimal | None
     selling_price: Decimal | None
+    minimum_selling_price: Decimal | None = None
     mrp: Decimal | None
     status: ProductStatus
     remarks: str | None

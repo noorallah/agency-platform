@@ -85,6 +85,7 @@ PRODUCT_DUTY_FIELDS: dict[str, dict[str, str]] = {
     "PRODUCT_PRICING_MANAGE": {
         "purchase_price": "purchase price",
         "selling_price": "selling price",
+        "minimum_selling_price": "minimum selling price",
         "mrp": "MRP",
     },
     "PRODUCT_TAX_MANAGE": {"tax_profile_group_code": "tax group"},
@@ -1772,6 +1773,7 @@ class ProductService:
             "allow_decimal": product.allow_decimal,
             "purchase_price": product.purchase_price,
             "selling_price": product.selling_price,
+            "minimum_selling_price": product.minimum_selling_price,
             "mrp": product.mrp,
             "status": product.status,
             "remarks": product.remarks,

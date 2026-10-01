@@ -19,6 +19,7 @@ import '../../phase2/indian_format.dart';
 import '../workspace/bulk_action.dart';
 import '../workspace/reason_prompt.dart';
 import 'credit_notice.dart';
+import 'price_floor_check_dialog.dart';
 import 'sales_order_editor_dialog.dart';
 
 /// The states a sales order list can be narrowed to -- the phase 2 counters
@@ -381,7 +382,11 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
     await _load();
   }
 
-  Future<void> _act(String suffix, {String? overrideReason}) async {
+  Future<void> _act(
+    String suffix, {
+    String? overrideReason,
+    String? priceOverrideReason,
+  }) async {
     final Map<String, dynamic>? selected = _selected;
     if (selected == null) return;
     try {
@@ -389,9 +394,14 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         'sales-orders',
         selected['id'] as String,
         suffix,
-        query: overrideReason == null
+        query: overrideReason == null && priceOverrideReason == null
             ? null
-            : {'licence_override_reason': overrideReason},
+            : {
+                if (overrideReason != null)
+                  'licence_override_reason': overrideReason,
+                if (priceOverrideReason != null)
+                  'price_override_reason': priceOverrideReason,
+              },
       );
       await _load();
     } on ApiException catch (error) {
@@ -431,6 +441,16 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         widget.permissions,
         document: 'SALES_ORDER',
         documentId: order['id'] as String,
+      );
+
+  /// Ask whether the order's lines are priced under their floor before
+  /// approving it (backlog 64 row 2), before the call for the same reason as
+  /// [_warnOnCredit]. A block carries the reason of whoever may override it.
+  Future<PriceFloorOutcome> _checkPriceFloor(Map<String, dynamic> order) =>
+      confirmPriceFloor(
+        context,
+        widget.permissions,
+        check: () => widget.api.salesOrderPriceCheck(order['id'] as String),
       );
 
   DocumentHeaderSnapshot _headerFor(Map<String, dynamic> row) =>
@@ -959,7 +979,14 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
       if (!mounted) return;
       final LicenceCheckOutcome licence = await _checkLicences(selected);
       if (!licence.proceed) return;
-      await _act(suffix, overrideReason: licence.overrideReason);
+      if (!mounted) return;
+      final PriceFloorOutcome price = await _checkPriceFloor(selected);
+      if (!price.proceed) return;
+      await _act(
+        suffix,
+        overrideReason: licence.overrideReason,
+        priceOverrideReason: price.overrideReason,
+      );
       return;
     }
     await _act(suffix);

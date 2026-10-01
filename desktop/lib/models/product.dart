@@ -210,6 +210,7 @@ class Product {
     this.allowDecimal = true,
     required this.purchasePrice,
     required this.sellingPrice,
+    this.minimumSellingPrice = '',
     required this.mrp,
     required this.status,
     required this.remarks,
@@ -275,6 +276,9 @@ class Product {
   final bool allowDecimal;
   final String purchasePrice;
   final String sellingPrice;
+
+  /// The price floor, per stock unit; empty when the product has none.
+  final String minimumSellingPrice;
   final String mrp;
   final String status;
   final String remarks;
@@ -340,6 +344,7 @@ class Product {
         allowDecimal: boolValue(json['allow_decimal'], fallback: true),
         purchasePrice: stringValue(json['purchase_price']),
         sellingPrice: stringValue(json['selling_price']),
+        minimumSellingPrice: stringValue(json['minimum_selling_price']),
         mrp: stringValue(json['mrp']),
         status: stringValue(json['status']),
         remarks: stringValue(json['remarks']),

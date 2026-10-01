@@ -136,6 +136,13 @@ COLUMNS: tuple[Column, ...] = (
         "Number; must not exceed MRP.",
         "450",
     ),
+    Column(
+        "MinimumPrice",
+        ("minimumsellingprice", "minprice", "floorprice"),
+        False,
+        "Lowest rate it may be sold at, per stock unit. Blank sets none.",
+        "",
+    ),
     Column("MRP", ("maximumretailprice",), False, "Number.", "499"),
     Column(
         "Status",
@@ -189,6 +196,7 @@ _FIELD_HEADINGS: dict[str, str] = {
     "description": "Description",
     "purchase_price": "PurchasePrice",
     "selling_price": "SellingPrice",
+    "minimum_selling_price": "MinimumPrice",
     "mrp": "MRP",
     "status": "Status",
     "track_batch": "TrackBatch",
@@ -209,6 +217,7 @@ _TEXT_FIELDS: dict[str, str] = {
 _MONEY_FIELDS: dict[str, str] = {
     "PurchasePrice": "purchase_price",
     "SellingPrice": "selling_price",
+    "MinimumPrice": "minimum_selling_price",
     "MRP": "mrp",
 }
 _FLAG_FIELDS: dict[str, str] = {

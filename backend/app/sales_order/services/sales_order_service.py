@@ -105,6 +105,11 @@ from app.sales_order.schemas import (
     SalesOrderStatus,
     SalesOrderSummary,
 )
+from app.sales_order.services.discount_limit import (
+    DiscountLimitService,
+    order_discounts,
+)
+from app.sales_order.services.price_floor import PriceFloorService, order_lines
 from app.settlements.models import Settlement
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.place_of_supply import SALES_INTERSTATE
@@ -621,6 +626,7 @@ class SalesOrderService(TransactionalDocumentService):
         firm_scope: UUID,
         actor_id: UUID,
         licence_override_reason: str | None = None,
+        price_override_reason: str | None = None,
     ) -> SalesOrder:
         """Approve one sales order and commit it."""
         row = self.stage_approval(
@@ -628,6 +634,7 @@ class SalesOrderService(TransactionalDocumentService):
             firm_scope=firm_scope,
             actor_id=actor_id,
             licence_override_reason=licence_override_reason,
+            price_override_reason=price_override_reason,
         )
         self._session.commit()
         return row
@@ -640,6 +647,7 @@ class SalesOrderService(TransactionalDocumentService):
         actor_id: UUID,
         licence_override_reason: str | None = None,
         check_licences: bool = True,
+        price_override_reason: str | None = None,
     ) -> SalesOrder:
         """Approve one sales order without committing it.
 
@@ -663,6 +671,44 @@ class SalesOrderService(TransactionalDocumentService):
             )
             if check_licences
             else (None, None)
+        )
+        # Before anything is reserved, for the same reason; and skipped with
+        # the licences where the chain approves an order nobody typed, whose
+        # bill is judged at its own approval (backlog 64 row 2).
+        price_remark, price_details = (
+            PriceFloorService(self._session).enforce(
+                firm_scope,
+                order_lines(
+                    self._session.scalars(
+                        select(SalesOrderLine).where(
+                            SalesOrderLine.sales_order_id == row.id,
+                            SalesOrderLine.is_deleted.is_(False),
+                        )
+                    ).all()
+                ),
+                override_reason=price_override_reason,
+            )
+            if check_licences
+            else (None, None)
+        )
+        # The approver's discount limit (backlog 64 row 3), skipped where the
+        # chain approves an order nobody typed: its bill is judged instead.
+        discount_details = (
+            DiscountLimitService(self._session).enforce(
+                firm_scope,
+                actor_id,
+                order_discounts(
+                    self._session.scalars(
+                        select(SalesOrderLine).where(
+                            SalesOrderLine.sales_order_id == row.id,
+                            SalesOrderLine.is_deleted.is_(False),
+                        )
+                    ).all(),
+                    bill_discount_source=row.bill_discount_source,
+                ),
+            )
+            if check_licences
+            else None
         )
         # Credit is committed here, before any stock moves: approving the order
         # is the promise, invoicing only bills it. Under BLOCK it raises before
@@ -707,6 +753,7 @@ class SalesOrderService(TransactionalDocumentService):
                     for part in (
                         None if assessment is None else assessment.message,
                         licence_remark,
+                        price_remark,
                     )
                     if part
                 )
@@ -715,6 +762,8 @@ class SalesOrderService(TransactionalDocumentService):
             details=(
                 ({} if credit_warning is None else {"credit_warning": credit_warning})
                 | (licence_details or {})
+                | (price_details or {})
+                | (discount_details or {})
             )
             or None,
         )
@@ -726,6 +775,10 @@ class SalesOrderService(TransactionalDocumentService):
             approved["credit_warning"] = credit_warning
         if licence_details is not None:
             approved.update(licence_details)
+        if price_details is not None:
+            approved.update(price_details)
+        if discount_details is not None:
+            approved.update(discount_details)
         record_audit(
             self._session,
             action="sales_order.approved",

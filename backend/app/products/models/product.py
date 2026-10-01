@@ -188,6 +188,11 @@ class Product(BaseEntity):
     )
     purchase_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     selling_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    #: The lowest net rate this product may be sold at, per stock unit -- the
+    #: unit its moving average cost is kept in. A sale below it (or below
+    #: cost) warns or is refused by the firm's `price_floor_settings`
+    #: (BACKLOG 64 row 2). None sets no minimum.
+    minimum_selling_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     mrp: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     remarks: Mapped[str | None] = mapped_column(Text)

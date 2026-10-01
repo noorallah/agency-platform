@@ -22,6 +22,7 @@ import 'sales_invoice_editor_dialog.dart';
 import '../workspace/print_settings_dialog.dart';
 import '../workspace/printed_document.dart';
 import 'credit_notice.dart';
+import 'price_floor_check_dialog.dart';
 import 'sales_workflow_settings_dialog.dart';
 
 /// A named view over the one sales invoice list.
@@ -346,7 +347,11 @@ class _SalesInvoiceManagementPageState
     await _load();
   }
 
-  Future<void> _act(String suffix, {String? overrideReason}) async {
+  Future<void> _act(
+    String suffix, {
+    String? overrideReason,
+    String? priceOverrideReason,
+  }) async {
     final Map<String, dynamic>? selected = _selected;
     if (selected == null) return;
     try {
@@ -354,9 +359,14 @@ class _SalesInvoiceManagementPageState
         'sales-invoices',
         selected['id'] as String,
         suffix,
-        query: overrideReason == null
+        query: overrideReason == null && priceOverrideReason == null
             ? null
-            : {'licence_override_reason': overrideReason},
+            : {
+                if (overrideReason != null)
+                  'licence_override_reason': overrideReason,
+                if (priceOverrideReason != null)
+                  'price_override_reason': priceOverrideReason,
+              },
       );
       await _load();
     } on ApiException catch (error) {
@@ -392,6 +402,16 @@ class _SalesInvoiceManagementPageState
         widget.permissions,
         document: 'SALES_INVOICE',
         documentId: invoice['id'] as String,
+      );
+
+  /// Ask whether the invoice's lines are priced under their floor before
+  /// approving it (backlog 64 row 2), before the call for the same reason as
+  /// [_warnOnCredit]. A block carries the reason of whoever may override it.
+  Future<PriceFloorOutcome> _checkPriceFloor(Map<String, dynamic> invoice) =>
+      confirmPriceFloor(
+        context,
+        widget.permissions,
+        check: () => widget.api.salesInvoicePriceCheck(invoice['id'] as String),
       );
 
   DocumentHeaderSnapshot _headerFor(Map<String, dynamic> row) =>
@@ -491,7 +511,14 @@ class _SalesInvoiceManagementPageState
       if (!mounted) return;
       final LicenceCheckOutcome licence = await _checkLicences(selected);
       if (!licence.proceed) return;
-      await _act(suffix, overrideReason: licence.overrideReason);
+      if (!mounted) return;
+      final PriceFloorOutcome price = await _checkPriceFloor(selected);
+      if (!price.proceed) return;
+      await _act(
+        suffix,
+        overrideReason: licence.overrideReason,
+        priceOverrideReason: price.overrideReason,
+      );
       return;
     }
     await _act(suffix);

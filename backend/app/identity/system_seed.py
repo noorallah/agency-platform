@@ -167,6 +167,11 @@ PERMISSION_GROUPS = {
         # hand. Subtracted from `SALES_MANAGER` below, beside the credit block
         # and for the same reason.
         "SALES_MANAGE_SETTINGS",
+        # Approve a sale below cost or below a product's minimum price when
+        # the firm's policy refuses it, with a reason the document keeps
+        # (backlog 64 row 2). A control over the people who sell, so it is
+        # subtracted from `SALES_MANAGER` with the settings code.
+        "SALES_PRICE_OVERRIDE",
     ),
     "einvoice": (
         "EINVOICE_VIEW",
@@ -521,7 +526,13 @@ _SEEDED_ROLE_PERMISSION_CODES = {
         # means dispatch is confirmed by the sale itself rather than by whoever
         # watches the goods leave. Both are controls over the role, so neither
         # belongs to it.
-        - frozenset({"CUSTOMER_MANAGE_SETTINGS", "SALES_MANAGE_SETTINGS"})
+        - frozenset(
+            {
+                "CUSTOMER_MANAGE_SETTINGS",
+                "SALES_MANAGE_SETTINGS",
+                "SALES_PRICE_OVERRIDE",
+            }
+        )
     )
     | frozenset(
         {

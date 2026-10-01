@@ -752,6 +752,9 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         'selling_price': sellingPrice ??
             (product.sellingPrice.isEmpty ? null : product.sellingPrice),
         'mrp': product.mrp.isEmpty ? null : product.mrp,
+        'minimum_selling_price': product.minimumSellingPrice.isEmpty
+            ? null
+            : product.minimumSellingPrice,
         'remarks': product.remarks.isEmpty ? null : product.remarks,
         'track_batch': product.trackBatch,
         'track_lot': product.trackLot,
@@ -1728,6 +1731,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   late final TextEditingController _purchasePrice;
   late final TextEditingController _sellingPrice;
   late final TextEditingController _mrp;
+  late final TextEditingController _minimumSellingPrice;
   late final TextEditingController _remarks;
   late String _productType;
   late String _status;
@@ -1816,6 +1820,8 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     _purchasePrice = TextEditingController(text: product?.purchasePrice ?? '');
     _sellingPrice = TextEditingController(text: product?.sellingPrice ?? '');
     _mrp = TextEditingController(text: product?.mrp ?? '');
+    _minimumSellingPrice =
+        TextEditingController(text: product?.minimumSellingPrice ?? '');
     _remarks = TextEditingController(text: product?.remarks ?? '');
     _productType = product?.productType.isNotEmpty == true
         ? product!.productType
@@ -1894,6 +1900,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         _purchasePrice,
         _sellingPrice,
         _mrp,
+        _minimumSellingPrice,
         _remarks,
       ];
 
@@ -2251,6 +2258,13 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                   _field(_purchasePrice, 'Purchase price'),
                   _field(_sellingPrice, 'Selling price'),
                   _field(_mrp, 'MRP'),
+                  _field(
+                    _minimumSellingPrice,
+                    'Minimum selling price',
+                    width: 460,
+                    helper: 'Per stock unit. Selling below it warns or is '
+                        "refused, as the firm's price-floor setting says.",
+                  ),
                 ],
               ),
             ],
@@ -2977,6 +2991,9 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       'selling_price':
           _sellingPrice.text.trim().isEmpty ? null : _sellingPrice.text.trim(),
       'mrp': _mrp.text.trim().isEmpty ? null : _mrp.text.trim(),
+      'minimum_selling_price': _minimumSellingPrice.text.trim().isEmpty
+          ? null
+          : _minimumSellingPrice.text.trim(),
       'remarks': _remarks.text.trim().isEmpty ? null : _remarks.text.trim(),
       'track_batch': _trackBatch,
       'track_lot': _trackLot,
@@ -3037,6 +3054,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       _purchasePrice.clear();
       _sellingPrice.clear();
       _mrp.clear();
+      _minimumSellingPrice.clear();
       _remarks.clear();
       for (final AttributeFieldController controller
           in _attributeControllers.values) {

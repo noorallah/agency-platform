@@ -6,9 +6,10 @@ import csv
 import io
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import UUID
 
 from sqlalchemy import and_, case, func, or_, select
@@ -114,6 +115,11 @@ from app.sales_invoice.services.sales_chain_service import (
 )
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import SalesOrderStatus
+from app.sales_order.services.discount_limit import (
+    DiscountLimitService,
+    invoice_discounts,
+)
+from app.sales_order.services.price_floor import PriceFloorService, invoice_lines
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
 from app.settlements.schemas import OutstandingInvoiceRecord
 from app.tax.schemas import TaxRuleSimulationRequest
@@ -763,6 +769,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         firm_scope: UUID,
         actor_id: UUID,
         licence_override_reason: str | None = None,
+        price_override_reason: str | None = None,
     ) -> SalesInvoice:
         """Approve one sales invoice and commit it."""
         row = self.stage_approval(
@@ -770,6 +777,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             firm_scope=firm_scope,
             actor_id=actor_id,
             licence_override_reason=licence_override_reason,
+            price_override_reason=price_override_reason,
         )
         self._session.commit()
         return row
@@ -824,6 +832,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         firm_scope: UUID,
         actor_id: UUID,
         licence_override_reason: str | None = None,
+        price_override_reason: str | None = None,
     ) -> SalesInvoice:
         """Approve one sales invoice without committing it.
 
@@ -880,6 +889,32 @@ class SalesInvoiceService(TransactionalDocumentService):
             firm_id=firm_scope,
             override_reason=licence_override_reason,
         )
+        # The bill is the sale, whatever the order said: it may have no order,
+        # or re-price the one it bills (backlog 64 row 2). Before any stock
+        # leaves, so a refusal leaves nothing moved.
+        price_remark, price_details = PriceFloorService(self._session).enforce(
+            firm_scope,
+            invoice_lines(
+                self._session.scalars(
+                    select(SalesInvoiceLine).where(
+                        SalesInvoiceLine.sales_invoice_id == row.id,
+                        SalesInvoiceLine.is_deleted.is_(False),
+                    )
+                ).all()
+            ),
+            override_reason=price_override_reason,
+        )
+        # What the bill itself typed, against the approver's limit (backlog 64
+        # row 3); what it inherited was judged when its order was approved.
+        discount_details = DiscountLimitService(self._session).enforce(
+            firm_scope, actor_id, invoice_discounts(self._judged_discount_lines(row))
+        )
+        approval_remark = (
+            " ".join(part for part in (licence_remark, price_remark) if part) or None
+        )
+        approval_details = (
+            (licence_details or {}) | (price_details or {}) | (discount_details or {})
+        ) or None
         # The goods leave now, not when the draft was saved: a draft is a
         # proposal, and it used to ship the stock and post cost of goods sold
         # the moment it was typed (D-SELL-13, driven 2026-09-19).
@@ -939,8 +974,8 @@ class SalesInvoiceService(TransactionalDocumentService):
             from_state=before,
             to_state=row.status,
             actor_id=actor_id,
-            remarks=licence_remark,
-            details=licence_details,
+            remarks=approval_remark,
+            details=approval_details,
         )
         record_audit(
             self._session,
@@ -949,7 +984,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
-            after_data=licence_details,
+            after_data=approval_details,
         )
         # Inside the staged approval, not after it: anything composing
         # approval then settles the counter payment too, which is the trap
@@ -1022,6 +1057,63 @@ class SalesInvoiceService(TransactionalDocumentService):
                 )
             ).all()
         )
+
+    def _judged_discount_lines(self, row: SalesInvoice) -> list[object]:
+        """Return the bill's lines with where each discount was really typed.
+
+        A counter bill raises its own order and note and is then rebuilt to
+        bill that note, so every line reads as inherited -- yet the rate was
+        typed on this bill, and the order it raised was not judged (backlog
+        64 row 3). For a note this bill raised itself, the source is read from
+        the order line behind it: typed there means typed here.
+        """
+        lines = list(
+            self._session.scalars(
+                select(SalesInvoiceLine).where(
+                    SalesInvoiceLine.sales_invoice_id == row.id,
+                    SalesInvoiceLine.is_deleted.is_(False),
+                )
+            ).all()
+        )
+        own_notes = {
+            note.id
+            for note in self._billed_notes(row)
+            if note.raised_by_sales_invoice_id == row.id
+        }
+        if not own_notes:
+            return list(lines)
+        note_line_ids = [
+            line.source_document_line_id
+            for line in lines
+            if line.source_document_id in own_notes
+        ]
+        sources = dict(
+            self._session.execute(
+                select(DeliveryNoteLine.id, SalesOrderLine.discount_source)
+                .join(
+                    SalesOrderLine,
+                    SalesOrderLine.id == DeliveryNoteLine.sales_order_line_id,
+                )
+                .where(DeliveryNoteLine.id.in_(note_line_ids))
+            )
+            .tuples()
+            .all()
+        )
+        judged: list[object] = []
+        for line in lines:
+            if line.source_document_line_id in sources:
+                judged.append(
+                    SimpleNamespace(
+                        line_number=line.line_number,
+                        gross_amount=line.gross_amount,
+                        discount_amount=line.discount_amount,
+                        bill_discount_amount=line.bill_discount_amount,
+                        discount_source=sources[line.source_document_line_id],
+                    )
+                )
+            else:
+                judged.append(line)
+        return judged
 
     def _billed_notes(self, row: SalesInvoice) -> list[DeliveryNote]:
         """Return the delivery notes a bill names as its sources."""
@@ -2278,6 +2370,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 free_quantity=free_quantity,
                 unit_price=unit_price,
                 discount_percent=line_discount.percent,
+                discount_source=line_discount.source,
                 discount_amount=line_discount.amount,
                 bill_discount_amount=bill_share,
                 freight_amount=freight_share,
@@ -3255,20 +3348,26 @@ class SalesInvoiceService(TransactionalDocumentService):
         """
         percent = spec.get("discount_percent")
         amount = spec.get("discount_amount")
+        inherited = False
         if percent is None and amount is None:
             inherited_percent = getattr(source_line, "discount_percent", None)
             inherited_amount = getattr(source_line, "discount_amount", None)
             if inherited_percent:
                 percent = inherited_percent
+                inherited = True
             elif inherited_amount and source_quantity > ZERO:
                 amount = self._q(
                     Decimal(str(inherited_amount)) * invoice_quantity / source_quantity
                 )
-        return resolve_line_discount(
+                inherited = True
+        resolved = resolve_line_discount(
             gross=gross,
             percent=None if percent is None else Decimal(str(percent)),
             amount=None if amount is None else Decimal(str(amount)),
         )
+        # Said so, so the approver's discount limit judges only what the bill
+        # itself typed (backlog 64 row 3).
+        return replace(resolved, source="inherited") if inherited else resolved
 
     def _line_cost(
         self,

@@ -30,6 +30,7 @@ import '../../models/einvoice.dart';
 import '../../models/proforma.dart';
 import '../../models/tcs.dart';
 import '../../models/firm_member.dart';
+import '../../models/price_floor.dart';
 import '../../models/sales_invoice.dart';
 import '../../models/sales_analysis.dart';
 import '../../models/sales_return.dart';
@@ -468,12 +469,13 @@ class ApiClient {
       ));
   Future<PagedResult<Role>> roles({
     int page = 1,
+    int pageSize = 20,
     String search = '',
     String sortBy = 'created_at',
     bool descending = true,
   }) =>
       _list('/api/v1/roles', Role.fromJson, page, search,
-          sortBy: sortBy, descending: descending);
+          pageSize: pageSize, sortBy: sortBy, descending: descending);
 
   /// Lists the job templates this caller may offer.
   ///
@@ -1226,6 +1228,81 @@ class ApiClient {
             '/api/v1/sales-orders/workflow-settings',
             body: settings.toJson(),
           ),
+        ),
+      );
+
+  /// The firm's price-floor policy (backlog 64 row 2): readable by any sales
+  /// viewer, writable only with `SALES_MANAGE_SETTINGS`.
+  Future<PriceFloorSettings> priceFloorSettings() async =>
+      PriceFloorSettings.fromJson(
+        _unwrapMap(
+          await request('GET', '/api/v1/sales-orders/price-floor-settings'),
+        ),
+      );
+
+  Future<PriceFloorSettings> updatePriceFloorSettings(
+    PriceFloorSettings settings,
+  ) async =>
+      PriceFloorSettings.fromJson(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/sales-orders/price-floor-settings',
+            body: settings.toJson(),
+          ),
+        ),
+      );
+
+  /// The most each role may discount by hand (backlog 64 row 3). Readable by
+  /// any sales viewer.
+  Future<List<RoleDiscountLimit>> discountLimits() async => _limitsFrom(
+        _unwrapMap(
+          await request('GET', '/api/v1/sales-orders/discount-limits'),
+        ),
+      );
+
+  /// Replaces the whole list: a role left out has no limit. Needs
+  /// `SALES_MANAGE_SETTINGS`.
+  Future<List<RoleDiscountLimit>> updateDiscountLimits(
+    List<RoleDiscountLimit> limits,
+  ) async =>
+      _limitsFrom(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/sales-orders/discount-limits',
+            body: <String, dynamic>{
+              'limits': [for (final limit in limits) limit.toJson()],
+            },
+          ),
+        ),
+      );
+
+  static List<RoleDiscountLimit> _limitsFrom(Json data) {
+    final Object? raw = data['limits'];
+    return raw is List
+        ? [
+            for (final item in raw)
+              if (item is Map)
+                RoleDiscountLimit.fromJson(Map<String, dynamic>.from(item)),
+          ]
+        : const <RoleDiscountLimit>[];
+  }
+
+  /// What the approval would say about a sales order's prices, before it is
+  /// asked to.
+  Future<PriceFloorCheck> salesOrderPriceCheck(String id) async =>
+      PriceFloorCheck.fromJson(
+        _unwrapMap(
+          await request('GET', '/api/v1/sales-orders/$id/price-check'),
+        ),
+      );
+
+  /// The same for a sales invoice.
+  Future<PriceFloorCheck> salesInvoicePriceCheck(String id) async =>
+      PriceFloorCheck.fromJson(
+        _unwrapMap(
+          await request('GET', '/api/v1/sales-invoices/$id/price-check'),
         ),
       );
 
@@ -4196,7 +4273,8 @@ class ApiClient {
   ///
   /// [query] carries a query-string parameter a lifecycle action takes beside
   /// its (always empty) body -- `licence_override_reason` on the sales
-  /// approve endpoints (backlog 54) is the one example today.
+  /// approve endpoints (backlog 54) and `price_override_reason` (backlog 64)
+  /// are the examples today.
   Future<Json> documentAction(
     String resource,
     String id,
