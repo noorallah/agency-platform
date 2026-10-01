@@ -3550,6 +3550,59 @@ class ApiClient {
   ) =>
       _bulk('/api/v1/sales-orders/bulk-cancel', rows, reason: reason);
 
+  /// Approve or cancel several documents of one kind in one call; rows are
+  /// acted on one by one, so some can be refused while others succeed.
+  Future<BulkActionResult> bulkApproveSalesInvoices(List<BulkRow> rows) =>
+      _bulk('/api/v1/sales-invoices/bulk-approve', rows);
+
+  Future<BulkActionResult> bulkCancelSalesInvoices(
+    List<BulkRow> rows,
+    String reason,
+  ) =>
+      _bulk('/api/v1/sales-invoices/bulk-cancel', rows, reason: reason);
+
+  Future<BulkActionResult> bulkApprovePurchaseInvoices(List<BulkRow> rows) =>
+      _bulk('/api/v1/purchase-invoices/bulk-approve', rows);
+
+  Future<BulkActionResult> bulkCancelPurchaseInvoices(
+    List<BulkRow> rows,
+    String reason,
+  ) =>
+      _bulk('/api/v1/purchase-invoices/bulk-cancel', rows, reason: reason);
+
+  Future<BulkActionResult> bulkApproveDeliveryNotes(List<BulkRow> rows) =>
+      _bulk('/api/v1/delivery-notes/bulk-approve', rows);
+
+  Future<BulkActionResult> bulkCancelDeliveryNotes(
+    List<BulkRow> rows,
+    String reason,
+  ) =>
+      _bulk('/api/v1/delivery-notes/bulk-cancel', rows, reason: reason);
+
+  Future<BulkActionResult> bulkApproveCreditNotes(List<BulkRow> rows) =>
+      _bulk('/api/v1/credit-notes/bulk-approve', rows);
+
+  Future<BulkActionResult> bulkApproveSalesReturns(List<BulkRow> rows) =>
+      _bulk('/api/v1/sales-returns/bulk-approve', rows);
+
+  Future<BulkActionResult> bulkCancelSalesReturns(
+    List<BulkRow> rows,
+    String reason,
+  ) =>
+      _bulk('/api/v1/sales-returns/bulk-cancel', rows, reason: reason);
+
+  Future<BulkActionResult> bulkApprovePurchaseReturns(List<BulkRow> rows) =>
+      _bulk('/api/v1/purchase-returns/bulk-approve', rows);
+
+  Future<BulkActionResult> bulkCancelPurchaseReturns(
+    List<BulkRow> rows,
+    String reason,
+  ) =>
+      _bulk('/api/v1/purchase-returns/bulk-cancel', rows, reason: reason);
+
+  Future<BulkActionResult> bulkPostJournalEntries(List<BulkRow> rows) =>
+      _bulk('/api/v1/finance/journal-entries/bulk-post', rows);
+
   /// `version` is left out when unknown: the server rejects unknown fields but
   /// accepts an item without one.
   Future<BulkActionResult> _bulk(

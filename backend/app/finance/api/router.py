@@ -18,6 +18,11 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.pagination.reports import ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.document_framework.schemas.bulk_actions import (
+    BulkActionResult,
+    BulkApproveRequest,
+)
+from app.document_framework.services.bulk_actions import run_each
 from app.finance.schemas import (
     AccountGroupCreate,
     AccountGroupResponse,
@@ -697,6 +702,41 @@ def list_journal_entries(
     return PaginatedResponse(
         data=[JournalEntryResponse.model_validate(row) for row in rows],
         pagination=params.metadata(total),
+    )
+
+
+@router.post("/journal-entries/bulk-post", response_model=ApiResponse[BulkActionResult])
+def bulk_post_journal_entries(
+    data: BulkApproveRequest,
+    scope: JournalPostScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BulkActionResult]:
+    """Post the ticked draft journals, each on its own (backlog 56 A).
+
+    Each is asked what a single post asks -- a hand journal may not touch a
+    control account a document owns (D-FIN-11) -- and committed on its own,
+    so one refused leaves the rest posted.
+    """
+    engine = JournalEntryEngine(db)
+    control = ControlAccountService(db)
+
+    def act(entry_id: UUID) -> None:
+        draft = engine.get_entry(entry_id, firm_id=scope.firm_id)
+        if draft.source_module is None:
+            control.assert_open_to_hand_journals(
+                scope.firm_id, (line.ledger_account_id for line in draft.lines)
+            )
+        engine.post_entry(entry_id, firm_id=scope.firm_id, actor_id=scope.actor_id)
+        db.commit()
+
+    return ApiResponse(
+        data=run_each(
+            db,
+            data.items,
+            load=lambda entry_id: engine.get_entry(entry_id, firm_id=scope.firm_id),
+            act=act,
+            number=lambda row: row.reference_number,
+        )
     )
 
 

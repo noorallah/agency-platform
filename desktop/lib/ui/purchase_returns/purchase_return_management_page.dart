@@ -9,14 +9,18 @@ import '../document_framework/document_line_labels.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
+import '../../models/bulk_action.dart';
 import '../../models/entities.dart';
 import '../../models/document_framework.dart';
 import '../../models/goods_receipt.dart';
 import '../../models/product.dart';
+import '../../phase2/indian_format.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../document_framework/document_status_gate.dart';
 import '../document_framework/document_view_dialog.dart';
+import '../workspace/bulk_action.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/reason_prompt.dart';
 import 'purchase_return_editor_dialog.dart';
 
 class PurchaseReturnManagementPage extends StatefulWidget {
@@ -54,6 +58,9 @@ class _PurchaseReturnManagementPageState
   Map<String, dynamic> _summary = const {};
   List<_PurchaseReturnRecord> _returns = const [];
   _PurchaseReturnRecord? _selected;
+
+  /// The rows ticked for a bulk approve or cancel (backlog 56 A).
+  Set<String> _ticked = <String>{};
   List<DocumentTimelineSnapshot> _history = const [];
   // Reference data the editor needs, loaded once with the workspace.
   List<GoodsReceiptRecord> _returnableReceipts = const [];
@@ -257,6 +264,8 @@ class _PurchaseReturnManagementPageState
         _returns = returns;
         _total = pagedTotal(page, fallback: returns.length);
         _selected = selected;
+        _ticked =
+            _ticked.where((id) => returns.any((row) => row.id == id)).toSet();
         _history = history;
       });
     } catch (error) {
@@ -312,6 +321,88 @@ class _PurchaseReturnManagementPageState
     );
   }
 
+  /// More than one row ticked: the bar names the batch and offers the two
+  /// bulk actions instead of the one row's.
+  bool get _bulkMode => _ticked.length > 1;
+
+  List<_PurchaseReturnRecord> get _tickedRows =>
+      _returns.where((row) => _ticked.contains(row.id)).toList();
+
+  List<BulkRow> _bulkRows() => [
+        for (final _PurchaseReturnRecord row in _tickedRows)
+          (id: row.id, version: null),
+      ];
+
+  SelectionSummary _bulkSummary() {
+    double total = 0;
+    for (final _PurchaseReturnRecord row in _tickedRows) {
+      total += double.tryParse(row.grandTotal) ?? 0;
+    }
+    return SelectionSummary(
+      title: '${_ticked.length} selected',
+      detail: indianAmount(total, full: true),
+      onClear: () => setState(() => _ticked = <String>{}),
+    );
+  }
+
+  /// The two bulk actions, each behind the permission the single one takes.
+  List<ToolbarCommand> _bulkCommands() => [
+        ToolbarCommand(
+          id: 'bulk-approve',
+          label: 'Approve selected',
+          icon: Icons.check_circle_outline,
+          onPressed: _loading || !_mayApprove()
+              ? null
+              : () => unawaited(_bulkApprove()),
+        ),
+        ToolbarCommand(
+          id: 'cancel',
+          label: 'Cancel selected',
+          icon: Icons.cancel_outlined,
+          onPressed:
+              _loading || !widget.permissions.hasPermission('PURCHASE_CANCEL')
+                  ? null
+                  : () => unawaited(_bulkCancel()),
+        ),
+      ];
+
+  Future<void> _bulkApprove() async {
+    final List<BulkRow> rows = _bulkRows();
+    await runBulkAction(
+      context,
+      verb: 'Approved',
+      rows: rows,
+      send: widget.api.bulkApprovePurchaseReturns,
+    );
+    await _afterBulk();
+  }
+
+  Future<void> _bulkCancel() async {
+    final List<BulkRow> rows = _bulkRows();
+    final String? reason = await askForReason(
+      context,
+      title: 'Cancel ${rows.length} returns',
+      explanation: 'Each return is cancelled on its own; one the server '
+          'refuses does not stop the others. The reason is recorded on '
+          'every return cancelled.',
+      confirmLabel: 'Cancel returns',
+    );
+    if (reason == null || !mounted) return;
+    await runBulkAction(
+      context,
+      verb: 'Cancelled',
+      rows: rows,
+      send: (rows) => widget.api.bulkCancelPurchaseReturns(rows, reason),
+    );
+    await _afterBulk();
+  }
+
+  Future<void> _afterBulk() async {
+    if (!mounted) return;
+    setState(() => _ticked = <String>{});
+    await _load();
+  }
+
   Widget _buildGridWorkspace() => ManagementWorkspaceLayout(
         toolbar: _buildToolbar(),
         searchPanel: SearchFilterPanel(
@@ -322,7 +413,9 @@ class _PurchaseReturnManagementPageState
         // Option C (owner, 2026-09-27): the return's actions on a bar that
         // names it and its supplier, above the grid.
         selectionBar: true,
-        selection: _selected == null
+        selection: _bulkMode
+            ? _bulkSummary()
+            : _selected == null
             ? null
             : SelectionSummary.document(
                 number: _selected!.returnNumber,
@@ -374,7 +467,7 @@ class _PurchaseReturnManagementPageState
               // empty dialog.
               ToolbarAction.newItem =>
                 _canCreate && _returnableReceipts.isNotEmpty,
-              ToolbarAction.view => _selected != null,
+              ToolbarAction.view => _selected != null && !_bulkMode,
               ToolbarAction.refresh => true,
               _ => false,
             },
@@ -401,7 +494,9 @@ class _PurchaseReturnManagementPageState
         // that ends the document.
         // Phase 2 (4.11): the same steps as commands, folded into "..."
         // when the line is short.
-        commands: Phase2Scope.of(context)
+        commands: _bulkMode
+            ? _bulkCommands()
+            : Phase2Scope.of(context)
             ? [
                 _command(
                   'Approve',
@@ -592,6 +687,10 @@ class _PurchaseReturnManagementPageState
         items: _returns,
         id: (item) => item.id,
         selectedId: _selected?.id,
+        // Ticks, for a bulk approve or cancel. A single row is still chosen
+        // by clicking it.
+        selectedIds: _ticked,
+        onSelectionChanged: (ticked) => setState(() => _ticked = ticked),
         cells: _columns.cells,
         onSelect: (item) => unawaited(_selectReturn(item)),
         onOpen: (item) => unawaited(_openReturn(item)),
