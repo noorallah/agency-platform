@@ -197,6 +197,30 @@ class _SalesWorkflowSettingsDialogState
                   ),
                   const SizedBox(height: AppSpacing.md),
                   _Notice(icon: Icons.receipt_long_outlined, text: _summary),
+                  const SizedBox(height: AppSpacing.lg),
+                  // Backlog 59: how matching offers meet on one document.
+                  DropdownButtonFormField<String>(
+                    key: const ValueKey('sales-settings-promotion-mode'),
+                    initialValue: _settings.promotionMode,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'When several offers match',
+                      helperText: 'Combine applies each in Applies-at order; '
+                          'best offer gives only the one worth most.',
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                          value: 'COMBINE', child: Text('Combine offers')),
+                      DropdownMenuItem(
+                          value: 'BEST_OFFER', child: Text('Best offer only')),
+                    ],
+                    onChanged: _mayManage && _read && !_saving
+                        ? (value) => setState(
+                              () => _settings = _settings.copyWith(
+                                  promotionMode: value ?? 'COMBINE'),
+                            )
+                        : null,
+                  ),
                   if (!_settings.deliveryNoteStage) ...[
                     const SizedBox(height: AppSpacing.md),
                     _Notice(

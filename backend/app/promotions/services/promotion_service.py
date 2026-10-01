@@ -23,7 +23,8 @@ document is being built, on the caller's session; committing here would
 publish a half-written order.
 """
 
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -31,7 +32,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.utils.money import quantize_money
+from app.core.utils.money import quantize_ledger, quantize_money
 from app.core.utils.pricing import apportion
 from app.products.models import Product
 from app.promotions.models import (
@@ -110,49 +111,12 @@ class PromotionService:
         decisions: list[PromotionDecision] = []
 
         coupon = self._coupon_for(data, firm_scope=firm_scope)
-        for promotion in self._active_promotions(
-            firm_scope=firm_scope, on=data.transaction_date
-        ):
-            refusal = self._unavailable(
-                promotion, coupon=coupon, data=data, firm_scope=firm_scope
-            )
-            if refusal is not None:
-                decisions.append(self._decision(promotion, False, refusal))
-                continue
-            matched_lines = [
-                state
-                for state, line in zip(states, data.lines, strict=True)
-                # A line somebody priced by hand is left alone entirely. The
-                # shared rule would discard the promotion downstream anyway;
-                # skipping here is what stops the trace claiming a benefit the
-                # line never received, which is the question this log exists to
-                # answer.
-                if not line.caller_priced
-                and self._matches(
-                    promotion,
-                    context=self._context(
-                        data,
-                        line=line,
-                        state=state,
-                        document_gross=document_gross,
-                        products=products,
-                    ),
-                )
-            ]
-            if not matched_lines:
-                decisions.append(
-                    self._decision(
-                        promotion,
-                        False,
-                        (
-                            "Every line was priced by hand."
-                            if all(line.caller_priced for line in data.lines)
-                            else "No line met the conditions."
-                        ),
-                    )
-                )
-                continue
+        best_only = self._best_offer_only(firm_scope)
+        candidates: list[tuple[Promotion, list[_LineState]]] = []
 
+        def apply_one(promotion: Promotion, matched_lines: list[_LineState]) -> bool:
+            """Apply one offer to the document; True when evaluation must stop."""
+            nonlocal bill_discount, freight_waived
             before_lines = sum((state.discount for state in states), ZERO)
             added_bill, waives_freight = self._apply(
                 promotion,
@@ -207,7 +171,60 @@ class PromotionService:
                         "This promotion does not stack, so evaluation stopped.",
                     )
                 )
+                return True
+            return False
+
+        for promotion in self._active_promotions(
+            firm_scope=firm_scope, on=data.transaction_date
+        ):
+            refusal = self._unavailable(
+                promotion, coupon=coupon, data=data, firm_scope=firm_scope
+            )
+            if refusal is not None:
+                decisions.append(self._decision(promotion, False, refusal))
+                continue
+            matched_lines = [
+                state
+                for state, line in zip(states, data.lines, strict=True)
+                # A line somebody priced by hand is left alone entirely. The
+                # shared rule would discard the promotion downstream anyway;
+                # skipping here is what stops the trace claiming a benefit the
+                # line never received, which is the question this log exists to
+                # answer.
+                if not line.caller_priced
+                and self._matches(
+                    promotion,
+                    context=self._context(
+                        data,
+                        line=line,
+                        state=state,
+                        document_gross=document_gross,
+                        products=products,
+                    ),
+                )
+            ]
+            if not matched_lines:
+                decisions.append(
+                    self._decision(
+                        promotion,
+                        False,
+                        (
+                            "Every line was priced by hand."
+                            if all(line.caller_priced for line in data.lines)
+                            else "No line met the conditions."
+                        ),
+                    )
+                )
+                continue
+
+            if best_only:
+                candidates.append((promotion, matched_lines))
+                continue
+            if apply_one(promotion, matched_lines):
                 break
+
+        if best_only and candidates:
+            self._apply_best(candidates, states, data, decisions, apply_one)
 
         response = PromotionEvaluationResponse(
             lines=[
@@ -548,6 +565,95 @@ class PromotionService:
             if value is not None:
                 return value
         return None
+
+    def _apply_best(
+        self,
+        candidates: list[tuple[Promotion, list[_LineState]]],
+        states: list[_LineState],
+        data: PromotionEvaluationRequest,
+        decisions: list[PromotionDecision],
+        apply_one: Callable[[Promotion, list[_LineState]], bool],
+    ) -> None:
+        """Give only the single offer worth most (backlog 59).
+
+        Each candidate is valued on its own; the most valuable is applied,
+        a tie going to the one earlier in "Applies at" order, and every other
+        candidate is recorded with what it was worth against the winner.
+        """
+        worth = [
+            (promotion, matched, self._worth_alone(promotion, matched, states, data))
+            for promotion, matched in candidates
+        ]
+        top = max(value for _, _, value in worth)
+        winner = next(item for item in worth if item[2] == top)
+        for promotion, matched, value in worth:
+            if promotion is winner[0]:
+                apply_one(promotion, matched)
+                continue
+            decisions.append(
+                self._decision(
+                    promotion,
+                    False,
+                    f"Best offer only: {winner[0].code} was worth more "
+                    f"({quantize_ledger(top)} against {quantize_ledger(value)}).",
+                )
+            )
+
+    def _best_offer_only(self, firm_scope: UUID) -> bool:
+        """Say whether the firm gives only the single best offer (backlog 59)."""
+        from app.sales_order.models import SalesWorkflowSettings
+
+        mode = self._session.scalar(
+            select(SalesWorkflowSettings.promotion_mode).where(
+                SalesWorkflowSettings.firm_id == firm_scope,
+                SalesWorkflowSettings.is_deleted.is_(False),
+            )
+        )
+        return mode == "BEST_OFFER"
+
+    def _worth_alone(
+        self,
+        promotion: Promotion,
+        matched: list[_LineState],
+        states: list[_LineState],
+        data: PromotionEvaluationRequest,
+    ) -> Decimal:
+        """Return what this offer would take off the document on its own.
+
+        Applied to a fresh copy of the lines, so candidates are compared on
+        the same footing. Free goods are worth what they would have been
+        charged -- free units of a line at that line's own rate, a free
+        product at its selling price -- and a waived delivery at its charge.
+        """
+        copies = {id(state): replace(state, codes=[]) for state in states}
+        fresh = [copies[id(state)] for state in states]
+        gifts: list[PromotionGift] = []
+        added_bill, waives = self._apply(
+            promotion,
+            matched=[copies[id(state)] for state in matched],
+            states=fresh,
+            bill_discount=ZERO,
+            allow_bill=not data.caller_priced_bill,
+            gifts=gifts,
+        )
+        value = sum((state.discount for state in fresh), ZERO) + added_bill
+        for state in fresh:
+            if state.free_quantity > ZERO and state.quantity > ZERO:
+                value += state.free_quantity * state.gross / state.quantity
+        if gifts:
+            prices: dict[UUID, Decimal | None] = {
+                product_id: price
+                for product_id, price in self._session.execute(
+                    select(Product.id, Product.selling_price).where(
+                        Product.id.in_([gift.product_id for gift in gifts])
+                    )
+                ).all()
+            }
+            for gift in gifts:
+                value += gift.quantity * Decimal(str(prices.get(gift.product_id) or 0))
+        if waives:
+            value += data.freight_amount
+        return value
 
     def _apply(
         self,

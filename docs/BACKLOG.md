@@ -4465,6 +4465,8 @@ printed bill naming every note) is still to build.
 
 ## 59. Promotions: a "best offer only" mode
 
+**Status, 2026-10-01: items 1 and 2 built.** Settings > Selling > Sales Stages carries **When several offers match**: *Combine offers* (the default; every firm keeps today's pricing) or *Best offer only* (`sales_workflow_settings.promotion_mode`, migration `20261001_0178`). In best-offer mode every matching offer is valued on its own -- discounts, bill discount, free units at the line's own rate, a free product at its selling price, waived delivery at its charge -- the most valuable is applied, a tie goes to the earlier *Applies at*, and each loser's decision says what it was worth against the winner. Left: item 3, a maximum combined discount per line in Combine mode (60 item 1's cap covers the per-offer case).
+
 Noticed on 2026-09-28, explaining promotions to the owner
 (`docs/PROMOTIONS_AND_DISCOUNTS_GUIDE.md` section 4).
 
