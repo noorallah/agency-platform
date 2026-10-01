@@ -48,6 +48,7 @@ from app.finance.schemas import (
     ProfitCenterCreate,
     ProfitCenterResponse,
     ProfitCenterUpdate,
+    ProfitLossRangeReport,
     ProfitLossReport,
     TrialBalanceReport,
     VoucherTypeCreate,
@@ -945,6 +946,28 @@ def profit_and_loss(
     """Return the profit and loss for one period, with the year to date."""
     report = GeneralLedgerService(db).profit_and_loss(
         firm_id=scope.firm_id, accounting_period_id=accounting_period_id
+    )
+    return ApiResponse(data=report)
+
+
+@router.get("/profit-loss/range", response_model=ApiResponse[ProfitLossRangeReport])
+def profit_and_loss_range(
+    from_period_id: UUID,
+    to_period_id: UUID,
+    scope: ProfitLossScope,
+    compare: Literal["none", "previous_year"] = "none",
+    db: Session = Depends(get_db),
+) -> ApiResponse[ProfitLossRangeReport]:
+    """Return the profit and loss over a run of months in one year (backlog 50).
+
+    Each month as a column with the span's total, and with
+    ``compare=previous_year`` the previous financial year's same months.
+    """
+    report = GeneralLedgerService(db).profit_and_loss_range(
+        firm_id=scope.firm_id,
+        from_period_id=from_period_id,
+        to_period_id=to_period_id,
+        compare_previous_year=compare == "previous_year",
     )
     return ApiResponse(data=report)
 

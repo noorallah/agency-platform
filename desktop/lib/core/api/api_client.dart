@@ -5786,6 +5786,25 @@ class ApiClient {
         ),
       );
 
+  /// The profit and loss over a run of months in one financial year (50),
+  /// month by month, optionally with the previous year's same months.
+  Future<ProfitLossRangeReport> profitAndLossRange({
+    required String fromPeriodId,
+    required String toPeriodId,
+    bool comparePreviousYear = false,
+  }) async =>
+      ProfitLossRangeReport.fromJson(
+        await request(
+          'GET',
+          '/api/v1/finance/profit-loss/range',
+          query: {
+            'from_period_id': fromPeriodId,
+            'to_period_id': toPeriodId,
+            'compare': comparePreviousYear ? 'previous_year' : 'none',
+          },
+        ),
+      );
+
   /// One account's statement for one period.
   ///
   /// The running balance comes down with the lines. It starts from the opening
