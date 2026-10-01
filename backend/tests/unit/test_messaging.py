@@ -876,3 +876,23 @@ def test_the_whatsapp_opt_in_is_dated_by_the_server(shop: _Shop) -> None:
     )
     assert not cleared.whatsapp_opt_in and cleared.whatsapp_opt_in_at is None
     assert isinstance(shop.session.get(Customer, created.id), Customer)
+
+
+def test_switching_messaging_off_holds_what_was_queued(shop: _Shop) -> None:
+    """Off stops sending at once; switching back on sends what waited."""
+    shop.switch_on(overdue_every=9)
+    shop.channel("EMAIL")
+    shop.event("SALES_INVOICE_APPROVED", "EMAIL")
+    shop.approved_bill()
+    shop.messaging.update_settings(
+        MessagingSettingsWrite.model_validate({"is_enabled": False}),
+        firm_id=shop.firm.id,
+        actor_id=shop.actor_id,
+    )
+    # Absent fields stay as they were (exclude_unset on update).
+    assert shop.messaging.settings_response(shop.firm.id).overdue_every_days == 9
+    shop.run()
+    assert _STATE.sent == []
+    shop.switch_on()
+    shop.run()
+    assert len(_STATE.sent) == 1

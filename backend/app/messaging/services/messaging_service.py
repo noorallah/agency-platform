@@ -515,6 +515,10 @@ class MessagingService:
         Never raises and never commits. Returns the row staged -- queued or
         skipped -- or None when the firm has not asked for this message at all.
         """
+        # The document's own pending work is flushed here, outside the guard:
+        # `begin_nested` would flush it anyway, and a failure in *that* is the
+        # document's to report, never this module's to swallow.
+        self._session.flush()
         try:
             with self._session.begin_nested():
                 return self._stage_event(

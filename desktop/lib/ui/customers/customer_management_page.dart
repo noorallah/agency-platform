@@ -1007,6 +1007,10 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   late String _customerType = widget.customer?.customerType ?? 'BUSINESS';
   late String _gstType = widget.customer?.gstRegistrationType ?? '';
   late String _status = widget.customer?.status ?? 'ACTIVE';
+  late bool _noReminders = widget.customer?.noReminders ?? false;
+  late bool _whatsappOptIn = widget.customer?.whatsappOptIn ?? false;
+  // Empty string is "no preference", sent as null.
+  late String _preferredChannel = widget.customer?.preferredChannel ?? '';
   // Empty string is "no group", which the dropdown shows and the payload
   // sends as null.
   late String _customerGroupId = widget.customer?.customerGroupId ?? '';
@@ -1275,6 +1279,10 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
             int.tryParse(_fields['payment_terms_days']!.text.trim()) ?? 0,
         'currency_code': _fields['currency_code']!.text.trim().toUpperCase(),
         'status': _status,
+        'no_reminders': _noReminders,
+        'preferred_channel':
+            _preferredChannel.isEmpty ? null : _preferredChannel,
+        'whatsapp_opt_in': _whatsappOptIn,
         'notes': _nullable('notes'),
         'addresses': _addresses.map((address) => address.toJson()).toList(),
         'contacts': _contacts.map((contact) => contact.toJson()).toList(),
@@ -1502,8 +1510,74 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
             ),
             _text('currency_code', 'Currency', required: true),
           ]),
+          _messagingGroup(),
         ]),
       );
+
+  /// How messages reach this customer (backlog 51). Whether any are sent at
+  /// all is the firm's choice, under Settings > Messaging.
+  Widget _messagingGroup() {
+    final ThemeData theme = Theme.of(context);
+    final String optedInAt = widget.customer?.whatsappOptInAt ?? '';
+    return Column(
+      key: const ValueKey('customer-messaging-group'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        Text('Messaging', style: theme.textTheme.titleSmall),
+        CheckboxListTile(
+          key: const ValueKey('customer-no-reminders'),
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          title: const Text('No payment reminders'),
+          value: _noReminders,
+          onChanged: _readOnly
+              ? null
+              : (value) => setState(() {
+                    _noReminders = value ?? false;
+                    _dirty = true;
+                  }),
+        ),
+        SizedBox(
+          width: 320,
+          child: DropdownButtonFormField<String>(
+            key: const ValueKey('customer-preferred-channel'),
+            isExpanded: true,
+            initialValue: _preferredChannel,
+            decoration: const InputDecoration(labelText: 'Preferred channel'),
+            items: const [
+              DropdownMenuItem(value: '', child: Text('No preference')),
+              DropdownMenuItem(value: 'EMAIL', child: Text('Email')),
+              DropdownMenuItem(value: 'WHATSAPP', child: Text('WhatsApp')),
+              DropdownMenuItem(value: 'SMS', child: Text('SMS')),
+            ],
+            onChanged: _readOnly
+                ? null
+                : (value) => setState(() {
+                      _preferredChannel = value ?? '';
+                      _dirty = true;
+                    }),
+          ),
+        ),
+        CheckboxListTile(
+          key: const ValueKey('customer-whatsapp-opt-in'),
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          title: const Text('Agreed to WhatsApp messages'),
+          subtitle: optedInAt.isEmpty
+              ? null
+              : Text('Agreed on ${optedInAt.split('T').first}'),
+          value: _whatsappOptIn,
+          onChanged: _readOnly
+              ? null
+              : (value) => setState(() {
+                    _whatsappOptIn = value ?? false;
+                    _dirty = true;
+                  }),
+        ),
+      ],
+    );
+  }
 
   /// Which rounds call this shop, and where in each.
   ///

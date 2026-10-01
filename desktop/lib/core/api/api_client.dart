@@ -30,6 +30,7 @@ import '../../models/einvoice.dart';
 import '../../models/proforma.dart';
 import '../../models/tcs.dart';
 import '../../models/firm_member.dart';
+import '../../models/messaging.dart';
 import '../../models/price_floor.dart';
 import '../../models/sales_invoice.dart';
 import '../../models/sales_analysis.dart';
@@ -1275,6 +1276,142 @@ class ApiClient {
           ]
         : const <RoleDiscountLimit>[];
   }
+
+  // ── Messaging (backlog 51) ─────────────────────────────────────────────
+  // Whether anything is sent, through which accounts, for which events, and
+  // the log of what was. Reading needs SETTINGS_VIEW; changing it needs
+  // SETTINGS_UPDATE; sending and resending need DOCUMENT_SEND.
+
+  Future<MessagingSettings> messagingSettings() async =>
+      MessagingSettings.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/messaging/settings')),
+      );
+
+  Future<MessagingSettings> updateMessagingSettings(
+    MessagingSettings settings,
+  ) async =>
+      MessagingSettings.fromJson(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/messaging/settings',
+            body: settings.toJson(),
+          ),
+        ),
+      );
+
+  /// The services a channel can use, with the fields each one's account form
+  /// is drawn from.
+  Future<List<MessagingProvider>> messagingProviders() async => _unwrapList(
+        await request('GET', '/api/v1/messaging/providers'),
+        MessagingProvider.fromJson,
+      );
+
+  Future<List<MessagingEvent>> messagingEvents() async => _unwrapList(
+        await request('GET', '/api/v1/messaging/events'),
+        MessagingEvent.fromJson,
+      );
+
+  Future<List<MessagingChannel>> messagingChannels() async => _unwrapList(
+        await request('GET', '/api/v1/messaging/channels'),
+        MessagingChannel.fromJson,
+      );
+
+  /// Saves the account for [channel]. A secret left blank keeps the saved one.
+  Future<ChannelOutcome> saveMessagingChannel(
+    String channel,
+    String provider,
+    Map<String, String> settings,
+  ) async =>
+      ChannelOutcome.fromEnvelope(
+        await request(
+          'PUT',
+          '/api/v1/messaging/channels/$channel',
+          body: <String, dynamic>{'provider': provider, 'settings': settings},
+        ),
+      );
+
+  /// The result's message says whether the test passed or why it failed.
+  Future<ChannelOutcome> testMessagingChannel(String channel) async =>
+      ChannelOutcome.fromEnvelope(
+        await request('POST', '/api/v1/messaging/channels/$channel/test'),
+      );
+
+  Future<ChannelOutcome> enableMessagingChannel(String channel) async =>
+      ChannelOutcome.fromEnvelope(
+        await request('POST', '/api/v1/messaging/channels/$channel/enable'),
+      );
+
+  Future<ChannelOutcome> disableMessagingChannel(String channel) async =>
+      ChannelOutcome.fromEnvelope(
+        await request('POST', '/api/v1/messaging/channels/$channel/disable'),
+      );
+
+  Future<List<EventConfig>> messagingEventConfigs() async => _unwrapList(
+        await request('GET', '/api/v1/messaging/event-configs'),
+        EventConfig.fromJson,
+      );
+
+  /// Replaces the event's channel list; its order is the fallback order and
+  /// an empty list switches the event off.
+  Future<EventConfig> updateMessagingEventConfig(
+    String eventCode,
+    List<EventChannelRule> channels,
+  ) async =>
+      EventConfig.fromJson(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/messaging/event-configs/$eventCode',
+            body: <String, dynamic>{
+              'channels': [for (final rule in channels) rule.toJson()],
+            },
+          ),
+        ),
+      );
+
+  Future<PagedResult<MessageLogEntry>> messagingMessages({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String status = '',
+    String channel = '',
+  }) =>
+      _list(
+        '/api/v1/messaging/messages',
+        MessageLogEntry.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        additionalQuery: {
+          if (status.isNotEmpty) 'status': status,
+          if (channel.isNotEmpty) 'channel': channel,
+        },
+      );
+
+  Future<void> resendMessagingMessage(String messageId) => request(
+        'POST',
+        '/api/v1/messaging/messages/$messageId/resend',
+      );
+
+  /// Queues a sales invoice to go to its customer, or to [recipient].
+  Future<void> sendSalesInvoiceMessage(
+    String invoiceId,
+    String channel, {
+    String? recipient,
+    String? message,
+  }) =>
+      request(
+        'POST',
+        '/api/v1/messaging/send',
+        body: <String, dynamic>{
+          'document_type': 'SALES_INVOICE',
+          'document_id': invoiceId,
+          'channel': channel,
+          if (recipient != null && recipient.isNotEmpty) 'recipient': recipient,
+          if (message != null && message.isNotEmpty) 'message': message,
+        },
+      );
 
   /// What the approval would say about a sales order's prices, before it is
   /// asked to.

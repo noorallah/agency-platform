@@ -167,6 +167,10 @@ class Customer {
     required this.addresses,
     required this.contacts,
     this.attributes = const [],
+    this.noReminders = false,
+    this.preferredChannel,
+    this.whatsappOptIn = false,
+    this.whatsappOptInAt = '',
   });
 
   final String id;
@@ -227,6 +231,19 @@ class Customer {
   /// The stored custom-field values, one per definition the firm defines.
   final List<AttributeValueRecord> attributes;
 
+  /// Messaging (backlog 51): true when this customer is never sent a payment
+  /// reminder.
+  final bool noReminders;
+
+  /// EMAIL, WHATSAPP or SMS, or null for "whichever the event lists first".
+  final String? preferredChannel;
+
+  /// Whether the customer agreed to be sent WhatsApp messages.
+  final bool whatsappOptIn;
+
+  /// When they agreed (read-only, set by the server; never sent back).
+  final String whatsappOptInAt;
+
   String get city {
     final Iterable<CustomerAddress> defaults =
         addresses.where((address) => address.isDefaultBilling);
@@ -285,6 +302,10 @@ class Customer {
             .toList(),
         contacts:
             _objects(json['contacts']).map(CustomerContact.fromJson).toList(),
+        noReminders: boolValue(json['no_reminders']),
+        preferredChannel: json['preferred_channel'] as String?,
+        whatsappOptIn: boolValue(json['whatsapp_opt_in']),
+        whatsappOptInAt: stringValue(json['whatsapp_opt_in_at']),
       );
 }
 

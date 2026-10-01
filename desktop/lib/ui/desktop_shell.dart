@@ -50,6 +50,7 @@ import 'sales/route_type_management_page.dart';
 import 'sales/sales_invoice_management_page.dart';
 import 'sales/discount_limits_dialog.dart';
 import 'sales/price_floor_settings_dialog.dart';
+import 'settings/messaging_settings_dialog.dart';
 import 'sales/sales_workflow_settings_dialog.dart';
 import 'commission/commission_page.dart';
 import 'commission/sales_target_page.dart';
@@ -434,6 +435,14 @@ class _DesktopShellState extends State<DesktopShell> {
         );
       case MenuLayout.tcsSettingsRoute:
         await showTcsSettings(context, api);
+      case MenuLayout.messagingRoute:
+        await showDialog<bool>(
+          context: context,
+          builder: (_) => MessagingSettingsDialog(
+            api: api,
+            permissions: widget.permissions,
+          ),
+        );
       case MenuLayout.workDefaultsRoute:
         await showDialog<Object>(
           context: context,

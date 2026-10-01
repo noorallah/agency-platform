@@ -107,8 +107,11 @@ def process_firm(
             MessagingSettings.is_deleted.is_(False),
         )
     )
-    if settings is not None and settings.is_enabled:
-        _scan_reminders(session, settings, now.date(), report)
+    if settings is None or not settings.is_enabled:
+        # Off means off: what was queued waits until the firm switches it back
+        # on, and a firm that never did costs this one query a pass.
+        return report
+    _scan_reminders(session, settings, now.date(), report)
     _recover_interrupted(session, firm_id, now)
     due = session.scalars(
         select(MessagingOutbox)
