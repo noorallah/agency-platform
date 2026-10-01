@@ -268,6 +268,10 @@ void main() {
       await _pump(tester, api, tabId: 'financial');
       await tester.scrollUntilVisible(find.text('Stock valuation'), 200,
           scrollable: find.byType(Scrollable).first);
+      // The financial list keeps growing; bring the entry fully into view
+      // rather than tapping wherever the scroll happened to leave it.
+      await tester.ensureVisible(find.text('Stock valuation'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Stock valuation'));
       await tester.pumpAndSettle();
 
