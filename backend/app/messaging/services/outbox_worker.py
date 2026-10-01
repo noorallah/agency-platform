@@ -120,7 +120,7 @@ def process_firm(
             MessagingOutbox.status == QUEUED,
             MessagingOutbox.is_deleted.is_(False),
         )
-        .order_by(MessagingOutbox.created_at, MessagingOutbox.id)
+        .order_by(MessagingOutbox.created_at, MessagingOutbox.id.asc())
         .limit(BATCH * 4)
     ).all()
     sendable = [

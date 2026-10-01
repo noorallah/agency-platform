@@ -296,7 +296,11 @@ class BalanceConfirmationService:
                 VendorAddress.vendor_id == vendor_id,
                 VendorAddress.is_deleted.is_(False),
             )
-            .order_by(VendorAddress.is_primary.desc(), VendorAddress.created_at.asc())
+            .order_by(
+                VendorAddress.is_primary.desc(),
+                VendorAddress.created_at.asc(),
+                VendorAddress.id.asc(),
+            )
             .limit(1)
         )
         lines = (
