@@ -36,7 +36,10 @@ _TABLES = (
     "unapplied_advance_balance NUMERIC DEFAULT 0, is_deleted BOOLEAN DEFAULT 0)",
     "CREATE TABLE tcs_collections (firm_id TEXT, tcs_amount NUMERIC, "
     "status TEXT, is_deleted BOOLEAN DEFAULT 0)",
-    "CREATE TABLE loyalty_entries (firm_id TEXT, points NUMERIC, amount NUMERIC, "
+    "CREATE TABLE loyalty_entries (id TEXT, firm_id TEXT, kind TEXT, "
+    "points NUMERIC, amount NUMERIC, journal_entry_id TEXT, reverses_id TEXT, "
+    "is_deleted BOOLEAN DEFAULT 0)",
+    "CREATE TABLE loyalty_settings (firm_id TEXT, amount_per_point NUMERIC, "
     "is_deleted BOOLEAN DEFAULT 0)",
     "CREATE TABLE inventory_transactions (id TEXT, firm_id TEXT, "
     "transaction_type TEXT, reference_number TEXT, is_deleted BOOLEAN DEFAULT 0)",
@@ -169,3 +172,35 @@ def test_tcs_loyalty_and_payables_are_checked(connection: Connection) -> None:
     assert any("1 hand journal(s) moved accounts payable" in f for f in result.failures)
     assert result.checked == 3
     assert all(f.startswith("MEDI01:") for f in result.failures)
+
+
+def test_legacy_goodwill_is_valued_at_the_schemes_rate(connection: Connection) -> None:
+    """D-DATA-4: goodwill with no value and no journal is worth its points.
+
+    100 points given before D-SELL-19 (amount 0), 20 of them lapsed (amount
+    0), 30 redeemed for 60, and one booked grant of 10 for 20: at 2.00 a point
+    that is 160 - 60 + 20 = 120 held, which the true-up made the ledger owe.
+    """
+    _map(connection, "medi", "LOYALTY_PAYABLE", "medi-2600")
+    connection.execute(
+        text(
+            "INSERT INTO loyalty_settings (firm_id, amount_per_point) "
+            "VALUES ('medi', 2)"
+        )
+    )
+    connection.execute(
+        text(
+            "INSERT INTO loyalty_entries "
+            "(id, firm_id, kind, points, amount, journal_entry_id, reverses_id) "
+            "VALUES ('g', 'medi', 'ADJUSTED', 100, 0, NULL, NULL), "
+            "('x', 'medi', 'EXPIRED', -20, 0, NULL, 'g'), "
+            "('r', 'medi', 'REDEEMED', -30, 60, 'jr', NULL), "
+            "('b', 'medi', 'ADJUSTED', 10, 20, 'jb', NULL)"
+        )
+    )
+    _post(connection, "medi", "medi-2600", credit="120", journal="l1")
+    result = _result()
+
+    _loyalty_against_the_ledger(connection, result)
+
+    assert result.failures == []

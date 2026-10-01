@@ -2,13 +2,16 @@
 
 The owner's decision of 2026-09-24 (decided by Claude, industry standard):
 
-* a soft-deleted customer still carrying a balance is restored;
+* a soft-deleted customer still carrying a balance -- an outstanding or an
+  unapplied advance -- is restored;
 * a soft-deleted product still holding stock is restored;
 * in the shared store, a customer, vendor or product reference to another
   firm's segment, category or type is set to NULL (D-MST-3);
 * goodwill points granted before #477 and never accrued are trued up with
   one journal per firm, Dr 5700 / Cr 2600, reference
-  ``LOY-GOODWILL-TRUEUP-<firm code>`` (D-SELL-19).
+  ``LOY-GOODWILL-TRUEUP-<firm code>`` (D-SELL-19), for every point granted
+  less what lapsed; a firm trued up for only what was left gets the rest
+  under ``LOY-GOODWILL-TRUEUP2-<firm code>`` (D-DATA-3).
 
 It is idempotent, and ``--dry-run`` is the default: it reports per store and
 per firm what it would do, including a store it could not read, and changes

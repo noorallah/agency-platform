@@ -428,13 +428,33 @@ def _tcs_against_the_ledger(connection: object, result: _Result) -> None:
 
 
 def _loyalty_against_the_ledger(connection: object, result: _Result) -> None:
-    """Points held must be worth what the loyalty payable account owes."""
+    """Points held must be worth what the loyalty payable account owes.
+
+    Each entry counts at its stored ``amount``, except goodwill given or taken
+    back before D-SELL-19 -- an ADJUSTED row with no value and no journal --
+    and an expiry or reversal naming such a batch. Those carry 0 but are worth
+    their points at the scheme's value per point, which is what
+    ``LoyaltyService._value_per_point`` spends them at and what the legacy
+    true-up accrued (D-DATA-4). Counting them at 0 called a store short that
+    the repair had made right.
+    """
     result.checked += 1
+    unbooked = (
+        "{t}.kind = 'ADJUSTED' AND {t}.amount = 0 AND {t}.journal_entry_id IS NULL"
+    )
     held = _per_firm(
         connection,
-        "SELECT firm_id, COALESCE(SUM(CASE WHEN points > 0 THEN amount "
-        "ELSE -amount END), 0) FROM loyalty_entries WHERE is_deleted = false "
-        "GROUP BY firm_id",
+        "SELECT e.firm_id, COALESCE(SUM(CASE "
+        f"WHEN ({unbooked.format(t='e')}) "
+        "  OR (b.id IS NOT NULL AND e.kind IN ('EXPIRED', 'REVERSED')) "
+        "THEN e.points * COALESCE(s.amount_per_point, 0) "
+        "WHEN e.points > 0 THEN e.amount ELSE -e.amount END), 0) "
+        "FROM loyalty_entries e "
+        "LEFT JOIN loyalty_entries b ON b.id = e.reverses_id "
+        f" AND {unbooked.format(t='b')} "
+        "LEFT JOIN loyalty_settings s ON s.firm_id = e.firm_id "
+        " AND s.is_deleted = false "
+        "WHERE e.is_deleted = false GROUP BY e.firm_id",
     )
     ledger = _control_balances(connection, "LOYALTY_PAYABLE")
     for firm_id in sorted(ledger):
