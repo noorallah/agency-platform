@@ -33,6 +33,8 @@ a question only the owner, a go-live firm or its CA can answer.
 | A22 | Contra vouchers (§74 row 3) | Money accounts are the CASH and BANK control accounts plus any active asset account in their group; in the seeded chart cash and bank share Current Assets, so a firm's own asset accounts there are offered too; cash going below zero is warned, not refused | Give new firms a separate "Cash and Bank" group? |
 | A23 | Balance confirmation letters (§74 row 4) | The letter says silence for 15 days is taken as confirmation, as audit letters usually do | Keep that sentence? |
 | A24 | Supplier statement | Read from whichever account is set for Accounts Payable now; lines posted under an earlier mapping would not show | OK -- the mapping should never change once trading |
+| A25 | Slow and dead stock (§55 S7) | Only dispatches to customers count as demand; stock ageing assumes what is on hand is the latest received (FIFO) | OK? |
+| A26 | Reports, As on | Phase 2 reports that are "as on" a day now show one "As on" box and no "From" (Stock valuation included) | OK? |
 
 ## B. Open questions the backlog already records
 

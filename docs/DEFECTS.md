@@ -81,7 +81,9 @@ between an invoice's two-decimal total and its receivable row in any store.
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
 
-None open (2026-10-01).
+| D-FIN-24 | Medium | Ledger statement of an income or expense account in its second or later financial year: the opening balance is adjusted for the profit brought forward but `closing_balance` is not, so the closing shows the cumulative figure while the running balance ends at the adjusted one. Found 2026-10-02 building the month-range ledger statement (§50 item 5), which keeps the same behaviour for consistency; not yet fixed. | `app/finance` ledger statement; the range path in `books_register` / `_span` |
+
+Open (2026-10-02): D-FIN-24 above.
 
 ### Compliance -- found writing the Compliance data trail, 2026-09-19
 

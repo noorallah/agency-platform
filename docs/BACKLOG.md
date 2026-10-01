@@ -3896,6 +3896,8 @@ every part cut to the user's role (`desktop/lib/phase2/home_page.dart`).
 
 ## 50. Profit and loss for a financial year or chosen months
 
+**Status, 2026-10-02:** item 5 built -- the trial balance and the ledger statement take a run of months within one financial year (`to_period_id`), sharing the P&L range rule.
+
 **Status, 2026-10-01: items 1-4 built.** `GET /api/v1/finance/profit-loss/range?from_period_id=&to_period_id=&compare=previous_year` sums any run of months inside one financial year (a span across two is refused), returns each month's amount per account beside the total and the month-by-month net profit, and with `compare=previous_year` the previous year's same months by period number. The screen's *Show* picker adds **Months or year**: presets (This financial year, Year to date, This quarter, Last financial year, Custom), *Month by month* columns and *Compare with last year*. Checked on WHOLE01: every year's total equals the one-month report's year to date. Left: item 5, the same range on the trial balance and the ledger statement.
 
 Owner, 2026-09-26: Profit & Loss shows one month at a time; it should also
@@ -4316,7 +4318,7 @@ a product that needs none belongs in a category that needs none.
 
 ## 55. Market gaps with no backlog entry of their own -- validate before building
 
-**Status, 2026-10-02:** G6 (last rate while billing, with its discount and *Use the last price*) and G8 (debit note to a supplier, `app/debit_note`) built.
+**Status, 2026-10-02:** G6 (last rate while billing, with its discount and *Use the last price*) and G8 (debit note to a supplier, `app/debit_note`) built. M9 (day book, cash book, bank book, drilling to the journal) and S7 (stock ageing, slow-moving and dead stock, vendor ageing) built.
 
 Owner, 2026-09-27: every gap found against the market goes into the plan so
 none is missed; **whether each is really needed is validated when it comes
@@ -4857,7 +4859,7 @@ part-billed order; drill-down lists exactly the bills summed.
 
 ## 67. Sales against a full ERP checklist: what is built, and nine gaps
 
-**Status, 2026-10-02:** rows 2-6 built -- account manager on the customer; ship-to per order carried down the chain and printed; payment terms on the order inherited by the bill; transport details on the delivery note feeding the e-way bill; proof of delivery with a *Not yet delivered* filter. See `docs/SALES_CHAIN_RULES.md` and `docs/OWNER_DECISIONS.md` A20-A21.
+**Status, 2026-10-02:** rows 2-6 built -- account manager on the customer; ship-to per order carried down the chain and printed; payment terms on the order inherited by the bill; transport details on the delivery note feeding the e-way bill; proof of delivery with a *Not yet delivered* filter. See `docs/SALES_CHAIN_RULES.md` and `docs/OWNER_DECISIONS.md` A20-A21. Rows 8-9 built too: discount given by customer, salesman, product and offer (typed / arranged / promotion / bill share), and collections by day, salesman and mode.
 
 Owner, 2026-09-28, supplied a 14-part checklist of a complete ERP sales module
 (customers, CRM, quotation, order, delivery, invoice, collection, return,
