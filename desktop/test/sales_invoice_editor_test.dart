@@ -536,7 +536,11 @@ void main() {
     });
   });
 
-  Future<bool?> pumpPhase2(WidgetTester tester, _InvoiceApi api) async {
+  Future<bool?> pumpPhase2(
+    WidgetTester tester,
+    _InvoiceApi api, {
+    String? invoiceId,
+  }) async {
     tester.view.physicalSize = const Size(1600, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -552,6 +556,7 @@ void main() {
                     body: Phase2Scope(
                       child: SalesInvoiceEditorDialog(
                         api: api,
+                        invoiceId: invoiceId,
                         today: DateTime(2026, 8, 14),
                       ),
                     ),
@@ -692,5 +697,77 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
     await tester.pumpAndSettle();
     expect(api.created!.containsKey('coupon_code'), isFalse);
+  });
+
+  testWidgets('phase 2 sends what the counter took with the bill',
+      (tester) async {
+    final _InvoiceApi api = _InvoiceApi(billable: <Json>[_billable()]);
+    await pumpPhase2(tester, api);
+    expect(find.text('Recorded as a receipt when the bill is approved.'),
+        findsOneWidget);
+    // Nothing typed: a zero is sent, so an update clears a stale amount.
+    expect(api.previews.last['received_now_amount'], '0');
+
+    await tester.enterText(
+        find.byKey(const ValueKey('received-now-amount')), '200');
+    await tester.tap(find.text('Bank'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const ValueKey('received-now-reference')), 'UPI-77');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('More than the bill'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+    expect(api.created!['received_now_amount'], '200');
+    expect(api.created!['received_now_method'], 'BANK');
+    expect(api.created!['received_now_reference'], 'UPI-77');
+  });
+
+  testWidgets('phase 2 warns when more than the bill is taken',
+      (tester) async {
+    final _InvoiceApi api = _InvoiceApi(billable: <Json>[_billable()]);
+    await pumpPhase2(tester, api);
+    await tester.enterText(
+        find.byKey(const ValueKey('received-now-amount')), '9999');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('More than the bill'), findsOneWidget);
+  });
+
+  testWidgets('phase 2 shows the receipt on an approved bill', (tester) async {
+    final _InvoiceApi api = _InvoiceApi(billable: <Json>[_billable()]);
+    api.existing = <String, dynamic>{
+      'id': 'inv-1',
+      'invoice_number': 'SI-1',
+      'invoice_date': '2026-08-10',
+      'customer_id': 'cust-1',
+      'branch_id': 'branch-1',
+      'status': 'APPROVED',
+      'version': 6,
+      'grand_total': '472.00',
+      'received_now_amount': '200',
+      'received_now_method': 'CASH',
+      'received_now_settlement_id': 'set-1',
+      'lines': <Json>[
+        <String, dynamic>{
+          'source_document_type': 'DELIVERY_NOTE',
+          'source_document_id': 'dn-1',
+          'source_document_number': 'DN-2026-2027-000004',
+          'source_document_line_id': 'dnl-1',
+          'line_number': 1,
+          'description': 'Shampoo Bottle 180ml',
+          'current_invoice_quantity': '4',
+          'unit_price': '100',
+          'discount_percent': '0',
+        },
+      ],
+    };
+    await pumpPhase2(tester, api, invoiceId: 'inv-1');
+    expect(find.textContaining('Received', findRichText: true), findsWidgets);
+    expect(find.textContaining('(Cash)'), findsOneWidget);
+    expect(find.textContaining('on account'), findsOneWidget);
+    expect(find.byKey(const ValueKey('received-now-amount')), findsNothing);
   });
 }
