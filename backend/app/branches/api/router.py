@@ -8,6 +8,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.branches.models import (
@@ -44,8 +45,16 @@ from app.branches.schemas import (
     WarehouseUpdate,
 )
 from app.branches.services import BranchWarehouseService
+from app.branches.services.user_work_defaults import (
+    UserWorkDefaultService,
+    WorkDefaults,
+)
 from app.business.schemas import AttributeValueResponse
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    RequiredFirmScope,
+    ResolvedFirmScope,
+    firm_permission_scope,
+)
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
@@ -435,6 +444,70 @@ def export_branches(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="branches.csv"'},
     )
+
+
+class WorkDefaultsWrite(BaseModel):
+    """A person's usual branch and warehouse; both None clears them."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    branch_id: UUID | None = None
+    warehouse_id: UUID | None = None
+
+
+class WorkDefaultsResponse(BaseModel):
+    """What the person's new documents open with, and anything dropped."""
+
+    branch_id: UUID | None
+    warehouse_id: UUID | None
+    #: Set once, retired since: said so the screen can tell the person.
+    ignored: list[str]
+
+
+def _work_defaults(value: WorkDefaults) -> WorkDefaultsResponse:
+    return WorkDefaultsResponse(
+        branch_id=value.branch_id,
+        warehouse_id=value.warehouse_id,
+        ignored=list(value.ignored),
+    )
+
+
+@router.get(
+    "/branches/my-work-defaults", response_model=ApiResponse[WorkDefaultsResponse]
+)
+def my_work_defaults(
+    scope: RequiredFirmScope, db: Session = Depends(get_db)
+) -> ApiResponse[WorkDefaultsResponse]:
+    """Return the branch and warehouse this person's documents open with (44).
+
+    Any member of the firm may read and set their own: it is where they
+    usually work, not a privilege and not a restriction.
+    """
+    return ApiResponse(
+        data=_work_defaults(
+            UserWorkDefaultService(db).current(scope.firm_id, scope.actor_id)
+        )
+    )
+
+
+@router.put(
+    "/branches/my-work-defaults", response_model=ApiResponse[WorkDefaultsResponse]
+)
+def set_my_work_defaults(
+    data: WorkDefaultsWrite,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[WorkDefaultsResponse]:
+    """Set (or clear) the branch and warehouse this person usually works from."""
+    value = UserWorkDefaultService(db).set(
+        scope.firm_id,
+        scope.actor_id,
+        branch_id=data.branch_id,
+        warehouse_id=data.warehouse_id,
+        actor_id=scope.actor_id,
+    )
+    db.commit()
+    return ApiResponse(data=_work_defaults(value))
 
 
 @router.get("/branches/{branch_id}", response_model=ApiResponse[BranchResponse])
