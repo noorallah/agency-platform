@@ -67,6 +67,12 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   final TextEditingController _coupon = TextEditingController();
   final TextEditingController _billDiscount = TextEditingController();
   final TextEditingController _freight = TextEditingController();
+
+  /// Money taken at the counter as the bill is made (phase 2). Recorded as a
+  /// receipt by the server when the bill is approved.
+  final TextEditingController _receivedNow = TextEditingController();
+  final TextEditingController _receivedRef = TextEditingController();
+  String _receivedMethod = 'CASH';
   final Map<String, TextEditingController> _quantities =
       <String, TextEditingController>{};
 
@@ -172,6 +178,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     _coupon.dispose();
     _billDiscount.dispose();
     _freight.dispose();
+    _receivedNow.dispose();
+    _receivedRef.dispose();
     for (final TextEditingController controller in _quantities.values) {
       controller.dispose();
     }
@@ -285,6 +293,33 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         double.tryParse('${invoice['bill_discount_percent'] ?? 0}') ?? 0;
     if (bill > 0) _billDiscount.text = '${invoice['bill_discount_percent']}';
     _reference.text = '${invoice['reference_number'] ?? ''}';
+    final double received =
+        double.tryParse('${invoice['received_now_amount'] ?? 0}') ?? 0;
+    if (received > 0) _receivedNow.text = '${invoice['received_now_amount']}';
+    _receivedMethod = '${invoice['received_now_method']}' == 'BANK'
+        ? 'BANK'
+        : 'CASH';
+    _receivedRef.text = '${invoice['received_now_reference'] ?? ''}';
+  }
+
+  /// What the counter took, sent on every save from the phase 2 bill: an
+  /// omitted field is left alone by an update, so a cleared box must say 0.
+  Map<String, dynamic> _receivedFields() {
+    if (!_phase2) return const <String, dynamic>{};
+    final String typed = _receivedNow.text.trim();
+    final double amount = double.tryParse(typed) ?? 0;
+    if (typed.isNotEmpty && double.tryParse(typed) == null) {
+      return const <String, dynamic>{};
+    }
+    if (amount < 0) return const <String, dynamic>{};
+    return <String, dynamic>{
+      'received_now_amount': amount > 0 ? typed : '0',
+      if (amount > 0) 'received_now_method': _receivedMethod,
+      if (amount > 0 &&
+          _receivedMethod == 'BANK' &&
+          _receivedRef.text.trim().isNotEmpty)
+        'received_now_reference': _receivedRef.text.trim(),
+    };
   }
 
   /// One source document of a draft, rebuilt from the draft's own lines.
@@ -498,6 +533,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         'bill_discount_percent': _billDiscount.text.trim(),
       if (_freight.text.trim().isNotEmpty)
         'freight_amount': _freight.text.trim(),
+      ..._receivedFields(),
       'lines': lines,
     };
   }
@@ -546,6 +582,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         'bill_discount_percent': _billDiscount.text.trim(),
       if (_freight.text.trim().isNotEmpty)
         'freight_amount': _freight.text.trim(),
+      ..._receivedFields(),
       'lines': lines,
     };
   }

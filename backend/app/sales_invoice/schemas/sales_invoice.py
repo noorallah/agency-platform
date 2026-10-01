@@ -3,6 +3,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -258,6 +259,13 @@ class SalesInvoiceCreate(SalesInvoiceSchema):
     freight_amount: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=4
     )
+    #: Money taken at the counter as the bill is made (backlog 64 row 5).
+    #: Approving the bill records it as a receipt against this invoice.
+    received_now_amount: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=2
+    )
+    received_now_method: Literal["CASH", "BANK"] | None = None
+    received_now_reference: str | None = Field(default=None, max_length=120)
     lines: list[SalesInvoiceLineWrite] = Field(min_length=1, max_length=1000)
     attachments: list[SalesInvoiceAttachmentWrite] = Field(
         default_factory=list, max_length=500
@@ -472,6 +480,10 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     additional_charges: Decimal
     round_off: Decimal
     grand_total: Decimal
+    received_now_amount: Decimal = Decimal("0")
+    received_now_method: str | None = None
+    received_now_reference: str | None = None
+    received_now_settlement_id: UUID | None = None
     approved_at: datetime | None
     closed_at: datetime | None
     cancelled_at: datetime | None = None
