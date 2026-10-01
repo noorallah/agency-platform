@@ -132,6 +132,7 @@ class SalesWorkflowSettings {
     this.defaultWarehouseId,
     this.promotionMode = 'COMBINE',
     this.maxLineDiscountPercent,
+    this.rateIncludesTax = false,
   });
 
   final bool quotationStage;
@@ -150,6 +151,10 @@ class SalesWorkflowSettings {
   /// In Combine mode, the most the offers together may take off one line, as
   /// a percentage of its gross (backlog 59 item 3). Null is no cap.
   final String? maxLineDiscountPercent;
+
+  /// Whether a new counter bill reads a typed rate as including GST
+  /// (backlog 64 row 4). Only the default: each bill has its own switch.
+  final bool rateIncludesTax;
 
   /// What a firm gets before anybody configures anything, and what the client
   /// falls back to when the settings cannot be read. Failing open matters: an
@@ -175,6 +180,7 @@ class SalesWorkflowSettings {
             ? 'COMBINE'
             : stringValue(json['promotion_mode']),
         maxLineDiscountPercent: _orNull(json['max_line_discount_percent']),
+        rateIncludesTax: boolValue(json['rate_includes_tax']),
       );
 
   /// The three switches only. No screen here edits the default branch or
@@ -187,6 +193,7 @@ class SalesWorkflowSettings {
         'promotion_mode': promotionMode,
         // Shown on the same screen, so sent on every save: null clears it.
         'max_line_discount_percent': maxLineDiscountPercent,
+        'rate_includes_tax': rateIncludesTax,
       };
 
   SalesWorkflowSettings copyWith({
@@ -195,6 +202,7 @@ class SalesWorkflowSettings {
     bool? deliveryNoteStage,
     String? promotionMode,
     String? Function()? maxLineDiscountPercent,
+    bool? rateIncludesTax,
   }) =>
       SalesWorkflowSettings(
         quotationStage: quotationStage ?? this.quotationStage,
@@ -207,6 +215,7 @@ class SalesWorkflowSettings {
         maxLineDiscountPercent: maxLineDiscountPercent != null
             ? maxLineDiscountPercent()
             : this.maxLineDiscountPercent,
+        rateIncludesTax: rateIncludesTax ?? this.rateIncludesTax,
       );
 }
 

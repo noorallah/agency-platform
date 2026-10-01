@@ -119,7 +119,26 @@ void main() {
       'delivery_note_stage': false,
       'promotion_mode': 'COMBINE',
       'max_line_discount_percent': null,
+      'rate_includes_tax': false,
     });
+  });
+
+  testWidgets('the GST-inclusive rate default is switched here and sent',
+      (tester) async {
+    // Backlog 64 row 4: the default for a new bill's "Rate includes GST".
+    final _StagesApi api = _StagesApi(failReads: 0);
+    await _open(tester, api);
+
+    final Finder toggle =
+        find.byKey(const ValueKey('sales-settings-rate-includes-tax'));
+    await tester.ensureVisible(toggle);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.saved.single['rate_includes_tax'], isTrue);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('best offer only is chosen here and sent', (tester) async {
