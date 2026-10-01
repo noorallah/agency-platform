@@ -867,3 +867,90 @@ def test_an_invoice_line_keeps_the_hsn_it_was_billed_under() -> None:
 
     line = session.scalars(select(SalesInvoiceLine)).one()
     assert line.hsn_sac == "10063020"
+
+
+def test_money_taken_at_the_counter_settles_the_bill_on_approval() -> None:
+    """Backlog 64 row 5: the bill carries the cash, approval records it."""
+    from app.settlements.models.settlement import Settlement, SettlementAllocation
+
+    session = _session_factory()()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    service = SalesInvoiceService(session)
+    actor = uuid4()
+    draft = service.create_invoice(
+        setup.bare_bill(), firm_id=setup.firm.id, actor_id=actor
+    )
+    total = draft.grand_total
+    [line] = service.invoice_response(draft).lines
+
+    def resave(**extra: object) -> None:
+        """Save the draft again as the editor does: its own lines, plus extra."""
+        service.update_invoice(
+            draft.id,
+            SalesInvoiceCreate(
+                customer_id=setup.customer.id,
+                invoice_date=draft.invoice_date,
+                lines=[
+                    SalesInvoiceLineWrite(
+                        source_document_type=line.source_document_type,
+                        source_document_id=line.source_document_id,
+                        source_document_line_id=line.source_document_line_id,
+                        line_number=1,
+                        current_invoice_quantity=line.current_invoice_quantity,
+                    )
+                ],
+                **extra,
+            ),
+            firm_id=setup.firm.id,
+            actor_id=actor,
+        )
+
+    resave(received_now_amount=total, received_now_method="CASH")
+    # A save that never mentions the counter payment leaves it alone.
+    resave()
+    stored = session.get(SalesInvoice, draft.id)
+    assert stored is not None
+    assert stored.received_now_amount == total
+
+    approved = service.approve_invoice(
+        draft.id, firm_scope=setup.firm.id, actor_id=actor
+    )
+
+    receipt = session.get(Settlement, approved.received_now_settlement_id)
+    assert receipt is not None
+    assert receipt.amount == total
+    assert receipt.method == "CASH"
+    allocated = session.scalar(
+        select(SettlementAllocation.amount).where(
+            SettlementAllocation.settlement_id == receipt.id,
+            SettlementAllocation.sales_invoice_id == approved.id,
+        )
+    )
+    assert allocated == total
+    receipt_journal = session.get(JournalEntry, receipt.journal_entry_id)
+    assert receipt_journal is not None, "the cash must reach the books"
+    assert receipt_journal.status == JournalStatus.POSTED.value
+
+
+def test_more_than_the_bill_is_refused_and_nothing_is_approved() -> None:
+    """Change is handed back: an overpayment is not quietly an advance."""
+    session = _session_factory()()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    service = SalesInvoiceService(session)
+    actor = uuid4()
+    draft = service.create_invoice(
+        setup.bare_bill().model_copy(update={"received_now_amount": Decimal("100000")}),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+
+    with pytest.raises(ValidationError, match="change is handed back"):
+        service.approve_invoice(draft.id, firm_scope=setup.firm.id, actor_id=actor)
+    session.rollback()
+
+    refused = session.get(SalesInvoice, draft.id)
+    assert refused is not None
+    assert refused.status == "DRAFT"
+    assert _dispatches(session) == 0

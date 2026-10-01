@@ -696,6 +696,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
               },
             ),
           ),
+        _receivedNowSection(context),
         if (_direct)
           SizedBox(
             width: 420,
@@ -709,6 +710,111 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
             ),
           ),
       ]);
+
+  /// The bill's grand total as last priced, for the received-now checks.
+  double get _billTotal =>
+      double.tryParse(stringValue(_preview?.invoice['grand_total'])) ?? 0;
+
+  /// Money taken at the counter. Editable while the bill is a draft; once it
+  /// is approved the server has recorded the receipt and this only reports it.
+  Widget _receivedNowSection(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final String status = '${_existing?['status'] ?? 'DRAFT'}';
+    if (_editing && status != 'DRAFT') {
+      final double got =
+          double.tryParse('${_existing?['received_now_amount'] ?? 0}') ?? 0;
+      if (got <= 0) return const SizedBox.shrink();
+      final double total =
+          double.tryParse('${_existing?['grand_total'] ?? 0}') ?? 0;
+      final String how = '${_existing?['received_now_method']}' == 'BANK'
+          ? 'Bank'
+          : 'Cash';
+      return SizedBox(
+        width: 420,
+        child: Padding(
+          padding: const EdgeInsets.only(top: 18),
+          child: DocumentSideNote(
+            [
+              'Received ${indianAmount(got, full: true)} ($how)',
+              if (got < total)
+                'Balance ${indianAmount(total - got, full: true)} on account',
+            ].join(' · '),
+          ),
+        ),
+      );
+    }
+    final double typed = double.tryParse(_receivedNow.text.trim()) ?? 0;
+    final bool over = typed > 0 && _billTotal > 0 && typed > _billTotal;
+    return DocumentField(
+      label: 'Received now',
+      width: 420,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              SizedBox(
+                width: 110,
+                child: TextFormField(
+                  key: const ValueKey('received-now-amount'),
+                  controller: _receivedNow,
+                  keyboardType: TextInputType.number,
+                  decoration: documentBoxDecoration(context),
+                  onChanged: (_) {
+                    _setState(() {});
+                    _schedulePreview();
+                  },
+                ),
+              ),
+              SegmentedButton<String>(
+                key: const ValueKey('received-now-method'),
+                showSelectedIcon: false,
+                segments: const [
+                  ButtonSegment<String>(value: 'CASH', label: Text('Cash')),
+                  ButtonSegment<String>(value: 'BANK', label: Text('Bank')),
+                ],
+                selected: <String>{_receivedMethod},
+                onSelectionChanged: (Set<String> chosen) {
+                  _setState(() => _receivedMethod = chosen.first);
+                  _schedulePreview();
+                },
+              ),
+              if (_receivedMethod == 'BANK')
+                SizedBox(
+                  width: 150,
+                  child: TextFormField(
+                    key: const ValueKey('received-now-reference'),
+                    controller: _receivedRef,
+                    maxLength: 120,
+                    decoration: documentBoxDecoration(context).copyWith(
+                      hintText: 'Reference',
+                      counterText: '',
+                    ),
+                    onChanged: (_) => _schedulePreview(),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          if (over)
+            Text(
+              'More than the bill -- hand back the change',
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontSize: 11,
+                color: theme.colorScheme.error,
+              ),
+            )
+          else
+            const DocumentSideNote(
+              'Recorded as a receipt when the bill is approved.',
+            ),
+        ],
+      ),
+    );
+  }
 
   Widget _invoiceTotals() {
     final Map<String, dynamic>? invoice = _preview?.invoice;
