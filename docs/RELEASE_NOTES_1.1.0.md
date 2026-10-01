@@ -58,17 +58,17 @@ screen (1.1.0).
 - **My Branch and Warehouse**: each person's documents open where they work
   (#881).
 - **Received now on the bill**: money taken at the counter is entered on the
-  invoice and recorded as a receipt when it is approved (backlog 64).
+  invoice and recorded as a receipt when it is approved (#887).
 - **The printed bill** names every delivery note and order it bills (#871),
   the offers given and what the customer saved (#883).
 
 ### Analysis
 - **Sales Analysis** and **Purchase Analysis**: any one or two dimensions,
-  totals, drill-down (#878, and its purchase twin).
+  totals, drill-down (#878, #886).
 
 ### Offers
 - **Try offers** before launch (#879), **percent off up to a limit** (#882),
-  **best offer only** (backlog 59).
+  **best offer only** (#885).
 
 ### For the firm's accountant
 - **The go-live guide** (`docs/GO_LIVE_GUIDE.md`, #877): bringing the firm
