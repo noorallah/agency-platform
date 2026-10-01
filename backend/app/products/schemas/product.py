@@ -3,6 +3,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -29,6 +30,12 @@ class ProductStatus(StrEnum):
     ACTIVE = "ACTIVE"
     INACTIVE = "INACTIVE"
     ARCHIVED = "ARCHIVED"
+
+
+#: Whether tax paid on a purchase may be claimed as input credit (backlog 78
+#: row 1): BLOCKED is s.17(5) -- a car, catering, personal use -- and
+#: INELIGIBLE any other reason the credit is lost.
+ItcEligibility = Literal["ELIGIBLE", "BLOCKED", "INELIGIBLE"]
 
 
 class ProductSchema(BaseModel):
@@ -123,6 +130,8 @@ class ProductWrite(ProductSchema):
     tax_profile_group_code: str | None = Field(
         default=None, max_length=50, pattern=r"^[A-Z0-9_-]+$"
     )
+    #: Whether tax paid buying it is claimable credit (backlog 78 row 1).
+    itc_eligibility: ItcEligibility = "ELIGIBLE"
     base_uom_id: UUID | None = None
     inventory_uom_id: UUID | None = None
     purchase_uom_id: UUID | None = None
@@ -247,6 +256,7 @@ class ProductResponse(ProductSchema):
     model: str | None
     hsn_sac: str | None
     tax_profile_group_code: str | None
+    itc_eligibility: str = "ELIGIBLE"
     base_uom_id: UUID | None
     inventory_uom_id: UUID | None
     purchase_uom_id: UUID | None

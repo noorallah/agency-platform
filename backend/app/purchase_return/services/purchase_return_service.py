@@ -667,6 +667,12 @@ class PurchaseReturnService(TransactionalDocumentService):
             total_amount=row.grand_total,
             actor_id=actor_id,
             tax_by_component=self._tax_by_component(row.id),
+            blocked_tax_amount=sum(
+                return_tax_by_component(
+                    self._session, row.id, claimable=False
+                ).values(),
+                ZERO,
+            ),
             reverse_charge_by_component=return_reverse_charge(
                 self._session, row.id
             ).owed,
@@ -2477,7 +2483,9 @@ class PurchaseReturnService(TransactionalDocumentService):
         )
 
 
-def return_tax_by_component(session: Session, return_id: UUID) -> dict[str, Decimal]:
+def return_tax_by_component(
+    session: Session, return_id: UUID, *, claimable: bool = True
+) -> dict[str, Decimal]:
     """Split a return's tax by component, in the proportions its bill charged.
 
     A return raised off a bill's lines reverses the credit that bill claimed,
@@ -2486,6 +2494,10 @@ def return_tax_by_component(session: Session, return_id: UUID) -> dict[str, Deci
     raised off a receipt or an order names no bill, and its tax reverses
     `INPUT_TAX` as a whole, which is where a bill with no rows put it. The
     ledger posting and GSTR-3B's reversal table both read this.
+
+    ``claimable`` False returns the other part instead: the share of tax the
+    bill could not claim (backlog 78 row 1), which goes back to the cost
+    account rather than coming off input tax.
     """
     from app.purchase_invoice.models import PurchaseInvoiceLineTax
 
@@ -2499,12 +2511,13 @@ def return_tax_by_component(session: Session, return_id: UUID) -> dict[str, Deci
     ).all()
     if not lines:
         return {}
-    shares: dict[UUID, list[tuple[str, Decimal]]] = {}
-    for line_id, code, amount in session.execute(
+    shares: dict[UUID, list[tuple[str, Decimal, bool]]] = {}
+    for line_id, code, amount, recoverable in session.execute(
         select(
             PurchaseInvoiceLineTax.purchase_invoice_line_id,
             PurchaseInvoiceLineTax.component_code,
             PurchaseInvoiceLineTax.amount,
+            PurchaseInvoiceLineTax.recoverable,
         ).where(
             PurchaseInvoiceLineTax.purchase_invoice_line_id.in_(
                 [line.source_document_line_id for line in lines]
@@ -2515,14 +2528,20 @@ def return_tax_by_component(session: Session, return_id: UUID) -> dict[str, Deci
             PurchaseInvoiceLineTax.reverse_charge.is_(False),
         )
     ).all():
-        shares.setdefault(line_id, []).append((code, Decimal(str(amount))))
+        shares.setdefault(line_id, []).append(
+            (code, Decimal(str(amount)), bool(recoverable))
+        )
     totals: dict[str, Decimal] = {}
     for line in lines:
         parts = shares.get(line.source_document_line_id, [])
-        charged = sum((amount for _, amount in parts), ZERO)
+        # Shared out over everything the bill line charged; only the part
+        # asked for -- claimed, or blocked (backlog 78 row 1) -- is returned.
+        charged = sum((amount for _, amount, _ in parts), ZERO)
         if charged <= ZERO:
             continue
-        for code, amount in parts:
+        for code, amount, recoverable in parts:
+            if recoverable is not claimable:
+                continue
             totals[code] = totals.get(code, ZERO) + quantize_money(
                 Decimal(str(line.tax_amount)) * amount / charged
             )

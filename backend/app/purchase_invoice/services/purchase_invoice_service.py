@@ -11,7 +11,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import case, func, or_, select, true
 from sqlalchemy.orm import Session
 
 from app.business.gating import assert_feature_fields
@@ -147,6 +147,8 @@ class _LineTax:
     #: The engine decided the firm owes this tax itself (backlog 68 row 8):
     #: `total` is then nothing, and the components are what it owes.
     reverse_charge: bool = False
+    #: False when a tax rule says *Input credit blocked* (backlog 78 row 1).
+    input_credit_allowed: bool | None = None
 
 
 class SelfInvoiceNumbering(TransactionalDocumentService):
@@ -696,6 +698,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             actor_id=actor_id,
             tax_by_component=self._tax_by_component(row.id),
             reverse_charge_by_component=reverse_charge,
+            blocked_tax_amount=self._blocked_tax(row.id),
         )
         # Warned, not refused: the bill is owed whatever its terms say, and
         # paying it in time is what the warning is for (backlog 68 row 2).
@@ -1590,6 +1593,11 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 actor_id=actor_id,
             )
             tax_amount = line_tax.total
+            eligibility = self._itc_eligibility(
+                spec.get("itc_eligibility"),
+                product_id=self._product_id(source_line),
+                line_tax=line_tax,
+            )
             net_amount = self._q(
                 gross_amount
                 - discount_amount
@@ -1618,6 +1626,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 charges_amount=charges_amount,
                 gross_amount=gross_amount,
                 tax_profile_id=line_tax.profile_id,
+                itc_eligibility=eligibility,
                 tax_amount=tax_amount,
                 net_amount=net_amount,
                 packaging_type_id=spec.get("packaging_type_id"),
@@ -1654,7 +1663,12 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                         base_amount=component.base_amount,
                         amount=component.amount,
                         included_in_price=component.included_in_price,
-                        recoverable=component.recoverable,
+                        # Credit the line gives up is never recoverable,
+                        # whatever the component says (backlog 78 row 1).
+                        # Reverse charge keeps the component's own: its
+                        # credit is claimed apart, in 4(A)(3).
+                        recoverable=component.recoverable
+                        and (line_tax.reverse_charge or eligibility == "ELIGIBLE"),
                         reverse_charge=line_tax.reverse_charge,
                         created_by=actor_id,
                         updated_by=actor_id,
@@ -2001,11 +2015,69 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 PurchaseInvoiceLineTax.is_deleted.is_(False),
                 PurchaseInvoiceLineTax.included_in_price.is_(False),
                 PurchaseInvoiceLineTax.reverse_charge.is_(reverse_charge),
+                # Only what is claimed is input tax; the rest is a cost
+                # (backlog 78 row 1). Reverse charge keeps all its heads:
+                # the liability is owed whether or not the credit is.
+                (
+                    true()
+                    if reverse_charge
+                    else PurchaseInvoiceLineTax.recoverable.is_(True)
+                ),
             )
             .group_by(PurchaseInvoiceLineTax.component_code)
         ).all():
             totals[code] = self._q(Decimal(str(amount)))
         return totals
+
+    def _blocked_tax(self, invoice_id: UUID) -> Decimal:
+        """Sum the tax on the bill the firm may not claim (backlog 78 row 1).
+
+        Charged by the supplier and part of the payable, but blocked under
+        s.17(5) or otherwise ineligible: the posting books it as a cost of the
+        purchase rather than as input tax.
+        """
+        total = self._session.scalar(
+            select(func.coalesce(func.sum(PurchaseInvoiceLineTax.amount), 0))
+            .join(
+                PurchaseInvoiceLine,
+                PurchaseInvoiceLine.id
+                == PurchaseInvoiceLineTax.purchase_invoice_line_id,
+            )
+            .where(
+                PurchaseInvoiceLine.purchase_invoice_id == invoice_id,
+                PurchaseInvoiceLine.is_deleted.is_(False),
+                PurchaseInvoiceLineTax.is_deleted.is_(False),
+                PurchaseInvoiceLineTax.included_in_price.is_(False),
+                PurchaseInvoiceLineTax.reverse_charge.is_(False),
+                PurchaseInvoiceLineTax.recoverable.is_(False),
+            )
+        )
+        return self._q(Decimal(str(total or 0)))
+
+    def _itc_eligibility(
+        self,
+        stated: object,
+        *,
+        product_id: UUID | None,
+        line_tax: _LineTax,
+    ) -> str:
+        """Decide whether a line's tax is claimable credit (backlog 78 row 1).
+
+        What the line says wins; then the product's own setting where it is
+        not ELIGIBLE; then a tax rule's *Input credit blocked*; else ELIGIBLE.
+        The product before the rule because it is the narrower statement: a
+        rule speaks for a class of goods, the product for this one.
+        """
+        if stated:
+            return str(stated)
+        product = self._session.get(Product, product_id) if product_id else None
+        if product is not None and (product.itc_eligibility or "ELIGIBLE") != (
+            "ELIGIBLE"
+        ):
+            return str(product.itc_eligibility)
+        if line_tax.input_credit_allowed is False:
+            return "BLOCKED"
+        return "ELIGIBLE"
 
     def _delete_line_taxes(self, invoice_id: UUID) -> None:
         """Take the tax components off every line of one invoice.
@@ -2122,6 +2194,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             profile_id=response.applied_tax_profile_id or tax_profile_id,
             total=self._q(response.total_tax_amount),
             reverse_charge=response.reverse_charge,
+            input_credit_allowed=response.input_credit_allowed,
             components=[
                 _LineTaxComponent(
                     tax_component_id=component.tax_component_id,
@@ -2707,6 +2780,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             charges_amount=row.charges_amount,
             gross_amount=row.gross_amount,
             tax_profile_id=row.tax_profile_id,
+            itc_eligibility=row.itc_eligibility or "ELIGIBLE",
             tax_amount=row.tax_amount,
             net_amount=row.net_amount,
             packaging_type_id=row.packaging_type_id,

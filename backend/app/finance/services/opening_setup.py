@@ -279,6 +279,15 @@ CHART: tuple[SeedAccount, ...] = (
         ControlAccountPurpose.DISCOUNT_ALLOWED,
     ),
     SeedAccount(
+        # Tax on a purchase that gives no credit -- a car, catering, goods
+        # for personal use (s.17(5)) -- is a cost of buying (backlog 78 row 1).
+        "5450",
+        "Input Tax Not Claimable",
+        AccountTypeEnum.EXPENSE,
+        "EXP",
+        ControlAccountPurpose.INELIGIBLE_INPUT_TAX,
+    ),
+    SeedAccount(
         "5500",
         "Inventory Adjustment",
         AccountTypeEnum.EXPENSE,

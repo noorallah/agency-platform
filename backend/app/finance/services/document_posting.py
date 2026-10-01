@@ -356,6 +356,36 @@ class DocumentPostingService:
             credit=credit,
         )
 
+    def _blocked_tax_legs(
+        self,
+        *,
+        firm_id: UUID,
+        ledger_blocked: Decimal,
+        describe: str,
+        credit: bool = False,
+    ) -> list[JournalLineData]:
+        """Return the leg booking tax the firm may not claim (backlog 78 row 1).
+
+        Blocked under s.17(5) or otherwise ineligible, the tax a supplier
+        charged is a cost of the purchase, not input credit: it goes to
+        `INELIGIBLE_INPUT_TAX`, debited on the bill and credited back when the
+        goods or the price come off. Resolved only when there is some, so a
+        firm that never buys a blocked supply needs no mapping for it.
+        """
+        if ledger_blocked <= ZERO:
+            return []
+        account = self._require_mapping(
+            firm_id, (ControlAccountPurpose.INELIGIBLE_INPUT_TAX,)
+        )[ControlAccountPurpose.INELIGIBLE_INPUT_TAX]
+        return [
+            JournalLineData(
+                ledger_account_id=account,
+                debit_amount=ZERO if credit else ledger_blocked,
+                credit_amount=ledger_blocked if credit else ZERO,
+                description=f"Input tax not claimable {describe}",
+            )
+        ]
+
     def _output_tax_legs(
         self,
         *,
@@ -545,6 +575,7 @@ class DocumentPostingService:
         actor_id: UUID,
         tax_by_component: dict[str, Decimal] | None = None,
         reverse_charge_by_component: dict[str, Decimal] | None = None,
+        blocked_tax_amount: Decimal = ZERO,
     ) -> JournalEntry:
         """Post goods going back to a supplier.
 
@@ -576,6 +607,9 @@ class DocumentPostingService:
             reverse_charge_by_component: The returned goods' share of their
                 bill's reverse charge, per component (backlog 68 row 8). The
                 liability and the credit the bill raised both come off.
+            blocked_tax_amount: The returned goods' share of tax their bill
+                could not claim (backlog 78 row 1), credited back to
+                `INELIGIBLE_INPUT_TAX` rather than off input tax.
 
         Returns:
             The posted journal entry.
@@ -608,11 +642,24 @@ class DocumentPostingService:
                 description=f"Goods returned on {return_number}",
             ),
         ]
+        # The share the bill could not claim goes back to the cost account
+        # it was booked to, not off input tax (backlog 78 row 1).
+        ledger_blocked = min(
+            quantize_ledger(quantize_money(blocked_tax_amount)), ledger_tax
+        )
         lines.extend(
             self._input_tax_legs(
                 firm_id=firm_id,
-                ledger_tax=ledger_tax,
+                ledger_tax=ledger_tax - ledger_blocked,
                 tax_by_component=tax_by_component,
+                describe=f"reversed on {return_number}",
+                credit=True,
+            )
+        )
+        lines.extend(
+            self._blocked_tax_legs(
+                firm_id=firm_id,
+                ledger_blocked=ledger_blocked,
                 describe=f"reversed on {return_number}",
                 credit=True,
             )
@@ -2123,6 +2170,7 @@ class DocumentPostingService:
         actor_id: UUID,
         tax_by_component: dict[str, Decimal] | None = None,
         reverse_charge_by_component: dict[str, Decimal] | None = None,
+        blocked_tax_amount: Decimal = ZERO,
     ) -> JournalEntry | None:
         """Post a debit note to a supplier: Dr payable, Cr variance and input tax.
 
@@ -2148,6 +2196,9 @@ class DocumentPostingService:
             reverse_charge_by_component: The note's share of its bill's
                 reverse charge, per component (backlog 68 row 8): the
                 liability and the credit come off with the price.
+            blocked_tax_amount: The note's share of tax its bill could not
+                claim (backlog 78 row 1), credited back to
+                `INELIGIBLE_INPUT_TAX` rather than off input tax.
 
         Returns:
             The posted journal entry, or None where there is nothing to post.
@@ -2179,11 +2230,22 @@ class DocumentPostingService:
                 description=f"Claimed on debit note {debit_note_number}",
             ),
         ]
+        ledger_blocked = min(
+            quantize_ledger(quantize_money(blocked_tax_amount)), ledger_tax
+        )
         lines.extend(
             self._input_tax_legs(
                 firm_id=firm_id,
-                ledger_tax=ledger_tax,
+                ledger_tax=ledger_tax - ledger_blocked,
                 tax_by_component=tax_by_component,
+                describe=f"reversed on {debit_note_number}",
+                credit=True,
+            )
+        )
+        lines.extend(
+            self._blocked_tax_legs(
+                firm_id=firm_id,
+                ledger_blocked=ledger_blocked,
                 describe=f"reversed on {debit_note_number}",
                 credit=True,
             )
@@ -2504,6 +2566,7 @@ class DocumentPostingService:
         accrued_amount: Decimal | None = None,
         tax_by_component: dict[str, Decimal] | None = None,
         reverse_charge_by_component: dict[str, Decimal] | None = None,
+        blocked_tax_amount: Decimal = ZERO,
     ) -> JournalEntry:
         """Turn a supplier invoice into a payable and clear the receipt accrual.
 
@@ -2539,6 +2602,9 @@ class DocumentPostingService:
                 credited to its reverse-charge payable account -- paid in
                 cash only -- and claimed back as input credit through the
                 same input-tax account an ordinary bill uses.
+            blocked_tax_amount: The part of ``tax_amount`` the firm may not
+                claim (backlog 78 row 1), debited to `INELIGIBLE_INPUT_TAX`
+                instead of input tax.
 
         Returns:
             The posted journal entry.
@@ -2590,13 +2656,24 @@ class DocumentPostingService:
                 description=f"Supplier invoice {invoice_number}",
             ),
         ]
+        # What the bill may not claim is a cost, not input tax (78 row 1).
+        ledger_blocked = min(
+            quantize_ledger(quantize_money(blocked_tax_amount)), ledger_tax
+        )
         for offset, leg in enumerate(
-            self._input_tax_legs(
-                firm_id=firm_id,
-                ledger_tax=ledger_tax,
-                tax_by_component=tax_by_component,
-                describe=f"on {invoice_number}",
-            ),
+            [
+                *self._input_tax_legs(
+                    firm_id=firm_id,
+                    ledger_tax=ledger_tax - ledger_blocked,
+                    tax_by_component=tax_by_component,
+                    describe=f"on {invoice_number}",
+                ),
+                *self._blocked_tax_legs(
+                    firm_id=firm_id,
+                    ledger_blocked=ledger_blocked,
+                    describe=f"on {invoice_number}",
+                ),
+            ],
             start=1,
         ):
             lines.insert(offset, leg)
