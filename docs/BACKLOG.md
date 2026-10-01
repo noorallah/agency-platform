@@ -5461,3 +5461,29 @@ gaps, pinned with a pointer here, each to build when a firm asks:
 | The branch-warehouse settings read | `GET /branch-warehouse/settings` |
 | Stock summary by product | `GET /inventory/summary/by-product` |
 | The sales returns list's summary cards | `GET /sales-returns/summary` |
+
+## 77. GST documents for the sales chain -- HIGH PRIORITY
+
+Owner, 2026-10-02: follow the GST rules and redesign the sales flow to market
+standard. The rules, today's state, the redesigned flow and the work are in
+`docs/GST_DOCUMENT_COMPLIANCE.md` (sections 1-4a); the decisions are
+OWNER_DECISIONS A35. Summary of the rows (numbered as in that doc's section 4):
+
+| # | Item | Pri |
+| --- | --- | --- |
+| 1 | Firm GST settings: e-invoicing applies, 30-day rule applies, each dated | P1 |
+| 2 | Dispatch of a Sale delivery note with no invoice: firm policy warn (default) / block; **Dispatch and invoice** in one action | P1 |
+| 3 | Challan reason on the delivery note, printed | P1 |
+| 4 | E-invoice credit notes and debit notes | P1 |
+| 5 | Debit note to a customer (§67 row 7) | P1 |
+| 6 | No print or send of a B2B invoice without an IRN where e-invoicing applies | P1 |
+| 7 | 30-day list and check | P1 |
+| 8 | Live e-invoice and e-way bill through a GSP (§55 M2) -- needs the owner's GSP | P1 |
+| 9 | E-way bill without an IRN, from the invoice or (only when there is none) the delivery note | P2 |
+| 10 | E-way bill prompt above the firm's limit (default ₹50,000) | P2 |
+| 11 | IRN, acknowledgement and QR on the invoice, credit and debit note prints | P2 |
+| 12 | Credit note after 30 November warns | P3 |
+| 13 | 16-character check on GST document numbering | P3 |
+| 14 | Bill of supply | P3 |
+
+**Order:** 3 + 2 + 1 → 5 → 4 → 9, 10, 11 → 6, 7 → 8 once a GSP is chosen → 12-14.
