@@ -3585,6 +3585,8 @@ and installers (the same place as the phase 2 licence service).
 
 ## 44. A user's own default branch and warehouse
 
+**Status, 2026-10-01: built.** Settings > Firm > **My Branch and Warehouse** (any firm member) sets where a person usually works; `GET/PUT /api/v1/branches/my-work-defaults`, kept in the firm's own store (`user_work_defaults`, migration `20261001_0177`), validated on save (live, the warehouse the branch's) and on use (one retired since is dropped with a notice). The desktop loads it on firm switch and sign-in, clears it on sign-out and before another firm's, and `preferredBranchId` / `preferredWarehouseId` take it ahead of the firm's default, so every document form that opens with a default follows. It only fills; it restricts nothing. Left: an administrator setting it on someone else's record.
+
 Asked for by the owner on 2026-09-25, during the laptop QA round (W39-W43),
 after a sales order was approved with no warehouse and its stock was reserved
 in an empty one (D-QA-17).

@@ -164,7 +164,16 @@ void main() {
         final MenuAreaSpec? shown = MenuLayout.visible(area, visibility);
         // The Dashboard is the one module that may open with no codes; any
         // other area offered here is a leak.
-        if (shown != null) expect(shown.id, 'home');
+        if (shown != null && shown.id == 'settings') {
+          // Backlog 44: My Branch and Warehouse is every member's own
+          // preference, so it is the one setting that needs no code.
+          expect(
+            [for (final g in shown.groups) ...g.items.map((i) => i.label)],
+            ['My Branch and Warehouse'],
+          );
+        } else if (shown != null) {
+          expect(shown.id, 'home');
+        }
       }
     });
   });

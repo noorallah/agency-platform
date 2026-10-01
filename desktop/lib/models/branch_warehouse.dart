@@ -376,13 +376,67 @@ class WarehouseQuery {
       };
 }
 
-/// The branch a new document starts on: the one the firm marked default.
+/// A person's own usual branch and warehouse, as the server holds them
+/// (backlog 44). Either may be null; [ignored] says why a stored choice was
+/// not honoured (a retired warehouse, say).
+class WorkDefaults {
+  const WorkDefaults({
+    this.branchId,
+    this.warehouseId,
+    this.ignored = const [],
+  });
+
+  final String? branchId;
+  final String? warehouseId;
+  final List<String> ignored;
+
+  factory WorkDefaults.fromJson(Json json) {
+    String? id(Object? value) {
+      final String text = stringValue(value);
+      return text.isEmpty ? null : text;
+    }
+
+    return WorkDefaults(
+      branchId: id(json['branch_id']),
+      warehouseId: id(json['warehouse_id']),
+      ignored: (json['ignored'] as List? ?? const [])
+          .map((Object? item) => item.toString())
+          .toList(growable: false),
+    );
+  }
+}
+
+/// The signed-in person's work defaults for the active firm, held for the
+/// whole process so every new document can ask without a request.
+///
+/// Loaded when a firm is chosen and cleared on sign-out and before each load,
+/// so one firm's default never reaches another. It only fills a blank: the
+/// helpers below fall back to the firm's default when it is absent or no
+/// longer among the choices offered.
+abstract final class UserWorkDefaults {
+  static String? branchId;
+  static String? warehouseId;
+
+  static void set(WorkDefaults? value) {
+    branchId = value?.branchId;
+    warehouseId = value?.warehouseId;
+  }
+
+  static void clear() => set(null);
+}
+
+/// The branch a new document starts on: the person's own usual branch when
+/// it is among [branches], else the one the firm marked default.
 ///
 /// A firm with a single branch has chosen it by having it. With several and
 /// none marked, nothing is chosen, so the form asks rather than guessing.
 /// Never the first of the list: the list comes back newest first, so "first"
 /// meant whichever branch somebody added last (D-QA-17).
 String? preferredBranchId(List<BranchRecord> branches) {
+  final String? own = UserWorkDefaults.branchId;
+  if (own != null && branches.any((BranchRecord item) => item.id == own)) {
+    return own;
+  }
   for (final BranchRecord branch in branches) {
     if (branch.isDefault) return branch.id;
   }
@@ -407,6 +461,10 @@ String? preferredWarehouseId(
       : warehouses
           .where((WarehouseRecord item) => item.branchId == branchId)
           .toList(growable: false);
+  final String? own = UserWorkDefaults.warehouseId;
+  if (own != null && candidates.any((WarehouseRecord item) => item.id == own)) {
+    return own;
+  }
   final List<WarehouseRecord> defaults = candidates
       .where((WarehouseRecord item) => item.isDefault)
       .toList(growable: false);

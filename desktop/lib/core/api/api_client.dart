@@ -1473,6 +1473,27 @@ class ApiClient {
         additionalQuery: filters.toQuery(),
       );
 
+  /// The signed-in person's usual branch and warehouse in this firm
+  /// (backlog 44). Any member may read and set their own.
+  Future<WorkDefaults> myWorkDefaults() async => WorkDefaults.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/branches/my-work-defaults')),
+      );
+
+  /// Set, or with both null clear, the person's own defaults.
+  Future<WorkDefaults> setMyWorkDefaults({
+    String? branchId,
+    String? warehouseId,
+  }) async =>
+      WorkDefaults.fromJson(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/branches/my-work-defaults',
+            body: {'branch_id': branchId, 'warehouse_id': warehouseId},
+          ),
+        ),
+      );
+
   Future<BranchRecord> createBranch(Json data) async => BranchRecord.fromJson(
         _unwrapMap(await request('POST', '/api/v1/branches', body: data)),
       );
