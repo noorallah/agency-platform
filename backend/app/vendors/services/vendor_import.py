@@ -20,6 +20,7 @@ or nothing, match headings loosely, update by code on request -- live in
 # ruff: noqa: D102, D107
 
 from collections.abc import Sequence
+from typing import get_args
 from uuid import UUID
 
 from pydantic import ValidationError as PydanticValidationError
@@ -45,6 +46,7 @@ from app.sales.models.territory import (
     GeoPostalCode,
     GeoState,
 )
+from app.vendors.gst_registration import SupplierGstType
 from app.vendors.models import Vendor, VendorCategory, VendorType
 from app.vendors.schemas import VendorCreate, VendorUpdate
 from app.vendors.schemas.vendor import (
@@ -107,6 +109,15 @@ COLUMNS: tuple[Column, ...] = (
         False,
         "GST number; unique among the firm's suppliers. Marks them registered.",
         "33AAACA1234A1Z5",
+    ),
+    Column(
+        "GstType",
+        ("gstregistrationtype", "gsttreatment", "registrationtype"),
+        False,
+        "One of: "
+        + ", ".join(get_args(SupplierGstType))
+        + ". Blank reads it off the GSTIN.",
+        "",
     ),
     Column("PAN", ("pannumber", "panno", "itpan"), False, "PAN.", "AAACA1234A"),
     Column(
@@ -265,6 +276,7 @@ _FIELD_HEADINGS: dict[str, str] = {
     "category_id": "Category",
     "type_id": "Type",
     "gstin": "GSTIN",
+    "gst_registration_type": "GstType",
     "pan": "PAN",
     "payment_terms_days": "CreditDays",
     "udyam_number": "Udyam",
@@ -581,6 +593,9 @@ class VendorFileImporter(FileImporter[Vendor]):
                 values[target] = reader.text(heading)
         if reader.text("GSTIN"):
             values["gst_registration"] = True
+        gst_type = reader.text("GstType").upper().replace(" ", "_")
+        if gst_type:
+            values["gst_registration_type"] = gst_type
         days = reader.whole("CreditDays")
         if days is not None:
             values["payment_terms_days"] = days
