@@ -117,6 +117,25 @@ void main() {
       'quotation_stage': true,
       'sales_order_stage': false,
       'delivery_note_stage': false,
+      'promotion_mode': 'COMBINE',
     });
+  });
+
+  testWidgets('best offer only is chosen here and sent', (tester) async {
+    // Backlog 59: how matching offers meet is a Selling setting.
+    final _StagesApi api = _StagesApi(failReads: 0);
+    await _open(tester, api);
+
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('sales-settings-promotion-mode')));
+    await tester.tap(find.byKey(const ValueKey('sales-settings-promotion-mode')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Best offer only').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.saved.single['promotion_mode'], 'BEST_OFFER');
+    expect(tester.takeException(), isNull);
   });
 }

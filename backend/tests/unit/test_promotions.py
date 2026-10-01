@@ -2346,3 +2346,114 @@ def test_a_typed_zero_refuses_an_offers_free_goods_and_blank_takes_them() -> Non
     assert order(None).free_quantity == Decimal("2.0000")
     assert order(Decimal("0")).free_quantity == Decimal("0.0000")
     assert order(Decimal("1")).free_quantity == Decimal("1.0000")
+
+
+def _best_offer_only(session: Session, firm_id: UUID) -> None:
+    """Switch the firm to giving only the single best offer (backlog 59)."""
+    from app.sales_order.models import SalesWorkflowSettings
+
+    session.add(
+        SalesWorkflowSettings(
+            firm_id=firm_id,
+            quotation_stage=True,
+            sales_order_stage=True,
+            delivery_note_stage=True,
+            promotion_mode="BEST_OFFER",
+        )
+    )
+    session.commit()
+
+
+def test_best_offer_only_gives_the_single_offer_worth_most() -> None:
+    """Combined, 10% then 15% compound; best only, 15% alone applies."""
+    session = _session_factory()()
+    firm = _firm(session)
+    product = _product(session, firm_id=firm.id)
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="TEN",
+        priority=10,
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="FIFTEEN",
+        priority=20,
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "15"})],
+    )
+    request = _request(lines=[(1, product.id, "1", "1000")])
+
+    combined = PromotionService(session).evaluate(request, firm_scope=firm.id)
+    assert combined.applied_promotion_codes == ["TEN", "FIFTEEN"]
+
+    _best_offer_only(session, firm.id)
+    best = PromotionService(session).evaluate(request, firm_scope=firm.id)
+
+    assert best.applied_promotion_codes == ["FIFTEEN"]
+    assert best.lines[0].discount_amount == Decimal("150.00")
+    lost = next(d for d in best.decisions if d.code == "TEN")
+    assert not lost.matched
+    assert "FIFTEEN was worth more (150.00 against 100.00)" in lost.reason
+
+
+def test_best_offer_only_breaks_a_tie_by_applies_at() -> None:
+    """Two offers worth 100 each: the earlier in Applies at wins."""
+    session = _session_factory()()
+    firm = _firm(session)
+    product = _product(session, firm_id=firm.id)
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="LATER",
+        priority=50,
+        actions=[(PromotionActionType.LINE_DISCOUNT_AMOUNT, {"amount": "100"})],
+    )
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="FIRST",
+        priority=5,
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    _best_offer_only(session, firm.id)
+
+    result = PromotionService(session).evaluate(
+        _request(lines=[(1, product.id, "1", "1000")]), firm_scope=firm.id
+    )
+    assert result.applied_promotion_codes == ["FIRST"]
+
+
+def test_best_offer_only_values_free_goods_at_the_line_rate() -> None:
+    """Buy 10 get 2 free at 100 each is worth 200, more than 15% of 1000."""
+    session = _session_factory()()
+    firm = _firm(session)
+    product = _product(session, firm_id=firm.id)
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="PCT15",
+        priority=1,
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "15"})],
+    )
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="TENPLUSTWO",
+        priority=2,
+        actions=[
+            (
+                PromotionActionType.FREE_QUANTITY,
+                {"buy_quantity": "10", "free_quantity": "2"},
+            )
+        ],
+    )
+    _best_offer_only(session, firm.id)
+
+    result = PromotionService(session).evaluate(
+        _request(lines=[(1, product.id, "10", "1000")]), firm_scope=firm.id
+    )
+    assert result.applied_promotion_codes == ["TENPLUSTWO"]
+    assert result.lines[0].free_quantity == Decimal("2")
+    assert result.lines[0].discount_amount == Decimal("0.00")

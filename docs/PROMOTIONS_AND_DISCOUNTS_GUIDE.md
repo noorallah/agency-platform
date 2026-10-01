@@ -432,3 +432,5 @@ described where they apply above.
 | --- | --- |
 | Backlog 59 | No "best offer only" mode: matching promotions always combine. |
 | Backlog 60 | No screen to try an offer and no future-dated quotation (row 13); offer types still missing against market practice -- a percent capped at an amount, buy X get Y at a discount, combo prices, festival bonus points, bulk coupon codes, first-order offers, offer templates, scheme claims, offers on the print. |
+
+**Best offer only (2026-10-01).** Settings > Selling > Sales Stages > *When several offers match* chooses how offers meet. *Combine offers* (the default) applies every matching offer in Applies-at order until one that does not stack. *Best offer only* tries each matching offer on its own and gives the customer only the one worth most -- free goods counted at what they would have cost -- with ties going to the earlier Applies at. Try offers shows each one's worth and why it lost.

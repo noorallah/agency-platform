@@ -364,6 +364,12 @@ class SalesWorkflowSettings(BaseEntity):
     #: with no warehouse, and a firm whose delivery-note stage is automatic
     #: never sees a field to type one into. Null falls back to the firm's
     #: default branch and warehouse, which is what most firms will use.
+    #: How matching promotions meet on one document (backlog 59): COMBINE
+    #: applies each in "Applies at" order until one that does not stack, as
+    #: offers always have; BEST_OFFER gives only the single offer worth most.
+    promotion_mode: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="COMBINE", server_default="COMBINE"
+    )
     default_branch_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("branches.id", ondelete="RESTRICT")
     )
