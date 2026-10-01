@@ -1306,6 +1306,17 @@ class SalesInvoiceService(TransactionalDocumentService):
         ).all()
         if receipts:
             blockers.append("money applied from " + ", ".join(sorted(receipts)))
+        # A write-off or set-off naming the bill, drafted or approved: it would
+        # clear nothing once the bill was gone (backlog 74 row 2).
+        from app.party_adjustments.services.allocations import (
+            adjustment_numbers_against,
+        )
+
+        adjustments = adjustment_numbers_against(
+            self._session, column="sales_invoice_id", bill_id=row.id
+        )
+        if adjustments:
+            blockers.append("party adjustment " + ", ".join(adjustments))
         notes = self._session.scalars(
             select(CreditNote.credit_note_number).where(
                 CreditNote.sales_invoice_id == row.id,

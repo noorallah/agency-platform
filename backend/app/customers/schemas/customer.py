@@ -55,6 +55,14 @@ class CustomerReceivableTransactionType(StrEnum):
     #: because a statement saying "receipt" for points spent tells the reader
     #: money arrived when none did.
     LOYALTY = "LOYALTY"
+    #: A debt the firm has given up collecting -- a party adjustment's
+    #: write-off (backlog 74 row 2). It reduces what the customer owes as a
+    #: receipt does, without money, and its journal debits bad debts.
+    WRITE_OFF = "WRITE_OFF"
+    #: What the customer owes settled by what the firm owes the same business
+    #: as a supplier -- a party adjustment's set-off. Its journal debits the
+    #: payable rather than cash.
+    SET_OFF = "SET_OFF"
     #: Undoes an earlier transaction by its exact deltas. It is not a category
     #: of business event -- it is the record of one being taken back -- so it
     #: carries no rule of its own and cannot be posted directly.

@@ -258,6 +258,10 @@ RESET_ORDER: tuple[str, ...] = (
     # the receipts and payments module and this list did not know about them.
     "settlement_allocations",
     "settlements",
+    # Party adjustments name the bills they clear, the parties and their
+    # journals, all RESTRICT (backlog 74 row 2).
+    "party_adjustment_allocations",
+    "party_adjustments",
     # Expenses name the journals they posted, RESTRICT, so they go before the
     # journals below -- the next table to arrive with a feature (2026-09-27).
     "expenses",

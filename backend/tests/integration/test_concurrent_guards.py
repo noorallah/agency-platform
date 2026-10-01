@@ -29,6 +29,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -44,6 +45,7 @@ from app.customers.models import Customer
 from app.firms.models import Firm
 from app.inventory.models.inventory import InventoryRecord
 from app.loyalty.services import LoyaltyService
+from app.party_adjustments.services import PartyAdjustmentService
 from app.products.models import Product
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 
@@ -345,6 +347,68 @@ def test_a_second_credit_note_waits_for_the_line(
         two.execute(text("SET LOCAL lock_timeout = '250ms'"))
         with pytest.raises(OperationalError):
             CreditNoteService(two)._hold_line(line_id)
+        two.rollback()
+    finally:
+        one.rollback()
+        one.close()
+        two.close()
+
+
+def test_a_second_party_adjustment_waits_for_the_customer(
+    sessions: Callable[[], Session],
+) -> None:
+    """Approving a write-off holds the customer while the balance is re-read.
+
+    The cap is the customer's balance and what their bills still owe -- sums
+    over receipts and other adjustments, which no version protects. Two
+    approvals for one customer would otherwise both see the same room
+    (backlog 74 row 2).
+    """
+    with sessions() as setup:
+        _, customer_id = _customer(setup)
+    held = SimpleNamespace(customer_id=customer_id, vendor_id=None)
+
+    one, two = sessions(), sessions()
+    try:
+        PartyAdjustmentService(one)._lock_parties(held)  # type: ignore[arg-type]
+        two.execute(text("SET LOCAL lock_timeout = '250ms'"))
+        with pytest.raises(OperationalError):
+            PartyAdjustmentService(two)._lock_parties(held)  # type: ignore[arg-type]
+        two.rollback()
+    finally:
+        one.rollback()
+        one.close()
+        two.close()
+
+
+def test_party_adjustments_for_different_customers_do_not_queue(
+    sessions: Callable[[], Session],
+) -> None:
+    """The hold is per party, so unrelated write-offs never wait."""
+    with sessions() as setup:
+        firm_id, first = _customer(setup)
+        other = Customer(
+            firm_id=firm_id,
+            code="C-2",
+            customer_type="BUSINESS",
+            name="Other Stores",
+            display_name="Other Stores",
+            currency_code="INR",
+            status="ACTIVE",
+        )
+        setup.add(other)
+        setup.commit()
+        second = other.id
+
+    one, two = sessions(), sessions()
+    try:
+        PartyAdjustmentService(one)._lock_parties(
+            SimpleNamespace(customer_id=first, vendor_id=None)  # type: ignore[arg-type]
+        )
+        two.execute(text("SET LOCAL lock_timeout = '250ms'"))
+        PartyAdjustmentService(two)._lock_parties(
+            SimpleNamespace(customer_id=second, vendor_id=None)  # type: ignore[arg-type]
+        )
         two.rollback()
     finally:
         one.rollback()

@@ -137,7 +137,16 @@ def _to_responses(
                 amount=row.amount,
                 tds_amount=row.tds_amount,
                 tds_section=row.tds_section,
-                cash_amount=row.amount - row.tds_amount,
+                rounding_amount=row.rounding_amount,
+                bank_charges_amount=row.bank_charges_amount,
+                discount_amount=row.discount_amount,
+                cash_amount=(
+                    row.amount
+                    - row.tds_amount
+                    - row.rounding_amount
+                    - row.bank_charges_amount
+                    - row.discount_amount
+                ),
                 allocated_amount=row.allocated_amount,
                 unallocated_amount=row.unallocated_amount,
                 sales_order_id=row.sales_order_id,

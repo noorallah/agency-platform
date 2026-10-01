@@ -598,6 +598,20 @@ class CustomerService:
             excess = amount - applied
             outstanding_delta = -applied
             advance_delta = excess
+        elif tx_type in {
+            # A write-off or set-off clears a balance the customer owes and
+            # never makes an advance: the party adjustment service refuses
+            # one larger than the balance, and this refuses it again rather
+            # than turning given-up debt into money held for the customer.
+            CustomerReceivableTransactionType.WRITE_OFF,
+            CustomerReceivableTransactionType.SET_OFF,
+        }:
+            if amount > current:
+                raise ValidationError(
+                    f"The customer owes {current}, so {amount} cannot be "
+                    "written off or set off."
+                )
+            outstanding_delta = -amount
         elif tx_type == CustomerReceivableTransactionType.ADVANCE_RECEIPT:
             advance_delta = amount
         elif tx_type == CustomerReceivableTransactionType.ADVANCE_APPLY:

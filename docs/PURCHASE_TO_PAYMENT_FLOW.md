@@ -132,7 +132,40 @@ payment to a vendor differ only in signs. `settlements.journal_entry_id` is
 reached the ledger.
 
 **What an invoice still owes is derived from `settlement_allocations`, never
-stored on the invoice.**
+stored on the invoice** -- beside returns, debit notes, applied supplier
+credits and approved party adjustments, all through
+`PaymentService.outstanding_invoices`.
+
+**A payment can close a bill for less than its value** (backlog 74 row 2):
+`amount` is what settles the bill, and a rounding-off or a discount the
+supplier allowed is part of it that did not leave as money. Paying a 1,000.00
+bill with 976.00, rounding 4.00 and a discount of 20.00:
+
+```
+Dr  2100 Trade Payables                 1000.00
+    Cr  1010 Bank                                976.00
+    Cr  4900 Rounding                              4.00
+    Cr  4200 Discount Received                    20.00
+```
+
+Rounding is capped by the firm's limit (10.00 unless set); the deductions
+must be allocated to bills; bank charges are not a payment deduction -- the
+firm's own bank fee is an expense. None of this touches input tax: a lower
+price after the bill is a debit note.
+
+**A balance the firm will not pay** is a party adjustment
+(`/api/v1/party-adjustments`), approved before it posts -- by a second person
+holding `PARTY_ADJUSTMENT_APPROVE` above the firm's threshold (1,000.00
+unless set):
+
+```
+Supplier write-back                       Set-off with the same business as a customer
+Dr  2100 Trade Payables     450.00        Dr  2100 Trade Payables     600.00
+    Cr  4300 Balances Written Back 450.00     Cr  1100 Trade Receivables  600.00
+```
+
+Either may name the open bills it clears; those bills then owe less on Record
+Payment and the vendor outstanding and overdue reports. No tax leg, ever.
 
 ---
 
@@ -192,7 +225,8 @@ STEP 7  PY-2026-2027-000001 POSTED 1180.00   <-- money leaves
 | Cancel a **draft** receipt | nothing to undo | nothing to undo |
 | Cancel a **completed** receipt | reversed, line by line | mirror journal cancels it; refused outright once the receipt has been invoiced |
 | Purchase return, completed | stock goes back off | posted |
-| Reverse a settlement | — | mirror journal cancels it; allocations stop clearing invoices but still record what they had cleared |
+| Reverse a settlement | — | mirror journal cancels it, every deduction leg with it; allocations stop clearing invoices but still record what they had cleared |
+| Cancel an approved party adjustment | — | mirror journal cancels it; the bills it named owe again; the customer's row is undone by its stored deltas |
 
 A settlement is **reversed, never edited or deleted**. The customer-side
 equivalent puts balances back by the *deltas stored on the original row* rather

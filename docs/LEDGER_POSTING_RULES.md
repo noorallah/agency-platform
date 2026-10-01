@@ -293,6 +293,102 @@ no PAN is written `PANNOTAVBL` with reason `C` (deducted at the higher rate,
 206AA). When challans are recorded as documents, the FVU file becomes
 possible and this is where it belongs.
 
+## A balance is cleared without money by a deduction or a party adjustment, never by tax
+
+Backlog 74 row 2 (2026-10-01). A receipt three rupees short, a bank charge the
+customer's bank took, a discount for paying early, a debt that will never be
+paid, a supplier balance the firm will never pay, and a customer who is also a
+supplier: each moves a party's balance **without money moving and without
+tax**. Reducing the value of a supply is a credit note (`/credit-notes`) or a
+debit note (`/debit-notes`), which reverse the tax charged on it; nothing here
+touches output or input tax, GSTR-1 or GSTR-3B.
+
+**Deductions on a receipt or payment** (`settlements.rounding_amount`,
+`bank_charges_amount`, `discount_amount`, migration `20261001_0191`) follow
+the TDS model exactly: `amount` is what settles the party -- the bill's value
+-- and each deduction is part of it that did not move as money.
+
+- **Receipt:** Dr Bank `amount - tds - deductions`; Dr TDS Receivable `tds`;
+  Dr Rounding (`ROUNDING`, 4900) / Bank Charges (`BANK_CHARGES`, 6700) /
+  Discount Allowed (`DISCOUNT_ALLOWED`, 5300) each by its amount; Cr
+  Receivables `amount`.
+- **Payment:** Dr Payables `amount`; Cr Bank `amount - tds - deductions`; Cr
+  TDS Payable `tds`; Cr Rounding / Discount Received (`DISCOUNT_RECEIVED`,
+  4200) each by its amount.
+
+The customer's receivable row moves by the whole `amount`, as for TDS, so the
+statement and the ledger agree. Each deduction is rounded to the ledger on its
+own and the money leg is what is left, so the entry balances to the paisa.
+Reversing the settlement mirrors the whole journal -- every deduction leg with
+it -- and puts the customer's balance back by the stored deltas, as any
+reversal does. Decided by convention:
+
+- **Bank charges are a receipt's only.** On a payment the firm's own bank fee
+  settles nothing the supplier is owed; it is an expense, recorded against
+  Bank Charges on the Expenses screen.
+- **Rounding is capped** by the firm's rounding limit, **10.00** unless set
+  (`party_adjustment_settings.rounding_limit`, `PUT
+  /party-adjustments/settings`). More than that is a discount or a write-off
+  and should be named as one.
+- **Deductions must close bills**: together they cannot exceed what the
+  settlement allocates. A discount on money held on account would turn an
+  advance into a cost.
+- **Some money must move.** TDS and deductions that take the whole amount are
+  refused: a balance cleared with no money is a party adjustment.
+- A refund takes none.
+
+**A party adjustment** (`app/party_adjustments`, `/api/v1/party-adjustments`)
+is a document of three kinds, DRAFT -> APPROVED -> CANCELLED, numbered in its
+own `PA` series, with a required reason, a timeline and an audit row per step.
+A draft posts nothing and clears nothing. Approval posts:
+
+| Kind | Dr | Cr | Customer's account |
+| --- | --- | --- | --- |
+| Customer write-off | Bad Debts (`BAD_DEBTS`, 6800, indirect expense) | Receivables | `WRITE_OFF` row, outstanding down |
+| Supplier write-back | Payables | Balances Written Back (`BALANCES_WRITTEN_BACK`, 4300, other income) | -- |
+| Set-off | Payables | Receivables | `SET_OFF` row, outstanding down |
+
+It may name open bills on either side
+(`party_adjustment_allocations`) or move the balance on account. **What a bill
+owes reads the adjustment beside the money**: `adjusted_against`
+(`app/party_adjustments/services/allocations.py`) is added inside
+`settled_against` (sales bills -- Record Receipt, the ageing, the outstanding
+and overdue reports, the customer delete guard), inside
+`PaymentService.outstanding_invoices` (purchase bills -- Record Payment, the
+vendor reports), inside both opening-bill readers, and in the loyalty cap. It
+counts approved adjustments only and honours `as_of` the way receipts do: one
+dated on or before the day, and approved, or cancelled only after it. A bill
+named by a live adjustment cannot be cancelled. The customer statement reads
+the `WRITE_OFF` and `SET_OFF` receivable rows, so it reconciles with the
+ledger; nothing keeps a running vendor balance, so the supplier side is the
+bills alone.
+
+**Caps.** A write-off or set-off cannot exceed what the customer owes on
+account (`customers.current_outstanding` -- more would turn given-up debt into
+an advance), a write-back or set-off what the supplier's open bills add up to,
+an allocation what its bill still owes, and each side's allocations the
+amount. Checked when drafted and again at approval, with the customer's and
+supplier's rows locked, since a receipt may have cleared the bills since.
+
+**Approval** (decided by convention): at or below the firm's threshold --
+**1,000.00** unless set (`party_adjustment_settings.approval_threshold`) --
+anyone holding `PARTY_ADJUSTMENT_MANAGE` may approve, their own draft
+included. Above it the approver must hold `PARTY_ADJUSTMENT_APPROVE` **and**
+must not be the person who drafted it, and cancelling an approved one needs
+the same code. Setting the threshold needs `PARTY_ADJUSTMENT_APPROVE`: the
+role a limit constrains does not move it. `FIRM_ADMIN` and `FIRM_MANAGER` hold
+all three; `ACCOUNTANT` holds view and manage.
+
+**Set-off between two businesses.** The masters do not link a customer to a
+supplier, so the person setting off states they are one business; where both
+carry a PAN -- recorded, or read off characters 3-12 of the GSTIN -- and the
+two differ, the set-off is refused.
+
+**Cancelling** an approved adjustment mirrors its journal and undoes the
+customer's receivable row by its stored deltas (`receivable_transaction_id`),
+dated the mirror's day; the bills owe again because a cancelled adjustment is
+no longer counted.
+
 ## PAN, TAN and GSTIN are checked when they are set
 
 Backlog 53 item 2, on customers, vendors (header and tax rows) and the firm.
@@ -524,4 +620,4 @@ declared tax.
 ## `app/finance` and automatic GL posting
 
 `app/finance/` was rewritten on 2026-08-09 and is live at `/api/v1/finance` (migration `20260809_0042`). It uses the seeded `accounting` / `financial_year` permission codes rather than a `FINANCE_*` namespace. The prior `accounting_event_consumer.py`, which guessed accounts by name, was removed — see git history if you want its posting rules.
-**Automatic GL posting is built, and this line said for months that it was not.** It claimed the feature needed "a per-firm control-account mapping design" -- which is exactly what `firm_control_accounts` is, and it carries 27 purposes per firm (`ACCOUNTS_RECEIVABLE`, `INVENTORY`, `OUTPUT_TAX`, `INPUT_TAX_IGST`, `PURCHASE_PRICE_VARIANCE`, `LOYALTY_PAYABLE`, `COMMISSION_PAYABLE`, `TCS_PAYABLE` and the rest). **Eleven modules post through `DocumentPostingService`**: `delivery_note`, `sales_invoice`, `sales_return`, `credit_note`, `goods_receipt`, `purchase_invoice`, `purchase_return`, `settlements`, `loyalty`, `tcs` and `commission`. WHOLE01 alone holds 337 journal entries, and `verify_sample_data.py` fails the run if any approved invoice has not posted. A stale line like this is worse than no line: it talks the next reader out of checking, and it survived precisely because nobody re-derived it. Correct one when you find it rather than working around it.
+**Automatic GL posting is built, and this line said for months that it was not.** It claimed the feature needed "a per-firm control-account mapping design" -- which is exactly what `firm_control_accounts` is, and it carries 32 purposes per firm as of 2026-10-01 -- count them with `len(ControlAccountPurpose)` rather than trusting this number (`ACCOUNTS_RECEIVABLE`, `INVENTORY`, `OUTPUT_TAX`, `INPUT_TAX_IGST`, `PURCHASE_PRICE_VARIANCE`, `LOYALTY_PAYABLE`, `COMMISSION_PAYABLE`, `TCS_PAYABLE` and the rest). **Eleven modules post through `DocumentPostingService`**: `delivery_note`, `sales_invoice`, `sales_return`, `credit_note`, `goods_receipt`, `purchase_invoice`, `purchase_return`, `settlements`, `loyalty`, `tcs` and `commission`. WHOLE01 alone holds 337 journal entries, and `verify_sample_data.py` fails the run if any approved invoice has not posted. A stale line like this is worse than no line: it talks the next reader out of checking, and it survived precisely because nobody re-derived it. Correct one when you find it rather than working around it.

@@ -89,6 +89,16 @@ class ControlAccountPurpose(StrEnum):
     ROUNDING = "ROUNDING"
     CASH = "CASH"
     BANK = "BANK"
+    #: What a customer's bank took out of a payment on its way to the firm,
+    #: accepted as settling the bill (backlog 74 row 2): a cost to the firm,
+    #: never a sum the customer still owes.
+    BANK_CHARGES = "BANK_CHARGES"
+    #: A customer's debt the firm has given up collecting -- a party
+    #: adjustment's write-off. An expense, never a reduction of sales.
+    BAD_DEBTS = "BAD_DEBTS"
+    #: What the firm owed a supplier and will not pay -- a balance written
+    #: back. Other income, beside the trading accounts rather than in them.
+    BALANCES_WRITTEN_BACK = "BALANCES_WRITTEN_BACK"
 
 
 INPUT_TAX_PURPOSE_BY_COMPONENT.update(
@@ -159,6 +169,9 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     ControlAccountPurpose.ROUNDING: frozenset({"INCOME", "EXPENSE"}),
     ControlAccountPurpose.CASH: frozenset({"ASSET"}),
     ControlAccountPurpose.BANK: frozenset({"ASSET"}),
+    ControlAccountPurpose.BANK_CHARGES: frozenset({"EXPENSE"}),
+    ControlAccountPurpose.BAD_DEBTS: frozenset({"EXPENSE"}),
+    ControlAccountPurpose.BALANCES_WRITTEN_BACK: frozenset({"INCOME"}),
 }
 
 
@@ -210,6 +223,9 @@ PURPOSE_LABELS: dict[ControlAccountPurpose, str] = {
     ControlAccountPurpose.ROUNDING: "Rounding",
     ControlAccountPurpose.CASH: "Cash",
     ControlAccountPurpose.BANK: "Bank",
+    ControlAccountPurpose.BANK_CHARGES: "Bank charges",
+    ControlAccountPurpose.BAD_DEBTS: "Bad debts",
+    ControlAccountPurpose.BALANCES_WRITTEN_BACK: "Balances written back",
 }
 
 

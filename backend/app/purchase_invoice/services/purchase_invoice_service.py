@@ -2467,6 +2467,16 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         ).all()
         if payments:
             blockers.append("payment " + ", ".join(sorted(payments)))
+        # A write-back or set-off naming the bill (backlog 74 row 2).
+        from app.party_adjustments.services.allocations import (
+            adjustment_numbers_against,
+        )
+
+        adjustments = adjustment_numbers_against(
+            self._session, column="purchase_invoice_id", bill_id=row.id
+        )
+        if adjustments:
+            blockers.append("party adjustment " + ", ".join(adjustments))
         returns = self._session.scalars(
             select(PurchaseReturn.return_number)
             .join(

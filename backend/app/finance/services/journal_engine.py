@@ -62,6 +62,7 @@ SOURCE_DOCUMENT_NAMES = {
     "purchase_invoice": "purchase invoice",
     "purchase_return": "purchase return",
     "settlements": "receipt, payment or refund",
+    "party_adjustments": "party adjustment",
     "customers": "customer's opening balance or credit note",
     "vendor_opening_bills": "supplier's opening bill",
     "customer_opening_bills": "customer's opening bill",

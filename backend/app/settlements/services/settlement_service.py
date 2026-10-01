@@ -277,6 +277,19 @@ def settled_against(
         session, firm_id=firm_id, invoice_ids=invoice_ids, as_of=as_of
     ).items():
         settled[invoice_id] = settled.get(invoice_id, ZERO) + amount
+    # And what an approved party adjustment -- a write-off or a set-off --
+    # took off the bill (backlog 74 row 2). Imported here: that module reads
+    # these services.
+    from app.party_adjustments.services.allocations import adjusted_against
+
+    for invoice_id, amount in adjusted_against(
+        session,
+        firm_id=firm_id,
+        column="sales_invoice_id",
+        bill_ids=invoice_ids,
+        as_of=as_of,
+    ).items():
+        settled[invoice_id] = settled.get(invoice_id, ZERO) + amount
     return settled
 
 
@@ -405,6 +418,19 @@ class SettlementService(TransactionalDocumentService):
                 firm_id=firm_id,
                 invoice_ids=[row.id for row in rows],
             )
+            # And what a supplier write-back or a set-off took off the bill
+            # (backlog 74 row 2), read beside the payments.
+            from app.party_adjustments.services.allocations import (
+                adjusted_against,
+            )
+
+            for invoice_id, amount in adjusted_against(
+                self._session,
+                firm_id=firm_id,
+                column="purchase_invoice_id",
+                bill_ids=None if party_id is None else [row.id for row in rows],
+            ).items():
+                credited[invoice_id] = credited.get(invoice_id, ZERO) + amount
         records: list[OutstandingInvoiceRecord] = []
         for row in rows:
             allocated_amount = row[-1]
@@ -709,6 +735,7 @@ class SettlementService(TransactionalDocumentService):
         allocated = self._validate_allocations(
             data, firm_id=firm_id, party_id=data.party_id, amount=amount
         )
+        deductions = self._deductions(data, firm_id=firm_id, allocated=allocated)
         money_account_id = self._money_account(
             firm_id=firm_id, method=SettlementMethod(data.method.value)
         )
@@ -755,6 +782,7 @@ class SettlementService(TransactionalDocumentService):
                 money_account_id=money_account_id,
                 actor_id=actor_id,
                 tds_amount=tds_amount,
+                deductions=deductions,
             )
         )
         row = Settlement(
@@ -768,6 +796,14 @@ class SettlementService(TransactionalDocumentService):
             amount=amount,
             tds_amount=tds_amount,
             tds_section=data.tds_section if tds_amount > ZERO else None,
+            rounding_amount=deductions.get(ControlAccountPurpose.ROUNDING, ZERO),
+            bank_charges_amount=deductions.get(
+                ControlAccountPurpose.BANK_CHARGES, ZERO
+            ),
+            discount_amount=deductions.get(
+                ControlAccountPurpose.DISCOUNT_ALLOWED,
+                deductions.get(ControlAccountPurpose.DISCOUNT_RECEIVED, ZERO),
+            ),
             allocated_amount=allocated,
             unallocated_amount=amount - allocated,
             sales_order_id=None if order is None else order.id,
@@ -869,6 +905,9 @@ class SettlementService(TransactionalDocumentService):
                 "amount": str(amount),
                 "tds_amount": str(tds_amount),
                 "tds_section": data.tds_section if tds_amount > ZERO else None,
+                "deductions": {
+                    purpose.value: str(value) for purpose, value in deductions.items()
+                },
                 "allocated_amount": str(allocated),
                 "party": party.code,
             },
@@ -1427,6 +1466,77 @@ class SettlementService(TransactionalDocumentService):
         as arriving somewhere the firm has not said exists.
         """
         return self._controls.resolve(firm_id, METHOD_PURPOSE[method])
+
+    def _deductions(
+        self, data: SettlementCreate, *, firm_id: UUID, allocated: Decimal
+    ) -> dict[ControlAccountPurpose, Decimal]:
+        """Check what settled the bills without money, by the account it posts to.
+
+        Rules, each decided by convention on 2026-10-01 (backlog 74 row 2):
+
+        * A refund takes none: it hands money back, it settles no bill.
+        * Bank charges are a receipt's only. On a payment the firm's own bank
+          fee is the firm's expense and settles nothing the supplier is owed;
+          it is recorded on the Expenses screen.
+        * Rounding is capped by the firm's rounding limit (10.00 unless set in
+          the party adjustment settings): more than that is a decision to give
+          a discount or write the balance off, and should be named as one.
+        * Together they cannot exceed what the allocations clear. A deduction
+          closes a bill; one on money held on account would close nothing and
+          turn an advance into a cost.
+
+        Returns:
+            Each non-zero deduction by its control purpose.
+
+        Raises:
+            ValidationError: If any rule above is broken.
+
+        """
+        rounding = quantize_ledger(data.rounding_amount or ZERO)
+        charges = quantize_ledger(data.bank_charges_amount or ZERO)
+        discount = quantize_ledger(data.discount_amount or ZERO)
+        total = rounding + charges + discount
+        if total == ZERO:
+            return {}
+        if self.DIRECTION == SettlementDirection.REFUND:
+            raise ValidationError(
+                "A refund hands money back and settles no bill, so it takes "
+                "no deductions."
+            )
+        is_receipt = self.DIRECTION == SettlementDirection.RECEIPT
+        if charges > ZERO and not is_receipt:
+            raise ValidationError(
+                "Bank charges are deducted on a receipt, where the customer's "
+                "bank took them. The firm's own bank fee on a payment is an "
+                "expense: record it on the Expenses screen."
+            )
+        # Imported here: the party adjustment module reads the settlement
+        # services.
+        from app.party_adjustments.services.settings import adjustment_limits
+
+        limit = adjustment_limits(self._session, firm_id).rounding_limit
+        if rounding > limit:
+            raise ValidationError(
+                f"Rounding of {rounding} is more than this firm's limit of "
+                f"{quantize_ledger(limit)}. Record the difference as a discount, "
+                "or write the balance off with a party adjustment."
+            )
+        if total > allocated:
+            raise ValidationError(
+                f"Deductions total {total}, but only {allocated} is allocated "
+                "to bills. A deduction closes a bill, so allocate at least the "
+                "money and the deductions together."
+            )
+        found = {
+            ControlAccountPurpose.ROUNDING: rounding,
+            ControlAccountPurpose.BANK_CHARGES: charges,
+            (
+                ControlAccountPurpose.DISCOUNT_ALLOWED
+                if is_receipt
+                else ControlAccountPurpose.DISCOUNT_RECEIVED
+            ): discount,
+        }
+        return {purpose: value for purpose, value in found.items() if value > ZERO}
 
     def _validate_allocations(
         self,

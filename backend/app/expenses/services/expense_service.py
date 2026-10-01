@@ -41,6 +41,12 @@ from app.finance.services.journal_engine import quantize_money as quantize_ledge
 #: balance its sub-ledger knows nothing about.
 _MONEY_PURPOSES = frozenset({"CASH", "BANK"})
 
+#: The control purposes an expense account may carry and still be offered.
+#: Bank Charges is posted to by a receipt a customer's bank cut short
+#: (backlog 74 row 2) **and** is where the firm's own bank fee is recorded by
+#: hand: neither balance is kept by a sub-ledger, so the two share it.
+_SHARED_EXPENSE_PURPOSES = frozenset({"BANK_CHARGES"})
+
 
 class ExpenseService(TransactionalDocumentService):
     """Record an expense, post it, and cancel it."""
@@ -103,13 +109,15 @@ class ExpenseService(TransactionalDocumentService):
         An account a document posts to -- Purchases, Cost of Goods Sold,
         Commission, Loyalty -- is left out: its balance is what those
         documents say, and rent booked to Cost of Goods Sold would misstate
-        the gross margin with nothing on the record to explain it.
+        the gross margin with nothing on the record to explain it. Bank
+        Charges stays offered although receipts post to it too
+        (``_SHARED_EXPENSE_PURPOSES``).
         """
         mapped = self._purposes_by_account(firm_id)
         return [
             account
             for account in self._live_accounts(firm_id, AccountType.EXPENSE.value)
-            if account.id not in mapped
+            if mapped.get(account.id, set()) <= _SHARED_EXPENSE_PURPOSES
         ]
 
     def paid_from_accounts(self, firm_id: UUID) -> list[LedgerAccount]:

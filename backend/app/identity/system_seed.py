@@ -204,6 +204,17 @@ PERMISSION_GROUPS = {
         # held back from the role that drafts one for the same reason.
         "DEBIT_NOTE_APPROVE",
     ),
+    "party_adjustment": (
+        "PARTY_ADJUSTMENT_VIEW",
+        # Drafting a write-off, write-back or set-off, and approving one at
+        # or below the firm's threshold (backlog 74 row 2).
+        "PARTY_ADJUSTMENT_MANAGE",
+        # Approving or cancelling one above the threshold, as somebody other
+        # than its maker, and setting the threshold itself. A rupee written
+        # off is profit given away; the role that clears balances must not
+        # be the one that decides how much it may clear alone.
+        "PARTY_ADJUSTMENT_APPROVE",
+    ),
     "batch_serial": (
         "BATCH_VIEW",
         "BATCH_CREATE",
@@ -477,6 +488,7 @@ _operational_permissions = _codes(
     "commission",
     "credit_note",
     "debit_note",
+    "party_adjustment",
     "proforma",
     "einvoice",
     "loyalty",
@@ -537,6 +549,12 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             "CUSTOMER_MANAGE_SETTINGS",
             # Chasing what is owed: resending a bill or a reminder.
             "DOCUMENT_SEND",
+            # Clears small balances -- a few rupees short, a set-off -- and
+            # drafts larger write-offs for somebody else to approve. Approving
+            # above the threshold is held back: the role that books a
+            # write-off is not the one that agrees to it (backlog 74 row 2).
+            "PARTY_ADJUSTMENT_VIEW",
+            "PARTY_ADJUSTMENT_MANAGE",
         }
     ),
     "SALES_MANAGER": (
