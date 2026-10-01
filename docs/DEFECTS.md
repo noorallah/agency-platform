@@ -36,6 +36,8 @@ Full write-ups: PR #435 and `docs/DATA_TRAIL_BY_OPERATION.md` §9.
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
 
+None open (2026-10-01).
+
 ### Stock -- found writing the Stock data trail, 2026-09-18
 
 Full write-ups: the PR that added `docs/DATA_TRAIL_BY_OPERATION.md` §10, and
@@ -44,6 +46,8 @@ the filter and is not repeated here.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
+
+None open (2026-10-01).
 
 ### Selling -- found writing the Selling data trail, 2026-09-19
 
@@ -57,10 +61,8 @@ journals and the receivable; a return with no price takes the source line's.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
-| D-SELL-40 | Medium | A bill typed straight in by a firm with its sales stages off cannot carry a coupon: `SalesInvoiceCreate` has no `coupon_code` and `SalesChainService._order_and_note` stages the order without one, so a one-person firm cannot honour a coupon its own promotions define. Automatic offers still apply through that order. Found 2026-09-28; `docs/PROMOTIONS_AND_DISCOUNTS_GUIDE.md` TC-PROMO-015. | Code |
-| D-SELL-41 | Low | Typing 0 free goods on an order line cannot refuse a promotion's free goods: the write schema defaults `free_quantity` to 0, so `SalesOrderService` reads 0 as silence (`self._q(item.free_quantity) or benefits.free_quantity(index)`, commented in the code). Breaks the rule that 0 and blank are different answers. Found 2026-09-28; `docs/PROMOTIONS_AND_DISCOUNTS_GUIDE.md` TC-PROMO-017. | Code |
-| D-SELL-42 | Medium | The promotion screen offers five of seven benefits and nine of fourteen conditions the server supports: no Free product or Free shipping (`_actionLabels` in `desktop/lib/ui/pricing/promotion_dialog.dart`), no customer group, branch, salesman, document type or date condition (`promotionFieldLabels` in `desktop/lib/models/pricing.dart`), and six of eleven tests -- no "is one of", "is not one of", "between", "is set" or "is not set" (`promotionOperatorLabels`), so an offer on five products takes five promotions. Offers of that kind can only be made over the API. Found 2026-09-28; `docs/PROMOTIONS_AND_DISCOUNTS_GUIDE.md` section 3. | Code |
-| D-SELL-43 | Low | A quotation has no coupon box (`quotation` schemas carry no `coupon_code`), so a quote shows the price without the coupon's offer and the order converted from it is priced lower once the coupon is typed. Found 2026-09-28; `docs/PROMOTIONS_AND_DISCOUNTS_GUIDE.md` section 6. | Code |
+
+None open (2026-10-01).
 
 ### Finance -- found writing the Finance data trail, 2026-09-19
 
@@ -78,6 +80,8 @@ between an invoice's two-decimal total and its receivable row in any store.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
+
+None open (2026-10-01).
 
 ### Compliance -- found writing the Compliance data trail, 2026-09-19
 
@@ -100,7 +104,8 @@ from the documents, not from GSTR-1.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
-| D-CMP-22 | Medium | An invoice line does not keep its HSN/SAC code. GSTR-1's HSN summary (`GstrService._fold_hsn`), the e-invoice payload (`einvoice/services/payload.py`) and the invoice reprint (`invoice_print_service.py`) all read `products.hsn_sac` as it is **today**, so correcting a product's code changes the HSN table of months already filed and reprints old bills with a code they were not issued with. Tax amounts are unaffected (the line keeps its components and rates). Found 2026-09-28 reviewing Money; `docs/BACKLOG.md` §74.1 row 8. | Code |
+
+None open (2026-10-01).
 
 ### Configuration -- found writing the Configuration data trail, 2026-09-19
 
@@ -122,6 +127,8 @@ index is partial on both databases.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
+
+None open (2026-10-01).
 
 ### Identity, firms and audit -- found writing the data trail, 2026-09-19
 
@@ -151,6 +158,8 @@ store; retention is opt-in by design and has not run here.
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
 
+None open (2026-10-01).
+
 ### Masters -- found writing the Masters data trail, 2026-09-19
 
 Full write-ups: the PR that added `docs/DATA_TRAIL_BY_OPERATION.md` §16, and the
@@ -175,6 +184,8 @@ literal path is declared above `/{id}`.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
+
+None open (2026-10-01).
 
 ### Territory, commission and targets -- found writing the data trail, 2026-09-19
 
@@ -212,6 +223,8 @@ is earned on net sales -- tax and freight earn nothing (PR #644,
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
 
+None open (2026-10-01).
+
 ### Reports, the dashboard, global search and diagnostics -- found writing the data trail, 2026-09-23
 
 Full write-ups: the PR that added `docs/DATA_TRAIL_BY_OPERATION.md` §18, and the
@@ -247,6 +260,8 @@ or invoiced (D-RPT-11).
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
 
+None open (2026-10-01).
+
 ### Installer -- found on the first laptop install, 2026-09-24
 
 Full write-up: PR #652. The first `AgencyPlatform-1.0.0-Setup.exe` was run on
@@ -257,6 +272,8 @@ seconds". The cause is D-SETUP-6 below (fixed). What it left open:
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
 
+None open (2026-10-01).
+
 ### Laptop QA round -- found testing the installed copy, 2026-09-25
 
 The owner's Lenovo laptop, installed from `AgencyPlatform-1.0.0-Setup.exe`
@@ -265,6 +282,8 @@ The owner's Lenovo laptop, installed from `AgencyPlatform-1.0.0-Setup.exe`
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
 
+None open (2026-10-01).
+
 ### Dialogs -- found reviewing every dialog for phase 2, 2026-09-29
 
 Full write-up: `docs/UI_PHASE_2_DIALOG_REVIEW.md`; the standard and the fix
@@ -272,13 +291,15 @@ order are `docs/BACKLOG.md` §73. Paths below are under `desktop/lib/`.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
-| D-DLG-1 | Medium | About 25 dialogs close on Save and leave the create/update call to the caller, so a server refusal is a toast after the dialog is gone and everything typed is lost: territory, beat plan, branch, warehouse, types, storage node and copy-hierarchy editors; the four territory assignment pickers; the geography place editor (`ui/masters/geography_master_page.dart` `_openEditor`, confirmed); the UOM and tax "simple dialog" clusters; inventory thresholds, new adjustment, opening-stock draft, stock action; raise proforma; e-way bill. `CrudWorkspaceDialog`, `ConversionRuleDialog`, `CouponDialog` and `CreditNoteDialog` keep the call inside and are the pattern. | Code |
-| D-DLG-3 | Medium | Product import wizard: a failure part-way through the batch is uncaught, leaving an unknown number of products created and no error shown (`product_management_page.dart` import step). | Code |
+
+None open (2026-10-01).
 
 ### Found in manual testing and not yet fixed -- `docs/BACKLOG.md` §31
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
+
+None open (2026-10-01).
 
 ---
 
@@ -286,17 +307,24 @@ order are `docs/BACKLOG.md` §73. Paths below are under `desktop/lib/`.
 
 | Id | Fixed | Summary | PR | Guard |
 | --- | --- | --- | --- | --- |
-| D-FIN-22 | 2026-09-30 | A second year's trial balance opened every income and expense account at last year's closing balance, with no profit-brought-forward line. The stored balances run on across years on purpose -- the balance sheet computes earnings from them -- so the fix is in the reports that show an opening: the trial balance, the account ledger and the account summary take off what an income or expense account had run up before the financial year began, and the trial balance adds one equity row, **Profit and loss brought forward** (`P&L-BF`, no ledger account), so it still balances. No closing entry is posted and no stored row changes. | PR pending | `test_finance_module.py::test_a_new_year_opens_income_at_zero_and_brings_the_profit_forward` |
-| D-DLG-4 | 2026-09-30 | The five tax masters (component, profile, country mapping, migration mapping, rule) are proper forms (`ui/tax/tax_master_forms.dart`, `tax_master_dialogs.dart`) in place of `_taxSimpleDialog`: human labels; drop-downs for every `*_id` (tax system, component, profile, country, business profile, loaded through the existing `taxSystems` / `taxComponents` / `taxProfiles` / `geoPlaces` / `businessProfiles` calls); switches for booleans; date pickers; a repeating-row editor for a profile's components and for a rule's conditions (operator-driven value box, list values as `value_json.values`) and actions, instead of JSON. The dialog owns its state (no leaked controllers), runs the save itself, keeps the form open with the server's message on a refusal and closes only on success. Every key sent is one the write schema declares. It also fixes two things the old dialog did silently: editing a profile sent `components: []` (wiping them) and editing a rule dropped list, date and boolean condition values; the records now carry the fields the forms send back. | PR pending | `desktop/test/tax_master_forms_test.dart` (8) |
-| D-DLG-8 | 2026-09-30 | Phase 2's close guard (`phase2/document_tabs.dart`) noticed only typed characters. It now also snapshots every input in the document (text, switches, checkboxes, drop-downs, chips, segmented buttons, sliders, date boxes) at the first pointer or key press and compares with the inputs when a close is asked for, so a drop-down, switch or date-picker change warns and an untouched or restored document closes silently. No per-editor edits: nothing for an editor to forget. | PR pending | `desktop/test/document_tabs_test.dart` (3 new) |
-| D-SELL-39 | 2026-09-30 | One invoice could not bill several delivery notes from any screen, though the server accepts them (each line names its own source). The phase 2 invoice editor now has **Also bill (same customer and branch)** beside the note picker: it offers only the other billable notes of the same customer and branch, adds their lines at what is left (each row names its note), takes them off again, prices and saves them as one bill with line numbers 1..n, and a draft made of several notes reopens with all of them (`_adoptExisting` groups the lines by source). Choosing a different primary note clears the extras. The salesman/territory/route check stays the server's. Phase 1 dialog unchanged. `docs/BACKLOG.md` §58 (items 1-3, 5-6; the printed bill, item 7, is still to build). | PR pending | `desktop/test/sales_invoice_several_notes_test.dart` |
-| D-BUY-18 | 2026-09-30 | One supplier bill could not bill several goods receipts from any screen. The phase 2 bill editor now has **Also bill (same supplier and branch)**: it offers only the other completed receipts of the first receipt's supplier and branch, adds their lines at what each still has to be billed for (each row names its receipt), removes them again, and names every receipt in `source_documents` with the lines numbered 1..n. Choosing a different first receipt clears the extras. The buying editor only creates (a draft is not reopened), so there is no edit path. Phase 1 dialog unchanged. `docs/BACKLOG.md` §58. | PR pending | `desktop/test/purchase_bill_several_receipts_test.dart` |
-| D-DLG-2 | 2026-09-30 | Five deletes asked nothing and withdrew at once: price list, promotion, storage node / branch type / warehouse type, the x beside a customer group, and sales target. Each now asks through `showWorkspaceConfirmDialog` exactly as its sibling in the same file does (storage node, branch type and warehouse type share one `_confirmDelete` in `branch_warehouse_management_page.dart`; branch and warehouse already asked). | PR pending | `desktop/test/price_list_page_test.dart` (deleting a price list asks first), `promotion_page_test.dart` (retiring a promotion asks first), `sales_target_page_test.dart` (withdrawing a target asks first), `branch_warehouse_type_test.dart` (deleting a branch type asks first), `customer_group_dialog_delete_test.dart` |
-| D-DLG-5 | 2026-09-30 | "Retire this numbering series?" showed the literal text `${rule.name}`: the `$` was escaped in the string. Unescaped. | PR pending | `desktop/test/numbering_series_retire_test.dart` |
-| D-DLG-6 | 2026-09-30 | A server refusal on the batch, lot and serial forms was a SnackBar on the Scaffold behind the dialog's barrier, so nobody saw why Save did nothing. The refusal is now kept in state and drawn in the dialog above the fields, which stays open with what was typed; the message is cleared when Save is pressed again. | PR pending | `desktop/test/batch_form_refusal_test.dart` |
-| D-DLG-9 | 2026-09-30 | Seven password boxes (change password x3, reset password x2, the clone-user initial password, and the forced first-sign-in change, one helper used for two) had no show/hide; only the sign-in box did. One shared `PasswordField` (`desktop/lib/ui/workspace/password_field.dart`) carries the eye and replaces all of them. | PR pending | `desktop/test/change_password_dialog_test.dart` (every password box has a show/hide eye) |
-| D-DLG-10 | 2026-09-30 | E-invoice's own `_askReason` disposed its controller as the dialog closed (the bug `askForReason` records as fixed) and did not submit on Enter. It now calls the shared `askForReason`, which owns its controller and submits on Enter. | PR pending | `desktop/test/einvoice_page_test.dart` (the reason prompt is the shared one: Enter submits) |
-| D-FIN-23 | 2026-09-30 | The old credit note, `POST /customers/{id}/receivables/transactions` with `CREDIT_NOTE`, reduced a customer's balance with no output tax reversed (Dr 4100 / Cr 1100 for the whole amount). Every other type had been refused already (D-FIN-4), so the route is retired rather than narrowed: gone from the API, from `api_client.dart` and with it `DocumentPostingService.post_credit_note` and its two-leg purposes. A credit note is `/credit-notes`, which names the invoice line and reverses its tax. | PR pending | `test_settlements.py::test_a_balance_cannot_be_moved_by_hand_any_more` |
+| D-SELL-40 | 2026-09-30 | A bill typed straight in by a firm with its sales stages off now takes a coupon: `SalesInvoiceCreate` carries `coupon_code` and the synthesised order is priced with it. | #846 | `test_sales_chain_synthesis.py`, `test_promotions.py` |
+| D-SELL-41 | 2026-09-30 | A typed 0 free goods on an order line refuses a promotion's free goods; `free_quantity` is `Decimal | None` with no default, so blank and 0 are different answers again. | #846 | `test_promotions.py` |
+| D-SELL-42 | 2026-09-30 | The promotion screen offers every benefit, condition field and test the server supports (free product, free shipping, customer group, branch, salesman, document type, date; is one of / not one of / between / is set / is not set). | #846 | `desktop/test/promotion_page_test.dart` |
+| D-SELL-43 | 2026-09-30 | A quotation has a coupon box, so the quote shows the coupon's price and the order converted from it keeps it. | #846 | `test_quotation_module.py`, `desktop/test/phase2_quotation_editor_test.dart` |
+| D-CMP-22 | 2026-10-01 | An invoice line keeps the HSN/SAC it was billed under (`hsn_sac`, migration `20260930_0171`); GSTR-1's HSN summary, the e-invoice payload and the reprint read the line's code, falling back to the product's for lines written before. | #858 | `test_gst_returns.py`, `test_sales_chain_synthesis.py` |
+| D-DLG-1 | 2026-09-30 | The dialogs that closed on Save and left the call to the caller now save inside the dialog (`SaveInDialog`) and stay open with the server's message on a refusal. | #853 | `desktop/test/save_in_dialog_test.dart` and the screens' own tests |
+| D-DLG-3 | 2026-09-30 | The product import wizard is replaced by the file import (template, check, all or nothing in one transaction), so a failure part-way leaves nothing created and says why, by row and column. | #843 | `test_product_import_file.py`, `desktop/test/product_import_dialog_test.dart` |
+| D-FIN-22 | 2026-09-30 | A second year's trial balance opened every income and expense account at last year's closing balance, with no profit-brought-forward line. The stored balances run on across years on purpose -- the balance sheet computes earnings from them -- so the fix is in the reports that show an opening: the trial balance, the account ledger and the account summary take off what an income or expense account had run up before the financial year began, and the trial balance adds one equity row, **Profit and loss brought forward** (`P&L-BF`, no ledger account), so it still balances. No closing entry is posted and no stored row changes. | #850 | `test_finance_module.py::test_a_new_year_opens_income_at_zero_and_brings_the_profit_forward` |
+| D-DLG-4 | 2026-09-30 | The five tax masters (component, profile, country mapping, migration mapping, rule) are proper forms (`ui/tax/tax_master_forms.dart`, `tax_master_dialogs.dart`) in place of `_taxSimpleDialog`: human labels; drop-downs for every `*_id` (tax system, component, profile, country, business profile, loaded through the existing `taxSystems` / `taxComponents` / `taxProfiles` / `geoPlaces` / `businessProfiles` calls); switches for booleans; date pickers; a repeating-row editor for a profile's components and for a rule's conditions (operator-driven value box, list values as `value_json.values`) and actions, instead of JSON. The dialog owns its state (no leaked controllers), runs the save itself, keeps the form open with the server's message on a refusal and closes only on success. Every key sent is one the write schema declares. It also fixes two things the old dialog did silently: editing a profile sent `components: []` (wiping them) and editing a rule dropped list, date and boolean condition values; the records now carry the fields the forms send back. | #852 | `desktop/test/tax_master_forms_test.dart` (8) |
+| D-DLG-8 | 2026-09-30 | Phase 2's close guard (`phase2/document_tabs.dart`) noticed only typed characters. It now also snapshots every input in the document (text, switches, checkboxes, drop-downs, chips, segmented buttons, sliders, date boxes) at the first pointer or key press and compares with the inputs when a close is asked for, so a drop-down, switch or date-picker change warns and an untouched or restored document closes silently. No per-editor edits: nothing for an editor to forget. | #852 | `desktop/test/document_tabs_test.dart` (3 new) |
+| D-SELL-39 | 2026-09-30 | One invoice could not bill several delivery notes from any screen, though the server accepts them (each line names its own source). The phase 2 invoice editor now has **Also bill (same customer and branch)** beside the note picker: it offers only the other billable notes of the same customer and branch, adds their lines at what is left (each row names its note), takes them off again, prices and saves them as one bill with line numbers 1..n, and a draft made of several notes reopens with all of them (`_adoptExisting` groups the lines by source). Choosing a different primary note clears the extras. The salesman/territory/route check stays the server's. Phase 1 dialog unchanged. `docs/BACKLOG.md` §58 (items 1-3, 5-6; the printed bill, item 7, is still to build). | #844 | `desktop/test/sales_invoice_several_notes_test.dart` |
+| D-BUY-18 | 2026-09-30 | One supplier bill could not bill several goods receipts from any screen. The phase 2 bill editor now has **Also bill (same supplier and branch)**: it offers only the other completed receipts of the first receipt's supplier and branch, adds their lines at what each still has to be billed for (each row names its receipt), removes them again, and names every receipt in `source_documents` with the lines numbered 1..n. Choosing a different first receipt clears the extras. The buying editor only creates (a draft is not reopened), so there is no edit path. Phase 1 dialog unchanged. `docs/BACKLOG.md` §58. | #844 | `desktop/test/purchase_bill_several_receipts_test.dart` |
+| D-DLG-2 | 2026-09-30 | Five deletes asked nothing and withdrew at once: price list, promotion, storage node / branch type / warehouse type, the x beside a customer group, and sales target. Each now asks through `showWorkspaceConfirmDialog` exactly as its sibling in the same file does (storage node, branch type and warehouse type share one `_confirmDelete` in `branch_warehouse_management_page.dart`; branch and warehouse already asked). | #849 | `desktop/test/price_list_page_test.dart` (deleting a price list asks first), `promotion_page_test.dart` (retiring a promotion asks first), `sales_target_page_test.dart` (withdrawing a target asks first), `branch_warehouse_type_test.dart` (deleting a branch type asks first), `customer_group_dialog_delete_test.dart` |
+| D-DLG-5 | 2026-09-30 | "Retire this numbering series?" showed the literal text `${rule.name}`: the `$` was escaped in the string. Unescaped. | #849 | `desktop/test/numbering_series_retire_test.dart` |
+| D-DLG-6 | 2026-09-30 | A server refusal on the batch, lot and serial forms was a SnackBar on the Scaffold behind the dialog's barrier, so nobody saw why Save did nothing. The refusal is now kept in state and drawn in the dialog above the fields, which stays open with what was typed; the message is cleared when Save is pressed again. | #849 | `desktop/test/batch_form_refusal_test.dart` |
+| D-DLG-9 | 2026-09-30 | Seven password boxes (change password x3, reset password x2, the clone-user initial password, and the forced first-sign-in change, one helper used for two) had no show/hide; only the sign-in box did. One shared `PasswordField` (`desktop/lib/ui/workspace/password_field.dart`) carries the eye and replaces all of them. | #849 | `desktop/test/change_password_dialog_test.dart` (every password box has a show/hide eye) |
+| D-DLG-10 | 2026-09-30 | E-invoice's own `_askReason` disposed its controller as the dialog closed (the bug `askForReason` records as fixed) and did not submit on Enter. It now calls the shared `askForReason`, which owns its controller and submits on Enter. | #849 | `desktop/test/einvoice_page_test.dart` (the reason prompt is the shared one: Enter submits) |
+| D-FIN-23 | 2026-09-30 | The old credit note, `POST /customers/{id}/receivables/transactions` with `CREDIT_NOTE`, reduced a customer's balance with no output tax reversed (Dr 4100 / Cr 1100 for the whole amount). Every other type had been refused already (D-FIN-4), so the route is retired rather than narrowed: gone from the API, from `api_client.dart` and with it `DocumentPostingService.post_credit_note` and its two-leg purposes. A credit note is `/credit-notes`, which names the invoice line and reverses its tax. | #847 | `test_settlements.py::test_a_balance_cannot_be_moved_by_hand_any_more` |
 | D-BUY-19 | 2026-09-30 | A purchase order's `header_discount_amount` came off the grand total **after** tax, so it lowered no taxable value (input tax overstated by the tax on it), and the receipt and bill never inherited it (stock valued and supplier billed at the undiscounted price). It is now split across the order's lines before tax as `bill_discount_amount` (`apportion`, by value after each line's own discount), and each goods receipt, bill and return line inherits its share pro-rated by the quantity it covers (`inherited_share`), so stock, the payable, GRNI and the debit note all carry it. Migration `20260930_0165` adds the column on the four line tables; orders saved earlier keep their approved totals and pass nothing down, as before. The order print shows it as "Lines" then "Discount on bill". **Decided by Claude, industry standard:** a document-level trade discount reduces the taxable value (GST s.15(3)(a), discount shown on the invoice) and is inherited downstream as an amount pro-rated by quantity. | #837 | `test_purchase_header_discount.py` (3); `test_purchase_management.py` totals |
 | D-QA-4 | 2026-09-27 | Nothing backed up the database on a schedule; `backups\` filled only when Setup ran an upgrade. Setup now schedules *Agency Platform daily backup* (SYSTEM, 02:00, catch-up when the PC was off): an online `pg_dump -Fc` of every store into `backups\daily\<stamp>`, a `.complete` marker, the newest 7 kept, admin-only; a failed run keeps the earlier ones and is cleared next time. Checked against the live dev database (three runs, retention) and by restoring a dump into a fresh database (same counts). Restore steps in `docs/INSTALL_GUIDE.md` section 6. The task registering on a real install is to be seen on the next laptop round. | #812 | manual: BACKLOG section 45 |
 | D-QA-1 | 2026-09-27 | Minimize and maximize did not show. Two causes: a window size saved on one screen was restored on a smaller one (1550 px wide on 1536), putting the buttons past the screen's right edge; and on the white Windows 11 title bar their hover was nearly invisible. The saved size is now cut to the primary screen's work area and an off-screen position is re-centred (`desktop_window_controller.dart`); the title bar is drawn in the menu bar's dark colour with white text and buttons (`win32_window.cpp`, `DWMWA_CAPTION_COLOR`), and reads **Agency Platform**, the name moved there from the menu bar at the owner's request. BACKLOG section 47, option 1. Checked on this laptop by screenshot. | #771 | none automated (runner and window manager); `app_menu_bar_test.dart` for the menu bar |
@@ -316,7 +344,7 @@ order are `docs/BACKLOG.md` §73. Paths below are under `desktop/lib/`.
 | D-QA-3 | 2026-09-25 | The data folder `C:\ProgramData\Agency Platform` inherited ProgramData's permissions, so every local Windows user could read the raw database files, attachments and dumps, and so every firm's data without signing in. `server_setup.ps1` `Protect-DataRoot` now runs on every install and upgrade: no inheritance, Administrators and SYSTEM full, NetworkService modify on `pgdata` and `logs\database`, the server account modify on `logs` and `storage` (granted in `Register-ServerService`), users modify on `logs\client` and list-only on `logs`. Checked on a scratch folder that the inherited `Users` entry leaves the files and `logs\client` keeps its grant; not yet checked on an install. | #659 | `test_installer_locks_data_folder.py` |
 | D-QA-5 | 2026-09-25 | The **Opening Stock** dialog had no unit cost, batch or expiry field, so day-one stock was valued at zero (and a batch-tracked product could not be loaded at all), although the backend always accepted all three. The line now has **Unit cost** (starting from the product's purchase price), **Batch number** and **Expiry date**; a batch-tracked product without a batch is refused on the form; a line with no cost is saved only on a second press of Save, after the dialog says it will be valued at zero and post nothing. The line response now returns `unit_cost`, so reopening a draft no longer drops it on the replace-on-update. | #658 | `desktop/test/opening_stock_cost_test.dart`; `test_opening_stock_is_credited_to_equity` |
 | D-QA-17 | 2026-09-25 | Approving a sales order converted from a quotation reserved 4 × QA-P1 in **STORE2** (holding none, available -4) while MAIN held 10. **Root cause, desktop:** `GET /warehouses` lists newest first, and the quotation editor defaulted its branch and warehouse to the first of each list, so the hand-added STORE2 became where every new quote shipped from. The conversion copied it and approval reserved there, correctly, because that is what the order named. The "no warehouse" seen on the laptop was the order view: its header never passed the branch or warehouse, so it printed `-` for every order. The server was never guessing: `warehouse_id` is required and NOT NULL on the quotation and order headers, validated against the branch, and a line with none takes the header's; the MAIN made by the Set up panel is `is_default`. **Fix:** one rule, `preferredBranchId` / `preferredWarehouseId` (`desktop/lib/models/branch_warehouse.dart`): the firm's default branch and *that branch's* default warehouse, the only one when there is one, otherwise nothing, and the form asks ("Choose a warehouse."). The quotation and sales order editors use it, and changing the branch re-picks that branch's warehouse (the quotation offers only that branch's). The purchase order and sales return editors took the first (newest) warehouse the same way and now take the default too; the purchase form keeps the first only where no default is marked, because it displays the first item of an unset field. The sales order view prints its branch and warehouse, the invoice view its branch. **Decided by Claude, industry standard:** a document's warehouse defaults from configuration (the branch's default) and is otherwise chosen, never taken from list order; the server keeps requiring it, so nothing downstream ever guesses. An approved order cannot be edited, so a tester's order already on STORE2 is repaired by cancelling it (which releases the reservation) and raising the order again directly (a quotation converts once). Approval still reserving beyond on-hand is the back-order design (the shortfall report lists it), not changed here. | #657 | `desktop/test/document_warehouse_default_test.dart` (all five); `test_quotation_module.py::test_approving_a_converted_order_reserves_in_the_quoted_warehouse`, `::test_a_quotation_must_name_where_it_ships_from` |
-| D-SETUP-9 | 2026-09-30 | Both ports were fixed (5433, 8000) and nothing asked or checked, so a PC where either was taken failed at "did not answer" without naming the port. The database now takes the first free port of 5433-5440 on a fresh install and an upgrade reads it back from its own `postgresql.conf`; a **Ports** page asks for the server port (default 8000), checked free on Next by `server_setup.ps1 -Action CheckPort`, which names the program holding it, and checked again before the service is written. Both are kept in `ports.json`; the port reaches the service definition, the firewall rule (renamed `AgencyPlatformServer-TCP`, the old name removed), the health wait and `branding.json`. Our own database is recognised by `.env` pointing at localhost on any port of the range. Driven: `CheckPort` exits 0 on a free port and 3 naming `pycharm64.exe` on a held one; the .iss compiles. Not yet driven by a full install. | PR pending | none automated -- installer QA rows A15a, A15b in `docs/INSTALLER_QA_CHECKLIST.md` |
+| D-SETUP-9 | 2026-09-30 | Both ports were fixed (5433, 8000) and nothing asked or checked, so a PC where either was taken failed at "did not answer" without naming the port. The database now takes the first free port of 5433-5440 on a fresh install and an upgrade reads it back from its own `postgresql.conf`; a **Ports** page asks for the server port (default 8000), checked free on Next by `server_setup.ps1 -Action CheckPort`, which names the program holding it, and checked again before the service is written. Both are kept in `ports.json`; the port reaches the service definition, the firewall rule (renamed `AgencyPlatformServer-TCP`, the old name removed), the health wait and `branding.json`. Our own database is recognised by `.env` pointing at localhost on any port of the range. Driven: `CheckPort` exits 0 on a free port and 3 naming `pycharm64.exe` on a held one; the .iss compiles. Not yet driven by a full install. | #845 | none automated -- installer QA rows A15a, A15b in `docs/INSTALLER_QA_CHECKLIST.md` |
 | D-SETUP-6 | 2026-09-25 | The compiled server could not import its own response model: Nuitka 4.2.1 compiles `class ApiResponse[PayloadT](BaseModel)` (PEP 695) with the type parameter left in the class body, and pydantic refuses it (`A non-annotated attribute was detected`). Found by the first laptop install (service registered, `/health` never answered); reproduced in isolation -- `type` aliases and generic functions compile and run, any PEP 695 *class* leaks the attribute. `ApiResponse`, `PaginatedResponse`, `ReportRows` and `BaseRepository` now use `TypeVar` + `Generic[T]`. | #652 | `test_no_generic_class_syntax.py` (AST: no class under `app/` carries type parameters) |
 | D-SETUP-7 | 2026-09-25 | The release check's only proof that the binary starts was `--version`, which imports none of the application, so D-SETUP-6 passed the build and failed on the customer. `agency-server check` builds the application and its OpenAPI document (512 paths) with no database, and `build_installer.ps1` runs it on the compiled binary and stops on anything but `ok:`. | #652 | the build itself; `test_cli_entry_point.py` |
 | D-SETUP-8 | 2026-09-25 | Running Setup again after a first install that stopped before the server answered said "upgraded ... sign in as before" and wrote no `first-login.txt`, because `install.ps1` keeps an existing `.env` and prints no password. Nobody can have changed the bootstrap password without a running server, so `server_setup.ps1` now shows it again from `config\.env` whenever the ready marker is absent. | #652 | checklist case D0; read of `Invoke-Server` |

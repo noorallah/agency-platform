@@ -2834,7 +2834,9 @@ permission codes' worth, and never had.
 
 ---
 
-## 36. Onboarding a firm from its previous tool
+## 36. Onboarding a firm from its previous tool -- opening position built 2026-10-01
+
+**Status, 2026-10-01: the opening position can be loaded from files.** The four gaps below are closed by the shared import framework (`app/common/file_import.py`: template, check with every problem by row and column, all-or-nothing apply, update by code) and these imports: products (#843), customers (#851), suppliers (#861), supplier opening bills (#841) and customer opening bills (#855) bill by bill, the opening trial balance on a cutover date (#842), and opening stock with batches (#862). An item's opening stock is posted once, on the form and from the file alike (decided 2026-10-01); a second document for a warehouse is allowed for what was missed. Left: Tally XML import, and an *Opening balances* step on the firm's Set up panel that walks through them in order.
 
 Raised 2026-09-16. **Everything here is a provisional recommendation, not a
 decision** -- how much data comes across, and who converts it, are still open.
@@ -3655,6 +3657,8 @@ folder on the next run; the folder ACL is admin-only.
 
 ## 46. Import products, customers and vendors from a file, with templates -- built 2026-09-30
 
+**Status, 2026-10-01:** products #843, customers #851, suppliers #861, opening stock #862 -- all merged, on `app/common/file_import.py`.
+
 **Products: built 2026-09-30.** `GET /api/v1/products/import-template`
 (XLSX with Products, Notes and Lists sheets -- the Lists sheet carries the
 firm's own categories, units and tax groups -- or CSV) and
@@ -4128,7 +4132,9 @@ Receivable* under Chart of Accounts, record the payment or receipt for the
 net amount, and a journal entry for the TDS part -- debit the supplier, credit
 TDS Payable; or debit TDS Receivable, credit the customer.
 
-## 54. Trade licences: the firm's, the customer's, and the goods that need them -- HIGH PRIORITY
+## 54. Trade licences: the firm's, the customer's, and the goods that need them -- built 2026-09-30
+
+**Status, 2026-10-01: all five steps built.** Licence types, the register for firm/branch, customers and suppliers, printing, the Home expiry alert and the desktop screens (#839); the required licence on category and product, the sale check (warn by default, block by policy, override permission with a reason) and the purchase check (#840).
 
 **Priority (owner, 2026-09-27): high, depending on the trade of the first
 go-live firms.**
@@ -4322,6 +4328,8 @@ entry, S10 §44 and §37, S13 §43, G1 §54, G2 §53, G3 §52, N3 §42.14, N4
 
 ## 56. Bulk approval, migration from other tools, and data over the years -- HIGH PRIORITY
 
+**Status, 2026-10-01.** *A -- bulk approval:* sales and purchase orders built (#864): `POST .../bulk-approve` and `.../bulk-cancel` (a reason), up to 100 rows, each row through the single action's service and committed on its own, refusals reported per row with *Retry the refused*; `run_each` in `app/document_framework/services/bulk_actions.py` is the pattern for invoices, credit notes, returns and journals next. Neither order has a *reject* transition, so the second action is Cancel with a reason. *B -- migration:* see §36 and §46. *C -- performance:* steps 1-3 and 5 merged (#854, #856, #857, #859), step 4 in #860 and a second part after it; results in `docs/PERFORMANCE_AT_VOLUME.md`. *Year-end close:* built (#865) -- close refuses while a period is open or a draft journal is dated in the year, then locks; reopen needs `FINANCIAL_YEAR_REOPEN` and a reason. **No closing entry is posted** (decided 2026-10-01, as Tally does): the balance sheet already derives retained earnings and the trial balance brings profit forward (D-FIN-22).
+
 Owner, 2026-09-27: three streams to run in parallel, designed from how
 Tally, BUSY, Marg, Vyapar, Zoho, Odoo and ERPNext do it. **The design is
 `docs/BULK_APPROVAL_MIGRATION_AND_YEAR_DATA.md`**; this entry is the plan.
@@ -4350,7 +4358,9 @@ Tally, BUSY, Marg, Vyapar, Zoho, Odoo and ERPNext do it. **The design is
 Targets for C: a list opens in under 1 second, a report in under 3, on the
 minimum hardware.
 
-## 57. Settings gear: the Selling section
+## 57. Settings gear: the Selling section -- built 2026-10-01
+
+**Status, 2026-10-01: built (#863).** Sales Stages, Credit Control, Loyalty Scheme and TCS Settings behind the gear and in Ctrl+K, each opening the dialog its screen's ... menu opens, which still offers it.
 
 Noticed on 2026-09-28, discussing the sales chain with the owner.
 
@@ -4385,7 +4395,9 @@ built"), never here, so nothing on the work list carried it.
 No backend work: the endpoints exist. `test/menu_layout_test.dart` and the
 phase 2 menu tests are what to extend.
 
-## 58. One invoice for several delivery notes (D-SELL-39)
+## 58. One invoice for several delivery notes (D-SELL-39) -- built 2026-09-30
+
+**Status, 2026-10-01:** items 1-3, 5 and 6 built (#844), for supplier bills against several goods receipts too (D-BUY-18). Item 7, the printed bill naming every note, is still to build.
 
 Noticed on 2026-09-28, discussing the sales chain with the owner.
 
