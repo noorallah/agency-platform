@@ -64,12 +64,81 @@ Already right: trial balance, P&L and balance sheet read the maintained
 | 1 | Stop loading movement histories; indexes for the hot look-ups and sorts | Done |
 | 2 | Chunk every large id list; summaries and outstanding in SQL | Done (#856) |
 | 3 | Build each list page in bulk, same response | Done: every document list, settlements, the inventory list/movements/ledger and the journal list read each child table and each name once per page (`children_by_parent` in `app/core/database/batch.py`, a `*_responses(rows)` per module that the single-row builder calls with `[row]`); the inventory export builds each row once, not once per column. At 12 rows a sales-invoice page went from 148 statements to 13, a purchase-invoice page from 170 to 10, and no page grows with its length -- `tests/unit/test_list_pages_are_batched.py` pins that and that every row equals the document built alone. Left: opening-stock batches (lines and names per line, rarely listed) |
-| 4 | SQL grouping for the report families; set-based back-dated carry | |
+| 4 | SQL grouping for the report families; set-based back-dated carry | Reports done (#860 and its second part); set-based back-dated carry and global search left -- see "Step 4" below |
 | 5 | Measure: a bulk seeder at the target volume and a timing script over every list and report route, run on the minimum hardware | Tools done; first run below (dev machine, not yet the minimum hardware) |
 
 `scripts/generate_transaction_history.py` makes about 60 invoices per firm and
 has no volume setting, so it cannot show any of this; step 5 is a separate
 seeder that inserts rows directly.
+
+## Step 4: the slow reports (2026-10-01)
+
+Targets came from the first PERF01 run below. What each fix was:
+
+- **Firm-wide sums ask once.** `settled_against` and `credited_against`
+  (what has come off a sales invoice) accept `None` for "every invoice", and
+  `whole_past_a_chunk` (`app/core/utils/chunks.py`) answers any call naming
+  more ids than one chunk by grouping over the firm once and keeping the ids
+  asked. Twenty statements of 5,000 binds spent most of their time having the
+  ids parsed. Record Receipt's list, overdue, customer outstanding, the
+  invoice summary, the ageing, net sales for commission and loyalty all gain.
+- **Read the columns shown, not the rows.** The outstanding list, the
+  overdue reports, GSTR's lines and taxes, customer and supplier names.
+  Products and customers read for a report skip their eager collections
+  (`lazyload("*")`): loading addresses and media cost as much as the rows.
+- **Group in SQL**: delivery notes and sales orders by route, salesman,
+  warehouse, customer and territory; purchases by product.
+- **Paged and windowed reconciliations.** The sales- and purchase-invoice
+  reconciliations take a period (on the bill date) and page in SQL, as the
+  sales-return one already did; the desktop asks for the period. The window
+  picks the source lines billed in it, the sums run over every bill of them.
+- **Counting, not building.** The invoice and bill summaries counted their
+  overdue tile by building the whole overdue report.
+- **Only where a rule can pay.** The commission report priced every line of
+  the period although money with no salesman earns nothing and a firm with
+  no rule pays nothing.
+- **The year read once.** TCS charged-versus-due read each buyer's receipts
+  twice over; it reads the year once and replays each buyer.
+- **GSTR-1 and 3B cover at most three months** (decided 2026-10-01): they are
+  filed monthly or quarterly under QRMP, and a year -- GSTR-9's job -- was
+  still 45 s of arithmetic over 280,000 lines after the reads were fixed.
+
+Re-timed through `scripts/time_routes.py` on the same machine (median of
+three, ms):
+
+| Route | Before | After |
+| --- | ---: | ---: |
+| `/sales-invoices/reports/reconciliation` | 95,531 | 2,246 |
+| `/gst-returns/gstr1` (year) | 63,527 | refused: a quarter at most |
+| `/gst-returns/gstr1` (month) | 6,514 | 4,356 |
+| `/gst-returns/gstr3b` (month) | 5,435 | 3,757 |
+| `/inventory/opening-stock` | 53,519 | 2,003 |
+| `/sales-invoices/reports/summary` | 46,298 | 3,966 |
+| `/sales-invoices/reports/overdue` | 16,129 | 4,766 |
+| `/sales-invoices/reports/customer-outstanding` | 15,690 | 4,518 |
+| `/commission/report` (year) | 12,573 | 3,015 |
+| `/tcs/reports/charged-versus-due` | 8,273 | 1,048 |
+| `/customers/ageing` | 7,232 | 3,821 |
+
+The second part was timed by calling the service directly under `cProfile`
+(slower than the route, so these are upper bounds):
+
+| Report | Before | After |
+| --- | ---: | ---: |
+| Delivery notes by warehouse / salesman / route (year) | 4,345 / 4,223 / 4,153 | 330 |
+| Sales orders by customer (year) | 4,644 | 640 |
+| Purchase-invoice reconciliation (first page) | 5,270 | 350 |
+| Purchases by product (year) | 3,620 | 310 |
+| Purchase-invoice summary | 3,010 | 1,830 |
+
+**Still over target:** GSTR-1 and 3B for a month (about 4 s: Python
+arithmetic over 23,000 lines), the reports that read what every open bill
+owes (about 4 s -- `outstanding_invoices` derives it rather than storing it,
+deliberately), global search (3.5 s: `ILIKE '%term%'` over every module needs
+trigram indexes, a migration of its own), billable (1.4 s) and control
+accounts (1.1 s). The six `/business-framework` 403s in the first run are not
+a finding: those routes are platform-only by design (`test_platform_only_routes.py`)
+and a firm administrator reads `/active-features` and `/active-modules`.
 
 ## Step 5: measuring
 
