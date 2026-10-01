@@ -35,8 +35,7 @@ Full write-ups: PR #435 and `docs/DATA_TRAIL_BY_OPERATION.md` §9.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
-
-None open (2026-10-01).
+| D-BUY-20 | High | A return or debit note off a bill that is already paid leaves what the supplier now owes the firm untracked. `outstanding_invoices` drops a bill once its returns and payments exceed its total, and `supplier_credits` counts only returns raised off the goods receipt, so the excess sits in payables belonging to no credit: it cannot be set against the next bill or refunded (§69 row 7). | Code, 2026-10-02 |
 
 ### Stock -- found writing the Stock data trail, 2026-09-18
 
