@@ -38,6 +38,12 @@ Full write-ups: PR #435 and `docs/DATA_TRAIL_BY_OPERATION.md` §9.
 
 None open (2026-10-02).
 
+### Tax -- found reviewing purchases under GST, 2026-10-02
+
+| Id | Severity | Summary | Evidence |
+| --- | --- | --- | --- |
+| D-TAX-1 | High | A tax rule's *Input credit blocked* action does nothing: `TaxRuleService.simulate` sets `input_credit_allowed = False` and no caller reads it, so a purchase of blocked goods (a car, catering) still debits input tax and GSTR-3B claims the credit. Fixed by §78 row 1. | Code, 2026-10-02 (`grep -rn input_credit_allowed app` finds only the engine) |
+
 ### Stock -- found writing the Stock data trail, 2026-09-18
 
 Full write-ups: the PR that added `docs/DATA_TRAIL_BY_OPERATION.md` §10, and
