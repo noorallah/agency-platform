@@ -368,6 +368,46 @@ class PurchaseWorkflowSettings(BaseEntity):
     )
 
 
+class ReorderPlanningSettings(BaseEntity):
+    """How one firm decides what to reorder (backlog 69 row 12, decision A39).
+
+    ``LEVELS`` -- the default, and how reorder suggestions have always worked
+    -- orders up to the reorder and maximum levels typed on each stock row.
+    ``SALES`` derives a level for every product nobody typed one for, from
+    what it actually sold: the net quantity dispatched to customers (less
+    their returns) over the last ``sales_window_days``, as a daily rate. It is
+    reordered when available stock falls to the rate times the lead time plus
+    the safety days, and ordered up to that plus ``cover_days`` -- a month's
+    stock, by default, which is "keep a month's minimum and replace what was
+    sold". A level typed on a product always wins over the derived one.
+
+    Firm-wide lead time until suppliers carry their own (backlog 69 row 3).
+    """
+
+    __tablename__ = "reorder_planning_settings"
+    __table_args__ = (
+        UniqueConstraint("firm_id", name="UQ_reorder_planning_settings_firm"),
+    )
+
+    #: No foreign key: `firms` lives only in the platform schema.
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    basis: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="LEVELS", server_default="LEVELS"
+    )
+    sales_window_days: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=90, server_default="90"
+    )
+    lead_time_days: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=7, server_default="7"
+    )
+    safety_days: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=7, server_default="7"
+    )
+    cover_days: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=30, server_default="30"
+    )
+
+
 class RolePurchaseApprovalLimit(BaseEntity):
     """The largest purchase order one role may approve, in one firm.
 

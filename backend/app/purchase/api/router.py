@@ -67,7 +67,11 @@ from app.purchase.services.approval_limit import PurchaseApprovalLimitService
 from app.purchase.services.purchase_print_service import (
     PurchaseOrderPrintService,
 )
-from app.purchase.services.reorder import ReorderPick, ReorderService
+from app.purchase.services.reorder import (
+    PlanningSettings,
+    ReorderPick,
+    ReorderService,
+)
 from app.purchase.services.workflow_settings_service import PurchaseWorkflowService
 
 router = APIRouter(
@@ -540,6 +544,35 @@ class BelowReorderRecord(BaseModel):
     supplier_id: UUID | None
     supplier_name: str | None
     unit_price: Decimal
+    #: LEVEL (typed on the stock row) or SALES (derived from what sold, when
+    #: the firm plans on sales -- backlog 69 row 12).
+    basis: str = "LEVEL"
+    average_daily_sales: Decimal | None = None
+
+
+class ReorderPlanningResponse(BaseModel):
+    """How the firm decides what to reorder (backlog 69 row 12, A39)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    basis: Literal["LEVELS", "SALES"]
+    sales_window_days: int
+    lead_time_days: int
+    safety_days: int
+    cover_days: int
+    is_configured: bool
+
+
+class ReorderPlanningWrite(BaseModel):
+    """Replace the firm's reorder planning; every figure is sent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    basis: Literal["LEVELS", "SALES"]
+    sales_window_days: int = Field(ge=7, le=365)
+    lead_time_days: int = Field(ge=0, le=365)
+    safety_days: int = Field(ge=0, le=365)
+    cover_days: int = Field(ge=1, le=365)
 
 
 class ReorderPickWrite(BaseModel):
@@ -609,6 +642,38 @@ def raise_reorder_drafts(
         data=PurchaseService(db).order_responses(orders),
         message=f"{len(orders)} draft purchase order(s) raised.",
     )
+
+
+# Declared above `/{order_id}` for the same reason as the settings above.
+@router.get(
+    "/reorder-planning",
+    response_model=ApiResponse[ReorderPlanningResponse],
+)
+def get_reorder_planning(
+    scope: PurchaseReportScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[ReorderPlanningResponse]:
+    """Report whether reordering follows typed levels or sales (69.12)."""
+    planning = ReorderService(db).planning(scope.firm_id)
+    return ApiResponse(data=ReorderPlanningResponse.model_validate(planning))
+
+
+@router.put(
+    "/reorder-planning",
+    response_model=ApiResponse[ReorderPlanningResponse],
+)
+def update_reorder_planning(
+    data: ReorderPlanningWrite,
+    scope: PurchaseWorkflowSettingsScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[ReorderPlanningResponse]:
+    """Replace how this firm decides what to reorder (69.12)."""
+    planning = ReorderService(db).save_planning(
+        scope.firm_id,
+        PlanningSettings(**data.model_dump()),
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(data=ReorderPlanningResponse.model_validate(planning))
 
 
 @router.post("/bulk-approve", response_model=ApiResponse[BulkActionResult])
