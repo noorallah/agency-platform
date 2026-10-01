@@ -45,6 +45,18 @@ _PATH_LITERAL = re.compile(r"""['"](/api/v1/[^'"\s]*)['"]""")
 #: literal is read out or the literal appears to end inside it.
 _INTERPOLATION = re.compile(r"\$\{[^{}]*\}")
 
+#: Reasons shared by many pinned routes (D-GOLIVE-2 triage, 2026-10-01).
+_API_SURFACE = (
+    "scripted migration and integration surface: a JSON batch, all or "
+    "nothing; the screens bring opening balances from files (`import-file`, "
+    "§36), and history stays in the old tool (§56 B)"
+)
+_MACHINE_EXPORT = (
+    "machine export for integrations; the desktop's lists export what they "
+    "show from the grid"
+)
+_SCREEN_GAP = "a screen gap, recorded in docs/BACKLOG.md §76 (D-GOLIVE-2 triage)"
+
 #: Routes deliberately left without a desktop caller, and why. Every entry has
 #: been looked at; if one of these ever gains a screen, delete its line.
 #:
@@ -66,6 +78,64 @@ _ACCEPTED: dict[str, str] = {
     "PUT /api/v1/sales-territories/addresses/{owner_type}/{owner_id}": (
         "superseded by the per-module address forms"
     ),
+    "POST /api/v1/customers/import": _API_SURFACE,
+    "POST /api/v1/vendors/import": _API_SURFACE,
+    "POST /api/v1/products/import": _API_SURFACE,
+    "POST /api/v1/customers/opening-bills/import": _API_SURFACE,
+    "POST /api/v1/vendors/opening-bills/import": _API_SURFACE,
+    "POST /api/v1/inventory/opening-stock/import": _API_SURFACE,
+    "POST /api/v1/delivery-notes/import": _API_SURFACE,
+    "POST /api/v1/goods-receipts/import": _API_SURFACE,
+    "POST /api/v1/purchase-invoices/import": _API_SURFACE,
+    "POST /api/v1/purchase-returns/import": _API_SURFACE,
+    "POST /api/v1/quotations/import": _API_SURFACE,
+    "POST /api/v1/sales-invoices/import": _API_SURFACE,
+    "POST /api/v1/sales-orders/import": _API_SURFACE,
+    "POST /api/v1/sales-returns/import": _API_SURFACE,
+    "POST /api/v1/tax-framework/legacy/import-csv": _API_SURFACE,
+    "POST /api/v1/tax-framework/rules/import": _API_SURFACE,
+    "POST /api/v1/tax-framework/systems/import": _API_SURFACE,
+    "GET /api/v1/delivery-notes/export": _MACHINE_EXPORT,
+    "GET /api/v1/goods-receipts/export": _MACHINE_EXPORT,
+    "GET /api/v1/purchase-invoices/export": _MACHINE_EXPORT,
+    "GET /api/v1/purchase-returns/export": _MACHINE_EXPORT,
+    "GET /api/v1/quotations/export": _MACHINE_EXPORT,
+    "GET /api/v1/sales-invoices/export/csv": _MACHINE_EXPORT,
+    "GET /api/v1/sales-orders/export": _MACHINE_EXPORT,
+    "GET /api/v1/sales-returns/export": _MACHINE_EXPORT,
+    "GET /api/v1/tax-framework/rules/export": _MACHINE_EXPORT,
+    "GET /api/v1/tax-framework/systems/export": _MACHINE_EXPORT,
+    "GET /api/v1/finance/account-summaries": (
+        "superseded by the trial balance, which answers the same per-account "
+        "balances with opening and movement"
+    ),
+    "POST /api/v1/uom-framework/convert": (
+        "every document converts on the server through `convert_quantity`; "
+        "a client never asks"
+    ),
+    "POST /api/v1/branches/bulk-status": _SCREEN_GAP,
+    "POST /api/v1/warehouses/bulk-status": _SCREEN_GAP,
+    "POST /api/v1/vendors/bulk-status": _SCREEN_GAP,
+    "POST /api/v1/vendors/bulk-category": _SCREEN_GAP,
+    "POST /api/v1/vendors/bulk-profile": _SCREEN_GAP,
+    "POST /api/v1/tax-framework/components/bulk-delete": _SCREEN_GAP,
+    "POST /api/v1/tax-framework/components/bulk-restore": _SCREEN_GAP,
+    "POST /api/v1/tax-framework/profiles/bulk-delete": _SCREEN_GAP,
+    "POST /api/v1/tax-framework/profiles/bulk-restore": _SCREEN_GAP,
+    "POST /api/v1/tax-framework/profiles/bulk-status": _SCREEN_GAP,
+    "POST /api/v1/tax-framework/systems/bulk-delete": _SCREEN_GAP,
+    "POST /api/v1/tax-framework/systems/bulk-restore": _SCREEN_GAP,
+    "GET /api/v1/document-framework/document-states": _SCREEN_GAP,
+    "POST /api/v1/document-framework/document-states": _SCREEN_GAP,
+    "PUT /api/v1/document-framework/document-states/{state_id}": _SCREEN_GAP,
+    "DELETE /api/v1/document-framework/document-states/{state_id}": _SCREEN_GAP,
+    "PUT /api/v1/document-framework/document-types/{document_type_id}": _SCREEN_GAP,
+    "DELETE /api/v1/document-framework/document-types/{document_type_id}": _SCREEN_GAP,
+    "PATCH /api/v1/finance/financial-years/{year_id}": _SCREEN_GAP,
+    "DELETE /api/v1/finance/financial-years/{year_id}": _SCREEN_GAP,
+    "GET /api/v1/branch-warehouse/settings": _SCREEN_GAP,
+    "GET /api/v1/inventory/summary/by-product": _SCREEN_GAP,
+    "GET /api/v1/sales-returns/summary": _SCREEN_GAP,
 }
 
 
@@ -89,49 +159,105 @@ def _served() -> tuple[tuple[str, str], ...]:
     return tuple(sorted(served))
 
 
-def _segments(path: str) -> tuple[str, ...]:
-    """Split a route or a call, with everything variable reduced to a hole.
+#: A call segment filled from a variable named like an id: it names one
+#: record, so it can stand only where the route has a placeholder -- never for
+#: a literal like `opening-bills` (D-GOLIVE-2).
+_ID_VARIABLE = re.compile(r"^(id|[A-Za-z_]*Id|[a-z_]*_id)$")
+#: A desktop string literal that may be a resource name a generic helper is
+#: handed (`'vendors/categories'`, `'sales-returns'`).
+_RESOURCE_LITERAL = re.compile(r"'([a-z][a-z0-9-]*(?:/[a-z0-9-]+)*)'")
+#: The literal `path:` arguments the summary helper is called with.
+_PATH_ARGUMENT = re.compile(r"path: '([a-z/-]+)'")
+#: Matches one segment or several: a generic `$resource` may be
+#: `vendors/categories`.
+_ANY = r"[^/]+(?:/[^/]+)*"
+#: A route placeholder, as the route side is written for matching.
+_HOLE = "\x00"
 
-    A route's `{customer_id}` and a call's `$id` are both holes, and a segment
-    the desktop interpolates entirely (`'/api/v1/$resource'`) is a hole too --
-    which is exactly what lets one generic helper reach many resources.
+
+def _call_pattern(path: str) -> re.Pattern[str]:
+    """Turn one desktop path literal into a pattern over route paths.
+
+    An id-named variable matches only a route placeholder; any other
+    variable or interpolation matches one or more segments of anything.
     """
-    path = _INTERPOLATION.sub("{}", path).split("?", 1)[0].strip("/")
-    path = re.sub(r"\$[A-Za-z_][A-Za-z0-9_.]*", "{}", path)
-    return tuple(
-        "{}" if part.startswith("{") and part.endswith("}") else part
-        for part in path.split("/")
-    )
+    parts: list[str] = []
+    for segment in path.split("?", 1)[0].strip("/").split("/"):
+        if "${" in segment:
+            parts.append(_ANY)
+            continue
+        if segment.startswith("$"):
+            matched = re.match(r"\$([A-Za-z_][A-Za-z0-9_]*)", segment)
+            name = matched.group(1) if matched else ""
+            rest = segment[len(name) + 1 :]
+            if _ID_VARIABLE.match(name) and not rest:
+                parts.append(_HOLE)
+            else:
+                parts.append(_ANY + re.escape(rest))
+            continue
+        parts.append(re.escape(segment))
+    return re.compile("^" + "/".join(parts) + "$")
+
+
+def _is_generic(path: str) -> bool:
+    """Say whether a literal has no fixed segment after `/api/v1/`."""
+    segments = path.split("?", 1)[0].strip("/").split("/")[2:]
+    return all(seg.startswith("$") or "${" in seg for seg in segments)
 
 
 @lru_cache(maxsize=1)
-def _call_shapes() -> tuple[tuple[str, ...], ...]:
-    """Return the segment shape of every `/api/v1/...` literal in the desktop."""
-    shapes: set[tuple[str, ...]] = set()
-    for source in sorted(_DESKTOP.rglob("*.dart")):
-        text = _INTERPOLATION.sub("{}", source.read_text(encoding="utf-8"))
-        for match in _PATH_LITERAL.finditer(text):
-            shapes.add(_segments(match.group(1)))
-    return tuple(sorted(shapes))
+def _call_patterns() -> tuple[re.Pattern[str], ...]:
+    """Return a pattern for every path the desktop can build.
+
+    A fully generic helper -- `'/api/v1/$resource/$id'` -- could reach any
+    route at all, which is how two unscreened routes passed this guard
+    (D-GOLIVE-2). So it is not taken as written: it is expanded with every
+    resource name the desktop actually hands such helpers (string literals
+    that are the prefix of a real route) and with the literal `path:`
+    arguments, and only those count.
+    """
+    sources = [
+        source.read_text(encoding="utf-8")
+        for source in sorted(_DESKTOP.rglob("*.dart"))
+    ]
+    literals: set[str] = set()
+    for text in sources:
+        # Flattened first: an interpolation can hold quotes of its own, and
+        # the literal would appear to end inside it.
+        flat = _INTERPOLATION.sub("${x}", text)
+        literals |= {match.group(1) for match in _PATH_LITERAL.finditer(flat)}
+    prefixes = {path[len("/api/v1/") :] for _, path in _served()}
+    resources = sorted(
+        {
+            literal
+            for text in sources
+            for literal in _RESOURCE_LITERAL.findall(text)
+            if any(p == literal or p.startswith(literal + "/") for p in prefixes)
+        }
+    )
+    paths = {"summary"} | {
+        argument for text in sources for argument in _PATH_ARGUMENT.findall(text)
+    }
+    templates: list[str] = []
+    for resource in resources:
+        templates += [
+            f"/api/v1/{resource}",
+            f"/api/v1/{resource}/$id",
+            f"/api/v1/{resource}/$id/${{action}}",
+            *(f"/api/v1/{resource}/{path}" for path in sorted(paths)),
+        ]
+    return tuple(
+        _call_pattern(path)
+        for path in [*sorted(p for p in literals if not _is_generic(p)), *templates]
+    )
 
 
 def _is_reachable(path: str) -> bool:
-    """Report whether some path the desktop builds could resolve to this route.
-
-    A hole on the *call* side matches any segment, because that is what a
-    generic helper such as `documentAction` does. A hole on the route side
-    matches a hole or whatever the caller filled in.
-    """
-    route = _segments(path)
-    for shape in _call_shapes():
-        if len(shape) != len(route):
-            continue
-        if all(
-            call == "{}" or part == "{}" or call == part
-            for call, part in zip(shape, route, strict=True)
-        ):
-            return True
-    return False
+    """Report whether some path the desktop builds could resolve to this route."""
+    route = "/".join(
+        _HOLE if part.startswith("{") else part for part in path.strip("/").split("/")
+    )
+    return any(pattern.match(route) for pattern in _call_patterns())
 
 
 @pytest.mark.skipif(not _API_CLIENT.exists(), reason="desktop tree not present")
@@ -139,7 +265,7 @@ def test_every_route_is_reachable_or_accepted() -> None:
     orphans = {
         f"{method} {path}" for method, path in _served() if not _is_reachable(path)
     }
-    assert len(_call_shapes()) > 100, "the scan found almost nothing -- shape moved"
+    assert len(_call_patterns()) > 100, "the scan found almost nothing -- shape moved"
 
     unexplained = sorted(orphans - set(_ACCEPTED))
     assert not unexplained, (

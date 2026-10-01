@@ -560,6 +560,12 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['EINVOICE_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'sales-analysis',
+          label: 'Sales Analysis',
+          requiredPermissions: ['SALES_VIEW', 'REPORT_VIEW'],
+          requiresAnyPermission: true,
+        ),
+        ModuleTabDefinition(
           id: 'gst-returns',
           label: 'GST Returns',
           requiredPermissions: ['SALES_VIEW'],
