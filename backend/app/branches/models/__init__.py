@@ -9,6 +9,7 @@ from app.branches.models.branch_warehouse import (
     WarehouseStorageNode,
     WarehouseType,
 )
+from app.branches.models.user_work_default import UserWorkDefault
 
 __all__ = [
     "Branch",
@@ -17,5 +18,6 @@ __all__ = [
     "Warehouse",
     "WarehouseAttributeValue",
     "WarehouseStorageNode",
+    "UserWorkDefault",
     "WarehouseType",
 ]

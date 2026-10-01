@@ -17,7 +17,10 @@ fails the build if a module under ``app/*/models/`` is missing.
 """
 
 from app.batch_serial.models import batch_serial  # noqa: F401
-from app.branches.models import branch_warehouse  # noqa: F401
+from app.branches.models import (
+    branch_warehouse,  # noqa: F401
+    user_work_default,  # noqa: F401
+)
 from app.business.models import framework  # noqa: F401
 from app.commission.models import commission  # noqa: F401
 from app.commission.models import payout as _commission_payout  # noqa: F401
