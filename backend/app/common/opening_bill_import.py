@@ -339,8 +339,19 @@ class OpeningBillFileImporter(ABC, Generic[PartyT, WriteT, BillT]):  # noqa: UP0
         """Validate and post one bill through the side's own service."""
 
     def template_columns(self, firm_id: UUID) -> tuple[Column, ...]:
-        """Return the columns, the example naming one of the firm's own parties."""
-        first = next(iter(sorted(self._parties(firm_id).values(), key=_code)), None)
+        """Return the columns, the example naming one of the firm's own parties.
+
+        The first one that can take opening bills, so the template imports as
+        it comes; a customer carrying a single opening figure would be refused.
+        """
+        first = next(
+            (
+                party
+                for party in sorted(self._parties(firm_id).values(), key=_code)
+                if self._refusal(party) is None
+            ),
+            None,
+        )
         return tuple(
             (
                 replace(column, example=_code(first))

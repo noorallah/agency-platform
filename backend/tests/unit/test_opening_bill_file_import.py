@@ -180,6 +180,12 @@ def test_the_template_names_the_firms_own_customer() -> None:
     assert lines[1].startswith("C1,")
     assert importer.template_workbook(books.firm.id)[:2] == b"PK"
 
+    # A customer carrying a single opening figure would be refused, so the
+    # example names the next one: the template imports as it comes.
+    books.customer.opening_balance = Decimal("900")
+    books.session.commit()
+    assert importer.template_csv(books.firm.id).splitlines()[1].startswith("C2,")
+
 
 def test_supplier_bills_come_in_the_same_way() -> None:
     books = _VendorBooks()
