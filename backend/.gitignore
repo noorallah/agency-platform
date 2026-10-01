@@ -20,7 +20,7 @@ venv/
 logs/*
 !logs/.gitkeep
 storage/*
-backups/
+/backups/
 !storage/.gitkeep
 
 # IDE and operating system
