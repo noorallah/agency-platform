@@ -22,6 +22,9 @@ a question only the owner, a go-live firm or its CA can answer.
 | A11 | Last rate (§55 G6) | Shown in the line's side panel ("SI-12 on 09-03-2026 · 5% off", with *Use the last price*), not as helper text under the rate | OK? |
 | A12 | Messaging (§51) | Switching overdue reminders on sends one at once for **every** bill already overdue, however old | Cap it (e.g. only bills overdue under 90 days)? |
 | A13 | Messaging | Real WhatsApp / SMS / email sending is proven only against fakes | Needs one firm's Meta WhatsApp account, MSG91 + DLT, and a mail app password to verify -- see `docs/MESSAGING_SETUP_GUIDE.md` |
+| A14 | Party adjustments (§74 row 2) | Rounding on a receipt or payment is capped at 10.00 (per-firm setting); bank charges are a receipt's only; a write-off / write-back / set-off above 1,000.00 needs `PARTY_ADJUSTMENT_APPROVE` and someone other than its drafter | Confirm the two amounts |
+| A15 | Set-off | Refused only when both parties have a PAN and they differ | OK, or require the PANs to be known? |
+| A16 | TCS (206C(1H)) | Still charged on a receipt's full amount, deductions included | Low -- the section ended 1 April 2025 |
 
 ## B. Open questions the backlog already records
 
