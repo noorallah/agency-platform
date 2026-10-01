@@ -13,6 +13,7 @@
 
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/phase2/document_page.dart' show documentMoney;
 import 'package:agency_desktop/ui/sales/sales_invoice_editor_dialog.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
     show Phase2Scope;
@@ -64,6 +65,9 @@ class _InvoiceApi extends ApiClient {
   bool salesOrderStage = true;
   bool deliveryNoteStage = true;
 
+  /// The firm's default for a new bill's "Rate includes GST" (backlog 64.4).
+  bool rateIncludesTax = false;
+
   /// The draft an edit reads back, when one is being corrected.
   Json? existing;
 
@@ -103,6 +107,7 @@ class _InvoiceApi extends ApiClient {
           'quotation_stage': true,
           'sales_order_stage': salesOrderStage,
           'delivery_note_stage': deliveryNoteStage,
+          'rate_includes_tax': rateIncludesTax,
           'is_configured': true,
         },
       };
@@ -734,6 +739,98 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
     expect(find.textContaining('More than the bill'), findsOneWidget);
+  });
+
+  // Backlog 64 row 4: a counter types the shelf price.
+  testWidgets('phase 2 direct bill starts from the firm default for GST rates',
+      (tester) async {
+    final _InvoiceApi api = _InvoiceApi()
+      ..salesOrderStage = false
+      ..deliveryNoteStage = false
+      ..rateIncludesTax = true;
+    await pumpPhase2(tester, api);
+    expect(tester.takeException(), isNull);
+    final Finder toggle =
+        find.byKey(const ValueKey('sales-invoice-rate-includes-tax'));
+    expect(tester.widget<Switch>(toggle).value, isTrue);
+    expect(find.text('Rate incl. GST'), findsOneWidget);
+
+    await fillDirectBill(tester);
+    expect(api.previews.last['rate_includes_tax'], isTrue);
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+    expect(api.created!['rate_includes_tax'], isTrue);
+    expect(api.created!['lines'][0]['unit_price'], '150');
+  });
+
+  testWidgets('phase 2 direct bill can switch GST-inclusive rates off',
+      (tester) async {
+    final _InvoiceApi api = _InvoiceApi()
+      ..salesOrderStage = false
+      ..deliveryNoteStage = false;
+    await pumpPhase2(tester, api);
+    final Finder toggle =
+        find.byKey(const ValueKey('sales-invoice-rate-includes-tax'));
+    expect(tester.widget<Switch>(toggle).value, isFalse);
+    expect(find.text('Rate incl. GST'), findsNothing);
+
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(find.text('Rate incl. GST'), findsOneWidget);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+
+    await fillDirectBill(tester);
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+    expect(api.created!['rate_includes_tax'], isFalse);
+  });
+
+  testWidgets('a draft typed with GST in its rates shows them back as typed',
+      (tester) async {
+    final _InvoiceApi api = _InvoiceApi(billable: <Json>[_billable()]);
+    api.existing = <String, dynamic>{
+      'id': 'inv-1',
+      'invoice_number': 'SI-1',
+      'invoice_date': '2026-08-10',
+      'customer_id': 'cust-1',
+      'branch_id': 'branch-1',
+      'status': 'DRAFT',
+      'version': 2,
+      'rate_includes_tax': true,
+      'lines': <Json>[
+        <String, dynamic>{
+          'source_document_type': 'DELIVERY_NOTE',
+          'source_document_id': 'dn-1',
+          'source_document_number': 'DN-2026-2027-000004',
+          'source_document_line_id': 'dnl-1',
+          'line_number': 1,
+          'description': 'Shampoo Bottle 180ml',
+          'current_invoice_quantity': '4',
+          'unit_price': '100',
+          'entered_rate': '118',
+          'discount_percent': '0',
+        },
+      ],
+    };
+    await pumpPhase2(tester, api, invoiceId: 'inv-1');
+    expect(tester.takeException(), isNull);
+    expect(find.text('Rate incl. GST'), findsOneWidget);
+    expect(find.text('Yes, as typed'), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(
+              find.byKey(const ValueKey<String>('sales-invoice-rate-0')))
+          .data,
+      documentMoney('118'),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+    // The edit sends the pre-tax rate the line stores, and leaves the
+    // bill's switch alone.
+    expect(api.updated!['lines'][0]['unit_price'], '100');
+    expect(api.updated!.containsKey('rate_includes_tax'), isFalse);
   });
 
   testWidgets('phase 2 shows the receipt on an approved bill', (tester) async {

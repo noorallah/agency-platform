@@ -74,6 +74,14 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   final TextEditingController _receivedNow = TextEditingController();
   final TextEditingController _receivedRef = TextEditingController();
   String _receivedMethod = 'CASH';
+
+  /// Phase 2, backlog 64 row 4: whether the rates typed on this bill include
+  /// GST. A new bill starts from the firm's setting; a draft keeps its own.
+  bool _rateIncludesTax = false;
+
+  /// The rate as typed, GST included, of each line of a draft that was
+  /// typed so, by source line: what the Rate column shows back.
+  final Map<String, String> _enteredRates = <String, String>{};
   final Map<String, TextEditingController> _quantities =
       <String, TextEditingController>{};
 
@@ -262,6 +270,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       if (!mounted) return;
       setState(() {
         _stages = stages;
+        if (existing == null) _rateIncludesTax = stages.rateIncludesTax;
         _customers = customers;
         _products = products;
         _billable = rows;
@@ -336,6 +345,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         ? 'BANK'
         : 'CASH';
     _receivedRef.text = '${invoice['received_now_reference'] ?? ''}';
+    _rateIncludesTax = invoice['rate_includes_tax'] == true;
   }
 
   /// What the counter took, sent on every save from the phase 2 bill: an
@@ -373,6 +383,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     final List<BillableLine> rebuilt = <BillableLine>[];
     for (final Json line in lines) {
       final String lineId = '${line['source_document_line_id'] ?? ''}';
+      final String entered = stringValue(line['entered_rate']);
+      if (entered.isNotEmpty) _enteredRates[lineId] = entered;
       final double own =
           double.tryParse('${line['current_invoice_quantity'] ?? 0}') ?? 0;
       _ownQuantities[lineId] = own;
@@ -599,13 +611,15 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       // A line billed at nothing is left off rather than sent as a zero, the
       // same rule the document path follows.
       if (quantity.isEmpty || (double.tryParse(quantity) ?? 0) <= 0) continue;
+      final String price = line.price.text.trim();
       lines.add(<String, dynamic>{
         'product_id': product,
         'line_number': lines.length + 1,
         'current_invoice_quantity': quantity,
-        'unit_price': line.price.text.trim().isEmpty
-            ? '0'
-            : line.price.text.trim(),
+        // With GST included, blank is the product's own price -- before tax,
+        // as the server resolves it -- rather than a typed shelf price.
+        if (!(_rateIncludesTax && price.isEmpty))
+          'unit_price': price.isEmpty ? '0' : price,
         // Omitted when blank on purpose. Saying nothing takes whatever
         // arrangement the customer already has; sending a zero refuses it.
         if (line.discount.text.trim().isNotEmpty)
@@ -617,6 +631,9 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     return <String, dynamic>{
       'customer_id': customerId,
       'invoice_date': _iso(widget.today),
+      // Sent on every bill of products: the phase 1 screen types rates
+      // before tax, whatever the firm's default.
+      'rate_includes_tax': _phase2 && _rateIncludesTax,
       if (_phase2) 'shipping_address_id': _shipToId,
       if (_reference.text.trim().isNotEmpty)
         'reference_number': _reference.text.trim(),
