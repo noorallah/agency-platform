@@ -773,6 +773,31 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'closing_value', label: 'Closing value', numeric: true),
     ],
   ),
+  // Stock at or below its reorder level (42.9), with what is on order and a
+  // suggested quantity. Purchase Orders > "..." > Below reorder level raises
+  // the draft orders from the same rows.
+  ReportDefinition(
+    id: 'purchase-below-reorder',
+    label: 'Below reorder level',
+    description: 'Products at or below their reorder level in each warehouse: '
+        'available, on order, the supplier last billed and what to order.',
+    path: '/api/v1/purchases/reports/below-reorder',
+    permission: 'PURCHASE_VIEW',
+    area: ReportArea.operational,
+    columns: [
+      ReportColumn(key: 'warehouse_code', label: 'Warehouse'),
+      ReportColumn(key: 'product_code', label: 'Code'),
+      ReportColumn(key: 'product_name', label: 'Product'),
+      ReportColumn(key: 'available_quantity', label: 'Available', numeric: true),
+      ReportColumn(key: 'reorder_level', label: 'Reorder at', numeric: true),
+      ReportColumn(key: 'maximum_level', label: 'Maximum', numeric: true),
+      ReportColumn(key: 'on_order_quantity', label: 'On order', numeric: true),
+      ReportColumn(
+          key: 'suggested_quantity', label: 'Suggested', numeric: true),
+      ReportColumn(key: 'supplier_name', label: 'Supplier'),
+      ReportColumn(key: 'unit_price', label: 'Rate', numeric: true),
+    ],
+  ),
   // Where a supplier billed a rate other than the goods were received at
   // (65 row 5): the difference posts to Purchase Price Variance, and this
   // names it line by line so a buyer can take it up.

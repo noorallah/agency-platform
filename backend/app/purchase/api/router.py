@@ -1,6 +1,7 @@
 """Firm-scoped REST endpoints for enterprise purchase orders."""
 
 from datetime import date
+from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -15,7 +16,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.common.scope import (
@@ -61,6 +62,7 @@ from app.purchase.services import PurchaseService
 from app.purchase.services.purchase_print_service import (
     PurchaseOrderPrintService,
 )
+from app.purchase.services.reorder import ReorderPick, ReorderService
 from app.purchase.services.workflow_settings_service import PurchaseWorkflowService
 
 router = APIRouter(
@@ -462,6 +464,96 @@ def update_purchase_workflow_settings(
         data, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data=settings)
+
+
+class BelowReorderRecord(BaseModel):
+    """One product in one warehouse at or below its reorder level (42.9)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    branch_id: UUID
+    warehouse_id: UUID
+    warehouse_code: str
+    product_id: UUID
+    product_code: str
+    product_name: str
+    available_quantity: Decimal
+    reorder_level: Decimal
+    maximum_level: Decimal | None
+    on_order_quantity: Decimal
+    suggested_quantity: Decimal
+    supplier_id: UUID | None
+    supplier_name: str | None
+    unit_price: Decimal
+
+
+class ReorderPickWrite(BaseModel):
+    """One row to order; quantity and supplier default to the suggestion."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    warehouse_id: UUID
+    product_id: UUID
+    quantity: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, decimal_places=4
+    )
+    supplier_id: UUID | None = None
+
+
+class ReorderDraftsRequest(BaseModel):
+    """The rows a buyer ticked on Below reorder level."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[ReorderPickWrite] = Field(min_length=1, max_length=1000)
+
+
+@router.get(
+    "/reports/below-reorder",
+    response_model=PaginatedResponse[BelowReorderRecord],
+)
+def below_reorder_level(
+    scope: PurchaseReportScope,
+    warehouse_id: UUID | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[BelowReorderRecord]:
+    """List stock at or below its reorder level, with what to order (42.9)."""
+    window = ReportWindow(None, None, page, page_size)
+    rows = ReorderService(db).below_reorder(scope.firm_id, warehouse_id=warehouse_id)
+    return window.respond([BelowReorderRecord.model_validate(row) for row in rows])
+
+
+@router.post(
+    "/reorder-drafts",
+    response_model=ApiResponse[list[PurchaseOrderResponse]],
+    status_code=status.HTTP_201_CREATED,
+)
+def raise_reorder_drafts(
+    data: ReorderDraftsRequest,
+    scope: PurchaseCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PurchaseOrderResponse]]:
+    """Raise one DRAFT order per supplier per warehouse for the ticked rows."""
+    service = ReorderService(db)
+    orders = service.raise_drafts(
+        scope.firm_id,
+        [
+            ReorderPick(
+                warehouse_id=item.warehouse_id,
+                product_id=item.product_id,
+                quantity=item.quantity,
+                supplier_id=item.supplier_id,
+            )
+            for item in data.items
+        ],
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(
+        data=PurchaseService(db).order_responses(orders),
+        message=f"{len(orders)} draft purchase order(s) raised.",
+    )
 
 
 @router.post("/bulk-approve", response_model=ApiResponse[BulkActionResult])

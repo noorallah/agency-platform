@@ -395,6 +395,26 @@ place of the receipt picker. Purchase returns are never hidden.
 
 ---
 
+## Reorder suggestions (backlog 42.9, 2026-10-01)
+
+`GET /api/v1/purchases/reports/below-reorder` (Reports > Operational > *Below
+reorder level*) lists each warehouse and product whose available stock is at or
+below its reorder level (`minimum_level` where none is set; the stock rows of
+one warehouse added up, the highest level on any of them taken). It shows what
+is **on order** -- open orders for that warehouse, drafts included, less what
+their completed receipts took in -- the supplier **last billed** for the product
+(there is no preferred-supplier field) and a **suggested** quantity: up to
+`maximum_level` less available and on order, or the shortfall to the reorder
+level where no maximum is set, never negative. The rate is that bill's when it
+was billed in the stock unit, else the product's purchase price.
+
+`POST /api/v1/purchases/reorder-drafts` (Purchase Orders > "..." > *Below
+reorder level...*, tick rows, **Raise draft orders**) stages one DRAFT per
+supplier per warehouse through `PurchaseService.stage_order` and commits once
+(`app/purchase/services/reorder.py`). A row no longer below its level, with no
+supplier, or with nothing left to order refuses the batch by name. Because
+drafts count as on order, running it twice does not order twice.
+
 ## Not built
 
 - ~~The purchase order's received status~~ -- built: receiving moves the

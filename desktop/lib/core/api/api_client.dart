@@ -3822,6 +3822,41 @@ class ApiClient {
         await request('POST', '/api/v1/purchases/$id/approve'),
       ));
 
+  /// Stock at or below its reorder level, per warehouse and product, with
+  /// what is on order, the supplier last billed and a suggested quantity
+  /// (backlog 42.9). Rows carry no id, so pages are read until a short one.
+  Future<List<Json>> belowReorderLevel({String? warehouseId}) async {
+    final List<Json> rows = <Json>[];
+    for (int page = 1; page <= 50; page++) {
+      final Json response = await request(
+        'GET',
+        '/api/v1/purchases/reports/below-reorder',
+        query: <String, String>{
+          'page': '$page',
+          'page_size': '100',
+          if (warehouseId != null) 'warehouse_id': warehouseId,
+        },
+      );
+      final dynamic data = response['data'];
+      final List<Json> batch = <Json>[
+        for (final dynamic row in data is List ? data : const [])
+          if (row is Map) Map<String, dynamic>.from(row),
+      ];
+      rows.addAll(batch);
+      if (batch.length < 100) break;
+    }
+    return rows;
+  }
+
+  /// Raise draft purchase orders for the ticked reorder rows: one per
+  /// supplier per warehouse, all or none. Each item names `warehouse_id` and
+  /// `product_id`, and may override `quantity` and `supplier_id`.
+  Future<Json> raiseReorderDrafts(List<Json> items) async => await request(
+        'POST',
+        '/api/v1/purchases/reorder-drafts',
+        body: <String, dynamic>{'items': items},
+      );
+
   /// Approve several purchase orders in one call. Rows are acted on one by
   /// one, so some can be refused while others succeed.
   Future<BulkActionResult> bulkApprovePurchaseOrders(List<BulkRow> rows) =>
