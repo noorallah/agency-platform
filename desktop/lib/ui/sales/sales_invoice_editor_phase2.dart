@@ -8,31 +8,98 @@ part of 'sales_invoice_editor_dialog.dart';
 /// naming products. Serial numbers are picked in the side panel for the
 /// line being typed, rather than under every row.
 extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
-  static const List<DocumentColumn> _documentColumns = [
-    DocumentColumn('#', 28),
-    DocumentColumn('Item', 0),
-    DocumentColumn('Left to bill', 84, numeric: true),
-    DocumentColumn('Bill qty', 78, numeric: true),
-    DocumentColumn('Rate', 84, numeric: true),
-    DocumentColumn('Disc %', 60, numeric: true),
-    DocumentColumn('Taxable', 96, numeric: true),
-    DocumentColumn('GST', 48, numeric: true),
-    DocumentColumn('Amount', 104, numeric: true),
+  List<DocumentColumn> get _documentColumns => [
+    const DocumentColumn('#', 28),
+    const DocumentColumn('Item', 0),
+    const DocumentColumn('Left to bill', 84, numeric: true),
+    const DocumentColumn('Bill qty', 78, numeric: true),
+    _rateColumn,
+    const DocumentColumn('Disc %', 60, numeric: true),
+    const DocumentColumn('Taxable', 96, numeric: true),
+    const DocumentColumn('GST', 48, numeric: true),
+    const DocumentColumn('Amount', 104, numeric: true),
   ];
 
-  static const List<DocumentColumn> _directColumns = [
-    DocumentColumn('#', 28),
-    DocumentColumn('Product (code, name or barcode)', 0),
-    DocumentColumn('HSN', 66),
-    DocumentColumn('Qty', 66, numeric: true),
-    DocumentColumn('Unit', 50),
-    DocumentColumn('Rate', 84, numeric: true),
-    DocumentColumn('Disc %', 60, numeric: true),
-    DocumentColumn('Taxable', 96, numeric: true),
-    DocumentColumn('GST', 48, numeric: true),
-    DocumentColumn('Amount', 104, numeric: true),
-    DocumentColumn('', 28),
+  List<DocumentColumn> get _directColumns => [
+    const DocumentColumn('#', 28),
+    const DocumentColumn('Product (code, name or barcode)', 0),
+    const DocumentColumn('HSN', 66),
+    const DocumentColumn('Qty', 66, numeric: true),
+    const DocumentColumn('Unit', 50),
+    _rateColumn,
+    const DocumentColumn('Disc %', 60, numeric: true),
+    const DocumentColumn('Taxable', 96, numeric: true),
+    const DocumentColumn('GST', 48, numeric: true),
+    const DocumentColumn('Amount', 104, numeric: true),
+    const DocumentColumn('', 28),
   ];
+
+  /// The rate column says which rate it holds (backlog 64 row 4).
+  DocumentColumn get _rateColumn => _rateIncludesTax
+      ? const DocumentColumn('Rate incl. GST', 104, numeric: true)
+      : const DocumentColumn('Rate', 84, numeric: true);
+
+  /// Turn the bill's "Rate includes GST" switch. A rate still showing the
+  /// product's own price was never typed, and that price is before tax, so
+  /// it is cleared going on (blank takes it, before tax) and put back
+  /// coming off.
+  void _setRateIncludesTax(bool value) {
+    _setState(() {
+      _rateIncludesTax = value;
+      for (final _DirectLine line in _directLines) {
+        final Product? product = _product(line.productId);
+        if (product == null) continue;
+        final String price = line.price.text.trim();
+        if (value && price == product.sellingPrice) {
+          line.price.clear();
+        } else if (!value && price.isEmpty) {
+          final double master = double.tryParse(product.sellingPrice) ?? 0;
+          if (master > 0) line.price.text = product.sellingPrice;
+        }
+      }
+    });
+    _schedulePreview();
+  }
+
+  /// The bill's switch: on a new bill of products, the switch itself; on a
+  /// draft, what its rates were typed as, which an edit cannot change.
+  Widget? _rateIncludesTaxField(BuildContext context) {
+    if (_direct) {
+      return DocumentField(
+        label: 'Rate includes GST',
+        width: 150,
+        child: Row(
+          children: [
+            Switch(
+              key: const ValueKey('sales-invoice-rate-includes-tax'),
+              value: _rateIncludesTax,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              onChanged: _saving ? null : _setRateIncludesTax,
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                _rateIncludesTax ? 'Shelf price' : 'Before tax',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    if (_editing && _rateIncludesTax) {
+      return DocumentField(
+        label: 'Rate includes GST',
+        auto: true,
+        width: 150,
+        child: InputDecorator(
+          decoration: documentBoxDecoration(context),
+          child: const Text('Yes, as typed'),
+        ),
+      );
+    }
+    return null;
+  }
 
   Widget _phase2Page(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -268,6 +335,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     final Map<String, dynamic>? invoice = _preview?.invoice;
     final String placeOfSupply = stringValue(invoice?['place_of_supply']);
     final Widget? also = _alsoBillField(context);
+    final Widget? inclusive = _rateIncludesTaxField(context);
     return DocumentHeader(children: [
       if (_direct)
         DocumentField(
@@ -368,6 +436,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
             _schedulePreview();
           },
         ),
+      if (inclusive != null) inclusive,
       DocumentField(
         label: 'Invoice date',
         auto: true,
@@ -557,8 +626,14 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
           validator: (value) => _billableQuantity(value, line),
         ),
         // The note's own price and discount: a bill continues the document
-        // it bills rather than repricing it.
-        Text(documentMoney(line.unitPrice), style: text),
+        // it bills rather than repricing it. A draft typed with GST in its
+        // rates shows the rate as typed (backlog 64 row 4).
+        Text(
+          documentMoney(
+              _enteredRates[line.sourceDocumentLineId] ?? line.unitPrice),
+          key: ValueKey<String>('sales-invoice-rate-$index'),
+          style: text,
+        ),
         Text(
           (double.tryParse(line.discountPercent) ?? 0) > 0
               ? '${trimDiscountRate(line.discountPercent)}%'
@@ -621,8 +696,10 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                   line.productId = value;
                   // Units of the last product are not units of this one.
                   line.serialIds.clear();
-                  // The product's selling price, where nobody typed one.
-                  if (line.price.text.trim().isEmpty) {
+                  // The product's selling price, where nobody typed one --
+                  // not on a bill whose rates include GST: that price is
+                  // before tax, and blank takes it as such.
+                  if (line.price.text.trim().isEmpty && !_rateIncludesTax) {
                     final Product? chosen = _product(value);
                     final double price =
                         double.tryParse(chosen?.sellingPrice ?? '') ?? 0;
@@ -652,7 +729,11 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
         Text(product?.hsnSac ?? '', style: text),
         _cellBox(context, line.quantity),
         Text(product?.unit ?? '', style: text),
-        _cellBox(context, line.price),
+        _cellBox(
+          context,
+          line.price,
+          hint: _rateIncludesTax ? 'list rate' : null,
+        ),
         _cellBox(
           context,
           line.discount,
