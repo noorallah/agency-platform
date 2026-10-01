@@ -28,7 +28,8 @@ Each row names the screen. Do them on a copy of a firm, or on the demo firm.
 | 12 | **Purchase Analysis** | Buy > Insight > Purchase Analysis | The same for bills, by supplier and product |
 | 13 | **Purchase price variance** | Reports > Financial > Purchase price variance | A bill at a different rate from its receipt shows both rates and the difference |
 | 14 | **Offers** | Masters > Promotions | *Up to* on a percentage ("20% off, up to 500"); *... > Try offers* shows what an offer does on any date and why each offer did or did not apply; Settings > Selling > Sales Stages > *When several offers match*: Best offer only |
-| 15 | **Go-live guide** | `GO_LIVE_GUIDE.pdf` beside Setup.exe | Read it as the firm's accountant would |
+| 15 | **Received now on the bill** | Sell > Sales Invoices > New | *Received now*, Cash or Bank and a reference; more than the bill warns and is refused; on Approve a receipt appears under Sell > Receipts and the bill shows as paid (or part paid) |
+| 16 | **Go-live guide** | `GO_LIVE_GUIDE.pdf` beside Setup.exe | Read it as the firm's accountant would |
 
 **On every failure**: a screenshot, the newest file in
 `C:\ProgramData\Agency Platform\logs\server`, and the version on the sign-in
@@ -56,6 +57,8 @@ screen (1.1.0).
   journals (#876).
 - **My Branch and Warehouse**: each person's documents open where they work
   (#881).
+- **Received now on the bill**: money taken at the counter is entered on the
+  invoice and recorded as a receipt when it is approved (backlog 64).
 - **The printed bill** names every delivery note and order it bills (#871),
   the offers given and what the customer saved (#883).
 
@@ -75,7 +78,8 @@ screen (1.1.0).
 ## Upgrading
 
 Setup backs up the database, then migrates every firm's store to the new
-schema (revisions `20261001_0175` to `20261001_0178`: TDS columns, GST
-payments, user work defaults, the offer mode). Nothing existing changes how
+schema (revisions `20261001_0175` to `20261001_0179`: TDS columns, GST
+payments, user work defaults, the offer mode, received now on the bill). Nothing existing changes how
 it prices or posts: TDS is blank unless entered, offers still combine unless
-a firm chooses Best offer only, and a cap applies only where one is set.
+a firm chooses Best offer only, and a cap applies only where one is set, and a bill with nothing received
+now settles exactly as before.
