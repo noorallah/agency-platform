@@ -4397,7 +4397,7 @@ phase 2 menu tests are what to extend.
 
 ## 58. One invoice for several delivery notes (D-SELL-39) -- built 2026-09-30
 
-**Status, 2026-10-01:** items 1-3, 5 and 6 built (#844), for supplier bills against several goods receipts too (D-BUY-18). Item 7, the printed bill naming every note, is still to build.
+**Status, 2026-10-01:** items 1-3, 5 and 6 built (#844), for supplier bills against several goods receipts too (D-BUY-18). **Item 7 built 2026-10-01:** the printed bill's head lists each delivery note and the sales order behind it, each with its date, and the buyer's own order number where the order carries one (Tally's "Delivery Note No." and "Buyer's Order No."); past three it says "Several - see lines", and whenever a bill has more than one note every line names its note. Left: the tick list and on-screen refusal of items 2 and 4.
 
 Noticed on 2026-09-28, discussing the sales chain with the owner.
 

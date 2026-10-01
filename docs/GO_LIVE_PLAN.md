@@ -43,7 +43,7 @@ item names the backlog section or defect that holds its detail.
 | 4 | **An *Opening balances* step on the firm's Set up panel** that lists the imports above in order and ticks each one done | Today the imports live on five screens; a firm's first day should not depend on knowing where. **Built 2026-10-01**; it found that the opening bills have no file import (D-GOLIVE-1) | 1-2 days | Claude |
 | 5 | **Expenses (#814, merged)**: the owner's laptop test of the merged screen | Expenses are a daily entry for every trade | Owner's test | Owner |
 | 6 | **The go-live guide**: the TDS interim steps (§53, "docs only"), how to close a month and a year, how to bulk-approve, what to do when a licence check refuses | The firm's accountant reads it before the CA does | 1 day | Claude |
-| 7 | **The printed bill names every delivery note it bills** (§58 item 7) | A bill made of three dispatches must say so on paper | 1 day | Claude |
+| 7 | **The printed bill names every delivery note it bills** (§58 item 7) | A bill made of three dispatches must say so on paper. **Built 2026-10-01** | 1 day | Claude |
 | 8 | **Backup and restore drill** on the installed copy: scheduled backup (#812) runs, and a restore into a fresh install brings the firm back | A firm must not be able to lose its books | Half a day | Owner + Claude |
 | 9 | **A full test run on the release commit**, the release build (`docs/RELEASE_BUILD.md`), and the version number | The release gate | 1 day | Claude |
 
