@@ -144,6 +144,23 @@ class DeliveryChallanPrintService:
             references.append(("Vehicle", note.vehicle))
         if note.driver:
             references.append(("Driver", note.driver))
+        # What the e-way bill's Part B and a checkpost ask for (67 row 5).
+        if note.transporter_name:
+            references.append(("Transporter", note.transporter_name))
+        if note.transporter_gstin:
+            references.append(("Transporter GSTIN", note.transporter_gstin))
+        if note.transport_mode:
+            references.append(("Mode", note.transport_mode.title()))
+        if note.lr_number:
+            references.append(
+                (
+                    "LR / docket",
+                    note.lr_number
+                    + (f" dt {note.lr_date:%d %b %Y}" if note.lr_date else ""),
+                )
+            )
+        if note.distance_km:
+            references.append(("Distance", f"{note.distance_km} km"))
 
         return InvoiceDocument(
             number=note.delivery_note_number,

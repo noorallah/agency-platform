@@ -189,3 +189,20 @@ earliest -- the stricter promise is the one made), and one that leaves
 `payment_terms` blank takes the first order's words. A typed date always
 wins. A counter bill is unchanged: the order the chain raises for it takes the
 customer's days, so it falls due exactly as it did before.
+
+## The delivery note records how the goods travel
+
+Backlog 67 row 5, 2026-10-01. Beside the vehicle and driver, a note carries
+`transporter_name`, `transporter_gstin` (format-checked by `normalize_gstin`
+in `app/core/validation/common.py`; a TRANSIN has the same shape),
+`transport_mode` (ROAD / RAIL / AIR / SHIP), `lr_number` / `lr_date` (the
+lorry receipt or docket) and `distance_km` -- what Part B of an e-way bill
+asks for. On an update, leaving any out keeps the note's own. They are not
+gated on VEHICLE_TRACKING the way vehicle and driver are: every firm that
+moves goods over the e-way bill threshold needs them.
+
+The challan prints them, and an e-way bill raised for an invoice takes
+whatever the person leaves blank -- distance, mode, transporter, vehicle --
+from the latest delivery note the invoice billed, and sends its LR as
+`TransDocNo` / `TransDocDt`. A distance is still required from one or the
+other.

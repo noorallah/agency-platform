@@ -78,6 +78,18 @@ class DeliveryNote(BaseEntity):
     shipping_address_id: Mapped[UUID | None] = mapped_column(UUIDType())
     vehicle: Mapped[str | None] = mapped_column(String(120))
     driver: Mapped[str | None] = mapped_column(String(120))
+    #: How the goods travel (backlog 67 row 5): what Part B of an e-way bill
+    #: asks for, printed on the challan and read by the e-way bill when the
+    #: person raising it leaves a field blank. The transporter's GSTIN (or
+    #: TRANSIN, the same shape) is format-checked; the mode is ROAD, RAIL,
+    #: AIR or SHIP; the LR is the lorry receipt or docket the transporter
+    #: issues; the distance is in whole kilometres, as the portal takes it.
+    transporter_name: Mapped[str | None] = mapped_column(String(200))
+    transporter_gstin: Mapped[str | None] = mapped_column(String(15))
+    transport_mode: Mapped[str | None] = mapped_column(String(10))
+    lr_number: Mapped[str | None] = mapped_column(String(60))
+    lr_date: Mapped[date | None] = mapped_column(Date)
+    distance_km: Mapped[int | None] = mapped_column(Integer)
     remarks: Mapped[str | None] = mapped_column(Text)
     # Retired (D-SELL-31): a note may never ship more than the order line,
     # and no request can say otherwise. The columns stay so no migration is

@@ -3,11 +3,16 @@
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.batch_serial.schemas import PickedSerial
+from app.core.validation.common import normalize_gstin
+
+#: How goods can travel, as an e-way bill names it.
+TransportModeValue = Literal["ROAD", "RAIL", "AIR", "SHIP"]
 
 
 class DeliveryNoteSchema(BaseModel):
@@ -101,6 +106,14 @@ class DeliveryNoteCreate(DeliveryNoteSchema):
     shipping_address_id: UUID | None = None
     vehicle: str | None = Field(default=None, max_length=120)
     driver: str | None = Field(default=None, max_length=120)
+    #: How the goods travel (backlog 67 row 5). On an update, leaving any of
+    #: these out keeps the note's own.
+    transporter_name: str | None = Field(default=None, max_length=200)
+    transporter_gstin: str | None = Field(default=None, max_length=20)
+    transport_mode: TransportModeValue | None = None
+    lr_number: str | None = Field(default=None, max_length=60)
+    lr_date: date | None = None
+    distance_km: int | None = Field(default=None, ge=0, le=4000)
     remarks: str | None = None
     additional_charges: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
@@ -133,6 +146,21 @@ class DeliveryNoteCreate(DeliveryNoteSchema):
     @field_validator("delivery_note_number", mode="before")
     @classmethod
     def _normalize_number(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        token = value.strip().upper()
+        return token or None
+
+    @field_validator("transporter_gstin", mode="before")
+    @classmethod
+    def _normalize_transporter_gstin(cls, value: str | None) -> str | None:
+        """Refuse a transporter GSTIN that is not the shape of one."""
+        return normalize_gstin(value)
+
+    @field_validator("transport_mode", mode="before")
+    @classmethod
+    def _normalize_mode(cls, value: str | None) -> str | None:
+        """Accept the mode in any case; a blank is no mode."""
         if value is None:
             return None
         token = value.strip().upper()
@@ -259,6 +287,13 @@ class DeliveryNoteResponse(DeliveryNoteSchema):
     shipping_address_id: UUID | None = None
     vehicle: str | None
     driver: str | None
+    #: How the goods travel (backlog 67 row 5).
+    transporter_name: str | None = None
+    transporter_gstin: str | None = None
+    transport_mode: str | None = None
+    lr_number: str | None = None
+    lr_date: date | None = None
+    distance_km: int | None = None
     remarks: str | None
     status: DeliveryNoteStatus
     total_ordered_quantity: Decimal

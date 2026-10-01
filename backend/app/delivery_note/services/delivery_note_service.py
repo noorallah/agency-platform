@@ -134,6 +134,17 @@ class _HeldAt:
     storage_node_id: UUID | None
 
 
+#: The note's transport details (backlog 67 row 5), written and kept together.
+TRANSPORT_FIELDS: tuple[str, ...] = (
+    "transporter_name",
+    "transporter_gstin",
+    "transport_mode",
+    "lr_number",
+    "lr_date",
+    "distance_km",
+)
+
+
 class DeliveryNoteService(TransactionalDocumentService):
     """Coordinate delivery note lifecycle, validation, and inventory dispatch."""
 
@@ -229,6 +240,8 @@ class DeliveryNoteService(TransactionalDocumentService):
                 DeliveryNote.sales_order_reference.ilike(token),
                 DeliveryNote.vehicle.ilike(token),
                 DeliveryNote.driver.ilike(token),
+                DeliveryNote.transporter_name.ilike(token),
+                DeliveryNote.lr_number.ilike(token),
                 DeliveryNote.remarks.ilike(token),
                 DeliveryNote.customer_id.in_(customers_matching(token)),
             )
@@ -364,6 +377,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             shipping_address_id=self._ship_to(order, data.shipping_address_id),
             vehicle=data.vehicle,
             driver=data.driver,
+            **{name: getattr(data, name) for name in TRANSPORT_FIELDS},
             remarks=data.remarks,
             status=DeliveryNoteStatus.DRAFT.value,
             additional_charges=self._q(data.additional_charges),
@@ -479,6 +493,11 @@ class DeliveryNoteService(TransactionalDocumentService):
         row.sales_order_reference = order.order_number
         row.vehicle = data.vehicle
         row.driver = data.driver
+        # Absent keeps what the note says: an editor that never showed the
+        # transport details must not clear them (backlog 67 row 5).
+        for name in TRANSPORT_FIELDS:
+            if name in data.model_fields_set:
+                setattr(row, name, getattr(data, name))
         row.remarks = data.remarks
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
@@ -950,6 +969,12 @@ class DeliveryNoteService(TransactionalDocumentService):
             shipping_address_id=row.shipping_address_id,
             vehicle=row.vehicle,
             driver=row.driver,
+            transporter_name=row.transporter_name,
+            transporter_gstin=row.transporter_gstin,
+            transport_mode=row.transport_mode,
+            lr_number=row.lr_number,
+            lr_date=row.lr_date,
+            distance_km=row.distance_km,
             remarks=row.remarks,
             status=DeliveryNoteStatus(row.status),
             total_ordered_quantity=row.total_ordered_quantity,

@@ -86,8 +86,7 @@ def resolve_ship_to(
     )
     if row is None:
         raise ValidationError(
-            "The ship-to address must be one of this customer's own live "
-            "addresses."
+            "The ship-to address must be one of the customer's own addresses."
         )
     return row.id
 

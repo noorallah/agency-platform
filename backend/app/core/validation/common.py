@@ -111,6 +111,32 @@ def normalize_pan(value: str | None) -> str | None:
     return normalized
 
 
+_GSTIN_PATTERN = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
+
+
+def normalize_gstin(value: str | None) -> str | None:
+    """Return a GSTIN in capitals, None for a blank, refusing a wrong shape.
+
+    Two digits of state, the holder's ten-character PAN, an entity number,
+    ``Z`` and a check character. The check character itself is not verified
+    here: the shape is what a typing slip breaks, and the portal is the
+    authority on whether the number is real. A transporter's enrolment
+    number (TRANSIN) has the same shape.
+    """
+    if value is None:
+        return None
+    normalized = "".join(value.split()).upper()
+    if not normalized:
+        return None
+    if not _GSTIN_PATTERN.fullmatch(normalized):
+        raise ValueError(
+            "A GSTIN is 15 characters: two digits of state, the ten-character "
+            "PAN, a digit or letter, Z and a check character, e.g. "
+            "29ABCDE1234F1Z5."
+        )
+    return normalized
+
+
 def _identifier(value: str | None) -> str | None:
     """Return an identifier in capitals without spaces, or None for a blank."""
     if value is None:

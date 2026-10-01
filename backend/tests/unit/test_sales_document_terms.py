@@ -10,21 +10,25 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ValidationError
 from app.customers.models import Customer, CustomerAddress
-from app.delivery_note.models import DeliveryNote
+from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
+from app.delivery_note.schemas import DeliveryNoteCreate, DeliveryNoteLineWrite
 from app.delivery_note.services.challan_print_service import (
     DeliveryChallanPrintService,
 )
 from app.delivery_note.services.delivery_note_service import DeliveryNoteService
-from app.sales_invoice.models import SalesInvoice
+from app.sales_invoice.models import SalesInvoice, SalesInvoiceSource
 from app.sales_invoice.services import SalesInvoiceService
 from app.sales_order.models import SalesOrder
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services.sales_order_service import SalesOrderService
 from app.tax.services.place_of_supply import SupplyPlaceResolver
+from tests.unit.test_einvoice import _Books
+from tests.unit.test_einvoice import _session_factory as _einvoice_factory
 from tests.unit.test_sales_chain_synthesis import (
     _bill_of,
     _Firm,
@@ -113,9 +117,8 @@ def test_an_order_ships_to_the_default_unless_another_address_is_named() -> None
     other = _address(session, setup.customer, line1="Godown")
 
     assert _order(setup).shipping_address_id == default.id
-    assert _order(setup, shipping_address_id=other.id).shipping_address_id == (
-        other.id
-    )
+    chosen = _order(setup, shipping_address_id=other.id)
+    assert chosen.shipping_address_id == other.id
 
 
 def test_an_address_not_the_customers_own_and_live_is_refused() -> None:
@@ -397,3 +400,170 @@ def test_a_counter_bill_still_falls_due_on_the_customers_terms() -> None:
         setup.bare_bill(), firm_id=setup.firm.id, actor_id=uuid4()
     )
     assert invoice.due_date == date(2026, 9, 3)
+
+
+# ---- row 5: transport details on the delivery note ---------------------
+
+_TRANSPORT = {
+    "transporter_name": "Speedy Logistics",
+    "transporter_gstin": "27aabcu9603r1zm",
+    "transport_mode": "road",
+    "lr_number": "LR-778",
+    "lr_date": date(2026, 8, 3),
+    "distance_km": 450,
+}
+
+
+def _note_payload(note: DeliveryNote, **fields: object) -> DeliveryNoteCreate:
+    """Describe a note's update as the editor sends it."""
+    session = Session.object_session(note)
+    assert session is not None
+    line = session.query(DeliveryNoteLine).filter_by(delivery_note_id=note.id).one()
+    return DeliveryNoteCreate(
+        sales_order_id=note.sales_order_id,
+        delivery_date=note.delivery_date,
+        lines=[
+            DeliveryNoteLineWrite(
+                sales_order_line_id=line.sales_order_line_id,
+                line_number=1,
+                current_delivery_quantity=line.current_delivery_quantity,
+            )
+        ],
+        **fields,  # type: ignore[arg-type]
+    )
+
+
+def test_a_note_records_how_the_goods_travel_and_an_edit_keeps_it() -> None:
+    """Stored as typed, normalised; absent on an update means leave alone."""
+    session = _session_factory()()
+    setup = _Firm(session)
+    note = _persons_note(setup)
+    service = DeliveryNoteService(session)
+    note.status = "DRAFT"
+    session.commit()
+
+    saved = service.update_note(
+        note.id,
+        _note_payload(note, **_TRANSPORT),
+        firm_scope=setup.firm.id,
+        actor_id=uuid4(),
+    )
+    assert saved.transporter_gstin == "27AABCU9603R1ZM"
+    assert saved.transport_mode == "ROAD"
+    assert (saved.lr_number, saved.lr_date, saved.distance_km) == (
+        "LR-778",
+        date(2026, 8, 3),
+        450,
+    )
+    kept = service.update_note(
+        note.id, _note_payload(note), firm_scope=setup.firm.id, actor_id=uuid4()
+    )
+    assert kept.transporter_name == "Speedy Logistics"
+    assert kept.distance_km == 450
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"transporter_gstin": "27AABCU9603R1Z"},
+        {"transporter_gstin": "ABCDEFGHIJKLMNO"},
+        {"transport_mode": "CAMEL"},
+        {"distance_km": 5000},
+    ],
+)
+def test_a_malformed_transport_detail_is_refused(fields: dict[str, object]) -> None:
+    """A GSTIN of the wrong shape, an unknown mode, an impossible distance."""
+    with pytest.raises(PydanticValidationError):
+        DeliveryNoteCreate(
+            sales_order_id=uuid4(),
+            delivery_date=date(2026, 8, 3),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=uuid4(),
+                    line_number=1,
+                    current_delivery_quantity=Decimal("1"),
+                )
+            ],
+            **fields,  # type: ignore[arg-type]
+        )
+
+
+def test_the_challan_prints_the_transport_details() -> None:
+    """What a checkpost asks for travels on the paper with the goods."""
+    session = _session_factory()()
+    setup = _Firm(session)
+    note = _persons_note(setup)
+    for name, value in _TRANSPORT.items():
+        setattr(note, name, value.upper() if isinstance(value, str) else value)
+    session.commit()
+
+    references = dict(
+        DeliveryChallanPrintService(session)
+        ._document(note, firm_scope=setup.firm.id)
+        .references
+    )
+    assert references["Transporter"] == "SPEEDY LOGISTICS"
+    assert references["Transporter GSTIN"] == "27AABCU9603R1ZM"
+    assert references["Mode"] == "Road"
+    assert references["LR / docket"] == "LR-778 dt 03 Aug 2026"
+    assert references["Distance"] == "450 km"
+
+
+def test_an_eway_bill_reads_what_the_note_recorded_when_left_blank() -> None:
+    """Distance, mode, transporter, vehicle and LR come from the note."""
+    books = _Books(_einvoice_factory()())
+    session = books.session
+    note = DeliveryNote(
+        firm_id=books.firm.id,
+        sales_order_id=uuid4(),
+        customer_id=books.customer.id,
+        branch_id=books.branch.id,
+        warehouse_id=uuid4(),
+        delivery_note_number="DN-1",
+        delivery_date=date(2026, 8, 3),
+        sales_order_reference="SO-1",
+        vehicle="MH12AB1234",
+        status="DISPATCHED",
+        **{
+            **_TRANSPORT,
+            "transporter_gstin": "27AABCU9603R1ZM",
+            "transport_mode": "ROAD",
+        },
+    )
+    session.add(note)
+    session.flush()
+    session.add(
+        SalesInvoiceSource(
+            sales_invoice_id=books.invoice.id,
+            firm_id=books.firm.id,
+            source_document_type="DELIVERY_NOTE",
+            source_document_id=note.id,
+            source_document_number="DN-1",
+            source_document_date=date(2026, 8, 3),
+            customer_id=books.customer.id,
+            branch_id=books.branch.id,
+        )
+    )
+    session.commit()
+    books.register()
+
+    row = books.service().generate_eway_bill(
+        books.invoice.id,
+        distance_km=None,
+        transport_mode=None,
+        transporter_id=None,
+        transporter_name=None,
+        vehicle_number=None,
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    assert row.distance_km == Decimal("450")
+    assert (row.transport_mode, row.transporter_id, row.transporter_name) == (
+        "ROAD",
+        "27AABCU9603R1ZM",
+        "Speedy Logistics",
+    )
+    assert row.vehicle_number == "MH12AB1234"
+    assert row.request_payload is not None
+    assert row.request_payload["TransDocNo"] == "LR-778"
+    assert row.request_payload["TransDocDt"] == "03/08/2026"
