@@ -647,6 +647,11 @@ class SettlementService(TransactionalDocumentService):
         """Record one settlement, allocate it, and post it to the ledger."""
         is_receipt = self.DIRECTION == SettlementDirection.RECEIPT
         is_refund = self.DIRECTION == SettlementDirection.REFUND
+        tds_amount = quantize_ledger(data.tds_amount or ZERO)
+        if is_refund and tds_amount > ZERO:
+            # A refund hands back the customer's own money; nobody deducts
+            # tax at source from returning it.
+            raise ValidationError("A refund carries no tax deducted at source.")
         if is_refund and data.allocations:
             # A refund hands back what was never applied to a
             # document. Allocating it to one would claim it settled
@@ -709,6 +714,7 @@ class SettlementService(TransactionalDocumentService):
                 is_receipt=is_receipt,
                 money_account_id=money_account_id,
                 actor_id=actor_id,
+                tds_amount=tds_amount,
             )
         )
         row = Settlement(
@@ -720,6 +726,8 @@ class SettlementService(TransactionalDocumentService):
             settlement_number=number,
             settlement_date=data.settlement_date,
             amount=amount,
+            tds_amount=tds_amount,
+            tds_section=data.tds_section if tds_amount > ZERO else None,
             allocated_amount=allocated,
             unallocated_amount=amount - allocated,
             sales_order_id=None if order is None else order.id,
@@ -819,6 +827,8 @@ class SettlementService(TransactionalDocumentService):
             after_data={
                 "settlement_number": number,
                 "amount": str(amount),
+                "tds_amount": str(tds_amount),
+                "tds_section": data.tds_section if tds_amount > ZERO else None,
                 "allocated_amount": str(allocated),
                 "party": party.code,
             },

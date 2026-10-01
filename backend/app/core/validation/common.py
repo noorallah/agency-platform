@@ -15,6 +15,7 @@ _EMAIL_PATTERN = re.compile(
 _PHONE_PATTERN = re.compile(r"^\+[1-9]\d{7,14}$")
 #: A Tax Deduction Account Number: four letters, five digits, one letter.
 _TAN_PATTERN = re.compile(r"^[A-Z]{4}[0-9]{5}[A-Z]$")
+_PAN_PATTERN = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
 
 
 def refuse_explicit_nulls(model: BaseModel, *, nullable: Iterable[str] = ()) -> None:
@@ -83,6 +84,29 @@ def normalize_tan(value: str | None) -> str | None:
     if not _TAN_PATTERN.fullmatch(normalized):
         raise ValueError(
             "A TAN is four letters, five digits and a letter, e.g. DELA12345B."
+        )
+    return normalized
+
+
+def normalize_pan(value: str | None) -> str | None:
+    """Return a PAN in capitals, None for a blank, or refuse a malformed one.
+
+    The Income Tax Department's format: five letters, four digits, one letter
+    (``ABCDE1234F``). A TDS return names every deductee by PAN, so a wrong one
+    is caught here rather than when the return bounces.
+
+    Raises:
+        ValueError: If a non-blank value is not in that format.
+
+    """
+    if value is None:
+        return None
+    normalized = value.strip().upper()
+    if not normalized:
+        return None
+    if not _PAN_PATTERN.fullmatch(normalized):
+        raise ValueError(
+            "A PAN is five letters, four digits and a letter, e.g. ABCDE1234F."
         )
     return normalized
 

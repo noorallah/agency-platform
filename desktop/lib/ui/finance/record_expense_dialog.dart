@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/expense.dart';
+import '../../models/tds.dart';
 import '../workspace/desktop_framework.dart';
 
 /// Record one expense: what it was for, how much, and where it came from.
@@ -30,6 +31,13 @@ class _RecordExpenseDialogState extends State<RecordExpenseDialog> {
   final TextEditingController _payee = TextEditingController();
   final TextEditingController _reference = TextEditingController();
   final TextEditingController _narration = TextEditingController();
+
+  /// Tax deducted at source out of the amount (backlog 53.1): rent, fees and
+  /// transport commonly carry it. The expense is the whole amount; the money
+  /// paid out is the rest, and the deduction is owed to the government.
+  final TextEditingController _tds = TextEditingController();
+  final TextEditingController _payeePan = TextEditingController();
+  String? _tdsSection;
   late DateTime _date = widget.today ?? DateTime.now();
   ExpenseAccountChoices? _choices;
   String? _expenseAccountId;
@@ -49,6 +57,8 @@ class _RecordExpenseDialogState extends State<RecordExpenseDialog> {
     _payee.dispose();
     _reference.dispose();
     _narration.dispose();
+    _tds.dispose();
+    _payeePan.dispose();
     super.dispose();
   }
 
@@ -80,8 +90,20 @@ class _RecordExpenseDialogState extends State<RecordExpenseDialog> {
     if (amount == null || amount <= 0) {
       return 'Enter an amount greater than zero.';
     }
+    final String? tds = tdsProblem(
+      amount: _amount.text,
+      tdsAmount: _tds.text,
+      section: _tdsSection,
+    );
+    if (tds != null) return tds;
+    if (_deducted > 0 && _payee.text.trim().isEmpty) {
+      return 'Name the payee: the TDS return lists every deduction by '
+          'deductee.';
+    }
     return null;
   }
+
+  double get _deducted => double.tryParse(_tds.text.trim()) ?? 0;
 
   Future<void> _save() async {
     final String? problem = _problem();
@@ -103,6 +125,11 @@ class _RecordExpenseDialogState extends State<RecordExpenseDialog> {
         if (text(_payee).isNotEmpty) 'payee': text(_payee),
         if (text(_reference).isNotEmpty) 'reference': text(_reference),
         if (text(_narration).isNotEmpty) 'narration': text(_narration),
+        if (_deducted > 0) ...{
+          'tds_amount': text(_tds),
+          'tds_section': _tdsSection,
+          if (text(_payeePan).isNotEmpty) 'payee_pan': text(_payeePan),
+        },
       });
       if (!mounted) return;
       Navigator.of(context).pop(saved);
@@ -205,6 +232,67 @@ class _RecordExpenseDialogState extends State<RecordExpenseDialog> {
                     ),
                   ),
                 ]),
+                const SizedBox(height: AppSpacing.md),
+                Row(children: [
+                  SizedBox(
+                    width: 130,
+                    child: TextField(
+                      key: const ValueKey('expense-tds-amount'),
+                      controller: _tds,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      onChanged: (_) => setState(() {}),
+                      decoration:
+                          const InputDecoration(labelText: 'TDS deducted'),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      key: const ValueKey('expense-tds-section'),
+                      initialValue: _tdsSection,
+                      isExpanded: true,
+                      decoration:
+                          const InputDecoration(labelText: 'TDS section'),
+                      items: [
+                        for (final MapEntry<String, String> entry
+                            in tdsSections.entries)
+                          DropdownMenuItem(
+                            value: entry.key,
+                            child: Text(
+                              '${entry.key} - ${entry.value}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (value) =>
+                          setState(() => _tdsSection = value),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  SizedBox(
+                    width: 130,
+                    child: TextField(
+                      key: const ValueKey('expense-payee-pan'),
+                      controller: _payeePan,
+                      textCapitalization: TextCapitalization.characters,
+                      decoration:
+                          const InputDecoration(labelText: "Payee's PAN"),
+                    ),
+                  ),
+                ]),
+                if (_deducted > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: AppSpacing.xs),
+                    child: Text(
+                      'Paid out: '
+                      '${((double.tryParse(_amount.text.trim()) ?? 0) - _deducted).toStringAsFixed(2)}. '
+                      'The expense is the whole amount; the deduction is '
+                      'owed to the government.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
                 const SizedBox(height: AppSpacing.md),
                 TextField(
                   key: const ValueKey('expense-narration'),

@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.finance.tds import check_tds
+
 
 class SettlementSchema(BaseModel):
     """Apply strict input and ORM response behaviour."""
@@ -65,6 +67,24 @@ class SettlementCreate(SettlementSchema):
     #: Receipts only; a payment to a vendor has no sales order behind it.
     sales_order_id: UUID | None = None
     allocations: list[SettlementAllocationWrite] = Field(default_factory=list)
+    #: Tax deducted at source out of ``amount`` (backlog 53.1). ``amount`` is
+    #: what settles the party -- the bill's full value -- and the cash or bank
+    #: moves ``amount - tds_amount``: on a payment the firm deducted the rest
+    #: and owes it to the government, on a receipt the customer did and the
+    #: firm claims it. Blank or 0 means nothing was deducted.
+    tds_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=2
+    )
+    #: The section the deduction is filed under, e.g. ``194Q``.
+    tds_section: str | None = Field(default=None, max_length=10)
+
+    @model_validator(mode="after")
+    def _tds_can_be_filed(self) -> "SettlementCreate":
+        """Refuse a deduction with no section, or one that is not a part."""
+        if self.tds_section is not None:
+            self.tds_section = self.tds_section.strip().upper() or None
+        check_tds(self.amount, self.tds_amount, self.tds_section)
+        return self
 
     @model_validator(mode="after")
     def _one_row_per_invoice(self) -> "SettlementCreate":
@@ -111,6 +131,11 @@ class SettlementResponse(SettlementSchema):
     unallocated_amount: Decimal
     sales_order_id: UUID | None = None
     sales_order_number: str | None = None
+    #: Tax deducted at source out of ``amount``, and what actually moved
+    #: through the cash or bank account.
+    tds_amount: Decimal = Decimal("0")
+    tds_section: str | None = None
+    cash_amount: Decimal | None = None
     method: SettlementMethodEnum
     ledger_account_id: UUID
     ledger_account_name: str

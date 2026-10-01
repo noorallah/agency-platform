@@ -4088,9 +4088,12 @@ into code, as TCS already does.
 ### 53.1 Firms that already hold a TAN -- owner, 2026-09-27 -- HIGH PRIORITY
 
 **Priority (owner, 2026-09-27): high.** **Items 1 and 2 built 2026-09-30**
-(migration `20260930_0166`); the interim steps are in
-`docs/LEDGER_POSTING_RULES.md`, "Tax deducted at source has accounts". Items 3
-and 4 remain for 1.1.
+(migration `20260930_0166`). **Items 3 and 4 built 2026-10-01**, before
+go-live rather than in 1.1 (migration `20261001_0175`): *TDS deducted* and its
+section on payments, receipts and expenses, and the *TDS deducted* and *TDS
+deducted by customers* registers; rules in `docs/LEDGER_POSTING_RULES.md`,
+"Tax deducted at source posts with the money". Left: a challan screen (today a
+journal), party defaults (a supplier's usual section), and a 26Q export file.
 
 | When | What | Size |
 | --- | --- | --- |
