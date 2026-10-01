@@ -90,6 +90,15 @@ class DeliveryNote(BaseEntity):
     lr_number: Mapped[str | None] = mapped_column(String(60))
     lr_date: Mapped[date | None] = mapped_column(Date)
     distance_km: Mapped[int | None] = mapped_column(Integer)
+    #: Why the goods go out (backlog 77 row 3): SALE, ROUTE_SALE, ON_APPROVAL,
+    #: QUANTITY_UNKNOWN, JOB_WORK or OTHER. Printed on the challan; a sale
+    #: dispatched by hand before its invoice is judged by the firm's GST
+    #: policy (`app/tax/services/gst_compliance.py`).
+    challan_reason: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="SALE", server_default="SALE"
+    )
+    #: What OTHER means, in the firm's words; required with it.
+    challan_reason_note: Mapped[str | None] = mapped_column(String(200))
     remarks: Mapped[str | None] = mapped_column(Text)
     # Retired (D-SELL-31): a note may never ship more than the order line,
     # and no request can say otherwise. The columns stay so no migration is

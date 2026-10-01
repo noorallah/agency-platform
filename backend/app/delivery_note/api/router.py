@@ -26,7 +26,7 @@ from app.common.scope import (
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
-from app.core.exceptions import ValidationError
+from app.core.exceptions import AuthorizationError, ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
@@ -54,6 +54,10 @@ from app.document_framework.schemas.bulk_actions import (
     BulkCancelRequest,
 )
 from app.document_framework.services.bulk_actions import run_each
+from app.sales_invoice.schemas import SalesInvoiceResponse
+from app.sales_invoice.services.sales_invoice_service import SalesInvoiceService
+from app.tax.schemas.gst_compliance import DispatchCheckResponse
+from app.tax.services.gst_compliance import GstComplianceService
 from app.trade_licences.api.override import (
     LicenceOverrideReason,
     authorised_override,
@@ -344,6 +348,54 @@ def dispatch_delivery_note(
         note_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data=service.note_response(row))
+
+
+@router.get(
+    "/{note_id}/dispatch-check", response_model=ApiResponse[DispatchCheckResponse]
+)
+def check_delivery_note_dispatch(
+    note_id: UUID,
+    scope: DeliveryNoteViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[DispatchCheckResponse]:
+    """Say what dispatching this note by hand would meet (backlog 77 row 2)."""
+    row = DeliveryNoteService(db).get_note(note_id, firm_scope=scope.firm_id)
+    return ApiResponse(
+        data=GstComplianceService(db).dispatch_check(
+            scope.firm_id,
+            note_number=row.delivery_note_number,
+            challan_reason=row.challan_reason or "SALE",
+        )
+    )
+
+
+@router.post(
+    "/{note_id}/dispatch-and-invoice",
+    response_model=ApiResponse[SalesInvoiceResponse],
+)
+def dispatch_and_invoice_delivery_note(
+    note_id: UUID,
+    scope: DeliveryNoteApproveScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SalesInvoiceResponse]:
+    """Dispatch one approved note and raise and approve its bill, together.
+
+    Backlog 77 row 2: the invoice exists when the goods leave (CGST s.31).
+    Dispatching and approving a bill both take SALES_APPROVE; raising the bill
+    takes SALES_CREATE as well.
+    """
+    if not scope.principal.has_permission("SALES_CREATE"):
+        raise AuthorizationError(
+            "Dispatch and invoice raises a bill, which needs SALES_CREATE."
+        )
+    service = SalesInvoiceService(db)
+    row = service.dispatch_and_invoice(
+        note_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(
+        data=service.invoice_response(row),
+        message=f"Dispatched and invoiced as {row.invoice_number}.",
+    )
 
 
 @router.post("/{note_id}/complete", response_model=ApiResponse[DeliveryNoteResponse])

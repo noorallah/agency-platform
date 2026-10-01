@@ -39,6 +39,7 @@ from app.sales_invoice.services.invoice_pdf import (
     PartyBlock,
     TemplateSettings,
 )
+from app.tax.services.gst_compliance import CHALLAN_REASONS
 from app.uom.models import Uom
 
 ZERO = Decimal("0")
@@ -137,6 +138,19 @@ class DeliveryChallanPrintService:
             )
 
         references: list[tuple[str, str]] = []
+        # Why the goods travel ahead of the invoice, which a checkpost asks
+        # first (backlog 77 row 3; CGST Rules r.55).
+        reason = CHALLAN_REASONS.get(note.challan_reason or "SALE", "Sale")
+        references.append(
+            (
+                "Reason",
+                (
+                    f"{reason}: {note.challan_reason_note}"
+                    if note.challan_reason_note
+                    else reason
+                ),
+            )
+        )
         if note.sales_order_reference:
             references.append(("Against order", note.sales_order_reference))
         # The two the driver is stopped and asked about.

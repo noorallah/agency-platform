@@ -110,6 +110,7 @@ from app.sales_invoice.schemas import (
     SalesInvoiceResponse,
     SalesInvoiceSourceResponse,
     SalesInvoiceSourceType,
+    SalesInvoiceSourceWrite,
     SalesInvoiceStatus,
     SalesInvoiceSummary,
 )
@@ -902,6 +903,73 @@ class SalesInvoiceService(TransactionalDocumentService):
             licence_override_reason=licence_override_reason,
             price_override_reason=price_override_reason,
         )
+        self._session.commit()
+        return row
+
+    def dispatch_and_invoice(
+        self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> SalesInvoice:
+        """Dispatch an approved delivery note and bill it, in one transaction.
+
+        Backlog 77 row 2, decision A35. A tax invoice for goods is issued at
+        or before their removal (CGST s.31), so a sale's note dispatched by
+        hand is warned about or refused; this is the compliant path in one
+        action. The note is dispatched, a bill of all of it is raised -- each
+        line inheriting the note's price, discount and free goods -- and
+        approved, and nothing lands unless all three do. Dated the day it
+        happens, which is the day the goods leave.
+
+        Raises:
+            ValidationError: If the note is not approved, or the bill's own
+                approval refuses (a licence, a price below its floor): then
+                nothing is dispatched either.
+
+        """
+        notes = DeliveryNoteService(self._session)
+        note = notes.get_note(note_id, firm_scope=firm_scope)
+        if note.status != DeliveryNoteStatus.APPROVED.value:
+            raise ValidationError(
+                f"{note.delivery_note_number} is {note.status.lower()}: only an "
+                "approved delivery note can be dispatched and invoiced."
+            )
+        notes.stage_dispatch(note.id, firm_scope=firm_scope, actor_id=actor_id)
+        self._session.flush()
+        lines = self._session.scalars(
+            select(DeliveryNoteLine)
+            .where(
+                DeliveryNoteLine.delivery_note_id == note.id,
+                DeliveryNoteLine.is_deleted.is_(False),
+            )
+            .order_by(DeliveryNoteLine.line_number.asc())
+        ).all()
+        bill = self.stage_invoice(
+            SalesInvoiceCreate(
+                customer_id=note.customer_id,
+                branch_id=note.branch_id,
+                invoice_date=utc_now().date(),
+                source_documents=[
+                    SalesInvoiceSourceWrite(
+                        source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                        source_document_id=note.id,
+                    )
+                ],
+                lines=[
+                    SalesInvoiceLineWrite(
+                        source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                        source_document_id=note.id,
+                        source_document_line_id=line.id,
+                        line_number=number,
+                        current_invoice_quantity=self._q(
+                            line.current_delivery_quantity
+                        ),
+                    )
+                    for number, line in enumerate(lines, start=1)
+                ],
+            ),
+            firm_id=firm_scope,
+            actor_id=actor_id,
+        )
+        row = self.stage_approval(bill.id, firm_scope=firm_scope, actor_id=actor_id)
         self._session.commit()
         return row
 
