@@ -24,6 +24,7 @@ from app.common.report_names import vendors_matching
 from app.core.database.batch import children_by_parent
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
+from app.core.utils.chunks import chunks
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO
 from app.core.utils.pricing import apportion, resolve_bill_discount
@@ -2171,39 +2172,54 @@ class PurchaseService(TransactionalDocumentService):
             One record per product, most-ordered first.
 
         """
-        live = {row.id for row in self._live_report_orders(firm_scope, window)}
-        if not live:
+        # Grouped in SQL: it read every live order of the window and then all
+        # their lines whole, 3.8 s for a year on the volume firm (backlog 56 C,
+        # step 4).
+        grouped = self._session.execute(
+            select(
+                PurchaseOrderLine.product_id,
+                func.coalesce(func.sum(PurchaseOrderLine.ordered_quantity), 0),
+                func.coalesce(func.sum(PurchaseOrderLine.net_amount), 0),
+                func.count(func.distinct(PurchaseOrderLine.purchase_order_id)),
+            )
+            .join(
+                PurchaseOrder, PurchaseOrder.id == PurchaseOrderLine.purchase_order_id
+            )
+            .where(
+                PurchaseOrder.firm_id == firm_scope,
+                PurchaseOrder.is_deleted.is_(False),
+                PurchaseOrder.status != PurchaseOrderStatus.CANCELLED.value,
+                *window.dated(PurchaseOrder.purchase_date),
+                PurchaseOrderLine.is_deleted.is_(False),
+            )
+            .group_by(PurchaseOrderLine.product_id)
+        ).all()
+        if not grouped:
             return []
         quantities: dict[UUID, Decimal] = {}
         values: dict[UUID, Decimal] = {}
-        orders: dict[UUID, set[UUID]] = {}
-        lines = self._session.scalars(
-            select(PurchaseOrderLine).where(
-                PurchaseOrderLine.purchase_order_id.in_(list(live)),
-                PurchaseOrderLine.is_deleted.is_(False),
-            )
-        ).all()
-        for line in lines:
-            key = line.product_id
-            quantities[key] = quantities.get(key, ZERO) + Decimal(
-                str(line.ordered_quantity)
-            )
-            values[key] = values.get(key, ZERO) + Decimal(str(line.net_amount))
-            orders.setdefault(key, set()).add(line.purchase_order_id)
+        counts: dict[UUID, int] = {}
+        for product_id, quantity, value, count in grouped:
+            quantities[product_id] = Decimal(str(quantity))
+            values[product_id] = Decimal(str(value))
+            counts[product_id] = int(count)
         products = {
-            row.id: row
-            for row in self._session.scalars(
-                select(Product).where(Product.id.in_(list(quantities)))
+            product_id: (code, name)
+            for part in chunks(list(quantities))
+            for product_id, code, name in self._session.execute(
+                select(Product.id, Product.code, Product.name).where(
+                    Product.id.in_(part)
+                )
             ).all()
         }
         return [
             PurchaseOrderByProductRecord(
                 product_id=product_id,
-                product_code=getattr(products.get(product_id), "code", ""),
-                product_name=getattr(products.get(product_id), "name", str(product_id)),
+                product_code=products.get(product_id, ("", ""))[0],
+                product_name=products.get(product_id, ("", str(product_id)))[1],
                 ordered_quantity=quantity,
                 total_value=values[product_id],
-                order_count=len(orders[product_id]),
+                order_count=counts[product_id],
             )
             for product_id, quantity in sorted(
                 quantities.items(), key=lambda item: -item[1]

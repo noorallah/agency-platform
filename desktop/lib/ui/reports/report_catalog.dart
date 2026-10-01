@@ -618,6 +618,9 @@ const List<ReportDefinition> reportCatalog = [
     label: 'Purchase invoice reconciliation',
     description: 'Supplier invoices against the goods actually received.',
     path: '/api/v1/purchase-invoices/reports/reconciliation',
+    // Windowed on the bill date since backlog 56 C step 4, as the sales
+    // invoice reconciliation is.
+    needsPeriod: true,
     permission: 'PURCHASE_VIEW',
     area: ReportArea.financial,
   ),
