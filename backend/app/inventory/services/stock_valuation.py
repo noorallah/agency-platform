@@ -170,6 +170,14 @@ class StockValuationService:
                 rows.append(_closing("DIFFERENCE", "Difference", total - books))
         return rows
 
+    def rates(self, firm_id: UUID, on: date) -> dict[UUID, Decimal]:
+        """Return each product's moving-average cost as on ``on``.
+
+        The rate the valuation values stock at, for the reports that value
+        stock beside it (backlog 55 S7).
+        """
+        return self._rates(firm_id, on)
+
     def _rates(self, firm_id: UUID, on: date) -> dict[UUID, Decimal]:
         """Each product's moving-average cost after its last costed movement."""
         ranked = (

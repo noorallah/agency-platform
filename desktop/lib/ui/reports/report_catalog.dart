@@ -764,6 +764,28 @@ const List<ReportDefinition> reportCatalog = [
     permission: 'PURCHASE_VIEW',
     area: ReportArea.financial,
   ),
+  // The customer ageing's mirror (55 S7): what each supplier is owed, by
+  // days past due, over what Record Payment says each bill still owes.
+  ReportDefinition(
+    id: 'vendor-ageing',
+    label: 'Vendor ageing',
+    description: 'What each supplier is owed today, by how many days past '
+        'its due date: 0-29, 30-59, 60-89 and 90 or more.',
+    path: '/api/v1/purchase-invoices/reports/vendor-ageing',
+    permission: 'PURCHASE_VIEW',
+    area: ReportArea.financial,
+    columns: [
+      ReportColumn(key: 'vendor_code', label: 'Code'),
+      ReportColumn(key: 'vendor_name', label: 'Supplier'),
+      ReportColumn(key: 'bills', label: 'Bills', numeric: true),
+      ReportColumn(key: 'total_outstanding', label: 'Owed', numeric: true),
+      ReportColumn(key: 'days_0_29', label: '0-29 days', numeric: true),
+      ReportColumn(key: 'days_30_59', label: '30-59', numeric: true),
+      ReportColumn(key: 'days_60_89', label: '60-89', numeric: true),
+      ReportColumn(key: 'days_90_plus', label: '90+', numeric: true),
+      ReportColumn(key: 'oldest_days', label: 'Oldest (days)', numeric: true),
+    ],
+  ),
   ReportDefinition(
     id: 'purchase-return-by-vendor',
     label: 'Returns by vendor',
@@ -811,6 +833,62 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'rate', label: 'Rate', numeric: true),
       ReportColumn(key: 'value', label: 'Value', numeric: true),
     ],
+  ),
+  // How old the stock on hand is (55 S7): FIFO's answer -- what is left is
+  // what came in last -- in buckets of days, valued at the average cost.
+  ReportDefinition(
+    id: 'stock-ageing',
+    label: 'Stock ageing',
+    description: 'Stock on hand as on the day, split by how long ago it was '
+        'received -- what came in last taken to be what is left -- with '
+        'its value at average cost.',
+    path: '/api/v1/inventory/reports/stock-ageing',
+    permission: 'INVENTORY_VIEW',
+    area: ReportArea.operational,
+    needsPeriod: true,
+    asOnDate: true,
+    columns: [
+      ReportColumn(key: 'product_code', label: 'Code'),
+      ReportColumn(key: 'product_name', label: 'Item'),
+      ReportColumn(key: 'category', label: 'Category'),
+      ReportColumn(key: 'unit', label: 'Unit'),
+      ReportColumn(key: 'quantity', label: 'On hand', numeric: true),
+      ReportColumn(key: 'value', label: 'Value', numeric: true),
+      ReportColumn(key: 'days_0_30', label: '0-30 days', numeric: true),
+      ReportColumn(key: 'days_31_60', label: '31-60', numeric: true),
+      ReportColumn(key: 'days_61_90', label: '61-90', numeric: true),
+      ReportColumn(key: 'days_91_180', label: '91-180', numeric: true),
+      ReportColumn(key: 'days_over_180', label: 'Over 180', numeric: true),
+      ReportColumn(key: 'last_receipt_date', label: 'Last received'),
+    ],
+  ),
+  // Stock that is not selling (55 S7): the Days box says over how long.
+  ReportDefinition(
+    id: 'slow-moving',
+    label: 'Slow-moving stock',
+    description: 'Stock on hand that the last so many days of sales would '
+        'not clear in as many days again, or that did not sell at all -- '
+        'slowest first.',
+    path: '/api/v1/inventory/reports/slow-moving',
+    permission: 'INVENTORY_VIEW',
+    area: ReportArea.operational,
+    needsPeriod: true,
+    asOnDate: true,
+    days: 90,
+    columns: _slowStockColumns,
+  ),
+  ReportDefinition(
+    id: 'dead-stock',
+    label: 'Dead stock',
+    description: 'Stock on hand that no customer took in the last so many '
+        'days: what it is worth, and when it last sold.',
+    path: '/api/v1/inventory/reports/dead-stock',
+    permission: 'INVENTORY_VIEW',
+    area: ReportArea.operational,
+    needsPeriod: true,
+    asOnDate: true,
+    days: 180,
+    columns: _slowStockColumns,
   ),
   // The drawing-power statement a bank asks a distributor for every month
   // (backlog 70 row 6): opening, in, out and closing, each with its value.
@@ -1099,6 +1177,21 @@ const List<ReportColumn> _moneyBookColumns = [
   ReportColumn(key: 'receipt', label: 'Receipt', numeric: true),
   ReportColumn(key: 'payment', label: 'Payment', numeric: true),
   ReportColumn(key: 'balance', label: 'Balance', numeric: true),
+];
+
+/// The slow-moving and dead stock reports' columns (55 S7).
+const List<ReportColumn> _slowStockColumns = [
+  ReportColumn(key: 'product_code', label: 'Code'),
+  ReportColumn(key: 'product_name', label: 'Item'),
+  ReportColumn(key: 'category', label: 'Category'),
+  ReportColumn(key: 'unit', label: 'Unit'),
+  ReportColumn(key: 'quantity', label: 'On hand', numeric: true),
+  ReportColumn(key: 'value', label: 'Value', numeric: true),
+  ReportColumn(key: 'issued_quantity', label: 'Sold in the days', numeric: true),
+  ReportColumn(key: 'days_of_cover', label: 'Days of cover', numeric: true),
+  ReportColumn(key: 'last_issue_date', label: 'Last sold'),
+  ReportColumn(key: 'days_since_issue', label: 'Days since', numeric: true),
+  ReportColumn(key: 'last_receipt_date', label: 'Last received'),
 ];
 
 /// The discount reports' columns (67 row 8): typed beside arranged.

@@ -81,12 +81,18 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
   final TextEditingController _financialYear = TextEditingController();
   int _quarter = 1;
 
+  // How many days a report that takes them is asked about (55 S7), and which
+  // report the box was last filled for -- each opens on its own figure.
+  final TextEditingController _days = TextEditingController();
+  String? _daysFor;
+
   @override
   void dispose() {
     _horizontal.dispose();
     _from.dispose();
     _to.dispose();
     _financialYear.dispose();
+    _days.dispose();
     super.dispose();
   }
 
@@ -172,6 +178,11 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
     final ReportDefinition? report = _selected;
     if (report == null || !widget.hasActiveFirm || !_canRead(report)) return;
     final int load = ++_loads;
+    final int? days = report.days;
+    if (days != null && _daysFor != report.id) {
+      _days.text = '$days';
+      _daysFor = report.id;
+    }
     setState(() {
       _loading = true;
       _error = null;
@@ -190,6 +201,7 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
                 ? {
                     'from_date': _from.text.trim(),
                     'to_date': _to.text.trim(),
+                    if (days != null) 'days': _days.text.trim(),
                     'page': '$page',
                     'page_size': '$_pageSize',
                   }
@@ -552,9 +564,15 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
                 size: 16, color: scheme.onSurfaceVariant),
           ),
           if (report.needsPeriod) ...[
-            dateBox('From', const ValueKey<String>('report-from'), _from),
-            dateBox('To', const ValueKey<String>('report-to'), _to),
+            // As on one day (D-GOLIVE-3): a From would ask a question the
+            // report cannot answer, as the phase 1 screen already knew.
+            if (!report.asOnDate)
+              dateBox('From', const ValueKey<String>('report-from'), _from),
+            dateBox(report.asOnDate ? 'As on' : 'To',
+                const ValueKey<String>('report-to'), _to),
           ],
+          if (report.days != null)
+            dateBox('Days', const ValueKey<String>('report-days'), _days),
           // One return quarter (53.1): the year it falls in, and which.
           if (report.quarterly) ...[
             dateBox('Year', const ValueKey<String>('report-financial-year'),

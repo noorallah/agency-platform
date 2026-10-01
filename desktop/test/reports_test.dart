@@ -698,6 +698,76 @@ void main() {
     });
   });
 
+  group('stock ageing, slow and dead stock, vendor ageing (55 S7)', () {
+    test('each is catalogued with its columns', () {
+      for (final String id in [
+        'stock-ageing',
+        'slow-moving',
+        'dead-stock',
+        'vendor-ageing',
+      ]) {
+        final ReportDefinition report =
+            reportCatalog.singleWhere((report) => report.id == id);
+        expect(report.columns, isNotEmpty, reason: id);
+      }
+      expect(
+          reportCatalog.singleWhere((r) => r.id == 'slow-moving').days, 90);
+      expect(
+          reportCatalog.singleWhere((r) => r.id == 'dead-stock').days, 180);
+      expect(
+          reportCatalog.singleWhere((r) => r.id == 'vendor-ageing').needsPeriod,
+          isFalse,
+          reason: 'an ageing is as on today, not over a period');
+    });
+
+    testWidgets('dead stock asks for a day and a number of days',
+        (tester) async {
+      final _ReportApi api = _ReportApi(rows: [
+        {
+          'product_code': 'P-9',
+          'product_name': 'Old stock',
+          'quantity': '4',
+          'value': '40.00',
+        },
+      ]);
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: ListViewRequestScope(
+              request: const ListViewRequest(
+                path: 'reports/operational',
+                view: 'dead-stock',
+                serial: 1,
+              ),
+              child: ReportsWorkspace(
+                api: api,
+                permissions: _permissionsFor(const ['INVENTORY_VIEW']),
+                hasActiveFirm: true,
+                tabId: 'operational',
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(api.requested.last, '/api/v1/inventory/reports/dead-stock');
+      expect(api.queries.last!['days'], '180');
+      expect(find.byKey(const ValueKey<String>('report-from')), findsNothing);
+      expect(find.byKey(const ValueKey<String>('report-days')), findsOneWidget);
+
+      await tester.enterText(
+          find.byKey(const ValueKey<String>('report-days')), '60');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      expect(api.queries.last!['days'], '60');
+      expect(find.text('P-9'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   group('the quarterly TDS return (53.1)', () {
     test('a screen opens on the last quarter that has ended', () {
       expect(lastEndedReturnQuarter(DateTime(2026, 10, 1)), ('2026-27', 2));

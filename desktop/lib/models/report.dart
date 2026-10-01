@@ -58,10 +58,16 @@ class ReportDefinition {
     this.quarterly = false,
     this.file,
     this.drill,
+    this.days,
   });
 
   /// What double-clicking a row opens, when anything does.
   final ReportDrill? drill;
+
+  /// A report asked about a number of days -- stock with no issue in that
+  /// many (55 S7). The workspace offers a Days box opening on this figure
+  /// and sends it as `days`; null for a report that takes none.
+  final int? days;
 
   /// A report of one return quarter -- the quarterly TDS return (53.1). The
   /// workspace then asks for a financial year and a quarter rather than a

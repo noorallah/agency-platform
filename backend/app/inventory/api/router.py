@@ -75,6 +75,7 @@ from app.inventory.services.opening_stock_import import (
 from app.inventory.services.opening_stock_import import (
     template_workbook as opening_stock_template_workbook,
 )
+from app.inventory.services.stock_ageing import StockAgeingService
 from app.inventory.services.stock_valuation import (
     StockStatementService,
     StockValuationService,
@@ -277,6 +278,141 @@ def stock_statement(
     window = ReportWindow(None, None, page, page_size)
     return window.respond(
         [StockStatementRecord.model_validate(row, from_attributes=True) for row in rows]
+    )
+
+
+class StockAgeingRecord(BaseModel):
+    """One item on hand, valued, split by how old it is (55 S7)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    product_code: str
+    product_name: str
+    category: str
+    unit: str
+    quantity: Decimal
+    rate: Decimal
+    value: Decimal
+    days_0_30: Decimal
+    days_31_60: Decimal
+    days_61_90: Decimal
+    days_91_180: Decimal
+    days_over_180: Decimal
+    last_receipt_date: date | None
+
+
+class SlowStockRecord(BaseModel):
+    """One item on hand that is selling slowly or not at all (55 S7)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    product_code: str
+    product_name: str
+    category: str
+    unit: str
+    quantity: Decimal
+    value: Decimal
+    issued_quantity: Decimal
+    days_of_cover: Decimal | None
+    last_issue_date: date | None
+    days_since_issue: int | None
+    last_receipt_date: date | None
+
+
+@router.get(
+    "/reports/stock-ageing",
+    response_model=PaginatedResponse[StockAgeingRecord],
+)
+def stock_ageing(
+    scope: StockValuationScope,
+    to_date: date | None = None,
+    from_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[StockAgeingRecord]:
+    """Age the stock on hand as on ``to_date`` (today when left out).
+
+    What is on hand is taken to be the most recently received, as FIFO would
+    leave it (``app/inventory/services/stock_ageing.py`` says how).
+    ``from_date`` is accepted and ignored, as the valuation's is.
+    """
+    del from_date
+    on = min(to_date or utc_now().date(), utc_now().date())
+    rows = StockAgeingService(db).ageing(scope.firm_id, on=on)
+    window = ReportWindow(None, None, page, page_size)
+    return window.respond(
+        [StockAgeingRecord.model_validate(row, from_attributes=True) for row in rows]
+    )
+
+
+def _slow_stock(
+    firm_id: UUID,
+    db: Session,
+    *,
+    to_date: date | None,
+    days: int,
+    dead_only: bool,
+    window: ReportWindow,
+) -> PaginatedResponse[SlowStockRecord]:
+    """Answer the slow-moving or the dead stock, one page."""
+    on = min(to_date or utc_now().date(), utc_now().date())
+    rows = StockAgeingService(db).slow_moving(
+        firm_id, on=on, days=days, dead_only=dead_only
+    )
+    return window.respond(
+        [SlowStockRecord.model_validate(row, from_attributes=True) for row in rows]
+    )
+
+
+@router.get(
+    "/reports/slow-moving",
+    response_model=PaginatedResponse[SlowStockRecord],
+)
+def slow_moving_stock(
+    scope: StockValuationScope,
+    days: Annotated[int, Query(ge=1, le=3660)] = 90,
+    to_date: date | None = None,
+    from_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[SlowStockRecord]:
+    """Stock on hand that the last ``days`` days' sales would not clear in as many.
+
+    Days of cover is the quantity on hand over the daily rate it was issued
+    at; no issue at all is the slowest. As on ``to_date`` (today when left
+    out); ``from_date`` is accepted and ignored.
+    """
+    del from_date
+    window = ReportWindow(None, None, page, page_size)
+    return _slow_stock(
+        scope.firm_id, db, to_date=to_date, days=days, dead_only=False, window=window
+    )
+
+
+@router.get(
+    "/reports/dead-stock",
+    response_model=PaginatedResponse[SlowStockRecord],
+)
+def dead_stock(
+    scope: StockValuationScope,
+    days: Annotated[int, Query(ge=1, le=3660)] = 180,
+    to_date: date | None = None,
+    from_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[SlowStockRecord]:
+    """Stock on hand with no issue to a customer in the last ``days`` days.
+
+    As on ``to_date`` (today when left out); ``from_date`` is accepted and
+    ignored.
+    """
+    del from_date
+    window = ReportWindow(None, None, page, page_size)
+    return _slow_stock(
+        scope.firm_id, db, to_date=to_date, days=days, dead_only=True, window=window
     )
 
 
