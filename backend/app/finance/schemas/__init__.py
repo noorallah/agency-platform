@@ -816,6 +816,8 @@ class ProfitLossRangeReport(FinanceSchema):
     comparison_income: Decimal | None = None
     comparison_expense: Decimal | None = None
     comparison_net_profit: Decimal | None = None
+
+
 class TdsRegisterRecord(BaseModel):
     """One deduction in a TDS register (backlog 53.1 item 4)."""
 
