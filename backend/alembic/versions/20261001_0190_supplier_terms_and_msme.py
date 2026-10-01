@@ -20,7 +20,7 @@ from alembic import op
 from app.core.database.types import UUIDType
 
 revision: str = "20261001_0190"
-down_revision: str | Sequence[str] | None = "20261001_0184"
+down_revision: str | Sequence[str] | None = "20261001_0186"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
