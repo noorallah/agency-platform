@@ -27,6 +27,7 @@ import '../models/uom_packaging.dart';
 import '../models/product.dart';
 import '../models/report.dart' show ReportPage;
 import '../models/sales_invoice.dart';
+import '../models/settlement_direction.dart';
 import '../models/trade_licence.dart';
 import '../models/vendor.dart';
 import 'customers/customer_management_page.dart';
@@ -6199,6 +6200,28 @@ class _ShellHomeSource implements HomeSource {
   @override
   Future<int> itemsBelowReorder() async =>
       (await api.inventorySummary()).lowStockCount;
+
+  @override
+  Future<double> receiptsOn(DateTime day) async {
+    final String date = _date(day);
+    double total = 0;
+    for (int page = 1; page <= 50; page++) {
+      final result = await api.settlements(
+        direction: SettlementDirection.receipt,
+        page: page,
+        pageSize: 100,
+        settlementFrom: date,
+        settlementTo: date,
+      );
+      for (final settlement in result.items) {
+        if (!settlement.isReversed) {
+          total += double.tryParse(settlement.amount) ?? 0;
+        }
+      }
+      if (result.items.isEmpty || page * 100 >= result.total) break;
+    }
+    return total;
+  }
 
   @override
   Future<int> batchesExpiringIn30Days() async =>

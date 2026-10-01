@@ -20,6 +20,10 @@ abstract class HomeSource {
   /// Stock lines below their reorder level.
   Future<int> itemsBelowReorder();
 
+  /// Money received from customers on [day], reversed receipts left out --
+  /// the wireframe's fourth key figure (backlog 49 item 4).
+  Future<double> receiptsOn(DateTime day);
+
   /// Batches that expire within 30 days.
   Future<int> batchesExpiringIn30Days();
 
@@ -115,6 +119,7 @@ class Phase2HomePage extends StatefulWidget {
   static const String stock = 'inventory/inventory';
   static const String expiry = 'inventory/expiry-monitor';
   static const String tradeLicences = 'masters/trade-licences';
+  static const String receipts = 'accounting/receipts';
 
   /// The to-do list, in the order of a trading day.
   ///
@@ -189,12 +194,14 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
   final _Figure<List<Map<String, dynamic>>> _register = _Figure();
   final _Figure<List<Map<String, dynamic>>> _outstanding = _Figure();
   final _Figure<int> _belowReorder = _Figure();
+  final _Figure<double> _receiptsToday = _Figure();
   final _Figure<int> _expiring = _Figure();
   final _Figure<int> _licencesExpiring = _Figure();
   final Map<String, _Figure<Map<String, dynamic>>> _summaries = {};
 
   bool get _sales => widget.allowed(Phase2HomePage.salesInvoices);
   bool get _stock => widget.allowed(Phase2HomePage.stock);
+  bool get _receipts => widget.allowed(Phase2HomePage.receipts);
   bool get _batches => widget.allowed(Phase2HomePage.expiry);
   bool get _licences => widget.allowed(Phase2HomePage.tradeLicences);
 
@@ -214,6 +221,7 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
       _load(_outstanding, widget.source.customerOutstanding());
     }
     if (_stock) _load(_belowReorder, widget.source.itemsBelowReorder());
+    if (_receipts) _load(_receiptsToday, widget.source.receiptsOn(_day));
     if (_batches) _load(_expiring, widget.source.batchesExpiringIn30Days());
     if (_licences) {
       _load(_licencesExpiring, widget.source.expiringLicences());
@@ -518,6 +526,15 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
             failed: _outstanding.failed,
             path: 'masters/customer-statements'),
       ],
+      if (_receipts)
+        _kpi(context,
+            key: 'receipts-today',
+            label: 'Receipts today',
+            value: _receiptsToday.value == null
+                ? null
+                : indianAmount(_receiptsToday.value!),
+            failed: _receiptsToday.failed,
+            path: Phase2HomePage.receipts),
       if (_stock)
         _kpi(context,
             key: 'below-reorder',
