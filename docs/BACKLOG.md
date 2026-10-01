@@ -5516,3 +5516,29 @@ decisions OWNER_DECISIONS A36. Rows, numbered as there:
 | 9 | Common credit reversal for a firm with exempt sales (rules 42/43) | P3 |
 
 **Order:** 1 → 2 → 3 → 4, 5, 6 → 7-9, interleaved with §77 by priority.
+
+## 79. Choosing batches on a sale -- HIGH PRIORITY
+
+Owner, 2026-10-02: "when we select a sales item we need to show all batches,
+or based on expiry and stock, for the same product, then select -- validate
+with industry standards". Decision A38.
+
+**Today:** approving a sales order reserves batches earliest-expiry-first
+(expired ones skipped, judged on the order's date); the phase 2 delivery note
+shows which batches dispatch will draw, read-only; a counter bill draws FEFO
+silently. `delivery_note_lines.batch_number` exists but no screen sets it.
+
+**What other products do:** Marg opens a batch window on the sale line (batch,
+expiry, MRP, rate, stock; FEFO highlighted; expired blocked; split allowed);
+Tally has a batch allocation sub-screen; ERPNext auto-picks by expiry with a
+*Select Batch* override; Zoho Inventory picks batches by hand.
+
+| # | Item | Pri |
+| --- | --- | --- |
+| 1 | Batch availability per product and warehouse, net of other orders' reservations, with expiry and days left (API) | P1 |
+| 2 | Batch picker on the delivery note line (pre-filled with the reserved FEFO split; change, split, scan) and on the counter bill | P1 |
+| 3 | Server checks: product, warehouse, not expired on the document date, enough available; moving the reservation to the chosen batch; FEFO skip recorded in the audit trail | P1 |
+| 4 | Optional *pin batch* on the sales order line | P2 |
+| 5 | One printed row per batch on the challan and invoice (batch, expiry, MRP) | P1 |
+| 6 | Firm settings (Settings > Stock): near-expiry days (30), near-expiry warn / need a reason, FEFO skip allowed / need a reason, minimum shelf life per customer | P2 |
+| 7 | Price from the batch where the batch carries its own MRP or rate | P2 |

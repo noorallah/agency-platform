@@ -8,7 +8,8 @@ This is a **reference**, not a test script. To test the application step by
 step, use the *QA functional walkthrough*; to install it, the *Installation
 guide*.
 
-Written 2026-09-27 for release 1.0.2; brought up to 1.1.0 on 2026-10-01.
+Written 2026-09-27 for release 1.0.2; brought up to 1.1.0 on 2026-10-01;
+GST documents, input credit and GSTR-2B added 2026-10-02.
 
 ## Contents
 
@@ -230,6 +231,18 @@ here: see 5.5.
 (and batch or serial, where the product is tracked). Dispatching takes the
 stock out. A delivery can be part of an order.
 
+Every delivery note says **why the goods go out**: *Sale* (the default),
+*Van or route sale*, *Supply on approval*, *Quantity not known*, *Job work* or
+*Other* (with words). The reason prints on the challan. GST wants a sale's tax
+invoice to exist **before** the goods leave, so dispatching a *Sale* note that
+has no invoice yet follows the firm's choice in *Settings → Tax → GST
+Documents*: **Warn** (the default: a message, then *Dispatch anyway* is
+allowed and recorded), **Block**, or **Off**. **Dispatch and invoice** does
+both in one step: the goods leave and the approved invoice exists at the same
+moment. A van or route sale goes on a challan, with each shop invoiced at
+delivery, unless the firm switches on *Van or route sales need the invoice
+before the van leaves*.
+
 **Sales Invoices.** Raised from an order or its deliveries, or on its own.
 Approving books the sale, the GST (CGST and SGST within the state, IGST
 outside it) and the amount the customer owes, with a due date from the
@@ -390,8 +403,26 @@ Completing the receipt puts the accepted stock in and values it.
 **Purchase Invoices.** The supplier's bill, matched to the receipt. Approving
 books the amount owed with a due date, and the input GST the firm can claim.
 
+Not all GST paid can be claimed. Each bill line has **Input credit**:
+*Eligible*, *Blocked* (cars, food and catering, personal use, gifts --
+section 17(5)) or *Ineligible*. It comes from the line, else from the
+product's own setting, else from a tax rule. Tax that cannot be claimed is
+booked to **Input Tax Not Claimable** (account 5450) as a cost, never as
+input credit, and GSTR-3B shows it as the law asks.
+
+What a **supplier** is under GST is set on the supplier: *Regular*,
+*Composition*, *Unregistered*, *Overseas* or *SEZ*. A supplier marked
+Composition, Unregistered or Overseas charges no GST, so their bills carry
+none and claim none (reverse charge aside). A supplier with no type set is
+taxed by the firm's tax rules, as before.
+
 **Purchase Returns.** Goods sent back to the supplier (damaged, expired,
-wrong). Approving takes the stock out and reduces what is owed.
+wrong). Approving takes the stock out and reduces what is owed. A return says
+what the supplier gives back: **Credit** (set against the next bill, the
+default), **Replacement** (the order is owed the goods again and the next
+receipt takes them in) or **Refund** (the supplier pays the money back:
+*Payments → Supplier refunds → Record refund*). A return off a bill already
+paid becomes a supplier credit for what the bill can no longer absorb.
 
 ## 6.3 Money and insight
 
@@ -525,6 +556,14 @@ large and small, credit notes, HSN summary, documents issued) and
 invoices and credit notes **as they stand**, every time, so a late credit note
 or a cancelled invoice is always reflected. The place of supply is decided by
 the tax charged on each document.
+
+**GSTR-2B Reconciliation.** The portal's monthly statement of what
+suppliers filed, imported as the JSON file the portal gives and matched to the
+purchase bills by the supplier's GSTIN and bill number: *Matched*,
+*Different* (it says what differs), *Not in books*, or matched by hand; and a
+list of bills the suppliers have not filed. The firm chooses in *GST
+Documents* whether GSTR-3B claims every bill (the default, listing what 2B
+lacks) or only matched ones.
 
 **E-Invoice.** Registers an invoice with the government portal and records
 the IRN it returns, and raises the e-way bill for the goods. *In 1.1.0 only
