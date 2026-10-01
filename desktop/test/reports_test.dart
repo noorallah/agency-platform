@@ -630,6 +630,74 @@ void main() {
     });
   });
 
+  group('discount given and collections (67 rows 8 and 9)', () {
+    test('discounts are operational, collections financial, all dated', () {
+      const Map<String, ReportArea> expected = {
+        'discount-by-customer': ReportArea.operational,
+        'discount-by-salesman': ReportArea.operational,
+        'discount-by-product': ReportArea.operational,
+        'discount-by-promotion': ReportArea.operational,
+        'collections-by-day': ReportArea.financial,
+        'collections-by-salesman': ReportArea.financial,
+        'collections-by-mode': ReportArea.financial,
+      };
+      for (final MapEntry<String, ReportArea> entry in expected.entries) {
+        final ReportDefinition report =
+            reportCatalog.singleWhere((report) => report.id == entry.key);
+        expect(report.area, entry.value, reason: entry.key);
+        expect(report.needsPeriod, isTrue, reason: entry.key);
+        expect(report.columns, isNotEmpty, reason: entry.key);
+      }
+      final ReportDefinition byCustomer = reportCatalog
+          .singleWhere((report) => report.id == 'discount-by-customer');
+      expect(byCustomer.columns.map((column) => column.key),
+          containsAll(['typed_discount', 'arranged_discount']));
+    });
+
+    testWidgets('collections by salesman name their first column',
+        (tester) async {
+      final _ReportApi api = _ReportApi(rows: [
+        {
+          'key': 'On account',
+          'label': 'On account',
+          'receipts': 1,
+          'collected': '100.00',
+          'reversals': 0,
+          'reversed': '0.00',
+          'net_collected': '100.00',
+        },
+      ]);
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: ListViewRequestScope(
+              request: const ListViewRequest(
+                path: 'reports/financial',
+                view: 'collections-by-salesman',
+                serial: 1,
+              ),
+              child: ReportsWorkspace(
+                api: api,
+                permissions: _permissionsFor(const ['RECEIPT_VIEW']),
+                hasActiveFirm: true,
+                tabId: 'financial',
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(api.requested.last,
+          '/api/v1/receipts/reports/collections-by-salesman');
+      expect(find.text('Salesman'), findsWidgets);
+      expect(find.text('On account'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   group('the quarterly TDS return (53.1)', () {
     test('a screen opens on the last quarter that has ended', () {
       expect(lastEndedReturnQuarter(DateTime(2026, 10, 1)), ('2026-27', 2));

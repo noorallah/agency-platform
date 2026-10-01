@@ -90,6 +90,61 @@ const List<ReportDefinition> reportCatalog = [
     permission: 'SALES_VIEW',
     area: ReportArea.operational,
   ),
+  // What was given away (67 row 8), on billed sales: typed against what a
+  // price list or a customer's standing rate applied, and what offers gave.
+  ReportDefinition(
+    id: 'discount-by-customer',
+    label: 'Discount given by customer',
+    description: 'Discount on bills in the dates, per customer: what was '
+        'typed, what an arrangement or an offer applied, and the bill '
+        'discount.',
+    path: '/api/v1/sales-invoices/reports/discount-by-customer',
+    needsPeriod: true,
+    permission: 'SALES_VIEW',
+    area: ReportArea.operational,
+    columns: _discountColumns,
+  ),
+  ReportDefinition(
+    id: 'discount-by-salesman',
+    label: 'Discount given by salesman',
+    description: 'Discount on bills in the dates, per salesman: what was '
+        'typed, what an arrangement or an offer applied, and the bill '
+        'discount.',
+    path: '/api/v1/sales-invoices/reports/discount-by-salesman',
+    needsPeriod: true,
+    permission: 'SALES_VIEW',
+    area: ReportArea.operational,
+    columns: _discountColumns,
+  ),
+  ReportDefinition(
+    id: 'discount-by-product',
+    label: 'Discount given by product',
+    description: 'Discount on bills in the dates, per product: what was '
+        'typed, what an arrangement or an offer applied, and the bill '
+        'discount.',
+    path: '/api/v1/sales-invoices/reports/discount-by-product',
+    needsPeriod: true,
+    permission: 'SALES_VIEW',
+    area: ReportArea.operational,
+    columns: _discountColumns,
+  ),
+  ReportDefinition(
+    id: 'discount-by-promotion',
+    label: 'Discount given by offer',
+    description: 'What each offer was claimed for in the dates: claims, '
+        'customers and the benefit given, costliest first.',
+    path: '/api/v1/sales-invoices/reports/discount-by-promotion',
+    needsPeriod: true,
+    permission: 'SALES_VIEW',
+    area: ReportArea.operational,
+    columns: [
+      ReportColumn(key: 'code', label: 'Code'),
+      ReportColumn(key: 'name', label: 'Offer'),
+      ReportColumn(key: 'claims', label: 'Claims', numeric: true),
+      ReportColumn(key: 'customers', label: 'Customers', numeric: true),
+      ReportColumn(key: 'benefit_amount', label: 'Given', numeric: true),
+    ],
+  ),
   // The Targets screen's Achievement view, listed here too so it is found
   // beside the other by-salesman reports (BL-31.15). Its route checks only
   // SALES_TARGET_VIEW, not REPORT_VIEW.
@@ -857,6 +912,50 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'position', label: 'Position'),
     ],
   ),
+  // Collections (67 row 9): money received from customers, a receipt on its
+  // date and a reversal on the reversal's, netted.
+  ReportDefinition(
+    id: 'collections-by-day',
+    label: 'Collections by day',
+    description: 'Money received from customers each day in the dates, '
+        'with reversals taken off on the day they were made.',
+    path: '/api/v1/receipts/reports/collections-by-day',
+    needsPeriod: true,
+    permission: 'RECEIPT_VIEW',
+    area: ReportArea.financial,
+    columns: [
+      ReportColumn(key: 'label', label: 'Day'),
+      ..._collectionFigures,
+    ],
+  ),
+  ReportDefinition(
+    id: 'collections-by-salesman',
+    label: 'Collections by salesman',
+    description: 'Money received in the dates, credited to the salesman of '
+        'the bill it cleared; what cleared no bill is On account.',
+    path: '/api/v1/receipts/reports/collections-by-salesman',
+    needsPeriod: true,
+    permission: 'RECEIPT_VIEW',
+    area: ReportArea.financial,
+    columns: [
+      ReportColumn(key: 'label', label: 'Salesman'),
+      ..._collectionFigures,
+    ],
+  ),
+  ReportDefinition(
+    id: 'collections-by-mode',
+    label: 'Collections by mode',
+    description: 'Money received in the dates by cash and through the bank, '
+        'reversals netted.',
+    path: '/api/v1/receipts/reports/collections-by-mode',
+    needsPeriod: true,
+    permission: 'RECEIPT_VIEW',
+    area: ReportArea.financial,
+    columns: [
+      ReportColumn(key: 'label', label: 'Mode'),
+      ..._collectionFigures,
+    ],
+  ),
   // Tally's Day Book (55 M9): every journal in the books over the dates, in
   // date order. Double-click a row for the journal's lines.
   ReportDefinition(
@@ -1000,6 +1099,29 @@ const List<ReportColumn> _moneyBookColumns = [
   ReportColumn(key: 'receipt', label: 'Receipt', numeric: true),
   ReportColumn(key: 'payment', label: 'Payment', numeric: true),
   ReportColumn(key: 'balance', label: 'Balance', numeric: true),
+];
+
+/// The discount reports' columns (67 row 8): typed beside arranged.
+const List<ReportColumn> _discountColumns = [
+  ReportColumn(key: 'code', label: 'Code'),
+  ReportColumn(key: 'name', label: 'Name'),
+  ReportColumn(key: 'lines', label: 'Lines', numeric: true),
+  ReportColumn(key: 'gross_amount', label: 'Gross', numeric: true),
+  ReportColumn(key: 'typed_discount', label: 'Typed', numeric: true),
+  ReportColumn(key: 'arranged_discount', label: 'Arranged', numeric: true),
+  ReportColumn(key: 'promotion_discount', label: 'Offers', numeric: true),
+  ReportColumn(key: 'bill_discount', label: 'Bill discount', numeric: true),
+  ReportColumn(key: 'total_discount', label: 'Total', numeric: true),
+  ReportColumn(key: 'discount_percent', label: '% of gross', numeric: true),
+];
+
+/// The collection reports' figures (67 row 9), after what each row is for.
+const List<ReportColumn> _collectionFigures = [
+  ReportColumn(key: 'receipts', label: 'Receipts', numeric: true),
+  ReportColumn(key: 'collected', label: 'Received', numeric: true),
+  ReportColumn(key: 'reversals', label: 'Reversals', numeric: true),
+  ReportColumn(key: 'reversed', label: 'Reversed', numeric: true),
+  ReportColumn(key: 'net_collected', label: 'Net', numeric: true),
 ];
 
 /// The reports belonging to one tab, narrowed to what `canRead` allows.
