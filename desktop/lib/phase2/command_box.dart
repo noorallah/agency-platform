@@ -48,6 +48,12 @@ const Map<String, List<String>> _synonyms = {
   MenuLayout.loyaltySchemeRoute: ['loyalty', 'reward points'],
   MenuLayout.workDefaultsRoute: ['usual branch', 'default warehouse', 'my defaults'],
   MenuLayout.tcsSettingsRoute: ['tcs', 'tax collected at source', '206c'],
+  MenuLayout.gstDocumentsRoute: [
+    'gst documents',
+    'e-invoicing',
+    'dispatch before invoice',
+    'challan',
+  ],
   MenuLayout.messagingRoute: [
     'messaging',
     'whatsapp',

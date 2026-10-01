@@ -35,6 +35,7 @@ import '../../models/tcs.dart';
 import '../../models/firm_member.dart';
 import '../../models/messaging.dart';
 import '../../models/price_floor.dart';
+import '../../models/gst_documents.dart';
 import '../../models/sales_invoice.dart';
 import '../../models/sales_analysis.dart';
 import '../../models/sales_return.dart';
@@ -3989,6 +3990,51 @@ class ApiClient {
           'remarks': remarks,
           'attachment': attachment,
         },
+      );
+
+  /// What dispatching this note before it has an invoice would do under the
+  /// firm's GST policy (backlog 77.1). A null message means nothing to say.
+  Future<DispatchCheck> deliveryNoteDispatchCheck(String noteId) async =>
+      DispatchCheck.fromJson(
+        _unwrapMap(
+          await request(
+            'GET',
+            '/api/v1/delivery-notes/$noteId/dispatch-check',
+          ),
+        ),
+      );
+
+  /// Dispatch an approved note and raise and approve its invoice in one
+  /// transaction. Returns the whole envelope: its `message` names the invoice.
+  Future<Json> dispatchAndInvoiceDeliveryNote(String noteId) => request(
+        'POST',
+        '/api/v1/delivery-notes/$noteId/dispatch-and-invoice',
+        body: const <String, dynamic>{},
+      );
+
+  /// The firm's GST document policy (backlog 77.1): readable with `TAX_VIEW`,
+  /// writable only with `TAX_MANAGE_SETTINGS`.
+  Future<GstComplianceSettings> gstComplianceSettings() async =>
+      GstComplianceSettings.fromJson(
+        _unwrapMap(
+          await request(
+            'GET',
+            '/api/v1/tax-framework/gst-compliance-settings',
+          ),
+        ),
+      );
+
+  Future<GstComplianceSettings> updateGstComplianceSettings(
+    GstComplianceSettings settings,
+  ) async =>
+      GstComplianceSettings.fromJson(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/tax-framework/gst-compliance-settings',
+            body: settings.toJson(),
+          ),
+        ),
       );
 
   Future<BulkActionResult> bulkApproveCreditNotes(List<BulkRow> rows) =>

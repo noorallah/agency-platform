@@ -15,6 +15,7 @@ import '../../models/branch_warehouse.dart';
 import '../../models/bulk_action.dart';
 import '../../models/document_framework.dart';
 import '../../models/entities.dart';
+import '../../models/gst_documents.dart';
 import '../../models/product.dart';
 import '../../phase2/document_page.dart' show documentDate;
 import '../../phase2/indian_format.dart';
@@ -664,6 +665,16 @@ class _DeliveryNoteManagementPageState
                         : () => unawaited(_run(action, suffix)),
                   ),
                 ToolbarCommand(
+                  id: 'dispatch-and-invoice',
+                  label: 'Dispatch and invoice',
+                  icon: Icons.receipt_long_outlined,
+                  onPressed: _selected == null ||
+                          _selected!.status.toUpperCase() != 'APPROVED' ||
+                          !_mayDispatchAndInvoice()
+                      ? null
+                      : () => unawaited(_dispatchAndInvoice(_selected!)),
+                ),
+                ToolbarCommand(
                   id: 'print-settings',
                   label: 'Print settings',
                   icon: Icons.tune_outlined,
@@ -801,7 +812,85 @@ class _DeliveryNoteManagementPageState
       await _act(suffix, overrideReason: licence.overrideReason);
       return;
     }
+    // Goods leave on Dispatch, and on Complete of a note never dispatched:
+    // the firm's GST policy is asked first (backlog 77.1).
+    if (action == DocumentToolbarAction.dispatch ||
+        (action == DocumentToolbarAction.complete &&
+            selected.status.toUpperCase() == 'APPROVED')) {
+      await _dispatchChecked(selected, suffix);
+      return;
+    }
     await _act(suffix);
+  }
+
+  /// Ask whether this note is a sale with no invoice yet, and what the firm
+  /// says to that, before the goods are let out.
+  ///
+  /// A check that cannot be read is not a decision: the dispatch goes ahead as
+  /// it always has, and the server, which enforces the policy, answers.
+  Future<void> _dispatchChecked(
+    _DeliveryNoteRecord note,
+    String suffix,
+  ) async {
+    DispatchCheck check;
+    try {
+      check = await widget.api.deliveryNoteDispatchCheck(note.id);
+    } on ApiException {
+      await _act(suffix);
+      return;
+    }
+    final String? message = check.message;
+    if (message == null) {
+      await _act(suffix);
+      return;
+    }
+    if (!mounted) return;
+    final _DispatchChoice? choice = await showDialog<_DispatchChoice>(
+      context: context,
+      builder: (_) => _DispatchBeforeInvoiceDialog(
+        message: message,
+        blocked: check.enforcement == 'BLOCK',
+        mayInvoice: _mayDispatchAndInvoice(),
+      ),
+    );
+    if (!mounted) return;
+    switch (choice) {
+      case _DispatchChoice.invoice:
+        await _dispatchAndInvoice(note);
+      case _DispatchChoice.anyway:
+        await _act(suffix);
+      case _DispatchChoice.cancel || null:
+        break;
+    }
+  }
+
+  /// Dispatching and invoicing in one step takes both permissions: it
+  /// approves the dispatch and creates the invoice.
+  bool _mayDispatchAndInvoice() =>
+      widget.permissions.hasPermission('SALES_APPROVE') &&
+      widget.permissions.hasPermission('SALES_CREATE');
+
+  Future<void> _dispatchAndInvoice(_DeliveryNoteRecord note) async {
+    try {
+      final Json response =
+          await widget.api.dispatchAndInvoiceDeliveryNote(note.id);
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        stringValue(response['message']).isEmpty
+            ? 'Dispatched and invoiced.'
+            : stringValue(response['message']),
+        kind: AppNotificationKind.success,
+      );
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
+    }
   }
 
   /// Run a lifecycle action against the selected note and reload.
@@ -1044,6 +1133,73 @@ class _DeliveryNoteManagementPageState
   }
 }
 
+enum _DispatchChoice { invoice, anyway, cancel }
+
+/// What to do about goods going out on a sale that has no invoice yet
+/// (backlog 77.1). Dispatch and invoice is the recommended answer; Dispatch
+/// anyway is offered only while the firm's policy warns rather than blocks.
+class _DispatchBeforeInvoiceDialog extends StatelessWidget {
+  const _DispatchBeforeInvoiceDialog({
+    required this.message,
+    required this.blocked,
+    required this.mayInvoice,
+  });
+
+  final String message;
+  final bool blocked;
+  final bool mayInvoice;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return AlertDialog(
+      scrollable: true,
+      icon: const Icon(Icons.receipt_long_outlined),
+      title: const Text('No invoice yet'),
+      content: SizedBox(
+        width: 440,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(message),
+            if (!mayInvoice) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Dispatching and invoicing needs the permission to approve '
+                'and to create sales documents.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          key: const ValueKey('dispatch-cancel'),
+          onPressed: () => Navigator.of(context).pop(_DispatchChoice.cancel),
+          child: const Text('Cancel'),
+        ),
+        if (!blocked)
+          OutlinedButton(
+            key: const ValueKey('dispatch-anyway'),
+            onPressed: () => Navigator.of(context).pop(_DispatchChoice.anyway),
+            child: const Text('Dispatch anyway'),
+          ),
+        FilledButton(
+          key: const ValueKey('dispatch-and-invoice'),
+          onPressed: mayInvoice
+              ? () => Navigator.of(context).pop(_DispatchChoice.invoice)
+              : null,
+          child: const Text('Dispatch and invoice'),
+        ),
+      ],
+    );
+  }
+}
+
 class _DeliveryNoteRecord {
   const _DeliveryNoteRecord({
     required this.id,
@@ -1069,7 +1225,21 @@ class _DeliveryNoteRecord {
     this.deliveredAt = '',
     this.receivedBy = '',
     this.deliveryRemarks = '',
+    this.challanReason = 'SALE',
+    this.challanReasonNote = '',
   });
+
+  /// Why the goods go out (backlog 77.1), and the words with Other.
+  final String challanReason;
+  final String challanReasonNote;
+
+  /// The reason as the view says it: `Other: samples for a trade fair`.
+  String get challanReasonText {
+    final String label = challanReasonLabel(challanReason);
+    return challanReason == 'OTHER' && challanReasonNote.isNotEmpty
+        ? '$label: $challanReasonNote'
+        : label;
+  }
 
   final String id;
   final String deliveryNoteNumber;
@@ -1149,6 +1319,10 @@ class _DeliveryNoteRecord {
       deliveredAt: stringValue(json['delivered_at']),
       receivedBy: stringValue(json['delivery_received_by']),
       deliveryRemarks: stringValue(json['delivery_remarks']),
+      challanReason: stringValue(json['challan_reason']).isEmpty
+          ? 'SALE'
+          : stringValue(json['challan_reason']),
+      challanReasonNote: stringValue(json['challan_reason_note']),
     );
   }
 
@@ -1163,6 +1337,7 @@ class _DeliveryNoteRecord {
         status: status,
         // The delivery, once recorded, read beside the note's own remarks.
         remarks: [
+          'Reason: $challanReasonText',
           if (remarks.isNotEmpty) remarks,
           if (deliveryNote.isNotEmpty) deliveryNote,
         ].join('\n'),
