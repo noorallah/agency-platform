@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**208 tables**, of which **16** live only in the platform store.
+**209 tables**, of which **16** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -164,6 +164,12 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `einvoice_registrations` | firm store ¹ | One sales invoice, as the Invoice Registration Portal knows it. | `sales_invoices` |
 | `eway_bills` | firm store ¹ | One consignment's e-way bill, raised against an invoice. | `sales_invoices` |
+
+### `app/expenses`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `expenses` | firm store ¹ | Store one amount the firm spent, and the journal that records it. | `firms`, `ledger_accounts`, `journal_entries` |
 
 ### `app/finance`
 
