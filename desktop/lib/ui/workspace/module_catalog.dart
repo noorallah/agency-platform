@@ -728,6 +728,12 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['PURCHASE_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'purchase-analysis',
+          label: 'Purchase Analysis',
+          requiredPermissions: ['PURCHASE_VIEW', 'REPORT_VIEW'],
+          requiresAnyPermission: true,
+        ),
+        ModuleTabDefinition(
           id: 'purchase-orders',
           label: 'Purchase Orders',
           requiredPermissions: ['PURCHASE_VIEW'],
@@ -1620,6 +1626,12 @@ abstract final class ModuleCatalog {
           label: 'Analytics',
           path: 'purchase-analytics',
           icon: Icons.query_stats_outlined,
+        ),
+      if (visibleTabIds.contains('purchase-analysis'))
+        const WorkspaceNavigationNode(
+          label: 'Purchase Analysis',
+          path: 'purchase-analysis',
+          icon: Icons.pivot_table_chart_outlined,
         ),
       if (visibleTabIds.contains('purchase-settings'))
         const WorkspaceNavigationNode(

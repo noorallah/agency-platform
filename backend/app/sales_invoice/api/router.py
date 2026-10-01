@@ -56,6 +56,7 @@ from app.sales_invoice.services.invoice_print_service import (
 from app.sales_invoice.services.sales_analysis import (
     AnalysisFilters,
     Cell,
+    SalesAnalysis,
     SalesAnalysisService,
 )
 from app.trade_licences.api.override import (
@@ -488,6 +489,21 @@ def _figures(cell: Cell) -> AnalysisFigures:
     )
 
 
+def analysis_response(result: SalesAnalysis) -> SalesAnalysisResponse:
+    """Shape a pivot for the wire; the purchase analysis shares it (66)."""
+    return SalesAnalysisResponse(
+        rows=[AnalysisHeading(**vars(key)) for key in result.rows],
+        columns=[AnalysisHeading(**vars(key)) for key in result.columns],
+        cells=[
+            AnalysisCellRecord(row=row, column=column, figures=_figures(cell))
+            for (row, column), cell in result.cells.items()
+        ],
+        row_totals={k: _figures(v) for k, v in result.row_totals.items()},
+        column_totals={k: _figures(v) for k, v in result.column_totals.items()},
+        grand_total=_figures(result.grand_total),
+    )
+
+
 def _analysis_filters(
     product_id: UUID | None,
     category_id: UUID | None,
@@ -558,19 +574,7 @@ def sales_analysis(
         ),
         net_of_returns=net_of_returns,
     )
-    return ApiResponse(
-        data=SalesAnalysisResponse(
-            rows=[AnalysisHeading(**vars(key)) for key in result.rows],
-            columns=[AnalysisHeading(**vars(key)) for key in result.columns],
-            cells=[
-                AnalysisCellRecord(row=row, column=column, figures=_figures(cell))
-                for (row, column), cell in result.cells.items()
-            ],
-            row_totals={k: _figures(v) for k, v in result.row_totals.items()},
-            column_totals={k: _figures(v) for k, v in result.column_totals.items()},
-            grand_total=_figures(result.grand_total),
-        )
-    )
+    return ApiResponse(data=analysis_response(result))
 
 
 @router.get(

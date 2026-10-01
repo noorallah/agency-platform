@@ -4776,6 +4776,8 @@ the rest as the go-live firms confirm them.
 
 ## 66. Purchase analysis: any combination of period, product, supplier and more
 
+**Status, 2026-10-01: built.** Buy > Insight > **Purchase Analysis**, the §62 screen reused as one widget (`AnalysisPage`, configured per side): rows and optional columns, each any of day, week, month, financial-year quarter, year, product, category, supplier, supplier category, branch; figures quantity, taxable, tax, total billed, bills (distinct) and average bill; totals both ways; net of purchase returns by default, gross on a switch; click a cell to list the bills behind it (`/purchase-invoices/reports/analysis` and `.../analysis/bills`, grouped in SQL, open to `PURCHASE_VIEW` or `REPORT_VIEW`). Left: filter pickers on the screen (the server takes them), the goods-received and orders-placed basis, average rate and price-difference figures, compare, chart, export, rate trend, saved layouts and the Home gadgets.
+
 Owner, 2026-09-28: purchase reports like the sales ones (§62) -- by product,
 by month, by year, by supplier, over any date range -- and as Home gadgets.
 

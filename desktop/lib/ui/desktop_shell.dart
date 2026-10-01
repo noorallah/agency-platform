@@ -61,6 +61,7 @@ import 'sales/tcs_page.dart';
 import 'pricing/price_list_page.dart';
 import 'pricing/promotion_page.dart';
 import 'products/product_management_page.dart';
+import 'purchases/purchase_analysis_page.dart';
 import 'purchases/purchase_management_page.dart';
 import 'trade_licences/licence_check_settings_page.dart';
 import 'quotations/quotation_management_page.dart';
@@ -2940,6 +2941,11 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           onNavigateToSection: navigateTo,
           onOpenGlobalSearch: widget.onOpenGlobalSearch,
         ),
+      'purchase-analysis' => PurchaseAnalysisPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: hasActiveFirm,
+        ),
       'purchase-orders' => PurchaseManagementPage(
           api: widget.api,
           preferences: widget.preferences,
@@ -2978,6 +2984,7 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
       title: switch (tabId) {
         'purchase-dashboard' => 'Purchase Dashboard',
         'purchase-orders' => 'Purchase Orders',
+        'purchase-analysis' => 'Purchase Analysis',
         'purchase-analytics' => 'Purchase Analytics',
         'purchase-settings' => 'Purchase Settings',
         _ => module.label,
@@ -2987,6 +2994,9 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           'Enterprise purchase command center with KPI cards, recent orders, and vendor spend insights.',
         'purchase-orders' =>
           'Manage purchase orders with lifecycle actions, import/export, and responsive enterprise editing.',
+        'purchase-analysis' =>
+          'Purchases by any one or two dimensions, net of returns. Click a '
+              'figure to see the bills behind it.',
         'purchase-analytics' =>
           'Analytics shell ready for backend reporting expansion.',
         'purchase-settings' =>
