@@ -214,9 +214,21 @@ keeps the earlier backups, writes why in `logs\backup`, and its half-written
 folder is cleared by the next run. The folder is readable by administrators
 only, because a backup holds every firm's data.
 
+**Back up now.** A platform administrator can take a backup at any time --
+before a risky change, or at the end of a busy day -- from **Backups** in the
+app: press *Back up now*, keep working, and the screen says when it is done.
+It is the same backup as the nightly one, written to
+`C:\ProgramData\Agency Platform\backups\manual\<date-time>`, keeping the
+newest 10. The same screen lists every backup on the server -- by hand,
+nightly and before an upgrade -- with its date, size and whether it finished,
+which is the quickest way to see that last night's backup really ran. On the
+server PC, `agency-server backup` (in `C:\Program Files\Agency
+Platform\backend`) does the same from a command prompt.
+
 **Keep a copy off the PC.** A backup on the same disk does not survive the
-disk. Copy the newest `backups\daily\<date-time>` folder (one with a
-`.complete` file in it) to another drive or PC regularly, with a copy of
+disk. Copy the newest `backups\daily\<date-time>` or
+`backups\manual\<date-time>` folder (one with a `.complete` file in it)
+to another drive or PC regularly, with a copy of
 `C:\Program Files\Agency Platform\backend\config\.env`, and keep both where
 only administrators can reach them.
 
@@ -247,7 +259,9 @@ administrator:
 
 A backup is only proven once it has been restored; try this once on a spare
 PC. (Checked on 2026-09-27: a daily dump restored into a fresh database gave
-back every firm, user, invoice and journal entry.)
+back every firm, user, invoice and journal entry. Since 2026-10-01 the build
+repeats that drill on every daily check: a backup taken by the program's own
+code is restored into a new database and every table is counted.)
 
 **Uninstalling** is *Agency Platform* in **Add or remove programs**. It stops
 and removes both services and the firewall rule, removes the program, and

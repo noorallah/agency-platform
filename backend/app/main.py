@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from app.api.dependencies.settings import get_settings
 from app.api.routers.dashboard import router as dashboard_router
 from app.api.routers.health import router as health_router
+from app.backups.api import router as backups_router
 from app.batch_serial.api import router as batch_serial_router
 from app.branches.api import router as branch_warehouse_router
 from app.business.api import router as business_framework_router
@@ -173,6 +174,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(audit_logs_router)
     application.include_router(firm_members_router)
     application.include_router(diagnostics_router)
+    application.include_router(backups_router)
     register_exception_handlers(application)
     return application
 

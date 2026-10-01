@@ -2752,7 +2752,44 @@ partial term matches, which is the thing that is wrong today.
 
 ---
 
-## 35. Daily and manual backups
+## 35. Daily and manual backups -- built 2026-10-01
+
+**Status, 2026-10-01: built.** The nightly backup is §45 (#812). The manual
+trigger and the restore drill are here:
+
+- `app/core/tenancy/backup.py` takes a backup of every store into
+  `<AGENCY_BACKUP_DIRECTORY>/manual/<stamp>/`: the stores are
+  `migration_targets(..., include_deleted=True)`, so deleted firms are
+  included and the list cannot drift from `migrate-all`'s; a store never
+  built is skipped, not failed; each store is one `pg_dump -Fc -n "<schema>"`
+  read back with `pg_restore --list`, and a `manifest.json` records the
+  tables, size and revision of each. A folder missing a store gets no
+  `.complete` and is never offered as a backup. One run at a time; the
+  newest `AGENCY_BACKUP_KEEP_MANUAL` (10) are kept.
+- `POST /api/v1/backups` (*Back up now*, 202, runs in the background, 409
+  while one runs, audited as `system.backup_started` in the platform trail)
+  and `GET /api/v1/backups` (every backup on disk -- manual, daily and
+  pre-upgrade -- plus the current run), both on `SYSTEM_BACKUP`, a platform
+  path. `agency-server backup` runs the same function. The phase 2 desktop
+  has a **Backups** screen.
+- Setup gives the server `AGENCY_BACKUP_DIRECTORY` and `AGENCY_BACKUP_PG_BIN`
+  through the service definition, write on `backups\manual` and read on the
+  rest.
+- **Restore drill:** `tests/integration/test_backup_restore_drill.py` takes a
+  backup through that code, restores it into a database created for the
+  purpose and compares every table's row count; CI installs the PostgreSQL 17
+  client tools for it and fails, rather than skips, without them.
+- Found on the way (D-BACKUP-1): `pg_dump -n SNTEST01` folds the pattern to
+  lower case, matched nothing and wrote an empty file, so the nightly and
+  pre-upgrade backups failed for any upper-case firm schema. Both quote it now.
+
+**Decided:** restore stays the procedure in `docs/INSTALL_GUIDE.md` section 6
+rather than a button -- it means stopping the server that would run it, and
+every comparable product keeps it an administrator's act on the server.
+`SYSTEM_RESTORE` still guards nothing. A backup is not opt-in: it deletes
+nothing. Encryption at rest and an off-box copy remain the administrator's
+(the guide says to copy the folder off the PC). Per-firm restore is still the
+constraint below.
 
 Raised 2026-09-16 while walking the platform end to end.
 
