@@ -361,6 +361,15 @@ class GstComplianceSettings(BaseEntity):
     route_sale_needs_invoice: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    #: ALL or MATCHED_ONLY: whether GSTR-3B claims every bill, listing what
+    #: GSTR-2B lacks, or only bills matched to it (backlog 78 row 3, A36).
+    itc_claim_basis: Mapped[str] = mapped_column(
+        String(15), nullable=False, default="ALL", server_default="ALL"
+    )
+    #: How far a bill's tax may differ from GSTR-2B and still match, in rupees.
+    gstr2b_tolerance: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("1.00"), server_default="1.00"
+    )
 
 
 class TaxRule(BaseEntity):

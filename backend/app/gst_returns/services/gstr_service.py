@@ -737,6 +737,23 @@ class GstReturnService:
         # never enters 4(A) and is shown in 4(D)(2). Backlog 78 row 1.
         blocked = GstBuckets()
         ineligible = GstBuckets()
+        # A firm that claims only what GSTR-2B shows (78 row 3, A36) holds the
+        # rest back: listed as awaiting 2B, not claimed.
+        awaiting = GstBuckets()
+        from app.gst_returns.services.gstr2b import Gstr2bService
+        from app.tax.services.gst_compliance import GstComplianceService
+
+        matched_only = (
+            GstComplianceService(self._session)
+            .settings_response(firm_scope)
+            .itc_claim_basis
+            == "MATCHED_ONLY"
+        )
+        in_2b = (
+            Gstr2bService(self._session).matched_bill_ids(firm_scope)
+            if matched_only
+            else set()
+        )
         billed_ids: set[UUID] = set()
         for invoice_id, code, amount, recoverable, eligibility in self._session.execute(
             select(
@@ -779,6 +796,9 @@ class GstReturnService:
                 continue
             if not recoverable:
                 # A component that is never credit, whatever the line says.
+                continue
+            if matched_only and invoice_id not in in_2b:
+                awaiting = awaiting.plus(share)
                 continue
             billed_ids.add(invoice_id)
             claimed = claimed.plus(share)
@@ -885,6 +905,14 @@ class GstReturnService:
                 "central_tax": _filed(blocked.cgst),
                 "state_tax": _filed(blocked.sgst),
                 "cess": _filed(blocked.cess),
+            },
+            # Held back because GSTR-2B does not show it yet; claimed in the
+            # month it appears. Empty unless the firm claims matched only.
+            "itc_awaiting_2b": {
+                "integrated_tax": _filed(awaiting.igst),
+                "central_tax": _filed(awaiting.cgst),
+                "state_tax": _filed(awaiting.sgst),
+                "cess": _filed(awaiting.cess),
             },
             # 4(D)(2): ineligible credit, never claimed in 4(A).
             "itc_ineligible": {

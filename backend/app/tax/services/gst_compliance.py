@@ -18,6 +18,7 @@ CAs accept it on a challan and some want the invoices first, so the firm says
 which (``route_sale_needs_invoice``).
 """
 
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import select
@@ -72,6 +73,8 @@ class GstComplianceService:
                 thirty_day_rule_from=None,
                 dispatch_without_invoice=DEFAULT_DISPATCH_WITHOUT_INVOICE,
                 route_sale_needs_invoice=False,
+                itc_claim_basis="ALL",
+                gstr2b_tolerance=Decimal("1.00"),
                 is_configured=False,
             )
         return GstComplianceSettingsResponse(
@@ -79,6 +82,8 @@ class GstComplianceService:
             thirty_day_rule_from=stored.thirty_day_rule_from,
             dispatch_without_invoice=stored.dispatch_without_invoice,
             route_sale_needs_invoice=stored.route_sale_needs_invoice,
+            itc_claim_basis=stored.itc_claim_basis or "ALL",
+            gstr2b_tolerance=Decimal(str(stored.gstr2b_tolerance)),
             is_configured=True,
         )
 
@@ -97,6 +102,10 @@ class GstComplianceService:
         row.thirty_day_rule_from = data.thirty_day_rule_from
         row.dispatch_without_invoice = data.dispatch_without_invoice
         row.route_sale_needs_invoice = data.route_sale_needs_invoice
+        if data.itc_claim_basis is not None:
+            row.itc_claim_basis = data.itc_claim_basis
+        if data.gstr2b_tolerance is not None:
+            row.gstr2b_tolerance = data.gstr2b_tolerance
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -132,6 +141,8 @@ class GstComplianceService:
             ),
             "dispatch_without_invoice": row.dispatch_without_invoice,
             "route_sale_needs_invoice": row.route_sale_needs_invoice,
+            "itc_claim_basis": row.itc_claim_basis,
+            "gstr2b_tolerance": str(row.gstr2b_tolerance),
         }
 
     def dispatch_check(

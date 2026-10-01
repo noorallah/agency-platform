@@ -28,6 +28,9 @@ from app.gst_returns.schemas import (
     GstPaymentPreviewResponse,
     GstPaymentResponse,
     GstPaymentReverse,
+    Gstr2bImportCreate,
+    Gstr2bImportResponse,
+    Gstr2bMatchRequest,
     GstReturnFilingCreate,
     GstReturnFilingResponse,
     GstUtilisationRow,
@@ -38,6 +41,7 @@ from app.gst_returns.services.gst_payment_service import (
     GstPaymentPreview,
     GstPaymentService,
 )
+from app.gst_returns.services.gstr2b import Gstr2bService
 from app.gst_returns.services.tax_calendar import TaxCalendarService
 
 router = APIRouter(
@@ -318,3 +322,65 @@ def withdraw_gst_return_filing(
     )
     db.commit()
     return ApiResponse(data={"id": str(filing_id)}, message="Filing withdrawn.")
+
+
+@router.post("/gstr2b/imports", response_model=ApiResponse[Gstr2bImportResponse])
+def import_gstr2b(
+    data: Gstr2bImportCreate,
+    scope: GstPaymentPostScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[Gstr2bImportResponse]:
+    """Import one month's GSTR-2B and match it to the bills (78 row 3)."""
+    row = Gstr2bService(db).import_file(
+        firm_id=scope.firm_id,
+        return_period=data.return_period,
+        content=data.content,
+        source_name=data.source_name,
+        actor_id=scope.actor_id,
+    )
+    db.commit()
+    return ApiResponse(
+        data=Gstr2bImportResponse.model_validate(row, from_attributes=True),
+        message=f"GSTR-2B for {row.return_period}: {row.document_count} documents.",
+    )
+
+
+@router.get("/gstr2b/reconciliation", response_model=ApiResponse[dict[str, object]])
+def gstr2b_reconciliation(
+    scope: GstPaymentViewScope,
+    return_period: str = Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
+    db: Session = Depends(get_db),
+) -> ApiResponse[dict[str, object]]:
+    """Return a month's GSTR-2B against the books (78 row 3)."""
+    return ApiResponse(
+        data=Gstr2bService(db).reconciliation(scope.firm_id, return_period)
+    )
+
+
+@router.post(
+    "/gstr2b/documents/{document_id}/match",
+    response_model=ApiResponse[dict[str, object]],
+)
+def match_gstr2b_document(
+    document_id: UUID,
+    data: Gstr2bMatchRequest,
+    scope: GstPaymentPostScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[dict[str, object]]:
+    """Match a 2B row to a bill by hand, or undo it (78 row 3)."""
+    row = Gstr2bService(db).match_by_hand(
+        document_id,
+        firm_id=scope.firm_id,
+        purchase_invoice_id=data.purchase_invoice_id,
+        actor_id=scope.actor_id,
+    )
+    db.commit()
+    return ApiResponse(
+        data={
+            "id": str(row.id),
+            "match_status": row.match_status,
+            "purchase_invoice_id": (
+                str(row.purchase_invoice_id) if row.purchase_invoice_id else None
+            ),
+        }
+    )

@@ -2,6 +2,7 @@
 
 from app.gst_returns.models.gst_payment import HEADS, GstPayment, GstPaymentStatus
 from app.gst_returns.models.gst_return_filing import GstReturnFiling, GstReturnType
+from app.gst_returns.models.gstr2b import Gstr2bDocument, Gstr2bImport
 
 __all__ = [
     "HEADS",
@@ -9,4 +10,6 @@ __all__ = [
     "GstPaymentStatus",
     "GstReturnFiling",
     "GstReturnType",
+    "Gstr2bDocument",
+    "Gstr2bImport",
 ]

@@ -1,13 +1,15 @@
 """A firm's GST document policy (backlog 77 rows 1-2, decision A35)."""
 
 from datetime import date
+from decimal import Decimal
 from typing import Literal
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 
 from app.tax.schemas.tax_framework import TaxFrameworkSchema
 
 DispatchWithoutInvoice = Literal["OFF", "WARN", "BLOCK"]
+ItcClaimBasis = Literal["ALL", "MATCHED_ONLY"]
 
 
 class GstComplianceSettingsResponse(TaxFrameworkSchema):
@@ -17,6 +19,10 @@ class GstComplianceSettingsResponse(TaxFrameworkSchema):
     thirty_day_rule_from: date | None
     dispatch_without_invoice: DispatchWithoutInvoice
     route_sale_needs_invoice: bool
+    #: Whether 3B claims every bill or only those matched to GSTR-2B (78.3).
+    itc_claim_basis: ItcClaimBasis = "ALL"
+    #: How far a bill's tax may differ from 2B and still match, in rupees.
+    gstr2b_tolerance: Decimal = Decimal("1.00")
     is_configured: bool
 
 
@@ -27,6 +33,12 @@ class GstComplianceSettingsWrite(TaxFrameworkSchema):
     thirty_day_rule_from: date | None
     dispatch_without_invoice: DispatchWithoutInvoice
     route_sale_needs_invoice: bool
+    #: Absent keeps the firm's own (78.3): a client that never showed it
+    #: cannot reset it.
+    itc_claim_basis: ItcClaimBasis | None = None
+    gstr2b_tolerance: Decimal | None = Field(
+        default=None, ge=0, le=1000, max_digits=18, decimal_places=2
+    )
 
     @model_validator(mode="after")
     def _thirty_days_follow_einvoicing(self) -> "GstComplianceSettingsWrite":
