@@ -7,6 +7,8 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/customer.dart';
 import '../../models/entities.dart';
+import '../../core/dialogs/app_dialogs.dart';
+import '../workspace/desktop_framework.dart';
 
 /// The segments a firm sells to, and what each is normally given.
 ///
@@ -152,6 +154,16 @@ class _CustomerGroupDialogState extends State<CustomerGroupDialog> {
   }
 
   Future<void> _delete(CustomerGroup group) async {
+    final bool confirmed = await showWorkspaceConfirmDialog(
+      context,
+      title: 'Remove ${group.name}?',
+      message: 'Customers in this group keep their own rates; the group\'s '
+          'rate stops applying to them. A group somebody is still in '
+          'cannot be removed.',
+      confirmLabel: 'Remove',
+      type: ConfirmationType.delete,
+    );
+    if (!confirmed || !mounted) return;
     try {
       await widget.api.deleteCustomerGroup(group.id);
       if (!mounted) return;

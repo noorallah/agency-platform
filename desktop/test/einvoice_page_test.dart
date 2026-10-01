@@ -41,6 +41,9 @@ class _EInvoiceApi extends ApiClient {
   final List<String> requested = <String>[];
   Json? sentBody;
 
+  /// When set, the first e-way bill POST is refused with it (D-DLG-1).
+  String? refuseEwayBill;
+
   @override
   Future<Json> request(
     String method,
@@ -53,7 +56,14 @@ class _EInvoiceApi extends ApiClient {
   }) async {
     requested.add('$method $path');
     if (path.contains('/eway-bill')) {
-      if (method == 'POST') sentBody = body;
+      if (method == 'POST') {
+        final String? refusal = refuseEwayBill;
+        if (refusal != null) {
+          refuseEwayBill = null;
+          throw ApiException(refusal, statusCode: 422);
+        }
+        sentBody = body;
+      }
       return <String, dynamic>{'data': bill};
     }
     if (path.contains('/einvoice/registrations')) {
@@ -264,6 +274,38 @@ void main() {
     expect(api.sentBody!['vehicle_number'], 'MH12AB1234');
   });
 
+  testWidgets('a refused e-way bill keeps the dialog open with what was typed',
+      (tester) async {
+    // D-DLG-1: the dialog closed on Raise and the page made the call, so the
+    // authority's refusal arrived as a toast and the vehicle number was lost.
+    final _EInvoiceApi api =
+        _EInvoiceApi(registrations: <Json>[_sandboxRegistration()])
+          ..refuseEwayBill = 'The vehicle number is not valid.';
+    await _pump(tester, api);
+
+    await tester.tap(find.text('Raise e-way bill'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Distance (km)'), '450');
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Vehicle number'), 'BAD 1');
+    await tester.tap(find.widgetWithText(FilledButton, 'Raise'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(EWayBillDialog), findsOneWidget);
+    expect(find.text('The vehicle number is not valid.'), findsOneWidget);
+    expect(find.text('450'), findsOneWidget);
+    expect(find.text('BAD 1'), findsOneWidget);
+    expect(api.sentBody, isNull);
+
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Vehicle number'), 'MH12AB1234');
+    await tester.tap(find.widgetWithText(FilledButton, 'Raise'));
+    await tester.pumpAndSettle();
+    expect(find.byType(EWayBillDialog), findsNothing);
+    expect(api.sentBody!['vehicle_number'], 'MH12AB1234');
+  });
+
   testWidgets('without EINVOICE_MANAGE nothing can be filed or withdrawn',
       (tester) async {
     final _EInvoiceApi api =
@@ -399,5 +441,26 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('selection-withdraw')), findsOneWidget);
+  });
+
+  testWidgets('the reason prompt is the shared one: Enter submits (D-DLG-10)',
+      (tester) async {
+    final _EInvoiceApi api =
+        _EInvoiceApi(registrations: <Json>[_sandboxRegistration()]);
+    await _pump(tester, api, phase2: true);
+    await tester.tap(find.text('SI-2026-2027-000004').first);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('selection-withdraw')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'Wrong customer');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    expect(api.sentBody, {'reason': 'Wrong customer'},
+        reason: 'Enter sent the reason, and the prompt closed without the '
+            'controller being used after disposal');
+    expect(tester.takeException(), isNull);
   });
 }

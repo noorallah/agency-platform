@@ -8,6 +8,7 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/finance.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/reason_prompt.dart';
 
 /// The years and periods every posting has to land in.
 ///
@@ -49,6 +50,12 @@ class _FinancialYearsPageState extends State<FinancialYearsPage> {
   /// same code the server gates the endpoint with.
   bool get _canClose =>
       widget.permissions.hasPermission('FINANCIAL_YEAR_CLOSE') ||
+      widget.permissions.hasPermission('FINANCIAL_YEAR_REOPEN');
+
+  bool get _canCloseYear =>
+      widget.permissions.hasPermission('FINANCIAL_YEAR_CLOSE');
+
+  bool get _canReopenYear =>
       widget.permissions.hasPermission('FINANCIAL_YEAR_REOPEN');
 
   /// Deleting an empty period is gated like the year's own delete.
@@ -135,6 +142,76 @@ class _FinancialYearsPageState extends State<FinancialYearsPage> {
       NotificationService.show(
         context,
         '${period.name} deleted.',
+        kind: AppNotificationKind.success,
+      );
+      await _load();
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      setState(() => _error = exception.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// Close the whole year. The server names what is left when it refuses.
+  Future<void> _closeYear(FinancialYear year) async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Close ${year.code}?'),
+        content: Text(
+          'Nothing can be posted into ${year.code} once it is closed. Every '
+          'period must be closed and no draft journal may be dated in it.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Close year'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _loading = true);
+    try {
+      await widget.api.closeFinancialYear(year.id);
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '${year.code} is closed. Nothing further can be posted into it.',
+        kind: AppNotificationKind.success,
+      );
+      await _load();
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      setState(() => _error = exception.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _reopenYear(FinancialYear year) async {
+    final String? reason = await askForReason(
+      context,
+      title: 'Reopen ${year.code}?',
+      explanation:
+          'Postings can be made into ${year.code} again. Its periods '
+          'stay closed; open the ones you need afterwards. The reason is '
+          'recorded.',
+      confirmLabel: 'Reopen year',
+    );
+    if (reason == null || !mounted) return;
+    setState(() => _loading = true);
+    try {
+      await widget.api.reopenFinancialYear(year.id, reason);
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '${year.code} is reopened. Its periods are still closed.',
         kind: AppNotificationKind.success,
       );
       await _load();
@@ -255,6 +332,44 @@ class _FinancialYearsPageState extends State<FinancialYearsPage> {
         message: 'Choose a year to see the periods inside it.',
       );
     }
+    final bool showClose = _canCloseYear && !year.isLocked;
+    final bool showReopen = _canReopenYear && year.isLocked;
+    final Widget body = _periodBody(context, year);
+    if (!showClose && !showReopen) return body;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  year.isLocked
+                      ? '${year.code} is closed.'
+                      : '${year.code} is open for posting.',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (showClose)
+                OutlinedButton(
+                  onPressed: () => unawaited(_closeYear(year)),
+                  child: const Text('Close year'),
+                ),
+              if (showReopen)
+                OutlinedButton(
+                  onPressed: () => unawaited(_reopenYear(year)),
+                  child: const Text('Reopen year'),
+                ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(child: body),
+      ],
+    );
+  }
+
+  Widget _periodBody(BuildContext context, FinancialYear year) {
     final List<AccountingPeriod> periods = _periodsOfSelected;
     if (periods.isEmpty) {
       return StandardEmptyState(

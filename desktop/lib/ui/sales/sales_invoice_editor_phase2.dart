@@ -142,7 +142,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                                       columns: _documentColumns,
                                       rows: [
                                         for (int i = 0;
-                                            i < (_document?.lines.length ?? 0);
+                                            i < _lineEntries.length;
                                             i++)
                                           _documentRow(context, i),
                                       ],
@@ -181,6 +181,85 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     return null;
   }
 
+  /// Every line of every note on the bill, with the note it belongs to.
+  List<(BillableDocument, BillableLine)> get _lineEntries => [
+        for (final BillableDocument document in _documents)
+          for (final BillableLine line in document.lines) (document, line),
+      ];
+
+  /// More notes of the same customer and branch on the same bill (D-SELL-39):
+  /// chips for those added, a menu for the ones that could be.
+  Widget? _alsoBillField(BuildContext context) {
+    if (_direct || _document == null) return null;
+    final List<BillableDocument> candidates = _alsoBillable;
+    if (candidates.isEmpty && _extraDocuments.isEmpty) return null;
+    return DocumentField(
+      label: 'Also bill (same customer and branch)',
+      width: 420,
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          for (final BillableDocument item in _extraDocuments)
+            InputChip(
+              key: ValueKey<String>(
+                  'sales-invoice-extra-${item.sourceDocumentId}'),
+              label: Text(item.sourceDocumentNumber),
+              visualDensity: VisualDensity.compact,
+              onDeleted: _saving
+                  ? null
+                  : () {
+                      _setState(() => _removeDocument(item.sourceDocumentId));
+                      _schedulePreview();
+                    },
+            ),
+          if (candidates.isNotEmpty)
+            PopupMenuButton<String>(
+              key: const ValueKey('sales-invoice-also-bill'),
+              tooltip: 'Add another delivery note to this bill',
+              enabled: !_saving,
+              onSelected: (value) {
+                for (final BillableDocument item in candidates) {
+                  if (item.sourceDocumentId == value) {
+                    _setState(() => _addDocument(item));
+                  }
+                }
+                _schedulePreview();
+              },
+              itemBuilder: (context) => [
+                for (final BillableDocument item in candidates)
+                  PopupMenuItem<String>(
+                    key: ValueKey<String>(
+                        'sales-invoice-add-${item.sourceDocumentId}'),
+                    value: item.sourceDocumentId,
+                    child: Text(
+                        '${item.sourceDocumentNumber}  ·  ${item.documentDate}'),
+                  ),
+              ],
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.add, size: 16),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Add a delivery note',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontSize: 13,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _invoiceHeader(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
     final Customer? customer = _customer;
@@ -188,6 +267,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
         customer == null ? '' : documentCustomerPlace(customer);
     final Map<String, dynamic>? invoice = _preview?.invoice;
     final String placeOfSupply = stringValue(invoice?['place_of_supply']);
+    final Widget? also = _alsoBillField(context);
     return DocumentHeader(children: [
       if (_direct)
         DocumentField(
@@ -269,6 +349,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                   },
           ),
         ),
+      if (also != null) also,
       DocumentField(
         label: 'Invoice date',
         auto: true,
@@ -301,6 +382,20 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
           decoration: documentBoxDecoration(context, hint: 'their PO number'),
         ),
       ),
+      // New bills of products only: a coupon is applied when the bill is
+      // first priced, and the server refuses one on a bill of documents.
+      if (_direct)
+        DocumentField(
+          label: 'Coupon',
+          width: 130,
+          child: TextFormField(
+            key: const ValueKey('sales-invoice-coupon'),
+            controller: _coupon,
+            decoration: documentBoxDecoration(context),
+            textCapitalization: TextCapitalization.characters,
+            onChanged: (_) => _schedulePreview(),
+          ),
+        ),
     ]);
   }
 
@@ -394,7 +489,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
 
   Widget _documentRow(BuildContext context, int index) {
     final ThemeData theme = Theme.of(context);
-    final BillableLine line = _document!.lines[index];
+    final (BillableDocument document, BillableLine line) = _lineEntries[index];
     final TextStyle? text = theme.textTheme.bodyMedium?.copyWith(fontSize: 13);
     final Map<String, dynamic>? priced =
         _pricedBySource(line.sourceDocumentLineId);
@@ -425,6 +520,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
               style: text,
             ),
             Text(
+              '${_extraDocuments.isEmpty ? '' : '${document.sourceDocumentNumber}  ·  '}'
               'dispatched ${documentQuantity(line.sourceQuantity)}'
               '${already.isEmpty || already == '0' ? '' : ', already billed ${documentQuantity(already)}'}'
               '${companion == null ? '' : '  ·  stock ${documentQuantity(companion.availableQuantity)}'}',
@@ -702,10 +798,10 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
           ),
         ],
       ]);
-    } else if (_document != null && _document!.lines.isNotEmpty) {
-      final BillableDocument document = _document!;
-      final int index = _current.clamp(0, document.lines.length - 1);
-      final BillableLine source = document.lines[index];
+    } else if (_lineEntries.isNotEmpty) {
+      final int index = _current.clamp(0, _lineEntries.length - 1);
+      final (BillableDocument document, BillableLine source) =
+          _lineEntries[index];
       final Map<String, dynamic>? priced =
           _pricedBySource(source.sourceDocumentLineId);
       final DocumentPreviewLine? companion = _companionFor(

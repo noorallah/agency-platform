@@ -13,6 +13,7 @@ import 'control_accounts_page.dart';
 import 'expenses_page.dart';
 import 'journal_entries_page.dart';
 import 'ledger_statement_page.dart';
+import 'opening_trial_balance_page.dart';
 import 'profit_loss_page.dart';
 import 'settlements_page.dart';
 import 'trial_balance_page.dart';
@@ -288,6 +289,11 @@ class _FinanceWorkspaceState extends State<FinanceWorkspace> {
           'expenses' => ExpensesPage(
               api: widget.api,
               preferences: widget.preferences,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
+            ),
+          'opening-balances' => OpeningTrialBalancePage(
+              api: widget.api,
               permissions: widget.permissions,
               hasActiveFirm: widget.hasActiveFirm,
             ),

@@ -15,9 +15,9 @@ a replay next year does what this revision did (see ``20260906_0130``).
 Firm-owned: run ``scripts/migrate_all_stores.py``. ``firms`` exists only in the
 platform schema, so the ``firm_id`` key is declared only where it does.
 
-Revision ID: 20260927_0163
-Revises: 20260927_0162
-Create Date: 2026-09-27
+Revision ID: 20261001_0174
+Revises: 20260930_0171
+Create Date: 2026-10-01
 
 """
 
@@ -29,8 +29,8 @@ import sqlalchemy as sa
 from alembic import op
 from app.core.database.types import UUIDType
 
-revision: str = "20260927_0163"
-down_revision: str | Sequence[str] | None = "20260927_0162"
+revision: str = "20261001_0174"
+down_revision: str | Sequence[str] | None = "20260930_0171"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

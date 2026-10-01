@@ -11,20 +11,41 @@ import '../ui/workspace/module_visibility.dart';
 class MenuItemSpec {
   const MenuItemSpec(AppModule this.module, this.tab, this.label)
       : route = null,
-        gate = null;
+        gate = null,
+        permission = null;
 
   /// A module with no tabs of its own (Quotations, the Dashboard).
   const MenuItemSpec.module(AppModule this.module, this.label)
       : tab = null,
         route = null,
-        gate = null;
+        gate = null,
+        permission = null;
 
   /// A screen only the phase 2 app has, with no catalogue module behind it
   /// -- Home (4.9). Offered to everybody signed in; what it shows inside is
   /// cut to the user's permissions.
   const MenuItemSpec.phase2(String this.route, this.label, {this.gate})
       : module = null,
-        tab = null;
+        tab = null,
+        permission = null;
+
+  /// A setting that is a dialog rather than a screen (sales stages, credit
+  /// control, the loyalty scheme, TCS): the Settings gear opens the same
+  /// dialog the owning screen's "..." menu does, and no tab is added.
+  /// Offered only with a firm chosen and [permission] held -- the code its
+  /// owning screen already asks to read it; each dialog is read-only for
+  /// somebody who may not change it.
+  const MenuItemSpec.setting(String this.route, this.label,
+      {required String this.permission})
+      : module = null,
+        tab = null,
+        gate = null;
+
+  /// For a [MenuItemSpec.setting], the permission that offers it.
+  final String? permission;
+
+  /// Whether this item opens a dialog rather than a screen.
+  bool get isSetting => permission != null;
 
   /// For a phase 2 screen, the catalogue screen whose visibility it follows
   /// -- Customer Groups is offered to whoever may open Customers. Null
@@ -79,15 +100,22 @@ class MenuAreaSpec {
 /// **No screen may be lost** (the owner's rule, 2026-09-25):
 /// `test/menu_layout_test.dart` reads the catalogue and fails when a screen
 /// appears nowhere here, or twice. Settings that phase 1 opens as dialogs
-/// inside other screens (credit control, the loyalty scheme, print settings)
-/// are not catalogue screens yet and join [settings] when the Settings page
-/// of 4.13 is built.
+/// inside other screens (sales stages, credit control, the loyalty scheme, TCS)
+/// are not catalogue screens, so the Settings gear lists them as
+/// [MenuItemSpec.setting] entries under Selling; each stays in its own
+/// screen's "..." menu as well.
 abstract final class MenuLayout {
   /// Home's address: a phase 2 screen, drawn by the phase 2 shell itself.
   static const String homeRoute = 'home';
 
   /// Customer Groups: a phase 2 page, opened in a tab of its own.
   static const String customerGroupsRoute = 'customer-groups';
+
+  /// The Selling settings behind the gear: dialogs, not screens.
+  static const String salesStagesRoute = 'settings/sales-stages';
+  static const String creditControlRoute = 'settings/credit-control';
+  static const String loyaltySchemeRoute = 'settings/loyalty-scheme';
+  static const String tcsSettingsRoute = 'settings/tcs';
 
   static const MenuAreaSpec home = MenuAreaSpec('home', 'Home', [
     MenuGroupSpec('Home', [MenuItemSpec.phase2(MenuLayout.homeRoute, 'Home')]),
@@ -200,6 +228,8 @@ abstract final class MenuLayout {
         MenuItemSpec(
             AppModule.accounting, 'journal-entries', 'Journal Entries'),
         MenuItemSpec(AppModule.accounting, 'expenses', 'Expenses'),
+        MenuItemSpec(
+            AppModule.accounting, 'opening-balances', 'Opening Balances'),
         MenuItemSpec(AppModule.accounting, 'ledgers', 'Ledgers'),
       ]),
       MenuGroupSpec('Statements', [
@@ -237,6 +267,9 @@ abstract final class MenuLayout {
         MenuItemSpec(AppModule.masters, 'branches', 'Branches'),
         MenuItemSpec(AppModule.masters, 'warehouses', 'Warehouses'),
       ]),
+      MenuGroupSpec('Compliance', [
+        MenuItemSpec(AppModule.masters, 'trade-licences', 'Trade Licences'),
+      ]),
       // Set up once, rarely touched: drawn apart, under CONFIGURATION.
       MenuGroupSpec(
         'Parties',
@@ -248,6 +281,9 @@ abstract final class MenuLayout {
           MenuItemSpec(
               AppModule.masters, 'vendor-categories', 'Vendor Categories'),
           MenuItemSpec(AppModule.masters, 'vendor-types', 'Vendor Types'),
+          MenuItemSpec(AppModule.masters, 'licence-types', 'Licence Types'),
+          MenuItemSpec(
+              AppModule.masters, 'licence-check-settings', 'Licence Check'),
         ],
         configuration: true,
       ),
@@ -318,6 +354,16 @@ abstract final class MenuLayout {
       MenuItemSpec(
           AppModule.administration, 'numbering-series', 'Numbering Series'),
     ]),
+    MenuGroupSpec('Selling', [
+      MenuItemSpec.setting(salesStagesRoute, 'Sales Stages',
+          permission: 'SALES_VIEW'),
+      MenuItemSpec.setting(creditControlRoute, 'Credit Control',
+          permission: 'CUSTOMER_VIEW'),
+      MenuItemSpec.setting(loyaltySchemeRoute, 'Loyalty Scheme',
+          permission: 'LOYALTY_VIEW'),
+      MenuItemSpec.setting(tcsSettingsRoute, 'TCS Settings',
+          permission: 'TCS_MANAGE'),
+    ]),
     MenuGroupSpec('Buying', [
       MenuItemSpec(
           AppModule.purchases, 'purchase-settings', 'Purchase Settings'),
@@ -384,6 +430,10 @@ abstract final class MenuLayout {
     };
     final Map<AppModule, Set<String>> tabs = {};
     bool offered(MenuItemSpec item) {
+      if (item.isSetting) {
+        return visibility.hasActiveFirm &&
+            visibility.permissions.hasPermission(item.permission!);
+      }
       if (item.module == null) {
         final MenuItemSpec? gate =
             item.gate == null ? null : itemFor(item.gate!);

@@ -13,6 +13,8 @@ _EMAIL_PATTERN = re.compile(
     r"[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$"
 )
 _PHONE_PATTERN = re.compile(r"^\+[1-9]\d{7,14}$")
+#: A Tax Deduction Account Number: four letters, five digits, one letter.
+_TAN_PATTERN = re.compile(r"^[A-Z]{4}[0-9]{5}[A-Z]$")
 
 
 def refuse_explicit_nulls(model: BaseModel, *, nullable: Iterable[str] = ()) -> None:
@@ -58,6 +60,30 @@ def validate_phone(value: str) -> str:
     normalized = re.sub(r"[\s().-]", "", value)
     if not _PHONE_PATTERN.fullmatch(normalized):
         raise ValidationError("A valid E.164 phone number is required.")
+    return normalized
+
+
+def normalize_tan(value: str | None) -> str | None:
+    """Return a TAN in capitals, None for a blank, or refuse a malformed one.
+
+    For a pydantic ``field_validator``: the ``ValueError`` becomes a 422
+    naming the field. The format is the Income Tax Department's -- four
+    letters, five digits, one letter (``DELA12345B``) -- so a digit typed for
+    a letter is caught while typing rather than on the quarterly return.
+
+    Raises:
+        ValueError: If a non-blank value is not in that format.
+
+    """
+    if value is None:
+        return None
+    normalized = value.strip().upper()
+    if not normalized:
+        return None
+    if not _TAN_PATTERN.fullmatch(normalized):
+        raise ValueError(
+            "A TAN is four letters, five digits and a letter, e.g. DELA12345B."
+        )
     return normalized
 
 

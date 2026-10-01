@@ -87,7 +87,7 @@ class VendorService:
         """Create a vendor with its nested detail rows."""
         self._assert_may_set_bank_details([data], allowed=may_manage_bank_details)
         try:
-            vendor = self._stage_create(data, firm_id=firm_id, actor_id=actor_id)
+            vendor = self.stage_create(data, firm_id=firm_id, actor_id=actor_id)
         except IntegrityError as error:
             self._session.rollback()
             raise self._unique_conflict() from error
@@ -108,7 +108,7 @@ class VendorService:
         self._assert_may_set_bank_details(records, allowed=may_manage_bank_details)
         try:
             vendors = [
-                self._stage_create(record, firm_id=firm_id, actor_id=actor_id)
+                self.stage_create(record, firm_id=firm_id, actor_id=actor_id)
                 for record in records
             ]
         except (ConflictError, IntegrityError) as error:
@@ -152,6 +152,43 @@ class VendorService:
         principal's answer.
         """
         vendor = self.get(vendor_id, firm_scope=firm_scope)
+        self.stage_update(
+            vendor,
+            data,
+            actor_id=actor_id,
+            may_manage_bank_details=may_manage_bank_details,
+            may_view_bank_details=may_view_bank_details,
+        )
+        self._commit_unique()
+        self._session.expire(
+            vendor,
+            [
+                "contacts",
+                "addresses",
+                "bank_accounts",
+                "tax_details",
+                "attachments",
+                "notes",
+            ],
+        )
+        return vendor
+
+    def stage_update(
+        self,
+        vendor: Vendor,
+        data: VendorUpdate,
+        *,
+        actor_id: UUID,
+        may_manage_bank_details: bool = True,
+        may_view_bank_details: bool = True,
+    ) -> Vendor:
+        """Apply, guard and audit one update without committing it.
+
+        Split out so a file import can update vendors by code and commit the
+        whole file once (backlog 46), as ``stage_create`` does for a create.
+        Flushed at the end, so a later row of the same file claiming this
+        vendor's new GSTIN is refused by the uniqueness check.
+        """
         banking = self._banking_to_write(
             vendor,
             data.banking,
@@ -208,18 +245,11 @@ class VendorService:
             before_data=before,
             after_data=self._audit_snapshot(vendor),
         )
-        self._commit_unique()
-        self._session.expire(
-            vendor,
-            [
-                "contacts",
-                "addresses",
-                "bank_accounts",
-                "tax_details",
-                "attachments",
-                "notes",
-            ],
-        )
+        try:
+            self._session.flush()
+        except IntegrityError as error:
+            self._session.rollback()
+            raise self._unique_conflict() from error
         return vendor
 
     def delete(
@@ -887,10 +917,10 @@ class VendorService:
                 f"deleted. Move them to another {label} first."
             )
 
-    def _stage_create(
+    def stage_create(
         self, data: VendorCreate, *, firm_id: UUID, actor_id: UUID
     ) -> Vendor:
-        """Stage create."""
+        """Stage one vendor and its audit event without committing."""
         self._assert_unique(firm_id, data)
         self._assert_drug_license_allowed(firm_id, data)
         values = self._vendor_values(data)

@@ -109,6 +109,13 @@ final Map<String, _PageBuilder> _screens = {
         hasActiveFirm: false,
         tabId: 'journal-entries',
       ),
+  'opening balances': (d) => FinanceWorkspace(
+        api: d.api,
+        preferences: d.preferences,
+        permissions: d.permissions,
+        hasActiveFirm: false,
+        tabId: 'opening-balances',
+      ),
   'trial balance': (d) => FinanceWorkspace(
         api: d.api,
         preferences: d.preferences,

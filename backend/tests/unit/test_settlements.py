@@ -13,7 +13,6 @@ mostly about the two staying together.
 
 from datetime import date, timedelta
 from decimal import Decimal
-from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -825,119 +824,26 @@ def test_a_receipt_steps_over_a_number_a_journal_already_holds() -> None:
     assert second.status == "POSTED"
 
 
-def test_recording_a_receipt_the_old_way_is_refused() -> None:
-    """The endpoint that moved a balance without a journal now says so.
+def test_a_balance_cannot_be_moved_by_hand_any_more() -> None:
+    """D-FIN-23: the hand-posted receivable route is retired.
 
-    `post_receivable_transaction` is still used by the sales invoice and
-    settlement services as part of a larger unit of work that does post. What
-    was left open was the endpoint, reachable by hand: every receipt recorded
-    through it put the subsidiary ledger and the general ledger further apart,
-    silently and permanently.
+    It moved a customer's balance and wrote no journal, so a receipt recorded
+    through it put the two books apart; D-FIN-4 then refused every type but a
+    credit note and pointed each at the module that records it with its
+    journal, and the credit note it still took reversed no output tax.
+    `/credit-notes` names the invoice line and reverses the tax that line was
+    charged, so nothing is left for the route to do. Reading the account stays.
     """
-    from app.customers.api.router import post_customer_receivable_transaction
+    from app.customers.api.router import router
 
-    books = _Books(_session_factory()())
-    scope = SimpleNamespace(firm_id=books.firm.id, actor_id=books.actor_id)
+    methods: dict[str, set[str]] = {}
+    for route in router.routes:
+        path = getattr(route, "path", "")
+        methods.setdefault(path, set()).update(getattr(route, "methods", set()))
 
-    with pytest.raises(ValidationError) as error:
-        post_customer_receivable_transaction(
-            books.customer.id,
-            CustomerReceivableTransactionCreate(
-                transaction_type=CustomerReceivableTransactionType.RECEIPT,
-                amount=Decimal("100.00"),
-                transaction_date=WHEN,
-            ),
-            scope,  # type: ignore[arg-type]
-            db=books.session,
-        )
-
-    assert "/api/v1/receipts" in str(error.value)
-    assert "only moves the customer balance" in str(error.value)
-
-
-@pytest.mark.parametrize(
-    ("transaction_type", "destination"),
-    [
-        (CustomerReceivableTransactionType.INVOICE, "/api/v1/sales-invoices"),
-        (CustomerReceivableTransactionType.TCS, "/api/v1/receipts"),
-        (CustomerReceivableTransactionType.LOYALTY, "/api/v1/loyalty/redeem"),
-        (
-            CustomerReceivableTransactionType.ADVANCE_APPLY,
-            "/api/v1/receipts/{receipt_id}/allocate",
-        ),
-        (CustomerReceivableTransactionType.REFUND, "/api/v1/refunds"),
-    ],
-)
-def test_the_receivable_endpoint_refuses_what_another_module_records(
-    transaction_type: CustomerReceivableTransactionType, destination: str
-) -> None:
-    """D-FIN-4: five more types moved a customer's balance with no journal.
-
-    Driven on a fixture firm: an INVOICE of 25.00, a TCS of 1.00, a LOYALTY of
-    5.00 and a REFUND of 10.00 each moved the customer's balance and left the
-    journal count where it was. Each has a module that records it together
-    with its journal, and the refusal names it.
-    """
-    from app.customers.api.router import post_customer_receivable_transaction
-
-    books = _Books(_session_factory()())
-    books.owe_us("300.00")
-    _receipt(books, "500.00")
-    books.session.commit()
-    books.session.refresh(books.customer)
-    outstanding = books.customer.current_outstanding
-    advance = books.customer.unapplied_advance_balance
-    journals = books.session.scalar(select(func.count()).select_from(JournalEntry))
-    scope = SimpleNamespace(firm_id=books.firm.id, actor_id=books.actor_id)
-
-    with pytest.raises(ValidationError) as error:
-        post_customer_receivable_transaction(
-            books.customer.id,
-            CustomerReceivableTransactionCreate(
-                transaction_type=transaction_type,
-                amount=Decimal("10.00"),
-                transaction_date=WHEN,
-            ),
-            scope,  # type: ignore[arg-type]
-            db=books.session,
-        )
-    books.session.rollback()
-
-    assert destination in str(error.value)
-    books.session.refresh(books.customer)
-    assert books.customer.current_outstanding == outstanding
-    assert books.customer.unapplied_advance_balance == advance
-    assert (
-        books.session.scalar(select(func.count()).select_from(JournalEntry)) == journals
-    )
-
-
-def test_a_credit_note_still_goes_through_the_receivable_endpoint() -> None:
-    """It moves no money, so it has no journal to be missing.
-
-    Refusing everything would take away the ways a balance is legitimately
-    adjusted without cash changing hands.
-    """
-    from app.customers.api.router import post_customer_receivable_transaction
-
-    books = _Books(_session_factory()())
-    books.owe_us("500.00")
-    scope = SimpleNamespace(firm_id=books.firm.id, actor_id=books.actor_id)
-
-    response = post_customer_receivable_transaction(
-        books.customer.id,
-        CustomerReceivableTransactionCreate(
-            transaction_type=CustomerReceivableTransactionType.CREDIT_NOTE,
-            amount=Decimal("100.00"),
-            transaction_date=WHEN,
-        ),
-        scope,  # type: ignore[arg-type]
-        db=books.session,
-    )
-
-    assert response.data.transaction_type == "CREDIT_NOTE"
-    books.session.refresh(books.customer)
-    assert books.customer.current_outstanding == Decimal("400.00")
+    path = "/api/v1/customers/{customer_id}/receivables/transactions"
+    assert "POST" not in methods.get(path, set())
+    assert "GET" in methods.get(path, set())
 
 
 def test_a_refund_hands_money_back_and_posts_it() -> None:

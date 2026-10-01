@@ -695,6 +695,8 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
                 ? 'typed on this order'
                 : 'from ${discountSourceWords(source)}',
       ),
+      // D-SELL-41: silence takes the offer's free goods, a typed zero refuses.
+      const DocumentSideNote('Free: blank takes the offer; 0 refuses it.'),
       if ((double.tryParse(line.free.text.trim()) ?? 0) > 0)
         DocumentSidePair(
             'Free goods', '${line.free.text.trim()} ${product?.unit ?? ''}'),

@@ -40,6 +40,8 @@ from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.inventory.schemas import InventoryAdjustmentCreate
 from app.inventory.services import InventoryService
 from app.products.models import Product
+from app.promotions.models import Promotion, PromotionAction, PromotionCoupon
+from app.promotions.schemas import PromotionActionType, PromotionStatus
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
@@ -738,3 +740,130 @@ def test_the_configuration_belongs_to_one_firm() -> None:
             firm_id=second.id,
             actor_id=uuid4(),
         )
+
+
+def _coupon_offer(setup: _Firm, code: str = "SAVE10") -> None:
+    """Publish a ten-percent offer that only a coupon unlocks."""
+    promotion = Promotion(
+        firm_id=setup.firm.id,
+        code="TENOFF",
+        name="Ten percent off",
+        priority=10,
+        status=PromotionStatus.ACTIVE.value,
+        allow_stacking=True,
+        requires_coupon=True,
+        version_group_id=uuid4(),
+        version_number=1,
+    )
+    setup.session.add(promotion)
+    setup.session.flush()
+    setup.session.add_all(
+        [
+            PromotionAction(
+                firm_id=setup.firm.id,
+                promotion_id=promotion.id,
+                sequence=1,
+                action_type=PromotionActionType.LINE_DISCOUNT_PERCENT.value,
+                parameters={"percent": "10"},
+            ),
+            PromotionCoupon(
+                firm_id=setup.firm.id,
+                promotion_id=promotion.id,
+                code=code,
+                status=PromotionStatus.ACTIVE.value,
+            ),
+        ]
+    )
+    setup.session.commit()
+
+
+def test_a_bill_typed_straight_in_honours_the_customers_coupon() -> None:
+    """D-SELL-40: the coupon reaches the order the bill raises, and its price.
+
+    A firm with its sales stages off types only the bill, so the bill is the
+    one place its people can take a coupon. It prices the order raised behind
+    it, where the claim is counted at approval like any order's.
+    """
+    session = _session_factory()()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    _coupon_offer(setup)
+    service = SalesInvoiceService(session)
+
+    plain = service.create_invoice(
+        setup.bare_bill(), firm_id=setup.firm.id, actor_id=uuid4()
+    )
+    with_coupon = service.create_invoice(
+        setup.bare_bill().model_copy(update={"coupon_code": "save10"}),
+        firm_id=setup.firm.id,
+        actor_id=uuid4(),
+    )
+
+    def taxable(invoice: SalesInvoice) -> Decimal:
+        """Sum what the bill's lines are taxed on."""
+        return sum(
+            (
+                line.net_amount
+                for line in session.scalars(
+                    select(SalesInvoiceLine).where(
+                        SalesInvoiceLine.sales_invoice_id == invoice.id
+                    )
+                )
+            ),
+            Decimal("0"),
+        )
+
+    assert taxable(plain) == Decimal("400.0000")
+    assert taxable(with_coupon) == Decimal("360.0000")
+    coupons = session.scalars(select(SalesOrder.coupon_code)).all()
+    assert sorted(code or "" for code in coupons) == ["", "SAVE10"]
+
+
+def test_a_coupon_on_a_bill_of_documents_already_priced_is_refused() -> None:
+    """A field that gives money away must not be accepted and do nothing."""
+    session = _session_factory()()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    service = SalesInvoiceService(session)
+    invoice = service.create_invoice(
+        setup.bare_bill(), firm_id=setup.firm.id, actor_id=uuid4()
+    )
+    note = session.scalars(select(DeliveryNote)).one()
+    line = session.scalars(select(SalesInvoiceLine)).one()
+    sourced = SalesInvoiceCreate(
+        customer_id=setup.customer.id,
+        invoice_date=date(2026, 8, 4),
+        coupon_code="SAVE10",
+        lines=[
+            SalesInvoiceLineWrite(
+                source_document_type="DELIVERY_NOTE",
+                source_document_id=note.id,
+                source_document_line_id=line.source_document_line_id,
+                line_number=1,
+                current_invoice_quantity=Decimal("4"),
+            )
+        ],
+    )
+
+    with pytest.raises(ValidationError, match="coupon"):
+        service.update_invoice(
+            invoice.id, sourced, firm_id=setup.firm.id, actor_id=uuid4()
+        )
+
+
+def test_an_invoice_line_keeps_the_hsn_it_was_billed_under() -> None:
+    """D-CMP-22: the line is stamped with the product's code when written."""
+    session = _session_factory()()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    setup.product.hsn_sac = "10063020"
+    session.commit()
+
+    SalesInvoiceService(session).create_invoice(
+        setup.bare_bill(), firm_id=setup.firm.id, actor_id=uuid4()
+    )
+    setup.product.hsn_sac = "99999999"
+    session.commit()
+
+    line = session.scalars(select(SalesInvoiceLine)).one()
+    assert line.hsn_sac == "10063020"

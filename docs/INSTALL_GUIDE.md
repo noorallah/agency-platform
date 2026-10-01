@@ -25,7 +25,7 @@ over the office network. In a one-person office the server PC is the only PC.
 | --- | --- |
 | Server PC | 64-bit Windows 10 or 11, 4 GB memory (8 GB comfortable), 3 GB free disk (the install takes about 500 MB, the data grows from there), a power plan that never sleeps, an administrator account to install |
 | Every other PC | 64-bit Windows 10 or 11, 4 GB memory, 300 MB free disk, a screen of 1366 × 768 or larger, an administrator account to install only |
-| The network | The server PC reachable on TCP port 8000. Setup opens the Windows firewall for it when you ask it to |
+| The network | The server PC reachable on its TCP port (8000 unless changed on the Ports page). Setup opens the Windows firewall for it when you ask it to |
 
 Setup refuses to run on a PC with less than 4 GB of memory or less than 3 GB
 of free disk, and says so.
@@ -36,9 +36,11 @@ publisher certificate, so when you start Setup, Windows SmartScreen shows
 then **Run anyway**. Then answer **Yes** to the administrator prompt. Nothing
 else about the install is affected.
 
-**Do not install on a PC that already has PostgreSQL on port 5433.** Setup
-brings its own copy of PostgreSQL 17 and runs it on port 5433, so a normal
-PostgreSQL installation on 5432 is left alone.
+**Ports.** Setup brings its own copy of PostgreSQL 17 and runs it on the
+first free port from 5433 to 5440, so a PostgreSQL already on the PC is left
+alone. The server listens on port 8000 unless you choose another on the
+**Ports** page; Setup checks the port is free when you press Next and, if it
+is not, names the program using it. An upgrade keeps both ports.
 
 ---
 
@@ -78,8 +80,8 @@ if they stop:
 
 | Service | What it is |
 | --- | --- |
-| Agency Platform Database | PostgreSQL 17, private to this product, on port 5433 |
-| Agency Platform Server | The server the apps connect to, on port 8000. It starts after the database |
+| Agency Platform Database | PostgreSQL 17, private to this product, on the first free port from 5433 to 5440 (recorded in `C:\ProgramData\Agency Platform\ports.json`) |
+| Agency Platform Server | The server the apps connect to, on port 8000 or the one chosen on the Ports page. It starts after the database |
 
 **If the last page says the server could not be set up**, the files are
 installed but nothing runs yet. The page names the reason and the log file.
@@ -234,7 +236,7 @@ administrator:
 
    ```
    & "C:\Program Files\Agency Platform\pgsql\bin\pg_restore.exe" `
-     -h localhost -p 5433 -U <user> -d <database> `
+     -h localhost -p <database port from ports.json, usually 5433> -U <user> -d <database> `
      --clean --if-exists --no-owner "<backup folder>\<database>.dump"
    ```
 

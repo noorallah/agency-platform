@@ -18,6 +18,7 @@ from app.finance.models import (
     PROFIT_LOSS_ACCOUNT_TYPES,
     AccountingPeriod,
     AccountType,
+    FinancialYear,
     FirmControlAccount,
     GLPosting,
     JournalEntry,
@@ -65,7 +66,9 @@ class GeneralLedgerService:
         (D-FIN-18). Balanced is judged on the closing columns, which is the
         question a trial balance answers.
         """
-        self._require_period(firm_id=firm_id, accounting_period_id=accounting_period_id)
+        period = self._require_period(
+            firm_id=firm_id, accounting_period_id=accounting_period_id
+        )
         rows = self._balances(
             firm_id=firm_id, accounting_period_id=accounting_period_id
         )
@@ -77,6 +80,19 @@ class GeneralLedgerService:
             )
         )
         rows.sort(key=lambda row: row[1].code)
+        # An income or expense account starts every financial year at zero,
+        # and what earlier years earned is one line under equity (D-FIN-22).
+        # The stored balances run on across years -- the balance sheet reads
+        # them that way -- so the year's start is taken off here, for display.
+        brought_forward = self._brought_forward(
+            firm_id=firm_id,
+            period=period,
+            account_ids=[
+                account.id
+                for _, account in rows
+                if account.account_type in PROFIT_LOSS_ACCOUNT_TYPES
+            ],
+        )
         lines: list[TrialBalanceLine] = []
         totals = dict.fromkeys(
             (
@@ -90,26 +106,48 @@ class GeneralLedgerService:
             ZERO,
         )
 
+        earned_before = ZERO
         for balance, account in rows:
-            opening_debit, opening_credit = self._present_balance(
-                account.account_type, balance.opening_balance
-            )
-            closing_debit, closing_credit = self._present_balance(
-                account.account_type, balance.closing_balance
-            )
-            line = TrialBalanceLine(
+            carried = brought_forward.get(account.id, ZERO)
+            opening = balance.opening_balance - carried
+            closing = balance.closing_balance - carried
+            if carried:
+                earned_before += (
+                    -carried
+                    if account.account_type in DEBIT_BALANCE_ACCOUNT_TYPES
+                    else carried
+                )
+            if (
+                opening == ZERO
+                and closing == ZERO
+                and balance.period_debit == ZERO
+                and balance.period_credit == ZERO
+            ):
+                # Last year's income, carried into a year it did not move in.
+                continue
+            line = self._trial_balance_line(
                 ledger_account_id=account.id,
-                account_code=account.code,
-                account_name=account.name,
-                account_type=AccountTypeEnum(account.account_type),
-                opening_balance=balance.opening_balance,
-                opening_debit=opening_debit,
-                opening_credit=opening_credit,
+                code=account.code,
+                name=account.name,
+                account_type=account.account_type,
+                opening=opening,
                 period_debit=balance.period_debit,
                 period_credit=balance.period_credit,
-                closing_balance=balance.closing_balance,
-                closing_debit=closing_debit,
-                closing_credit=closing_credit,
+                closing=closing,
+            )
+            for key in totals:
+                totals[key] += getattr(line, key)
+            lines.append(line)
+        if earned_before != ZERO:
+            line = self._trial_balance_line(
+                ledger_account_id=None,
+                code="P&L-BF",
+                name="Profit and loss brought forward",
+                account_type=AccountType.EQUITY.value,
+                opening=earned_before,
+                period_debit=ZERO,
+                period_credit=ZERO,
+                closing=earned_before,
             )
             for key in totals:
                 totals[key] += getattr(line, key)
@@ -143,7 +181,9 @@ class GeneralLedgerService:
         )
         if account is None:
             raise ResourceNotFoundError("Ledger account not found.")
-        self._require_period(firm_id=firm_id, accounting_period_id=accounting_period_id)
+        period = self._require_period(
+            firm_id=firm_id, accounting_period_id=accounting_period_id
+        )
 
         balance = self._session.scalar(
             select(LedgerBalance).where(
@@ -167,6 +207,12 @@ class GeneralLedgerService:
                 accounting_period_id=accounting_period_id,
             )
         )
+        if account.account_type in PROFIT_LOSS_ACCOUNT_TYPES:
+            # A new financial year opens an income or expense ledger at zero
+            # (D-FIN-22); what it held before belongs to earlier years.
+            opening -= self._brought_forward(
+                firm_id=firm_id, period=period, account_ids=[account.id]
+            ).get(account.id, ZERO)
         increases_on_debit = account.account_type in DEBIT_BALANCE_ACCOUNT_TYPES
 
         # Ordered by the journal date, not by ``posting_date``. A back-dated
@@ -439,21 +485,35 @@ class GeneralLedgerService:
         self, *, firm_id: UUID, accounting_period_id: UUID
     ) -> list[AccountSummary]:
         """Return one balance row per account with movement for the period."""
-        self._require_period(firm_id=firm_id, accounting_period_id=accounting_period_id)
+        period = self._require_period(
+            firm_id=firm_id, accounting_period_id=accounting_period_id
+        )
+        rows = self._balances(
+            firm_id=firm_id, accounting_period_id=accounting_period_id
+        )
+        brought_forward = self._brought_forward(
+            firm_id=firm_id,
+            period=period,
+            account_ids=[
+                account.id
+                for _, account in rows
+                if account.account_type in PROFIT_LOSS_ACCOUNT_TYPES
+            ],
+        )
         return [
             AccountSummary(
                 ledger_account_id=account.id,
                 account_code=account.code,
                 account_name=account.name,
                 account_type=AccountTypeEnum(account.account_type),
-                opening_balance=balance.opening_balance,
+                opening_balance=balance.opening_balance
+                - brought_forward.get(account.id, ZERO),
                 period_debit=balance.period_debit,
                 period_credit=balance.period_credit,
-                closing_balance=balance.closing_balance,
+                closing_balance=balance.closing_balance
+                - brought_forward.get(account.id, ZERO),
             )
-            for balance, account in self._balances(
-                firm_id=firm_id, accounting_period_id=accounting_period_id
-            )
+            for balance, account in rows
         ]
 
     # ------------------------------------------------------------------
@@ -636,6 +696,76 @@ class GeneralLedgerService:
             for account_id, found in sides.items()
             if len(found) == 1
         }
+
+    def _brought_forward(
+        self, *, firm_id: UUID, period: AccountingPeriod, account_ids: list[UUID]
+    ) -> dict[UUID, Decimal]:
+        """Return what each account had run up before this financial year began.
+
+        The stored balances run on from one year into the next, and the
+        balance sheet reads them that way: an income or expense account's
+        closing is everything it has ever earned, which is what the sheet's
+        earnings are. A trial balance and an account ledger answer a different
+        question -- this year -- so they take this figure off an income or
+        expense account (D-FIN-22). It is the closing balance of the last
+        period, before the year starts, that the account was posted in.
+        """
+        if not account_ids:
+            return {}
+        year_starts = self._session.scalar(
+            select(FinancialYear.starts_on).where(
+                FinancialYear.id == period.financial_year_id
+            )
+        )
+        if year_starts is None:
+            return {}
+        history = self._session.execute(
+            select(LedgerBalance.ledger_account_id, LedgerBalance.closing_balance)
+            .join(
+                AccountingPeriod,
+                AccountingPeriod.id == LedgerBalance.accounting_period_id,
+            )
+            .where(
+                LedgerBalance.firm_id == firm_id,
+                LedgerBalance.ledger_account_id.in_(account_ids),
+                AccountingPeriod.ends_on < year_starts,
+            )
+            .order_by(AccountingPeriod.ends_on.asc())
+        ).all()
+        carried: dict[UUID, Decimal] = {}
+        for account_id, closing in history:
+            carried[account_id] = closing
+        return carried
+
+    def _trial_balance_line(
+        self,
+        *,
+        ledger_account_id: UUID | None,
+        code: str,
+        name: str,
+        account_type: str,
+        opening: Decimal,
+        period_debit: Decimal,
+        period_credit: Decimal,
+        closing: Decimal,
+    ) -> TrialBalanceLine:
+        """Build one trial balance row, each balance split by side."""
+        opening_debit, opening_credit = self._present_balance(account_type, opening)
+        closing_debit, closing_credit = self._present_balance(account_type, closing)
+        return TrialBalanceLine(
+            ledger_account_id=ledger_account_id,
+            account_code=code,
+            account_name=name,
+            account_type=AccountTypeEnum(account_type),
+            opening_balance=opening,
+            opening_debit=opening_debit,
+            opening_credit=opening_credit,
+            period_debit=period_debit,
+            period_credit=period_credit,
+            closing_balance=closing,
+            closing_debit=closing_debit,
+            closing_credit=closing_credit,
+        )
 
     def _present_balance(
         self, account_type: str, closing_balance: Decimal

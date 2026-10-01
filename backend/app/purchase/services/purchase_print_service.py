@@ -164,9 +164,14 @@ class PurchaseOrderPrintService:
             buyer=self._vendor(order),
             ship_to=self._warehouse(order),
             lines=tuple(printed),
-            taxable_total=order.subtotal,
+            # The whole-order discount reaches the lines before tax (D-BUY-19),
+            # so what is taxed is the subtotal less it -- printed the way a
+            # sales bill prints its own, as the lines and then the deduction.
+            taxable_total=order.subtotal - order.header_discount_amount,
             tax_total=order.tax_total,
-            charges=order.header_discount_amount * -1,
+            bill_discount=order.header_discount_amount,
+            gross_before_bill_discount=order.subtotal,
+            charges=order.additional_charges,
             round_off=order.round_off,
             grand_total=order.grand_total,
             references=tuple(references),

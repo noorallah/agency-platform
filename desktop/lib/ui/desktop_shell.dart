@@ -22,13 +22,17 @@ import '../core/theme/theme_manager.dart';
 import '../models/branch_warehouse.dart';
 import '../models/entities.dart';
 import '../models/inventory.dart';
+import '../models/purchase.dart';
 import '../models/uom_packaging.dart';
 import '../models/product.dart';
 import '../models/report.dart' show ReportPage;
 import '../models/sales_invoice.dart';
+import '../models/trade_licence.dart';
 import '../models/vendor.dart';
 import 'customers/customer_management_page.dart';
+import 'customers/credit_settings_dialog.dart';
 import 'customers/customer_statement_page.dart';
+import 'customers/loyalty_settings_dialog.dart';
 import 'customers/loyalty_page.dart';
 import 'inventory/inventory_management_page.dart';
 import 'inventory/inventory_details_dialog.dart';
@@ -44,6 +48,7 @@ import 'sales/route_builder_page.dart';
 import 'sales/territory_coverage_page.dart';
 import 'sales/route_type_management_page.dart';
 import 'sales/sales_invoice_management_page.dart';
+import 'sales/sales_workflow_settings_dialog.dart';
 import 'commission/commission_page.dart';
 import 'commission/sales_target_page.dart';
 import 'sales/credit_note_page.dart';
@@ -55,6 +60,7 @@ import 'pricing/price_list_page.dart';
 import 'pricing/promotion_page.dart';
 import 'products/product_management_page.dart';
 import 'purchases/purchase_management_page.dart';
+import 'trade_licences/licence_check_settings_page.dart';
 import 'quotations/quotation_management_page.dart';
 import 'sales/sales_order_management_page.dart';
 import 'sales_returns/sales_return_management_page.dart';
@@ -239,6 +245,8 @@ class _DesktopShellState extends State<DesktopShell> {
   /// Which sales stages this firm types. The whole chain until told otherwise,
   /// which is both the platform default and the safe answer on a failed read.
   SalesWorkflowSettings _salesStages = SalesWorkflowSettings.wholeChain;
+  PurchaseWorkflowSettings _purchaseStages =
+      PurchaseWorkflowSettings.wholeChain;
   int _lastFirmContextVersion = 0;
 
   /// How often the status bar asks whether the server is still there.
@@ -295,6 +303,7 @@ class _DesktopShellState extends State<DesktopShell> {
     // switched those stages off. `_salesStages` defaults to the whole chain,
     // so the wrong answer was the permissive one.
     _refreshSalesStages();
+    _refreshPurchaseStages();
     unawaited(_probeHealth());
     _healthTimer = Timer.periodic(_healthInterval, (_) => _probeHealth());
   }
@@ -368,7 +377,48 @@ class _DesktopShellState extends State<DesktopShell> {
     unawaited(_saveShellState());
   }
 
+  /// A Selling setting from the Settings gear or the command box: the same
+  /// dialog the owning screen's "..." menu opens, shown over whatever is on
+  /// screen without adding a tab. A saved sales-stage change is re-read so the
+  /// sidebar and menu follow it at once.
+  Future<void> _openSettingDialog(MenuItemSpec item) async {
+    final ApiClient api = widget.session.api;
+    switch (item.path) {
+      case MenuLayout.salesStagesRoute:
+        final bool? saved = await showDialog<bool>(
+          context: context,
+          builder: (_) => SalesWorkflowSettingsDialog(
+            api: api,
+            permissions: widget.permissions,
+          ),
+        );
+        if (saved == true) await _refreshSalesStages();
+      case MenuLayout.creditControlRoute:
+        await showDialog<bool>(
+          context: context,
+          builder: (_) => CreditSettingsDialog(
+            api: api,
+            permissions: widget.permissions,
+          ),
+        );
+      case MenuLayout.loyaltySchemeRoute:
+        await showDialog<bool>(
+          context: context,
+          builder: (_) => LoyaltySettingsDialog(
+            api: api,
+            permissions: widget.permissions,
+          ),
+        );
+      case MenuLayout.tcsSettingsRoute:
+        await showTcsSettings(context, api);
+    }
+  }
+
   void _openFromMenu(MenuItemSpec item, {String? view}) {
+    if (item.isSetting) {
+      unawaited(_openSettingDialog(item));
+      return;
+    }
     _activeDocument = null;
     _viewRequest = view == null
         ? null
@@ -466,6 +516,20 @@ class _DesktopShellState extends State<DesktopShell> {
     }
   }
 
+  /// Learn which stages of buying this firm types. Fails open to the whole
+  /// chain for the same reason as [_refreshSalesStages].
+  Future<void> _refreshPurchaseStages() async {
+    try {
+      final PurchaseWorkflowSettings settings =
+          await widget.session.api.purchaseWorkflowSettings();
+      if (!mounted) return;
+      setState(() => _purchaseStages = settings);
+    } on ApiException {
+      if (!mounted) return;
+      setState(() => _purchaseStages = PurchaseWorkflowSettings.wholeChain);
+    }
+  }
+
   Future<void> _refreshBusinessModules() async {
     try {
       final List<String> moduleCodes =
@@ -486,6 +550,7 @@ class _DesktopShellState extends State<DesktopShell> {
     _lastFirmContextVersion = version;
     _refreshBusinessModules();
     _refreshSalesStages();
+    _refreshPurchaseStages();
   }
 
   void _select(AppModule section) {
@@ -515,6 +580,7 @@ class _DesktopShellState extends State<DesktopShell> {
         permissions: widget.permissions,
         activeBusinessModules: _activeBusinessModuleCodes,
         salesStages: _salesStages,
+        purchaseStages: _purchaseStages,
         hasActiveFirm: widget.session.currentFirm != null,
       );
 
@@ -2446,6 +2512,19 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           api: widget.api,
           permissions: widget.permissions,
         ),
+      'trade-licences' => ResourceManagementPage<TradeLicenceRecord>(
+          api: widget.api,
+          definition: tradeLicenceDefinition(widget.api, widget.permissions),
+        ),
+      'licence-types' => ResourceManagementPage<TradeLicenceTypeRecord>(
+          api: widget.api,
+          definition:
+              tradeLicenceTypeDefinition(widget.api, widget.permissions),
+        ),
+      'licence-check-settings' => LicenceCheckSettingsPage(
+          api: widget.api,
+          permissions: widget.permissions,
+        ),
       _ => WorkspaceEmptyState(
           title:
               '${visibleTabs.firstWhere((tab) => tab.id == tabId).label} is coming soon',
@@ -2470,6 +2549,9 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
         'branch-types' => 'Branch Type Management',
         'branch-warehouse-settings' => 'Branch & Warehouse Settings',
         'geography-masters' => 'Places',
+        'trade-licences' => 'Trade Licences',
+        'licence-types' => 'Licence Types',
+        'licence-check-settings' => 'Licence Check',
         _ => 'Firm Management',
       },
       description: switch (tabId) {
@@ -2502,6 +2584,15 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
         'geography-masters' =>
           'The shared geography every address and route hangs off: country to '
               'locality.',
+        'trade-licences' =>
+          'The trade licences this firm holds, and the ones its customers '
+              'and vendors do, with when each runs out.',
+        'licence-types' =>
+          'The kinds of trade licence this firm holds or asks its customers '
+              'and vendors for.',
+        'licence-check-settings' =>
+          'What a missing or lapsed licence does to a sale, and to a '
+              'purchase.',
         'firm-settings' =>
           'Configure the active firm\'s business profile and related settings.',
         _ => 'Manage organization records and future firm configuration.',
@@ -2523,6 +2614,9 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           'branch-types' => 'Branch Type Management',
           'branch-warehouse-settings' => 'Branch & Warehouse Settings',
           'geography-masters' => 'Places',
+          'trade-licences' => 'Trade Licences',
+          'licence-types' => 'Licence Types',
+          'licence-check-settings' => 'Licence Check',
           _ => 'Firm Management',
         },
       ],
@@ -3398,6 +3492,10 @@ ResourceDefinition<Firm> firmDefinition(
         FieldSpec(key: 'gst_number', label: 'GST number'),
         FieldSpec(key: 'pan_number', label: 'PAN number'),
         FieldSpec(
+          key: 'tan_number',
+          label: 'TAN (if the firm deducts TDS)',
+        ),
+        FieldSpec(
           key: 'address_line1',
           label: 'Address line 1',
           section: 'Address',
@@ -3540,6 +3638,7 @@ ResourceDefinition<Firm> firmDefinition(
               'name': firm.name,
               'gst_number': firm.gstNumber,
               'pan_number': firm.panNumber,
+              'tan_number': firm.tanNumber,
               'address_line1': firm.addressLine1,
               'address_line2': firm.addressLine2,
               'city': firm.city,
@@ -5234,63 +5333,339 @@ ResourceDefinition<VendorClassification> vendorClassificationDefinition(
 ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
   ApiClient api,
   PermissionService permissions,
+) {
+  // Whether the picker's own options actually arrived, read the same way
+  // `tradeLicenceDefinition` reads its own -- once, when the register opens.
+  // `payload` sends the field only once this is true: a category form built
+  // before it answered must not decide, on nothing, that the category names
+  // no licence at all (backlog 54).
+  bool licenceTypesLoaded = false;
+  unawaited(api.tradeLicenceTypes().then((_) => licenceTypesLoaded = true));
+
+  return ResourceDefinition(
+    title: 'Product Categories',
+    resource: 'products/categories',
+    description: 'Group products into a tree, for the product form, '
+        'reports and category rules.',
+    searchHint: 'Search categories by code or name',
+    headers: const ['Code', 'Name', 'Path', 'Active'],
+    cells: (ProductCategoryRecord row) => [
+      row.code,
+      row.name,
+      row.path,
+      row.isActive ? 'Yes' : 'No',
+    ],
+    id: (ProductCategoryRecord row) => row.id,
+    load: api.productCategoryPage,
+    canUseAction: (action, _) => _canUseResourceAction(
+      permissions,
+      action,
+      view: const ['PRODUCT_VIEW'],
+      create: const ['PRODUCT_UPDATE'],
+      update: const ['PRODUCT_UPDATE'],
+      delete: const ['PRODUCT_UPDATE'],
+    ),
+    fields: const [
+      FieldSpec(
+        key: 'code',
+        label: 'Category code',
+        required: true,
+        helperText: '2-50 characters: A-Z, 0-9, underscore or hyphen.',
+      ),
+      FieldSpec(key: 'name', label: 'Name', required: true),
+      FieldSpec(
+        key: 'parent_id',
+        label: 'Parent category',
+        optionsResource: 'products/categories',
+        singleSelection: true,
+        helperText: 'Leave empty for a top-level category.',
+      ),
+      FieldSpec(
+        key: 'required_licence_type_id',
+        label: 'Licence needed',
+        optionsResource: 'trade-licences/types',
+        singleSelection: true,
+        helperText: 'None: a product filed here needs no licence unless it '
+            'or a category above it names one.',
+      ),
+      FieldSpec(key: 'is_active', label: 'Active', boolean: true),
+    ],
+    initialValues: (ProductCategoryRecord? row) => row == null
+        ? <String, dynamic>{'is_active': true}
+        : <String, dynamic>{
+            'code': row.code,
+            'name': row.name,
+            'parent_id': row.parentId,
+            'required_licence_type_id': row.requiredLicenceTypeId,
+            'is_active': row.isActive,
+          },
+    // The update replaces the node, so every field but the licence type is
+    // sent both ways; that one is sent only once the picker's own options
+    // have actually loaded, so a slow or failed fetch leaves it alone rather
+    // than clearing it on every other edit.
+    payload: (values, isCreating) => {
+      'code': values['code'],
+      'name': values['name'],
+      'parent_id': _blankToNull(values['parent_id']),
+      if (licenceTypesLoaded)
+        'required_licence_type_id':
+            _blankToNull(values['required_licence_type_id']),
+      'is_active': values['is_active'],
+    },
+  );
+}
+
+/// The kinds of trade licence this firm holds or asks its customers and
+/// vendors for -- Drug Licence, FSSAI, Shop Act and the like (backlog 54).
+ResourceDefinition<TradeLicenceTypeRecord> tradeLicenceTypeDefinition(
+  ApiClient api,
+  PermissionService permissions,
 ) =>
     ResourceDefinition(
-      title: 'Product Categories',
-      resource: 'products/categories',
-      description: 'Group products into a tree, for the product form, '
-          'reports and category rules.',
-      searchHint: 'Search categories by code or name',
-      headers: const ['Code', 'Name', 'Path', 'Active'],
-      cells: (ProductCategoryRecord row) => [
+      title: 'Licence Types',
+      resource: 'trade-licences/types',
+      description:
+          'The kinds of trade licence this firm holds or asks its customers '
+          'and vendors for.',
+      searchHint: 'Search licence types by code or name',
+      headers: const ['Code', 'Name', 'Form numbers', 'Expires', 'Active'],
+      sortFields: const ['code', 'name', null, null, null],
+      cells: (TradeLicenceTypeRecord row) => [
         row.code,
         row.name,
-        row.path,
+        row.formNumbers,
+        row.expires ? 'Yes' : 'No',
         row.isActive ? 'Yes' : 'No',
       ],
-      id: (ProductCategoryRecord row) => row.id,
-      load: api.productCategoryPage,
+      id: (TradeLicenceTypeRecord row) => row.id,
+      load: api.tradeLicenceTypesPage,
       canUseAction: (action, _) => _canUseResourceAction(
         permissions,
         action,
-        view: const ['PRODUCT_VIEW'],
-        create: const ['PRODUCT_UPDATE'],
-        update: const ['PRODUCT_UPDATE'],
-        delete: const ['PRODUCT_UPDATE'],
+        view: const ['TRADE_LICENCE_VIEW'],
+        create: const ['TRADE_LICENCE_MANAGE'],
+        update: const ['TRADE_LICENCE_MANAGE'],
+        delete: const ['TRADE_LICENCE_MANAGE'],
       ),
       fields: const [
         FieldSpec(
           key: 'code',
-          label: 'Category code',
+          label: 'Type code',
           required: true,
-          helperText: '2-50 characters: A-Z, 0-9, underscore or hyphen.',
+          readOnlyWhenEditing: true,
         ),
         FieldSpec(key: 'name', label: 'Name', required: true),
         FieldSpec(
-          key: 'parent_id',
-          label: 'Parent category',
-          optionsResource: 'products/categories',
-          singleSelection: true,
-          helperText: 'Leave empty for a top-level category.',
+          key: 'form_numbers',
+          label: 'Form numbers',
+          helperText: 'The application forms this licence is asked for on, '
+              'if the firm wants them on record.',
+        ),
+        FieldSpec(
+          key: 'expires',
+          label: 'Expires',
+          boolean: true,
+          helperText:
+              'Off for a one-time registration that is never renewed.',
         ),
         FieldSpec(key: 'is_active', label: 'Active', boolean: true),
+        FieldSpec(key: 'description', label: 'Description', multiline: true),
       ],
-      initialValues: (ProductCategoryRecord? row) => row == null
-          ? <String, dynamic>{'is_active': true}
+      initialValues: (TradeLicenceTypeRecord? row) => row == null
+          ? <String, dynamic>{'expires': true, 'is_active': true}
           : <String, dynamic>{
               'code': row.code,
               'name': row.name,
-              'parent_id': row.parentId,
+              'form_numbers': row.formNumbers,
+              'expires': row.expires,
               'is_active': row.isActive,
+              'description': row.description,
             },
-      // The update replaces the node, so every field is sent both ways.
+      // The update replaces the row, so every field is sent both ways.
       payload: (values, isCreating) => {
         'code': values['code'],
         'name': values['name'],
-        'parent_id': _blankToNull(values['parent_id']),
+        'form_numbers': _blankToNull(values['form_numbers']),
+        'expires': values['expires'],
         'is_active': values['is_active'],
+        'description': _blankToNull(values['description']),
       },
     );
+
+/// The register of trade licences -- the firm's own, and the ones its
+/// customers and vendors hold (backlog 54).
+///
+/// `holder_type` decides which one of `branch_id`/`customer_id`/`vendor_id`
+/// applies; the other two are hidden by [FieldSpec.visibleWhen] rather than
+/// offered and ignored, which would read as though all three counted.
+ResourceDefinition<TradeLicenceRecord> tradeLicenceDefinition(
+  ApiClient api,
+  PermissionService permissions,
+) {
+  // Read once when the register opens, so a licence whose type runs out can
+  // be refused a missing valid-to date before the server has to. The type
+  // dropdown fetches the same list again for its own chips -- `options()`
+  // returns only an id and a label, not `expires`, so this is the one place
+  // that fact is read from.
+  List<TradeLicenceTypeRecord> types = const [];
+  unawaited(api.tradeLicenceTypes().then((rows) => types = rows));
+  bool typeExpires(String typeId) {
+    for (final TradeLicenceTypeRecord type in types) {
+      if (type.id == typeId) return type.expires;
+    }
+    return false;
+  }
+
+  return ResourceDefinition(
+    title: 'Trade Licences',
+    resource: 'trade-licences',
+    description: 'The trade licences this firm holds, and the ones its '
+        'customers and vendors do, with when each runs out.',
+    searchHint: 'Search licences by number, holder or type',
+    headers: const [
+      'Type',
+      'Number',
+      'Holder',
+      'Valid To',
+      'Status',
+      'Days to expiry',
+    ],
+    sortFields: const [null, 'licence_number', null, 'valid_to', null, null],
+    cells: (TradeLicenceRecord row) => [
+      row.licenceTypeName.isEmpty ? row.licenceTypeCode : row.licenceTypeName,
+      row.licenceNumber,
+      row.holderName,
+      row.validTo,
+      row.standing,
+      row.daysToExpiry?.toString() ?? '—',
+    ],
+    id: (TradeLicenceRecord row) => row.id,
+    load: api.tradeLicencesPage,
+    canUseAction: (action, _) => _canUseResourceAction(
+      permissions,
+      action,
+      view: const ['TRADE_LICENCE_VIEW'],
+      create: const ['TRADE_LICENCE_MANAGE'],
+      update: const ['TRADE_LICENCE_MANAGE'],
+      delete: const ['TRADE_LICENCE_MANAGE'],
+    ),
+    fields: [
+      const FieldSpec(
+        key: 'licence_type_id',
+        label: 'Licence type',
+        optionsResource: 'trade-licences/types',
+        singleSelection: true,
+      ),
+      const FieldSpec(
+        key: 'holder_type',
+        label: 'Holder',
+        required: true,
+        choices: ['FIRM', 'CUSTOMER', 'VENDOR'],
+        choiceLabels: {
+          'FIRM': "The firm's own",
+          'CUSTOMER': 'A customer',
+          'VENDOR': 'A vendor',
+        },
+        helperText: 'Who this licence belongs to.',
+      ),
+      FieldSpec(
+        key: 'branch_id',
+        label: 'Branch',
+        optionsResource: 'branches',
+        singleSelection: true,
+        helperText: 'Leave empty for the firm as a whole.',
+        visibleWhen: (values) =>
+            ((values['holder_type'] as String?) ?? 'FIRM') == 'FIRM',
+      ),
+      FieldSpec(
+        key: 'customer_id',
+        label: 'Customer',
+        optionsResource: 'customers',
+        singleSelection: true,
+        visibleWhen: (values) => values['holder_type'] == 'CUSTOMER',
+      ),
+      FieldSpec(
+        key: 'vendor_id',
+        label: 'Vendor',
+        optionsResource: 'vendors',
+        singleSelection: true,
+        visibleWhen: (values) => values['holder_type'] == 'VENDOR',
+      ),
+      const FieldSpec(
+        key: 'licence_number',
+        label: 'Licence number',
+        required: true,
+      ),
+      const FieldSpec(key: 'issued_by', label: 'Issued by'),
+      const FieldSpec(
+        key: 'valid_from',
+        label: 'Valid from',
+        kind: FieldKind.date,
+      ),
+      const FieldSpec(
+        key: 'valid_to',
+        label: 'Valid to',
+        kind: FieldKind.date,
+        helperText: 'Required when the licence type runs out.',
+      ),
+      const FieldSpec(key: 'premises', label: 'Premises'),
+      const FieldSpec(key: 'remarks', label: 'Remarks', multiline: true),
+    ],
+    initialValues: (TradeLicenceRecord? row) => row == null
+        ? <String, dynamic>{'holder_type': 'FIRM'}
+        : <String, dynamic>{
+            'licence_type_id': row.licenceTypeId,
+            'holder_type': row.holderType,
+            'branch_id': row.branchId,
+            'customer_id': row.customerId,
+            'vendor_id': row.vendorId,
+            'licence_number': row.licenceNumber,
+            'issued_by': row.issuedBy,
+            'valid_from': row.validFrom,
+            'valid_to': row.validTo,
+            'premises': row.premises,
+            'remarks': row.remarks,
+          },
+    // The update replaces the row, so every field is sent both ways.
+    payload: (values, isCreating) {
+      final String holderType = (values['holder_type'] as String?) ?? 'FIRM';
+      return {
+        'licence_type_id': values['licence_type_id'],
+        'holder_type': holderType,
+        'branch_id':
+            holderType == 'FIRM' ? _blankToNull(values['branch_id']) : null,
+        'customer_id':
+            holderType == 'CUSTOMER' ? values['customer_id'] : null,
+        'vendor_id': holderType == 'VENDOR' ? values['vendor_id'] : null,
+        'licence_number': values['licence_number'],
+        'issued_by': _blankToNull(values['issued_by']),
+        'valid_from': _blankToNull(values['valid_from']),
+        'valid_to': _blankToNull(values['valid_to']),
+        'premises': _blankToNull(values['premises']),
+        'remarks': _blankToNull(values['remarks']),
+      };
+    },
+    // What no single box can see: which id field the holder actually needs,
+    // and whether a type that runs out was left with no valid-to date.
+    saveRefusal: (values, isCreating) {
+      final String holderType = (values['holder_type'] as String?) ?? '';
+      if (holderType == 'CUSTOMER' &&
+          ((values['customer_id'] as String?) ?? '').isEmpty) {
+        return "A customer's licence names the customer.";
+      }
+      if (holderType == 'VENDOR' &&
+          ((values['vendor_id'] as String?) ?? '').isEmpty) {
+        return "A vendor's licence names the vendor.";
+      }
+      final String typeId = (values['licence_type_id'] as String?) ?? '';
+      final String validTo = (values['valid_to'] as String?) ?? '';
+      if (typeId.isNotEmpty && validTo.isEmpty && typeExpires(typeId)) {
+        return 'This licence type runs out: enter its valid-to date.';
+      }
+      return null;
+    },
+  );
+}
 
 /// The rules that make an attribute mandatory for a product category.
 ///
@@ -5726,6 +6101,10 @@ class _ShellHomeSource implements HomeSource {
   @override
   Future<int> batchesExpiringIn30Days() async =>
       (await api.expiryDashboard()).expireIn30Days;
+
+  @override
+  Future<int> expiringLicences() async =>
+      (await api.expiringTradeLicences()).length;
 
   @override
   Future<Map<String, dynamic>> summary(String path) async {

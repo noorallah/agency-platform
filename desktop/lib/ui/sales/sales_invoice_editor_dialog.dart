@@ -60,6 +60,11 @@ class SalesInvoiceEditorDialog extends StatefulWidget {
 class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   final GlobalKey<FormState> _form = GlobalKey<FormState>();
   final TextEditingController _reference = TextEditingController();
+
+  /// A coupon the customer presents, on a bill that names products. Only a
+  /// new direct bill takes one: the server refuses a coupon on a bill whose
+  /// lines name documents, because those were priced when they were raised.
+  final TextEditingController _coupon = TextEditingController();
   final TextEditingController _billDiscount = TextEditingController();
   final TextEditingController _freight = TextEditingController();
   final Map<String, TextEditingController> _quantities =
@@ -67,6 +72,11 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
 
   List<BillableDocument> _billable = const [];
   BillableDocument? _document;
+
+  /// Further delivery notes of the same customer and branch billed on this
+  /// one invoice (D-SELL-39). [_document] stays the primary one; phase 1
+  /// only ever uses that.
+  final List<BillableDocument> _extraDocuments = <BillableDocument>[];
   bool _loading = true;
   bool _saving = false;
   String? _error;
@@ -159,6 +169,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   void dispose() {
     _previewTimer?.cancel();
     _reference.dispose();
+    _coupon.dispose();
     _billDiscount.dispose();
     _freight.dispose();
     for (final TextEditingController controller in _quantities.values) {
@@ -244,17 +255,52 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     final List<dynamic> lines =
         invoice['lines'] is List ? invoice['lines'] as List : const [];
     if (lines.isEmpty) return;
-    final Json first = Map<String, dynamic>.from(lines.first as Map);
-    final String sourceId = '${first['source_document_id'] ?? ''}';
+    // A bill can carry lines of several notes (D-SELL-39): group them by the
+    // document they continue. The first group is the primary document, the
+    // rest are the ones billed beside it.
+    final Map<String, List<Json>> groups = <String, List<Json>>{};
+    for (final dynamic raw in lines) {
+      final Json line = Map<String, dynamic>.from(raw as Map);
+      groups
+          .putIfAbsent('${line['source_document_id'] ?? ''}', () => <Json>[])
+          .add(line);
+    }
+    final List<BillableDocument> rebuilt = <BillableDocument>[
+      for (final MapEntry<String, List<Json>> group in groups.entries)
+        _rebuildDocument(invoice, group.key, group.value),
+    ];
+    _document = rebuilt.first;
+    _extraDocuments
+      ..clear()
+      ..addAll(rebuilt.skip(1));
+    for (final BillableDocument document in rebuilt) {
+      for (final BillableLine line in document.lines) {
+        _quantities[line.sourceDocumentLineId] = TextEditingController(
+          text: '${_ownQuantities[line.sourceDocumentLineId] ?? 0}',
+        );
+        if (line.trackSerial) _loadSerials(line.productId, line.warehouseId);
+      }
+    }
+    final double bill =
+        double.tryParse('${invoice['bill_discount_percent'] ?? 0}') ?? 0;
+    if (bill > 0) _billDiscount.text = '${invoice['bill_discount_percent']}';
+    _reference.text = '${invoice['reference_number'] ?? ''}';
+  }
 
+  /// One source document of a draft, rebuilt from the draft's own lines.
+  BillableDocument _rebuildDocument(
+    Json invoice,
+    String sourceId,
+    List<Json> lines,
+  ) {
+    final Json first = lines.first;
     final Iterable<BillableDocument> matching =
         _billable.where((item) => item.sourceDocumentId == sourceId);
     final List<BillableLine> extra =
         matching.isEmpty ? const [] : matching.first.lines;
 
     final List<BillableLine> rebuilt = <BillableLine>[];
-    for (final dynamic raw in lines) {
-      final Json line = Map<String, dynamic>.from(raw as Map);
+    for (final Json line in lines) {
       final String lineId = '${line['source_document_line_id'] ?? ''}';
       final double own =
           double.tryParse('${line['current_invoice_quantity'] ?? 0}') ?? 0;
@@ -290,7 +336,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       ));
     }
 
-    _document = BillableDocument(
+    return BillableDocument(
       sourceDocumentType: '${first['source_document_type'] ?? 'DELIVERY_NOTE'}',
       sourceDocumentId: sourceId,
       sourceDocumentNumber: '${first['source_document_number'] ?? ''}',
@@ -300,16 +346,6 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       branchId: '${invoice['branch_id'] ?? ''}',
       lines: rebuilt,
     );
-    for (final BillableLine line in rebuilt) {
-      _quantities[line.sourceDocumentLineId] = TextEditingController(
-        text: '${_ownQuantities[line.sourceDocumentLineId] ?? 0}',
-      );
-      if (line.trackSerial) _loadSerials(line.productId, line.warehouseId);
-    }
-    final double bill =
-        double.tryParse('${invoice['bill_discount_percent'] ?? 0}') ?? 0;
-    if (bill > 0) _billDiscount.text = '${invoice['bill_discount_percent']}';
-    _reference.text = '${invoice['reference_number'] ?? ''}';
   }
 
   /// Take a document and give each of its lines a quantity box.
@@ -322,6 +358,9 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     }
     _quantities.clear();
     _pickedSerials.clear();
+    // A different primary note is a different bill: the notes added beside
+    // the last one do not follow it.
+    _extraDocuments.clear();
     for (final BillableLine line in document.lines) {
       _quantities[line.sourceDocumentLineId] =
           TextEditingController(text: line.remainingQuantity);
@@ -332,20 +371,69 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     _document = document;
   }
 
+  /// Every document on the bill: the primary one, then those added.
+  List<BillableDocument> get _documents => [
+        if (_document != null) _document!,
+        ..._extraDocuments,
+      ];
+
+  /// Notes the bill could also take: the same customer and branch as the
+  /// first (the server refuses sources that differ), not already on it.
+  List<BillableDocument> get _alsoBillable {
+    final BillableDocument? first = _document;
+    if (first == null) return const [];
+    return [
+      for (final BillableDocument item in _billable)
+        if (item.customerId == first.customerId &&
+            item.branchId == first.branchId &&
+            item.sourceDocumentId != first.sourceDocumentId &&
+            !_extraDocuments
+                .any((row) => row.sourceDocumentId == item.sourceDocumentId))
+          item,
+    ];
+  }
+
+  /// Put another note's lines on the bill, at what is left of each.
+  void _addDocument(BillableDocument document) {
+    if (_document == null) return;
+    for (final BillableLine line in document.lines) {
+      _quantities[line.sourceDocumentLineId]?.dispose();
+      _quantities[line.sourceDocumentLineId] =
+          TextEditingController(text: line.remainingQuantity);
+      if (_picksSerials(document, line)) {
+        _loadSerials(line.productId, line.warehouseId);
+      }
+    }
+    _extraDocuments.add(document);
+  }
+
+  /// Take an added note's lines back off the bill.
+  void _removeDocument(String sourceDocumentId) {
+    final int at = _extraDocuments
+        .indexWhere((item) => item.sourceDocumentId == sourceDocumentId);
+    if (at < 0) return;
+    final BillableDocument document = _extraDocuments.removeAt(at);
+    for (final BillableLine line in document.lines) {
+      _quantities.remove(line.sourceDocumentLineId)?.dispose();
+      _pickedSerials.remove(line.sourceDocumentLineId);
+    }
+    _current = 0;
+  }
+
   double _quantityOf(BillableLine line) =>
       double.tryParse(_quantities[line.sourceDocumentLineId]?.text.trim() ?? '') ??
       0;
 
   /// What the invoice comes to before tax, after both discounts.
   double get _beforeTax {
-    final BillableDocument? document = _document;
-    if (document == null) return 0;
     double lines = 0;
-    for (final BillableLine line in document.lines) {
-      final double gross =
-          _quantityOf(line) * (double.tryParse(line.unitPrice) ?? 0);
-      final double rate = double.tryParse(line.discountPercent) ?? 0;
-      lines += gross * (1 - rate / 100);
+    for (final BillableDocument document in _documents) {
+      for (final BillableLine line in document.lines) {
+        final double gross =
+            _quantityOf(line) * (double.tryParse(line.unitPrice) ?? 0);
+        final double rate = double.tryParse(line.discountPercent) ?? 0;
+        lines += gross * (1 - rate / 100);
+      }
     }
     final double bill = double.tryParse(_billDiscount.text.trim()) ?? 0;
     return bill <= 0 ? lines : lines * (1 - bill / 100);
@@ -375,23 +463,27 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     if (document == null) return null;
     if (!_drafting && !(_form.currentState?.validate() ?? false)) return null;
     final List<Json> lines = <Json>[];
-    for (final BillableLine line in document.lines) {
-      final String typed =
-          _quantities[line.sourceDocumentLineId]?.text.trim() ?? '';
-      // A line billed at nothing is left off entirely rather than sent as a
-      // zero: the server would price and store it, and an invoice carrying a
-      // line for nothing is one the customer queries.
-      if (typed.isEmpty || (double.tryParse(typed) ?? 0) <= 0) continue;
-      lines.add(<String, dynamic>{
-        'source_document_type': document.sourceDocumentType,
-        'source_document_id': document.sourceDocumentId,
-        'source_document_line_id': line.sourceDocumentLineId,
-        'line_number': lines.length + 1,
-        'current_invoice_quantity': typed,
-        'unit_price': line.unitPrice,
-        if (_picksSerials(document, line))
-          'serial_ids': [...?_pickedSerials[line.sourceDocumentLineId]],
-      });
+    // Every note on the bill, numbered 1..n across all of them: the server
+    // takes each line's own source and refuses sources that disagree.
+    for (final BillableDocument source in _documents) {
+      for (final BillableLine line in source.lines) {
+        final String typed =
+            _quantities[line.sourceDocumentLineId]?.text.trim() ?? '';
+        // A line billed at nothing is left off entirely rather than sent as a
+        // zero: the server would price and store it, and an invoice carrying
+        // a line for nothing is one the customer queries.
+        if (typed.isEmpty || (double.tryParse(typed) ?? 0) <= 0) continue;
+        lines.add(<String, dynamic>{
+          'source_document_type': source.sourceDocumentType,
+          'source_document_id': source.sourceDocumentId,
+          'source_document_line_id': line.sourceDocumentLineId,
+          'line_number': lines.length + 1,
+          'current_invoice_quantity': typed,
+          'unit_price': line.unitPrice,
+          if (_picksSerials(source, line))
+            'serial_ids': [...?_pickedSerials[line.sourceDocumentLineId]],
+        });
+      }
     }
     if (lines.isEmpty) return null;
     return <String, dynamic>{
@@ -447,6 +539,9 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       'invoice_date': _iso(widget.today),
       if (_reference.text.trim().isNotEmpty)
         'reference_number': _reference.text.trim(),
+      // Omitted when blank: an empty string is a code that matches nothing,
+      // not the absence of one. Never sent from the document path above.
+      if (_coupon.text.trim().isNotEmpty) 'coupon_code': _coupon.text.trim(),
       if (_billDiscount.text.trim().isNotEmpty)
         'bill_discount_percent': _billDiscount.text.trim(),
       if (_freight.text.trim().isNotEmpty)
@@ -603,16 +698,17 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       }
       return null;
     }
-    final BillableDocument? document = _document;
-    if (document == null) return null;
-    for (final BillableLine line in document.lines) {
-      if (!_picksSerials(document, line)) continue;
-      final int? needed =
-          _units(_quantities[line.sourceDocumentLineId]?.text ?? '');
-      final int picked = _pickedSerials[line.sourceDocumentLineId]?.length ?? 0;
-      if (needed != null && needed > 0 && picked != needed) {
-        return '${line.label}: pick one serial number per unit going out -- '
-            '$needed needed, $picked picked.';
+    for (final BillableDocument document in _documents) {
+      for (final BillableLine line in document.lines) {
+        if (!_picksSerials(document, line)) continue;
+        final int? needed =
+            _units(_quantities[line.sourceDocumentLineId]?.text ?? '');
+        final int picked =
+            _pickedSerials[line.sourceDocumentLineId]?.length ?? 0;
+        if (needed != null && needed > 0 && picked != needed) {
+          return '${line.label}: pick one serial number per unit going out '
+              '-- $needed needed, $picked picked.';
+        }
       }
     }
     return null;

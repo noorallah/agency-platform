@@ -85,6 +85,12 @@ OPENING_BALANCE_PURPOSES = (
     ControlAccountPurpose.OPENING_BALANCE_EQUITY,
 )
 
+#: What a day-one supplier bill moves: the payable twin of the above.
+VENDOR_OPENING_BILL_PURPOSES = (
+    ControlAccountPurpose.ACCOUNTS_PAYABLE,
+    ControlAccountPurpose.OPENING_BALANCE_EQUITY,
+)
+
 OPENING_STOCK_PURPOSES = (
     ControlAccountPurpose.INVENTORY,
     ControlAccountPurpose.OPENING_BALANCE_EQUITY,
@@ -122,14 +128,9 @@ SALES_RETURN_PURPOSES = (
     ControlAccountPurpose.OUTPUT_TAX,
 )
 
-CREDIT_NOTE_PURPOSES = (
-    ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
-    ControlAccountPurpose.SALES_RETURNS,
-)
-
 #: A credit note raised as a document, which states its tax. The bare
-#: receivable adjustment above cannot: it carries one figure and no lines, so
-#: it has nothing to say what rate to reverse.
+#: receivable adjustment it replaced could not: it carried one figure and no
+#: lines, so it had nothing to say what rate to reverse (D-FIN-23).
 CREDIT_NOTE_DOCUMENT_PURPOSES = (
     ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
     ControlAccountPurpose.SALES_RETURNS,
@@ -948,73 +949,119 @@ class DocumentPostingService:
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
 
-    def post_credit_note(
+    def post_vendor_opening_bill(
         self,
         *,
         firm_id: UUID,
-        customer_id: UUID,
-        reference_number: str,
-        note_date: date,
+        opening_bill_id: UUID,
+        bill_number: str,
+        posting_date: date,
         amount: Decimal,
         actor_id: UUID,
-        narration: str | None = None,
     ) -> JournalEntry:
-        """Post a credit note raised against a customer.
+        """Post one bill a supplier was owed on the day the firm started here.
 
-        A credit note reduces what a customer owes, so it reduces the
-        receivable control account: the balance and the ledger disagree by its
-        value otherwise. It was left unposted on the reasoning that it moves no
-        money, which is the wrong test -- what matters is whether the receivable
-        moves, and this does.
-
-        Cancelling an invoice does **not** come through here. That reverses the
-        invoice's own journal instead, which mirrors the revenue and tax it
-        raised; sending it here would credit the receivable a second time and
-        book the whole invoice as a sales return.
-
-        Args:
-            firm_id: The owning firm.
-            customer_id: Who is being credited.
-            reference_number: What the note is called.
-            note_date: The date it was raised.
-            amount: How much the customer no longer owes.
-            actor_id: The user raising it.
-            narration: Why, carried onto the journal lines.
-
-        Returns:
-            The posted journal entry.
+        The payable twin of `post_opening_balance`: the debt arrived from books
+        this ledger never saw, so its counterpart is opening balance equity --
+        Dr equity, Cr accounts payable. No goods and no tax: those belong to
+        the period in which the bill was raised, in the other books.
 
         Raises:
-            ValidationError: If accounts or an open period are missing.
+            ValidationError: If the amount is nil, or accounts or an open
+                period are missing on the posting date.
 
         """
-        accounts = self._require_mapping(firm_id, CREDIT_NOTE_PURPOSES)
-        context = self.context_for(firm_id, note_date)
         total = quantize_ledger(quantize_money(amount))
-        description = narration or f"Credit note {reference_number}"
-        lines = [
-            JournalLineData(
-                ledger_account_id=accounts[ControlAccountPurpose.SALES_RETURNS],
-                debit_amount=total,
-                description=description,
-            ),
-            JournalLineData(
-                ledger_account_id=accounts[ControlAccountPurpose.ACCOUNTS_RECEIVABLE],
-                credit_amount=total,
-                description=description,
-            ),
-        ]
+        if total <= ZERO:
+            raise ValidationError("An opening bill must be for more than nothing.")
+        accounts = self._require_mapping(firm_id, VENDOR_OPENING_BILL_PURPOSES)
+        context = self.context_for(firm_id, posting_date)
+        description = f"Opening bill {bill_number}"
         entry = self._journals.create_entry(
             firm_id=firm_id,
             journal_type_id=context.journal_type_id,
             voucher_type_id=context.voucher_type_id,
             accounting_period_id=context.accounting_period_id,
-            journal_date=note_date,
-            reference_number=reference_number,
-            description=f"Credit note {reference_number}",
-            lines=lines,
-            source_module="customers",
-            source_id=customer_id,
+            journal_date=posting_date,
+            reference_number=bill_number,
+            description=description,
+            lines=[
+                JournalLineData(
+                    ledger_account_id=accounts[
+                        ControlAccountPurpose.OPENING_BALANCE_EQUITY
+                    ],
+                    debit_amount=total,
+                    description=description,
+                ),
+                JournalLineData(
+                    ledger_account_id=accounts[ControlAccountPurpose.ACCOUNTS_PAYABLE],
+                    credit_amount=total,
+                    description=description,
+                ),
+            ],
+            source_module="vendor_opening_bills",
+            source_id=opening_bill_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_customer_opening_bill(
+        self,
+        *,
+        firm_id: UUID,
+        opening_bill_id: UUID,
+        bill_number: str,
+        posting_date: date,
+        amount: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Post one bill a customer owed on the day the firm started here.
+
+        The receivable twin of `post_vendor_opening_bill`, and the bill-wise
+        form of `post_opening_balance`: the debt arrived from books this ledger
+        never saw, so its counterpart is opening balance equity -- Dr accounts
+        receivable, Cr equity. No revenue and no tax: those belong to the
+        period the bill was raised in, in the other books. The customer is the
+        receivable's party through the `OPENING_BILL` receivable transaction
+        the caller writes beside it, which is what the statement reads.
+
+        Raises:
+            ValidationError: If the amount is nil, or accounts or an open
+                period are missing on the posting date.
+
+        """
+        total = quantize_ledger(quantize_money(amount))
+        if total <= ZERO:
+            raise ValidationError("An opening bill must be for more than nothing.")
+        accounts = self._require_mapping(firm_id, OPENING_BALANCE_PURPOSES)
+        context = self.context_for(firm_id, posting_date)
+        description = f"Opening bill {bill_number}"
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=posting_date,
+            reference_number=bill_number,
+            description=description,
+            lines=[
+                JournalLineData(
+                    ledger_account_id=accounts[
+                        ControlAccountPurpose.ACCOUNTS_RECEIVABLE
+                    ],
+                    debit_amount=total,
+                    description=description,
+                ),
+                JournalLineData(
+                    ledger_account_id=accounts[
+                        ControlAccountPurpose.OPENING_BALANCE_EQUITY
+                    ],
+                    credit_amount=total,
+                    description=description,
+                ),
+            ],
+            source_module="customer_opening_bills",
+            source_id=opening_bill_id,
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
@@ -1554,10 +1601,11 @@ class DocumentPostingService:
     ) -> JournalEntry | None:
         """Post a credit note that states the tax it reverses.
 
-        Three legs, and the third is the whole point. `post_credit_note` above
-        posts two -- the receivable and sales returns -- because a bare
-        receivable adjustment carries one figure and no lines, so it has
-        nothing to say what rate of tax to take off. A firm agreeing a rate
+        Three legs, and the third is the whole point. The two-leg posting it
+        replaced -- the receivable and sales returns, retired with its route
+        (D-FIN-23) -- came from a bare receivable adjustment that carried one
+        figure and no lines, so it had nothing to say what rate of tax to take
+        off. A firm agreeing a rate
         difference after invoicing therefore credited the customer the gross
         amount and went on declaring output tax on a price nobody paid.
 

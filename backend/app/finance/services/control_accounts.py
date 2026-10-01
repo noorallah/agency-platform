@@ -72,6 +72,13 @@ class ControlAccountPurpose(StrEnum):
     #: filed on a different return, and netting the two would put a
     #: quarterly TCS payment inside a monthly GST one.
     TCS_PAYABLE = "TCS_PAYABLE"
+    #: Tax this firm deducted at source from a payment and owes the
+    #: government until it deposits it (backlog 53.1). Its own liability, not
+    #: TCS: a different return (26Q, 24Q) on a different challan.
+    TDS_PAYABLE = "TDS_PAYABLE"
+    #: Tax a customer deducted from what it paid this firm: an asset, claimed
+    #: against the firm's own income tax once it shows in Form 26AS.
+    TDS_RECEIVABLE = "TDS_RECEIVABLE"
     #: What a loyalty scheme costs the firm, booked when the points are
     #: earned rather than when they are spent -- the cost belongs to the month
     #: it was incurred in, not to whenever customers happen to collect.
@@ -144,6 +151,8 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     ControlAccountPurpose.COMMISSION_EXPENSE: frozenset({"EXPENSE"}),
     ControlAccountPurpose.COMMISSION_PAYABLE: frozenset({"LIABILITY", "CONTROL"}),
     ControlAccountPurpose.TCS_PAYABLE: frozenset({"LIABILITY", "CONTROL"}),
+    ControlAccountPurpose.TDS_PAYABLE: frozenset({"LIABILITY", "CONTROL"}),
+    ControlAccountPurpose.TDS_RECEIVABLE: frozenset({"ASSET"}),
     ControlAccountPurpose.LOYALTY_EXPENSE: frozenset({"EXPENSE"}),
     ControlAccountPurpose.LOYALTY_PAYABLE: frozenset({"LIABILITY", "CONTROL"}),
     ControlAccountPurpose.DISCOUNT_RECEIVED: frozenset({"INCOME"}),
@@ -193,6 +202,8 @@ PURPOSE_LABELS: dict[ControlAccountPurpose, str] = {
     ControlAccountPurpose.COMMISSION_EXPENSE: "Commission expense",
     ControlAccountPurpose.COMMISSION_PAYABLE: "Commission payable",
     ControlAccountPurpose.TCS_PAYABLE: "TCS payable",
+    ControlAccountPurpose.TDS_PAYABLE: "TDS payable",
+    ControlAccountPurpose.TDS_RECEIVABLE: "TDS receivable",
     ControlAccountPurpose.LOYALTY_EXPENSE: "Loyalty expense",
     ControlAccountPurpose.LOYALTY_PAYABLE: "Loyalty payable",
     ControlAccountPurpose.DISCOUNT_RECEIVED: "Discount received",

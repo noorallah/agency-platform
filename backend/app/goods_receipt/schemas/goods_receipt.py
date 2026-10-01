@@ -170,6 +170,7 @@ class GoodsReceiptLineResponse(GoodsReceiptSchema):
     description: str | None
     discount_percent: Decimal
     discount_amount: Decimal
+    bill_discount_amount: Decimal = Decimal("0")
     gross_amount: Decimal
     tax_profile_id: UUID | None
     tax_amount: Decimal

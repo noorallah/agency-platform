@@ -16,6 +16,8 @@ extension _Phase2CustomerForm on _CustomerWorkspaceDialogState {
     'Contacts',
     'Custom fields',
     'Rounds',
+    'Licences',
+    'Opening bills',
   ];
 
   Widget _phase2Page(BuildContext context) {
@@ -110,8 +112,12 @@ extension _Phase2CustomerForm on _CustomerWorkspaceDialogState {
         _ => status,
       };
 
-  bool _shows(String section) =>
-      section != 'Custom fields' || _customFields != null;
+  bool _shows(String section) => switch (section) {
+        'Custom fields' => _customFields != null,
+        'Licences' => widget.loadLicences != null,
+        'Opening bills' => widget.loadOpeningBills != null,
+        _ => true,
+      };
 
   Widget _sectionStrip(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -233,6 +239,24 @@ extension _Phase2CustomerForm on _CustomerWorkspaceDialogState {
             ],
             _heading(context, 'Rounds', note: 'the routes that call this shop'),
             _routesTab(),
+            if (widget.loadLicences != null) ...[
+              KeyedSubtree(
+                key: _sectionKeys['Licences'],
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 20),
+                  child: _licencesTab(),
+                ),
+              ),
+            ],
+            if (widget.loadOpeningBills != null) ...[
+              _heading(
+                context,
+                'Opening bills',
+                note: 'what they owed on the firm\'s first day here, bill by '
+                    'bill',
+              ),
+              _openingBillsTab(),
+            ],
           ],
         ),
       );

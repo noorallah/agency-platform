@@ -9,6 +9,7 @@ same reason.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 from uuid import UUID
 
@@ -34,6 +35,7 @@ from app.sales_invoice.services.invoice_pdf import (
     PartyBlock,
     TemplateSettings,
 )
+from app.trade_licences.services import TradeLicenceService
 from app.uom.models import Uom
 
 ZERO = Decimal("0")
@@ -149,7 +151,9 @@ class SalesInvoicePrintService:
                     description=line.description
                     or (product.name if product else "")
                     or "",
-                    hsn=product.hsn_sac if product else None,
+                    # As billed (D-CMP-22); an old line with none stamped
+                    # falls back to the product.
+                    hsn=line.hsn_sac or (product.hsn_sac if product else None),
                     quantity=line.current_invoice_quantity,
                     free_quantity=line.free_quantity,
                     uom=(unit.code if unit else None),
@@ -172,6 +176,9 @@ class SalesInvoicePrintService:
                 )
             )
 
+        # The licences valid on the bill's own date: a drug or FSSAI number
+        # that had lapsed by then is not one the bill may claim (54).
+        licences = TradeLicenceService(self._session)
         return InvoiceDocument(
             # A draft has not been approved or posted, and a cancelled bill
             # charges nobody: neither may pass for a tax invoice on paper.
@@ -183,9 +190,27 @@ class SalesInvoicePrintService:
             ),
             place_of_supply=invoice.place_of_supply,
             reverse_charge=False,
-            seller=self._seller(firm_scope),
-            buyer=self._customer_block(invoice.customer_id, "BILLING")
-            or PartyBlock(name="", address_lines=[]),
+            seller=replace(
+                self._seller(firm_scope),
+                licences=tuple(
+                    licences.valid_numbers(
+                        firm_id=firm_scope,
+                        on=invoice.invoice_date,
+                        branch_id=invoice.branch_id,
+                    )
+                ),
+            ),
+            buyer=replace(
+                self._customer_block(invoice.customer_id, "BILLING")
+                or PartyBlock(name="", address_lines=[]),
+                licences=tuple(
+                    licences.valid_numbers(
+                        firm_id=firm_scope,
+                        on=invoice.invoice_date,
+                        customer_id=invoice.customer_id,
+                    )
+                ),
+            ),
             ship_to=self._customer_block(invoice.customer_id, "SHIPPING"),
             lines=tuple(printed),
             bill_discount=invoice.bill_discount_amount,

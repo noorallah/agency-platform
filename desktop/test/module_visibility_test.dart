@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:agency_desktop/core/security/permission_service.dart';
+import 'package:agency_desktop/models/purchase.dart';
 import 'package:agency_desktop/models/sales_invoice.dart';
 import 'package:agency_desktop/ui/workspace/module_catalog.dart';
 import 'package:agency_desktop/ui/workspace/module_visibility.dart';
@@ -268,11 +269,43 @@ void main() {
 
       expect(
         view.denial(ModuleCatalog.byId(AppModule.quotations)),
-        'this firm does not type this stage of a sale',
+        'this firm does not type this stage of a sale or a purchase',
       );
       expect(view.denial(ModuleCatalog.byId(AppModule.salesOrders)), isNull);
       // Sales returns are never hidden: a counter sale still comes back.
       expect(view.denial(ModuleCatalog.byId(AppModule.salesReturns)), isNull);
+    });
+
+    test('a buying stage this firm does not type is hidden (backlog §38)', () {
+      final ModuleVisibility view = ModuleVisibility(
+        permissions: everything(),
+        purchaseStages: const PurchaseWorkflowSettings(
+          purchaseOrderStage: false,
+          goodsReceiptStage: false,
+          isConfigured: true,
+        ),
+      );
+
+      expect(
+        view.denial(ModuleCatalog.byId(AppModule.goodsReceipts)),
+        'this firm does not type this stage of a sale or a purchase',
+      );
+      // Purchases also holds Purchase Settings, where the switch lives: the
+      // orders tab goes, the module stays.
+      final ModuleDefinition purchases =
+          ModuleCatalog.byId(AppModule.purchases);
+      expect(view.denial(purchases), isNull);
+      expect(view.tabIds(purchases), isNot(contains('purchase-orders')));
+      expect(view.tabIds(purchases), contains('purchase-settings'));
+      // Bills and returns are never hidden.
+      expect(
+          view.denial(ModuleCatalog.byId(AppModule.purchaseInvoices)), isNull);
+      expect(
+          view.denial(ModuleCatalog.byId(AppModule.purchaseReturns)), isNull);
+
+      final ModuleVisibility whole = ModuleVisibility(permissions: everything());
+      expect(whole.denial(ModuleCatalog.byId(AppModule.goodsReceipts)), isNull);
+      expect(whole.tabIds(purchases), contains('purchase-orders'));
     });
   });
 

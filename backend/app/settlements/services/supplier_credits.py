@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.utils.chunks import over_chunks
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_money
 from app.finance.services.journal_engine import quantize_money as quantize_ledger
@@ -160,6 +161,7 @@ def supplier_credits(
     return credits
 
 
+@over_chunks("invoice_ids")
 def credit_applied_against(
     session: Session, *, firm_id: UUID, invoice_ids: Sequence[UUID]
 ) -> dict[UUID, Decimal]:
@@ -304,6 +306,15 @@ def apply_supplier_credit(
         raise ValidationError(
             "That bill is not this supplier's, is not approved, or is already "
             "settled in full."
+        )
+    if bill.is_opening_bill:
+        # The application names a purchase invoice, and an opening bill is not
+        # one. Setting a return's credit against day-one debt is a real need
+        # but a separate change; until then it is refused by name rather than
+        # failing on the foreign key.
+        raise ValidationError(
+            f"{bill.invoice_number} is an opening bill; supplier credit is set "
+            "against purchase bills only."
         )
     if asked > bill.outstanding_amount:
         raise ValidationError(

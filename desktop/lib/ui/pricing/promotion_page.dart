@@ -8,6 +8,7 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/pricing.dart';
+import '../../core/dialogs/app_dialogs.dart';
 import '../workspace/desktop_framework.dart';
 import 'coupon_dialog.dart';
 import 'promotion_dialog.dart';
@@ -195,6 +196,15 @@ class _PromotionPageState extends State<PromotionPage> {
   }
 
   Future<void> _delete(PromotionRecord row) async {
+    final bool confirmed = await showWorkspaceConfirmDialog(
+      context,
+      title: 'Retire ${row.code}?',
+      message: 'It stops applying to new documents. Documents already priced '
+          'under it are unchanged.',
+      confirmLabel: 'Retire',
+      type: ConfirmationType.delete,
+    );
+    if (!confirmed || !mounted) return;
     try {
       await widget.api.deletePromotion(row.id);
       if (!mounted) return;
@@ -518,6 +528,11 @@ class _PromotionPageState extends State<PromotionPage> {
         'BILL_DISCOUNT_AMOUNT' => '${action.amount} off the bill',
         'FREE_QUANTITY' =>
           'buy ${action.buyQuantity}, get ${action.freeQuantity} free',
+        'FREE_PRODUCT' => action.buyQuantity.isEmpty
+            ? '${action.freeQuantity} of another product free'
+            : 'buy ${action.buyQuantity}, get ${action.freeQuantity} of '
+                'another product free',
+        'FREE_SHIPPING' => 'free delivery',
         _ => action.actionType,
       };
 

@@ -30,7 +30,7 @@ from app.expenses.api.router import (
 from app.expenses.models import Expense, ExpenseStatus
 from app.expenses.schemas import ExpenseCancelRequest, ExpenseCreate
 from app.expenses.services import ExpenseService
-from app.finance.models import GLPosting, JournalEntry, LedgerAccount
+from app.finance.models import FinancialYear, GLPosting, JournalEntry, LedgerAccount
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from tests.unit.report_windows import report_scope
@@ -335,3 +335,24 @@ def test_the_endpoints_record_read_and_cancel() -> None:
     assert cancelled is not None
     assert cancelled.status == ExpenseStatus.CANCELLED.value
     assert cancelled.reversal_journal_entry_id is not None
+
+
+def test_a_locked_year_refuses_to_record_or_cancel_an_expense() -> None:
+    """The year-end lock closes the books to expenses as it does to documents."""
+    books = _Books()
+    row = books.record("500.00")
+    for year in books.session.scalars(
+        select(FinancialYear).where(FinancialYear.firm_id == books.firm.id)
+    ):
+        year.is_locked = True
+    books.session.commit()
+
+    with pytest.raises(ValidationError, match="locked"):
+        books.record("100.00")
+    books.session.rollback()
+    with pytest.raises(ValidationError, match="locked"):
+        ExpenseService(books.session).cancel(
+            row.id, firm_id=books.firm.id, actor_id=books.actor_id, reason="Late"
+        )
+    books.session.rollback()
+    assert books.session.scalar(select(func.count()).select_from(Expense)) == 1

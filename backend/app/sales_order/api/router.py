@@ -31,6 +31,12 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.document_framework.schemas import DocumentLifecycleEventResponse
+from app.document_framework.schemas.bulk_actions import (
+    BulkActionResult,
+    BulkApproveRequest,
+    BulkCancelRequest,
+)
+from app.document_framework.services.bulk_actions import run_each
 from app.sales_order.schemas import (
     SalesOrderAdvanceSummary,
     SalesOrderBackOrderRecord,
@@ -50,6 +56,10 @@ from app.sales_order.schemas import (
     SalesWorkflowSettingsWrite,
 )
 from app.sales_order.services import SalesOrderService, SalesWorkflowService
+from app.trade_licences.api.override import (
+    LicenceOverrideReason,
+    authorised_override,
+)
 
 router = APIRouter(
     prefix="/api/v1/sales-orders",
@@ -174,7 +184,7 @@ def list_sales_orders(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[service.order_response(item) for item in rows],
+        data=service.order_responses(rows),
         pagination=params.metadata(total),
     )
 
@@ -273,6 +283,58 @@ def update_sales_workflow_settings(
     return ApiResponse(data=settings)
 
 
+@router.post("/bulk-approve", response_model=ApiResponse[BulkActionResult])
+def bulk_approve_sales_orders(
+    data: BulkApproveRequest,
+    scope: SalesOrderApproveScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BulkActionResult]:
+    """Approve the ticked orders, each on its own (backlog 56 A).
+
+    Each goes through `approve_order` exactly as a single approval does, and
+    commits on its own: one over its credit limit is refused with the reason
+    and the rest are approved. An order that needs a licence override is
+    refused here -- the override is a reason given for one order, on its own
+    screen.
+    """
+    service = SalesOrderService(db)
+    return ApiResponse(
+        data=run_each(
+            db,
+            data.items,
+            load=lambda order_id: service.get_order(order_id, firm_scope=scope.firm_id),
+            act=lambda order_id: service.approve_order(
+                order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+            ),
+            number=lambda row: row.order_number,
+        )
+    )
+
+
+@router.post("/bulk-cancel", response_model=ApiResponse[BulkActionResult])
+def bulk_cancel_sales_orders(
+    data: BulkCancelRequest,
+    scope: SalesOrderCancelScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BulkActionResult]:
+    """Cancel the ticked orders with one reason, each on its own (backlog 56 A)."""
+    service = SalesOrderService(db)
+    return ApiResponse(
+        data=run_each(
+            db,
+            data.items,
+            load=lambda order_id: service.get_order(order_id, firm_scope=scope.firm_id),
+            act=lambda order_id: service.cancel_order(
+                order_id,
+                firm_scope=scope.firm_id,
+                actor_id=scope.actor_id,
+                reason=data.reason,
+            ),
+            number=lambda row: row.order_number,
+        )
+    )
+
+
 @router.put("/{order_id}", response_model=ApiResponse[SalesOrderResponse])
 def update_sales_order(
     order_id: UUID,
@@ -299,11 +361,15 @@ def approve_sales_order(
     order_id: UUID,
     scope: SalesOrderApproveScope,
     db: Session = Depends(get_db),
+    licence_override_reason: LicenceOverrideReason = None,
 ) -> ApiResponse[SalesOrderResponse]:
     """Approve one sales order."""
     service = SalesOrderService(db)
     row = service.approve_order(
-        order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+        order_id,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        licence_override_reason=authorised_override(scope, licence_override_reason),
     )
     return ApiResponse(data=service.order_response(row))
 
@@ -569,4 +635,4 @@ async def import_sales_orders(
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
-    return ApiResponse(data=[service.order_response(item) for item in rows])
+    return ApiResponse(data=service.order_responses(rows))

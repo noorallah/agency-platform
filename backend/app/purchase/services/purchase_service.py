@@ -5,6 +5,8 @@ from __future__ import annotations
 import csv
 import io
 import json
+from collections import defaultdict
+from collections.abc import Sequence
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
@@ -19,10 +21,12 @@ from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import platform_reader
 from app.common.report_names import vendors_matching
+from app.core.database.batch import children_by_parent
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO
+from app.core.utils.pricing import apportion, resolve_bill_discount
 from app.document_framework.models import (
     DocumentTypeDefinition,
 )
@@ -48,6 +52,7 @@ from app.purchase.models import (
 from app.purchase.schemas import (
     PurchaseAttachmentResponse,
     PurchaseDeliveryScheduleResponse,
+    PurchaseLineWrite,
     PurchaseNoteResponse,
     PurchaseOrderByBuyerRecord,
     PurchaseOrderByProductRecord,
@@ -71,6 +76,10 @@ from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.place_of_supply import PURCHASE_INTERSTATE
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
+from app.trade_licences.services.licence_check import (
+    LicenceCheckService,
+    LicenceDocument,
+)
 from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService, assert_quantity_fits_unit
 from app.vendors.models import Vendor
@@ -207,52 +216,62 @@ class PurchaseService(TransactionalDocumentService):
         return rows, int(self._session.scalar(count) or 0)
 
     def summary(self, *, firm_scope: UUID) -> PurchaseSummary:
-        """Summarize ."""
-        rows = list(
-            self._session.scalars(
-                select(PurchaseOrder).where(
+        """Summarize purchase orders for the visible firm scope.
+
+        Counted and summed in SQL, one row per status, rather than loading every
+        order the firm ever raised (backlog 56 C).
+        """
+        by_status: dict[str, tuple[int, Decimal]] = {
+            status: (int(count), Decimal(str(total)))
+            for status, count, total in self._session.execute(
+                select(
+                    PurchaseOrder.status,
+                    func.count(),
+                    func.coalesce(func.sum(PurchaseOrder.grand_total), 0),
+                )
+                .where(
                     PurchaseOrder.firm_id == firm_scope,
                     PurchaseOrder.is_deleted.is_(False),
                 )
+                .group_by(PurchaseOrder.status)
             ).all()
+        }
+
+        def count(status: PurchaseOrderStatus) -> int:
+            """Return how many documents are in one status."""
+            return by_status.get(status.value, (0, ZERO))[0]
+
+        not_overdue = (
+            PurchaseOrderStatus.CANCELLED.value,
+            PurchaseOrderStatus.CLOSED.value,
+            PurchaseOrderStatus.RECEIVED.value,
         )
-        overdue = sum(
-            1
-            for row in rows
-            if row.expected_delivery_date is not None
-            and row.expected_delivery_date < utc_now().date()
-            and row.status
-            not in {
-                PurchaseOrderStatus.CANCELLED.value,
-                PurchaseOrderStatus.CLOSED.value,
-                PurchaseOrderStatus.RECEIVED.value,
-            }
+        overdue = int(
+            self._session.scalar(
+                select(func.count()).where(
+                    PurchaseOrder.firm_id == firm_scope,
+                    PurchaseOrder.is_deleted.is_(False),
+                    PurchaseOrder.expected_delivery_date.is_not(None),
+                    PurchaseOrder.expected_delivery_date < utc_now().date(),
+                    PurchaseOrder.status.not_in(not_overdue),
+                )
+            )
+            or 0
         )
-        total_value = sum((row.grand_total for row in rows), Decimal("0"))
+        open_statuses = (
+            PurchaseOrderStatus.SUBMITTED,
+            PurchaseOrderStatus.APPROVED,
+            PurchaseOrderStatus.ORDERED,
+            PurchaseOrderStatus.PARTIALLY_ORDERED,
+            PurchaseOrderStatus.PARTIALLY_RECEIVED,
+        )
         return PurchaseSummary(
-            total=len(rows),
-            draft=sum(
-                1 for row in rows if row.status == PurchaseOrderStatus.DRAFT.value
-            ),
-            open=sum(
-                1
-                for row in rows
-                if row.status
-                in {
-                    PurchaseOrderStatus.SUBMITTED.value,
-                    PurchaseOrderStatus.APPROVED.value,
-                    PurchaseOrderStatus.ORDERED.value,
-                    PurchaseOrderStatus.PARTIALLY_ORDERED.value,
-                    PurchaseOrderStatus.PARTIALLY_RECEIVED.value,
-                }
-            ),
-            cancelled=sum(
-                1 for row in rows if row.status == PurchaseOrderStatus.CANCELLED.value
-            ),
-            closed=sum(
-                1 for row in rows if row.status == PurchaseOrderStatus.CLOSED.value
-            ),
-            total_value=self._q(total_value),
+            total=sum(number for number, _ in by_status.values()),
+            draft=count(PurchaseOrderStatus.DRAFT),
+            open=sum(count(status) for status in open_statuses),
+            cancelled=count(PurchaseOrderStatus.CANCELLED),
+            closed=count(PurchaseOrderStatus.CLOSED),
+            total_value=self._q(sum((value for _, value in by_status.values()), ZERO)),
             overdue_delivery=overdue,
         )
 
@@ -692,7 +711,15 @@ class PurchaseService(TransactionalDocumentService):
     def submit_order(
         self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> PurchaseOrder:
-        """Send a draft order for approval.
+        """Send a draft order for approval and commit."""
+        row = self.stage_submit(order_id, firm_scope=firm_scope, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def stage_submit(
+        self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> PurchaseOrder:
+        """Send a draft order for approval without committing.
 
         The first half of the control point this module never had. Until now
         the only way an order reached any status was for the client to state
@@ -727,7 +754,15 @@ class PurchaseService(TransactionalDocumentService):
     def approve_order(
         self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> PurchaseOrder:
-        """Approve a submitted order, committing the firm to buy.
+        """Approve a submitted order and commit."""
+        row = self.stage_approval(order_id, firm_scope=firm_scope, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def stage_approval(
+        self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> PurchaseOrder:
+        """Approve a submitted order, committing the firm to buy, unsaved.
 
         Deliberately requires SUBMITTED rather than accepting a draft. An
         approval anyone can skip is not a control point, and a two-step flow is
@@ -744,6 +779,10 @@ class PurchaseService(TransactionalDocumentService):
                 "Only submitted purchase orders can be approved. "
                 "Submit the order first."
             )
+        # Warns only: whether the vendor may supply the goods (backlog 54).
+        licence_remark, licence_details = LicenceCheckService(
+            self._session
+        ).approve_purchase(LicenceDocument.PURCHASE_ORDER, row.id, firm_id=firm_scope)
         return self._transition(
             row,
             to_status=PurchaseOrderStatus.APPROVED,
@@ -751,6 +790,8 @@ class PurchaseService(TransactionalDocumentService):
             event="APPROVED",
             firm_scope=firm_scope,
             actor_id=actor_id,
+            remarks=licence_remark,
+            details=licence_details,
         )
 
     def _transition(
@@ -762,6 +803,8 @@ class PurchaseService(TransactionalDocumentService):
         event: str,
         firm_scope: UUID,
         actor_id: UUID,
+        remarks: str | None = None,
+        details: dict[str, object] | None = None,
     ) -> PurchaseOrder:
         """Move an order to a new status, leaving the trail the others leave.
 
@@ -792,8 +835,8 @@ class PurchaseService(TransactionalDocumentService):
             from_state=before,
             to_state=row.status,
             actor_id=actor_id,
-            remarks=None,
-            details={},
+            remarks=remarks,
+            details=details or {},
         )
         record_audit(
             self._session,
@@ -805,13 +848,23 @@ class PurchaseService(TransactionalDocumentService):
             before_data={"status": before},
             after_data={"status": row.status},
         )
-        self._session.commit()
+        self._session.flush()
         return row
 
     def cancel_order(
         self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID, reason: str | None
     ) -> PurchaseOrder:
-        """Cancel order."""
+        """Cancel order and commit."""
+        row = self.stage_cancel(
+            order_id, firm_scope=firm_scope, actor_id=actor_id, reason=reason
+        )
+        self._session.commit()
+        return row
+
+    def stage_cancel(
+        self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID, reason: str | None
+    ) -> PurchaseOrder:
+        """Cancel order without committing."""
         row = self.get_order(order_id, firm_scope=firm_scope)
         if row.status in {
             PurchaseOrderStatus.CANCELLED.value,
@@ -856,7 +909,7 @@ class PurchaseService(TransactionalDocumentService):
             before_data={"status": before},
             after_data={"status": row.status, "reason": reason or ""},
         )
-        self._session.commit()
+        self._session.flush()
         return row
 
     def close_order(
@@ -1143,49 +1196,82 @@ class PurchaseService(TransactionalDocumentService):
 
     def order_response(self, row: PurchaseOrder) -> PurchaseOrderResponse:
         """Order response."""
-        lines = list(
-            self._session.scalars(
-                select(PurchaseOrderLine)
-                .where(
-                    PurchaseOrderLine.purchase_order_id == row.id,
-                    PurchaseOrderLine.is_deleted.is_(False),
-                )
-                .order_by(PurchaseOrderLine.line_number.asc())
-            ).all()
+        return self.order_responses([row])[0]
+
+    def order_responses(
+        self, rows: Sequence[PurchaseOrder]
+    ) -> list[PurchaseOrderResponse]:
+        """Render a page of purchase orders, reading each child table once.
+
+        One query per child table for the whole page, grouped by order in
+        Python, rather than four per order (backlog 56 C, step 3). The
+        single-order builder is this with a list of one.
+        """
+        if not rows:
+            return []
+        ids = [row.id for row in rows]
+        lines = children_by_parent(
+            self._session,
+            PurchaseOrderLine,
+            PurchaseOrderLine.purchase_order_id,
+            ids,
+            PurchaseOrderLine.line_number.asc(),
         )
-        schedules = list(
-            self._session.scalars(
+        order_of_line = {
+            item.id: order_id for order_id, group in lines.items() for item in group
+        }
+        # One read in delivery-date order across the page, so each order's
+        # share keeps the order its own read gave it.
+        schedules: dict[UUID, list[PurchaseDeliverySchedule]] = defaultdict(list)
+        if order_of_line:
+            for schedule in self._session.scalars(
                 select(PurchaseDeliverySchedule)
                 .where(
-                    PurchaseDeliverySchedule.firm_id == row.firm_id,
                     PurchaseDeliverySchedule.is_deleted.is_(False),
-                    (
-                        PurchaseDeliverySchedule.purchase_order_line_id.in_(
-                            [item.id for item in lines]
-                        )
-                        if lines
-                        else false()
+                    PurchaseDeliverySchedule.purchase_order_line_id.in_(
+                        list(order_of_line)
                     ),
                 )
                 .order_by(PurchaseDeliverySchedule.delivery_date.asc())
-            ).all()
+            ):
+                order_id = order_of_line[schedule.purchase_order_line_id]
+                schedules[order_id].append(schedule)
+        attachments = children_by_parent(
+            self._session,
+            PurchaseAttachment,
+            PurchaseAttachment.purchase_order_id,
+            ids,
         )
-        attachments = list(
-            self._session.scalars(
-                select(PurchaseAttachment).where(
-                    PurchaseAttachment.purchase_order_id == row.id,
-                    PurchaseAttachment.is_deleted.is_(False),
-                )
-            ).all()
+        notes = children_by_parent(
+            self._session,
+            PurchaseNote,
+            PurchaseNote.purchase_order_id,
+            ids,
         )
-        notes = list(
-            self._session.scalars(
-                select(PurchaseNote).where(
-                    PurchaseNote.purchase_order_id == row.id,
-                    PurchaseNote.is_deleted.is_(False),
-                )
-            ).all()
-        )
+        return [
+            self._order_response(
+                row,
+                lines=lines[row.id],
+                # A schedule counts only under its own firm, as it always did.
+                schedules=[
+                    item for item in schedules[row.id] if item.firm_id == row.firm_id
+                ],
+                attachments=attachments[row.id],
+                notes=notes[row.id],
+            )
+            for row in rows
+        ]
+
+    def _order_response(
+        self,
+        row: PurchaseOrder,
+        *,
+        lines: list[PurchaseOrderLine],
+        schedules: list[PurchaseDeliverySchedule],
+        attachments: list[PurchaseAttachment],
+        notes: list[PurchaseNote],
+    ) -> PurchaseOrderResponse:
+        """Build one order's response from what the page already read."""
         payload = PurchaseOrderResponse.model_validate(row).model_dump(mode="python")
         payload["lines"] = [
             PurchaseOrderLineResponse.model_validate(item).model_dump(mode="python")
@@ -1266,6 +1352,24 @@ class PurchaseService(TransactionalDocumentService):
         gross_total = Decimal("0")
         line_discount_total = Decimal("0")
         tax_total = Decimal("0")
+        # The whole-order discount is split across the lines *before* tax, in
+        # proportion to what each is worth after its own discount. It used to
+        # come off the grand total after tax, so it lowered no taxable value
+        # and the input tax was overstated by the tax on it (D-BUY-19).
+        taxables = [
+            self._q(
+                self._q(line.ordered_quantity * line.unit_price)
+                - self._line_discount_amount(
+                    line, self._q(line.ordered_quantity * line.unit_price)
+                )
+            )
+            for line in data.lines
+        ]
+        header_discount = resolve_bill_discount(
+            taxable=self._q(sum(taxables, ZERO)),
+            amount=data.header_discount_amount or None,
+        ).amount
+        shares = apportion(header_discount, taxables)
         for idx, line in enumerate(data.lines, start=1):
             product = self._active_product(order.firm_id, line.product_id)
             conversion = self._conversion(
@@ -1277,12 +1381,9 @@ class PurchaseService(TransactionalDocumentService):
                 firm_id=order.firm_id,
             )
             gross_amount = self._q(line.ordered_quantity * line.unit_price)
-            discount_amount = (
-                self._q(gross_amount * line.discount_percent / Decimal("100"))
-                if line.discount_amount <= 0
-                else self._q(line.discount_amount)
-            )
-            taxable = self._q(gross_amount - discount_amount)
+            discount_amount = self._line_discount_amount(line, gross_amount)
+            bill_share = shares[idx - 1]
+            taxable = self._q(gross_amount - discount_amount - bill_share)
             # A product names its tax group, not a version, so the rate is
             # resolved from the document date. product.tax_profile_id has not
             # existed since the group_code refactor and raised AttributeError
@@ -1325,6 +1426,7 @@ class PurchaseService(TransactionalDocumentService):
                 unit_price=self._q(line.unit_price),
                 discount_percent=self._q(line.discount_percent),
                 discount_amount=discount_amount,
+                bill_discount_amount=bill_share,
                 gross_amount=gross_amount,
                 tax_profile_id=tax_profile_id,
                 tax_amount=tax_amount,
@@ -1369,7 +1471,7 @@ class PurchaseService(TransactionalDocumentService):
         subtotal = self._q(gross_total - line_discount_total)
         grand_total = self._q(
             subtotal
-            - data.header_discount_amount
+            - header_discount
             + tax_total
             + data.additional_charges
             + data.round_off
@@ -1380,6 +1482,14 @@ class PurchaseService(TransactionalDocumentService):
             "tax_total": self._q(tax_total),
             "grand_total": grand_total,
         }
+
+    def _line_discount_amount(
+        self, line: PurchaseLineWrite, gross_amount: Decimal
+    ) -> Decimal:
+        """Return a line's own discount: the typed amount, else the rate."""
+        if line.discount_amount <= 0:
+            return self._q(gross_amount * line.discount_percent / Decimal("100"))
+        return self._q(line.discount_amount)
 
     def _replace_schedules(
         self,

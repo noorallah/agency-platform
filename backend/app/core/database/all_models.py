@@ -24,6 +24,7 @@ from app.commission.models import payout as _commission_payout  # noqa: F401
 from app.common.audit.models import audit_log  # noqa: F401
 from app.credit_note.models import credit_note as _credit_note  # noqa: F401
 from app.customers.models import customer  # noqa: F401
+from app.customers.models import opening_bill as _customer_opening_bill  # noqa: F401
 from app.delivery_note.models import delivery_note  # noqa: F401
 from app.diagnostics.models import error_report  # noqa: F401
 from app.document_framework.models import document_framework  # noqa: F401
@@ -54,5 +55,6 @@ from app.sales_targets.models import sales_target  # noqa: F401
 from app.settlements.models import settlement  # noqa: F401
 from app.tax.models import tax_framework  # noqa: F401
 from app.tcs.models import tcs  # noqa: F401
+from app.trade_licences.models import trade_licence  # noqa: F401
 from app.uom.models import uom  # noqa: F401
-from app.vendors.models import vendor  # noqa: F401
+from app.vendors.models import opening_bill, vendor  # noqa: F401

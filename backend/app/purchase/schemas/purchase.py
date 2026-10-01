@@ -203,6 +203,7 @@ class PurchaseOrderLineResponse(PurchaseSchema):
     unit_price: Decimal
     discount_percent: Decimal
     discount_amount: Decimal
+    bill_discount_amount: Decimal = Decimal("0")
     gross_amount: Decimal
     tax_profile_id: UUID | None
     tax_amount: Decimal
@@ -448,3 +449,28 @@ class PurchaseOrderPreview(PurchaseSchema):
     order: PurchaseOrderResponse
     interstate: bool
     lines: list[DocumentPreviewLine]
+
+
+class PurchaseWorkflowSettingsResponse(PurchaseSchema):
+    """Expose which buying stages the firm fills in by hand."""
+
+    purchase_order_stage: bool
+    goods_receipt_stage: bool
+    default_branch_id: UUID | None
+    default_warehouse_id: UUID | None
+    is_configured: bool
+
+
+class PurchaseWorkflowSettingsWrite(PurchaseSchema):
+    """Replace which buying stages the firm fills in by hand.
+
+    Both stages are sent on every write, since they are read together to
+    decide what a bill must raise. The two defaults are not: an omitted one is
+    left as it is and an explicit null clears it, so a client that never showed
+    them cannot wipe them -- the rule the sales settings learned (D-CFG-14).
+    """
+
+    purchase_order_stage: bool
+    goods_receipt_stage: bool
+    default_branch_id: UUID | None = None
+    default_warehouse_id: UUID | None = None

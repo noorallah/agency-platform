@@ -9,10 +9,12 @@ import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
+import '../../models/file_import.dart';
 import '../../models/inventory.dart';
 import '../../models/product.dart';
 import 'inventory_details_dialog.dart';
 import 'inventory_import_wizard.dart';
+import 'opening_stock_import_dialog.dart';
 import '../../phase2/document_page.dart' show documentQuantity;
 import '../workspace/desktop_framework.dart';
 import 'stock_action_dialog.dart';
@@ -139,6 +141,10 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
   bool get _canUpdateOpeningStock =>
       widget.permissions.hasPermission('OPENING_STOCK_UPDATE');
   bool get _canExport => widget.permissions.hasPermission('INVENTORY_EXPORT');
+
+  /// The same code the server's file import is held to (backlog 36, 46).
+  bool get _canImportOpeningStock =>
+      widget.permissions.hasPermission('INVENTORY_IMPORT');
   bool get _canAdjust => widget.permissions.hasPermission('INVENTORY_ADJUST');
 
   @override
@@ -781,8 +787,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       InventorySection.openingStock => _canCreateOpeningStock,
       _ => false,
     };
-    ToolbarCommand stockStep(String id, String label, IconData icon,
-            StockAction action) =>
+    ToolbarCommand stockStep(
+            String id, String label, IconData icon, StockAction action) =>
         ToolbarCommand(
           id: id,
           label: label,
@@ -851,8 +857,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         }
       },
       commands: [
-        stockStep('transfer', 'Transfer', Icons.swap_horiz,
-            StockAction.transfer),
+        stockStep(
+            'transfer', 'Transfer', Icons.swap_horiz, StockAction.transfer),
         stockStep('write-off', 'Write off', Icons.remove_circle_outline,
             StockAction.writeOff),
         stockStep('quarantine', 'Quarantine', Icons.pan_tool_outlined,
@@ -920,7 +926,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
             onClear: clear,
           );
     return switch (widget.section) {
-      InventorySection.inventory || InventorySection.stockSearch =>
+      InventorySection.inventory ||
+      InventorySection.stockSearch =>
         _selectedInventory == null
             ? null
             : SelectionSummary.record(
@@ -1010,6 +1017,13 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
               onPressed: _openOpeningStockDialog,
               icon: const Icon(Icons.add),
               label: const Text('New opening stock'),
+            ),
+          if (widget.section == InventorySection.openingStock &&
+              _canImportOpeningStock)
+            OutlinedButton.icon(
+              onPressed: _importOpeningStock,
+              icon: const Icon(Icons.upload_file_outlined),
+              label: const Text('Import from file'),
             ),
           if (widget.section == InventorySection.openingStock &&
               _canUpdateOpeningStock &&
@@ -1540,125 +1554,32 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
   Future<void> _editInventoryThresholds() async {
     final InventoryRecord? record = _selectedInventory;
     if (record == null) return;
-    final TextEditingController minimum =
-        TextEditingController(text: record.minimumLevel);
-    final TextEditingController maximum =
-        TextEditingController(text: record.maximumLevel);
-    final TextEditingController reorder =
-        TextEditingController(text: record.reorderLevel);
-    final TextEditingController safety =
-        TextEditingController(text: record.safetyStock);
-    String status = record.status;
     final bool? submitted = await showDialog<bool>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Text('Edit inventory thresholds'),
-          content: SizedBox(
-            width: 520,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('${record.productCode} - ${record.productName}'),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: minimum,
-                        decoration: const InputDecoration(labelText: 'Minimum'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: maximum,
-                        decoration: const InputDecoration(labelText: 'Maximum'),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: reorder,
-                        decoration:
-                            const InputDecoration(labelText: 'Reorder level'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: safety,
-                        decoration:
-                            const InputDecoration(labelText: 'Safety stock'),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  isExpanded: true,
-                  initialValue: status,
-                  decoration: const InputDecoration(labelText: 'Status'),
-                  items: const ['ACTIVE', 'INACTIVE', 'ARCHIVED']
-                      .map(
-                        (value) => DropdownMenuItem<String>(
-                          value: value,
-                          child: Text(value, overflow: TextOverflow.ellipsis),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) =>
-                      setState(() => status = value ?? status),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Save'),
-            ),
-          ],
-        ),
+      builder: (context) => _ThresholdsDialog(
+        record: record,
+        onSave: (_ThresholdsDraft draft) =>
+            widget.api.updateInventoryRecord(record.id, {
+          'branch_id': record.branchId,
+          'warehouse_id': record.warehouseId,
+          'storage_node_id':
+              record.storageNodeId.isEmpty ? null : record.storageNodeId,
+          'product_id': record.productId,
+          'minimum_level': _nullableNumber(draft.minimum),
+          'maximum_level': _nullableNumber(draft.maximum),
+          'reorder_level': _nullableNumber(draft.reorder),
+          'safety_stock': _nullableNumber(draft.safety),
+          'status': draft.status,
+        }),
       ),
     );
-    if (submitted != true) return;
-    try {
-      await widget.api.updateInventoryRecord(record.id, {
-        'branch_id': record.branchId,
-        'warehouse_id': record.warehouseId,
-        'storage_node_id':
-            record.storageNodeId.isEmpty ? null : record.storageNodeId,
-        'product_id': record.productId,
-        'minimum_level': _nullableNumber(minimum.text),
-        'maximum_level': _nullableNumber(maximum.text),
-        'reorder_level': _nullableNumber(reorder.text),
-        'safety_stock': _nullableNumber(safety.text),
-        'status': status,
-      });
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        'Inventory thresholds updated.',
-        kind: AppNotificationKind.success,
-      );
-      await _load();
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        exception.message,
-        kind: AppNotificationKind.error,
-      );
-    }
+    if (submitted != true || !mounted) return;
+    NotificationService.show(
+      context,
+      'Inventory thresholds updated.',
+      kind: AppNotificationKind.success,
+    );
+    await _load();
   }
 
   Future<void> _deleteSelectedInventory() async {
@@ -1713,45 +1634,37 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
               name: warehouse.name,
             ),
         ],
+        onSave: (Json values) async {
+          final Json body = stockActionBody(
+            action: action,
+            draft: values,
+            branchId: row.branchId,
+            warehouseId: row.warehouseId,
+            productId: row.productId,
+            batchId: row.batchId,
+          );
+          switch (action) {
+            case StockAction.transfer:
+              await widget.api.transferStock(body);
+            case StockAction.writeOff:
+              await widget.api.writeOffStock(body);
+            case StockAction.quarantine:
+              await widget.api.quarantineStock(body);
+          }
+        },
       ),
     );
-    if (draft == null) return;
-    final Json body = stockActionBody(
-      action: action,
-      draft: draft,
-      branchId: row.branchId,
-      warehouseId: row.warehouseId,
-      productId: row.productId,
-      batchId: row.batchId,
-    );
-    try {
+    if (draft == null || !mounted) return;
+    NotificationService.show(
+      context,
       switch (action) {
-        case StockAction.transfer:
-          await widget.api.transferStock(body);
-        case StockAction.writeOff:
-          await widget.api.writeOffStock(body);
-        case StockAction.quarantine:
-          await widget.api.quarantineStock(body);
-      }
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        switch (action) {
-          StockAction.transfer => 'Stock transferred.',
-          StockAction.writeOff => 'Stock written off.',
-          StockAction.quarantine => 'Quarantine updated.',
-        },
-        kind: AppNotificationKind.success,
-      );
-      await _load(requestedPage: 1);
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        exception.message,
-        kind: AppNotificationKind.error,
-      );
-    }
+        StockAction.transfer => 'Stock transferred.',
+        StockAction.writeOff => 'Stock written off.',
+        StockAction.quarantine => 'Quarantine updated.',
+      },
+      kind: AppNotificationKind.success,
+    );
+    await _load(requestedPage: 1);
   }
 
   Future<void> _openAdjustmentDialog() async {
@@ -1765,34 +1678,41 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         initialBranchId: _branchId,
         initialWarehouseId: _warehouseId,
         initialProductId: _productId,
+        onSave: (_AdjustmentDraft draft) =>
+            widget.api.createInventoryAdjustment(draft.toJson()),
       ),
     );
-    if (draft == null) return;
-    try {
-      await widget.api.createInventoryAdjustment(draft.toJson());
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        'Inventory adjustment posted.',
-        kind: AppNotificationKind.success,
-      );
-      await _load(requestedPage: 1);
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        exception.message,
-        kind: AppNotificationKind.error,
-      );
-    }
+    if (draft == null || !mounted) return;
+    NotificationService.show(
+      context,
+      'Inventory adjustment posted.',
+      kind: AppNotificationKind.success,
+    );
+    await _load(requestedPage: 1);
   }
 
   Future<void> _openOpeningStockDialog({
     OpeningStockBatchRecord? existing,
   }) async {
+    // Held outside the dialog so a refused post does not leave a second try
+    // creating the draft again: once it exists, the retry updates it.
+    OpeningStockBatchRecord? saved = existing;
     final _OpeningStockDraft? draft = await showDialog<_OpeningStockDraft>(
       context: context,
       builder: (context) => _OpeningStockDialog(
+        onSave: (_OpeningStockDraft values) async {
+          OpeningStockBatchRecord batch;
+          if (saved == null) {
+            batch = await widget.api.createOpeningStock(values.toJson());
+          } else {
+            batch = await widget.api
+                .updateOpeningStock(saved!.id, values.toJson());
+          }
+          saved = batch;
+          if (values.autoPost) {
+            saved = await widget.api.postOpeningStock(batch.id);
+          }
+        },
         api: widget.api,
         branches: _branches,
         warehouses: _warehouses,
@@ -1803,36 +1723,34 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         defaultAutoPost: _defaultPostAfterSave,
       ),
     );
-    if (draft == null) return;
-    try {
-      OpeningStockBatchRecord batch;
-      if (existing == null) {
-        batch = await widget.api.createOpeningStock(draft.toJson());
-      } else {
-        batch =
-            await widget.api.updateOpeningStock(existing.id, draft.toJson());
-      }
-      if (draft.autoPost) {
-        batch = await widget.api.postOpeningStock(batch.id);
-      }
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        draft.autoPost
-            ? 'Opening stock posted successfully.'
-            : 'Opening stock draft saved.',
-        kind: AppNotificationKind.success,
-      );
-      _selectedOpeningStock = batch;
-      await _load(requestedPage: 1);
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        exception.message,
-        kind: AppNotificationKind.error,
-      );
-    }
+    if (draft == null || !mounted) return;
+    NotificationService.show(
+      context,
+      draft.autoPost
+          ? 'Opening stock posted successfully.'
+          : 'Opening stock draft saved.',
+      kind: AppNotificationKind.success,
+    );
+    _selectedOpeningStock = saved;
+    await _load(requestedPage: 1);
+  }
+
+  /// Bring the cutover stock count in from a file: one posted document per
+  /// warehouse, all or none.
+  Future<void> _importOpeningStock() async {
+    final FileImportReport? report = await showDialog<FileImportReport>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => OpeningStockImportDialog(api: widget.api),
+    );
+    if (!mounted || report == null) return;
+    await _load();
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      'Imported and posted ${report.toCreate} opening stock lines.',
+      kind: AppNotificationKind.success,
+    );
   }
 
   Future<void> _postSelectedOpeningStock() async {
@@ -2164,9 +2082,13 @@ class _AdjustmentDialog extends StatefulWidget {
     required this.api,
     this.initialBranchId,
     this.initialWarehouseId,
+    required this.onSave,
     this.initialProductId,
   });
 
+  /// Posts the adjustment; throws [ApiException] on a refusal, which the
+  /// dialog shows without closing.
+  final Future<void> Function(_AdjustmentDraft draft) onSave;
   final List<BranchRecord> branches;
   final List<WarehouseRecord> warehouses;
   final List<Product> products;
@@ -2179,7 +2101,8 @@ class _AdjustmentDialog extends StatefulWidget {
   State<_AdjustmentDialog> createState() => _AdjustmentDialogState();
 }
 
-class _AdjustmentDialogState extends State<_AdjustmentDialog> {
+class _AdjustmentDialogState extends State<_AdjustmentDialog>
+    with SaveInDialog<_AdjustmentDialog> {
   late String? _branchId = widget.initialBranchId ??
       (widget.branches.isEmpty ? null : widget.branches.first.id);
   late String? _warehouseId = widget.initialWarehouseId ??
@@ -2242,6 +2165,7 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                saveErrorBanner(),
                 DropdownButtonFormField<String>(
                   isExpanded: true,
                   initialValue: _branchId,
@@ -2367,11 +2291,11 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: cancelHandler,
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () {
+            onPressed: saving ? null : () {
               final num? quantity = num.tryParse(_quantity.text.trim());
               if (quantity == null || quantity == 0) {
                 setState(() => _validationError = 'Enter a non-zero quantity.');
@@ -2384,8 +2308,7 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog> {
                   _date.text.trim().isEmpty) {
                 return;
               }
-              Navigator.pop(
-                context,
+              submit<_AdjustmentDraft>(
                 _AdjustmentDraft(
                   branchId: _branchId!,
                   warehouseId: _warehouseId!,
@@ -2396,6 +2319,7 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog> {
                   transactionDate: _date.text.trim(),
                   remarks: _remarks.text.trim(),
                 ),
+                widget.onSave,
               );
             },
             child: const Text('Post adjustment'),
@@ -2504,11 +2428,16 @@ class _OpeningStockDialog extends StatefulWidget {
     required this.branches,
     required this.warehouses,
     required this.products,
+    required this.onSave,
     this.existing,
     this.initialBranchId,
     this.initialWarehouseId,
     this.defaultAutoPost = false,
   });
+
+  /// Saves the draft (and posts it when asked); throws [ApiException] on a
+  /// refusal, which the dialog shows without closing.
+  final Future<void> Function(_OpeningStockDraft draft) onSave;
 
   final ApiClient api;
   final List<BranchRecord> branches;
@@ -2523,7 +2452,8 @@ class _OpeningStockDialog extends StatefulWidget {
   State<_OpeningStockDialog> createState() => _OpeningStockDialogState();
 }
 
-class _OpeningStockDialogState extends State<_OpeningStockDialog> {
+class _OpeningStockDialogState extends State<_OpeningStockDialog>
+    with SaveInDialog<_OpeningStockDialog> {
   late String? _branchId = widget.existing?.branchId ??
       widget.initialBranchId ??
       (widget.branches.isEmpty ? null : widget.branches.first.id);
@@ -2595,6 +2525,7 @@ class _OpeningStockDialogState extends State<_OpeningStockDialog> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                saveErrorBanner(),
                 Row(
                   children: [
                     Expanded(
@@ -2722,11 +2653,11 @@ class _OpeningStockDialogState extends State<_OpeningStockDialog> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: cancelHandler,
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () {
+            onPressed: saving ? null : () {
               final Set<String> keys = <String>{};
               for (final _OpeningStockLineDraft line in _lines) {
                 final String? productId = line.productId;
@@ -2801,8 +2732,7 @@ class _OpeningStockDialogState extends State<_OpeningStockDialog> {
                       line.productId == null || line.quantity.trim().isEmpty)) {
                 return;
               }
-              Navigator.pop(
-                context,
+              submit<_OpeningStockDraft>(
                 _OpeningStockDraft(
                   branchId: _branchId!,
                   warehouseId: _warehouseId!,
@@ -2812,6 +2742,7 @@ class _OpeningStockDialogState extends State<_OpeningStockDialog> {
                   autoPost: _autoPost,
                   lines: _lines,
                 ),
+                widget.onSave,
               );
             },
             child: Text(widget.existing == null ? 'Save' : 'Update'),
@@ -3048,5 +2979,145 @@ class _OpeningStockLineEditorState extends State<_OpeningStockLineEditor> {
             ],
           ),
         ),
+      );
+}
+
+/// What the thresholds dialog hands to its save.
+class _ThresholdsDraft {
+  const _ThresholdsDraft({
+    required this.minimum,
+    required this.maximum,
+    required this.reorder,
+    required this.safety,
+    required this.status,
+  });
+
+  final String minimum;
+  final String maximum;
+  final String reorder;
+  final String safety;
+  final String status;
+}
+
+/// Edit one inventory row's thresholds; saves before it closes.
+class _ThresholdsDialog extends StatefulWidget {
+  const _ThresholdsDialog({required this.record, required this.onSave});
+
+  final InventoryRecord record;
+
+  /// Saves the thresholds; throws [ApiException] on a refusal.
+  final Future<void> Function(_ThresholdsDraft draft) onSave;
+
+  @override
+  State<_ThresholdsDialog> createState() => _ThresholdsDialogState();
+}
+
+class _ThresholdsDialogState extends State<_ThresholdsDialog>
+    with SaveInDialog<_ThresholdsDialog> {
+  late final TextEditingController _minimum =
+      TextEditingController(text: widget.record.minimumLevel);
+  late final TextEditingController _maximum =
+      TextEditingController(text: widget.record.maximumLevel);
+  late final TextEditingController _reorder =
+      TextEditingController(text: widget.record.reorderLevel);
+  late final TextEditingController _safety =
+      TextEditingController(text: widget.record.safetyStock);
+  late String _status = widget.record.status;
+
+  @override
+  void dispose() {
+    _minimum.dispose();
+    _maximum.dispose();
+    _reorder.dispose();
+    _safety.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Edit inventory thresholds'),
+        content: SizedBox(
+          width: 520,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              saveErrorBanner(),
+              Text('${widget.record.productCode} - '
+                  '${widget.record.productName}'),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _minimum,
+                      decoration: const InputDecoration(labelText: 'Minimum'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      controller: _maximum,
+                      decoration: const InputDecoration(labelText: 'Maximum'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _reorder,
+                      decoration:
+                          const InputDecoration(labelText: 'Reorder level'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      controller: _safety,
+                      decoration:
+                          const InputDecoration(labelText: 'Safety stock'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                isExpanded: true,
+                initialValue: _status,
+                decoration: const InputDecoration(labelText: 'Status'),
+                items: const ['ACTIVE', 'INACTIVE', 'ARCHIVED']
+                    .map(
+                      (value) => DropdownMenuItem<String>(
+                        value: value,
+                        child: Text(value, overflow: TextOverflow.ellipsis),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) =>
+                    setState(() => _status = value ?? _status),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: cancelHandler, child: const Text('Cancel')),
+          FilledButton(
+            onPressed: saving
+                ? null
+                : () => saveAndClose<bool>(() async {
+                      await widget.onSave(_ThresholdsDraft(
+                        minimum: _minimum.text,
+                        maximum: _maximum.text,
+                        reorder: _reorder.text,
+                        safety: _safety.text,
+                        status: _status,
+                      ));
+                      return true;
+                    }),
+            child: const Text('Save'),
+          ),
+        ],
       );
 }

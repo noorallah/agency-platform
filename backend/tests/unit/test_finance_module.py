@@ -58,6 +58,7 @@ from app.finance.schemas import (
     CostCenterCreate,
     CostCenterUpdate,
     FinancialYearCreate,
+    FinancialYearReopen,
     FinancialYearUpdate,
     JournalEntryCreate,
     JournalEntryReject,
@@ -3493,3 +3494,203 @@ def test_the_journal_editor_is_offered_only_accounts_it_can_save() -> None:
     }
     assert "1100" in every
     assert offered == every - {"1100"}
+
+
+def test_a_new_year_opens_income_at_zero_and_brings_the_profit_forward() -> None:
+    """D-FIN-22: last year's sales are not this year's opening.
+
+    A second year's trial balance opened Sales at the whole of last year's
+    sales, with no profit-brought-forward line. An income or expense account
+    starts each financial year at zero; what earlier years earned is one line
+    under equity, and the trial balance still balances. The balance sheet,
+    which reads the same stored balances, is unchanged.
+    """
+    factory = _session_factory()
+    session = factory()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    service = FinanceService(session)
+    engine = JournalEntryEngine(session)
+
+    def post(period_id: UUID, on: date, reference: str, amount: str) -> None:
+        """Post one cash sale."""
+        entry = engine.create_entry(
+            firm_id=firm.id,
+            journal_type_id=book.journal_type.id,
+            voucher_type_id=book.voucher_type.id,
+            accounting_period_id=period_id,
+            journal_date=on,
+            reference_number=reference,
+            description=reference,
+            lines=_sale_lines(book, amount),
+            actor_id=actor_id,
+        )
+        engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
+        session.commit()
+
+    post(book.period.id, date(2026, 4, 10), "JV-LAST-YEAR", "100.00")
+    next_year = service.create_financial_year(
+        FinancialYearCreate(
+            code="FY2028",
+            name="2027-2028",
+            starts_on=date(2027, 4, 1),
+            ends_on=date(2028, 3, 31),
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    april, may = (
+        service.create_accounting_period(
+            AccountingPeriodCreate(
+                financial_year_id=next_year.id,
+                period_number=number,
+                code=f"P{number}",
+                name=name,
+                starts_on=starts,
+                ends_on=ends,
+            ),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+        for number, name, starts, ends in (
+            (1, "April 2027", date(2027, 4, 1), date(2027, 4, 30)),
+            (2, "May 2027", date(2027, 5, 1), date(2027, 5, 31)),
+        )
+    )
+    session.commit()
+    post(april.id, date(2027, 4, 10), "JV-THIS-YEAR", "40.00")
+    reports = GeneralLedgerService(session)
+
+    trial = reports.trial_balance(firm_id=firm.id, accounting_period_id=april.id)
+    by_code = {line.account_code: line for line in trial.lines}
+    assert (by_code["4000"].opening_balance, by_code["4000"].closing_balance) == (
+        Decimal("0.00"),
+        Decimal("40.00"),
+    )
+    assert by_code["1000"].opening_balance == Decimal("100.00")
+    forward = by_code["P&L-BF"]
+    assert forward.ledger_account_id is None
+    assert (forward.opening_credit, forward.closing_credit) == (
+        Decimal("100.00"),
+        Decimal("100.00"),
+    )
+    assert trial.total_opening_debit == trial.total_opening_credit
+    assert trial.is_balanced
+
+    # A quiet month carries this year's sales, not last year's.
+    quiet = reports.trial_balance(firm_id=firm.id, accounting_period_id=may.id)
+    quiet_codes = {line.account_code: line for line in quiet.lines}
+    assert quiet_codes["4000"].opening_balance == Decimal("40.00")
+    assert quiet_codes["P&L-BF"].closing_credit == Decimal("100.00")
+    assert quiet.is_balanced
+
+    ledger = reports.general_ledger(
+        firm_id=firm.id, ledger_account_id=book.sales.id, accounting_period_id=april.id
+    )
+    assert ledger.opening_balance == Decimal("0.00")
+
+    sheet = reports.balance_sheet(firm_id=firm.id, accounting_period_id=april.id)
+    assert sheet.retained_earnings_brought_forward == Decimal("100.00")
+    assert sheet.is_balanced
+
+
+def test_a_year_closes_only_when_finished_and_reopens_only_with_a_reason() -> None:
+    """Year-end close (backlog 56, design section 4.3), and a recorded reopen.
+
+    Closing refuses, naming what is left, while a period is open or a draft
+    journal is dated in the year; then it locks the year, so nothing posts
+    into it. Reopening needs its own permission and a reason, which the trail
+    keeps; the periods stay closed.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    service = FinanceService(session)
+    engine = JournalEntryEngine(session)
+    draft = engine.create_entry(
+        firm_id=firm.id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 10),
+        reference_number="JV-LEFT",
+        description="Still a draft",
+        lines=_sale_lines(book, "10.00"),
+        actor_id=actor_id,
+    )
+    session.commit()
+
+    with pytest.raises(ValidationError, match="1 of its periods is open: P1"):
+        service.close_financial_year(book.year.id, firm_id=firm.id, actor_id=actor_id)
+    session.rollback()
+    engine.post_entry(draft.id, firm_id=firm.id, actor_id=actor_id)
+    session.commit()
+    second = engine.create_entry(
+        firm_id=firm.id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 11),
+        reference_number="JV-DRAFT-2",
+        description="Another draft",
+        lines=_sale_lines(book, "5.00"),
+        actor_id=actor_id,
+    )
+    service.update_accounting_period(
+        book.period.id,
+        AccountingPeriodUpdate(status=PeriodStatusEnum.CLOSED),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    session.commit()
+    with pytest.raises(
+        ValidationError, match="draft journals are dated in it: JV-DRAFT-2"
+    ):
+        service.close_financial_year(book.year.id, firm_id=firm.id, actor_id=actor_id)
+    session.rollback()
+    session.delete(session.get(JournalEntry, second.id))
+    session.commit()
+
+    closed = service.close_financial_year(
+        book.year.id, firm_id=firm.id, actor_id=actor_id
+    )
+    session.commit()
+    assert closed.is_locked is True
+    assert session.scalars(
+        select(AuditLog).where(AuditLog.action == "finance.financial_year.closed")
+    ).one()
+    with pytest.raises(ValidationError, match="already closed"):
+        service.close_financial_year(book.year.id, firm_id=firm.id, actor_id=actor_id)
+    session.rollback()
+    with pytest.raises(ValidationError, match="reopen it, giving a reason"):
+        service.update_financial_year(
+            book.year.id,
+            FinancialYearUpdate(is_locked=False),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+    session.rollback()
+
+    reopened = service.reopen_financial_year(
+        book.year.id,
+        FinancialYearReopen(reason="  CA found a missed provision  "),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    session.commit()
+    assert reopened.is_locked is False
+    audit = session.scalars(
+        select(AuditLog).where(AuditLog.action == "finance.financial_year.reopened")
+    ).one()
+    assert audit.after_data is not None
+    assert audit.after_data["reason"] == "CA found a missed provision"
+    assert session.get(AccountingPeriod, book.period.id).status == "CLOSED"
+    with pytest.raises(ValidationError, match="is not closed"):
+        service.reopen_financial_year(
+            book.year.id,
+            FinancialYearReopen(reason="again"),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )

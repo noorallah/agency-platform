@@ -24,15 +24,30 @@ from sqlalchemy.orm import Session
 from app.common.audit.services import record_audit
 from app.common.report_names import customers_matching, vendors_matching
 from app.core.constants.core import MAX_PAGE_SIZE
+from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.utils.chunks import over_chunks
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO
-from app.customers.models import Customer, CustomerReceivableTransaction
+from app.customers.models import (
+    Customer,
+    CustomerOpeningBill,
+    CustomerReceivableTransaction,
+)
 from app.customers.schemas.customer import (
     CustomerReceivableTransactionCreate,
     CustomerReceivableTransactionType,
 )
 from app.customers.services.customer_service import CustomerService
+from app.customers.services.opening_bill_service import (
+    opening_bill_label as customer_opening_bill_label,
+)
+from app.customers.services.opening_bill_service import (
+    opening_bill_receipts,
+)
+from app.customers.services.opening_bill_service import (
+    standing_opening_bills as standing_customer_opening_bills,
+)
 from app.document_framework.services.transactional_document_service import (
     DocumentStateSpec,
     DocumentTypeSpec,
@@ -63,7 +78,12 @@ from app.settlements.schemas import (
 )
 from app.settlements.services.supplier_credits import credit_applied_against
 from app.tcs.services import TcsService
-from app.vendors.models import Vendor
+from app.vendors.models import Vendor, VendorOpeningBill
+from app.vendors.services.opening_bill_service import (
+    opening_bill_label,
+    opening_bill_payments,
+    standing_opening_bills,
+)
 
 #: Which control account the money moved through, by method.
 METHOD_PURPOSE = {
@@ -82,6 +102,7 @@ SETTLEABLE_INVOICE_STATES = (
 )
 
 
+@over_chunks("invoice_ids")
 def credited_against(
     session: Session,
     *,
@@ -160,6 +181,7 @@ def credited_against(
     return credited
 
 
+@over_chunks("invoice_ids")
 def settled_against(
     session: Session,
     *,
@@ -385,8 +407,104 @@ class SettlementService(TransactionalDocumentService):
                     due_date=row.due_date,
                 )
             )
+        records.extend(
+            self._owing_customer_opening_bills(firm_id=firm_id, party_id=party_id)
+            if is_receipt
+            else self._owing_opening_bills(firm_id=firm_id, party_id=party_id)
+        )
+        records.sort(key=lambda record: (record.invoice_date, record.invoice_number))
         return records
 
+    def _owing_customer_opening_bills(
+        self, *, firm_id: UUID, party_id: UUID | None
+    ) -> list[OutstandingInvoiceRecord]:
+        """Offer what customers owed at cutover as bills to be received against.
+
+        The receivable twin of `_owing_opening_bills`: beside the sales
+        invoices, in the one derivation Record Receipt, the outstanding and
+        overdue reports and the customer delete guard all read.
+        """
+        bills = standing_customer_opening_bills(
+            self._session, firm_id=firm_id, customer_id=party_id
+        )
+        received = opening_bill_receipts(
+            self._session, firm_id=firm_id, bill_ids=[row.id for row in bills]
+        )
+        records: list[OutstandingInvoiceRecord] = []
+        for row in bills:
+            total = quantize_ledger(row.amount)
+            already = received.get(row.id, ZERO)
+            if total - already <= ZERO:
+                continue
+            records.append(
+                OutstandingInvoiceRecord(
+                    invoice_id=row.id,
+                    invoice_number=customer_opening_bill_label(row),
+                    invoice_date=row.bill_date,
+                    invoice_total=total,
+                    allocated_amount=already,
+                    outstanding_amount=total - already,
+                    party_id=row.customer_id,
+                    due_date=row.due_date,
+                    is_opening_bill=True,
+                )
+            )
+        return records
+
+    def _owing_opening_bills(
+        self, *, firm_id: UUID, party_id: UUID | None
+    ) -> list[OutstandingInvoiceRecord]:
+        """Offer what suppliers were owed at cutover as bills to be paid.
+
+        Beside the purchase bills, in the one derivation every payable reader
+        uses -- Record Payment, the outstanding and overdue reports and the
+        vendor delete guard -- so a supplier's opening debt cannot be owed on
+        one screen and missing from another.
+        """
+        bills = standing_opening_bills(
+            self._session, firm_id=firm_id, vendor_id=party_id
+        )
+        paid = opening_bill_payments(
+            self._session, firm_id=firm_id, bill_ids=[row.id for row in bills]
+        )
+        records: list[OutstandingInvoiceRecord] = []
+        for row in bills:
+            total = quantize_ledger(row.amount)
+            already = paid.get(row.id, ZERO)
+            if total - already <= ZERO:
+                continue
+            records.append(
+                OutstandingInvoiceRecord(
+                    invoice_id=row.id,
+                    invoice_number=opening_bill_label(row),
+                    invoice_date=row.bill_date,
+                    invoice_total=total,
+                    allocated_amount=already,
+                    outstanding_amount=total - already,
+                    party_id=row.vendor_id,
+                    due_date=row.due_date,
+                    is_opening_bill=True,
+                )
+            )
+        return records
+
+    def _opening_bill_ids(self, ids: Sequence[UUID]) -> set[UUID]:
+        """Say which of the ids a settlement names are opening bills.
+
+        A customer's for a receipt, a supplier's for a payment.
+        """
+        if not ids:
+            return set()
+        model: type[CustomerOpeningBill] | type[VendorOpeningBill] = (
+            CustomerOpeningBill
+            if self.DIRECTION == SettlementDirection.RECEIPT
+            else VendorOpeningBill
+        )
+        return set(
+            self._session.scalars(select(model.id).where(model.id.in_(list(ids)))).all()
+        )
+
+    @over_chunks("invoice_ids")
     def _returned_against(
         self, *, firm_id: UUID, invoice_ids: list[UUID]
     ) -> dict[UUID, Decimal]:
@@ -596,13 +714,18 @@ class SettlementService(TransactionalDocumentService):
         self._session.add(row)
         self._session.flush()
 
+        opening_bills = self._opening_bill_ids(
+            [item.invoice_id for item in data.allocations]
+        )
         for allocation in data.allocations:
+            opening = allocation.invoice_id in opening_bills
             self._session.add(
                 SettlementAllocation(
                     firm_id=firm_id,
                     settlement_id=row.id,
-                    sales_invoice_id=allocation.invoice_id if is_receipt else None,
-                    purchase_invoice_id=(None if is_receipt else allocation.invoice_id),
+                    **self._allocation_target(
+                        allocation.invoice_id, is_receipt=is_receipt, opening=opening
+                    ),
                     amount=quantize_ledger(allocation.amount),
                     # Applied with the money, so it met the bill the day the
                     # money arrived.
@@ -860,10 +983,19 @@ class SettlementService(TransactionalDocumentService):
             raise ValidationError(
                 f"{record.invoice_number} owes only {record.outstanding_amount}."
             )
+        opening = record.is_opening_bill
         invoice_column = (
-            SettlementAllocation.sales_invoice_id
+            (
+                SettlementAllocation.customer_opening_bill_id
+                if opening
+                else SettlementAllocation.sales_invoice_id
+            )
             if is_receipt
-            else SettlementAllocation.purchase_invoice_id
+            else (
+                SettlementAllocation.vendor_opening_bill_id
+                if opening
+                else SettlementAllocation.purchase_invoice_id
+            )
         )
         existing = self._session.scalar(
             select(SettlementAllocation).where(
@@ -883,8 +1015,9 @@ class SettlementService(TransactionalDocumentService):
             SettlementAllocation(
                 firm_id=firm_id,
                 settlement_id=row.id,
-                sales_invoice_id=invoice_id if is_receipt else None,
-                purchase_invoice_id=None if is_receipt else invoice_id,
+                **self._allocation_target(
+                    invoice_id, is_receipt=is_receipt, opening=opening
+                ),
                 amount=asked,
                 # The day the money met the bill: the bill's own date, or the
                 # receipt's where the receipt came later. Not today, which
@@ -1053,6 +1186,26 @@ class SettlementService(TransactionalDocumentService):
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _allocation_target(
+        invoice_id: UUID, *, is_receipt: bool, opening: bool
+    ) -> dict[str, UUID | None]:
+        """Say which of the four bill columns an allocation fills.
+
+        A sales invoice or a customer's opening bill for a receipt, a purchase
+        invoice or a supplier's opening bill for a payment -- exactly one.
+        """
+        return {
+            "sales_invoice_id": invoice_id if is_receipt and not opening else None,
+            "customer_opening_bill_id": invoice_id if is_receipt and opening else None,
+            "purchase_invoice_id": (
+                invoice_id if not is_receipt and not opening else None
+            ),
+            "vendor_opening_bill_id": (
+                invoice_id if not is_receipt and opening else None
+            ),
+        }
 
     def _rows_written_by(self, row: Settlement) -> list[CustomerReceivableTransaction]:
         """Return the receivable rows a settlement wrote, to be undone in order.
@@ -1250,6 +1403,86 @@ class SettlementService(TransactionalDocumentService):
             raise ValidationError("Settlement has no party.")
         return self._require_party(firm_id=row.firm_id, party_id=party_id)
 
+    def parties_of(
+        self, rows: Sequence[Settlement]
+    ) -> dict[UUID, tuple[UUID, str, str]]:
+        """Answer `party_of` for a page of settlements in one read.
+
+        Keyed by settlement id: the party's id, code and name. A party that
+        `party_of` would refuse -- another firm's, or deleted since -- is
+        refused the same way, so a page and a single row cannot disagree.
+        """
+        is_customer = self.DIRECTION in (
+            SettlementDirection.RECEIPT,
+            SettlementDirection.REFUND,
+        )
+        model: type[Customer] | type[Vendor] = Customer if is_customer else Vendor
+        wanted = {
+            row.id: (row.firm_id, row.customer_id if is_customer else row.vendor_id)
+            for row in rows
+        }
+        found = {
+            (firm_id, party_id): (party_id, code, name)
+            for party_id, firm_id, code, name in self._session.execute(
+                select(model.id, model.firm_id, model.code, model.name).where(
+                    model.id.in_(
+                        {party for _, party in wanted.values() if party is not None}
+                    ),
+                    model.is_deleted.is_(False),
+                )
+            )
+        }
+        answer: dict[UUID, tuple[UUID, str, str]] = {}
+        for settlement_id, key in wanted.items():
+            if key[1] is None:  # pragma: no cover - the check constraint forbids it
+                raise ValidationError("Settlement has no party.")
+            party = found.get(key)
+            if party is None:
+                raise ResourceNotFoundError(
+                    "Customer not found." if is_customer else "Vendor not found."
+                )
+            answer[settlement_id] = party
+        return answer
+
+    def allocations_for_many(
+        self, settlement_ids: Sequence[UUID]
+    ) -> dict[UUID, list[SettlementAllocation]]:
+        """Answer `allocations_for` for a page of settlements in one read."""
+        return children_by_parent(
+            self._session,
+            SettlementAllocation,
+            SettlementAllocation.settlement_id,
+            settlement_ids,
+            SettlementAllocation.created_at.asc(),
+        )
+
+    def order_numbers_of(self, rows: Sequence[Settlement]) -> dict[UUID, str]:
+        """Answer `order_number_of` for a page, keyed by order id."""
+        wanted = {row.sales_order_id for row in rows if row.sales_order_id}
+        if not wanted:
+            return {}
+        return {
+            found[0]: found[1]
+            for found in self._session.execute(
+                select(SalesOrder.id, SalesOrder.order_number).where(
+                    SalesOrder.id.in_(wanted)
+                )
+            )
+        }
+
+    def ledger_account_names(self, account_ids: Sequence[UUID]) -> dict[UUID, str]:
+        """Answer `ledger_account_name` for a page, keyed by account id."""
+        if not account_ids:
+            return {}
+        return {
+            found[0]: found[1] or ""
+            for found in self._session.execute(
+                select(LedgerAccount.id, LedgerAccount.name).where(
+                    LedgerAccount.id.in_(set(account_ids))
+                )
+            )
+        }
+
     def invoice_summaries(
         self, allocations: Sequence[SettlementAllocation]
     ) -> dict[UUID, tuple[str, object, Decimal]]:
@@ -1265,17 +1498,50 @@ class SettlementService(TransactionalDocumentService):
             for allocation in allocations
         ]
         wanted = [value for value in ids if value is not None]
-        if not wanted:
-            return {}
-        rows = self._session.execute(
-            select(
-                invoice.id,
-                invoice.invoice_number,
-                invoice.invoice_date,
-                invoice.grand_total,
-            ).where(invoice.id.in_(wanted))
-        ).all()
-        return {row[0]: (row[1], row[2], quantize_ledger(row[3])) for row in rows}
+        summaries: dict[UUID, tuple[str, object, Decimal]] = {}
+        if wanted:
+            rows = self._session.execute(
+                select(
+                    invoice.id,
+                    invoice.invoice_number,
+                    invoice.invoice_date,
+                    invoice.grand_total,
+                ).where(invoice.id.in_(wanted))
+            ).all()
+            summaries = {
+                row[0]: (row[1], row[2], quantize_ledger(row[3])) for row in rows
+            }
+        opening_ids = [
+            allocation.vendor_opening_bill_id
+            for allocation in allocations
+            if allocation.vendor_opening_bill_id is not None
+        ]
+        if opening_ids:
+            for bill in self._session.scalars(
+                select(VendorOpeningBill).where(VendorOpeningBill.id.in_(opening_ids))
+            ).all():
+                summaries[bill.id] = (
+                    opening_bill_label(bill),
+                    bill.bill_date,
+                    quantize_ledger(bill.amount),
+                )
+        customer_ids = [
+            allocation.customer_opening_bill_id
+            for allocation in allocations
+            if allocation.customer_opening_bill_id is not None
+        ]
+        if customer_ids:
+            for customer_bill in self._session.scalars(
+                select(CustomerOpeningBill).where(
+                    CustomerOpeningBill.id.in_(customer_ids)
+                )
+            ).all():
+                summaries[customer_bill.id] = (
+                    customer_opening_bill_label(customer_bill),
+                    customer_bill.bill_date,
+                    quantize_ledger(customer_bill.amount),
+                )
+        return summaries
 
 
 class RefundService(SettlementService):

@@ -47,6 +47,10 @@ from app.delivery_note.services.challan_print_service import (
     DeliveryChallanPrintService,
 )
 from app.document_framework.schemas import DocumentLifecycleEventResponse
+from app.trade_licences.api.override import (
+    LicenceOverrideReason,
+    authorised_override,
+)
 
 router = APIRouter(
     prefix="/api/v1/delivery-notes",
@@ -159,7 +163,7 @@ def list_delivery_notes(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[service.note_response(item) for item in rows],
+        data=service.note_responses(rows),
         pagination=params.metadata(total),
     )
 
@@ -235,11 +239,15 @@ def approve_delivery_note(
     note_id: UUID,
     scope: DeliveryNoteApproveScope,
     db: Session = Depends(get_db),
+    licence_override_reason: LicenceOverrideReason = None,
 ) -> ApiResponse[DeliveryNoteResponse]:
     """Approve one delivery note."""
     service = DeliveryNoteService(db)
     row = service.approve_note(
-        note_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+        note_id,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        licence_override_reason=authorised_override(scope, licence_override_reason),
     )
     return ApiResponse(data=service.note_response(row))
 
@@ -511,4 +519,4 @@ async def import_delivery_notes(
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
-    return ApiResponse(data=[service.note_response(item) for item in rows])
+    return ApiResponse(data=service.note_responses(rows))

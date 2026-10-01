@@ -35,7 +35,7 @@ PermissionService _permissions({bool platformAdmin = false}) =>
       }));
 
 class _GeoApi extends ApiClient {
-  _GeoApi({this.deleteError})
+  _GeoApi({this.deleteError, this.refuseCreate})
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -45,6 +45,9 @@ class _GeoApi extends ApiClient {
 
   /// When set, the delete call throws it — the in-use refusal.
   final String? deleteError;
+
+  /// When set, the first create is refused with it (D-DLG-1).
+  String? refuseCreate;
 
   final List<String> requested = <String>[];
   Json? created;
@@ -87,6 +90,11 @@ class _GeoApi extends ApiClient {
 
   @override
   Future<GeoPlaceRecord> createGeoPlace(GeoLevel level, Json body) async {
+    final String? refusal = refuseCreate;
+    if (refusal != null) {
+      refuseCreate = null;
+      throw ApiException(refusal, statusCode: 409);
+    }
     created = <String, dynamic>{'level': level.path, ...body};
     return GeoPlaceRecord.fromJson(level, <String, dynamic>{
       'id': 'new',
@@ -234,5 +242,34 @@ void main() {
     await tester.tap(find.descendant(of: trail, matching: find.text('India')));
     await tester.pumpAndSettle();
     expect(api.requested.last, startsWith('countries'));
+  });
+
+  testWidgets('a refused save keeps the editor open with what was typed',
+      (tester) async {
+    // D-DLG-1: the dialog used to close on Save and leave the call to the
+    // page, so a refusal was a toast over a dialog that was already gone.
+    final api = _GeoApi(refuseCreate: 'Country code LK already exists.');
+    await _pump(tester, api, platformAdmin: true);
+
+    await tester.tap(find.byTooltip('New'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextFormField, 'Code'), 'lk');
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Name'),
+      'Sri Lanka',
+    );
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.text('Country code LK already exists.'), findsOneWidget);
+    expect(find.text('Sri Lanka'), findsOneWidget);
+    expect(api.created, isNull);
+
+    // The second, accepted save closes it.
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(api.created!['name'], 'Sri Lanka');
   });
 }

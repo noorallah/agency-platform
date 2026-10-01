@@ -30,6 +30,12 @@ from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.document_framework.schemas.bulk_actions import (
+    BulkActionResult,
+    BulkApproveRequest,
+    BulkCancelRequest,
+)
+from app.document_framework.services.bulk_actions import run_each
 from app.purchase.schemas import (
     PurchaseOrderByBuyerRecord,
     PurchaseOrderByProductRecord,
@@ -47,11 +53,14 @@ from app.purchase.schemas import (
     PurchaseOrderUpdate,
     PurchaseSummary,
     PurchaseType,
+    PurchaseWorkflowSettingsResponse,
+    PurchaseWorkflowSettingsWrite,
 )
 from app.purchase.services import PurchaseService
 from app.purchase.services.purchase_print_service import (
     PurchaseOrderPrintService,
 )
+from app.purchase.services.workflow_settings_service import PurchaseWorkflowService
 
 router = APIRouter(
     prefix="/api/v1/purchases",
@@ -95,6 +104,9 @@ PurchaseApproveScope = Annotated[
 ]
 PurchaseCancelScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PURCHASE_CANCEL")
+]
+PurchaseWorkflowSettingsScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("PURCHASE_MANAGE_SETTINGS")
 ]
 
 
@@ -173,7 +185,7 @@ def list_purchase_orders(
     )
     service = PurchaseService(db)
     return PaginatedResponse(
-        data=[service.order_response(item) for item in rows],
+        data=service.order_responses(rows),
         pagination=params.metadata(total),
     )
 
@@ -243,7 +255,7 @@ async def import_purchase_orders(
             firm_scope=scope.firm_id,
             actor_id=scope.actor_id,
         )
-        return ApiResponse(data=[service.order_response(item) for item in rows])
+        return ApiResponse(data=service.order_responses(rows))
     if file is None:
         raise ValidationError("file is required for CSV/XLSX import.")
     content = await file.read()
@@ -256,7 +268,7 @@ async def import_purchase_orders(
             content, firm_scope=scope.firm_id, actor_id=scope.actor_id
         )
     )
-    return ApiResponse(data=[service.order_response(item) for item in rows])
+    return ApiResponse(data=service.order_responses(rows))
 
 
 @router.get("/export")
@@ -412,6 +424,88 @@ def purchase_orders_by_product(
     window = ReportWindow(from_date, to_date, page, page_size)
     return window.respond(
         PurchaseService(db).by_product_report(firm_scope=scope.firm_id, window=window)
+    )
+
+
+# Both declared above `/{order_id}`: FastAPI matches in declaration order, and
+# below it "workflow-settings" is read as an order id and answered 422.
+@router.get(
+    "/workflow-settings",
+    response_model=ApiResponse[PurchaseWorkflowSettingsResponse],
+)
+def get_purchase_workflow_settings(
+    scope: PurchaseViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PurchaseWorkflowSettingsResponse]:
+    """Report which buying stages this firm fills in by hand."""
+    return ApiResponse(
+        data=PurchaseWorkflowService(db).settings_response(scope.firm_id)
+    )
+
+
+@router.put(
+    "/workflow-settings",
+    response_model=ApiResponse[PurchaseWorkflowSettingsResponse],
+)
+def update_purchase_workflow_settings(
+    data: PurchaseWorkflowSettingsWrite,
+    scope: PurchaseWorkflowSettingsScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PurchaseWorkflowSettingsResponse]:
+    """Replace which buying stages this firm fills in by hand."""
+    settings = PurchaseWorkflowService(db).update_settings(
+        data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=settings)
+
+
+@router.post("/bulk-approve", response_model=ApiResponse[BulkActionResult])
+def bulk_approve_purchase_orders(
+    data: BulkApproveRequest,
+    scope: PurchaseApproveScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BulkActionResult]:
+    """Approve the ticked submitted orders, each on its own (backlog 56 A).
+
+    Each goes through `approve_order` exactly as a single approval does, under
+    the same `PURCHASE_APPROVE`; a draft not yet submitted is refused with the
+    service's reason and the rest are approved.
+    """
+    service = PurchaseService(db)
+    return ApiResponse(
+        data=run_each(
+            db,
+            data.items,
+            load=lambda order_id: service.get_order(order_id, firm_scope=scope.firm_id),
+            act=lambda order_id: service.approve_order(
+                order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+            ),
+            number=lambda row: row.po_number,
+        )
+    )
+
+
+@router.post("/bulk-cancel", response_model=ApiResponse[BulkActionResult])
+def bulk_cancel_purchase_orders(
+    data: BulkCancelRequest,
+    scope: PurchaseCancelScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BulkActionResult]:
+    """Cancel the ticked orders with one reason, each on its own (backlog 56 A)."""
+    service = PurchaseService(db)
+    return ApiResponse(
+        data=run_each(
+            db,
+            data.items,
+            load=lambda order_id: service.get_order(order_id, firm_scope=scope.firm_id),
+            act=lambda order_id: service.cancel_order(
+                order_id,
+                firm_scope=scope.firm_id,
+                actor_id=scope.actor_id,
+                reason=data.reason,
+            ),
+            number=lambda row: row.po_number,
+        )
     )
 
 

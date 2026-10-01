@@ -2298,3 +2298,51 @@ def test_the_claims_register_takes_a_window_and_a_page() -> None:
     assert [row.redeemed_on for row in page.data] == [days[2]]
 
     assert_page_size_is_bounded(router, "/api/v1/promotions/reports/redemptions")
+
+
+def test_a_typed_zero_refuses_an_offers_free_goods_and_blank_takes_them() -> None:
+    """D-SELL-41: zero and blank are different answers, as for a discount.
+
+    The write schema defaulted ``free_quantity`` to zero, so a line that said
+    "no free goods" read as one that said nothing and the offer won anyway.
+    """
+    session = _session_factory()()
+    shop = _Shop(session)
+    _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="BUY2GET1",
+        actions=[
+            (
+                PromotionActionType.FREE_QUANTITY,
+                {"buy_quantity": "2", "free_quantity": "1"},
+            )
+        ],
+    )
+
+    def order(free: Decimal | None) -> SalesOrderLine:
+        """Raise one order for four, stating ``free`` or saying nothing."""
+        row = SalesOrderService(session).create_order(
+            SalesOrderCreate(
+                customer_id=shop.customer.id,
+                branch_id=shop.branch.id,
+                warehouse_id=shop.warehouse.id,
+                order_date=date(2026, 8, 4),
+                lines=[
+                    SalesOrderLineWrite(
+                        line_number=1,
+                        product_id=shop.product.id,
+                        quantity=Decimal("4"),
+                        unit_price=Decimal("250"),
+                        free_quantity=free,
+                    )
+                ],
+            ),
+            firm_id=shop.firm.id,
+            actor_id=uuid4(),
+        )
+        return shop.line_of(row)
+
+    assert order(None).free_quantity == Decimal("2.0000")
+    assert order(Decimal("0")).free_quantity == Decimal("0.0000")
+    assert order(Decimal("1")).free_quantity == Decimal("1.0000")

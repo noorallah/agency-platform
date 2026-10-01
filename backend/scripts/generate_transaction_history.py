@@ -257,6 +257,13 @@ RESET_ORDER: tuple[str, ...] = (
     # Expenses name the journals they posted, RESTRICT, so they go before the
     # journals below -- the next table to arrive with a feature (2026-09-27).
     "expenses",
+    # A supplier's opening bills are numbered from a series the reset puts
+    # back to one, and their allocations above point at them; their journals
+    # go with the journal entries below.
+    "vendor_opening_bills",
+    # And a customer's, the same way (backlog 36): numbered OBC- from a count
+    # the reset puts back to one, pointed at by the allocations above.
+    "customer_opening_bills",
     # Supplier credit set against a bill names both the purchase return and
     # the bill, RESTRICT each way (D-FIN-19).
     "supplier_credit_applications",

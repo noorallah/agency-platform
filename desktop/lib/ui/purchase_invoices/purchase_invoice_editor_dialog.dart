@@ -8,6 +8,8 @@ import '../../core/design/design_tokens.dart';
 import '../../models/entities.dart';
 import '../../models/goods_receipt.dart';
 import '../../models/product.dart';
+import '../../models/purchase.dart';
+import '../../models/vendor.dart';
 import '../../models/document_preview.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
@@ -17,13 +19,14 @@ part 'purchase_invoice_editor_phase2.dart';
 
 /// One line of a supplier bill, as it is being typed.
 ///
-/// A bill line always continues a receipt line -- the backend requires
-/// `source_document_line_id` -- so lines are seeded from the receipt being
-/// billed rather than typed. What the clerk supplies is how much of it this
-/// bill covers and, where the supplier's price differs from the order's, the
-/// price on the paper.
+/// A bill line continues a receipt line -- or, for a firm that types no
+/// receipts, an order line, whose receipt the bill raises -- so lines are
+/// seeded from the document being billed rather than typed. What the clerk
+/// supplies is how much of it this bill covers and, where the supplier's
+/// price differs from the order's, the price on the paper.
 class PurchaseInvoiceDraftLine {
   PurchaseInvoiceDraftLine({
+    this.sourceDocumentType = 'GOODS_RECEIPT',
     required this.sourceDocumentId,
     required this.sourceDocumentLineId,
     required this.lineNumber,
@@ -37,10 +40,14 @@ class PurchaseInvoiceDraftLine {
     required this.warehouseId,
     required this.batchNumber,
     required this.invoiceQuantity,
+    this.expiryDate = '',
     this.unitPrice = '',
     this.remarks = '',
   });
 
+  /// `GOODS_RECEIPT`, or `PURCHASE_ORDER` for a firm whose bill receives the
+  /// goods itself.
+  final String sourceDocumentType;
   final String sourceDocumentId;
   final String sourceDocumentLineId;
   final int lineNumber;
@@ -54,13 +61,19 @@ class PurchaseInvoiceDraftLine {
   final String purchaseUomId;
   final String taxProfileId;
   final String warehouseId;
-  final String batchNumber;
+
+  /// The receipt's batch and expiry, typed on the bill only where the bill
+  /// raises the receipt -- nobody else will see the goods arrive.
+  String batchNumber;
+  String expiryDate;
 
   String invoiceQuantity;
   String unitPrice;
   String remarks;
 
-  /// What the receipt still has to be billed for.
+  bool get billsAnOrder => sourceDocumentType == 'PURCHASE_ORDER';
+
+  /// What the receipt (or the order) still has to be billed for.
   double get outstanding {
     final double received = double.tryParse(receivedQuantity) ?? 0;
     final double invoiced = double.tryParse(alreadyInvoiced) ?? 0;
@@ -69,7 +82,7 @@ class PurchaseInvoiceDraftLine {
   }
 
   Json toJson() => {
-        'source_document_type': 'GOODS_RECEIPT',
+        'source_document_type': sourceDocumentType,
         'source_document_id': sourceDocumentId,
         'source_document_line_id': sourceDocumentLineId,
         'line_number': lineNumber,
@@ -88,9 +101,60 @@ class PurchaseInvoiceDraftLine {
         if (purchaseUomId.isNotEmpty) 'purchase_uom_id': purchaseUomId,
         if (purchaseUomId.isNotEmpty) 'invoice_uom_id': purchaseUomId,
         if (warehouseId.isNotEmpty) 'warehouse_id': warehouseId,
-        if (batchNumber.isNotEmpty) 'batch_number': batchNumber,
+        if (batchNumber.trim().isNotEmpty) 'batch_number': batchNumber.trim(),
+        if (billsAnOrder && expiryDate.trim().isNotEmpty)
+          'expiry_date': expiryDate.trim(),
         if (remarks.trim().isNotEmpty) 'remarks': remarks.trim(),
       };
+}
+
+/// One product line of a bill typed directly, by a firm that types neither
+/// orders nor receipts: the server raises both behind the bill.
+class PurchaseDirectLine {
+  String? productId;
+  String quantity = '';
+  String freeQuantity = '';
+  String unitPrice = '';
+  String discountPercent = '';
+  String batchNumber = '';
+  String expiryDate = '';
+  String remarks = '';
+
+  /// Bumped when a value is filled in for the user, so its box re-reads it.
+  int epoch = 0;
+
+  double get quantityValue => double.tryParse(quantity.trim()) ?? 0;
+
+  bool get sendable => (productId ?? '').isNotEmpty && quantityValue > 0;
+
+  Json toJson(int lineNumber) => {
+        'product_id': productId,
+        'line_number': lineNumber,
+        'current_invoice_quantity': quantity.trim(),
+        // Blank is left out, never sent as zero: silence takes the product's
+        // purchase price, zero says the supplier charged nothing.
+        if (unitPrice.trim().isNotEmpty) 'unit_price': unitPrice.trim(),
+        if (discountPercent.trim().isNotEmpty)
+          'discount_percent': discountPercent.trim(),
+        if (freeQuantity.trim().isNotEmpty)
+          'free_quantity': freeQuantity.trim(),
+        if (batchNumber.trim().isNotEmpty) 'batch_number': batchNumber.trim(),
+        if (expiryDate.trim().isNotEmpty) 'expiry_date': expiryDate.trim(),
+        if (remarks.trim().isNotEmpty) 'remarks': remarks.trim(),
+      };
+}
+
+/// What a bill is typed against, decided by the firm's buying stages.
+enum PurchaseBillMode {
+  /// The whole chain: a bill charges for a completed goods receipt.
+  receipt,
+
+  /// Orders typed, receipts not: the bill names an approved order and
+  /// receives what it charges for.
+  order,
+
+  /// Neither typed: the bill names products and raises both documents.
+  products,
 }
 
 /// Record the supplier's bill for goods a receipt brought in.
@@ -108,6 +172,9 @@ class PurchaseInvoiceEditorDialog extends StatefulWidget {
     required this.api,
     required this.receipts,
     required this.products,
+    this.stages = PurchaseWorkflowSettings.wholeChain,
+    this.orders = const [],
+    this.vendors = const [],
   });
 
   final ApiClient api;
@@ -115,6 +182,16 @@ class PurchaseInvoiceEditorDialog extends StatefulWidget {
   /// Completed goods receipts, which are what can be billed.
   final List<GoodsReceiptRecord> receipts;
   final List<Product> products;
+
+  /// Which buying stages this firm types, deciding what a bill names.
+  final PurchaseWorkflowSettings stages;
+
+  /// Approved orders still to be received, for a firm that types no
+  /// receipts.
+  final List<PurchaseOrder> orders;
+
+  /// Suppliers, for a bill typed directly.
+  final List<Vendor> vendors;
 
   @override
   State<PurchaseInvoiceEditorDialog> createState() =>
@@ -124,6 +201,14 @@ class PurchaseInvoiceEditorDialog extends StatefulWidget {
 class _PurchaseInvoiceEditorDialogState
     extends State<PurchaseInvoiceEditorDialog> {
   GoodsReceiptRecord? _receipt;
+
+  /// Further receipts of the same supplier and branch billed on this one
+  /// paper (D-BUY-18). [_receipt] stays the primary one; every line of every
+  /// receipt is in [_lines].
+  List<GoodsReceiptRecord> _extraReceipts = const [];
+  PurchaseOrder? _order;
+  String? _vendorId;
+  final List<PurchaseDirectLine> _directLines = [PurchaseDirectLine()];
   List<PurchaseInvoiceDraftLine> _lines = const [];
   String _invoiceDate = _today();
   String _supplierInvoiceNumber = '';
@@ -147,6 +232,24 @@ class _PurchaseInvoiceEditorDialogState
 
   void _setState(VoidCallback change) => setState(change);
 
+  /// Receipts on is the whole chain; the server refuses receipts on with
+  /// orders off, so the two switches name exactly three modes.
+  PurchaseBillMode get _mode => widget.stages.goodsReceiptStage
+      ? PurchaseBillMode.receipt
+      : widget.stages.purchaseOrderStage
+          ? PurchaseBillMode.order
+          : PurchaseBillMode.products;
+
+  bool get _direct => _mode == PurchaseBillMode.products;
+
+  /// Whether the document being billed -- or, typed directly, the supplier
+  /// -- has been chosen.
+  bool get _hasSource => switch (_mode) {
+        PurchaseBillMode.receipt => _receipt != null,
+        PurchaseBillMode.order => _order != null,
+        PurchaseBillMode.products => _vendorId != null,
+      };
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -165,7 +268,7 @@ class _PurchaseInvoiceEditorDialogState
     if (!_phase2) return;
     _previewTimer?.cancel();
     _previewTimer = Timer(const Duration(milliseconds: 350), () async {
-      if (_receipt == null || _sendableLines().isEmpty) return;
+      if (!_hasSource || !_hasSomethingToBill) return;
       final int serial = ++_previewSerial;
       try {
         final PurchaseInvoicePreviewRecord priced =
@@ -191,6 +294,9 @@ class _PurchaseInvoiceEditorDialogState
   Future<void> _selectReceipt(GoodsReceiptRecord receipt) async {
     setState(() {
       _receipt = receipt;
+      // A different primary receipt is a different bill: the receipts added
+      // beside the last one do not follow it.
+      _extraReceipts = const [];
       _loadingLines = true;
       _error = null;
     });
@@ -208,6 +314,131 @@ class _PurchaseInvoiceEditorDialogState
       ];
       _loadingLines = false;
     });
+  }
+
+  /// Receipts the bill could also take: completed, of the same supplier and
+  /// branch as the first, and not already on it. The server refuses a bill
+  /// whose sources differ in either, so they are not offered.
+  List<GoodsReceiptRecord> get _alsoBillable {
+    final GoodsReceiptRecord? first = _receipt;
+    if (first == null) return const [];
+    return [
+      for (final GoodsReceiptRecord item in widget.receipts)
+        if (item.id != first.id &&
+            item.vendorId == first.vendorId &&
+            item.branchId == first.branchId &&
+            !_extraReceipts.any((row) => row.id == item.id))
+          item,
+    ];
+  }
+
+  /// The receipt number a line belongs to, for telling apart the lines of
+  /// several receipts.
+  String _grnOf(String receiptId) {
+    if (_receipt?.id == receiptId) return _receipt!.grnNumber;
+    for (final GoodsReceiptRecord item in _extraReceipts) {
+      if (item.id == receiptId) return item.grnNumber;
+    }
+    return '';
+  }
+
+  /// Put another receipt's lines on the bill, at what each still has to be
+  /// billed for.
+  Future<void> _addReceipt(GoodsReceiptRecord receipt) async {
+    if (_receipt == null || _extraReceipts.any((r) => r.id == receipt.id)) {
+      return;
+    }
+    setState(() {
+      _loadingLines = true;
+      _error = null;
+    });
+    final Map<String, double> invoiced = await _invoicedByLine();
+    if (!mounted) return;
+    setState(() {
+      _extraReceipts = [..._extraReceipts, receipt];
+      _lines = [
+        ..._lines,
+        for (int index = 0; index < receipt.lines.length; index++)
+          _draftLine(
+            receipt,
+            receipt.lines[index],
+            _lines.length + index + 1,
+            invoiced[receipt.lines[index].id] ?? 0,
+          ),
+      ];
+      _loadingLines = false;
+    });
+  }
+
+  /// Take an added receipt's lines back off the bill.
+  void _removeReceipt(String receiptId) {
+    setState(() {
+      _extraReceipts = [
+        for (final GoodsReceiptRecord item in _extraReceipts)
+          if (item.id != receiptId) item,
+      ];
+      _lines = [
+        for (final PurchaseInvoiceDraftLine line in _lines)
+          if (line.sourceDocumentId != receiptId) line,
+      ];
+      if (_current >= _lines.length) _current = 0;
+    });
+  }
+
+  /// Seed the lines from an approved order, at what is still to arrive.
+  ///
+  /// What has arrived is summed from the completed receipts against each
+  /// order line; the server refuses a bill past the order either way.
+  void _selectOrder(PurchaseOrder order) {
+    final Map<String, double> received = <String, double>{};
+    for (final GoodsReceiptRecord receipt in widget.receipts) {
+      if (receipt.purchaseOrderId != order.id) continue;
+      for (final GoodsReceiptLine line in receipt.lines) {
+        received[line.purchaseOrderLineId] =
+            (received[line.purchaseOrderLineId] ?? 0) +
+                (double.tryParse(line.acceptedQuantity) ?? 0);
+      }
+    }
+    setState(() {
+      _order = order;
+      _error = null;
+      _lines = [
+        for (int index = 0; index < order.lines.length; index++)
+          _orderLine(
+            order,
+            order.lines[index],
+            index + 1,
+            received[order.lines[index].id] ?? 0,
+          ),
+      ];
+    });
+  }
+
+  PurchaseInvoiceDraftLine _orderLine(
+    PurchaseOrder order,
+    PurchaseOrderLine line,
+    int lineNumber,
+    double received,
+  ) {
+    final PurchaseInvoiceDraftLine draft = PurchaseInvoiceDraftLine(
+      sourceDocumentType: 'PURCHASE_ORDER',
+      sourceDocumentId: order.id,
+      sourceDocumentLineId: line.id,
+      lineNumber: lineNumber,
+      productId: line.productId,
+      description: line.description,
+      receivedQuantity: line.orderedQuantity,
+      alreadyInvoiced: _trim(received),
+      receiptUnitPrice: line.unitPrice,
+      purchaseUomId: line.purchaseUomId,
+      taxProfileId: line.taxProfileId,
+      warehouseId: line.warehouseId,
+      batchNumber: '',
+      expiryDate: line.expiryDate,
+      invoiceQuantity: '0',
+    );
+    draft.invoiceQuantity = _trim(draft.outstanding);
+    return draft;
   }
 
   /// Sum what live bills already charge against each receipt line.
@@ -239,13 +470,13 @@ class _PurchaseInvoiceEditorDialogState
         if (stringValue(row['status']).trim().toUpperCase() == 'CANCELLED') {
           continue;
         }
-        for (final dynamic line in (row['lines'] as List<dynamic>? ?? const [])) {
+        for (final dynamic line
+            in (row['lines'] as List<dynamic>? ?? const [])) {
           if (line is! Map) continue;
           final String id = stringValue(line['source_document_line_id']);
           if (id.isEmpty) continue;
           invoiced[id] = (invoiced[id] ?? 0) +
-              (double.tryParse(
-                      stringValue(line['current_invoice_quantity'])) ??
+              (double.tryParse(stringValue(line['current_invoice_quantity'])) ??
                   0);
         }
       }
@@ -289,8 +520,22 @@ class _PurchaseInvoiceEditorDialogState
           if ((double.tryParse(line.invoiceQuantity) ?? 0) > 0) line,
       ];
 
+  List<PurchaseDirectLine> _sendableDirect() => [
+        for (final PurchaseDirectLine line in _directLines)
+          if (line.sendable) line,
+      ];
+
+  bool get _hasSomethingToBill =>
+      _direct ? _sendableDirect().isNotEmpty : _sendableLines().isNotEmpty;
+
   String? _validation() {
-    if (_receipt == null) return 'Choose the goods receipt being billed.';
+    if (!_hasSource) {
+      return switch (_mode) {
+        PurchaseBillMode.receipt => 'Choose the goods receipt being billed.',
+        PurchaseBillMode.order => 'Choose the purchase order being billed.',
+        PurchaseBillMode.products => 'Choose the supplier.',
+      };
+    }
     if (_supplierInvoiceNumber.trim().isEmpty) {
       return "Enter the supplier's invoice number.";
     }
@@ -298,6 +543,7 @@ class _PurchaseInvoiceEditorDialogState
       return "Enter the supplier's invoice date.";
     }
     if (_invoiceDate.trim().isEmpty) return 'Enter the invoice date.';
+    if (_direct) return _directValidation();
     final List<PurchaseInvoiceDraftLine> sending = _sendableLines();
     if (sending.isEmpty) {
       return 'Enter a quantity on at least one line.';
@@ -305,8 +551,9 @@ class _PurchaseInvoiceEditorDialogState
     for (final PurchaseInvoiceDraftLine line in sending) {
       final double billing = double.tryParse(line.invoiceQuantity) ?? 0;
       if (billing > line.outstanding) {
-        return 'Line ${line.lineNumber}: quantity exceeds what the receipt '
-            'still has to be billed for (${_trim(line.outstanding)}).';
+        return 'Line ${line.lineNumber}: quantity exceeds what the '
+            '${line.billsAnOrder ? 'order still has to receive' : 'receipt still has to be billed for'}'
+            ' (${_trim(line.outstanding)}).';
       }
       final String price = line.unitPrice.trim();
       if (price.isNotEmpty && (double.tryParse(price) ?? -1) < 0) {
@@ -317,28 +564,86 @@ class _PurchaseInvoiceEditorDialogState
     return null;
   }
 
+  String? _directValidation() {
+    if (_sendableDirect().isEmpty) return 'Add a product with a quantity.';
+    for (int index = 0; index < _directLines.length; index++) {
+      final PurchaseDirectLine line = _directLines[index];
+      if (!line.sendable) continue;
+      for (final (String name, String value) in [
+        ('rate', line.unitPrice),
+        ('free quantity', line.freeQuantity),
+        ('discount', line.discountPercent),
+      ]) {
+        if (value.trim().isNotEmpty &&
+            (double.tryParse(value.trim()) ?? -1) < 0) {
+          return 'Line ${index + 1}: the $name must be a number of zero or '
+              'more, or blank.';
+        }
+      }
+      if ((double.tryParse(line.discountPercent.trim()) ?? 0) > 100) {
+        return 'Line ${index + 1}: a discount cannot be more than 100%.';
+      }
+      final Product? product = _productById(line.productId);
+      if (product != null &&
+          product.trackBatch &&
+          line.batchNumber.trim().isEmpty) {
+        return 'Line ${index + 1}: ${product.name} is tracked by batch; '
+            'enter the batch number from the bill.';
+      }
+      if (product != null &&
+          product.trackExpiry &&
+          line.expiryDate.trim().isEmpty) {
+        return 'Line ${index + 1}: ${product.name} is tracked by expiry; '
+            'enter the expiry date from the bill.';
+      }
+    }
+    return null;
+  }
+
+  Product? _productById(String? id) {
+    for (final Product item in widget.products) {
+      if (item.id == id) return item;
+    }
+    return null;
+  }
+
   /// The bill as the server is sent it. Priced before the supplier's number
   /// is typed, a placeholder stands in: the number changes no figure.
   Json _payload({bool pricing = false}) {
     final List<PurchaseInvoiceDraftLine> sending = _sendableLines();
     final String supplierNumber = _supplierInvoiceNumber.trim();
-    // No vendor or branch: the server takes both from the receipt, and a
-    // copy sent from here is one more thing that can disagree with it.
+    final List<PurchaseDirectLine> direct = _sendableDirect();
+    // No vendor or branch for a receipt or an order: the server takes both
+    // from the document, and a copy sent from here is one more thing that can
+    // disagree with it. A bill of products names its supplier; its branch is
+    // the firm's default, as the stage settings say.
     return {
+      if (_direct) 'vendor_id': _vendorId,
       'invoice_date': _invoiceDate.trim(),
       'supplier_invoice_number':
           pricing && supplierNumber.isEmpty ? '-' : supplierNumber,
       'supplier_invoice_date': _supplierInvoiceDate.trim(),
       if (_remarks.trim().isNotEmpty) 'remarks': _remarks.trim(),
-      'source_documents': [
-        {
-          'source_document_type': 'GOODS_RECEIPT',
-          'source_document_id': _receipt!.id,
-        }
-      ],
+      // An order or a list of products raises its own receipt, which the
+      // server records as the source; only a typed receipt is named here.
+      if (_mode == PurchaseBillMode.receipt)
+        'source_documents': [
+          for (final GoodsReceiptRecord item in [
+            _receipt!,
+            ..._extraReceipts,
+          ])
+            {
+              'source_document_type': 'GOODS_RECEIPT',
+              'source_document_id': item.id,
+            }
+        ],
       'lines': [
-        for (int index = 0; index < sending.length; index++)
-          {...sending[index].toJson(), 'line_number': index + 1},
+        if (_direct)
+          for (int index = 0; index < direct.length; index++)
+            direct[index].toJson(index + 1)
+        else
+          for (int index = 0; index < sending.length; index++)
+            {...sending[index].toJson(), 'line_number': index + 1},
       ],
     };
   }
@@ -372,80 +677,80 @@ class _PurchaseInvoiceEditorDialogState
       // Phase 2: the one-screen bill (the documents' approved layout).
       ? _phase2Page(context)
       : WorkspaceDialog(
-        title: 'New Purchase Invoice',
-        subtitle: _receipt == null
-            ? 'Choose the goods receipt being billed'
-            : 'Against ${_receipt!.grnNumber}',
-        icon: Icons.request_quote_outlined,
-        loading: _saving || _loadingLines,
-        onClose: _saving ? null : () => Navigator.pop(context),
-        onSave: _saving ? null : _save,
-        footer: Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              TextButton(
-                onPressed: _saving ? null : () => Navigator.pop(context),
-                child: const Text('Cancel'),
-              ),
-              const SizedBox(width: AppSpacing.md),
-              FilledButton.icon(
-                onPressed: _saving ? null : _save,
-                icon: const Icon(Icons.save_outlined),
-                label: const Text('Save Invoice'),
-              ),
-            ],
-          ),
-        ),
-        body: SingleChildScrollView(
-          padding: const EdgeInsets.all(AppSpacing.xl),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (_error != null) ...[
-                MaterialBanner(
-                  content: Text(_error!),
-                  actions: [
-                    TextButton(
-                      onPressed: () => setState(() => _error = null),
-                      child: const Text('Dismiss'),
-                    ),
-                  ],
+          title: 'New Purchase Invoice',
+          subtitle: _receipt == null
+              ? 'Choose the goods receipt being billed'
+              : 'Against ${_receipt!.grnNumber}',
+          icon: Icons.request_quote_outlined,
+          loading: _saving || _loadingLines,
+          onClose: _saving ? null : () => Navigator.pop(context),
+          onSave: _saving ? null : _save,
+          footer: Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: _saving ? null : () => Navigator.pop(context),
+                  child: const Text('Cancel'),
                 ),
-                const SizedBox(height: AppSpacing.lg),
+                const SizedBox(width: AppSpacing.md),
+                FilledButton.icon(
+                  onPressed: _saving ? null : _save,
+                  icon: const Icon(Icons.save_outlined),
+                  label: const Text('Save Invoice'),
+                ),
               ],
-              const SectionHeader(
-                title: 'Supplier Bill',
-                description:
-                    'Which delivery is being billed, and what the supplier '
-                    'wrote on the bill.',
-              ),
-              const SizedBox(height: AppSpacing.md),
-              _headerFields(),
-              const SizedBox(height: AppSpacing.xl),
-              SectionHeader(
-                title: 'Items Billed',
-                description: _receipt == null
-                    ? 'Lines appear once a goods receipt is chosen.'
-                    : 'Lines come from the receipt, at what it still has to '
-                        'be billed for. A blank price takes the receipt '
-                        'price; type one only where the bill differs.',
-              ),
-              const SizedBox(height: AppSpacing.md),
-              if (_receipt == null)
-                const StandardEmptyState(
-                  type: EmptyStateType.noRecords,
-                  title: 'No goods receipt chosen',
-                  message: 'A bill charges for what a receipt brought in, so '
-                      'pick the receipt above.',
-                )
-              else
-                ..._lineCards(),
-            ],
+            ),
           ),
-        ),
-      );
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(AppSpacing.xl),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (_error != null) ...[
+                  MaterialBanner(
+                    content: Text(_error!),
+                    actions: [
+                      TextButton(
+                        onPressed: () => setState(() => _error = null),
+                        child: const Text('Dismiss'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                ],
+                const SectionHeader(
+                  title: 'Supplier Bill',
+                  description:
+                      'Which delivery is being billed, and what the supplier '
+                      'wrote on the bill.',
+                ),
+                const SizedBox(height: AppSpacing.md),
+                _headerFields(),
+                const SizedBox(height: AppSpacing.xl),
+                SectionHeader(
+                  title: 'Items Billed',
+                  description: _receipt == null
+                      ? 'Lines appear once a goods receipt is chosen.'
+                      : 'Lines come from the receipt, at what it still has to '
+                          'be billed for. A blank price takes the receipt '
+                          'price; type one only where the bill differs.',
+                ),
+                const SizedBox(height: AppSpacing.md),
+                if (_receipt == null)
+                  const StandardEmptyState(
+                    type: EmptyStateType.noRecords,
+                    title: 'No goods receipt chosen',
+                    message: 'A bill charges for what a receipt brought in, so '
+                        'pick the receipt above.',
+                  )
+                else
+                  ..._lineCards(),
+              ],
+            ),
+          ),
+        );
 
   Widget _headerFields() => Wrap(
         spacing: AppSpacing.lg,
@@ -479,8 +784,11 @@ class _PurchaseInvoiceEditorDialogState
                     },
             ),
           ),
-          _text('Supplier Invoice Number *', _supplierInvoiceNumber,
-              (value) => _supplierInvoiceNumber = value, 'As printed on the bill'),
+          _text(
+              'Supplier Invoice Number *',
+              _supplierInvoiceNumber,
+              (value) => _supplierInvoiceNumber = value,
+              'As printed on the bill'),
           _text('Supplier Invoice Date *', _supplierInvoiceDate,
               (value) => _supplierInvoiceDate = value, 'YYYY-MM-DD'),
           _text('Invoice Date *', _invoiceDate, (value) => _invoiceDate = value,

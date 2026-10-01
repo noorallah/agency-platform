@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -23,9 +24,11 @@ from app.common.report_names import (
     vendors_matching,
     warehouse_names,
 )
+from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
+from app.core.utils.pricing import inherited_share
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentTypeDefinition,
@@ -74,6 +77,10 @@ from app.purchase_invoice.schemas import PurchaseInvoiceStatus
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
+from app.trade_licences.services.licence_check import (
+    LicenceCheckService,
+    LicenceDocument,
+)
 from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService, assert_quantity_fits_unit
 from app.vendors.models import Vendor
@@ -198,49 +205,60 @@ class GoodsReceiptService(TransactionalDocumentService):
         return list(rows), int(self._session.scalar(count) or 0)
 
     def summary(self, *, firm_scope: UUID) -> GoodsReceiptSummary:
-        """Summarize ."""
-        receipts = list(
-            self._session.scalars(
-                select(GoodsReceipt).where(
+        """Summarize goods receipts for the visible firm scope.
+
+        Counted and summed in SQL, one row per status, rather than loading every
+        receipt the firm ever raised (backlog 56 C).
+        """
+        by_status: dict[str, tuple[int, Decimal]] = {
+            status: (int(count), Decimal(str(total)))
+            for status, count, total in self._session.execute(
+                select(
+                    GoodsReceipt.status,
+                    func.count(),
+                    func.coalesce(func.sum(GoodsReceipt.grand_total), 0),
+                )
+                .where(
                     GoodsReceipt.firm_id == firm_scope,
                     GoodsReceipt.is_deleted.is_(False),
                 )
+                .group_by(GoodsReceipt.status)
             ).all()
+        }
+
+        def count(status: GoodsReceiptStatus) -> int:
+            """Return how many documents are in one status."""
+            return by_status.get(status.value, (0, ZERO))[0]
+
+        live = (
+            GoodsReceipt.firm_id == firm_scope,
+            GoodsReceipt.is_deleted.is_(False),
         )
-        pending_po_count = len(
-            {
-                row.purchase_order_id
-                for row in receipts
-                if row.status == GoodsReceiptStatus.DRAFT.value
-            }
+        pending_po_count = int(
+            self._session.scalar(
+                select(func.count(func.distinct(GoodsReceipt.purchase_order_id))).where(
+                    *live, GoodsReceipt.status == GoodsReceiptStatus.DRAFT.value
+                )
+            )
+            or 0
         )
-        partial_po_count = len(
-            {
-                row.purchase_order_id
-                for row in receipts
-                if row.total_current_receipt_quantity > 0
-                and row.status != GoodsReceiptStatus.CANCELLED.value
-            }
+        partial_po_count = int(
+            self._session.scalar(
+                select(func.count(func.distinct(GoodsReceipt.purchase_order_id))).where(
+                    *live,
+                    GoodsReceipt.total_current_receipt_quantity > 0,
+                    GoodsReceipt.status != GoodsReceiptStatus.CANCELLED.value,
+                )
+            )
+            or 0
         )
         return GoodsReceiptSummary(
-            total=len(receipts),
-            draft=sum(
-                1 for row in receipts if row.status == GoodsReceiptStatus.DRAFT.value
-            ),
-            completed=sum(
-                1
-                for row in receipts
-                if row.status == GoodsReceiptStatus.COMPLETED.value
-            ),
-            cancelled=sum(
-                1
-                for row in receipts
-                if row.status == GoodsReceiptStatus.CANCELLED.value
-            ),
-            closed=sum(
-                1 for row in receipts if row.status == GoodsReceiptStatus.CLOSED.value
-            ),
-            total_value=self._q(sum((row.grand_total for row in receipts), ZERO)),
+            total=sum(number for number, _ in by_status.values()),
+            draft=count(GoodsReceiptStatus.DRAFT),
+            completed=count(GoodsReceiptStatus.COMPLETED),
+            cancelled=count(GoodsReceiptStatus.CANCELLED),
+            closed=count(GoodsReceiptStatus.CLOSED),
+            total_value=self._q(sum((value for _, value in by_status.values()), ZERO)),
             pending_purchase_orders=pending_po_count,
             partial_purchase_orders=partial_po_count,
         )
@@ -248,7 +266,15 @@ class GoodsReceiptService(TransactionalDocumentService):
     def create_receipt(
         self, data: GoodsReceiptCreate, *, firm_id: UUID, actor_id: UUID
     ) -> GoodsReceipt:
-        """Create receipt."""
+        """Create receipt and commit."""
+        row = self.stage_receipt(data, firm_id=firm_id, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def stage_receipt(
+        self, data: GoodsReceiptCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> GoodsReceipt:
+        """Build one receipt as a draft without committing it."""
         assert_feature_fields(
             self._session,
             firm_id,
@@ -323,7 +349,6 @@ class GoodsReceiptService(TransactionalDocumentService):
             after_data={"grn_number": row.grn_number, "status": row.status},
         )
         self._flush_or_conflict("Goods receipt number already exists in this firm.")
-        self._session.commit()
         return row
 
     def update_receipt(
@@ -391,7 +416,15 @@ class GoodsReceiptService(TransactionalDocumentService):
     def complete_receipt(
         self, receipt_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> GoodsReceipt:
-        """Complete receipt."""
+        """Complete receipt and commit."""
+        row = self.stage_complete(receipt_id, firm_scope=firm_scope, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def stage_complete(
+        self, receipt_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> GoodsReceipt:
+        """Complete receipt -- stock in, accrual posted -- without committing."""
         row = self.get_receipt(receipt_id, firm_scope=firm_scope)
         if row.status == GoodsReceiptStatus.COMPLETED.value:
             return row
@@ -412,6 +445,10 @@ class GoodsReceiptService(TransactionalDocumentService):
         self._validate_lines(
             row, purchase_order=purchase_order, previous_map=previous_map
         )
+        # Warns only: the goods are on the dock whatever it says (backlog 54).
+        licence_remark, licence_details = LicenceCheckService(
+            self._session
+        ).approve_purchase(LicenceDocument.GOODS_RECEIPT, row.id, firm_id=firm_scope)
         self._post_inventory(row, purchase_order=purchase_order, actor_id=actor_id)
         before = row.status
         row.status = GoodsReceiptStatus.COMPLETED.value
@@ -430,6 +467,8 @@ class GoodsReceiptService(TransactionalDocumentService):
             from_state=before,
             to_state=row.status,
             actor_id=actor_id,
+            remarks=licence_remark,
+            details=licence_details,
         )
         record_audit(
             self._session,
@@ -441,13 +480,23 @@ class GoodsReceiptService(TransactionalDocumentService):
             before_data={"status": before},
             after_data={"status": row.status},
         )
-        self._session.commit()
+        self._session.flush()
         return row
 
     def cancel_receipt(
         self, receipt_id: UUID, *, firm_scope: UUID, actor_id: UUID, reason: str | None
     ) -> GoodsReceipt:
-        """Cancel receipt."""
+        """Cancel receipt and commit."""
+        row = self.stage_cancel(
+            receipt_id, firm_scope=firm_scope, actor_id=actor_id, reason=reason
+        )
+        self._session.commit()
+        return row
+
+    def stage_cancel(
+        self, receipt_id: UUID, *, firm_scope: UUID, actor_id: UUID, reason: str | None
+    ) -> GoodsReceipt:
+        """Cancel receipt without committing."""
         row = self.get_receipt(receipt_id, firm_scope=firm_scope)
         if row.status in {
             GoodsReceiptStatus.CANCELLED.value,
@@ -507,7 +556,7 @@ class GoodsReceiptService(TransactionalDocumentService):
                 "reversed_inventory_lines": reversed_lines,
             },
         )
-        self._session.commit()
+        self._session.flush()
         return row
 
     def _receipt_unit_cost(self, line: GoodsReceiptLine) -> Decimal:
@@ -749,32 +798,71 @@ class GoodsReceiptService(TransactionalDocumentService):
 
     def receipt_response(self, row: GoodsReceipt) -> GoodsReceiptResponse:
         """Return response."""
-        lines = list(
-            self._session.scalars(
-                select(GoodsReceiptLine)
-                .where(
-                    GoodsReceiptLine.goods_receipt_id == row.id,
-                    GoodsReceiptLine.is_deleted.is_(False),
-                )
-                .order_by(GoodsReceiptLine.line_number.asc())
-            ).all()
+        return self.receipt_responses([row])[0]
+
+    def receipt_responses(
+        self, rows: Sequence[GoodsReceipt]
+    ) -> list[GoodsReceiptResponse]:
+        """Render a page of receipts, reading each child table once.
+
+        One query per child table for the whole page, grouped by receipt in
+        Python, rather than five per receipt (backlog 56 C, step 3). The
+        single-receipt builder is this with a list of one.
+        """
+        if not rows:
+            return []
+        ids = [row.id for row in rows]
+        lines = children_by_parent(
+            self._session,
+            GoodsReceiptLine,
+            GoodsReceiptLine.goods_receipt_id,
+            ids,
+            GoodsReceiptLine.line_number.asc(),
         )
-        attachments = list(
-            self._session.scalars(
-                select(GoodsReceiptAttachment).where(
-                    GoodsReceiptAttachment.goods_receipt_id == row.id,
-                    GoodsReceiptAttachment.is_deleted.is_(False),
-                )
-            ).all()
+        attachments = children_by_parent(
+            self._session,
+            GoodsReceiptAttachment,
+            GoodsReceiptAttachment.goods_receipt_id,
+            ids,
         )
-        notes = list(
-            self._session.scalars(
-                select(GoodsReceiptNote).where(
-                    GoodsReceiptNote.goods_receipt_id == row.id,
-                    GoodsReceiptNote.is_deleted.is_(False),
-                )
-            ).all()
+        notes = children_by_parent(
+            self._session,
+            GoodsReceiptNote,
+            GoodsReceiptNote.goods_receipt_id,
+            ids,
         )
+        warnings = self._duplicate_warnings(rows)
+        vendors = {
+            found[0]: (found[1], found[2])
+            for found in self._session.execute(
+                select(Vendor.id, Vendor.display_name, Vendor.code).where(
+                    Vendor.id.in_({row.vendor_id for row in rows})
+                )
+            )
+        }
+        return [
+            self._receipt_response(
+                row,
+                lines=lines[row.id],
+                attachments=attachments[row.id],
+                notes=notes[row.id],
+                warning=warnings.get(row.id),
+                vendor=vendors.get(row.vendor_id),
+            )
+            for row in rows
+        ]
+
+    def _receipt_response(
+        self,
+        row: GoodsReceipt,
+        *,
+        lines: list[GoodsReceiptLine],
+        attachments: list[GoodsReceiptAttachment],
+        notes: list[GoodsReceiptNote],
+        warning: str | None,
+        vendor: tuple[str, str] | None,
+    ) -> GoodsReceiptResponse:
+        """Build one receipt's response from what the page already read."""
         payload = GoodsReceiptResponse.model_validate(row).model_dump(mode="python")
         payload["lines"] = [
             GoodsReceiptLineResponse.model_validate(item).model_dump(mode="python")
@@ -790,10 +878,9 @@ class GoodsReceiptService(TransactionalDocumentService):
             GoodsReceiptNoteResponse.model_validate(item).model_dump(mode="python")
             for item in notes
         ]
-        payload["duplicate_warning"] = self._duplicate_warning(row)
-        vendor = self._session.get(Vendor, row.vendor_id)
-        payload["vendor_name"] = vendor.display_name if vendor else ""
-        payload["vendor_code"] = vendor.code if vendor else ""
+        payload["duplicate_warning"] = warning
+        payload["vendor_name"] = vendor[0] if vendor else ""
+        payload["vendor_code"] = vendor[1] if vendor else ""
         return GoodsReceiptResponse.model_validate(payload)
 
     def receipt_history(
@@ -1199,7 +1286,18 @@ class GoodsReceiptService(TransactionalDocumentService):
             )
             if discount_amount > gross_amount:
                 raise ValidationError("Discount cannot exceed the line amount.")
-            line_subtotal = self._q(gross_amount - discount_amount)
+            # The order line's share of the whole-order discount, for the part
+            # of it received, comes off before tax as it did on the order; the
+            # stock is valued without it otherwise (D-BUY-19).
+            bill_share = min(
+                inherited_share(
+                    purchase_line.bill_discount_amount,
+                    part=accepted,
+                    whole=ordered_quantity,
+                ),
+                self._q(gross_amount - discount_amount),
+            )
+            line_subtotal = self._q(gross_amount - discount_amount - bill_share)
             tax_amount = self._line_tax_amount(
                 document_id=receipt.id,
                 line_number=line.line_number,
@@ -1228,6 +1326,7 @@ class GoodsReceiptService(TransactionalDocumentService):
                 unit_price=unit_price,
                 discount_percent=self._q(line.discount_percent),
                 discount_amount=discount_amount,
+                bill_discount_amount=bill_share,
                 gross_amount=gross_amount,
                 tax_profile_id=line.tax_profile_id or purchase_line.tax_profile_id,
                 tax_amount=tax_amount,
@@ -1635,6 +1734,35 @@ class GoodsReceiptService(TransactionalDocumentService):
         return {
             row[0]: self._q(row[1] or 0)
             for row in self._session.execute(statement).all()
+        }
+
+    def _duplicate_warnings(self, rows: Sequence[GoodsReceipt]) -> dict[UUID, str]:
+        """Answer `_duplicate_warning` for a page of receipts in one query."""
+        holders: dict[tuple[object, ...], set[UUID]] = defaultdict(set)
+        for found in self._session.execute(
+            select(
+                GoodsReceipt.id,
+                GoodsReceipt.firm_id,
+                GoodsReceipt.purchase_order_id,
+                GoodsReceipt.receipt_date,
+            ).where(
+                GoodsReceipt.firm_id.in_({row.firm_id for row in rows}),
+                GoodsReceipt.receipt_date.in_({row.receipt_date for row in rows}),
+                GoodsReceipt.status == GoodsReceiptStatus.COMPLETED.value,
+                GoodsReceipt.is_deleted.is_(False),
+            )
+        ):
+            holders[tuple(found[1:])].add(found[0])
+        return {
+            row.id: (
+                "A completed receipt already exists for the same purchase order "
+                "and date."
+            )
+            for row in rows
+            if holders.get(
+                (row.firm_id, row.purchase_order_id, row.receipt_date), set()
+            )
+            - {row.id}
         }
 
     def _duplicate_warning(self, row: GoodsReceipt) -> str | None:

@@ -7,16 +7,21 @@ from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.business.schemas import AttributeValueResponse
+from app.common.file_import import (
+    ImportReportResponse,
+    file_format_of,
+    report_response,
+)
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
-from app.core.exceptions import ValidationError
+from app.core.exceptions import AuthorizationError, ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
@@ -33,9 +38,7 @@ from app.customers.schemas import (
     CustomerGroupWrite,
     CustomerImportRequest,
     CustomerReceivableSummary,
-    CustomerReceivableTransactionCreate,
     CustomerReceivableTransactionResponse,
-    CustomerReceivableTransactionType,
     CustomerResponse,
     CustomerStatement,
     CustomerSummary,
@@ -46,13 +49,24 @@ from app.customers.schemas.customer import (
     CustomerStatus,
     CustomerType,
 )
+from app.customers.schemas.opening_bill import (
+    CustomerOpeningBillCancel,
+    CustomerOpeningBillImportRequest,
+    CustomerOpeningBillResponse,
+    CustomerOpeningBillWrite,
+)
 from app.customers.services import (
     CreditControlService,
     CustomerGroupService,
     CustomerService,
     CustomerStatementService,
 )
-from app.finance.services.document_posting import DocumentPostingService
+from app.customers.services.customer_import import (
+    CustomerFileImporter,
+    template_csv,
+    template_workbook,
+)
+from app.customers.services.opening_bill_service import CustomerOpeningBillService
 
 router = APIRouter(
     prefix="/api/v1/customers",
@@ -298,6 +312,156 @@ def import_customers(
         ),
     )
     return ApiResponse(data=_responses(customers, db))
+
+
+def _firm(scope: ResolvedFirmScope) -> UUID:
+    """Return the firm a customer's opening bills belong to, or refuse."""
+    if scope.firm_id is None:
+        raise ValidationError("X-Firm-ID is required for a customer's opening bills.")
+    return scope.firm_id
+
+
+# Opening bills: what each customer owed the firm on its first day here, bill
+# by bill. The literal paths come before `/{customer_id}`, for the reason
+# given at `/ageing` below.
+@router.post(
+    "/opening-bills/import",
+    response_model=ApiResponse[list[CustomerOpeningBillResponse]],
+    status_code=status.HTTP_201_CREATED,
+)
+def import_customer_opening_bills(
+    data: CustomerOpeningBillImportRequest,
+    scope: CustomerImportScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[CustomerOpeningBillResponse]]:
+    """Record a file of opening bills, naming customers by code; all or none."""
+    firm_id = _firm(scope)
+    service = CustomerOpeningBillService(db)
+    rows = service.import_bills(data.records, firm_id=firm_id, actor_id=scope.actor_id)
+    return ApiResponse(
+        data=[service.response_for(row, firm_id=firm_id) for row in rows]
+    )
+
+
+@router.post(
+    "/opening-bills/{bill_id}/cancel",
+    response_model=ApiResponse[CustomerOpeningBillResponse],
+)
+def cancel_customer_opening_bill(
+    bill_id: UUID,
+    data: CustomerOpeningBillCancel,
+    scope: CustomerUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CustomerOpeningBillResponse]:
+    """Take back an opening bill entered in error; refused once received against."""
+    firm_id = _firm(scope)
+    service = CustomerOpeningBillService(db)
+    row = service.cancel(
+        bill_id, reason=data.reason, firm_id=firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=service.response_for(row, firm_id=firm_id))
+
+
+@router.get(
+    "/{customer_id}/opening-bills",
+    response_model=ApiResponse[list[CustomerOpeningBillResponse]],
+)
+def list_customer_opening_bills(
+    customer_id: UUID,
+    scope: CustomerViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[CustomerOpeningBillResponse]]:
+    """List one customer's opening bills with what is received and owed on each."""
+    return ApiResponse(
+        data=CustomerOpeningBillService(db).list_for_customer(
+            customer_id, firm_id=_firm(scope)
+        )
+    )
+
+
+@router.post(
+    "/{customer_id}/opening-bills",
+    response_model=ApiResponse[CustomerOpeningBillResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_customer_opening_bill(
+    customer_id: UUID,
+    data: CustomerOpeningBillWrite,
+    scope: CustomerUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CustomerOpeningBillResponse]:
+    """Record one bill the customer owed at cutover, and post it."""
+    firm_id = _firm(scope)
+    service = CustomerOpeningBillService(db)
+    row = service.create(customer_id, data, firm_id=firm_id, actor_id=scope.actor_id)
+    return ApiResponse(data=service.response_for(row, firm_id=firm_id))
+
+
+@router.get("/import-template")
+def customer_import_template(
+    scope: CustomerImportScope,
+    format: Literal["csv", "xlsx"] = "xlsx",
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Download the customer import template (backlog 46).
+
+    The workbook carries the sheet to fill, a notes sheet naming every column
+    and what it takes, and a lists sheet with this firm's segments.
+    """
+    if scope.firm_id is None:
+        raise ValidationError("X-Firm-ID is required when importing customers.")
+    if format == "csv":
+        return StreamingResponse(
+            iter([template_csv()]),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": 'attachment; filename="customer-template.csv"'
+            },
+        )
+    return StreamingResponse(
+        iter([template_workbook(db, scope.firm_id)]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="customer-template.xlsx"'
+        },
+    )
+
+
+@router.post("/import-file", response_model=ApiResponse[ImportReportResponse])
+async def import_customer_file(
+    scope: CustomerImportScope,
+    file: Annotated[UploadFile, File()],
+    db: Session = Depends(get_db),
+    existing: Annotated[Literal["refuse", "update"], Form()] = "refuse",
+    apply: Annotated[bool, Form()] = False,
+) -> ApiResponse[ImportReportResponse]:
+    """Check a CSV or XLSX customer file, and with ``apply`` import it whole.
+
+    Every row is checked and every problem returned with its row number. An
+    apply that finds any problem writes nothing and says so with
+    ``imported: false``.
+    """
+    if scope.firm_id is None:
+        raise ValidationError("X-Firm-ID is required when importing customers.")
+    file_format = file_format_of(file.filename)
+    if existing == "update" and not scope.principal.has_permission("CUSTOMER_UPDATE"):
+        raise AuthorizationError(
+            "Updating existing customers from a file needs the right to edit "
+            "customers."
+        )
+    report = CustomerFileImporter(
+        db,
+        CustomerService(db),
+        may_manage_settings=scope.principal.has_permission("CUSTOMER_MANAGE_SETTINGS"),
+    ).run(
+        await file.read(),
+        file_format=file_format,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        existing=existing,
+        apply=apply,
+    )
+    return ApiResponse(data=report_response(report))
 
 
 # Declared with the other literals above `/{customer_id}`: FastAPI matches in
@@ -582,38 +746,6 @@ def customer_credit_status(
     return ApiResponse(data=status_report)
 
 
-#: Receivable types that move money, and therefore belong to a document that
-#: posts. `post_receivable_transaction` moves the customer's balance and writes
-#: no journal, so recording a receipt through it puts the subsidiary ledger and
-#: the general ledger further apart with every use -- silently, and
-#: permanently. `/api/v1/receipts` does the same thing and posts.
-#:
-#: The service method stays general: the sales invoice and settlement services
-#: call it as part of a larger unit of work that does post. It is this
-#: endpoint, reachable by hand, that had no counterpart in the ledger.
-#:
-#: Every type a module of its own records is refused here and pointed at that
-#: module (D-FIN-4). Only receipts were refused at first, so a bill (INVOICE),
-#: tax collected at source (TCS), points spent (LOYALTY), an advance applied
-#: (ADVANCE_APPLY) and an advance handed back (REFUND) all still moved the
-#: balance with nothing in the ledger -- and a LOYALTY or ADVANCE_APPLY with no
-#: allocation left the bill reading unpaid besides. A credit note is what is
-#: left, and it posts below.
-POSTED_ELSEWHERE = {
-    CustomerReceivableTransactionType.RECEIPT: "/api/v1/receipts",
-    CustomerReceivableTransactionType.ADVANCE_RECEIPT: "/api/v1/receipts",
-    CustomerReceivableTransactionType.INVOICE: "/api/v1/sales-invoices",
-    # Tax collected at source is charged on the receipt that crosses the
-    # threshold, so the receipt is what records it.
-    CustomerReceivableTransactionType.TCS: "/api/v1/receipts",
-    CustomerReceivableTransactionType.LOYALTY: "/api/v1/loyalty/redeem",
-    CustomerReceivableTransactionType.ADVANCE_APPLY: (
-        "/api/v1/receipts/{receipt_id}/allocate"
-    ),
-    CustomerReceivableTransactionType.REFUND: "/api/v1/refunds",
-}
-
-
 @router.get(
     "/{customer_id}/statement",
     response_model=ApiResponse[CustomerStatement],
@@ -686,59 +818,10 @@ def list_customer_receivable_transactions(
     )
 
 
-@router.post(
-    "/{customer_id}/receivables/transactions",
-    response_model=ApiResponse[CustomerReceivableTransactionResponse],
-)
-def post_customer_receivable_transaction(
-    customer_id: UUID,
-    data: CustomerReceivableTransactionCreate,
-    scope: CustomerReceiptScope,
-    db: Session = Depends(get_db),
-) -> ApiResponse[CustomerReceivableTransactionResponse]:
-    """Post a credit note against a customer's balance, and nothing else.
-
-    Every other type belongs to a module that records it together with its
-    journal -- a receipt, a bill, tax collected at source, points spent, an
-    advance applied or handed back -- so accepting one here would leave the
-    customer's balance and the receivable control account disagreeing by its
-    amount (D-FIN-4). The refusal names the endpoint that records it.
-
-    A credit note reduces what the customer owes, so it reduces the receivable
-    control account and posts.
-    """
-    service = CustomerService(db)
-    destination = POSTED_ELSEWHERE.get(data.transaction_type)
-    if destination is not None:
-        raise ValidationError(
-            f"A {data.transaction_type.value.lower().replace('_', ' ')} is "
-            f"recorded at {destination}, where it also reaches the ledger. "
-            "This endpoint only moves the customer balance, so it takes "
-            "credit notes alone."
-        )
-    row = service.post_receivable_transaction(
-        customer_id,
-        data,
-        firm_scope=scope.firm_id,
-        actor_id=scope.actor_id,
-        commit=False,
-    )
-    # A credit note reduces what the customer owes, so it reduces the
-    # receivable control account. Leaving it unposted drove the two apart by
-    # its value -- the reasoning that it "moves no money" was the wrong test.
-    #
-    # Cancelling an invoice does not come through here: that reverses the
-    # invoice's own journal, which mirrors the revenue and tax it raised.
-    if data.transaction_type == CustomerReceivableTransactionType.CREDIT_NOTE:
-        DocumentPostingService(db).post_credit_note(
-            firm_id=scope.firm_id,
-            customer_id=customer_id,
-            reference_number=(data.reference_number or f"CN-{str(row.id)[:8].upper()}"),
-            note_date=data.transaction_date,
-            amount=data.amount,
-            actor_id=scope.actor_id,
-            narration=data.remarks,
-        )
-    db.commit()
-    db.refresh(row)
-    return ApiResponse(data=CustomerReceivableTransactionResponse.model_validate(row))
+# `POST /{customer_id}/receivables/transactions` was retired on 2026-09-30
+# (D-FIN-23). It moved a customer's balance by hand; every type but a credit
+# note had already been refused and pointed at the module that records it with
+# its journal (D-FIN-4), and the credit note it still took reversed no output
+# tax. A credit note is raised at `/api/v1/credit-notes`, which names the
+# invoice line and reverses the tax that line was charged. The list above
+# stays: it reads the account, it does not move it.

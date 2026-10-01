@@ -15,8 +15,14 @@ from fastapi import (
     status,
 )
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.file_import import (
+    ImportReportResponse,
+    file_format_of,
+    report_response,
+)
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.constants import MAX_PAGE_SIZE
@@ -26,7 +32,7 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.core.utils.dates import utc_now
-from app.inventory.models import PhysicalCount
+from app.inventory.models import InventoryTransaction, PhysicalCount
 from app.inventory.schemas import (
     InventoryAdjustmentCreate,
     InventoryCreate,
@@ -55,6 +61,13 @@ from app.inventory.schemas.inventory import (
     StockLedgerResponse,
 )
 from app.inventory.services import InventoryService, PhysicalCountService
+from app.inventory.services.opening_stock_import import OpeningStockFileImporter
+from app.inventory.services.opening_stock_import import (
+    template_csv as opening_stock_template_csv,
+)
+from app.inventory.services.opening_stock_import import (
+    template_workbook as opening_stock_template_workbook,
+)
 
 router = APIRouter(
     prefix="/api/v1/inventory",
@@ -143,7 +156,7 @@ def list_inventory(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[service.inventory_response(row) for row in rows],
+        data=service.inventory_responses(rows),
         pagination=params.metadata(total),
     )
 
@@ -285,7 +298,7 @@ def list_transactions(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[service.transaction_response(row) for row in rows],
+        data=service.transaction_responses(rows),
         pagination=params.metadata(total),
     )
 
@@ -341,7 +354,7 @@ def list_ledger(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[service.ledger_response(row) for row in rows],
+        data=service.ledger_responses(rows),
         pagination=params.metadata(total),
     )
 
@@ -410,6 +423,74 @@ def list_opening_stock(
         data=[service.opening_stock_batch_response(row) for row in rows],
         pagination=params.metadata(total),
     )
+
+
+@router.get("/opening-stock/import-template")
+def opening_stock_import_template(
+    scope: InventoryImportScope,
+    format: Literal["csv", "xlsx"] = "xlsx",
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Download the opening-stock import template (backlog 36, 46).
+
+    The workbook carries the sheet to fill, a notes sheet naming every column,
+    and a lists sheet with this firm's warehouses and products, each product
+    marked where it needs a batch or an expiry. The example row names the
+    firm's own product and warehouse, so the template imports as it comes.
+    """
+    if format == "csv":
+        return StreamingResponse(
+            iter([opening_stock_template_csv(db, scope.firm_id)]),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": (
+                    'attachment; filename="opening-stock-template.csv"'
+                )
+            },
+        )
+    return StreamingResponse(
+        iter([opening_stock_template_workbook(db, scope.firm_id)]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="opening-stock-template.xlsx"'
+        },
+    )
+
+
+@router.post(
+    "/opening-stock/import-file", response_model=ApiResponse[ImportReportResponse]
+)
+async def import_opening_stock_file(
+    scope: InventoryImportScope,
+    file: Annotated[UploadFile, File()],
+    db: Session = Depends(get_db),
+    posting_date: Annotated[str | None, Form()] = None,
+    apply: Annotated[bool, Form()] = False,
+) -> ApiResponse[ImportReportResponse]:
+    """Check a CSV or XLSX stock count, and with ``apply`` create and post it.
+
+    Rows are grouped into one opening-stock document per warehouse, all on
+    ``posting_date`` (today when left out). Every problem is returned with its
+    row and column; an apply that finds any writes nothing and says so with
+    ``imported: false``.
+    """
+    file_format = file_format_of(file.filename)
+    if posting_date:
+        try:
+            on = date.fromisoformat(posting_date)
+        except ValueError as error:
+            raise ValidationError("posting_date must be a date, yyyy-mm-dd.") from error
+    else:
+        on = utc_now().date()
+    report = OpeningStockFileImporter(db).run(
+        await file.read(),
+        file_format=file_format,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        posting_date=on,
+        apply=apply,
+    )
+    return ApiResponse(data=report_response(report))
 
 
 @router.get(
@@ -898,7 +979,12 @@ def delete_inventory(
         )
     ):
         raise ValidationError("Inventory with stock balances cannot be deleted.")
-    if row.transactions:
+    # Asked as a yes/no, not by loading the row's whole history.
+    if db.scalar(
+        select(InventoryTransaction.id)
+        .where(InventoryTransaction.inventory_id == row.id)
+        .limit(1)
+    ):
         raise ValidationError("Inventory with transaction history cannot be deleted.")
     row.is_deleted = True
     row.deleted_at = utc_now()

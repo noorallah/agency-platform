@@ -1130,7 +1130,7 @@ opening balance equity by 25,000 each, deleting them moves both back, and the
 lifecycle nets to zero. The revise path was covered at service level only,
 because the API returned no ETag to send back; that gap is closed below. **All three stores hold together** after a full reset and re-seed.
 
-## 14. Emailing a document to the party it names
+## 14. Emailing a document to the party it names -- planned in §51
 
 Deferred by the owner on 2026-08-22, after printing was built: *"email sending
 we will add to backlog and in future we will build."* Do not start it
@@ -2912,12 +2912,78 @@ good enough that onboarding is a day's work rather than a project.
   `VendorPayableTransaction`, and `post_opening_balance` is hardcoded to
   `customer_id` and `ACCOUNTS_RECEIVABLE`. A firm cannot load what it owes its
   suppliers on day one.
+  **Built 2026-09-30 as supplier opening bills** (`vendor_opening_bills`,
+  migration `20260930_0169`; the rules are in `docs/LEDGER_POSTING_RULES.md`,
+  "A supplier's opening balance is bills, not a balance"). Decided by
+  convention -- Tally's bill-wise opening balances: one row per unpaid bill
+  with its own date and due date, posted Dr Opening Balance Equity / Cr
+  Payables on a chosen cutover date, and paid through Record Payment like any
+  bill. Not a lump sum per supplier (every payment would become an advance
+  with nothing to clear) and not a purchase invoice (the GST returns would
+  read it as trading). Entered on the vendor form's *Opening bills* section;
+  `POST /vendors/opening-bills/import` takes a batch by supplier code, all or
+  nothing, for the file wizard of §46. Still open: supplier credit from a
+  return cannot be set against an opening bill yet.
+- **Customers had only a single-figure opening balance.** Every receipt
+  against it was money on account with nothing to clear, and the ageing could
+  not say how old any of it was. **Built 2026-09-30 as customer opening bills**
+  (`customer_opening_bills`, migration `20260930_0172`; rules in
+  `docs/LEDGER_POSTING_RULES.md`, "A customer's opening balance is one figure
+  or bills, never both"). The mirror of the supplier's: one row per unpaid
+  bill, `OBC-00001`, posted Dr Receivables / Cr Opening Balance Equity on the
+  cutover date, with an `OPENING_BILL` receivable transaction so the
+  customer's balance, statement, credit control and delete guard see it;
+  offered by Record Receipt ("Opening"), aged from its due date (given, or the
+  bill date plus the customer's terms), listed by the outstanding and overdue
+  reports; cancel mirrors the journal and the balance and is refused while a
+  receipt is applied. **One figure or bill-wise, never both** (Tally's
+  bill-wise breakup): a bill is refused while the master's opening balance is
+  non-zero, and a non-zero opening balance while live bills stand. Entered on
+  the phase 2 customer form's *Opening bills* section;
+  `POST /customers/opening-bills/import` takes a batch by customer code, all
+  or nothing. Not a sales invoice, so GST returns, sales registers,
+  e-invoicing and TCS turnover never see it, and neither does
+  collection-based commission (it joins sales invoices).
 - **No opening trial balance loader.** `LedgerBalance.opening_balance` is
   derived and carried forward, never written as an input, and `app/finance` has
   no import route. Cash, bank, fixed assets, loans, retained earnings and tax
   balances can only be entered as hand-typed journal entries, one at a time. The
   `OPENING_BALANCE_EQUITY` control account exists precisely as their
   counterpart, and nothing but stock and customer balances posts to it.
+  **Built 2026-09-30 as the opening trial balance** (Accounts > Opening
+  Balances, `GET`/`PUT /api/v1/finance/opening-trial-balance`; the rules are in
+  `docs/LEDGER_POSTING_RULES.md`, "The opening trial balance is one journal,
+  replaced whole"). One statement on a cutover date, by account code, the
+  difference to opening balance equity, replaced whole by reversing the one
+  standing; sub-ledger accounts refused. The same `PUT` is what §46's file
+  import will send.
+- **Stock on hand at cutover from one file: built 2026-10-01.**
+  `GET /api/v1/inventory/opening-stock/import-template` (Opening stock, Notes
+  and Lists sheets -- the firm's warehouses and up to 2,000 products, each
+  marked where it needs a batch or an expiry; the example row names the
+  firm's own product and warehouse, so the template imports as it comes) and
+  `POST /api/v1/inventory/opening-stock/import-file` (`posting_date`,
+  `apply`; `INVENTORY_IMPORT`, as the old import). Columns ProductCode,
+  Warehouse (blank means the only one), Quantity, UnitCost, Batch, Expiry
+  (dd-mm-yyyy, dd/mm/yyyy, yyyy-mm-dd or an Excel date), Unit, Remarks. Rows
+  are grouped into one document per warehouse, `OS-IMPORT-<yyyymmdd>-<code>`,
+  each **created and posted** through the form's own `stage_*` methods and
+  committed once -- all warehouses or none. A check stages and posts too
+  before rolling back, so a firm without its books is told on the check.
+  Refused by row and column: an unknown product or warehouse, a quantity not
+  above 0, a batch missing on a batch- or expiry-tracked product or present on
+  a plain one, a missing or unreadable expiry, the same product, warehouse
+  and batch twice (naming the first row), a unit with no conversion, a
+  serial-numbered product (an opening-stock line carries no serials; entered
+  on screen), and an item (product, warehouse, batch) that **already has
+  posted opening stock**, naming that document. One rule with the form
+  (decided 2026-10-01, as ERPs do it): the form's post refuses the same item
+  too, while a second document for a warehouse -- the items forgotten the
+  first time -- is allowed either way. A correction belongs in an adjustment. The importer is
+  `app/inventory/services/opening_stock_import.py`; the desktop Opening
+  Stock screen has **Import from file** (the shared wizard with a posting
+  date). The old `POST /inventory/opening-stock/import` (one warehouse,
+  product ids, stops at the first problem) is kept and has no desktop caller.
 - Smaller: the customer opening balance posts dated **today**, not a chosen
   cutover date, and firm readiness has no "opening balances" or "masters loaded"
   step, so nothing tells a firm its cutover is incomplete.
@@ -3011,7 +3077,15 @@ Not a bug -- the data is all reachable, the screens are simply unbounded.
 
 ## 38. The same stage switches for purchasing
 
-Raised 2026-09-16.
+Raised 2026-09-16. **Built 2026-09-30** -- backend (migrations `0163`, `0164`,
+`PurchaseChainService`) and the phase 2 desktop (Purchases > Purchase Settings >
+Buying stages; the bill editor names an order or products when receipts are
+off). `docs/PURCHASE_FRAMEWORK.md`, "Stage switches", is the reference. The
+decisions below were taken by industry standard and are recorded there:
+approval of an order the bill raised is **not** a separate step (the person
+typing the bill is the approver there is); receipts on with orders off is
+refused; the bill's approval completes its own draft receipt first, so *Goods
+Received Not Invoiced* nets to zero.
 
 **The observation.** Selling already bends to a small firm and buying does not.
 `SalesWorkflowSettings` (`app/sales_order/models/sales_order.py`) gives a firm
@@ -3081,6 +3155,11 @@ APK**, built to look at screens on a phone, not a field application.
 **The ask.** Let a collector record receipts on a phone with no network, and
 sync them when back at the office, with the system remaining the authority on
 what was actually applied.
+
+**Design, 2026-09-30:** `docs/FIELD_COLLECTIONS.md` -- the online and offline
+options (office Wi-Fi, file exchange with a small offline app, QR), the daily
+route-pack / collect / sync cycle, and the integrity checks that stop a receipt
+or a file going missing.
 
 **Shape of the work.**
 
@@ -3330,8 +3409,9 @@ TCS, an audit trail, currency and exchange-rate fields, and a low-stock view.
 ### 42.5 GSTR-2A / 2B matching
 
 - **Who has it:** TallyPrime (download and auto-reconcile), Zoho Books.
-- **Here:** GST returns are outward only -- GSTR-1 and the outward half of 3B,
-  derived from the documents (`app/gst_returns`).
+- **Here:** GSTR-1 and 3B are derived from the documents (`app/gst_returns`);
+  3B carries the input credit from purchase bills (table 4, since D-CMP-20)
+  but nothing checks it against what suppliers filed.
 - **Why it matters:** input tax credit is claimable only on what the supplier
   actually filed. Matching purchase invoices against 2B shows the credit at
   risk before the return is filed. A first version can import the 2B JSON the
@@ -3573,7 +3653,60 @@ folder on the next run; the folder ACL is admin-only.
    `pg_restore --clean --if-exists -d <database> <file>` per store, start it).
 4. Move D-QA-4 to Fixed in `docs/DEFECTS.md`.
 
-## 46. Import products, customers and vendors from a file, with templates
+## 46. Import products, customers and vendors from a file, with templates -- built 2026-09-30
+
+**Products: built 2026-09-30.** `GET /api/v1/products/import-template`
+(XLSX with Products, Notes and Lists sheets -- the Lists sheet carries the
+firm's own categories, units and tax groups -- or CSV) and
+`POST /api/v1/products/import-file` (`apply=false` checks, `apply=true`
+commits the whole file or nothing, `existing=update` updates by code with a
+blank cell leaving its field alone; needs `PRODUCT_UPDATE` as well as
+`PRODUCT_IMPORT`). Every problem comes back with its row and column in one
+pass. The importer is `app/products/services/product_import.py`; each row
+goes through `stage_product` / `stage_update_product`, so the guards and the
+audit writes are the form's. The desktop Products **Import** opens a file
+wizard: template download, choose file, check, save the problems as CSV,
+import. The old CSV/XLSX branch of `POST /products/import` goes through the
+same importer, so a row with a name and no code is now reported rather than
+skipped.
+
+**Customers: built 2026-09-30.** The file rules above moved to
+`app/common/file_import.py` (`FileImporter`, `RowReader`, the template
+builder), so a master states only its columns and how to stage one row.
+`GET /api/v1/customers/import-template` (Customers, Notes and Lists sheets --
+the firm's segments, the types and statuses) and
+`POST /api/v1/customers/import-file`, same parameters; updating needs
+`CUSTOMER_UPDATE` as well as `CUSTOMER_IMPORT`. The importer is
+`app/customers/services/customer_import.py`. One row is one customer with
+one address (default billing and shipping) and one primary contact; on an
+update those two change in place and every other address and contact is
+kept. The opening balance is booked exactly as the form books it, and
+`1,200 Dr` / `500 Cr` are read as Tally writes them; a firm without its
+books is told per row. A standing discount or a credit limit needs
+`CUSTOMER_MANAGE_SETTINGS`, as on the form. A 10-digit phone is taken as
+Indian (+91). A blank currency is the firm's own. The desktop Customers
+**Import** opens the same wizard as Products.
+
+**Suppliers: built 2026-09-30.** `GET /api/v1/vendors/import-template?format=xlsx|csv`
+(`VENDOR_IMPORT`) and `POST /api/v1/vendors/import-file` (multipart `file`,
+`existing` = `refuse|update`, `apply` = `true|false`, the same report as
+customers); updating needs `VENDOR_UPDATE` as well. The importer is
+`app/vendors/services/vendor_import.py`. One row is one supplier with one
+address, one contact and one bank account, each updated in place on an
+update. Addresses are placed in the geography masters by PIN, then city, then
+state, and a place that matches none is reported rather than guessed. A bank
+account needs `VENDOR_MANAGE_BANK_DETAILS`, as on the form. A GSTIN marks the
+supplier registered. Opening balances stay bill-wise, through supplier opening
+bills. The desktop Suppliers **Import** opens the same wizard.
+
+**Opening stock: built 2026-10-01** (point 7 above: "opening stock stays with
+its own import" -- it now has one in the same shape). The template and the
+check-then-import file route are described under §36. The shared desktop
+wizard gained two generic options for it: `offersUpdate: false` hides "update
+existing" (opening stock is posted once), and `extraFields` shows fields the
+import needs besides the file -- here the posting date -- whose change
+discards the last check.
+
 
 Owner's note, 2026-09-25: a firm moving from other software (Tally, Excel,
 another ERP) needs to bring its masters in from a file, and a template to
@@ -3656,7 +3789,67 @@ enquiry, route calls).
    still falls back to it (`DesktopShell._menuLayout`) until this is built.
 
 Related: the Android build (`desktop/build_android.ps1`) is for looking at
-screens on a phone, not for field use.
+screens on a phone, not for field use. It still builds phase 1
+(`lib/main.dart`); pointing it at `lib/main_phase2.dart` is a one-line change,
+as `packaging/build_installer.ps1` does for Windows.
+
+### 48.1 Every screen size, not only the phone -- to review 2026-10-04
+
+Owner, 2026-09-27: the app should adapt to any screen resolution, phone
+included; a future plan, reviewed next week.
+
+**Why it is mostly framework work.** Phase 2 screens are built from a handful
+of shared pieces -- the menu bar, `ManagementWorkspaceLayout` (page bar,
+selection bar, grid), `WorkspaceToolbar`, the document page and the dialogs --
+so making those adapt changes every screen at once.
+
+| Size | Width | What changes | Effort |
+| --- | --- | --- | --- |
+| Large | above 1366 | Works today; use the room (more default columns, the side panel always open) | Small |
+| Medium | about 600 to 1366 (small laptops, tablets) | Page bar folds to two lines or a menu, side panel becomes a pop-up, fewer default columns, menu areas open as a list | Moderate |
+| Phone | below 600 | Section 48 above: bottom bar, lists as cards, selection bar as a bottom sheet, documents a section at a time, touch-sized targets | Major |
+
+**Suggested order:**
+1. One breakpoint rule (phone / tablet / desktop) decided in one place, which
+   every shared piece asks rather than assuming a desktop.
+2. Adapt the list layout and the menu bar first; they cover the most screens.
+3. Widget tests at each size, so a screen that breaks narrow fails the build
+   (today's widget tests run in an 800x600 window).
+4. Phone by who uses it: the salesman's day first (call list, customer,
+   order, receipt), then the owner's (Home, outstanding, approvals). Setup and
+   accounting screens may stay desktop-only, as is normal for this class of
+   product.
+5. Reach the server safely from outside the office (HTTPS; the client already
+   accepts it -- section 1), so phones work on mobile data.
+
+**Decided by the owner, 2026-09-27:**
+1. **Tablet: every screen.** Some firm owners run the business from a
+   tablet, so the medium size must support all pages, not a subset.
+2. **Phone: a chosen set of modules**, with **orders and collections working
+   offline** and syncing when back in signal (section 39 holds the offline
+   thinking for collections; orders join it).
+
+**Proposed phone modules, to settle at the review:**
+
+| Fit | Modules | Why |
+| --- | --- | --- |
+| **Yes, offline** | Sales orders, Receipts (collections) | The salesman's day at the outlet, often with poor signal |
+| **Yes, online** | Call list and beat plan, Customers (details, outstanding, statement), Stock search, Home (key figures, to do), Approvals (orders, payouts) | Reading and one-tap decisions; small screens handle them well |
+| **Maybe** | Delivery notes (confirm delivery at the door), Sales returns (record at the outlet), Quotations, Expiry monitor | Useful for van sales or pharma; decide by how firms work |
+| **No, tablet or desktop** | Purchasing, Accounts, GST, Stock movements and counts, Masters setup, Admin, Settings, Reports | Wide grids, long forms, done at a desk |
+
+**Still to decide at the review:**
+1. **Android only, or iPhone too** -- the same code builds both; iPhone needs
+   an Apple developer account and a Mac to build on.
+2. **Tablet first or phone first** -- the tablet is cheaper and helps small
+   laptops too; the phone is what salesmen ask for.
+3. **Outside access** -- how the server is reached from outside the office
+   (a fixed IP and certificate, or a hosted relay), which decides whether
+   phones and tablets work beyond the office Wi-Fi at all.
+4. **Offline conflicts** -- what happens when an order synced late meets
+   stock that has since gone, or a price that has changed (reprice, warn, or
+   hold for approval), and whether a collection synced late may clear an
+   invoice somebody has since credited.
 
 ## 49. Home gadgets -- parked
 
@@ -3708,3 +3901,1420 @@ year-to-date column, and a quarter or any other span not at all.
 5. The same range choice suits the Trial Balance and the ledger statement,
    which are also one-period today; decide together when this is scheduled.
 
+
+## 51. Email, WhatsApp, SMS and payments -- basic version, planned 2026-09-27
+
+Owner, 2026-09-27: plan email, WhatsApp, SMS and a payment gateway now, as a
+basic version; build after review. This takes up **§14** (emailing a
+document), **§42.1** (WhatsApp, SMS, reminders) and **§42.10** (UPI QR and
+payment links), and answers their open questions by the convention of Tally,
+BUSY, Vyapar and Zoho Books, for the owner to confirm at the review.
+
+**Detail for Phase B, and the rule that it ships off and each firm switches
+it on with its own provider account:** `docs/MESSAGING_FRAMEWORK.md`
+(2026-09-30).
+
+### What exists to build on
+
+- **The PDFs.** Every document already prints on the server (for example
+  `GET /api/v1/sales-invoices/{id}/print`); those bytes are what an email
+  attaches and what WhatsApp shares.
+- **Where to send.** A customer has `email` and `phone`, and each contact
+  person a `mobile` and an `email` (`app/customers/models/customer.py`);
+  vendors have the same shape. Vendors have a `upi_id`; the firm has none yet.
+- **Where to record it.** `document_timeline.email_recipient` and
+  `document_states.allows_email` exist with nothing writing them.
+- **What does not exist:** any sending, any provider account, any outbox.
+
+### The one constraint that shapes all of it
+
+**The server sits inside the office.** It can call out to a provider, but a
+provider cannot call in (no public address), so nothing may rely on a
+*webhook*. Every status -- delivered, bounced, paid -- is **fetched by the
+server**, on a timer, from the provider's API. This keeps the product working
+for an installed firm with no IT, and is what decides the payment design
+below.
+
+### Phase A -- basic, no paid provider needed
+
+| # | Feature | How it works | Needs from the firm |
+| --- | --- | --- | --- |
+| A1 | **Email a document** (invoice, order, statement, receipt, purchase order) | From the document's bar: *Email*. Pre-filled to the party's email, a covering message per document type, the PDF attached. Sent through the **firm's own mail account** (SMTP: Gmail or Outlook with an app password, or the firm's domain mail) | Its mail account details, once, in Settings |
+| A2 | **Share on WhatsApp** | *WhatsApp* on the bar opens WhatsApp (desktop app or web) to the party's number with the message typed in (invoice number, amount, due date); the PDF is saved and its folder opened, for the user to attach. No API, no cost -- what Vyapar and most small-business products do | WhatsApp installed on the PC |
+| A3 | **UPI QR on the invoice** | The printed invoice carries a UPI QR for the amount due (`upi://pay?pa=<firm UPI ID>&am=<amount>&tn=<invoice no>`). The customer scans and pays from any UPI app. No gateway, no internet | The firm's UPI ID, once, in Firm Settings |
+| A4 | **Payment reminders, by hand** | On the overdue invoices list and customer statements: *Remind* sends the statement or the overdue list by email (A1) or WhatsApp (A2) | -- |
+| A5 | **A record of every send** | Each send is a line on the document's timeline: channel, to whom, by whom, when, and *sent* or *failed* with the reason. A failure shows on the document; it never blocks or undoes the document | -- |
+
+### Phase B -- automatic, through a provider (the firm pays the provider)
+
+| # | Feature | How it works | Needs from the firm |
+| --- | --- | --- | --- |
+| B1 | **SMS** | Receipt confirmations and payment reminders by SMS through an Indian provider (MSG91, Textlocal and the like) | **DLT registration** with a telecom operator (TRAI rule): its sender ID and each message template registered -- the firm's paperwork, a few days, not ours to do |
+| B2 | **WhatsApp Business API** | The PDF sent directly, no user step, through Meta's Cloud API or a partner (Interakt, AiSensy, Gupshup) | A WhatsApp Business account; each message template approved by Meta; about ₹0.1 to ₹0.9 per message, billed by the provider |
+| B3 | **Automatic reminders** | A schedule per firm: before the due date, on it, and every N days after, by the channels the firm chose; stops when the invoice is paid | -- |
+| B4 | **Payment links** | *Payment link* on an invoice creates a link through Razorpay or Cashfree (card, UPI, net banking), sent by A1, A2, B1 or B2. The server **fetches** the link's status (no webhook, above); when paid it creates a **draft receipt** against the invoice for a person to approve, with the gateway's fee recorded as a bank charge | A merchant account (KYC by the gateway, a few days) |
+
+### Decided by convention (to confirm at the review)
+
+1. **Whose account:** the **firm's own** mail, SMS, WhatsApp and gateway
+   accounts, never one shared by the platform -- the customer sees mail from
+   their own supplier, costs land on the firm that sends, and one firm's
+   spam complaint cannot stop another's messages.
+2. **Credentials** are entered in **Settings → Messaging** and **Settings →
+   Payments** by the firm administrator, stored **encrypted** with a key held
+   in the server's config (not in the database), and never shown again after
+   saving -- only *replace* or *test*.
+3. **Attach, not link**, for email: the customer's accounts department files
+   the attachment, and nothing is served to the internet.
+4. **A failed send never blocks a document** and is never silent: it is on
+   the timeline and shown on the document (A5).
+5. **Sending is its own permission** (`DOCUMENT_SEND`), not `*_VIEW`:
+   printing shows what the screen shows, sending acts for the firm towards
+   somebody outside it. Settings need `SETTINGS_UPDATE`.
+6. **A gateway payment is never posted unseen:** it becomes a draft receipt
+   (B4), because a receipt posts to the books and must be reversible by the
+   same rules as any other.
+7. **Opt-out:** a customer can be marked *no reminders*; B3 skips them.
+
+### Open for the owner at the review
+
+1. **Which providers** to support first -- one each is the basic version: an
+   SMS provider, a WhatsApp partner or Meta direct, and Razorpay or Cashfree.
+2. **Phase B in 1.x at all**, or Phase A first and B after firms ask.
+3. **Message wording** -- the covering message and reminder text per
+   document type, in English only or also in Hindi and regional languages.
+4. **Reminder schedule defaults** for B3 (for example 3 days before, on the
+   due date, then every 7 days).
+
+### Size
+
+Phase A is about the size printing was: a settings page, one sending service
+with an outbox and retry (the server may be offline when a send is asked
+for), the timeline record, and a button on each document's bar. Phase B adds
+one adapter per provider plus the status fetcher, and the draft-receipt step
+for payments.
+
+## 52. Extra fields on documents, not only on masters
+
+Owner, 2026-09-27: the system must stay open to change -- tax, prices, and
+collecting extra information -- without a new release. Tax (versioned rules
+with effective dates) and prices (dated price lists and promotions) already
+are. **Extra information is open on masters only:** `AttributeEntityType`
+(`app/business/models/framework.py`) lists products, customers, vendors,
+branches, warehouses, tax profiles and units. A firm cannot add a field to a
+**document** -- a vehicle number or transporter on a delivery note, the
+buyer's PO reference or a site name on an invoice, a salesman's remark on an
+order -- without a code change.
+
+**To build when scheduled:** add the document types (header first: sales
+order, delivery note, sales invoice, purchase order, goods receipt, purchase
+invoice, returns; lines later if asked) to `AttributeEntityType` and call
+`AttributeService` from each document's service, as customers and vendors do
+(`docs/CUSTOM_FIELDS_FRAMEWORK.md`). Then:
+1. The document screen shows them in an *Additional details* section.
+2. **They carry forward** down the chain (order → delivery → invoice) where
+   the same definition exists on both, as prices do.
+3. A field can be chosen to **print** on the document.
+4. Lists can show and filter by them, through **Columns** and **+ filter**.
+
+**What stays a code change, by nature:** a new *kind* of tax calculation
+(TDS under 194Q, tax on MRP less abatement), and a change in a government
+format (GSTR-1 JSON, the e-invoice schema). Rates, thresholds, and which rate
+applies to what are configuration.
+
+## 53. PAN and TAN: record both, check them, and use them
+
+Owner, 2026-09-27: customers in the market carry both a PAN and a TAN; the
+product should tell them apart and put each to work.
+
+**The difference.** **PAN** identifies a taxpayer (every business and person
+has one). **TAN** identifies somebody who **deducts or collects tax at
+source**; only a party that deducts TDS or collects TCS has one, and it is what
+their deduction is filed under -- and what the other side sees in Form 26AS.
+
+**What exists (2026-09-27):**
+
+| Record | PAN | TAN | Used by anything |
+| --- | --- | --- | --- |
+| Firm | `pan_number` | **none** | PAN unique among live firms |
+| Customer | `pan_number` | **none** | TCS: no PAN meant the higher rate (`app/tcs`) |
+| Vendor | `pan` | `tan` | Stored only; nothing reads them |
+
+Nothing checks either format, or that a PAN matches its GSTIN.
+
+**Why it matters now.** The Finance Act 2025 omitted TCS under 206C(1H) from
+1 April 2025 (`app/tcs` already stops charging it on receipts from that day).
+What remains is **TDS under 194Q**, the buyer's side, and that is where PAN
+and TAN do their work -- in both directions for a distributor:
+
+- **As a buyer** (the firm buying from its principal, over Rs 50 lakh a
+  year): the firm deducts TDS from the supplier's payments. It needs **its
+  own TAN** and the **supplier's PAN** (no PAN means the higher rate). This is
+  §42.4.
+- **As a seller** (a large customer buying from the firm): the **customer**
+  deducts TDS and pays the firm short. The firm must record the shortfall as
+  **TDS receivable** -- an asset, claimed against its own income tax -- not as
+  a discount or a bad debt, and match it against 26AS **by the customer's
+  TAN**. Today a short receipt simply leaves the invoice part-open.
+
+**To build when scheduled:**
+1. **Fields.** TAN on the firm (Firm Settings) and on customers; keep the
+   vendor's. Labelled plainly: *PAN (income tax)*, *TAN (deducts tax at
+   source)*, beside *GSTIN*.
+2. **Checks on save.** PAN is `AAAAA9999A`, TAN is `AAAA99999A`; a GSTIN's
+   characters 3 to 12 must equal the party's PAN, so the PAN can be **filled
+   from the GSTIN** and a mismatch refused. The PAN's fourth letter gives the
+   holder type (C company, F partnership, P individual, H HUF ...), which can
+   pre-fill the party's type.
+3. **A customer that deducts TDS.** A flag *deducts TDS on payments to us*
+   (set automatically when a TAN is entered, editable), with the section and
+   rate. The **receipt** then offers *TDS deducted* beside the amount: the
+   invoice is settled in full, the cash posts to the bank, and the TDS part
+   posts to a **TDS receivable** account (a new control purpose).
+4. **Reports.** TDS deducted by customers, by TAN and quarter, to tick
+   against 26AS; parties with no PAN (they cost the higher rate); PAN and
+   GSTIN mismatches.
+5. **194Q as a buyer** is §42.4, and uses the same fields.
+
+**Confirm with the firm's CA at the review:** the rates and the threshold as
+they stand in the current Finance Act, and whether any other section (194C,
+194J) matters to these firms. Rates and thresholds go into settings, never
+into code, as TCS already does.
+
+### 53.1 Firms that already hold a TAN -- owner, 2026-09-27 -- HIGH PRIORITY
+
+**Priority (owner, 2026-09-27): high.** **Items 1 and 2 built 2026-09-30**
+(migration `20260930_0166`); the interim steps are in
+`docs/LEDGER_POSTING_RULES.md`, "Tax deducted at source has accounts". Items 3
+and 4 remain for 1.1.
+
+| When | What | Size |
+| --- | --- | --- |
+| **Before go-live** | Items 1 and 2 below: TAN on the firm and customers; TDS Payable and TDS Receivable in every firm's chart | About a day |
+| **Before go-live** | The interim steps at the end of this section, in the go-live guide | Docs only |
+| **First update after go-live (1.1)** | Items 3 and 4: *TDS deducted* on payments, expenses and receipts, and the quarterly TDS list for the CA | About a week |
+
+**Move 1.1 before go-live** if a first go-live firm is a mid-size
+distributor (turnover over Rs 10 crore, buying over Rs 50 lakh a year from a
+principal): every payment to the principal carries 194Q TDS, and a journal
+per payment is not a fair ask. Ask each go-live firm: do they hold a TAN, and
+does their CA file their TDS returns?
+
+
+Some firms using the product hold a TAN today, which means they deduct TDS --
+on supplier purchases (194Q), and commonly on **rent (194-I), professional
+fees (194J) and contractors such as transporters (194C)**. None of that can be
+recorded properly yet:
+
+- The firm has **nowhere to enter its TAN**.
+- The default chart has **TCS Payable but no TDS Payable or TDS Receivable**
+  (`app/finance/services/opening_setup.py`).
+- A payment to a supplier, and the coming Expenses screen (#814), can pay
+  only the full amount: there is no *TDS deducted* part.
+
+**Order to build, smallest first:**
+1. TAN on Firm Settings and on customers (a field and a check).
+2. *TDS Payable* (liability) and *TDS Receivable* (asset) in the default
+   chart, backfilled for firms with open books as `20260927_0162` did for
+   Indirect Expenses, each with its control purpose.
+3. *TDS deducted* on **payments** and **expenses**: the section and rate
+   from the vendor (or expense account), the supplier settled in full, the
+   deduction posted to TDS Payable. A quarterly report of deductions by
+   section and deductee PAN, for the 26Q return and the challans.
+4. *TDS deducted* on **receipts** (53 item 3), to TDS Receivable.
+
+**Until then (tell a firm that asks):** add *TDS Payable* and *TDS
+Receivable* under Chart of Accounts, record the payment or receipt for the
+net amount, and a journal entry for the TDS part -- debit the supplier, credit
+TDS Payable; or debit TDS Receivable, credit the customer.
+
+## 54. Trade licences: the firm's, the customer's, and the goods that need them -- HIGH PRIORITY
+
+**Priority (owner, 2026-09-27): high, depending on the trade of the first
+go-live firms.**
+
+| Trade | Importance |
+| --- | --- |
+| Pharma distribution | **Essential, a go-live blocker**: a wholesaler may sell only to licensed buyers, and pharma invoices carry both sides' drug licence numbers |
+| Food / FMCG | Needed, small: the firm's FSSAI number on every food invoice |
+| Agri (pesticide, fertiliser, seed) | Important: dealers must be licensed; inspections check |
+| Electronics, hardware, general | Not needed |
+
+| When | What | Size |
+| --- | --- | --- |
+| **Before go-live** | Build order steps 1 and 4 (below): the register with validity dates; firm, branch and customer licence numbers printed on invoices; Home alert for licences expiring in 30 days | About 3 days |
+| **After go-live** | Steps 2, 3 and 5: licence required per product or category; the sale check (warn, or block by policy); the purchase check | About 5 days |
+
+**If a first go-live firm is a pharma distributor, build all of it before
+go-live**: the sale check is what that trade compares products on.
+
+**Order against TDS (53.1):** for a pharma target, licences first; for any
+other, TDS first -- every mid-size distributor meets TDS, only some trades
+need licences. **To settle at the review: which trades the first go-live
+firms are in.**
+
+Owner, 2026-09-27: some goods may only be bought and sold under a licence --
+the firm needs one to trade them, and the customer needs one to buy them. The
+product should hold both and act on them.
+
+### What exists (2026-09-27)
+
+| Where | What | Acted on |
+| --- | --- | --- |
+| Branch | `license_number` (one free-text number) | No |
+| Vendor | `license_number`; per tax detail `fssai` and `drug_license` | Only gated: a drug licence may be recorded only by a firm whose profile has the `DRUG_LICENSE` feature |
+| Customer | Nothing (a firm can add a custom field, which nothing reads) | No |
+| Firm | Nothing | No |
+| Product | Nothing says a product needs a licence | No |
+
+No licence has a **type**, a **validity date** or a **scan**, and nothing
+refuses or warns about a sale.
+
+### The trades this covers (India)
+
+| Licence | Who needs it | Goods |
+| --- | --- | --- |
+| **Drug licence**, wholesale (Forms 20B/21B) or retail (20/21); 20C/21C for Schedule X | Seller and buyer | Medicines; Schedule H/H1/X need the matching form |
+| **FSSAI** registration or licence | Seller; printed on every food invoice | Packaged food, beverages |
+| **Insecticide** licence | Seller and dealer buyer | Pesticides |
+| **Fertiliser** authorisation | Seller and dealer buyer | Fertilisers |
+| **Seed** licence | Seller and dealer buyer | Seeds |
+| Others where a firm needs them | Poisons, explosives, arms, excise (liquor), narcotics | Configured, not built in |
+
+### The design (decided by convention -- Marg, BUSY pharma, Tally add-ons)
+
+1. **Licence types are a master**, not code: code, name, which form numbers
+   it covers, whether it expires. The business profile seeds the usual ones
+   (a pharmacy profile gets the drug forms, a food profile FSSAI, an agri
+   profile insecticide, fertiliser and seed); a firm adds its own.
+2. **One licence register for every holder**: the **firm** (per branch,
+   since a drug licence is issued per premises), **customers** and
+   **vendors**. Each licence: type, number, issued by, valid from, **valid
+   to**, the premises it covers, and a scan (PDF or image) when file storage
+   is built. A party may hold several.
+3. **Products name the licence they need**, set on the **category** (all
+   Schedule H medicines) and overridable on the product. A product with none
+   needs none.
+4. **The sale check.** On a sales order, delivery and invoice, each line's
+   required licence type must be held by the **customer** with a valid-to on
+   or after the **document's date**, and by the **selling branch**. Otherwise:
+   - **Warn** by default, naming the line, the licence and why (missing,
+     expired on ..., wrong type);
+   - **Block** if the firm chooses (a firm policy, like credit control), with
+     an override kept to a permission and recorded on the timeline.
+   The server decides; the screen only shows it.
+5. **The purchase check** is the mirror, on purchase orders and goods
+   receipts: the vendor holds the licence for what it supplies. Warn only.
+6. **Printing.** The seller's licence numbers print on documents that carry
+   licensed goods (FSSAI on food invoices is mandatory); the buyer's drug
+   licence prints on pharma invoices, as the trade expects.
+7. **Expiry.** Home shows licences expiring in 30 days -- the firm's own
+   first -- and a report lists every licence by expiry. An expired licence
+   is kept, never deleted: it is the record of what was valid when a past
+   sale was made.
+8. **What stays as it is:** the existing vendor `fssai` / `drug_license` and
+   branch `license_number` values are copied into the register by a
+   migration (only where missing), then read from there.
+
+### Build order
+
+| Step | What | Size |
+| --- | --- | --- |
+| 1 | Licence types and the register (firm/branch, customer, vendor), screens in Masters and on each party | 2-3 days |
+| 2 | Required licence on category and product | 1 day |
+| 3 | The sale check (warn, then block by policy, override permission) | 2-3 days |
+| 4 | Printing, Home expiry alert, expiry report | 1-2 days |
+| 5 | The purchase check | 1 day |
+| Later | Scans, when file storage exists | -- |
+
+### Built so far (2026-09-30): steps 1 and 4
+
+The owner settled question 1 on 2026-09-30: **all four trades go live**, so
+pharma makes the whole of §54 a go-live item, steps 2, 3 and 5 included.
+
+| Piece | Where |
+| --- | --- |
+| Licence types master, every type seeded for every firm (DRUG_WHOLESALE, DRUG_RETAIL, DRUG_SCHEDULE_X, FSSAI, INSECTICIDE, FERTILISER, SEED, OTHER) -- not per profile, since all four trades go live and a type a firm does not use costs nothing | `app/trade_licences`, `GET/POST/PUT/DELETE /api/v1/trade-licences/types` |
+| One register for the firm (per branch), customers and vendors; standing (valid, expiring, expired, no valid-to) is derived on every read, never stored | `/api/v1/trade-licences`, `/expiring` (the firm's own first) |
+| `TRADE_LICENCE_VIEW` / `_MANAGE`, group `trade_licences` -- not `LICENSE_*`, which is product licensing. Sales and purchase managers manage, executives view | `app/identity/system_seed.py`, migration `20260930_0167` |
+| The old vendor `fssai` / `drug_license` and branch and vendor `license_number` copied into the register, only where missing | `20260930_0167` |
+| Licences valid on the bill date printed for the seller (firm and branch) and the buyer on the sales invoice | `PartyBlock.licences` |
+| Desktop: Trade Licences register in Masters, Licence Types under configuration, Home tile for licences expiring, licences listed on the customer and vendor forms | phase 2 |
+
+Decisions taken by convention: **valid-to is required when the type
+expires**, refused by the server and the dialog alike; an expired licence is
+never deleted, only superseded by a new row. The **expiry report** is the
+register itself sorted by valid-to -- a separate report adds nothing a
+filtered list does not.
+
+### Built: steps 2, 3 and 5 (2026-09-30)
+
+| Piece | Where |
+| --- | --- |
+| `required_licence_type_id` on product categories and products. A product's own outranks its sub-category's, then its category's, then any category above -- the nearest wins. Null on a product takes the category's; a category edit that omits the field leaves it alone | `app/products`, migration `20260930_0168` |
+| One judgement, `LicenceCheckService`: each line's required type must be held by the **customer** and by the **firm as seller** (a whole-firm licence or one for the selling branch) -- for a purchase, by the **vendor** -- valid on the **document's own date**. Findings name the lines, products, party and why: missing, expired on ..., valid only from ... A licence of another type does not count | `app/trade_licences/services/licence_check.py` |
+| Firm policy `trade_licence_settings`: sale OFF / WARN / BLOCK, purchase OFF / WARN (BLOCK refused -- the goods on the dock have arrived). No row warns on both | `GET/PUT /api/v1/trade-licences/settings`, `TRADE_LICENCE_MANAGE_SETTINGS` |
+| The sale check at the approval of the sales order, delivery note and sales invoice; the purchase check at purchase-order approval and goods-receipt completion. A warning is recorded on the APPROVED / COMPLETED timeline event and the audit row; BLOCK refuses before stock is reserved or shipped | the five services |
+| Override: `?licence_override_reason=` on the three sales approve endpoints, refused 403 without `TRADE_LICENCE_OVERRIDE`; recorded on the timeline with what it overrode | `app/trade_licences/api/override.py` |
+| A preview for the screen: `GET /api/v1/trade-licences/check/{document}/{id}` answers exactly what approval would | same service |
+| A counter bill's chain (the order and note it raises) is not checked; the bill is, once, at its own approval -- two refusals for one sale would be one too many | `SalesChainService` passes `check_licences=False` |
+| Deleting a licence type products or categories need is refused by name | `TradeLicenceService.delete_type` |
+
+Decided by convention (owner questions 2 and 3 below): the sale check
+**defaults to warn**; the check is **per line**, so a customer without any
+licence still buys goods that need none. `TRADE_LICENCE_MANAGE_SETTINGS` and
+`TRADE_LICENCE_OVERRIDE` go to the firm administrator and firm manager only --
+both are controls over the people who sell, the split credit control makes.
+A product can only add or change a requirement, not waive its category's;
+a product that needs none belongs in a category that needs none.
+
+### For the owner at the review
+
+1. Which trades the first go-live firms are in -- pharma, food, agri --
+   decides which licence types ship seeded first.
+2. Whether the sale check defaults to **warn** (proposed) or **block**.
+3. Whether a customer **without** any licence may still buy the goods that
+   need none (proposed: yes, the check is per line, not per customer).
+
+## 55. Market gaps with no backlog entry of their own -- validate before building
+
+Owner, 2026-09-27: every gap found against the market goes into the plan so
+none is missed; **whether each is really needed is validated when it comes
+up for implementation**, with the firms going live, not decided here. The
+detail -- who has it, why it matters, effort -- is in
+`docs/MARKET_COMPARISON.md`, by its id. Items that already have a section
+here (§14, §35-§54) are not repeated.
+
+**Status for every row: to validate.** When one is taken up: confirm with
+the go-live firms that they need it, then give it its own section here (or
+strike it with the reason).
+
+| Id | Item | Priority as proposed | Note |
+| --- | --- | --- | --- |
+| G4 | Export to Tally (vouchers and masters, XML) | **High** | The firm's CA keeps the books in Tally |
+| G5 | Batch-wise MRP and rates (PTR, PTS) | **High** for pharma and FMCG | `products.mrp` is one value per product |
+| M9 | Day book, cash book, bank book; drill-down to the voucher | **High** | Goes with §50 (period ranges) |
+| M10 | Fast counter billing with barcode | High for counters | UI_PHASE_2_DESIGN 4.6 |
+| M2 | Live e-invoice and e-way bill through a GSP | High above the threshold | A GSP contract first |
+| G6 | Last rate while billing (sale and purchase) | Medium, small | |
+| G7 | Picking list and loading sheet, by van or route | Medium, small | |
+| G8 | Debit note to a supplier | Medium, small | Mirror of credit notes |
+| G9 | Cash discount for early payment; interest on overdue | Medium | |
+| G10 | Expiry and breakage claims to the principal | Medium | Extends §42.7 scheme claims |
+| S7 | Stock ageing, slow-moving and dead stock; vendor ageing | Medium, small | Not in the report catalogue |
+| S8 | Barcode label printing | Medium, small | After M10 |
+| S11 | Cheque printing | Low-Medium, small | |
+| S12 | Approvals and notifications (the bell) | Medium | UI_PHASE_2_DESIGN §9 item 15 |
+| G11 | GSTR-9; composition-scheme firms and parties | Low-Medium | |
+| G12 | Returnable containers (crates, cans, cylinders) | Low, by trade | Beverage, dairy, gas |
+| G13 | Printing in Hindi or a regional language | Low | |
+| N1 | Payroll | Low | Export to the payroll tool or CA rather than build |
+| N2 | Multi-currency with revaluation | Low | Importers only |
+| N7 | Recurring invoices | Low | §42.15 |
+| N8 | Budgets and variance | Low | |
+| N9 | Custom report builder | Low | Excel export covers most |
+
+Already planned elsewhere, for completeness: M1 §45 (built), M3 §51, M4
+PR #814, M5 §42.2-42.3, M6 §46 and §36, M7 §42.4 and §53.1, M8 §42.5, M11 §2,
+S1 §48.1 and §39, S2 §42.7, S3 §42.9, S4 §51, S5 §38, S6 §42.12, S9 audit
+entry, S10 §44 and §37, S13 §43, G1 §54, G2 §53, G3 §52, N3 §42.14, N4
+§42.13, N5 §42.2, N6 §51, N10 §41, N11 §48-49, N12-N13 §42.15.
+
+## 56. Bulk approval, migration from other tools, and data over the years -- HIGH PRIORITY
+
+Owner, 2026-09-27: three streams to run in parallel, designed from how
+Tally, BUSY, Marg, Vyapar, Zoho, Odoo and ERPNext do it. **The design is
+`docs/BULK_APPROVAL_MIGRATION_AND_YEAR_DATA.md`**; this entry is the plan.
+
+**Decided by convention (to confirm at the review):**
+1. **One continuous database, no year split** -- as Zoho, Odoo and ERPNext,
+   and as Tally recommends until audit. The Indian desktop tools split years
+   because their data files must load whole; PostgreSQL reads by index.
+   Year-end is a **closing entry plus a lock**, and balances simply continue.
+2. **Bulk approval is per row, not all-or-nothing** -- one order over its
+   credit limit must not hold back the rest -- through the same service as a
+   single approval; reject needs a reason. (Only Zoho does bulk approval
+   well; the desktop tools approve one at a time.)
+3. **Migration targets the opening position** -- masters, bill-wise
+   customer and vendor outstanding, opening trial balance, opening stock with
+   batches -- **not full history**; the old tool stays read-only for that.
+   Every import: template, dry run with per-row errors, commit once. Tally's
+   XML exports after the Excel path works.
+
+| Stream | First | Then | Later |
+| --- | --- | --- | --- |
+| A. Bulk approval | Framework + sales and purchase orders | Invoices, credit notes, returns, journals | Approval rules, multi-level, notifications |
+| B. Import and migration | Framework + products, customers, vendors (§46) | Opening bills, opening trial balance, *Opening balances* on Set up (§36) | Tally XML |
+| C. Performance | Large test firm and timings; the Inventory list's history loading, stock sums, `journal_entries` date index, unpaged reports | Current-year default on lists (§37); set-based balance update; retention on by default | Year-end close; partition `audit_logs` if needed |
+
+Targets for C: a list opens in under 1 second, a report in under 3, on the
+minimum hardware.
+
+## 57. Settings gear: the Selling section
+
+Noticed on 2026-09-28, discussing the sales chain with the owner.
+
+**What exists.** `docs/UI_PHASE_2_DESIGN.md` §4.13 gathers every setting
+behind the **Settings gear**, and appendix A places four under
+**Settings > Selling**. The gear today has Firm, Buying, Stock, Tax and
+Business profile (`MenuLayout.settings` in
+`desktop/lib/phase2/menu_layout.dart`) and **no Selling section**. The four
+are still reachable only from the **...** menu of their own screens:
+
+| Setting | Where it is today |
+| --- | --- |
+| Sales stages (`sales_workflow_settings`) -- which of quotation, sales order and delivery note a firm types; a one-person firm switches all three off and bills straight from the invoice | Sales Invoices > ... > Sales stages |
+| Credit control (`credit_control_settings`) | Customers > ... |
+| Loyalty scheme | Loyalty > ... |
+| TCS | TCS > ... |
+
+It was recorded only in the design and in a code comment
+(`menu_layout.dart`: they "join [settings] when the Settings page of 4.13 is
+built"), never here, so nothing on the work list carried it.
+
+**The ask.**
+
+1. A **Selling** group behind the gear holding the four, each gated by the
+   permission its screen already uses (sales stages: read `SALES_VIEW`,
+   change `SALES_MANAGE_SETTINGS`; credit control: `CUSTOMER_MANAGE_SETTINGS`).
+2. **Each stays in its screen's ... menu as well** -- findable both ways, as
+   §4.13 says.
+3. The Ctrl+K box finds each by name ("sales stages", "credit limit",
+   "loyalty", "TCS").
+
+No backend work: the endpoints exist. `test/menu_layout_test.dart` and the
+phase 2 menu tests are what to extend.
+
+## 58. One invoice for several delivery notes (D-SELL-39)
+
+Noticed on 2026-09-28, discussing the sales chain with the owner.
+
+**What exists.** The server bills several delivery notes on one invoice
+(`source_documents` on the create body, one `sales_invoice_sources` row each).
+It refuses a mix unless every note has the same customer and branch, the same
+salesman, territory and route where set, and has been dispatched. The screens
+offer one note only: "Bill this delivery note" is a single dropdown in both
+invoice editors.
+
+**The ask** -- consolidated billing, as Tally, Zoho, Odoo and ERPNext offer it:
+
+1. Choose the **customer** first.
+2. A tick list of that customer's dispatched notes with something left to
+   bill: number, date, order number, amount left.
+3. The ticked notes' lines are gathered into the one bill, each line keeping
+   the note it came from; quantities stay editable within what is left.
+4. Notes that differ in branch, salesman, territory or route are refused on
+   the screen, naming the note and the field, before the server is asked.
+5. Editing a draft keeps its notes fixed, as today for the one note.
+
+**Not changed:** a firm with the delivery-note stage off still bills one sales
+order per invoice -- that bill dispatches the goods itself.
+
+**The preview and the printed bill follow the invoice** (owner, 2026-09-28:
+the preview and the invoice are one feature and must behave the same).
+
+6. **Preview.** `/sales-invoices/preview` already stages the bill through
+   `stage_invoice`, the same code as saving, so it takes several notes with no
+   change; the editor must send every ticked note to it, and the preview pane
+   shows which note each line came from.
+7. **Printed bill.** The PDF names only the invoice's own `reference_number`
+   (`invoice_print_service.py`), no delivery note or order numbers. The GST
+   convention (Tally's "Delivery Note No." and "Buyer's Order No.") prints
+   them, so the bill lists **every** note and order it covers -- one line each,
+   or "several, see lines" with the note number on each line when there are
+   more than fit. A bill of one note prints its one note and order.
+
+Backend work is only item 7. Tests: the phase 2 invoice editor's widget test;
+backend tests that preview and then save one bill of two notes from two orders
+and get the same totals, and that its PDF names both notes.
+
+**Built 2026-09-30 (D-SELL-39, D-BUY-18; desktop only, phase 2 screens).** The
+invoice editor and the supplier bill editor keep their first picker as the
+primary document and add an **Also bill** control beside it: it lists the other
+billable delivery notes (goods receipts) of the same customer (supplier) and
+branch, and hides when there are none. Adding one puts its lines on the bill at
+what is left, each row naming the note or receipt it came from; the chip's x
+takes them off again. The preview and the save send every line with its own
+source, numbered 1..n. A sales draft of several notes reopens with all of them;
+the buying screen only creates. Choosing a different primary document clears
+the added ones. It is a menu rather than the tick list of item 2, so the
+"choose the customer first" step and the salesman/territory/route refusal on
+screen (item 4) are not built -- the server still refuses those. Item 7 (the
+printed bill naming every note) is still to build.
+
+## 59. Promotions: a "best offer only" mode
+
+Noticed on 2026-09-28, explaining promotions to the owner
+(`docs/PROMOTIONS_AND_DISCOUNTS_GUIDE.md` section 4).
+
+**What exists.** Matching promotions always **combine**, in "Applies at"
+order, compounding, until one with stacking switched off ends the stack. The
+only way to make one offer exclude another is priority plus that switch.
+There is no "give the customer whichever single offer is worth most", and no
+cap on the combined discount.
+
+**The ask**, as most retail and distribution tools offer it:
+
+1. A firm-wide choice under Settings > Selling: **Combine offers** (today's
+   behaviour, the default so no firm changes) or **Best offer only**.
+2. Best offer only: evaluate each matching promotion on its own and apply the
+   one that takes the most off the document; ties go to the lower "Applies
+   at". The execution log records every candidate and why it lost.
+3. Optionally a **maximum combined discount %** per line, for Combine mode.
+
+Free goods and free shipping have no rupee value to compare until costed;
+decide at design time whether they are valued at selling price or excluded
+from the comparison.
+
+## 60. Offers to market standard: festival offers, schemes, coupons, free items
+
+Owner, 2026-09-28: promotions must be flexible enough to run any festival
+offer -- coupons, discounts, free items, anything -- as the market does.
+Designed against Tally/BUSY/Marg schemes, Vyapar, Zoho, Odoo and Shopify-style
+retail offers. `docs/PROMOTIONS_AND_DISCOUNTS_GUIDE.md` is what exists.
+
+**Already possible** (a festival offer is an ordinary promotion with From/Until
+dates): % or amount off a line; % or amount off the bill; buy X get Y of the
+same item; conditions on product, category, customer, territory, route,
+quantity, line value, order value; coupon-only offers with total and
+per-customer limits; priority and stacking; order-value slabs (one promotion
+per slab, highest slab first with stacking off).
+
+**Built on the server, missing on the screen** -- D-SELL-42: free product
+(buy X get a different item), free shipping, conditions on customer group,
+branch, salesman, document type and date, and the tests "is one of", "between",
+"is set". Fixing D-SELL-42 is the first step and needs no backend work.
+
+**Missing, by market convention** (in the order most asked for):
+
+| # | Offer | Example | Note |
+| --- | --- | --- | --- |
+| 1 | Percent off **with a cap** | 20% off, up to 500 | a `max_amount` on the percent benefits |
+| 2 | **Best offer only** | give whichever single offer is worth most | backlog 59 |
+| 3 | **Product and customer sets** | "any of these 12 products" | server has `IN`; needs a multi-pick on the screen (D-SELL-42) |
+| 4 | **Buy X get Y at a discount** | buy 2, second at 50% off | new benefit; today only fully free |
+| 5 | **Combo / bundle price** | shampoo + soap for 150 | new benefit: a set price for a set of lines |
+| 6 | **Festival bonus points** | double loyalty points during Diwali | a benefit that multiplies the loyalty earn rate for the offer's dates |
+| 7 | **Bulk coupon codes** | 500 single-use codes for a campaign, exported to CSV | today codes are made one at a time |
+| 8 | **Customer eligibility** | first order only; customers not billed in 90 days | new conditions |
+| 9 | **Day and time** | weekends only; 4-6 pm | condition on weekday and time; mainly retail |
+| 10 | **Offer templates** | "copy last Diwali's offers, new dates" | copy a promotion, or a set of them |
+| 11 | **Manufacturer scheme claims** | free goods given on the company's scheme, claimed back | track the value per scheme to claim from the supplier |
+| 12 | **Offer shown on the print** | "Diwali offer: 250 saved" on the bill | print each applied offer and the total saved |
+| 13 | **Try an offer before launch** | see today what next week's Diwali offer does to an order | a Try screen on Promotions over `POST /api/v1/promotions/simulate` (built, no caller) taking a date, a customer and lines, and showing each offer tried and why it applied or not; the workaround today is a test customer (`docs/PROMOTIONS_AND_DISCOUNTS_GUIDE.md` section 13) |
+
+**Rules that stay** (from `docs/PRICING_AND_PROMOTIONS.md`): one engine for
+every document; a typed discount beats every offer; offers are counted at
+approval; editing an active offer makes a new revision; free goods are never
+discounted; a bill discount reaches the GST.
+
+**Suggested order:** D-SELL-42 (screen only) -> 13 -> 1, 2, 3 -> 12 -> 4, 5 -> 6, 7
+-> the rest. Each benefit is a new `PromotionActionType` and each eligibility a
+new `PromotionField`, so none changes how existing offers price.
+
+## 61. Free goods and gifts from suppliers: for customers, and for the firm
+
+Owner, 2026-09-28: suppliers send free items with a purchase delivery. Some
+are meant to be passed on free to customers; some are not for customers at
+all -- they are for the firm or its owner. How is each tracked?
+
+**What exists.**
+
+- **Free quantity of the same item** (a 10+1 scheme) is a field on the
+  purchase order line and the goods receipt line. Receiving puts
+  **accepted + free** into stock as ordinary saleable stock of that product,
+  and spreads the line's value over all of it, so the average cost falls
+  (`GoodsReceiptService._receipt_unit_cost`). The bill charges only what was
+  bought. This works.
+- **A different free item** (50 bowls to give away with detergent) can only be
+  received as an extra receipt line at price 0. It becomes saleable stock at
+  zero cost, and nothing says it was meant to be given away.
+- **Giving it to customers**: a sales line's free quantity of the same item, or
+  a Free product promotion (server only -- D-SELL-42). Stock can also leave by
+  write-off, but its reasons are DAMAGE, EXPIRY and LOSS only.
+- **Gifts for the firm or owner** (a TV, a trip, a gold coin for meeting a
+  target): **nothing**. The only way in is a zero-price receipt, which puts a
+  television into saleable stock.
+- **What the supplier owes back** for a scheme passed on to customers is §42.7.
+
+**The ask**, by the usual convention (Tally and BUSY free-quantity schemes,
+Marg scheme stock, standard accounting for supplier incentives):
+
+1. **Free goods for customers.**
+   - A product flag **For free issue only** ("promotional stock"): it can be
+     received, given away and counted, but never sold at a price. The sales
+     screens refuse a price on it; stock reports show it separately.
+   - On the goods receipt, a free line names the **scheme** it came under
+     (free text, or a link to the supplier's offer when §42.7 lands).
+   - A stock issue reason **Given free to customer** (and **Sample**), naming
+     the customer, costed to a **Promotional expense** account, beside the
+     existing DAMAGE / EXPIRY / LOSS.
+   - A report: free goods received per supplier and scheme, given away per
+     customer, and what is left -- received = given + in stock.
+   - Same-item free goods (10+1) stay as today: ordinary stock at a lower
+     average cost. That is how every Indian trade tool treats them, and it is
+     right, because the item is sold like any other unit.
+2. **Gifts for the firm or owner.** Not stock and not for sale.
+   - A **Supplier gifts and incentives** register: date, supplier, item,
+     value (the supplier's declared value, or fair market value), who received
+     it (firm or owner), and the purchase or scheme it came with.
+   - Saving it posts one journal, chosen by who keeps it:
+     - kept by the business as an asset: Dr **Fixed asset** / Cr **Other income -
+       supplier incentives**;
+     - used up by the business: Dr the expense / Cr the same income;
+     - taken by the owner: Dr **Drawings** / Cr the same income.
+   - No GST input credit is taken on a gift received free.
+   - **TDS 194R:** a supplier giving benefits worth more than 20,000 in a year
+     deducts TDS on them. The register totals value per supplier per financial
+     year, and shows the 194R TDS deducted so it can be matched with Form 26AS
+     (ties in with §53, PAN/TAN and TDS).
+3. **Arriving with the delivery.** The goods receipt screen gets a third kind
+   of line beside ordered and free: **Gift, not stock**. It records the gift in
+   the register (2) instead of stock, so the person unloading the truck
+   records everything that arrived in one place.
+
+**Tests:** a 10+1 receipt lowers the average cost and the bill charges 10; a
+free-issue product cannot be sold at a price; giving it away posts promotional
+expense at its cost; a gift line on a receipt adds no stock and posts one
+journal by who keeps it; the 194R total per supplier crosses 20,000 when it
+should.
+
+## 62. Sales analysis: any combination of period, product, customer and more
+
+Owner, 2026-09-28: sales needs a section, and Home gadgets, showing how much
+was sold per day, per month, per product, per customer -- every combination.
+
+**What exists.** Fixed reports only: orders by customer, by salesman and by
+territory (`/sales-orders/reports/*`, orders booked rather than sales
+billed); the invoice register, summary, pending and overdue lists
+(`/sales-invoices/reports/*`); notes by route, salesman and warehouse; and
+Home's "sales over 14 days" chart. There is **no** sales-by-product report, no
+day / month trend over billed sales, and no way to cross two of them
+(product by month, customer by product).
+
+**The ask** -- a pivot over billed sales, as Tally (sales register and item
+analysis), BUSY, Zoho (sales by item / customer / salesperson) and every BI
+tool offer it:
+
+1. **Sell → Sales Analysis**, one screen:
+   - **Rows** and optional **Columns**, each any one of: day, week, month,
+     quarter, financial year; product, product category; customer, customer
+     group; salesman, territory, route; branch, warehouse. Examples: product
+     by month; customer by product; salesman by month; category by territory.
+   - **Figures**: quantity (in the sales unit), taxable value, tax, net sales,
+     invoice count, average bill; and **gross margin** (value less cost of
+     goods sold from the delivery notes) for users who may see cost.
+   - **Filters** on every dimension above, plus a period (defaults to this
+     month).
+   - **Net of returns**: approved invoices less credit notes and sales
+     returns in the same period, with a switch to show gross.
+   - A switch to analyse **orders booked** instead of sales billed.
+   - Totals per row and column; **click any figure** to see the invoices
+     behind it; **compare** with the previous period or the same period last
+     year (value and % change); chart view (line for periods, bars for
+     products and customers); export to Excel, CSV and PDF; save a layout by
+     name ("Monthly product sales").
+2. **Home gadgets** (joins §49's gadget catalogue): today's sales; this month
+   against last month; sales by day for the month; top 5 products; top 5
+   customers; top salesmen. Each opens Sales Analysis already set to it.
+3. **Who sees what**: `SALES_VIEW` for the analysis; margin only with a cost
+   permission; a salesman sees only his own customers when his role says so.
+4. **Speed** (§56 stream C targets: a report in under 3 seconds): one grouped
+   query over invoice lines with an index on the invoice date; a daily summary
+   table only if large firms need it.
+
+**Tests:** each dimension alone and crossed with a period; totals equal the
+invoice register for the same period; a credit note in the period reduces net
+sales; drill-down lists exactly the invoices summed; a salesman limited to his
+customers sees only theirs; margin hidden without the cost permission.
+
+The same analysis for purchases (by vendor, product, month) follows the same
+design once this lands; the existing Purchase Analytics screen is not offered
+in phase 2.
+
+## 63. Paying the tax: GST payable, set-off and payment; TCS deposit
+
+Owner, 2026-09-28: sales collect tax -- is anything to be paid, and does the
+product show it?
+
+**What exists.**
+
+- Every approved sales document credits **Output tax** (one account,
+  `OUTPUT_TAX`, not split by CGST / SGST / IGST); every approved purchase bill
+  debits **Input tax** split by IGST / CGST / SGST.
+- **GSTR-3B** (`/api/v1/gst-returns/gstr3b`) shows the month's outward tax
+  (3.1) and eligible, reversed and net input credit (table 4), per head.
+- **TCS** collected on receipts is credited to `TCS_PAYABLE`; the TCS screen
+  lists collections and charged-versus-due.
+
+**What is missing -- the step from "collected" to "paid":**
+
+1. **Net GST payable per month.** Output tax less input credit, per head, by
+   the statutory **set-off order**: IGST credit against IGST, then CGST, then
+   SGST; CGST credit against CGST then IGST; SGST credit against SGST then
+   IGST; never CGST against SGST or back. Show credit carried forward, and
+   **cash to pay** per head, with interest at 18% a year for days late after the
+   due date (20th of the next month for monthly filers; 22nd/24th under QRMP).
+   Reverse-charge tax is always paid in cash.
+2. **Recording the payment.** A **GST payment** entry (the PMT-06 challan:
+   CPIN, CIN, bank, date, amount per head, interest, late fee) that posts
+   Dr output tax per head / Cr bank, and a **set-off** entry that posts
+   Dr output tax / Cr input tax for the credit used. After both, output and
+   input tax for the month are zero except credit carried forward -- the check
+   that the books and the return agree.
+3. **Output tax split by head** (`OUTPUT_TAX_IGST / _CGST / _SGST`), mirroring
+   input, so the ledger answers "how much CGST do we owe" without a report.
+4. **A tax calendar on Home** (§49 gadget): GSTR-1 due (11th), 3B due (20th),
+   TCS deposit due (7th), with amounts and a warning when late.
+5. **TCS deposit and returns.** Deposit the month's TCS by the 7th of the next
+   month (challan 281: Dr `TCS_PAYABLE` / Cr bank, with the challan number);
+   the quarterly **27EQ** return listing each collection by customer PAN;
+   **Form 27D** certificates for customers. Ties in with §53 (TAN).
+6. **Late fee and interest** posted to their own expense accounts, not mixed
+   into tax.
+
+**Not in scope:** filing on the portal (the sandbox rule in
+`docs/LEDGER_POSTING_RULES.md` stands); GSTR-2B matching is §42.5.
+
+**Tests:** a month with 18,000 output IGST and 10,000 input IGST shows 8,000
+cash payable; CGST credit never pays SGST; credit beyond liability carries
+forward; after payment and set-off the month's output and input tax accounts
+are zero; a TCS deposit clears `TCS_PAYABLE` for its month; 27EQ lists every
+collection with the customer's PAN.
+
+## 64. Sales: five gaps no other entry covers
+
+Found 2026-09-28 reviewing sales end to end with the owner, after §57-§63.
+Checked against §42, §55 and `docs/MARKET_COMPARISON.md` so nothing here is
+listed twice. Each is **to validate** with the go-live firms, as §55 says.
+
+| # | Gap | What exists | The ask, by convention |
+| --- | --- | --- | --- |
+| 1 | **Fixed special rates and price levels** -- "Anand pays 80 for detergent"; retail / wholesale / dealer rates | Price lists hold **discount % ladders only** (`price_list_items.discount_percent`); a product has **one** `selling_price` | A price list line may give a **rate** instead of a %; products carry named **price levels** (Retail, Wholesale, Dealer), a customer or group is assigned one, and a rate from a list outranks the level. Ranked in `app/core/utils/pricing.py` like every other tier. |
+| 2 | **Selling below cost or below a minimum price** | Nothing warns; only commission refuses to pay on a sale below cost | The line warns when the net rate is below the product's cost or its **minimum selling price** (a new product field); a firm setting chooses warn or block; a block can be lifted by a role holding a new permission. |
+| 3 | **Discount limit per role** | Anybody who may edit an order may type any discount | Each role has a **maximum discount %**; above it the order is saved but needs approval by a role with a higher limit, and the approval records who allowed it. |
+| 4 | **Typing a rate that includes GST** | Tax-inclusive treatment exists only as a tax-rule property; a line's rate is always before tax | A **Rate includes GST** switch per document (default from firm settings) so a counter can type the shelf price; the line derives the taxable value; the print shows both. |
+| 5 | **Taking payment on the bill** | A receipt is a separate document on another screen | On the invoice: **Received now** (cash / UPI / card, amount, reference); approving the bill records the receipt against it in the same transaction; shows change due. Pairs with §55 M10 fast counter billing. |
+
+**Already recorded, for completeness** -- the sales list as of today: §57
+Selling settings; §58 / D-SELL-39 several notes on one bill; §59 best offer;
+§60 offer types; §62 sales analysis; §63 paying the tax; D-SELL-40 to 43;
+§42.1 WhatsApp and email; §42.6 salesman app; §42.7 scheme claims; §42.10 UPI
+QR on the invoice; §44 user default branch; §52 document fields; §53 PAN/TAN;
+§54 trade licences; §55 G5 batch-wise MRP / PTR, G6 last rate, G7 picking and
+loading sheet, G9 cash discount and overdue interest, G12 returnable
+containers, M2 live e-invoice and e-way bill, M10 counter billing.
+
+## 65. Purchases: what the review with the owner found
+
+Owner, 2026-09-28, the purchases half of the review that produced §57-§64.
+`docs/PURCHASE_FRAMEWORK.md` and `docs/PURCHASE_TO_PAYMENT_FLOW.md` describe
+what is built.
+
+**How the documents link today.** Purchase order -> goods receipt ->
+supplier bill -> payment, with returns off the receipt or the bill.
+
+- One order, **many receipts** (part deliveries; receiving more than ordered is
+  refused). A receipt always names **one** order -- there is no receipt
+  without an order.
+- One receipt can be billed in **parts**; one bill can cover **several
+  receipts** of one supplier and branch on the server, but not on the screen
+  (D-BUY-18).
+- A bill never skips the receipt (D-BUY-14). A bill with no source is for
+  services and expenses only (and Expenses, PR #814).
+- A payment needs no bill (an advance); a return off the receipt becomes a
+  supplier credit.
+
+**Gaps, each to validate as §55 says:**
+
+| # | Gap | What exists | The ask, by convention |
+| --- | --- | --- | --- |
+| 1 | **Stage switches** for a one-person firm: type the bill and let the order and receipt follow | Three screens for every purchase | §38 (recorded 2026-09-16) |
+| 2 | **Several receipts on one bill** on the screen | One receipt per bill | D-BUY-18, with §58 |
+| 3 | **Purchase order discount on the whole order** reaching tax, receipt and bill | Subtracted after tax, not carried on | D-BUY-19 |
+| 4 | **Supplier rates**: a vendor's standing discount, a supplier price list with quantity breaks, and the **last purchase rate** while typing | Only a typed discount; the product's one `purchase_price` | Mirror sales: vendor standing % and supplier price lists ranked in `app/core/utils/pricing.py`; last rate is §55 G6 |
+| 5 | **Purchase price variance** explained per bill | Posted to its account, seen only as a P&L line | A bill shows receipt value vs billed value per line, and a report lists variances by supplier and product |
+| 6 | **Debit note** to a supplier for a price difference or a short-supply claim with no goods going back | Purchase return (goods back) only | §55 G8 |
+| 7 | **Supplier free goods and gifts** | Same-item free quantity only | §61 |
+| 8 | **Scheme claims** from the principal | Nothing | §42.7 |
+| 9 | **Input credit at risk**: bills matched to GSTR-2B | 3B table 4 from the bills | §42.5 |
+| 10 | **TDS on purchases (194Q)** above 50 lakh a year per supplier | Nothing | §42.4, §53 |
+| 11 | **Landed cost**: freight, loading and duty added to stock cost | Nothing | §42.12 |
+| 12 | **Reorder**: what to buy, from stock levels and sales | Nothing | §42.9 |
+| 13 | **Purchase analysis by any combination** | Fixed reports by vendor, buyer, product | §66 |
+| 14 | **RFQ and supplier quotations** | Nothing (removed from the screens 2026-08-22) | Low for a distributor; validate |
+
+**Suggested order:** 2 and 3 (defects, small) -> 1 (§38) -> 4 -> 5 -> 6 ->
+the rest as the go-live firms confirm them.
+
+## 66. Purchase analysis: any combination of period, product, supplier and more
+
+Owner, 2026-09-28: purchase reports like the sales ones (§62) -- by product,
+by month, by year, by supplier, over any date range -- and as Home gadgets.
+
+**What exists.** Fixed purchase-order reports: register, pending, overdue, by
+vendor, by buyer, by product (`/api/v1/purchases/reports/*`), plus the goods
+receipt and purchase return reports. They count **orders placed**; nothing
+analyses what was actually **received and billed**, over time, or crosses two
+dimensions (product by month, supplier by product).
+
+**The ask** -- the §62 screen, built once and used for both, with purchase
+dimensions and figures:
+
+1. **Buy → Purchase Analysis**:
+   - **Rows** and optional **Columns**, each any one of: day, week, month,
+     quarter, financial year, calendar year; product, product category;
+     supplier, supplier category; buyer; branch, warehouse.
+   - **Period**: any date range, with quick picks (this month, last month,
+     this quarter, this financial year, last financial year).
+   - **Figures**: quantity (purchase unit), free quantity, taxable value,
+     input tax, total billed, bill count, **average rate** per unit, and the
+     **price difference** between receipt and bill (§65 row 5).
+   - **Basis** switch: bills approved (the default, net of purchase returns
+     and debit notes), goods received, or orders placed.
+   - Totals, click-through to the bills behind a figure, compare with the
+     previous period or the same period last year, chart view, export to
+     Excel / CSV / PDF, saved layouts ("Monthly purchases by supplier").
+2. **Rate trend**: for one product, the rate paid per supplier over time --
+   who is cheapest, and whether prices are rising.
+3. **Home gadgets** (§49 catalogue): purchases this month against last month;
+   purchases by month for the year; top 5 suppliers; top 5 products bought;
+   bills due to pay this week; goods received not yet billed. Each opens the
+   analysis already set to it.
+4. **Buy and sell side by side** (once §62 lands): per product per period,
+   quantity bought vs sold and average buy rate vs average sell rate.
+5. **Who sees what**: `PURCHASE_VIEW` for the analysis; a buyer may be limited
+   to his own purchases when his role says so.
+
+**Tests:** each dimension alone and crossed with a period; totals equal the
+bill register for the same range; a purchase return in the range reduces the
+net; the three bases give different, explainable totals for a part-received,
+part-billed order; drill-down lists exactly the bills summed.
+
+## 67. Sales against a full ERP checklist: what is built, and nine gaps
+
+Owner, 2026-09-28, supplied a 14-part checklist of a complete ERP sales module
+(customers, CRM, quotation, order, delivery, invoice, collection, return,
+credit note, debit note, pricing, tax, receivables, reports). Each part was
+checked against the code the same day.
+
+**Built** (no action): customer master with groups, several billing and
+shipping addresses, contacts, GSTIN and PAN, credit limit and policy, payment
+terms in days, standing discount, opening balance and live outstanding;
+quotations with payment and delivery terms, validity, sent / accepted /
+declined / converted, and "expired" derived from the validity date; orders
+with part delivery, back orders, hold, close; delivery notes with batch and
+serial, vehicle, driver, attachments, part delivery; invoices with due date,
+payment terms, place of supply, bill-to and ship-to on the print, references
+to the order and note; receipts with part payment, advances, one receipt over
+many invoices, reversal; sales returns with reason, condition, restock and
+damaged quantities; credit notes against an invoice's lines; the central tax
+engine (CGST / SGST / IGST, HSN, exemptions, inclusive and reverse charge);
+customer statement and ageing; the flow sales -> inventory -> accounting ->
+tax -> payments, posted automatically. Terms and conditions print from the
+print settings.
+
+**Already recorded elsewhere:** customer-specific rates, maximum discount and
+approval limits (§64); stacking and best offer (§59, §60); daily / monthly /
+by customer / by product / margin reports (§62); payment reconciliation with
+the bank (§42.2); one bill for several notes (§58).
+
+**The nine gaps** -- each to validate with the go-live firms (§55):
+
+| # | Gap | Today | The ask |
+| --- | --- | --- | --- |
+| 1 | **Enquiries and leads (CRM)**: enquiry -> opportunity -> quotation, products and quantity asked, expected value, follow-up dates, status, lost reason | Nothing before the quotation | A light pipeline: an **Enquiry** document (customer or prospect, lines, expected value, salesman, next follow-up, status Open / Quoted / Won / Lost with reason) that converts to a quotation; a follow-ups due list and a Home gadget. A prospect becomes a customer on conversion. |
+| 2 | **Account manager on the customer** | A salesman reaches a customer only through territory, route or the document | `customers.salesman_id`, defaulting onto every new document for that customer; lists and §62 can filter by it. |
+| 3 | **Ship-to chosen per order** | Every document ships to the customer's **default** shipping address | Order, note and invoice carry a `shipping_address_id` picked from the customer's addresses (default preselected), inherited down the chain and printed; place of supply follows it where the law says so. |
+| 4 | **Payment terms on the order** | Only the invoice carries payment terms and due date | The order carries them (from the customer), and the invoice inherits rather than re-reading the customer. |
+| 5 | **Transport details** on the delivery note | Vehicle and driver only | Transporter name and GSTIN, mode, LR / docket number and date, distance -- what the e-way bill needs (§55 M2) -- printed on the challan. |
+| 6 | **Proof of delivery** | Attachments only; a note ends at dispatched / completed | Delivered on (date, time), received by (name), remarks, photo or signature attachment; a note is **Delivered** only with a proof; a list of notes dispatched but not yet proven delivered. |
+| 7 | **Debit note to a customer**: extra charges or a price increase after billing | Nothing (only credit notes) | A debit note against an invoice, mirror of the credit note: raises the receivable, posts revenue and output tax, reported in GSTR-1 as a debit note. |
+| 8 | **Discount report** | Nothing summarises what was given away | Discount given by customer, product, salesman and source (typed, price list, promotion, customer, group, bill), per period -- the discount_source already stored on each line makes it a report, not a data change. |
+| 9 | **Collection report** | The receipts list, and commission on collections | Collections by day, by salesman, by mode (cash / bank / UPI), and against what was due in the period. |
+
+**Suggested order:** 3, 4 (small, correctness of the documents) -> 5, 6
+(delivery, and needed for e-way bill) -> 7 -> 8, 9 -> 2 -> 1.
+
+## 68. Purchases against a full ERP checklist: what else to consider
+
+Owner, 2026-09-28: purchasing is well built; compare it anyway with a full ERP
+purchase module (the same shape as the sales checklist in §67): suppliers,
+requisition, RFQ, order, receipt, inspection, bill and matching, payment,
+return, debit note, pricing, tax, payables, reports. Checked against the code
+the same day. §65 already holds fourteen purchase gaps; these are the ones it
+does not.
+
+**Built** (no action): supplier master with categories and types, several
+addresses and contacts, bank accounts (with UPI), GSTIN / PAN / TAN / FSSAI /
+drug licence / IEC; orders with approval, part receipts, over-receipt refusal;
+receipts with accepted / free / rejected / damaged quantities, batches and
+expiry; bills from receipts with due date, part billing, input credit split by
+head; payments with advances, supplier credits from returns, reversal;
+purchase returns off the receipt or the bill; vendor outstanding and overdue
+bills; automatic posting (stock, GRNI, payable, price variance).
+
+**To consider** -- each to validate with the go-live firms (§55):
+
+| # | Item | Today | The ask |
+| --- | --- | --- | --- |
+| 1 | **Supplier payment terms** | No payment terms on the supplier; the bill's due date is typed | `vendors.payment_terms_days`; the bill's due date defaults from it, as customers already do |
+| 2 | **MSME suppliers: pay within 45 days** (Income Tax s.43B(h)) | No MSME / Udyam field | Udyam number and category on the supplier; bills to an MSME supplier due in at most 45 days (15 without an agreement); a list of MSME bills near or past the limit, since an unpaid one is disallowed as an expense at year end |
+| 3 | **Purchase requisition (indent)** | Nothing before the order | A request from a storeman or branch (items, quantity, needed by), approved, then converted into one or more orders -- the reorder suggestion (§42.9) can raise it |
+| 4 | **Approval limits by amount** | Anyone with the permission approves any order | Each role approves orders up to an amount; above it the order waits for a higher role. Shares its rules with §64 row 3 (discount limits) |
+| 5 | **Changing an approved order** | To verify: what an edit to an approved order does | A formal **amendment**: revision number, what changed, re-approval above a threshold, and the supplier's copy reprinted as "Amendment 1" |
+| 6 | **Quality inspection before stock is usable** | Rejected / damaged quantities typed at the receipt | Optional per product or category (pharma, food): received stock lands **on hold** until an inspection passes or rejects it, using the quarantine inventory already has |
+| 7 | **Matching the bill to order and receipt, with tolerances** | Quantity is capped; a price difference posts silently to price variance | A firm tolerance (for example 2% or 100) beyond which a bill's price or quantity difference **holds** the bill for approval, naming the lines |
+| 8 | **Reverse charge on purchases** (GTA freight, legal fees, supplies from unregistered persons where notified) | To verify: the tax engine knows reverse charge; nothing found posting the liability on a bill or reporting 3B 3.1(d) | On such a bill: post output tax payable **and** the input credit, raise the self-invoice number, and report it in 3B; paid in cash (§63) |
+| 9 | **Payment run** | One payment at a time | Pick the bills due by a date across suppliers, approve the run, record every payment at once, and export the bank's bulk-payment file using the supplier bank accounts already stored |
+| 10 | **Supplier's own credit note** (rate difference, discount after billing) with no goods returned | Purchase return only; our debit note is §55 G8 | Record the supplier's credit note against a bill: reduces the payable and the input credit, reported in 3B |
+| 11 | **Supplier performance** | Nothing | On time %, short and rejected %, price trend per supplier (with §66's rate trend) |
+| 12 | **Rate contracts / blanket orders** | Nothing | An agreed rate and total quantity for a period, drawn down by orders -- low for a distributor |
+| 13 | **Imports** | Nothing | Bill of entry, IGST paid at customs as input credit, customs duty into landed cost (§42.12) -- only for importers |
+
+**Suggested order:** 1, 2 (small, and 2 is a legal deadline) -> 8 (verify
+first; tax) -> 7 -> 10 -> 4 -> 9 -> 3, 5, 6 -> the rest.
+
+## 69. The full procurement specification: what it adds to §61, §65, §66, §68
+
+Owner, 2026-09-28, supplied a 53-section "complete Purchase module"
+specification (requisition -> RFQ -> supplier quotations -> comparison -> PO ->
+GRN -> inspection -> invoice -> payment, plus returns, notes, pricing,
+planning, budgets, contracts, landed cost, reports, RBAC, audit, testing) --
+**for review, not for building**. Checked against the code and this backlog.
+
+**Already built:** firm isolation at the service layer, RBAC, audit, document
+numbering, attachments, pagination, the PO -> GRN -> bill -> payment chain
+with partial receipts and billing, over-receipt refusal, accepted / rejected /
+damaged / free quantities, batches, expiry, serials, inventory posting through
+the inventory service, returns off receipt or bill with reason codes, supplier
+credits from returns, advances, allocation, reversal, centralised pricing and
+tax, reorder level and safety stock fields in inventory, `purchase_type` on
+the order (the spec's "purchase channel"), transport details and the supplier's
+invoice reference on the receipt, and the never-lose-typed-data form rule.
+
+**Already recorded:** requisition, approval limits, amendments, inspection,
+three-way match with tolerances, reverse charge, payment run, supplier credit
+notes, performance, contracts, imports (§68); supplier rates, price variance,
+debit notes, RFQ and supplier quotations (§65); free goods and gifts (§61);
+purchase analysis, rate trend, dashboard gadgets (§66); landed cost (§42.12);
+reorder suggestions (§42.9); notifications (§55 S12); sending the PO by email
+(§51).
+
+**What the specification adds** -- each to validate (§55):
+
+| # | Item | Today | The ask |
+| --- | --- | --- | --- |
+| 1 | **Supplier product catalogue** | A supplier code is typed per order line (`vendor_product_code`); nothing per supplier per product | Per supplier and product: supplier's name and SKU, price with effective dates (history kept, never overwritten), MOQ, order multiple, pack size, minimum order value, lead time, and a **preferred supplier** per product. The order line fills from it. |
+| 2 | **MOQ and order-multiple checks** | None | Ordering 115 against MOQ 100, multiple 20 **warns** (or refuses, by firm setting) and suggests 120 -- never changes the quantity silently. |
+| 3 | **Lead time used and measured** | None | Expected delivery defaults from the supplier-product lead time; actual lead time and delay per receipt feed §68 performance and §42.9 planning. |
+| 4 | **Blocked supplier** | Statuses DRAFT / ACTIVE / INACTIVE / ARCHIVED | **BLOCKED** with a reason: no new orders or bills, existing ones can still be received, paid and returned. |
+| 5 | **One quantity picture per order line** | Receipt and bill services each derive their own figures | One service answers ordered / received / accepted / rejected / returned / invoiced / pending per PO line, and the order API and screen show it; PO statuses gain **partially invoiced** and **completed** from the same figures. To verify first what the order screen shows today. |
+| 6 | **Sent to supplier** | Approval is the last step before receiving | A **Sent** state with date and how (email, print, WhatsApp), so "approved but never sent" is findable. |
+| 7 | **What a return comes back as** | A return gives a credit; a refund service exists for customers | The return records the outcome -- **credit**, **replacement** (a receipt against the return, no new order) or **refund** -- and a supplier **refund** is received as money in against the supplier's credit. To verify whether settlements already take a supplier refund. |
+| 8 | **Supplier rebates and offers** | Only free quantity on a line | Target and volume rebates ("2% back on the year's purchases over 10 lakh"): the agreement, purchases counted against it, the rebate accrued as a receivable from the supplier, and claimed -- with §42.7 on the sales side. |
+| 9 | **Purchase budget** | None (§55 N8 is a general finance budget) | Budget by firm, branch, category and period; used and available shown on the order; warn, or require approval, when exceeded -- never block by default. |
+| 10 | **Supplier rating by people** | None | Price, quality, delivery, support, communication scores given by users, kept **apart** from the computed §68 metrics and labelled as opinion. |
+| 11 | **Quotation comparison** | §65 row 14, rated low | If validated, the spec's side-by-side: effective landed cost per unit, delivery days, payment terms, rating; the chosen supplier and the **reason** recorded; never auto-picks the cheapest. |
+| 12 | **Planning formula** | §42.9 reorder suggestions | Required = demand over lead time + safety stock - on hand + reserved - open orders, rounded up to MOQ / multiple; the formula's parts configurable; suggestions first, automatic POs only with a permission. |
+
+**The spec's phasing, mapped to this product:** its Phase 2 (core) is built;
+Phase 3 is §68 rows 3-4 + rows 1, 11 here; Phase 4 is §68 rows 6, 10 + §55 G8
++ row 7 here; Phase 5 is rows 1-3, 9, 12 here + §42.9; Phase 6 is §68 rows
+11-13 + §42.12 + row 8 here; Phase 7 is §66.
+
+## 70. Inventory against a full ERP checklist: what else to consider
+
+Owner, 2026-09-28: the same review as sales (§67) and purchases (§68, §69),
+for inventory -- **review only, nothing to build yet**. Checked against the
+code the same day.
+
+**Built** (no action): warehouses with storage nodes (bins); several units per
+product with conversion rules; batches, lots and serials with expiry, forward
+and backward trace, an expiry monitor; stock split into current, reserved,
+available, blocked, damaged, quarantine; opening stock (with import);
+adjustments; write-offs by reason (damage, expiry, loss); quarantine hold and
+release; transfers between warehouses and across branches that keep the batch
+and the value; physical counts with posting; reservations from sales orders;
+batches allocated automatically at dispatch, expired ones refused on the
+note's own date; a stock ledger recording before and after for every
+quantity; weighted-average costing with every movement posted to the ledger;
+minimum, maximum, reorder level and safety stock per item; summaries by firm,
+branch, warehouse and product; export.
+
+**Already recorded:** system-numbered movements (§34); reorder suggestions
+(§42.9); landed cost (§42.12); kits and combo packs (§42.13); stock ageing,
+slow and dead stock (§55 S7); barcode counter billing and labels (§55 M10,
+S8); batch-wise MRP / PTR / PTS (§55 G5); picking list and loading sheet (§55
+G7); returnable containers (§55 G12); free-issue products and "given free" /
+"sample" issues (§61); inspection hold on receipt (§68 row 6).
+
+**To consider** -- each to validate with the go-live firms (§55):
+
+| # | Item | Today | The ask |
+| --- | --- | --- | --- |
+| 1 | **A stock transfer as a document** | One product per transfer, applied at once; `in_transit_quantity` exists but a transfer never uses it | A numbered, multi-line **Stock Transfer** with a printed transfer challan; two steps -- **dispatch** (stock goes in transit) and **receive** at the other end, recording any shortage or damage in transit |
+| 2 | **Branches with their own GSTIN** | A branch has a "GST registered" flag but no GSTIN; every document uses the firm's | A GSTIN per branch (a firm registered in two states has two); documents print the branch's GSTIN; a transfer **between two GSTINs** is a taxable supply -- raised as a tax invoice with e-way bill, credited as input tax at the receiving branch -- while one within a GSTIN goes on a delivery challan |
+| 3 | **Issue for internal use** | Stock leaves only by sale, transfer, write-off (damage, expiry, loss), return | Reasons **Internal use / consumption**, **Staff**, **Display / demo**, each with its expense account (sits beside §61's given-free and sample) |
+| 4 | **Repacking and bulk breaking** | Nothing | Convert one product into another -- a 25 kg bag into 25 x 1 kg packs, loose into packed, cartons into pieces as separate items -- with the cost carried across and any wastage recorded |
+| 5 | **Stock value on any date** | The summary shows value now | Closing stock quantity and value **as of a date**, by warehouse and category, from the ledger's `average_cost_after` -- what the accountant needs at 31 March and for bank stock statements |
+| 6 | **Monthly stock statement for the bank** | Nothing | Opening, receipts, issues, closing, value -- the drawing-power statement banks ask of distributors with a cash credit limit |
+| 7 | **Expiry rules per product** | Near-expiry is fixed at 30 days in the expiry monitor | Per product or category: days before expiry to stop selling (sell-by), to alert, and to return to the supplier; near-expiry stock offered last or flagged on the order |
+| 8 | **Count planning** | A physical count is started by hand | **Cycle counts** by ABC class or bin on a schedule; blind count (quantity hidden from the counter); variance above a limit needs approval before posting |
+| 9 | **Costing method choice** | Weighted average only (the model already allows FIFO later) | FIFO as a firm setting, if a go-live firm's accountant requires it; most Indian distributors use weighted average, so validate before building |
+| 10 | **Negative stock policy** | Every movement refuses to go below zero | Keep refusing by default; a firm setting to **warn** instead for counter billing where stock is entered late -- validate before building |
+
+**Added the same day from a 60-section "complete inventory module" prompt**
+(review only). Confirmed built besides the above: earliest-expiry-first batch
+allocation that skips expired batches (`allocate_for_dispatch`); serial
+statuses AVAILABLE / RESERVED / SOLD / INSTALLED / RETURNED / REPAIRED /
+SCRAPPED / LOST; reversal by a compensating movement rather than an edit;
+return restock versus damaged / scrap quantities. What it adds:
+
+| # | Item | Today | The ask |
+| --- | --- | --- | --- |
+| 11 | **Adjustment reasons as a list the firm keeps** | Write-off reasons are fixed (damage, expiry, loss) and an adjustment takes free text | A reason master (count variance, found, theft, data correction, internal use, sample, other...) that administrators extend, each mapped to an account; every adjustment and write-off names one |
+| 12 | **Approval for large adjustments and write-offs** | Anyone with the permission posts any size | Above a quantity or value limit per role the movement waits for approval -- the same approval rules as §64 row 3 and §68 row 4, not a third mechanism |
+| 13 | **Evidence on adjustments** | Movements carry no attachments | Photos and documents on adjustments, write-offs, counts and transfers, through the existing attachment storage |
+| 14 | **Incoming and outgoing on the availability figure** | Physical, reserved, available, blocked, damaged, quarantine, in transit | **Incoming** (open purchase orders not yet received) and **outgoing** (open orders not yet reserved) beside available, on the stock screen and the order line, so a salesman can promise a date |
+| 15 | **Issue rule per product** | Earliest expiry first for every batch-tracked product | A setting per product or category: FEFO (today), FIFO by receipt, or **the person picks the batch** -- and when picking is required the note refuses to allocate silently |
+| 16 | **Reservations that lapse** | A reservation lasts until the order ships, is cancelled or closed | Optional expiry per firm (for example 7 days): a reservation not dispatched in time is released and the order flagged, so stock is not held for dead orders |
+| 17 | **Returned goods held until checked** | The return decides restock versus damaged at entry | Optional: returned stock lands in **quarantine** and is released to available only after a check -- the same hold as §68 row 6 for receipts |
+| 18 | **Stock alerts and the inventory dashboard** | Expiry monitor; §42.9 reorder; §55 S12 notifications | Configurable alerts (low, out, over maximum, negative, near expiry, expired, transfer awaiting receipt, count pending) and Home gadgets: stock value by warehouse and category, low and out of stock, near expiry, fast and slow movers, pending transfers and counts -- with §55 S7 ageing and an **inventory turnover** figure per product |
+
+**Suggested order:** 5, 6 (small; accountant and bank) -> 3 -> 1 -> 2 (needed
+before any firm with branches in two states) -> 7 -> 4 -> 8 -> 9, 10;
+then 11 -> 13 -> 12 -> 14 -> 18 -> 15 -> 16, 17.
+
+## 71. Sign-in screen for phase 2, with the agency's own logo and name
+
+Owner, 2026-09-28: a wireframe for the sign-in screen, and **the logo and
+agency name must be configurable** -- keep it in the backlog. The wireframe is
+view 8 of `dist\windows\Design\UI phase 2 wireframes.html`, in **three
+layouts** (A, B, C) that follow Home's frame and colours; switch "not yet set"
+/ "configured" to see both branding states. **Layout: owner to choose.**
+
+**Today:** the phase 1 sign-in screen reads `config\branding.json` beside the
+executable -- `app_name`, `company_name`, `logo_path`, two colours. That file
+is per PC and edited by hand, so ten PCs mean ten edits, Setup overwrites it
+on every upgrade, and nobody can change it from inside the app. The logo path
+must point at a file that exists on that PC.
+
+**The ask:**
+
+| # | Item | Detail |
+| --- | --- | --- |
+| 1 | **Branding held by the server** | Agency name, tagline, logo (PNG/JPG, stored by the backend, size-capped) and accent colour, in one platform-level record -- one agency per installation, above the firms, because sign-in happens before a firm is chosen |
+| 2 | **Read before sign-in** | A public, unauthenticated `GET` for the branding and the logo image (nothing secret in it), cached on the PC so the screen still shows the logo when the server is down, with the "server does not answer" strip beside it |
+| 3 | **Edited in the app** | **Settings > Platform > Branding**, platform administrators only: upload/replace/remove the logo with a preview, name, tagline, accent colour; audited like any other platform change |
+| 4 | **Used everywhere the name shows** | Sign-in panel, the menu bar's logo spot, the window title, About, and the footer's copyright; the product name stays as "Powered by Agency Platform" |
+| 5 | **`branding.json` becomes the fallback** | Kept for the server address and the version; its name/logo apply only until the server's record is set, so an install that set them by hand keeps them |
+| 6 | **Phase 2 sign-in screen** | In the layout the owner picks (**A** brand panel left, form right; **B** Home's frame -- the dark bar carries logo and name and becomes the menu bar after sign-in -- with one card in the middle; **C** as B plus tiles of the people who signed in on this PC, so a counter clerk types only a password). In each: username or email, password with show/hide, remember username, keep me signed in, Sign in on Enter, Forgot password), server status and version at the foot, Application Settings behind the gear; below 820 px the brand panel folds into a small logo above the form; a wrong password is one line that does not say which half was wrong |
+
+Per-firm logos on printed documents are a separate thing (the firm's own
+letterhead) and are not changed by this.
+
+**After sign-in, when it is given, and our own name (owner, same day).** The
+owner asked that the logo and name carry into the main app, that we decide
+when they are provided, and that the maker's name be visible somewhere, as
+market tools do. Wireframe: view 9 "Logo and names" (tabs: installer,
+first-run setup, main app, Settings > Branding, Help > About).
+
+How the market does it (checked 2026-09-28): **Odoo** takes the login page
+logo from the company record (Settings > Companies), editable any time, with
+"Powered by Odoo" under the form; **Zoho Books** uploads the organisation logo
+under Settings > Organization Profile, used in the app and on PDFs and emails;
+**Business Central** always shows the company name top left (click = Role
+Centre), a company badge top right, and the logo from Company Information on
+printed documents; **TallyPrime** asks the company name when the company is
+created -- not at install -- and prints a logo only if configured. None asks
+for the customer's name in the installer, and every one keeps its own name on
+the product (title, About, login footer) while leaving it off the customer's
+documents.
+
+**Decided by that convention** -- three names, three owners:
+
+| Name | Who sets it, when | Where it shows |
+| --- | --- | --- |
+| **The agency** (the customer) | Its first administrator, in a **first-run setup** after the first sign-in (step 1 of: agency, first firm, users, done; name required, logo and tagline optional, skippable with a "Finish setting up" card on Home); changed any time in Settings > Platform > Branding | Sign-in; **left of the menu bar on every screen** (logo + name, click = Home, name hides below 820 px); window and taskbar title "Firm - Agency"; About's "Licensed to" |
+| **The firm** | As today, when the firm is created | Firm switcher, Home greeting, the firm's letterhead on printed documents -- unchanged |
+| **Our company** (the maker) | Fixed at build time (`AppPublisher` in `packaging/AgencyPlatform.iss`, `CompanyName` in `Runner.rc`, the product constants); **never editable by a customer** | Installer and Windows Apps list as publisher; exe properties; sign-in footer "Powered by Agency Platform"; the status line's right end "Agency Platform 1.0.2 - <maker>"; Help > About (version, build, maker, support email, phone, website, copyright, "Copy details for support"). **Not** on the customer's printed invoices |
+
+**The installer asks nothing about branding** -- a name typed there would sit
+on one PC, and the server record is what every PC reads.
+
+**Owner owes:** the company's legal name, support email, phone and website
+(the wireframe shows "Your Company Pvt Ltd"), and the product `.ico` (§47).
+
+## 72. Configuration apart from the daily menu, shown by permission
+
+Owner, 2026-09-29: separate configuration from the menu items people use
+every day -- configuration is rarely used, and mostly by administrators --
+with wireframes, and **only shown to those whose permissions allow it**.
+Wireframe: view 10 "Menu and Setup" of `dist\windows\Design\UI phase 2
+wireframes.html` (switch Option A / B and the role: administrator, sales
+manager, accountant, billing clerk); screenshots in `dist\windows\Design\Menu
+and Setup screenshots\`.
+
+**Today** (`desktop/lib/phase2/menu_layout.dart`): configuration groups sit
+inside the daily drop-downs, drawn apart under a CONFIGURATION heading
+(Sell: Pricing, Territories & routes; Accounts: Structure; Masters: the lookup
+lists, units, packing, locations). Admin is an area on the bar. The gear
+opens Settings (Firm, Buying, Stock, Tax, Business profile). Every item is
+already offered only when `ModuleVisibility` allows it.
+
+**How the market does it** (checked 2026-09-29): **Odoo** ends each app's
+menu with a Configuration menu, and its Settings menu can be limited to
+managers by group; **Zoho Books** puts every setting behind the gear on one
+Settings page (organisation, users and roles, taxes, preferences,
+customisation...); **Business Central** lists setup pages by area on one
+Manual Setup page, with an administrator role centre.
+
+**Two options:**
+
+| | Option | What changes |
+| --- | --- | --- |
+| A | **Configure row per area** (Odoo) | Each drop-down lists daily work; a Configure row at its foot holds that area's setup screens, drawn only for roles that may open them; Admin stays on the bar |
+| B | **Setup behind the gear** (Zoho, Business Central) -- *recommended* | Drop-downs hold only daily work; **Admin leaves the bar** (seven areas: Home, Sell, Buy, Stock, Accounts, Masters, Reports); the gear opens **Setup**: one page, topics on the left, cards on the right, a search across every topic the person may open |
+
+**Split proposed** (every screen of today's menu placed; none dropped):
+
+- **Daily menu:** Sell (the seven documents; Receipts, Refunds, Customer
+  Statements; Commission, Targets; Beat Plans, Call Lists, Coverage); Buy
+  (four documents, Payments, Purchase Dashboard); Stock (all of it); Accounts
+  (Journal Entries, Ledgers, the three statements, GST Returns, E-Invoice,
+  TCS); Masters (Customers, Vendors, Products); Reports.
+- **Setup:** *For everyone* -- This PC and me (appearance, server address,
+  landing page, password). *The firm* -- Firm (Firm Settings, Financial
+  Years, Numbering Series, Branches, Warehouses, Storage Areas, Branch and
+  Warehouse Types); Selling (Price Lists, Promotions, Loyalty, Customer
+  Groups, Territories, Route Types, Route Builder); Buying (Purchase
+  Settings, Vendor Categories, Vendor Types); Items and stock (Product
+  Categories, Units, UOM Groups, Packaging Types and Levels, Conversion
+  Rules, Inventory Settings); Accounts and tax (Chart of Accounts, Control
+  Accounts, Cost and Profit Centres, Tax Configuration, Tax Rules, Rule
+  Simulator, Execution Log, Tax Settings); Places. *Administration* -- People
+  and access (Users, Roles, Permissions, User Templates, User-Firm
+  Assignments); Business profile (six screens); Firms and system (Platform
+  Dashboard, Firms, Business Profiles, Branding §71, Audit Logs, Diagnostics,
+  Licensing).
+
+**Permissions (both options):** a screen is drawn only if `ModuleVisibility`
+lets the person open it -- the same rule as today, and the server still
+refuses the request whatever the menu shows; a topic with nothing left
+disappears; the gear always shows *This PC and me*, so a billing clerk sees
+only that; an area with no daily item left leaves the bar; Ctrl+K finds any
+setup screen the person may open. `menu_layout_test.dart` keeps guarding
+that every catalogue screen has exactly one place.
+
+**Owner to decide:** A or B; whether Chart of Accounts (looked up often by
+accountants) stays under Accounts in the daily menu as well as Setup's
+list; whether Price Lists and Promotions (changed weekly by some sales
+managers) stay in Sell.
+
+## 73. One standard for dialogs, and the review of every dialog against it
+
+Owner, 2026-09-29: review, for the new UI, every form that opens on a click,
+like Change password; and a user sets his own preferences -- theme, and the
+firm he starts in when he has several.
+
+**The standard** (drawn in view 11 "Dialogs" of `dist\windows\Design\UI
+phase 2 wireframes.html`; screenshots in `dist\windows\Design\Dialogs
+screenshots\`): documents and master records open as full-page tabs (4.8); a
+**dialog** is a short task (a few fields, one decision); a **confirm** is a
+yes/no. Every dialog: a title that names the action; the main button named
+by its verb, on the right, Cancel beside it, a destructive one in red naming
+what it destroys; first box focused, **Enter** does the main action, **Esc**
+cancels; mistakes under the box, a server refusal inside the dialog, which
+**stays open and keeps what was typed**; the button shows it is saving and
+cannot be pressed twice; widths small 420 / medium 580 / large 820, the body
+scrolls, the buttons never do; closing with unsaved edits asks first. This is
+Windows' and Business Central's convention, and what `CrudWorkspaceDialog`,
+`askForReason` and `AppDialogs.confirm` already do.
+
+**The review** (`docs/UI_PHASE_2_DIALOG_REVIEW.md`): about 150 dialogs read
+in code; about 69 with a finding; defects `D-DLG-1`..`D-DLG-10` in
+`docs/DEFECTS.md`. Fix order, one PR each, each with a test that fails when
+reverted:
+
+1. **Keep the save inside the dialog** (D-DLG-1, D-DLG-4): the dialog calls
+   the server, stays open while it runs and closes only on success --
+   copying `CrudWorkspaceDialog`. The largest item; do it by area.
+2. **Confirm every delete** (D-DLG-2) and **make `AppDialogs.confirm` the one
+   confirm**, replacing about 100 hand-built yes/no dialogs as each file is
+   touched.
+3. **Small, one-line fixes:** D-DLG-5, D-DLG-6, D-DLG-7, D-DLG-10.
+4. **One `PasswordField`** with show/hide, used by all seven (D-DLG-9).
+5. **Unsaved-changes guard** in `WorkspaceDialog` (opt-in), and phase 2's
+   document guard noticing drop-downs, switches and dates (D-DLG-8).
+6. **Enter submits** a short `WorkspaceDialog` task, as Ctrl+S does today.
+7. **Rebuild the five tax masters' dialog** as proper forms (D-DLG-4, after 1).
+8. Product import staged and committed once, reporting the failed row
+   (D-DLG-3), as the backend's other imports are.
+
+**My preferences in one place.** Already built: each user's theme is saved
+on the server; the firm opened at sign-in is the **primary firm**, set from
+the user menu (offered only to somebody with more than one firm, listing only
+the firms they are a member of, the server refusing any other); failing that
+the last firm, then the first; a platform administrator starts in none. What
+is missing is one place: a **My preferences** dialog (view 11) -- start-in
+firm, first screen, theme, text size, date format, rows per page -- opened
+from the user menu and from Setup's *This PC and me* (§72), with "switching
+firm on the bar is for this session; Start in firm is for next time" said on
+it.
+
+## 74. Money against a full ERP checklist: what else to consider
+
+Owner, 2026-09-28: after sales (§67), purchases (§68) and inventory (§70),
+review the money side the same way -- books, years, receipts and payments,
+party balances, tax filings, statements. Checked against the code the same
+day. Most of the usual gaps already have an entry, so this section first maps
+the checklist to them and then lists only what nothing else covers.
+
+**Built** (no action): chart of accounts with groups, 24 control-account
+purposes per firm, cost and profit centres; financial years and monthly
+periods that close oldest first and a year lock that is final; hand journals
+with draft, edit, reject, post and reverse, refused on the accounts a
+sub-ledger keeps (D-FIN-11); automatic posting from eleven modules; trial
+balance (opening, movement, closing), general ledger per account, P&L for a
+period with the year to date, balance sheet; receipts, payments and refunds
+by cash or bank with allocation to bills, advances, supplier credits and
+reversal (never edit); customer statement and ageing; customer credit notes
+that reverse tax (`app/credit_note`); opening stock and customer opening
+balances posted against opening balance equity; TCS 206C(1H) with its
+settings, collections and charged-versus-due; GSTR-1 and GSTR-3B (outward
+and input credit) derived from the documents; e-invoice and e-way bill in
+sandbox; an append-only audit trail in every store.
+
+**Already planned elsewhere:**
+
+| Checklist item | Where |
+| --- | --- |
+| Expenses (bills without stock: rent, power, travel) | PR #814, draft |
+| Bank reconciliation, statement import | §42.2 |
+| Post-dated cheques, clearing and bounce | §42.3 |
+| TDS payable (194Q, 194C, 194J) and TDS deducted by customers | §42.4, §53, §53.1 |
+| GSTR-2B matching | §42.5 |
+| GST set-off and payment, output tax by head, TCS deposit, 27EQ | §63 |
+| Reverse charge on purchases | §68 row 8 |
+| MSME 45-day payments; payment run | §68 rows 2, 9 |
+| Supplier debit note; supplier's credit note | §55 G8; §68 row 10 |
+| Day book, cash book, bank book | §55 M9 |
+| P&L for any months | §50 |
+| Cash discount for early payment; interest on overdue | §55 G9 |
+| Vendor ageing | §55 S7 |
+| Cheque printing | §55 S11 |
+| GSTR-9, composition | §55 G11 |
+| Export to Tally | §55 G4 |
+| Multi-currency, budgets, recurring entries, payroll | §55 N2, N8, N7, N1 |
+| Live e-invoice through a GSP | §55 M2 |
+| Branch GSTINs; stock value as of a date | §70 |
+| Opening balances from a previous tool | §36, §56 |
+| Screens scoped to a financial year | §37 |
+
+**To consider** -- each to validate with the go-live firms (§55):
+
+| # | Item | Today | The ask |
+| --- | --- | --- | --- |
+| 1 | **The new year's opening** (D-FIN-22) | No closing entry is ever posted. The balance sheet computes earnings from every income and expense account since the start, so it balances, but the trial balance of a second year opens Sales, Purchases and every expense at last year's closing (`JournalEngine._opening_balance` carries every account alike) | In the first period of a year, income and expense accounts open at zero and one line, **Profit and loss brought forward**, carries last year's net. Keep it derived, with no posted closing entry, as the balance sheet already is. The balance sheet splits equity into **surplus brought forward** and **profit for the year** (Schedule III, Reserves and Surplus) |
+| 2 | **Adjusting a party's balance without tax** | Only documents move a customer's or supplier's balance; hand journals are refused on receivables and payables (rightly). A receipt 3.00 short, a bank charge the customer's bank took, a bad debt: none can be cleared, so the bill stays unpaid forever. The only credit note either reverses tax (`/credit-notes`) or is the old route in D-FIN-23 | (a) On a receipt or payment: **deductions** -- rounding / short paid, bank charges, discount allowed or received -- each to its own account, closing the bill. (b) A **party adjustment** document: write-off or bad debt against a customer, balance written back for a supplier, with a reason, approval above an amount, and its journal. (c) **Set-off** between a customer and a supplier who are the same business (Dr payable / Cr receivable, both balances moved) |
+| 3 | **Contra: cash to bank and back** | Possible as a hand journal (cash and bank are open to them), with no document or number of its own | A **contra** voucher: deposit, withdrawal, bank-to-bank transfer, with its own series and print. Warn when cash in hand would go below zero on the day, which the ledger today shows without comment |
+| 4 | **Supplier statement and balance confirmation** | Customer statement and ageing exist; nothing for suppliers | A supplier statement of account (as the customer's) and, at year end, a **balance confirmation** letter for any party -- "our books show you owe / we owe X as of 31 March, please confirm" -- which auditors ask for |
+| 5 | **Cash flow statement** | Trial balance, P&L, balance sheet only | Cash flow for a period by the indirect method (profit, change in receivables, payables, stock, then investing and financing), derived from the same balances. Banks ask for it with a loan application |
+| 6 | **Fixed assets and depreciation** | Nothing; an asset is a ledger account at cost | An asset register (item, date put to use, cost, block), depreciation by written-down value at the income-tax block rates, and the half rate for assets used under 180 days in the year, posted once a year. Low for a trading firm, since the CA often does it; validate before building |
+| 7 | **A document behind every hand journal** | Journals carry a narration only | Attach the scanned bill or letter to a journal, receipt or payment, as auditors expect. Share the store with Expenses (#814) if it has one |
+
+**Suggested order:** 1 (the books a CA reads first; small) -> 2 (every firm
+has short receipts in the first week) -> 3, 4 (small) -> 7 -> 5 -> 6.
+
+### 74.1 What the finance master prompt adds (rows 8-16)
+
+Owner, 2026-09-28: a full "Money / Finance & Tax module" master prompt (81
+sections) reviewed against the code the same day. Most of it is built or
+already has an entry, as the table below shows. Nine points are new.
+
+**Already built** (the prompt asks, the code has it): double entry enforced on
+post; posted journals immutable, corrected by reversal; maker and checker
+(`JOURNAL_CREATE` / `JOURNAL_POST`); every automatic journal names its source
+document; firm isolation in the query layer (per-store sessions, `X-Firm-ID`
+membership); years and periods with close, lock and a separate
+`FINANCIAL_YEAR_REOPEN`; several cash and bank accounts (a receipt names its
+ledger account); receipts and payments with part allocation, advances,
+unallocated balance and reversal, never allocated silently; control accounts
+for rounding, discount allowed and received; decimal money throughout
+(`quantize_ledger`); tax rules versioned and matched by date; a tax
+execution log per evaluation; e-invoice behind a portal interface, refusal
+kept for retry, cancellation refused after 24 hours; e-way bill fields;
+`currency_code` on the documents; audit rows on every mutation.
+
+**Already planned:** bank reconciliation §42.2; cheques §42.3; TDS rules,
+payable, receivable, returns and certificates §42.4 / §53 / §53.1; GSTR-2B
+§42.5; GST payable, set-off, challan, TCS deposit and 27EQ §63; approval by
+amount §68 row 4 and §55 S12; expenses #814; supplier debit note §55 G8;
+customer debit note §67; supplier opening balances §36; day, cash and bank
+book §55 M9; cash flow, supplier statement §74 rows 5, 4; finance dashboard
+§49; live IRP through a GSP, with duplicate-IRN handling, §55 M2;
+multi-currency §55 N2.
+
+| # | Item | Today | The ask |
+| --- | --- | --- | --- |
+| 8 | **HSN kept on the invoice line** (D-CMP-22) | Lines keep the tax components and rates, but not the HSN/SAC: GSTR-1's HSN table, the e-invoice payload and a reprint read the product's **current** code | Copy `hsn_sac` onto every sales, purchase, return and credit note line when it is written (backfill existing lines from the product, once); the returns, payload and print read the line |
+| 9 | **GST checks before filing** | GSTR-1 folds a line with no HSN under a blank code; nothing lists what is wrong | An exception list per return period: B2B bill whose GSTIN fails the checksum or state code, missing HSN, HSN shorter than the firm's turnover requires (4 / 6 digits), missing place of supply, e-invoice required but not registered, credit note with no original invoice. Each row opens the document |
+| 10 | **Recording a filed return** | Returns are derived on every read, and nothing records that one was filed | A return register per GSTIN, return type and period: prepared, filed (typed by the person who filed on the portal: date, ARN), by whom. After filing, the period's figures are **kept as filed**, and a later change to a document in that period is shown as an amendment for the next return rather than silently changing the filed one. Never marked FILED by the app itself (the sandbox rule stands) |
+| 11 | **Quarterly filers (QRMP)** | Due dates and periods assume monthly | Filing frequency on the firm's GST registration; GSTR-1 by quarter (with the optional IFF in months 1-2), 3B quarterly, due dates 22nd / 24th by state; §63's payment by PMT-06 in months 1-2 |
+| 12 | **How the money moved** | `method` is CASH or BANK; the instrument is free text | A mode on receipts and payments -- UPI, cheque, NEFT / RTGS / IMPS, card, cash -- with instrument number and date, so the cash and bank books (M9) and bank matching (§42.2) can use it; cheque status stays §42.3 |
+| 13 | **The firm's bank accounts, and masking** | A bank is only a ledger account; supplier and customer bank numbers come back in full from the API | Bank name, account number, IFSC, branch on the firm's bank ledger accounts, printed on invoices ("pay to"); **show only the last four digits** of any account number except to a role that pays (the payment run in §68 row 9 needs the full one) |
+| 14 | **Checks before closing a month** | A period closes if the one before is closed; nothing else is asked | Before close, list and warn (or refuse, by firm setting): draft journals and documents dated in the month, approved documents with no journal, receipts left unallocated, unreconciled bank lines (after §42.2), GST return not recorded as filed (row 10) |
+| 15 | **Why tax was charged, kept on the document** | The line keeps component and rate; the rule that chose them is only in `tax_rule_execution_logs`, which retention may purge | Store the rule code and version on each line tax row, so the reason survives the log's retention and a reprint years later can say which rule applied |
+| 16 | **Ageing buckets and due lists** | Buckets fixed at 0-30-60-90-90+; overdue lists exist | Buckets set per firm; "due today" and "due this week" for receivables and payables, and a collection summary by salesman and route (with §62) |
+
+**Suggested order, whole section:** 8 (small; a filed return must not
+change) -> 1 -> 2 -> 9 -> 12 -> 13 -> 3, 4 -> 10, 11 -> 14 -> 15, 16 -> 7 ->
+5 -> 6.
+
+## 75. Masters and configuration against a full ERP checklist
+
+Owner, 2026-09-28: after Money (§74), review the masters -- customers,
+suppliers, products, branches and warehouses -- and the configuration they
+lean on: price lists, units, tax, business profiles, numbering. Checked against
+the code the same day.
+
+**Built** (no action): customers with groups, type, credit limit and terms,
+standing discount, ON_HOLD, several addresses and contacts on the geography
+masters, credit-control policy; suppliers with categories and types, contacts,
+addresses, bank accounts with UPI, tax details (GSTIN, PAN, TAN, FSSAI, drug
+licence, IEC), attachments and notes; products with a category tree, barcode
+and QR, HSN/SAC, tax profile group, seven unit roles and packaging levels,
+dimensions, batch / serial / expiry / warranty flags, media, MRP; branches and
+warehouses with storage bins; price lists by customer or territory with
+quantity breaks and dates; promotions; units and conversions; tax rules;
+business profiles and features; custom fields on every master; document
+numbering with prefix, financial year, branch code, reset and a manual switch;
+unique codes among live rows (D-MST-11); import from files (§46).
+
+**Already planned:** price levels and fixed rates §64 row 1; supplier rates
+§65 row 4; PAN / TAN / GSTIN format checks §53; licences §54; supplier payment
+terms and MSME §68 rows 1-2; supplier catalogue, MOQ, blocked supplier §69;
+branch GSTINs §70; batch-wise MRP §55 G5; ship-to per order §67; supplier
+opening balances §36; firm bank details §74.1 row 13; HSN kept on the line
+§74.1 row 8; extra fields on documents §52.
+
+**To consider** -- each to validate with the go-live firms (§55):
+
+| # | Item | Today | The ask |
+| --- | --- | --- | --- |
+| 1 | **Principal and brand** | `products.brand` is free text; nothing ties a product to the company whose agency the firm holds, or that company to its supplier record | A **principal** master (the company: HUL, Nestle) linked to its supplier, and a **brand** master under it; products name a brand. Principal-wise sales, stock and claims (§42.7), targets and reports all key on it |
+| 2 | **Customer's GST registration type** | Customers carry only a GSTIN and INDIVIDUAL / BUSINESS; suppliers have `gst_registration`. The e-invoice builder says "SEZ and deemed exports need a marker no customer carries yet" (`einvoice/services/payload.py`) | Regular, Composition, Unregistered, SEZ (with or without payment), Deemed export, Overseas on the customer, driving the GSTR-1 table (B2B, SEZWP / SEZWOP, DE, EXP), the e-invoice supply type, and a warning when an SEZ bill charges tax the LUT says it should not |
+| 3 | **One GSTIN or PAN on several customer accounts** | `UQ_customers_firm_gst_number_active` and `..._pan_number_active` refuse a second customer with the same GSTIN or PAN | Decide: outlets of one business, or one proprietor with two shops, are routinely kept as separate accounts on separate routes. Either allow the same GSTIN / PAN with a warning (as Tally does), or model outlets as delivery addresses of one customer (§67). Validate with the go-live firms before changing the keys D-MST-11 made |
+| 4 | **Customer and supplier as one party** | Two unrelated records | Link a customer to a supplier record; one combined statement, and the set-off of §74 row 2 |
+| 5 | **Discontinued, and not for sale** | Product status is ACTIVE or INACTIVE only | DISCONTINUED: refused on purchase orders, still sold until stock runs out, then flagged. Not-for-sale (samples, consumables, packing material): stock kept, never on a sales document |
+| 6 | **Shelf life** | Expiry is typed per batch | Shelf life (days) on the product fills expiry from the manufacturing date at receipt; a customer's **minimum remaining life** (modern trade refuses stock under a set share of its life) is warned at order and refused at dispatch |
+| 7 | **Price revision with an effective date** | `selling_price` and `purchase_price` are overwritten on edit, with no history and no future date | Schedule "new rates from the 1st" (from a principal's circular, often by file); the old rate holds until then, and the product keeps its rate history. Combines with §64 row 1 price levels |
+| 8 | **Duplicate check and merge** | Codes are unique; nothing warns of a second "Sri Balaji Stores" with the same phone; §36 notes there is no merge tool | Warn on create when name, phone or GSTIN resembles a live record; a **merge** that moves documents, balances and route membership to the survivor and records it, refused across a locked year |
+| 9 | **Customer attachments and bank account** | Suppliers have both; customers neither | Attachments (licence copies, KYC, agreements) and a bank account (for refunds by NEFT, masked per §74.1 row 13) on the customer |
+| 10 | **Codes from a series** | Customer, supplier and product codes are typed (`code` is required and pattern-checked) | Optional automatic codes from the numbering framework (CUS-0001, per firm or per category), as §34 does for stock movements; typing stays allowed. To verify what the phase 2 forms do |
+| 11 | **New outlet approval** | A new customer is ACTIVE at once | Optionally, a customer added by a salesman (in the field, §39) starts PENDING: orders taken, but no credit sale or invoice until the office approves it. Goes with §39 and §56 bulk approval |
+
+**Suggested order:** 2 (tax: SEZ and composition buyers are billed wrong
+without it) -> 5, 7 (small, and weekly work) -> 1 -> 3 (decide first) -> 4
+-> 6 -> 9, 10 -> 8 -> 11.

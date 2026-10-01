@@ -19,11 +19,16 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.common.file_import import (
+    ImportReportResponse,
+    file_format_of,
+    report_response,
+)
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
-from app.core.exceptions import ValidationError
+from app.core.exceptions import AuthorizationError, ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
@@ -44,6 +49,7 @@ from app.products.schemas import (
     ProductUpdate,
 )
 from app.products.services import ProductService
+from app.products.services.product_import import template_csv, template_workbook
 from app.products.services.product_service import PRODUCT_DUTIES
 
 
@@ -229,6 +235,68 @@ async def import_products(
     return ApiResponse(
         data=_responses(rows, can_view_cost=_can_view_cost(scope), db=db)
     )
+
+
+@router.get("/import-template")
+def product_import_template(
+    scope: ProductImportScope,
+    format: Literal["csv", "xlsx"] = "xlsx",
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Download the product import template (backlog 46).
+
+    The workbook carries the sheet to fill, a notes sheet naming every column
+    and what it takes, and a lists sheet with this firm's categories, units
+    and tax groups -- the codes a row may name.
+    """
+    if format == "csv":
+        return StreamingResponse(
+            iter([template_csv()]),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": 'attachment; filename="product-template.csv"'
+            },
+        )
+    content = template_workbook(db, scope.firm_id)
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="product-template.xlsx"'},
+    )
+
+
+@router.post("/import-file", response_model=ApiResponse[ImportReportResponse])
+async def import_product_file(
+    scope: ProductImportScope,
+    file: Annotated[UploadFile, File()],
+    db: Session = Depends(get_db),
+    existing: Annotated[Literal["refuse", "update"], Form()] = "refuse",
+    apply: Annotated[bool, Form()] = False,
+) -> ApiResponse[ImportReportResponse]:
+    """Check a CSV or XLSX product file, and with ``apply`` import it whole.
+
+    Every row is checked and every problem returned with its row number. An
+    apply that finds any problem writes nothing and says so with
+    ``imported: false``; the report is the answer either way, so the screen
+    can list the problems for the file to be fixed and sent again.
+    """
+    file_format = file_format_of(file.filename)
+    if existing == "update" and not scope.principal.has_permission("PRODUCT_UPDATE"):
+        raise AuthorizationError(
+            "Updating existing products from a file needs the right to edit "
+            "products."
+        )
+    report = ProductService(
+        db, withheld_duties=_withheld_duties(scope)
+    ).check_product_file(
+        await file.read(),
+        file_format,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        existing=existing,
+        apply=apply,
+    )
+    return ApiResponse(data=report_response(report))
 
 
 @router.get("/export")

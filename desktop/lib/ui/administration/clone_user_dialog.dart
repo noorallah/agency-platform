@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../workspace/api_refusal.dart';
+import '../workspace/password_field.dart';
 
 /// The three things that do not cross over when somebody is hired like
 /// somebody else.
@@ -109,9 +110,8 @@ class _CloneUserDialogState extends State<_CloneUserDialog> {
                 },
               ),
               const SizedBox(height: 12),
-              TextFormField(
+              PasswordField(
                 controller: _password,
-                obscureText: true,
                 decoration: const InputDecoration(
                   labelText: 'Initial password',
                   // A password somebody else chose is not a password. Saying

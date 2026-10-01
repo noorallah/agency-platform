@@ -16,6 +16,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/einvoice.dart';
 import '../../models/entities.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/reason_prompt.dart';
 
 /// List what has been registered, and act on one invoice at a time.
 class EInvoicePage extends StatefulWidget {
@@ -222,15 +223,18 @@ class _EInvoicePageState extends State<EInvoicePage> {
   Future<void> _raiseEwayBill(EInvoiceRegistrationRecord row) async {
     final Json? details = await showDialog<Json>(
       context: context,
-      builder: (context) => const EWayBillDialog(),
+      builder: (context) => EWayBillDialog(
+        onSave: (Json values) =>
+            widget.api.generateEwayBill(row.salesInvoiceId, values),
+      ),
     );
-    if (details == null) return;
-    await _run(
-      () => widget.api
-          .generateEwayBill(row.salesInvoiceId, details)
-          .then((_) {}),
+    if (details == null || !mounted) return;
+    NotificationService.show(
+      context,
       'E-way bill raised.',
+      kind: AppNotificationKind.success,
     );
+    await _load();
   }
 
   Future<void> _cancelEwayBill(EInvoiceRegistrationRecord row) async {
@@ -250,35 +254,13 @@ class _EInvoicePageState extends State<EInvoicePage> {
   Future<String?> _askReason({
     required String title,
     required String hint,
-  }) async {
-    final TextEditingController controller = TextEditingController();
-    final String? answer = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: SizedBox(
-          width: 420,
-          child: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: InputDecoration(labelText: 'Reason', helperText: hint),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('Withdraw'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    return (answer == null || answer.isEmpty) ? null : answer;
-  }
+  }) =>
+      askForReason(
+        context,
+        title: title,
+        explanation: hint,
+        confirmLabel: 'Withdraw',
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -604,13 +586,18 @@ class SandboxNotice extends StatelessWidget {
 
 /// Ask for what an e-way bill needs that the invoice cannot supply.
 class EWayBillDialog extends StatefulWidget {
-  const EWayBillDialog({super.key});
+  const EWayBillDialog({super.key, this.onSave});
+
+  /// Raises the bill; throws [ApiException] on a refusal, which the dialog
+  /// shows without closing. Null closes with the details at once.
+  final Future<void> Function(Json details)? onSave;
 
   @override
   State<EWayBillDialog> createState() => _EWayBillDialogState();
 }
 
-class _EWayBillDialogState extends State<EWayBillDialog> {
+class _EWayBillDialogState extends State<EWayBillDialog>
+    with SaveInDialog<EWayBillDialog> {
   final TextEditingController _distance = TextEditingController();
   final TextEditingController _vehicle = TextEditingController();
   final TextEditingController _transporterId = TextEditingController();
@@ -641,7 +628,7 @@ class _EWayBillDialogState extends State<EWayBillDialog> {
           'Goods moving by road need a vehicle number on the bill.');
       return;
     }
-    Navigator.of(context).pop(<String, dynamic>{
+    submit<Json>(<String, dynamic>{
       'distance_km': _distance.text.trim(),
       'transport_mode': _mode,
       if (_transporterId.text.trim().isNotEmpty)
@@ -650,7 +637,7 @@ class _EWayBillDialogState extends State<EWayBillDialog> {
         'transporter_name': _transporterName.text.trim(),
       if (_vehicle.text.trim().isNotEmpty)
         'vehicle_number': _vehicle.text.trim(),
-    });
+    }, widget.onSave);
   }
 
   @override
@@ -665,6 +652,7 @@ class _EWayBillDialogState extends State<EWayBillDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              saveErrorBanner(),
               TextField(
                 controller: _distance,
                 keyboardType:
@@ -727,11 +715,11 @@ class _EWayBillDialogState extends State<EWayBillDialog> {
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+        TextButton(onPressed: cancelHandler, child: const Text('Cancel')),
+        FilledButton(
+          onPressed: saving ? null : _submit,
+          child: const Text('Raise'),
         ),
-        FilledButton(onPressed: _submit, child: const Text('Raise')),
       ],
     );
   }

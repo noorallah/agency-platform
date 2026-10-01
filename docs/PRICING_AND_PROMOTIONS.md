@@ -183,9 +183,10 @@ each line as `bill_discount_amount`. Three things follow. It comes off what
 the lines discounted to, **never off the gross** -- off the gross each
 discount is computed as though the other had not happened. The share has to
 be **stored and taxed**, not derived at print time: `header_discount_amount`
-on a purchase order is subtracted *after* tax, so it reduces no taxable value
-and the counterparty pays tax on money they were never charged -- that shape
-is deliberately not copied to sales. And the rounding residual goes to the
+on a purchase order was subtracted *after* tax, so it reduced no taxable value
+and tax was paid on money never charged. D-BUY-19 (2026-09-30) put it on the
+lines the same way, and a purchase receipt, bill and return line inherit their
+share pro-rated by quantity (`inherited_share`). And the rounding residual goes to the
 **largest** line so the shares sum exactly to the figure they split; a
 document whose lines do not add up to its own total is one no reconciliation
 can accept. A conversion carries the *deal* and re-splits it, because copying
@@ -365,8 +366,7 @@ same weights (what each line is worth after its own discount), with the
 residual to the largest line -- one lowers each line's taxable value and the
 other raises it. Being on the line is the whole point: a document-level
 figure that never touches a taxable value taxes nothing, which is what
-`header_discount_amount` does on a purchase order and is deliberately not
-copied. `additional_charges` stays **outside** the tax and is left alone --
+`header_discount_amount` did on a purchase order until D-BUY-19. `additional_charges` stays **outside** the tax and is left alone --
 it is for additions that really are outside it, and re-taxing it would
 change every document that carries one. A line discounted to nothing carries
 no freight; freight and a bill discount both survive on the line rather than

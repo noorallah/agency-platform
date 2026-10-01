@@ -125,6 +125,7 @@ trigger each schema owns its own copy of.
 | `customer_attribute_values` | firm store ¹ | Store one configurable attribute value for a customer. | `customers`, `firms`, `attribute_definitions` |
 | `customer_contacts` | firm store ¹ | Represent one customer contact person. | `customers` |
 | `customer_groups` | firm store ¹ | A commercial segment a firm sells to: Retailer, Wholesaler, Institution. | `firms` |
+| `customer_opening_bills` | firm store ¹ | Store one bill a customer owed on the firm's first day here. | `customers`, `journal_entries` |
 | `customer_receivable_transactions` | firm store ¹ | Represent one immutable receivable movement for a customer. | `firms`, `customers`, `journal_entries` |
 | `customers` | firm store ¹ | Represent one customer master owned by a firm. | `firms`, `customer_groups` |
 
@@ -250,9 +251,9 @@ trigger each schema owns its own copy of.
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
 | `product_attribute_values` | firm store ¹ | Store one configurable attribute value for a product. | `products`, `firms`, `attribute_definitions` |
-| `product_categories` | firm store ¹ | Represent a hierarchical firm category tree for products. | `firms` |
+| `product_categories` | firm store ¹ | Represent a hierarchical firm category tree for products. | `firms`, `trade_licence_types` |
 | `product_media` | firm store ¹ | Store product images, attachments, and reference documents. | `firms`, `products` |
-| `products` | firm store ¹ | Represent one configurable product core master row. | `firms`, `product_categories`, `uoms` |
+| `products` | firm store ¹ | Represent one configurable product core master row. | `firms`, `product_categories`, `trade_licence_types`, `uoms` |
 
 ### `app/proforma`
 
@@ -380,7 +381,7 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `settlement_allocations` | firm store ¹ | Store how much of one settlement cleared one invoice. | `firms`, `settlements`, `sales_invoices`, `purchase_invoices` |
+| `settlement_allocations` | firm store ¹ | Store how much of one settlement cleared one invoice. | `firms`, `settlements`, `sales_invoices`, `purchase_invoices`, `vendor_opening_bills`, `customer_opening_bills` |
 | `settlements` | firm store ¹ | Store one receipt from a customer or payment to a vendor. | `firms`, `customers`, `vendors`, `ledger_accounts`, `sales_orders`, `journal_entries` |
 | `supplier_credit_applications` | firm store ¹ | Store how much of one purchase return's supplier credit cleared one bill. | `vendors`, `purchase_returns`, `purchase_invoices` |
 
@@ -408,6 +409,14 @@ trigger each schema owns its own copy of.
 | `tcs_collections` | firm store ¹ | One receipt's worth of tax collected at source. | `customers`, `settlements`, `journal_entries` |
 | `tcs_settings` | firm store ¹ | One firm's 206C(1H) parameters. |  |
 
+### `app/trade_licences`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `trade_licence_types` | firm store ¹ | One kind of trade licence (drug, FSSAI, insecticide ...) and whether it expires. |  |
+| `trade_licences` | firm store ¹ | One licence held by the firm (per branch), a customer or a vendor, with its validity. | `trade_licence_types`, `branches`, `customers`, `vendors` |
+| `trade_licence_settings` | firm store ¹ | One firm's licence-check policy: sale OFF / WARN / BLOCK, purchase OFF / WARN. No row warns on both. |  |
+
 ### `app/uom`
 
 | Table | Store | Holds | Points at |
@@ -433,6 +442,7 @@ trigger each schema owns its own copy of.
 | `vendor_categories` | firm store ¹ | Persist a reusable vendor category per firm. | `firms` |
 | `vendor_contacts` | firm store ¹ | Represent one vendor contact person. | `vendors` |
 | `vendor_notes` | firm store ¹ | Represent one vendor note/history item. | `vendors` |
+| `vendor_opening_bills` | firm store ¹ | Store one bill a supplier was owed on the firm's first day here. | `vendors`, `journal_entries` |
 | `vendor_tax_details` | firm store ¹ | Represent one vendor tax detail set. | `vendors` |
 | `vendor_types` | firm store ¹ | Persist a reusable vendor type per firm. | `firms` |
 | `vendors` | firm store ¹ | Represent one vendor master owned by a firm. | `firms`, `vendor_categories`, `vendor_types`, `business_profiles` |

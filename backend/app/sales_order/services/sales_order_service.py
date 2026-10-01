@@ -19,12 +19,14 @@ from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader, platform_reader
 from app.common.report_names import (
     branch_names,
+    customer_labels,
     customer_names,
     customers_matching,
     salesman_names,
     territory_names,
     warehouse_names,
 )
+from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
@@ -107,13 +109,17 @@ from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.place_of_supply import SALES_INTERSTATE
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
+from app.trade_licences.services.licence_check import (
+    LicenceCheckService,
+    LicenceDocument,
+)
 from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService, assert_quantity_fits_unit
 
 ZERO = Decimal("0")
 
 
-def _normalized_coupon(code: str | None) -> str | None:
+def normalized_coupon(code: str | None) -> str | None:
     """Store a coupon the one way it is matched.
 
     Upper case and trimmed, so `save10`, ` SAVE10 ` and `SAVE10` are the same
@@ -283,28 +289,38 @@ class SalesOrderService(TransactionalDocumentService):
         return rows, int(self._session.scalar(count) or 0)
 
     def summary(self, *, firm_scope: UUID) -> SalesOrderSummary:
-        """Return aggregate sales order values for the visible firm scope."""
-        rows = list(
-            self._session.scalars(
-                select(SalesOrder).where(
+        """Return aggregate sales order values for the visible firm scope.
+
+        Counted and summed in SQL, one row per status, rather than loading every
+        document the firm ever raised (backlog 56 C).
+        """
+        by_status: dict[str, tuple[int, Decimal]] = {
+            status: (int(count), Decimal(str(total)))
+            for status, count, total in self._session.execute(
+                select(
+                    SalesOrder.status,
+                    func.count(),
+                    func.coalesce(func.sum(SalesOrder.grand_total), 0),
+                )
+                .where(
                     SalesOrder.firm_id == firm_scope,
                     SalesOrder.is_deleted.is_(False),
                 )
+                .group_by(SalesOrder.status)
             ).all()
-        )
+        }
+
+        def count(status: SalesOrderStatus) -> int:
+            """Return how many documents are in one status."""
+            return by_status.get(status.value, (0, ZERO))[0]
+
         return SalesOrderSummary(
-            total=len(rows),
-            draft=sum(1 for row in rows if row.status == SalesOrderStatus.DRAFT.value),
-            approved=sum(
-                1 for row in rows if row.status == SalesOrderStatus.APPROVED.value
-            ),
-            cancelled=sum(
-                1 for row in rows if row.status == SalesOrderStatus.CANCELLED.value
-            ),
-            closed=sum(
-                1 for row in rows if row.status == SalesOrderStatus.CLOSED.value
-            ),
-            total_value=self._q(sum((row.grand_total for row in rows), ZERO)),
+            total=sum(number for number, _ in by_status.values()),
+            draft=count(SalesOrderStatus.DRAFT),
+            approved=count(SalesOrderStatus.APPROVED),
+            cancelled=count(SalesOrderStatus.CANCELLED),
+            closed=count(SalesOrderStatus.CLOSED),
+            total_value=self._q(sum((value for _, value in by_status.values()), ZERO)),
         )
 
     def create_order(
@@ -432,7 +448,7 @@ class SalesOrderService(TransactionalDocumentService):
             currency_code=data.currency_code,
             exchange_rate=data.exchange_rate,
             remarks=data.remarks,
-            coupon_code=_normalized_coupon(data.coupon_code),
+            coupon_code=normalized_coupon(data.coupon_code),
             credit_limit_snapshot=self._q(customer.credit_limit),
             # What the customer owed when the order was taken, not what they
             # opened with years ago (D-SELL-25).
@@ -540,7 +556,7 @@ class SalesOrderService(TransactionalDocumentService):
         row.currency_code = data.currency_code
         row.exchange_rate = data.exchange_rate
         row.remarks = data.remarks
-        row.coupon_code = _normalized_coupon(data.coupon_code)
+        row.coupon_code = normalized_coupon(data.coupon_code)
         row.credit_limit_snapshot = self._q(customer.credit_limit)
         row.outstanding_balance_snapshot = self._q(customer.current_outstanding)
         row.additional_charges = self._q(data.additional_charges)
@@ -598,24 +614,55 @@ class SalesOrderService(TransactionalDocumentService):
         )
 
     def approve_order(
-        self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
+        self,
+        order_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        licence_override_reason: str | None = None,
     ) -> SalesOrder:
         """Approve one sales order and commit it."""
-        row = self.stage_approval(order_id, firm_scope=firm_scope, actor_id=actor_id)
+        row = self.stage_approval(
+            order_id,
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+            licence_override_reason=licence_override_reason,
+        )
         self._session.commit()
         return row
 
     def stage_approval(
-        self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
+        self,
+        order_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        licence_override_reason: str | None = None,
+        check_licences: bool = True,
     ) -> SalesOrder:
         """Approve one sales order without committing it.
 
         Reserves stock and commits credit, so a caller composing the chain gets
         both effects rolled back with everything else if a later step refuses.
+        ``check_licences`` is false only where the chain approves an order a
+        person never typed: the invoice that raised it is checked at its own
+        approval, on its own date, and checking here too would refuse -- or
+        warn -- twice for one sale.
         """
         row = self.get_order(order_id, firm_scope=firm_scope)
         if row.status != SalesOrderStatus.DRAFT.value:
             raise ValidationError("Only draft sales orders can be approved.")
+        # Before anything is reserved: a refused licence leaves nothing held.
+        licence_remark, licence_details = (
+            LicenceCheckService(self._session).approve_sale(
+                LicenceDocument.SALES_ORDER,
+                row.id,
+                firm_id=firm_scope,
+                override_reason=licence_override_reason,
+            )
+            if check_licences
+            else (None, None)
+        )
         # Credit is committed here, before any stock moves: approving the order
         # is the promise, invoicing only bills it. Under BLOCK it raises before
         # reserving; a warning is recorded on the APPROVED event and in the
@@ -653,10 +700,22 @@ class SalesOrderService(TransactionalDocumentService):
             from_state=SalesOrderStatus.DRAFT.value,
             to_state=SalesOrderStatus.APPROVED.value,
             actor_id=actor_id,
-            remarks=None if assessment is None else assessment.message,
-            details=(
-                None if credit_warning is None else {"credit_warning": credit_warning}
+            remarks=(
+                " ".join(
+                    part
+                    for part in (
+                        None if assessment is None else assessment.message,
+                        licence_remark,
+                    )
+                    if part
+                )
+                or None
             ),
+            details=(
+                ({} if credit_warning is None else {"credit_warning": credit_warning})
+                | (licence_details or {})
+            )
+            or None,
         )
         approved: dict[str, object] = {
             "order_number": row.order_number,
@@ -664,6 +723,8 @@ class SalesOrderService(TransactionalDocumentService):
         }
         if credit_warning is not None:
             approved["credit_warning"] = credit_warning
+        if licence_details is not None:
+            approved.update(licence_details)
         record_audit(
             self._session,
             action="sales_order.approved",
@@ -1087,31 +1148,69 @@ class SalesOrderService(TransactionalDocumentService):
 
     def order_response(self, row: SalesOrder) -> SalesOrderResponse:
         """Render one sales order row as its API contract."""
-        lines = list(
-            self._session.scalars(
-                select(SalesOrderLine)
-                .where(SalesOrderLine.sales_order_id == row.id)
-                .order_by(SalesOrderLine.line_number.asc())
-            ).all()
+        return self.order_responses([row])[0]
+
+    def order_responses(self, rows: Sequence[SalesOrder]) -> list[SalesOrderResponse]:
+        """Render a page of orders, reading each child table once.
+
+        One query per child table for the whole page, grouped by order in
+        Python, rather than four per order (backlog 56 C, step 3). The
+        single-order builder is this with a list of one.
+        """
+        if not rows:
+            return []
+        ids = [row.id for row in rows]
+        # Children are read with their soft-deleted rows, as they always were.
+        lines = children_by_parent(
+            self._session,
+            SalesOrderLine,
+            SalesOrderLine.sales_order_id,
+            ids,
+            SalesOrderLine.line_number.asc(),
+            live_only=False,
         )
-        attachments = list(
-            self._session.scalars(
-                select(SalesOrderAttachment).where(
-                    SalesOrderAttachment.sales_order_id == row.id
-                )
-            ).all()
+        attachments = children_by_parent(
+            self._session,
+            SalesOrderAttachment,
+            SalesOrderAttachment.sales_order_id,
+            ids,
+            live_only=False,
         )
-        notes = list(
-            self._session.scalars(
-                select(SalesOrderNote).where(SalesOrderNote.sales_order_id == row.id)
-            ).all()
+        notes = children_by_parent(
+            self._session,
+            SalesOrderNote,
+            SalesOrderNote.sales_order_id,
+            ids,
+            live_only=False,
         )
+        names = customer_labels(self._session, (row.customer_id for row in rows))
+        return [
+            self._order_response(
+                row,
+                lines=lines[row.id],
+                attachments=attachments[row.id],
+                notes=notes[row.id],
+                customer_name=names.get(row.customer_id, ""),
+            )
+            for row in rows
+        ]
+
+    def _order_response(
+        self,
+        row: SalesOrder,
+        *,
+        lines: list[SalesOrderLine],
+        attachments: list[SalesOrderAttachment],
+        notes: list[SalesOrderNote],
+        customer_name: str,
+    ) -> SalesOrderResponse:
+        """Build one order's response from what the page already read."""
         return SalesOrderResponse(
             id=row.id,
             version=row.version,
             firm_id=row.firm_id,
             customer_id=row.customer_id,
-            customer_name=self._customer_name(row.customer_id),
+            customer_name=customer_name,
             salesman_id=row.salesman_id,
             territory_id=row.territory_id,
             route_id=row.route_id,
@@ -1887,8 +1986,8 @@ class SalesOrderService(TransactionalDocumentService):
         # discount on the whole bill has to be split across the lines *before*
         # tax is asked for. Tax is charged per line, so a document-level
         # deduction that never reaches a taxable value reduces no tax -- which
-        # is what `header_discount_amount` does on a purchase order, and the
-        # reason that shape is not copied here.
+        # is what `header_discount_amount` did on a purchase order until
+        # D-BUY-19 moved it onto the lines too.
         grosses: list[Decimal] = []
         for item in lines:
             product = self._session.scalar(
@@ -1981,12 +2080,14 @@ class SalesOrderService(TransactionalDocumentService):
             bill_share = shares[index]
             freight_share = freight[index]
             quantity = self._q(item.quantity)
-            # A promotion's free goods apply only where the line asked for
-            # none. The write schema defaults this to zero rather than None, so
-            # "said nothing" and "said none" cannot be told apart here -- an
-            # explicit zero therefore loses to an offer, which is the one place
-            # this module cannot honour the None-is-not-zero rule.
-            free_quantity = self._q(item.free_quantity) or benefits.free_quantity(index)
+            # A promotion's free goods apply only where the line said nothing.
+            # An explicit zero refuses them, as a zero discount refuses a
+            # standing rate (D-SELL-41).
+            free_quantity = (
+                benefits.free_quantity(index)
+                if item.free_quantity is None
+                else self._q(item.free_quantity)
+            )
             conversion = self._conversion(
                 quantity=self._q(quantity + free_quantity),
                 sales_uom_id=item.sales_uom_id,

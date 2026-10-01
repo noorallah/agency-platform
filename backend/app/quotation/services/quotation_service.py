@@ -14,6 +14,7 @@ from __future__ import annotations
 import csv
 import io
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -24,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.common.report_names import customer_names, customers_matching
+from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
@@ -84,7 +86,10 @@ from app.sales.services.scope_resolution import resolve_sales_scope
 from app.sales_order.models import SalesOrder
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
-from app.sales_order.services.sales_order_service import PromotionBenefits
+from app.sales_order.services.sales_order_service import (
+    PromotionBenefits,
+    normalized_coupon,
+)
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.place_of_supply import SALES_INTERSTATE
 from app.tax.services.tax_framework_service import TaxFrameworkService
@@ -225,40 +230,58 @@ class QuotationService(TransactionalDocumentService):
         return row
 
     def summary(self, *, firm_scope: UUID) -> QuotationSummary:
-        """Summarise quotations for the visible firm scope."""
-        rows = list(
-            self._session.scalars(
-                select(SalesQuotation).where(
+        """Summarise quotations for the visible firm scope.
+
+        Counted and summed in SQL, one row per status, rather than loading every
+        quotation the firm ever raised (backlog 56 C).
+        """
+        by_status: dict[str, tuple[int, Decimal]] = {
+            status: (int(count), Decimal(str(total)))
+            for status, count, total in self._session.execute(
+                select(
+                    SalesQuotation.status,
+                    func.count(),
+                    func.coalesce(func.sum(SalesQuotation.grand_total), 0),
+                )
+                .where(
                     SalesQuotation.firm_id == firm_scope,
                     SalesQuotation.is_deleted.is_(False),
                 )
+                .group_by(SalesQuotation.status)
             ).all()
+        }
+
+        # Expiry is a date, not a status, so it is counted rather than
+        # filtered: a sent quotation that lapsed on Friday is both.
+        expired = int(
+            self._session.scalar(
+                select(func.count()).where(
+                    SalesQuotation.firm_id == firm_scope,
+                    SalesQuotation.is_deleted.is_(False),
+                    SalesQuotation.valid_until < utc_now().date(),
+                    SalesQuotation.status.not_in(_SETTLED),
+                )
+            )
+            or 0
         )
-        today = utc_now().date()
 
         def count(status: QuotationStatus) -> int:
-            return sum(1 for row in rows if row.status == status.value)
+            """Return how many quotations are in one status."""
+            return by_status.get(status.value, (0, ZERO))[0]
 
-        converted = [
-            row for row in rows if row.status == QuotationStatus.CONVERTED.value
-        ]
         return QuotationSummary(
-            total_quotations=len(rows),
+            total_quotations=sum(number for number, _ in by_status.values()),
             draft_quotations=count(QuotationStatus.DRAFT),
             sent_quotations=count(QuotationStatus.SENT),
             accepted_quotations=count(QuotationStatus.ACCEPTED),
             declined_quotations=count(QuotationStatus.DECLINED),
-            converted_quotations=len(converted),
-            # Expiry is a date, not a status, so it is counted rather than
-            # filtered: a sent quotation that lapsed on Friday is both.
-            expired_quotations=sum(
-                1
-                for row in rows
-                if row.valid_until < today and row.status not in _SETTLED
+            converted_quotations=count(QuotationStatus.CONVERTED),
+            expired_quotations=expired,
+            total_quoted_value=self._q(
+                sum((value for _, value in by_status.values()), ZERO)
             ),
-            total_quoted_value=self._q(sum((row.grand_total for row in rows), ZERO)),
             total_converted_value=self._q(
-                sum((row.grand_total for row in converted), ZERO)
+                by_status.get(QuotationStatus.CONVERTED.value, (0, ZERO))[1]
             ),
         )
 
@@ -400,6 +423,7 @@ class QuotationService(TransactionalDocumentService):
             currency_code=data.currency_code,
             exchange_rate=data.exchange_rate,
             remarks=data.remarks,
+            coupon_code=normalized_coupon(data.coupon_code),
             status=QuotationStatus.DRAFT.value,
             additional_charges=self._q(data.additional_charges),
             round_off=self._q(data.round_off),
@@ -496,6 +520,7 @@ class QuotationService(TransactionalDocumentService):
         row.currency_code = data.currency_code
         row.exchange_rate = data.exchange_rate
         row.remarks = data.remarks
+        row.coupon_code = normalized_coupon(data.coupon_code)
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
         row.updated_by = actor_id
@@ -705,6 +730,7 @@ class QuotationService(TransactionalDocumentService):
                 currency_code=row.currency_code,
                 exchange_rate=row.exchange_rate,
                 remarks=row.remarks,
+                coupon_code=row.coupon_code,
                 additional_charges=row.additional_charges,
                 round_off=row.round_off,
                 # The deal carries over as the deal, not as each line's share
@@ -727,7 +753,10 @@ class QuotationService(TransactionalDocumentService):
                         product_id=line.product_id,
                         description=line.description,
                         quantity=line.quantity,
-                        free_quantity=line.free_quantity,
+                        # Zero on the quotation is "none given", which the
+                        # order must read as silence and ask the offers again,
+                        # not as a refusal of them (D-SELL-41).
+                        free_quantity=line.free_quantity or None,
                         sales_uom_id=line.sales_uom_id,
                         inventory_uom_id=line.inventory_uom_id,
                         packaging_type_id=line.packaging_type_id,
@@ -928,6 +957,7 @@ class QuotationService(TransactionalDocumentService):
                 branch_id=row.branch_id,
                 territory_id=row.territory_id,
                 salesman_id=row.salesman_id,
+                coupon_code=row.coupon_code,
                 caller_priced_bill=bill_priced,
                 freight_amount=self._q(freight_amount or ZERO),
                 lines=[
@@ -1106,8 +1136,8 @@ class QuotationService(TransactionalDocumentService):
         # discount on the whole bill has to be split across the lines *before*
         # tax is asked for. Tax is charged per line, so a document-level
         # deduction that never reaches a taxable value reduces no tax -- which
-        # is what `header_discount_amount` does on a purchase order, and the
-        # reason that shape is not copied here.
+        # is what `header_discount_amount` did on a purchase order until
+        # D-BUY-19 moved it onto the lines too.
         products: list[Product] = []
         grosses: list[Decimal] = []
         for item in lines:
@@ -1241,10 +1271,12 @@ class QuotationService(TransactionalDocumentService):
             line.product_id = item.product_id
             line.description = item.description or product.name
             line.quantity = quantity
-            # An offer's free goods apply where the line asked for none, as on
-            # the order.
-            line.free_quantity = self._q(item.free_quantity) or self._q(
+            # An offer's free goods apply where the line said nothing; an
+            # explicit zero refuses them, as on the order (D-SELL-41).
+            line.free_quantity = self._q(
                 benefits.free_quantity(index)
+                if item.free_quantity is None
+                else item.free_quantity
             )
             line.sales_uom_id = item.sales_uom_id
             line.inventory_uom_id = item.inventory_uom_id
@@ -1487,29 +1519,74 @@ class QuotationService(TransactionalDocumentService):
 
     def quotation_response(self, row: SalesQuotation) -> QuotationResponse:
         """Build the full response for one quotation."""
-        attachments = list(
-            self._session.scalars(
-                select(SalesQuotationAttachment).where(
-                    SalesQuotationAttachment.sales_quotation_id == row.id,
-                    SalesQuotationAttachment.is_deleted.is_(False),
-                )
-            ).all()
+        return self.quotation_responses([row])[0]
+
+    def quotation_responses(
+        self, rows: Sequence[SalesQuotation]
+    ) -> list[QuotationResponse]:
+        """Build the responses for a page of quotations.
+
+        One query per child table for the whole page, grouped by quotation
+        in Python, rather than four per quotation (backlog 56 C, step 3). The
+        single-quotation builder is this with a list of one.
+        """
+        if not rows:
+            return []
+        ids = [row.id for row in rows]
+        lines = children_by_parent(
+            self._session,
+            SalesQuotationLine,
+            SalesQuotationLine.sales_quotation_id,
+            ids,
+            SalesQuotationLine.line_number.asc(),
         )
-        notes = list(
-            self._session.scalars(
-                select(SalesQuotationNote).where(
-                    SalesQuotationNote.sales_quotation_id == row.id,
-                    SalesQuotationNote.is_deleted.is_(False),
-                )
-            ).all()
+        attachments = children_by_parent(
+            self._session,
+            SalesQuotationAttachment,
+            SalesQuotationAttachment.sales_quotation_id,
+            ids,
         )
-        customer = self._session.get(Customer, row.customer_id)
+        notes = children_by_parent(
+            self._session,
+            SalesQuotationNote,
+            SalesQuotationNote.sales_quotation_id,
+            ids,
+        )
+        customers = {
+            found[0]: (found[1], found[2])
+            for found in self._session.execute(
+                select(Customer.id, Customer.display_name, Customer.code).where(
+                    Customer.id.in_({row.customer_id for row in rows})
+                )
+            )
+        }
+        return [
+            self._quotation_response(
+                row,
+                lines=lines[row.id],
+                attachments=attachments[row.id],
+                notes=notes[row.id],
+                customer=customers.get(row.customer_id),
+            )
+            for row in rows
+        ]
+
+    def _quotation_response(
+        self,
+        row: SalesQuotation,
+        *,
+        lines: list[SalesQuotationLine],
+        attachments: list[SalesQuotationAttachment],
+        notes: list[SalesQuotationNote],
+        customer: tuple[str, str] | None,
+    ) -> QuotationResponse:
+        """Build one quotation's response from what the page already read."""
         return QuotationResponse(
             id=row.id,
             firm_id=row.firm_id,
             customer_id=row.customer_id,
-            customer_name=customer.display_name if customer else "",
-            customer_code=customer.code if customer else "",
+            customer_name=customer[0] if customer else "",
+            customer_code=customer[1] if customer else "",
             salesman_id=row.salesman_id,
             territory_id=row.territory_id,
             branch_id=row.branch_id,
@@ -1525,6 +1602,7 @@ class QuotationService(TransactionalDocumentService):
             currency_code=row.currency_code,
             exchange_rate=row.exchange_rate,
             remarks=row.remarks,
+            coupon_code=row.coupon_code,
             status=QuotationStatus(row.status),
             customer_discount_percent=row.customer_discount_percent,
             bill_discount_percent=row.bill_discount_percent,
@@ -1553,7 +1631,7 @@ class QuotationService(TransactionalDocumentService):
             can_convert=self.can_convert(row),
             lines=[
                 QuotationLineResponse.model_validate(line, from_attributes=True)
-                for line in self._lines_of(row.id)
+                for line in lines
             ],
             attachments=[
                 QuotationAttachmentResponse.model_validate(item, from_attributes=True)

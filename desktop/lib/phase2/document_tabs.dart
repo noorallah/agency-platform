@@ -97,8 +97,22 @@ class _UnsavedWorkGuard extends StatefulWidget {
 class _UnsavedWorkGuardState extends State<_UnsavedWorkGuard> {
   bool _typed = false;
 
+  /// What the document's inputs held at the first touch (D-DLG-8).
+  ///
+  /// Typed characters were the only thing the guard noticed, so a document
+  /// changed only by a drop-down, a switch, a chip or a date picker closed
+  /// without a warning. Rather than ask every editor to report its changes --
+  /// dozens of them, each a chance to forget -- the guard reads the inputs
+  /// themselves: it takes a snapshot at the first pointer press or key press
+  /// inside the document (before anything the user did has landed) and
+  /// compares it with the inputs as they are when a close is asked for.
+  /// Values that load in the background change nothing, because the snapshot
+  /// is taken at a touch and not at open.
+  List<String>? _baseline;
+
   KeyEventResult _watch(FocusNode _, KeyEvent event) {
     final String? character = event.character;
+    if (event is KeyDownEvent) _baseline ??= _snapshot();
     if (!_typed &&
         event is KeyDownEvent &&
         character != null &&
@@ -109,14 +123,62 @@ class _UnsavedWorkGuardState extends State<_UnsavedWorkGuard> {
     return KeyEventResult.ignored;
   }
 
+  /// The state of every input under this guard, as comparable strings.
+  List<String> _snapshot() {
+    final List<String> out = <String>[];
+    void visit(Element element) {
+      final Widget widget = element.widget;
+      if (widget is EditableText) {
+        out.add('text:${widget.controller.text}');
+      } else if (widget is Switch) {
+        out.add('switch:${widget.value}');
+      } else if (widget is Checkbox) {
+        out.add('check:${widget.value}');
+      } else if (widget is DropdownButton) {
+        out.add('drop:${widget.value}');
+      } else if (widget is FilterChip) {
+        out.add('filter:${widget.selected}');
+      } else if (widget is ChoiceChip) {
+        out.add('choice:${widget.selected}');
+      } else if (widget is SegmentedButton) {
+        out.add('segment:${widget.selected.toList()}');
+      } else if (widget is Slider) {
+        out.add('slider:${widget.value}');
+      } else if (widget is InputDecorator) {
+        // A date box shows its value as text in the decorator's child.
+        element.visitChildren(_collectText(out));
+      }
+      element.visitChildren(visit);
+    }
+
+    context.visitChildElements(visit);
+    return out;
+  }
+
+  bool get _dirty {
+    if (_typed) return true;
+    final List<String>? before = _baseline;
+    if (before == null) return false;
+    final List<String> now = _snapshot();
+    if (before.length != now.length) return true;
+    for (int i = 0; i < now.length; i++) {
+      if (before[i] != now[i]) return true;
+    }
+    return false;
+  }
+
   Future<void> _ask(bool didPop, Object? result) async {
     if (didPop) return;
+    if (!_dirty) {
+      Navigator.of(context).pop(result);
+      return;
+    }
     final bool? discard = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Close without saving?'),
         content: const Text(
-          'What was typed in this document has not been saved and will be '
+          'What was changed in this document has not been saved and will be '
           'lost.',
         ),
         actions: [
@@ -134,22 +196,45 @@ class _UnsavedWorkGuardState extends State<_UnsavedWorkGuard> {
       ),
     );
     if (discard != true || !mounted) return;
-    setState(() => _typed = false);
+    setState(() {
+      _typed = false;
+      _baseline = null;
+    });
     Navigator.of(context).pop(result);
   }
 
   @override
   Widget build(BuildContext context) => PopScope<Object?>(
-        canPop: !_typed,
+        // Always intercepted: whether the document is dirty is worked out
+        // when a close is asked for, by comparing its inputs, and `canPop`
+        // is read before that comparison could run.
+        canPop: false,
         onPopInvokedWithResult: (didPop, result) =>
             unawaited(_ask(didPop, result)),
-        child: Focus(
-          canRequestFocus: false,
-          skipTraversal: true,
-          onKeyEvent: _watch,
-          child: widget.child,
+        child: Listener(
+          behavior: HitTestBehavior.translucent,
+          onPointerDown: (_) => _baseline ??= _snapshot(),
+          child: Focus(
+            canRequestFocus: false,
+            skipTraversal: true,
+            onKeyEvent: _watch,
+            child: widget.child,
+          ),
         ),
       );
+}
+
+/// A visitor that appends the text of every `Text` below an element.
+void Function(Element) _collectText(List<String> out) {
+  void collect(Element element) {
+    final Widget widget = element.widget;
+    if (widget is Text) {
+      out.add('label:${widget.data ?? widget.textSpan?.toPlainText() ?? ''}');
+    }
+    element.visitChildren(collect);
+  }
+
+  return collect;
 }
 
 /// Where [showDocument] finds the phase 2 app's document tabs.

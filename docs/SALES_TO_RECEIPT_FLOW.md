@@ -456,8 +456,8 @@ with 500 of line discounts takes 10% of 14,500, not of 15,000.
 each line, in proportion to what each line is worth after its own discount.
 That is the whole point: tax is charged per line, so a document-level deduction
 that never reaches a taxable value reduces no tax, and the customer pays tax on
-money they were never charged. The purchase order's `header_discount_amount` is
-exactly that shape -- subtracted after tax -- and was deliberately not copied.
+money they were never charged. The purchase order's `header_discount_amount` was
+exactly that shape -- subtracted after tax -- until D-BUY-19 (2026-09-30).
 
 Rounding: the shares are quantised and the residual goes to the **largest**
 line, so they sum exactly to the figure they split. A document whose lines do

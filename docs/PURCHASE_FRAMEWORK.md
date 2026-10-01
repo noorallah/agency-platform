@@ -348,21 +348,66 @@ a recall.
 ### Buying without an order
 
 Raise the invoice with source `MANUAL`. There is no receipt, so no stock moves;
-this is for services and expenses rather than goods.
+this is for services and expenses rather than goods. Goods always need an
+order and a receipt (`goods_receipts.purchase_order_id` is NOT NULL, and a
+bill naming an order is refused, D-BUY-14) -- unless the firm has switched
+stages off, below.
+
+### Stage switches: a firm that types only the bill
+
+Built 2026-09-30 (`docs/BACKLOG.md` §38), the twin of the sales stages.
+`purchase_workflow_settings` holds one row per firm: `purchase_order_stage`,
+`goods_receipt_stage`, and a default branch and warehouse. Every stage defaults
+**on**; a firm with no row is on the whole chain. `GET/PUT
+/api/v1/purchases/workflow-settings` reads it with `PURCHASE_VIEW` and writes it
+with `PURCHASE_MANAGE_SETTINGS`, held by neither purchase role -- turning
+receipts off means the bill, not whoever counted the goods in, confirms what
+arrived. On the desktop it is Purchases > Purchase Settings > **Buying stages**.
+
+| Orders | Receipts | What a bill names | What saving the bill raises |
+| --- | --- | --- | --- |
+| on | on | a completed goods receipt | nothing |
+| on | off | an approved purchase order | a draft receipt of what the bill charges |
+| off | off | the supplier and products | a submitted, approved order and a draft receipt |
+| off | on | -- | refused: a receipt continues an order nobody typed |
+
+`PurchaseChainService` (`app/purchase_invoice/services/purchase_chain_service.py`)
+raises them through the real services, so the documents are real:
+
+- **Approving the bill completes its own draft receipt first**, so stock arrives
+  and *Goods Received Not Invoiced* is posted and cleared in the one step and
+  nets to zero.
+- **An order the bill raised is submitted and approved by the bill.** Approval
+  is a control where a person raises an order; here the person typing the bill
+  is the only approver there is (decided by industry standard, 2026-09-28).
+- **Cancelling a draft bill cancels the receipt and order it raised.** Editing
+  such a draft withdraws them and raises them again from the new lines.
+- **An approved bill's cancel leaves the receipt**: the goods are in stock, and
+  a purchase return is what takes them back.
+- A bill of products carries batch, expiry and free goods per line, which the
+  raised receipt takes -- nobody else will ever record them. Stock goes to the
+  default warehouse (or the branch's default when none is set).
+
+The desktop follows the switches: Goods Receipts leaves the menu when receipts
+are off, the Purchase Orders tab when orders are off (Purchase Settings stays),
+and the bill editor offers an order picker or a supplier and product lines in
+place of the receipt picker. Purchase returns are never hidden.
 
 ---
 
 ## Not built
 
-- **The purchase order's received status.** Described above. The enum values
-  exist; nothing sets them.
+- ~~The purchase order's received status~~ -- built: receiving moves the
+  order to PARTIALLY_RECEIVED / RECEIVED (`PurchaseService`), corrected
+  2026-09-28.
 - **RFQ and Vendor Quotation.** No model, table, service, endpoint or API
   client method for either. The desktop advertised both in a Sourcing group
   whose two screens said the backend "does not yet expose" them; that group was
   removed on 2026-08-22. Nothing in the product now claims they exist.
-- **Purchase analytics.** No `/api/v1/purchases/reports/*` endpoints. The
-  Analytics entry is a placeholder; the reports catalogue's "Purchase" section
-  is populated entirely by goods-receipt endpoints.
+- **Purchase analytics.** The fixed reports exist (register, pending,
+  overdue, by vendor, by buyer, by product under
+  `/api/v1/purchases/reports/*`, corrected 2026-09-28); an analysis by any
+  combination follows `docs/BACKLOG.md` §62.
 - **Multi-status list filtering.** `GET /api/v1/purchases` accepts one status
   per request, which is why the Purchase Orders "Open" segment filters
   `SUBMITTED` alone while the dashboard's Open card counts five statuses. See

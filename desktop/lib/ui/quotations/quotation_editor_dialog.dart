@@ -135,6 +135,7 @@ class QuotationEditorDialog extends StatefulWidget {
 class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
   final GlobalKey<FormState> _form = GlobalKey<FormState>();
   final TextEditingController _reference = TextEditingController();
+  final TextEditingController _coupon = TextEditingController();
   final TextEditingController _paymentTerms = TextEditingController();
   final TextEditingController _deliveryTerms = TextEditingController();
   final TextEditingController _remarks = TextEditingController();
@@ -232,6 +233,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
         preferredWarehouseId(widget.warehouses, branchId: _branchId);
     if (existing != null) {
       _reference.text = existing.customerReference;
+      _coupon.text = existing.couponCode;
       _paymentTerms.text = existing.paymentTerms;
       _deliveryTerms.text = existing.deliveryTerms;
       _remarks.text = existing.remarks;
@@ -413,6 +415,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
     _billDiscount.dispose();
     _freight.dispose();
     _reference.dispose();
+    _coupon.dispose();
     _paymentTerms.dispose();
     _deliveryTerms.dispose();
     _remarks.dispose();
@@ -517,6 +520,9 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
       'valid_until': _iso(_validUntil),
       if (_reference.text.trim().isNotEmpty)
         'customer_reference': _reference.text.trim(),
+      // Omitted when blank: an empty string is a code that matches nothing,
+      // not the absence of one.
+      if (_coupon.text.trim().isNotEmpty) 'coupon_code': _coupon.text.trim(),
       if (_paymentTerms.text.trim().isNotEmpty)
         'payment_terms': _paymentTerms.text.trim(),
       if (_deliveryTerms.text.trim().isNotEmpty)

@@ -126,6 +126,105 @@ shortfall it leaves is collected on the next receipt. Both fall out of
 stand and dated on or before the receipt, exactly as the consideration is
 summed from the receipts.
 
+## A supplier's opening balance is bills, not a balance
+
+Built 2026-09-30 (`docs/BACKLOG.md` §36, the first cutover gap). A supplier has
+no balance column -- what the firm owes is its bills less what was paid,
+returned and credited against them, all derived by
+`PaymentService.outstanding_invoices`. So a day-one debt is recorded the way
+the old books held it, **bill by bill** (`vendor_opening_bills`): the
+supplier's reference, the bill date the ageing counts from, a due date, and
+what was still owed at cutover. Each posts **Dr Opening Balance Equity / Cr
+Accounts Payable** on the **posting date** -- the day the books here start,
+not the bill's own date, whose period is not open and whose trading happened
+elsewhere. Numbered `OB-00001` across the firm, which is also the journal's
+reference.
+
+- **Not a purchase invoice.** It carries no goods and no tax; a row in
+  `purchase_invoices` would be read by the GST returns, the purchase register
+  and every purchase analysis as trading done here.
+- **Paid like a bill.** `outstanding_invoices` lists it beside the purchase
+  bills (`is_opening_bill: true`), so Record Payment, applying an advance
+  later, the vendor outstanding and overdue reports and the vendor delete
+  guard all see it without knowing it exists. A payment's allocation to it
+  lands in `settlement_allocations.vendor_opening_bill_id`.
+- **Cancelled, never edited.** `POST /vendors/opening-bills/{id}/cancel`
+  posts the mirror (`OB-00001-REV`) and is refused while any payment is
+  applied: reverse the payment first. The number is not reissued.
+- **Imported all or nothing** by supplier code
+  (`POST /vendors/opening-bills/import`): every unknown code is named with its
+  row number before anything is written, then the batch is staged and
+  committed once.
+- **Not yet:** a purchase return's supplier credit cannot be set against an
+  opening bill (refused by name), and there is no file wizard on the desktop
+  (backlog 46).
+
+## A customer's opening balance is one figure or bills, never both
+
+Built 2026-09-30 (`docs/BACKLOG.md` §36): the receivable mirror of the
+supplier's opening bills above. A customer's day-one debt can be entered two
+ways, and **only one of them per customer** -- the convention Tally calls the
+bill-wise breakup of an opening balance:
+
+- **One figure** on the master (`customers.opening_balance`), posted by
+  `post_opening_balance`: Dr Receivables / Cr Opening Balance Equity (swapped
+  for a customer in credit), with an `OPENING_BALANCE` receivable row. Quick,
+  but every receipt against it is money on account with nothing to clear, and
+  the ageing cannot say how old it is.
+- **Bill by bill** (`customer_opening_bills`, `OBC-00001` -- a prefix the
+  supplier series `OB-` cannot produce, since both are journal references and
+  those are unique per firm): the old bill number, the bill date, a due date
+  (given, or the bill date plus the customer's payment terms, **stored** so
+  changing the terms later does not re-age it), and what was still owed at
+  cutover. Each posts **Dr Accounts Receivable / Cr Opening Balance Equity**
+  on the **posting date** through `DocumentPostingService.post_customer_opening_bill`
+  (source `customer_opening_bills`), and writes an **`OPENING_BILL`**
+  receivable row dated the same day, linked to that journal, raising
+  `current_outstanding` exactly as an invoice does -- so the statement, credit
+  control and the delete guard see it.
+
+Both at once would count the same debt twice, so `CustomerOpeningBillService`
+refuses a bill while the master's opening balance is non-zero ("set the
+customer's opening balance to 0 first"), and `CustomerService.update` refuses a
+non-zero opening balance while live bills stand. The receivable row has its own
+type rather than `OPENING_BALANCE` because rows of that type are deleted and
+their journals mirrored whenever the master's figure is revised; a bill must
+never go with them.
+
+- **Received like an invoice.** `ReceiptService.outstanding_invoices` lists it
+  beside the sales invoices (`is_opening_bill: true`), outstanding derived
+  from `settlement_allocations.customer_opening_bill_id`; allocation at
+  receipt, applying an advance later and reversing a receipt all treat it as
+  an invoice. The ageing reads it from its due date, through the same
+  derivation, honouring `as_of`; the overdue report lists it.
+- **Cancelled, never edited.** `POST /customers/opening-bills/{id}/cancel`
+  posts the mirror (`OBC-00001-REV`) and reverses the `OPENING_BILL` row by
+  its own delta on the mirror's date; refused while any receipt is applied.
+- **Not a sale.** No row in `sales_invoices`, so GST returns, the sales
+  register, e-invoicing, TCS turnover and collection commission never read it.
+
+## Tax deducted at source has accounts, and no posting yet
+
+Built 2026-09-30 (`docs/BACKLOG.md` 53.1, items 1 and 2): a firm records its
+TAN (Firms grid, beside PAN) and a customer's TAN (customer form); both are
+format-checked -- four letters, five digits, a letter -- and nothing posts
+from them yet. Every firm's chart has **TDS Payable** (`2700`, current
+liabilities, purpose `TDS_PAYABLE`) and **TDS Receivable** (`1400`, current
+assets, purpose `TDS_RECEIVABLE`); `20260930_0166` gave them to firms whose
+books were already open, only where missing. Each is its own account, not
+TCS's: TDS is a different return (26Q/24Q) on a different challan.
+
+**Until *TDS deducted* is on payments and receipts (1.1), a firm records it by
+hand:**
+
+- **TDS it deducts from a supplier** (194Q, rent, fees, transport): record
+  the payment for the **net** amount paid, then a journal -- debit the
+  supplier, credit *TDS Payable* -- for the deduction, so the supplier is
+  settled in full. When the challan is paid: debit *TDS Payable*, credit Bank.
+- **TDS a customer deducted from what it paid**: record the receipt for the
+  net amount received, then a journal -- debit *TDS Receivable*, credit the
+  customer -- so the invoice is settled in full.
+
 ## Input tax is claimed head by head
 
 **A bill's input tax posts one leg per GST head, and a return reverses the
@@ -166,6 +265,34 @@ be derived from the books (D-CMP-20). Four things changed, in four PRs:
 Cancelling an approved bill mirrors its journal leg for leg, so the split
 reverses itself. Nothing on the sales side changed: output tax has always
 carried its components and 3B's outward half has always read them.
+
+## The opening trial balance is one journal, replaced whole
+
+Built 2026-09-30 (`docs/BACKLOG.md` §36, the second cutover gap). Cash, bank,
+fixed assets, loans, capital and tax balances brought over from the previous
+tool are entered as **one statement as at one cutover date**, account by
+account -- Tally's opening balances per ledger, Xero's conversion balances --
+at **Accounts > Opening Balances** or `PUT /api/v1/finance/opening-trial-balance`
+(`JOURNAL_POST`; read with `JOURNAL_VIEW`).
+
+- **It is kept as one posted journal**, `OTB-n`, source `opening_balances`
+  (`app/finance/services/opening_balances.py`), not in a table of its own: the
+  ledger already is the record. Saving again **reverses the standing journal
+  on its own date** (`OTB-n-REV`) and posts the new one, so what was entered
+  and when stays readable; an empty statement just takes it off. The journal
+  screen's reverse refuses it, as it refuses any document's journal.
+- **Lines name accounts by code**, so a statement exported from the old tool
+  loads without looking ids up. It is all or nothing: every bad row is named
+  in one refusal and nothing is written, and a date with no open period is
+  refused **before** the old statement is reversed.
+- **Whatever the lines leave unbalanced goes to Opening Balance Equity** --
+  credited when debits exceed credits, debited otherwise -- the counterpart
+  opening stock, customer balances and supplier bills already post to. So
+  the equity account itself is refused as a line.
+- **Sub-ledger accounts are refused** (the same set as hand journals,
+  D-FIN-11): receivables, payables, stock and the rest each have their own
+  opening path that keeps the party or the batch beside the figure --
+  a customer's opening balance, a supplier's opening bills, opening stock.
 
 ## A return is a view of the documents
 
@@ -260,12 +387,27 @@ module's arithmetic moved underneath it, which is the thing to check
 whenever a taxable base changes -- grep the fields rather than trusting that
 a helper still means what its name says.
 
+## A new financial year opens income and expense at zero
+
+**The stored balances run on across years; the reports that show an opening
+take the year's start off.** `ledger_balances` carries every account's closing
+into the next period whatever its type, and no closing entry is posted at year
+end -- the balance sheet depends on that, since it computes the firm's earnings
+from the income and expense closings. A trial balance, an account ledger and an
+account summary answer "this year", so `GeneralLedgerService._brought_forward`
+takes off what an income or expense account had run up before the financial
+year began, and the trial balance adds one equity row, **Profit and loss
+brought forward**, so it still balances (D-FIN-22, 2026-09-30). A report that
+shows an opening balance for an income or expense account must go through it.
+
 ## A credit note that states its lines reverses tax
 
 **A credit note that states its lines reverses tax; the bare receivable
-adjustment does not.** `post_credit_note` posts two legs -- receivable and
-sales returns -- because a `customer_receivable_transactions` row carries one
-figure and no lines, so it has nothing to say what rate to take off. A firm
+adjustment did not.** It posted two legs -- receivable and sales returns --
+because a `customer_receivable_transactions` row carries one figure and no
+lines, so it had nothing to say what rate to take off. Its route,
+`POST /customers/{id}/receivables/transactions`, was retired on 2026-09-30
+(D-FIN-23). A firm
 correcting a rate after invoicing therefore kept declaring output tax on a
 price nobody paid. `app/credit_note` is the document that closes it:
 `post_credit_note_document` posts the third leg. It is **not** a sales

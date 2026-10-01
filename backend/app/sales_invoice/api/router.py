@@ -45,6 +45,10 @@ from app.sales_invoice.services import SalesInvoiceService
 from app.sales_invoice.services.invoice_print_service import (
     SalesInvoicePrintService,
 )
+from app.trade_licences.api.override import (
+    LicenceOverrideReason,
+    authorised_override,
+)
 
 router = APIRouter(
     prefix="/api/v1/sales-invoices",
@@ -159,7 +163,7 @@ def list_sales_invoices(
         descending=descending,
     )
     return PaginatedResponse(
-        data=[service.invoice_response(row) for row in rows],
+        data=service.invoice_responses(rows),
         pagination=pagination.metadata(total),
     )
 
@@ -258,11 +262,15 @@ def approve_sales_invoice(
     scope: SalesInvoiceApproveScope,
     db: Annotated[Session, Depends(get_db)],
     invoice_id: UUID,
+    licence_override_reason: LicenceOverrideReason = None,
 ) -> ApiResponse[SalesInvoiceResponse]:
     """Approve a sales invoice."""
     service = SalesInvoiceService(db)
     row = service.approve_invoice(
-        invoice_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+        invoice_id,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        licence_override_reason=authorised_override(scope, licence_override_reason),
     )
     return ApiResponse(data=service.invoice_response(row))
 
@@ -445,7 +453,7 @@ def import_sales_invoices(
     service = SalesInvoiceService(db)
     rows = service.import_invoices(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
     db.commit()
-    return ApiResponse(data=[service.invoice_response(row) for row in rows])
+    return ApiResponse(data=service.invoice_responses(rows))
 
 
 @router.get(

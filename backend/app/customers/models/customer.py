@@ -125,6 +125,9 @@ class Customer(BaseEntity):
     display_name: Mapped[str] = mapped_column(String(200), nullable=False)
     gst_number: Mapped[str | None] = mapped_column(String(32))
     pan_number: Mapped[str | None] = mapped_column(String(32))
+    #: Tax Deduction Account Number, held by one that deducts TDS (backlog
+    #: 53.1). Recorded and format-checked; nothing posts from it yet.
+    tan_number: Mapped[str | None] = mapped_column(String(10))
     email: Mapped[str | None] = mapped_column(String(320))
     phone: Mapped[str | None] = mapped_column(String(20))
     alternate_phone: Mapped[str | None] = mapped_column(String(20))
@@ -267,6 +270,9 @@ class CustomerReceivableTransaction(BaseEntity):
     __table_args__ = (
         Index("IX_customer_ar_tx_customer_date", "customer_id", "transaction_date"),
         Index("IX_customer_ar_tx_firm_type", "firm_id", "transaction_type"),
+        # Backlog 56 C: reversals and GSTR cancellation dates find the row a
+        # document wrote by its reference.
+        Index("IX_customer_ar_tx_reference", "reference_type", "reference_id"),
     )
 
     firm_id: Mapped[UUID] = mapped_column(

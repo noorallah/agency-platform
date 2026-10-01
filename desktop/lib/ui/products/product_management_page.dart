@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,6 +11,9 @@ import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/product.dart';
+import '../../models/file_import.dart';
+import 'product_import_dialog.dart';
+import '../../models/trade_licence.dart';
 import '../../models/uom_packaging.dart';
 import '../workspace/desktop_framework.dart';
 import '../../phase2/document_page.dart';
@@ -37,6 +39,11 @@ class ProductController extends ChangeNotifier {
 
   List<ProductCategoryRecord> categories = const [];
   List<UomRecord> uoms = const [];
+
+  /// The firm's active trade licence types, for the "Licence needed"
+  /// dropdown (backlog 54). Empty for a firm with no `TRADE_LICENCE_VIEW`,
+  /// same as every other optional catalogue this bootstrap reads.
+  List<TradeLicenceTypeRecord> licenceTypes = const [];
 
   /// The firm's industry defaults, used to pre-fill a new product's units.
   ///
@@ -95,6 +102,12 @@ class ProductController extends ChangeNotifier {
       uoms = await _api.uoms();
     } on ApiException {
       uoms = const [];
+    }
+    try {
+      licenceTypes =
+          (await _api.tradeLicenceTypes()).where((type) => type.isActive).toList();
+    } on ApiException {
+      licenceTypes = const [];
     }
     try {
       profileUomDefaults = await _api.firmUomDefaults();
@@ -702,6 +715,9 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
             : (categoryId ?? product.categoryId),
         'sub_category_id':
             product.subCategoryId.isEmpty ? null : product.subCategoryId,
+        'required_licence_type_id': product.requiredLicenceTypeId.isEmpty
+            ? null
+            : product.requiredLicenceTypeId,
         'unit': product.unit.isEmpty ? null : product.unit,
         'brand': product.brand.isEmpty ? null : product.brand,
         'model': product.model.isEmpty ? null : product.model,
@@ -807,6 +823,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         product: product,
         categories: _controller.categories,
         uoms: _controller.uoms,
+        licenceTypes: _controller.licenceTypes,
         profileUomDefaults: _controller.profileUomDefaults,
         definitions: _controller.attributeDefinitions,
         metadata: _controller.metadata,
@@ -1052,19 +1069,24 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
   }
 
   Future<void> _runImportWizard() async {
-    await showDialog<void>(
+    final FileImportReport? report = await showDialog<FileImportReport>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => _ProductImportWizard(
-        onImport: (records) async {
-          for (final Json record in records) {
-            await widget.api.createProduct(record);
-          }
-        },
+      builder: (context) => ProductImportDialog(
+        api: widget.api,
+        permissions: widget.permissions,
       ),
     );
-    if (!mounted) return;
+    if (!mounted || report == null) return;
     await _controller.load();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Imported ${report.toCreate} new, updated ${report.toUpdate} products',
+        ),
+      ),
+    );
   }
 
   Future<void> _export(String format) async {
@@ -1647,6 +1669,7 @@ class ProductWorkspaceDialog extends StatefulWidget {
     required this.product,
     required this.categories,
     required this.uoms,
+    this.licenceTypes = const [],
     required this.definitions,
     required this.metadata,
     required this.initialTab,
@@ -1660,6 +1683,10 @@ class ProductWorkspaceDialog extends StatefulWidget {
   final Product? product;
   final List<ProductCategoryRecord> categories;
   final List<UomRecord> uoms;
+
+  /// Active trade licence types, for the "Licence needed" dropdown
+  /// (backlog 54).
+  final List<TradeLicenceTypeRecord> licenceTypes;
 
   /// The firm's industry defaults, applied only to a product being created.
   final BusinessProfileUomDefaults? profileUomDefaults;
@@ -1705,6 +1732,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   late String _productType;
   late String _status;
   late String _categoryId;
+  late String _requiredLicenceTypeId;
   late String _taxProfileGroupCode;
   late String _baseUomId;
   late String _inventoryUomId;
@@ -1794,6 +1822,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         : 'STOCK_ITEM';
     _status = product?.status.isNotEmpty == true ? product!.status : 'ACTIVE';
     _categoryId = product?.categoryId ?? '';
+    _requiredLicenceTypeId = product?.requiredLicenceTypeId ?? '';
     _taxProfileGroupCode = product?.taxProfileGroupCode ?? '';
     // A new product starts on the firm's industry defaults; an existing one
     // keeps exactly what it was saved with. Defaulting an edit would silently
@@ -2147,6 +2176,40 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                         _normalizeTabSelection();
                       });
                     },
+            ),
+          ),
+          SizedBox(
+            width: 260,
+            child: DropdownButtonFormField<String>(
+              key: const ValueKey('product-licence-type'),
+              isExpanded: true,
+              // A type since deactivated is not offered, but must not crash
+              // a dropdown built to only ever offer active ones -- it stays
+              // the product's value until somebody actually changes it.
+              initialValue: _requiredLicenceTypeId.isNotEmpty &&
+                      widget.licenceTypes
+                          .any((type) => type.id == _requiredLicenceTypeId)
+                  ? _requiredLicenceTypeId
+                  : null,
+              decoration: InputDecoration(
+                labelText: 'Licence needed',
+                helperText: _requiredLicenceTypeId.isNotEmpty &&
+                        !widget.licenceTypes
+                            .any((type) => type.id == _requiredLicenceTypeId)
+                    ? 'Currently set to a retired type'
+                    : 'From category unless named here',
+              ),
+              items: [
+                for (final TradeLicenceTypeRecord type in widget.licenceTypes)
+                  DropdownMenuItem(
+                    value: type.id,
+                    child: Text(type.name, overflow: TextOverflow.ellipsis),
+                  ),
+              ],
+              onChanged: _readOnly
+                  ? null
+                  : (value) =>
+                      setState(() => _requiredLicenceTypeId = value ?? ''),
             ),
           ),
           _field(_unit, 'Unit'),
@@ -2883,6 +2946,8 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       'product_type': _productType,
       'status': _status,
       'category_id': _categoryId.isEmpty ? null : _categoryId,
+      'required_licence_type_id':
+          _requiredLicenceTypeId.isEmpty ? null : _requiredLicenceTypeId,
       'tax_profile_group_code':
           _taxProfileGroupCode.isEmpty ? null : _taxProfileGroupCode,
       'base_uom_id': _baseUomId.isEmpty ? null : _baseUomId,
@@ -3281,187 +3346,6 @@ class _ColumnChooserDialogState extends State<_ColumnChooserDialog> {
           ),
         ],
       );
-}
-
-class _ProductImportWizard extends StatefulWidget {
-  const _ProductImportWizard({required this.onImport});
-
-  final Future<void> Function(List<Json> records) onImport;
-
-  @override
-  State<_ProductImportWizard> createState() => _ProductImportWizardState();
-}
-
-class _ProductImportWizardState extends State<_ProductImportWizard> {
-  int _step = 0;
-  final TextEditingController _payload = TextEditingController();
-  List<Json> _preview = const [];
-  List<String> _errors = const [];
-  bool _loading = false;
-  int _imported = 0;
-
-  @override
-  void dispose() {
-    _payload.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-        title: const Text('Product import wizard'),
-        content: SizedBox(
-          width: 800,
-          height: 520,
-          child: Stepper(
-            currentStep: _step,
-            controlsBuilder: (context, details) => const SizedBox.shrink(),
-            steps: [
-              Step(
-                title: const Text('Step 1 - Choose file'),
-                isActive: _step == 0,
-                content: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Paste JSON records (array) generated from CSV/Excel export.',
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _payload,
-                      maxLines: 10,
-                      decoration: const InputDecoration(
-                        border: OutlineInputBorder(),
-                        hintText:
-                            '[{"code":"PROD-1","name":"Item","product_type":"STOCK_ITEM","status":"ACTIVE","attributes":[],"media":[]}]',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Step(
-                title: const Text('Step 2 - Preview'),
-                isActive: _step == 1,
-                content: SizedBox(
-                  height: 170,
-                  child: ListView(
-                    children: _preview
-                        .take(25)
-                        .map((item) => ListTile(
-                              dense: true,
-                              title: Text(stringValue(item['code'])),
-                              subtitle: Text(stringValue(item['name'])),
-                            ))
-                        .toList(),
-                  ),
-                ),
-              ),
-              Step(
-                title: const Text('Step 3 - Validation'),
-                isActive: _step == 2,
-                content: _errors.isEmpty
-                    ? const Text('No validation issues.')
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children:
-                            _errors.map((entry) => Text('• $entry')).toList(),
-                      ),
-              ),
-              Step(
-                title: const Text('Step 4 - Import'),
-                isActive: _step == 3,
-                content: _loading
-                    ? const CircularProgressIndicator()
-                    : const Text('Ready to import records.'),
-              ),
-              Step(
-                title: const Text('Step 5 - Summary'),
-                isActive: _step == 4,
-                content: Text('Imported records: $_imported'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: _loading ? null : () => Navigator.of(context).pop(),
-            child: const Text('Close'),
-          ),
-          if (_step > 0 && _step < 4)
-            OutlinedButton(
-              onPressed: _loading ? null : () => setState(() => _step--),
-              child: const Text('Back'),
-            ),
-          FilledButton(
-            onPressed: _loading ? null : _next,
-            child: Text(_step == 4 ? 'Done' : 'Next'),
-          ),
-        ],
-      );
-
-  Future<void> _next() async {
-    if (_step == 0) {
-      try {
-        final dynamic decoded = jsonDecode(_payload.text);
-        if (decoded is! List) {
-          throw const FormatException('Payload must be an array.');
-        }
-        _preview = decoded
-            .whereType<Map>()
-            .map((entry) => Map<String, dynamic>.from(entry))
-            .toList();
-        if (_preview.isEmpty) {
-          throw const FormatException('No records provided.');
-        }
-        setState(() => _step = 1);
-      } on FormatException catch (error) {
-        setState(() => _errors = [error.message]);
-      }
-      return;
-    }
-    if (_step == 1) {
-      final List<String> issues = [];
-      final Set<String> seen = {};
-      for (int index = 0; index < _preview.length; index++) {
-        final Json row = _preview[index];
-        final String code = stringValue(row['code']);
-        final String name = stringValue(row['name']);
-        if (code.isEmpty || name.isEmpty) {
-          issues.add('Row ${index + 1}: code and name are required.');
-        }
-        if (seen.contains(code)) {
-          issues.add('Row ${index + 1}: duplicate code "$code".');
-        }
-        seen.add(code);
-      }
-      setState(() {
-        _errors = issues;
-        _step = 2;
-      });
-      return;
-    }
-    if (_step == 2) {
-      if (_errors.isNotEmpty) return;
-      setState(() => _step = 3);
-      return;
-    }
-    if (_step == 3) {
-      setState(() => _loading = true);
-      try {
-        await widget.onImport(_preview);
-        if (!mounted) return;
-        setState(() {
-          _imported = _preview.length;
-          _step = 4;
-        });
-      } finally {
-        if (mounted) {
-          setState(() => _loading = false);
-        }
-      }
-      return;
-    }
-    Navigator.of(context).pop();
-  }
 }
 
 enum _ExportScope { selected, filtered, all }

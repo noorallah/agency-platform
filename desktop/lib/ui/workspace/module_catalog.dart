@@ -389,6 +389,7 @@ abstract final class ModuleCatalog {
         'VENDOR_VIEW',
         'BRANCH_VIEW',
         'WAREHOUSE_VIEW',
+        'TRADE_LICENCE_VIEW',
       ],
       requiresAnyPermission: true,
       tabs: [
@@ -481,6 +482,21 @@ abstract final class ModuleCatalog {
           id: 'firm-settings',
           label: 'Firm Settings',
           requiredPermissions: ['FIRM_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'trade-licences',
+          label: 'Trade Licences',
+          requiredPermissions: ['TRADE_LICENCE_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'licence-types',
+          label: 'Licence Types',
+          requiredPermissions: ['TRADE_LICENCE_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'licence-check-settings',
+          label: 'Licence Check',
+          requiredPermissions: ['TRADE_LICENCE_VIEW'],
         ),
       ],
     ),
@@ -933,6 +949,14 @@ abstract final class ModuleCatalog {
           id: 'expenses',
           label: 'Expenses',
           requiredPermissions: ['EXPENSE_VIEW'],
+        ),
+        // Where the books stood on the firm's cutover date (backlog 36).
+        // Posts straight to the ledger like a journal, so it reads on the
+        // same code and is saved with JOURNAL_POST.
+        ModuleTabDefinition(
+          id: 'opening-balances',
+          label: 'Opening Balances',
+          requiredPermissions: ['JOURNAL_VIEW'],
         ),
         ModuleTabDefinition(
           id: 'receipts',
@@ -1505,6 +1529,12 @@ abstract final class ModuleCatalog {
           path: 'geography-masters',
           icon: Icons.public_outlined,
         ),
+      if (visibleTabIds.contains('trade-licences'))
+        const WorkspaceNavigationNode(
+          label: 'Trade Licences',
+          path: 'trade-licences',
+          icon: Icons.badge_outlined,
+        ),
       // Configuration in one place, the way Administration already groups
       // its own. These three sat loose at the bottom of Masters, level with
       // Customers and Products -- so a module of master data ended in three
@@ -1513,7 +1543,12 @@ abstract final class ModuleCatalog {
       //
       // Grouping only. Every path is unchanged, so a stored workspace still
       // resolves and no permission moved.
-      if (hasAny(['financial-years', 'firm-settings']))
+      if (hasAny([
+        'financial-years',
+        'firm-settings',
+        'licence-types',
+        'licence-check-settings',
+      ]))
         WorkspaceNavigationNode(
           label: 'Configuration',
           icon: Icons.tune_outlined,
@@ -1529,6 +1564,18 @@ abstract final class ModuleCatalog {
                 label: 'Financial Years',
                 path: 'financial-years',
                 icon: Icons.event_note_outlined,
+              ),
+            if (visibleTabIds.contains('licence-types'))
+              const WorkspaceNavigationNode(
+                label: 'Licence Types',
+                path: 'licence-types',
+                icon: Icons.badge_outlined,
+              ),
+            if (visibleTabIds.contains('licence-check-settings'))
+              const WorkspaceNavigationNode(
+                label: 'Licence Check',
+                path: 'licence-check-settings',
+                icon: Icons.fact_check_outlined,
               ),
           ],
         ),

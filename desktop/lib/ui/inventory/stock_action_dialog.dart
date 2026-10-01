@@ -82,7 +82,12 @@ class StockActionDialog extends StatefulWidget {
     required this.available,
     required this.quarantined,
     required this.warehouses,
+    this.onSave,
   });
+
+  /// Carries the action out; throws [ApiException] on a refusal, which the
+  /// dialog shows without closing. Null closes with the draft at once.
+  final Future<void> Function(Json draft)? onSave;
 
   final StockAction action;
   final String productLabel;
@@ -100,7 +105,8 @@ class StockActionDialog extends StatefulWidget {
   State<StockActionDialog> createState() => _StockActionDialogState();
 }
 
-class _StockActionDialogState extends State<StockActionDialog> {
+class _StockActionDialogState extends State<StockActionDialog>
+    with SaveInDialog<StockActionDialog> {
   final TextEditingController _quantity = TextEditingController();
   final TextEditingController _reference = TextEditingController();
   final TextEditingController _remarks = TextEditingController();
@@ -142,7 +148,7 @@ class _StockActionDialogState extends State<StockActionDialog> {
       setState(() => _error = problem);
       return;
     }
-    Navigator.of(context).pop(<String, dynamic>{
+    submit<Json>(<String, dynamic>{
       'quantity': _quantity.text.trim(),
       if (_reference.text.trim().isNotEmpty)
         'reference_number': _reference.text.trim(),
@@ -153,15 +159,16 @@ class _StockActionDialogState extends State<StockActionDialog> {
       if (widget.action == StockAction.writeOff) 'reason': _reason,
       if (widget.action == StockAction.quarantine)
         'action': _releasing ? 'RELEASE' : 'HOLD',
-    });
+    }, widget.onSave);
   }
 
   @override
   Widget build(BuildContext context) => WorkspaceDialog(
         title: _title,
         subtitle: '${widget.productLabel} · ${widget.warehouseLabel}',
-        onClose: () => Navigator.of(context).pop(),
-        onSave: _save,
+        loading: saving,
+        onClose: saving ? null : () => Navigator.of(context).pop(),
+        onSave: saving ? null : _save,
         saveLabel: switch (widget.action) {
           StockAction.transfer => 'Transfer',
           StockAction.writeOff => 'Write off',
@@ -172,6 +179,7 @@ class _StockActionDialogState extends State<StockActionDialog> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              saveErrorBanner(),
               if (_error != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: AppSpacing.md),

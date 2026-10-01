@@ -5,6 +5,7 @@ import 'dart:io';
 import '../../models/geography.dart';
 import '../../models/entities.dart';
 import '../../models/audit.dart';
+import '../../models/bulk_action.dart';
 import '../../models/finance.dart';
 import '../../models/physical_count.dart';
 import '../../models/expense.dart';
@@ -13,10 +14,12 @@ import '../../models/settlement_direction.dart';
 import '../../models/batch_serial.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
+import '../../models/customer_opening_bill.dart';
 import '../../models/diagnostics.dart';
 import '../../models/document_framework.dart';
 import '../../models/print_template.dart';
 import '../../models/product.dart';
+import '../../models/file_import.dart';
 import '../../models/quotation.dart';
 import '../../models/pricing.dart';
 import '../../models/commission.dart';
@@ -34,7 +37,9 @@ import '../../models/tax_framework.dart';
 import '../../models/uom_packaging.dart';
 import '../../models/inventory.dart';
 import '../../models/vendor.dart';
+import '../../models/vendor_opening_bill.dart';
 import '../../models/report.dart';
+import '../../models/trade_licence.dart';
 import '../preferences/desktop_preferences_service.dart';
 import '../preferences/user_preferences.dart';
 
@@ -1099,6 +1104,42 @@ class ApiClient {
         await request('POST', '/api/v1/customers/$id/restore'),
       ));
 
+  /// What this customer owed the firm on its first day here, bill by bill.
+  Future<List<CustomerOpeningBill>> customerOpeningBills(
+    String customerId,
+  ) async =>
+      _unwrapList(
+        await request('GET', '/api/v1/customers/$customerId/opening-bills'),
+        CustomerOpeningBill.fromJson,
+      );
+
+  /// Record one bill the customer owed at cutover, and post it.
+  Future<CustomerOpeningBill> createCustomerOpeningBill(
+    String customerId,
+    Json data,
+  ) async =>
+      CustomerOpeningBill.fromJson(_unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/customers/$customerId/opening-bills',
+          body: data,
+        ),
+      ));
+
+  /// Take back an opening bill entered in error; refused once anything has
+  /// been received against it.
+  Future<CustomerOpeningBill> cancelCustomerOpeningBill(
+    String billId,
+    String reason,
+  ) async =>
+      CustomerOpeningBill.fromJson(_unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/customers/opening-bills/$billId/cancel',
+          body: {'reason': reason},
+        ),
+      ));
+
   Future<String> exportCustomers({String search = ''}) => downloadText(
         '/api/v1/customers/export',
         query: {if (search.isNotEmpty) 'search': search},
@@ -1128,20 +1169,6 @@ class ApiClient {
             '',
             pageSize: pageSize,
           );
-
-  Future<CustomerReceivableTransaction> postCustomerReceivableTransaction(
-    String customerId,
-    Json data,
-  ) async =>
-      CustomerReceivableTransaction.fromJson(
-        _unwrapMap(
-          await request(
-            'POST',
-            '/api/v1/customers/$customerId/receivables/transactions',
-            body: data,
-          ),
-        ),
-      );
 
   /// Ask whether one more document fits inside the customer's credit limit.
   ///
@@ -1181,6 +1208,30 @@ class ApiClient {
           await request(
             'PUT',
             '/api/v1/sales-orders/workflow-settings',
+            body: settings.toJson(),
+          ),
+        ),
+      );
+
+  /// Which stages of buying this firm fills in by hand (backlog §38).
+  ///
+  /// Readable with `PURCHASE_VIEW` and writable only with
+  /// `PURCHASE_MANAGE_SETTINGS`, as the sales twin above.
+  Future<PurchaseWorkflowSettings> purchaseWorkflowSettings() async =>
+      PurchaseWorkflowSettings.fromJson(
+        _unwrapMap(
+          await request('GET', '/api/v1/purchases/workflow-settings'),
+        ),
+      );
+
+  Future<PurchaseWorkflowSettings> updatePurchaseWorkflowSettings(
+    PurchaseWorkflowSettings settings,
+  ) async =>
+      PurchaseWorkflowSettings.fromJson(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/purchases/workflow-settings',
             body: settings.toJson(),
           ),
         ),
@@ -1342,6 +1393,39 @@ class ApiClient {
 
   Future<Vendor> restoreVendor(String id) async => Vendor.fromJson(_unwrapMap(
         await request('POST', '/api/v1/vendors/$id/restore'),
+      ));
+
+  /// What this supplier was owed on the firm's first day here.
+  Future<List<VendorOpeningBill>> vendorOpeningBills(String vendorId) async =>
+      _unwrapList(
+        await request('GET', '/api/v1/vendors/$vendorId/opening-bills'),
+        VendorOpeningBill.fromJson,
+      );
+
+  /// Record one bill the supplier was owed at cutover, and post it.
+  Future<VendorOpeningBill> createVendorOpeningBill(
+    String vendorId,
+    Json data,
+  ) async =>
+      VendorOpeningBill.fromJson(_unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/vendors/$vendorId/opening-bills',
+          body: data,
+        ),
+      ));
+
+  /// Take back an opening bill entered in error; refused once it is paid.
+  Future<VendorOpeningBill> cancelVendorOpeningBill(
+    String billId,
+    String reason,
+  ) async =>
+      VendorOpeningBill.fromJson(_unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/vendors/opening-bills/$billId/cancel',
+          body: {'reason': reason},
+        ),
       ));
 
   Future<int> bulkDeleteVendors(List<String> ids) async {
@@ -2286,6 +2370,40 @@ class ApiClient {
             await request('POST', '/api/v1/inventory/opening-stock/$id/post')),
       );
 
+  /// The blank opening stock import file, as bytes: xlsx (with notes and the
+  /// firm's warehouses and products) or csv.
+  Future<List<int>> openingStockImportTemplate({String format = 'xlsx'}) =>
+      downloadBytes(
+        '/api/v1/inventory/opening-stock/import-template',
+        query: {'format': format},
+      );
+
+  /// Check (`apply: false`, writes nothing) or import a stock count: one
+  /// opening stock document per warehouse, created and posted on
+  /// [postingDate] (`yyyy-mm-dd`).
+  Future<FileImportReport> checkOpeningStockImportFile({
+    required String fileName,
+    required List<int> bytes,
+    required String postingDate,
+    required bool apply,
+  }) async {
+    final Json response = await multipartRequest(
+      'POST',
+      '/api/v1/inventory/opening-stock/import-file',
+      fields: {
+        'posting_date': postingDate,
+        'apply': apply ? 'true' : 'false',
+      },
+      fileField: 'file',
+      fileName: fileName,
+      fileBytes: bytes,
+      fileContentType: fileName.toLowerCase().endsWith('.xlsx')
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'text/csv',
+    );
+    return FileImportReport.fromJson(_unwrapMap(response));
+  }
+
   // Counting a warehouse. The sheet is drawn up from what the system holds,
   // walked over hours, and posted once at the end -- so it is a document with
   // a draft the client saves into, not a form that applies on submit.
@@ -2555,6 +2673,99 @@ class ApiClient {
           if (format.isNotEmpty) 'format': format,
         },
       );
+
+  /// The blank product import file, as bytes: xlsx (with notes and lists) or csv.
+  Future<List<int>> productImportTemplate({String format = 'xlsx'}) =>
+      downloadBytes(
+        '/api/v1/products/import-template',
+        query: {'format': format},
+      );
+
+  /// Check (`apply: false`, writes nothing) or import a product file.
+  Future<FileImportReport> checkProductImportFile({
+    required String fileName,
+    required List<int> bytes,
+    required bool updateExisting,
+    required bool apply,
+  }) async {
+    final Json response = await multipartRequest(
+      'POST',
+      '/api/v1/products/import-file',
+      fields: {
+        'existing': updateExisting ? 'update' : 'refuse',
+        'apply': apply ? 'true' : 'false',
+      },
+      fileField: 'file',
+      fileName: fileName,
+      fileBytes: bytes,
+      fileContentType: fileName.toLowerCase().endsWith('.xlsx')
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'text/csv',
+    );
+    return FileImportReport.fromJson(_unwrapMap(response));
+  }
+
+  /// The blank customer import file, as bytes: xlsx (with notes and lists) or csv.
+  Future<List<int>> customerImportTemplate({String format = 'xlsx'}) =>
+      downloadBytes(
+        '/api/v1/customers/import-template',
+        query: {'format': format},
+      );
+
+  /// Check (`apply: false`, writes nothing) or import a customer file.
+  Future<FileImportReport> checkCustomerImportFile({
+    required String fileName,
+    required List<int> bytes,
+    required bool updateExisting,
+    required bool apply,
+  }) async {
+    final Json response = await multipartRequest(
+      'POST',
+      '/api/v1/customers/import-file',
+      fields: {
+        'existing': updateExisting ? 'update' : 'refuse',
+        'apply': apply ? 'true' : 'false',
+      },
+      fileField: 'file',
+      fileName: fileName,
+      fileBytes: bytes,
+      fileContentType: fileName.toLowerCase().endsWith('.xlsx')
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'text/csv',
+    );
+    return FileImportReport.fromJson(_unwrapMap(response));
+  }
+
+  /// The blank vendor import file, as bytes: xlsx (with notes and lists) or csv.
+  Future<List<int>> vendorImportTemplate({String format = 'xlsx'}) =>
+      downloadBytes(
+        '/api/v1/vendors/import-template',
+        query: {'format': format},
+      );
+
+  /// Check (`apply: false`, writes nothing) or import a vendor file.
+  Future<FileImportReport> checkVendorImportFile({
+    required String fileName,
+    required List<int> bytes,
+    required bool updateExisting,
+    required bool apply,
+  }) async {
+    final Json response = await multipartRequest(
+      'POST',
+      '/api/v1/vendors/import-file',
+      fields: {
+        'existing': updateExisting ? 'update' : 'refuse',
+        'apply': apply ? 'true' : 'false',
+      },
+      fileField: 'file',
+      fileName: fileName,
+      fileBytes: bytes,
+      fileContentType: fileName.toLowerCase().endsWith('.xlsx')
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'text/csv',
+    );
+    return FileImportReport.fromJson(_unwrapMap(response));
+  }
 
   Future<TerritoryHierarchyRecord> territoryHierarchy() async =>
       TerritoryHierarchyRecord.fromJson(_unwrapMap(
@@ -3042,6 +3253,23 @@ class ApiClient {
   /// any catalogue larger than that: with 163 permissions, 63 of them could not
   /// be granted to a role because the selector never showed them.
   Future<List<AssignmentOption>> options(String resource) async {
+    // The generic list below returns every row a firm holds, active or not --
+    // fine for most catalogues, wrong for a licence type: a picker that
+    // offers a retired one lets it be assigned to a fresh product or category
+    // as though it were still in use. `tradeLicenceTypes()` carries the flag
+    // this generic path throws away, so it is filtered here instead.
+    if (resource == 'trade-licences/types') {
+      final List<TradeLicenceTypeRecord> types = await tradeLicenceTypes();
+      return [
+        for (final TradeLicenceTypeRecord type in types)
+          if (type.isActive)
+            AssignmentOption(
+              id: type.id,
+              label: type.code,
+              detail: type.name == type.code ? null : type.name,
+            ),
+      ];
+    }
     const int pageSize = 100;
     // A catalogue this large is already unusual; the ceiling stops a bad
     // total_records from looping forever.
@@ -3257,6 +3485,49 @@ class ApiClient {
         await request('POST', '/api/v1/purchases/$id/approve'),
       ));
 
+  /// Approve several purchase orders in one call. Rows are acted on one by
+  /// one, so some can be refused while others succeed.
+  Future<BulkActionResult> bulkApprovePurchaseOrders(List<BulkRow> rows) =>
+      _bulk('/api/v1/purchases/bulk-approve', rows);
+
+  Future<BulkActionResult> bulkCancelPurchaseOrders(
+    List<BulkRow> rows,
+    String reason,
+  ) =>
+      _bulk('/api/v1/purchases/bulk-cancel', rows, reason: reason);
+
+  /// Approve several sales orders in one call.
+  Future<BulkActionResult> bulkApproveSalesOrders(List<BulkRow> rows) =>
+      _bulk('/api/v1/sales-orders/bulk-approve', rows);
+
+  Future<BulkActionResult> bulkCancelSalesOrders(
+    List<BulkRow> rows,
+    String reason,
+  ) =>
+      _bulk('/api/v1/sales-orders/bulk-cancel', rows, reason: reason);
+
+  /// `version` is left out when unknown: the server rejects unknown fields but
+  /// accepts an item without one.
+  Future<BulkActionResult> _bulk(
+    String path,
+    List<BulkRow> rows, {
+    String? reason,
+  }) async =>
+      BulkActionResult.fromJson(_unwrapMap(await request(
+        'POST',
+        path,
+        body: <String, dynamic>{
+          'items': [
+            for (final BulkRow row in rows)
+              <String, dynamic>{
+                'id': row.id,
+                if (row.version != null) 'version': row.version,
+              },
+          ],
+          if (reason != null) 'reason': reason,
+        },
+      )));
+
   Future<PurchaseOrder> cancelPurchaseOrder(String id,
           {String reason = ''}) async =>
       PurchaseOrder.fromJson(
@@ -3345,6 +3616,27 @@ class ApiClient {
   Future<List<FinancialYear>> financialYears() async => _unwrapList(
         await request('GET', '/api/v1/finance/financial-years'),
         FinancialYear.fromJson,
+      );
+
+  /// Close a financial year: nothing can be posted into it afterwards. The
+  /// server refuses while a period is open or a draft journal is dated in it.
+  Future<FinancialYear> closeFinancialYear(String id) async =>
+      FinancialYear.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/finance/financial-years/$id/close'),
+        ),
+      );
+
+  /// Reopen a closed year. The periods inside it stay closed.
+  Future<FinancialYear> reopenFinancialYear(String id, String reason) async =>
+      FinancialYear.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/finance/financial-years/$id/reopen',
+            body: {'reason': reason},
+          ),
+        ),
       );
 
   /// Delete a period nothing was written into (D-FIN-15).
@@ -3768,11 +4060,21 @@ class ApiClient {
   /// refused with 422 "body: Field required" and those buttons had never
   /// worked from the desktop (plan item 9.9, 2026-09-13). An action that takes
   /// no body ignores the empty object.
-  Future<Json> documentAction(String resource, String id, String action) =>
+  ///
+  /// [query] carries a query-string parameter a lifecycle action takes beside
+  /// its (always empty) body -- `licence_override_reason` on the sales
+  /// approve endpoints (backlog 54) is the one example today.
+  Future<Json> documentAction(
+    String resource,
+    String id,
+    String action, {
+    Map<String, String>? query,
+  }) =>
       request(
         'POST',
         '/api/v1/$resource/$id/${action.startsWith('/') ? action.substring(1) : action}',
         body: const <String, dynamic>{},
+        query: query,
       );
 
   /// Price a supplier bill as saving it would, and save nothing: what the
@@ -3794,8 +4096,7 @@ class ApiClient {
   ) async =>
       PurchaseReturnPreviewRecord.fromJson(
         _unwrapMap(
-          await request('POST', '/api/v1/purchase-returns/preview',
-              body: data),
+          await request('POST', '/api/v1/purchase-returns/preview', body: data),
         ),
       );
 
@@ -5056,6 +5357,137 @@ class ApiClient {
         AccountingPeriod.fromJson,
       );
 
+  // ── Trade Licences ────────────────────────────────────────────────────
+  // Backlog 54. Every list here is a plain list, not a page -- a firm holds
+  // a handful of its own licences and one or two per customer or vendor -- so
+  // each is wrapped into a `PagedResult` here rather than pretending the
+  // server paginates. Types and licences are both written through the
+  // generic `create`/`update`/`delete` (`resource: 'trade-licences/types'`
+  // and `resource: 'trade-licences'`), so no named write methods are needed;
+  // `options('trade-licences/types')` serves the type dropdown the same way.
+
+  Future<List<TradeLicenceTypeRecord>> tradeLicenceTypes() async => _unwrapList(
+        await request('GET', '/api/v1/trade-licences/types'),
+        TradeLicenceTypeRecord.fromJson,
+      );
+
+  /// The types register as one page, for `ResourceDefinition.load`. The
+  /// endpoint has no search, so it is applied here, as `productCategoryPage`
+  /// does for the same reason.
+  Future<PagedResult<TradeLicenceTypeRecord>> tradeLicenceTypesPage({
+    int page = 1,
+    String search = '',
+    String sortBy = 'code',
+    bool descending = false,
+  }) async {
+    final List<TradeLicenceTypeRecord> rows = await tradeLicenceTypes();
+    final String needle = search.trim().toLowerCase();
+    final List<TradeLicenceTypeRecord> filtered = rows
+        .where((row) =>
+            needle.isEmpty ||
+            row.code.toLowerCase().contains(needle) ||
+            row.name.toLowerCase().contains(needle))
+        .toList()
+      ..sort((a, b) => a.code.compareTo(b.code));
+    return PagedResult(items: filtered, total: filtered.length);
+  }
+
+  Future<List<TradeLicenceRecord>> tradeLicences({
+    String? holderType,
+    String? branchId,
+    String? customerId,
+    String? vendorId,
+    String? licenceTypeId,
+  }) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/trade-licences',
+          query: {
+            if (holderType != null) 'holder_type': holderType,
+            if (branchId != null) 'branch_id': branchId,
+            if (customerId != null) 'customer_id': customerId,
+            if (vendorId != null) 'vendor_id': vendorId,
+            if (licenceTypeId != null) 'licence_type_id': licenceTypeId,
+          },
+        ),
+        TradeLicenceRecord.fromJson,
+      );
+
+  /// The whole register as one page, for `ResourceDefinition.load`.
+  Future<PagedResult<TradeLicenceRecord>> tradeLicencesPage({
+    int page = 1,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+  }) async {
+    final List<TradeLicenceRecord> rows = await tradeLicences();
+    final String needle = search.trim().toLowerCase();
+    final List<TradeLicenceRecord> filtered = needle.isEmpty
+        ? rows
+        : rows
+            .where((row) =>
+                row.licenceNumber.toLowerCase().contains(needle) ||
+                row.holderName.toLowerCase().contains(needle) ||
+                row.licenceTypeName.toLowerCase().contains(needle))
+            .toList();
+    return PagedResult(items: filtered, total: filtered.length);
+  }
+
+  /// Licences that ran out or run out soon, the firm's own first -- what the
+  /// Home alert counts and, on a tap, opens the register to show.
+  Future<List<TradeLicenceRecord>> expiringTradeLicences(
+          {int? withinDays}) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/trade-licences/expiring',
+          query: {
+            if (withinDays != null) 'within_days': '$withinDays',
+          },
+        ),
+        TradeLicenceRecord.fromJson,
+      );
+
+  /// What a missing or lapsed licence does to a sale, and to a purchase.
+  /// Needs `TRADE_LICENCE_VIEW`.
+  Future<TradeLicenceSettingsRecord> licenceSettings() async =>
+      TradeLicenceSettingsRecord.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/trade-licences/settings')),
+      );
+
+  /// Replace the firm's policy. Needs `TRADE_LICENCE_MANAGE_SETTINGS`; the
+  /// server refuses `BLOCK` on the purchase side.
+  Future<TradeLicenceSettingsRecord> updateLicenceSettings(
+    TradeLicenceSettingsRecord settings,
+  ) async =>
+      TradeLicenceSettingsRecord.fromJson(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/trade-licences/settings',
+            body: settings.toJson(),
+          ),
+        ),
+      );
+
+  /// Say, before approving, what a document's lines need and who lacks it --
+  /// the same judgement the approval itself makes, on the document's own
+  /// date. [document] is one of SALES_ORDER, DELIVERY_NOTE, SALES_INVOICE,
+  /// PURCHASE_ORDER or GOODS_RECEIPT. Needs `TRADE_LICENCE_VIEW`.
+  Future<LicenceCheckRecord> checkLicences(
+    String document,
+    String documentId,
+  ) async =>
+      LicenceCheckRecord.fromJson(
+        _unwrapMap(
+          await request(
+            'GET',
+            '/api/v1/trade-licences/check/$document/$documentId',
+          ),
+        ),
+      );
+
   /// The trial balance for one accounting period.
   ///
   /// Whether it balances is the server's answer, carried through rather than
@@ -5458,6 +5890,34 @@ class ApiClient {
           ),
         ),
       );
+
+  /// Where the firm's books stood on its cutover date (backlog 36), or the
+  /// empty statement if nothing has ever been entered.
+  Future<OpeningTrialBalance> getOpeningTrialBalance() async =>
+      OpeningTrialBalance.fromJson(
+        _unwrapMap(
+          await request('GET', '/api/v1/finance/opening-trial-balance'),
+        ),
+      );
+
+  /// Replace the whole opening trial balance; an empty `lines` list takes it
+  /// off. Posts straight to the ledger, so it needs `JOURNAL_POST`.
+  ///
+  /// Returns the statement now standing alongside the server's message,
+  /// which names every row a bad statement was refused on.
+  Future<(OpeningTrialBalance, String)> replaceOpeningTrialBalance(
+    Json body,
+  ) async {
+    final Json response = await request(
+      'PUT',
+      '/api/v1/finance/opening-trial-balance',
+      body: body,
+    );
+    return (
+      OpeningTrialBalance.fromJson(_unwrapMap(response)),
+      stringValue(response['message']),
+    );
+  }
 
   Future<List<FinanceTypeRef>> journalTypes() async => _unwrapList(
         await request('GET', '/api/v1/finance/journal-types'),

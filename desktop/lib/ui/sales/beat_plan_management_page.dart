@@ -140,34 +140,27 @@ class _BeatPlanManagementPageState extends State<BeatPlanManagementPage> {
       builder: (context) => _BeatPlanEditorDialog(
         plan: current,
         routes: _routes,
+        onSave: (Json values) async {
+          if (current == null) {
+            await widget.api.createBeatPlan(values);
+          } else {
+            await widget.api.updateBeatPlan(
+              current.id,
+              values,
+              expectedVersion: preconditionFor(current.version),
+            );
+          }
+        },
       ),
     );
     if (!mounted || result == null) return;
-    try {
-      if (current == null) {
-        await widget.api.createBeatPlan(result);
-      } else {
-        await widget.api.updateBeatPlan(
-          current.id,
-          result,
-          expectedVersion: preconditionFor(current.version),
-        );
-      }
-      await _loadAll();
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        current == null ? 'Beat plan created.' : 'Beat plan updated.',
-        kind: AppNotificationKind.success,
-      );
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        saveFailureMessage(exception, 'beat plan', changesKept: false),
-        kind: AppNotificationKind.error,
-      );
-    }
+    await _loadAll();
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      current == null ? 'Beat plan created.' : 'Beat plan updated.',
+      kind: AppNotificationKind.success,
+    );
   }
 
   /// Who this plan calls on today.
@@ -468,16 +461,24 @@ String _ordinal(int value) => switch (value) {
     };
 
 class _BeatPlanEditorDialog extends StatefulWidget {
-  const _BeatPlanEditorDialog({required this.plan, required this.routes});
+  const _BeatPlanEditorDialog({
+    required this.plan,
+    required this.routes,
+    required this.onSave,
+  });
 
   final BeatPlanRecord? plan;
   final List<SalesTerritory> routes;
+
+  /// Saves the plan; throws [ApiException] on a refusal.
+  final Future<void> Function(Json values) onSave;
 
   @override
   State<_BeatPlanEditorDialog> createState() => _BeatPlanEditorDialogState();
 }
 
-class _BeatPlanEditorDialogState extends State<_BeatPlanEditorDialog> {
+class _BeatPlanEditorDialogState extends State<_BeatPlanEditorDialog>
+    with SaveInDialog<_BeatPlanEditorDialog> {
   final GlobalKey<FormState> _form = GlobalKey<FormState>();
   late final TextEditingController _code =
       TextEditingController(text: widget.plan?.code ?? '');
@@ -554,6 +555,7 @@ class _BeatPlanEditorDialogState extends State<_BeatPlanEditorDialog> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  saveErrorBanner(),
                   TextFormField(
                     controller: _code,
                     decoration: const InputDecoration(labelText: 'Code'),
@@ -696,11 +698,11 @@ class _BeatPlanEditorDialogState extends State<_BeatPlanEditorDialog> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: cancelHandler,
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () {
+            onPressed: saving ? null : () {
               if (!(_form.currentState?.validate() ?? false)) return;
               if (_startsOn != null &&
                   _endsOn != null &&
@@ -712,7 +714,7 @@ class _BeatPlanEditorDialogState extends State<_BeatPlanEditorDialog> {
                 );
                 return;
               }
-              Navigator.pop<Json>(context, <String, dynamic>{
+              submit<Json>(<String, dynamic>{
                 'code': _code.text.trim().toUpperCase(),
                 'name': _name.text.trim(),
                 'territory_id': _territoryId,
@@ -726,7 +728,7 @@ class _BeatPlanEditorDialogState extends State<_BeatPlanEditorDialog> {
                 'ends_on': _formatDate(_endsOn),
                 'is_active': _isActive,
                 'notes': _notes.text.trim().isEmpty ? null : _notes.text.trim(),
-              });
+              }, widget.onSave);
             },
             child: const Text('Save'),
           ),

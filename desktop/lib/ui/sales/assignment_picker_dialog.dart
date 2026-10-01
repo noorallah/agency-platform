@@ -45,6 +45,7 @@ class AssignmentPickerDialog extends StatefulWidget {
     required this.selectedIds,
     required this.emptyMessage,
     this.searchHint = 'Search',
+    this.onSave,
   });
 
   final String title;
@@ -57,11 +58,16 @@ class AssignmentPickerDialog extends StatefulWidget {
   final String emptyMessage;
   final String searchHint;
 
+  /// Saves the ticked ids; throws [ApiException] on a refusal, which the
+  /// dialog shows without closing. Null closes with the ids at once.
+  final Future<void> Function(List<String> ids)? onSave;
+
   @override
   State<AssignmentPickerDialog> createState() => _AssignmentPickerDialogState();
 }
 
-class _AssignmentPickerDialogState extends State<AssignmentPickerDialog> {
+class _AssignmentPickerDialogState extends State<AssignmentPickerDialog>
+    with SaveInDialog<AssignmentPickerDialog> {
   late final Set<String> _selected = <String>{...widget.selectedIds};
   final TextEditingController _search = TextEditingController();
 
@@ -97,6 +103,7 @@ class _AssignmentPickerDialogState extends State<AssignmentPickerDialog> {
               )
             : Column(
                 children: [
+                  saveErrorBanner(),
                   TextField(
                     controller: _search,
                     decoration: InputDecoration(
@@ -151,11 +158,13 @@ class _AssignmentPickerDialogState extends State<AssignmentPickerDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context),
+          onPressed: cancelHandler,
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: () => Navigator.pop(context, _selected.toList()),
+          onPressed: saving
+              ? null
+              : () => submit<List<String>>(_selected.toList(), widget.onSave),
           child: const Text('Save'),
         ),
       ],

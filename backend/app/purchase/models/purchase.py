@@ -103,6 +103,14 @@ class PurchaseOrder(BaseEntity):
     )
     close_reason: Mapped[str | None] = mapped_column(Text)
     cancel_reason: Mapped[str | None] = mapped_column(Text)
+    #: The supplier bill that raised this order because the firm switched the
+    #: purchase-order stage off (`purchase_workflow_settings`). That bill
+    #: approved it for itself, and cancels it when a draft of it is
+    #: cancelled; an order a person raised is theirs to cancel whatever the
+    #: stage says now. A bare id: the bill module depends on this one.
+    raised_by_purchase_invoice_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), nullable=True, index=True
+    )
 
 
 class PurchaseOrderLine(BaseEntity):
@@ -166,6 +174,11 @@ class PurchaseOrderLine(BaseEntity):
         Numeric(9, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
     discount_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: This line's share of the order's whole-order discount, taken off before
+    #: tax and inherited downstream pro-rated by quantity (D-BUY-19).
+    bill_discount_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
     gross_amount: Mapped[Decimal] = mapped_column(
@@ -299,3 +312,48 @@ class PurchaseOrderHistory(BaseEntity):
     to_status: Mapped[str | None] = mapped_column(String(30))
     remarks: Mapped[str | None] = mapped_column(Text)
     details_json: Mapped[str | None] = mapped_column(Text)
+
+
+class PurchaseWorkflowSettings(BaseEntity):
+    """Store which buying stages one firm fills in by hand.
+
+    The chain is purchase order, goods receipt, supplier bill. A firm run by
+    one person has the supplier's bill in hand and nothing else: typing an
+    order, receiving it and then billing it is three screens for one delivery.
+    Turning a stage off does not remove the document -- stock still arrives at
+    the goods receipt and the accrual still passes through goods received not
+    invoiced -- it means the bill raises that document itself.
+
+    A stage per column rather than one ``mode``, for the reason the sales table
+    gives: a firm changes shape, and each step should be a switch.
+
+    The bill has no column: it is what the supplier sent and what is being
+    recorded. A receipt is always raised against an order, so the receipt
+    stage cannot be on while the order stage is off.
+    """
+
+    __tablename__ = "purchase_workflow_settings"
+    __table_args__ = (
+        UniqueConstraint("firm_id", name="UQ_purchase_workflow_settings_firm"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    #: Both default to on, which is the chain as it has always worked; a firm
+    #: with no row behaves exactly as it did before this table existed.
+    purchase_order_stage: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    goods_receipt_stage: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    #: Where a synthesised receipt puts the goods. Receiving refuses a line
+    #: with no warehouse, and a firm on automatic never sees a field to type
+    #: one into. Null falls back to the firm's default branch and warehouse.
+    default_branch_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("branches.id", ondelete="RESTRICT")
+    )
+    default_warehouse_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("warehouses.id", ondelete="RESTRICT")
+    )

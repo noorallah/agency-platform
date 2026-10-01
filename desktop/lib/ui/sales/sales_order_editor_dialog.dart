@@ -860,7 +860,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
                   enabled: !_locked,
                   decoration: const InputDecoration(
                     labelText: 'Free',
-                    helperText: 'Outside the price and the tax.',
+                    helperText: 'Blank takes the offer; 0 refuses it.',
                     helperMaxLines: 2,
                   ),
                   keyboardType: TextInputType.number,

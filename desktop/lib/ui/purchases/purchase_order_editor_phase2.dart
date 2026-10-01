@@ -931,13 +931,15 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
     for (final PurchaseOrderLine line in _draft.lines) {
       typed += _typedTaxable(line);
     }
-    final double taxable = order == null
-        ? typed
-        : _number(order.subtotal) - _number(order.lineDiscountTotal);
-    final double tax = order == null ? 0 : _number(order.taxTotal);
+    // The server's subtotal is already net of the line discounts. The
+    // whole-order discount comes off it *before* tax (D-BUY-19), so what is
+    // taxed is the subtotal less that discount, and the bar says so in order.
+    final double lines = order == null ? typed : _number(order.subtotal);
     final double off = _number(
       order?.headerDiscountAmount ?? _draft.headerDiscountAmount,
     );
+    final double taxable = lines - off;
+    final double tax = order == null ? 0 : _number(order.taxTotal);
     final double charges =
         _number(order?.additionalCharges ?? _draft.additionalCharges);
     final bool? interstate = _preview?.interstate;
@@ -950,6 +952,10 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
               'with its tax.'
           : 'Totals follow as the lines are priced.',
       figures: [
+        if (off != 0) ...[
+          ('Lines', lines),
+          ('Order discount', -off),
+        ],
         ('Taxable', taxable),
         if (interstate == null)
           ('GST', tax)
@@ -959,11 +965,10 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
           ('CGST', tax / 2),
           ('SGST', tax / 2),
         ],
-        if (off != 0) ('Order discount', -off),
         if (charges != 0) ('Other charges', charges),
         (
           'Total',
-          order == null ? taxable - off + charges : _number(order.grandTotal)
+          order == null ? taxable + charges : _number(order.grandTotal)
         ),
       ],
     );

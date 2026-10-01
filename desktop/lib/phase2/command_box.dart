@@ -31,6 +31,10 @@ const Map<String, List<String>> _synonyms = {
   'administration/uoms': ['unit', 'uom'],
   'masters/financial-years': ['financial year', 'fy', 'books'],
   'dashboard': ['home', 'dashboard'],
+  MenuLayout.salesStagesRoute: ['sales workflow', 'stages', 'quotation stage'],
+  MenuLayout.creditControlRoute: ['credit limit', 'credit policy'],
+  MenuLayout.loyaltySchemeRoute: ['loyalty', 'reward points'],
+  MenuLayout.tcsSettingsRoute: ['tcs', 'tax collected at source', '206c'],
 };
 
 /// A screen the command box can offer, with what it is matched on.

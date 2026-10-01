@@ -16,7 +16,15 @@ extension _Phase2VendorForm on _VendorEditorDialogState {
     'Tax',
     'Notes',
     'Custom fields',
+    'Licences',
+    'Opening bills',
   ];
+
+  bool _sectionVisible(String section) => switch (section) {
+        'Licences' => widget.loadLicences != null,
+        'Opening bills' => widget.loadOpeningBills != null,
+        _ => true,
+      };
 
   void _submit() {
     final String? customField = _customFields.validate();
@@ -116,20 +124,21 @@ extension _Phase2VendorForm on _VendorEditorDialogState {
           scrollDirection: Axis.horizontal,
           child: Row(children: [
             for (final String section in _sectionNames)
-              TextButton(
-                key: ValueKey<String>('vendor-section-$section'),
-                onPressed: () {
-                  final BuildContext? target =
-                      _sectionKeys[section]?.currentContext;
-                  if (target != null) {
-                    unawaited(Scrollable.ensureVisible(
-                      target,
-                      duration: const Duration(milliseconds: 200),
-                    ));
-                  }
-                },
-                child: Text(section),
-              ),
+              if (_sectionVisible(section))
+                TextButton(
+                  key: ValueKey<String>('vendor-section-$section'),
+                  onPressed: () {
+                    final BuildContext? target =
+                        _sectionKeys[section]?.currentContext;
+                    if (target != null) {
+                      unawaited(Scrollable.ensureVisible(
+                        target,
+                        duration: const Duration(milliseconds: 200),
+                      ));
+                    }
+                  },
+                  child: Text(section),
+                ),
           ]),
         ),
       ),
@@ -194,6 +203,15 @@ extension _Phase2VendorForm on _VendorEditorDialogState {
             _notesTab(),
             _heading(context, 'Custom fields', ''),
             CustomFieldsSection(controller: _customFields, noun: 'vendors'),
+            if (widget.loadLicences != null) ...[
+              _heading(context, 'Licences', 'trade licences this vendor holds'),
+              _licencesTab(),
+            ],
+            if (widget.loadOpeningBills != null) ...[
+              _heading(context, 'Opening bills',
+                  'what this supplier was owed on the firm\'s first day here'),
+              _openingBillsTab(),
+            ],
           ],
         ),
       ),

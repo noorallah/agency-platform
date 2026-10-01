@@ -1634,3 +1634,50 @@ def test_a_preview_prices_the_offer_and_saves_nothing() -> None:
         setup.payload(), firm_id=setup.firm.id, actor_id=setup.actor_id
     )
     assert saved.quotation_number == preview.quotation.quotation_number
+
+
+def test_a_quotation_is_priced_with_its_coupon_and_hands_it_to_the_order() -> None:
+    """D-SELL-43: the quote shows the coupon's price, and the order keeps it.
+
+    A quotation had no coupon box, so a quote read higher than the order it
+    became once the coupon was typed there. Nothing is claimed by the quote:
+    the claim is the order's, at approval.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+    promotion = _limited_offer(setup, max_redemptions=5)
+    promotion.requires_coupon = True
+    session.add(
+        PromotionCoupon(
+            firm_id=setup.firm.id,
+            promotion_id=promotion.id,
+            code="SAVE10",
+            status=PromotionStatus.ACTIVE.value,
+        )
+    )
+    session.commit()
+
+    plain = setup.service.create_quotation(
+        setup.payload(), firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+    coupon = setup.payload().model_copy(update={"coupon_code": " save10 "})
+    quoted = setup.service.create_quotation(
+        coupon, firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+
+    assert plain.grand_total == Decimal("400.0000")
+    assert quoted.coupon_code == "SAVE10"
+    assert quoted.grand_total == Decimal("360.0000")
+    assert session.scalar(select(PromotionRedemption)) is None
+
+    setup.service.send_quotation(
+        quoted.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+    )
+    setup.service.accept_quotation(
+        quoted.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+    )
+    _, order = setup.service.convert_quotation(
+        quoted.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+    )
+    assert order.coupon_code == "SAVE10"
+    assert order.grand_total == Decimal("360.0000")

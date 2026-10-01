@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -21,11 +22,16 @@ from app.common.report_names import (
     vendors_matching,
     warehouse_names,
 )
+from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_money
-from app.core.utils.pricing import LineDiscount, resolve_line_discount
+from app.core.utils.pricing import (
+    LineDiscount,
+    inherited_share,
+    resolve_line_discount,
+)
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentTypeDefinition,
@@ -218,33 +224,39 @@ class PurchaseReturnService(TransactionalDocumentService):
         return rows, int(self._session.scalar(count) or 0)
 
     def summary(self, *, firm_scope: UUID) -> PurchaseReturnSummary:
-        """Return aggregate purchase return values for the visible firm scope."""
-        rows = list(
-            self._session.scalars(
-                select(PurchaseReturn).where(
+        """Return aggregate purchase return values for the visible firm scope.
+
+        Counted and summed in SQL, one row per status, rather than loading every
+        document the firm ever raised (backlog 56 C).
+        """
+        by_status: dict[str, tuple[int, Decimal]] = {
+            status: (int(count), Decimal(str(total)))
+            for status, count, total in self._session.execute(
+                select(
+                    PurchaseReturn.status,
+                    func.count(),
+                    func.coalesce(func.sum(PurchaseReturn.grand_total), 0),
+                )
+                .where(
                     PurchaseReturn.firm_id == firm_scope,
                     PurchaseReturn.is_deleted.is_(False),
                 )
+                .group_by(PurchaseReturn.status)
             ).all()
-        )
+        }
+
+        def count(status: PurchaseReturnStatus) -> int:
+            """Return how many documents are in one status."""
+            return by_status.get(status.value, (0, ZERO))[0]
+
         return PurchaseReturnSummary(
-            total=len(rows),
-            draft=sum(
-                1 for row in rows if row.status == PurchaseReturnStatus.DRAFT.value
-            ),
-            approved=sum(
-                1 for row in rows if row.status == PurchaseReturnStatus.APPROVED.value
-            ),
-            completed=sum(
-                1 for row in rows if row.status == PurchaseReturnStatus.COMPLETED.value
-            ),
-            cancelled=sum(
-                1 for row in rows if row.status == PurchaseReturnStatus.CANCELLED.value
-            ),
-            closed=sum(
-                1 for row in rows if row.status == PurchaseReturnStatus.CLOSED.value
-            ),
-            total_value=self._q(sum((row.grand_total for row in rows), ZERO)),
+            total=sum(number for number, _ in by_status.values()),
+            draft=count(PurchaseReturnStatus.DRAFT),
+            approved=count(PurchaseReturnStatus.APPROVED),
+            completed=count(PurchaseReturnStatus.COMPLETED),
+            cancelled=count(PurchaseReturnStatus.CANCELLED),
+            closed=count(PurchaseReturnStatus.CLOSED),
+            total_value=self._q(sum((value for _, value in by_status.values()), ZERO)),
         )
 
     def create_return(
@@ -950,61 +962,93 @@ class PurchaseReturnService(TransactionalDocumentService):
 
     def return_response(self, row: PurchaseReturn) -> PurchaseReturnResponse:
         """Render one purchase return row as its API contract."""
-        sources = list(
-            self._session.scalars(
-                select(PurchaseReturnSource).where(
-                    PurchaseReturnSource.purchase_return_id == row.id,
-                    PurchaseReturnSource.is_deleted.is_(False),
+        return self.return_responses([row])[0]
+
+    def return_responses(
+        self, rows: Sequence[PurchaseReturn]
+    ) -> list[PurchaseReturnResponse]:
+        """Render a page of purchase returns, reading each child table once.
+
+        One query per child table for the whole page, grouped by return in
+        Python, rather than seven per return (backlog 56 C, step 3). The
+        single-return builder is this with a list of one.
+        """
+        if not rows:
+            return []
+        ids = [row.id for row in rows]
+        sources = children_by_parent(
+            self._session,
+            PurchaseReturnSource,
+            PurchaseReturnSource.purchase_return_id,
+            ids,
+        )
+        lines = children_by_parent(
+            self._session,
+            PurchaseReturnLine,
+            PurchaseReturnLine.purchase_return_id,
+            ids,
+            PurchaseReturnLine.line_number.asc(),
+        )
+        attachments = children_by_parent(
+            self._session,
+            PurchaseReturnAttachment,
+            PurchaseReturnAttachment.purchase_return_id,
+            ids,
+        )
+        notes = children_by_parent(
+            self._session,
+            PurchaseReturnNote,
+            PurchaseReturnNote.purchase_return_id,
+            ids,
+        )
+        accounting_events = children_by_parent(
+            self._session,
+            PurchaseReturnAccountingEvent,
+            PurchaseReturnAccountingEvent.purchase_return_id,
+            ids,
+        )
+        warnings = self._duplicate_warnings(rows)
+        vendors = {
+            found[0]: (found[1], found[2])
+            for found in self._session.execute(
+                select(Vendor.id, Vendor.display_name, Vendor.code).where(
+                    Vendor.id.in_({row.vendor_id for row in rows})
                 )
-            ).all()
-        )
-        lines = list(
-            self._session.scalars(
-                select(PurchaseReturnLine)
-                .where(
-                    PurchaseReturnLine.purchase_return_id == row.id,
-                    PurchaseReturnLine.is_deleted.is_(False),
-                )
-                .order_by(PurchaseReturnLine.line_number.asc())
-            ).all()
-        )
-        attachments = list(
-            self._session.scalars(
-                select(PurchaseReturnAttachment).where(
-                    PurchaseReturnAttachment.purchase_return_id == row.id,
-                    PurchaseReturnAttachment.is_deleted.is_(False),
-                )
-            ).all()
-        )
-        notes = list(
-            self._session.scalars(
-                select(PurchaseReturnNote).where(
-                    PurchaseReturnNote.purchase_return_id == row.id,
-                    PurchaseReturnNote.is_deleted.is_(False),
-                )
-            ).all()
-        )
-        accounting_events = list(
-            self._session.scalars(
-                select(PurchaseReturnAccountingEvent).where(
-                    PurchaseReturnAccountingEvent.purchase_return_id == row.id,
-                    PurchaseReturnAccountingEvent.is_deleted.is_(False),
-                )
-            ).all()
-        )
-        warning = self._duplicate_warning(
-            firm_id=row.firm_id,
-            vendor_id=row.vendor_id,
-            supplier_return_number=row.supplier_return_number,
-            current_id=row.id,
-        )
-        vendor = self._session.get(Vendor, row.vendor_id)
+            )
+        }
+        return [
+            self._return_response(
+                row,
+                lines=lines[row.id],
+                sources=sources[row.id],
+                attachments=attachments[row.id],
+                notes=notes[row.id],
+                accounting_events=accounting_events[row.id],
+                warning=warnings.get(row.id),
+                vendor=vendors.get(row.vendor_id),
+            )
+            for row in rows
+        ]
+
+    def _return_response(
+        self,
+        row: PurchaseReturn,
+        *,
+        lines: list[PurchaseReturnLine],
+        sources: list[PurchaseReturnSource],
+        attachments: list[PurchaseReturnAttachment],
+        notes: list[PurchaseReturnNote],
+        accounting_events: list[PurchaseReturnAccountingEvent],
+        warning: str | None,
+        vendor: tuple[str, str] | None,
+    ) -> PurchaseReturnResponse:
+        """Build one return's response from what the page already read."""
         return PurchaseReturnResponse(
             id=row.id,
             firm_id=row.firm_id,
             vendor_id=row.vendor_id,
-            vendor_name=vendor.display_name if vendor else "",
-            vendor_code=vendor.code if vendor else "",
+            vendor_name=vendor[0] if vendor else "",
+            vendor_code=vendor[1] if vendor else "",
             branch_id=row.branch_id,
             warehouse_id=row.warehouse_id,
             business_profile_id=row.business_profile_id,
@@ -1476,6 +1520,16 @@ class PurchaseReturnService(TransactionalDocumentService):
                 spec=spec, source_line=source_line, gross=gross_amount
             )
             discount_amount = line_discount.amount
+            # The source line's share of the order's whole-order discount, for
+            # the part of it returned here, comes off before tax (D-BUY-19).
+            bill_share = min(
+                inherited_share(
+                    getattr(source_line, "bill_discount_amount", ZERO) or ZERO,
+                    part=return_quantity,
+                    whole=source_quantity,
+                ),
+                self._q(gross_amount - discount_amount),
+            )
             tax_amount = self._tax_amount(
                 document_id=row.id,
                 line_number=index,
@@ -1490,13 +1544,17 @@ class PurchaseReturnService(TransactionalDocumentService):
                 invoice_value=self._line_net_amount(
                     quantity=return_quantity,
                     unit_price=unit_price,
-                    discount_amount=discount_amount,
+                    discount_amount=discount_amount + bill_share,
                     charges_amount=charges_amount,
                 ),
                 actor_id=actor_id,
             )
             net_amount = self._q(
-                gross_amount - discount_amount + charges_amount + tax_amount
+                gross_amount
+                - discount_amount
+                - bill_share
+                + charges_amount
+                + tax_amount
             )
             line = PurchaseReturnLine(
                 purchase_return_id=row.id,
@@ -1525,6 +1583,7 @@ class PurchaseReturnService(TransactionalDocumentService):
                 unit_price=unit_price,
                 discount_percent=line_discount.percent,
                 discount_amount=discount_amount,
+                bill_discount_amount=bill_share,
                 charges_amount=charges_amount,
                 gross_amount=gross_amount,
                 tax_profile_id=_optional_uuid(spec.get("tax_profile_id")),
@@ -1554,7 +1613,7 @@ class PurchaseReturnService(TransactionalDocumentService):
             # before charges. Line charges used to be folded in here, which made
             # this module's subtotal mean something different from every other
             # document's; they are carried separately and added to grand_total.
-            totals["subtotal"] += self._q(gross_amount - discount_amount)
+            totals["subtotal"] += self._q(gross_amount - discount_amount - bill_share)
             totals["line_charges_total"] += charges_amount
             totals["tax_total"] += tax_amount
         return {key: self._q(value) for key, value in totals.items()}
@@ -2087,6 +2146,36 @@ class PurchaseReturnService(TransactionalDocumentService):
         ):
             return
 
+    def _duplicate_warnings(self, rows: Sequence[PurchaseReturn]) -> dict[UUID, str]:
+        """Answer `_duplicate_warning` for a page of returns in one query."""
+        numbered = [row for row in rows if row.supplier_return_number]
+        if not numbered:
+            return {}
+        holders: dict[tuple[object, ...], set[UUID]] = defaultdict(set)
+        for found in self._session.execute(
+            select(
+                PurchaseReturn.id,
+                PurchaseReturn.firm_id,
+                PurchaseReturn.vendor_id,
+                PurchaseReturn.supplier_return_number,
+            ).where(
+                PurchaseReturn.firm_id.in_({row.firm_id for row in numbered}),
+                PurchaseReturn.supplier_return_number.in_(
+                    {row.supplier_return_number for row in numbered}
+                ),
+                PurchaseReturn.is_deleted.is_(False),
+            )
+        ):
+            holders[tuple(found[1:])].add(found[0])
+        return {
+            row.id: "A purchase return with this supplier return number already exists."
+            for row in numbered
+            if holders.get(
+                (row.firm_id, row.vendor_id, row.supplier_return_number), set()
+            )
+            - {row.id}
+        }
+
     def _duplicate_warning(
         self,
         *,
@@ -2211,6 +2300,7 @@ class PurchaseReturnService(TransactionalDocumentService):
             unit_price=row.unit_price,
             discount_percent=row.discount_percent,
             discount_amount=row.discount_amount,
+            bill_discount_amount=row.bill_discount_amount,
             charges_amount=row.charges_amount,
             gross_amount=row.gross_amount,
             tax_profile_id=row.tax_profile_id,

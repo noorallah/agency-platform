@@ -1,4 +1,5 @@
 import '../../core/security/permission_service.dart';
+import '../../models/purchase.dart';
 import '../../models/sales_invoice.dart';
 import 'module_catalog.dart';
 
@@ -24,6 +25,7 @@ class ModuleVisibility {
     required this.permissions,
     this.activeBusinessModules,
     this.salesStages = SalesWorkflowSettings.wholeChain,
+    this.purchaseStages = PurchaseWorkflowSettings.wholeChain,
     this.hasActiveFirm = true,
   });
 
@@ -52,6 +54,9 @@ class ModuleVisibility {
 
   /// Which stages of a sale this firm types by hand.
   final SalesWorkflowSettings salesStages;
+
+  /// Which stages of buying this firm types by hand (backlog §38).
+  final PurchaseWorkflowSettings purchaseStages;
 
   /// Every module this user may open, in catalogue order.
   List<ModuleDefinition> get modules =>
@@ -85,7 +90,7 @@ class ModuleVisibility {
       return 'this firm has switched the module off';
     }
     if (!_typedByThisFirm(module)) {
-      return 'this firm does not type this stage of a sale';
+      return 'this firm does not type this stage of a sale or a purchase';
     }
     // Asked last, so the answer explains a *missing firm* only to somebody
     // who would otherwise be offered the module.
@@ -111,6 +116,11 @@ class ModuleVisibility {
     }
     return tabsFor(module, permissions, hasActiveFirm: hasActiveFirm)
         .map((tab) => tab.id)
+        // Purchase orders are a tab of Purchases rather than a module, and
+        // the module also holds Purchase Settings -- where the switch that
+        // hides them lives -- so it is the tab that goes, never the module.
+        .where((id) =>
+            id != 'purchase-orders' || purchaseStages.purchaseOrderStage)
         .toSet();
   }
 
@@ -143,7 +153,8 @@ class ModuleVisibility {
           // A platform administrator's tab is hidden from everybody else
           // **before** the permission list is consulted, because a firm role
           // can satisfy that list and still not be the intended caller.
-          .where((tab) => !tab.requiresPlatformAdmin || permissions.isPlatformAdmin)
+          .where((tab) =>
+              !tab.requiresPlatformAdmin || permissions.isPlatformAdmin)
           .where(
             (tab) => permissions.canUseTab(
               tab.requiredPermissions.isEmpty
@@ -175,6 +186,9 @@ class ModuleVisibility {
         AppModule.quotations => salesStages.quotationStage,
         AppModule.salesOrders => salesStages.salesOrderStage,
         AppModule.deliveryNotes => salesStages.deliveryNoteStage,
+        // A bill raises the receipt for a firm that types none. Purchase
+        // returns stay: goods still go back, and only a return undoes a bill.
+        AppModule.goodsReceipts => purchaseStages.goodsReceiptStage,
         _ => true,
       };
 }

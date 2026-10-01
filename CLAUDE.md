@@ -28,6 +28,7 @@ it loadable in one context window. Nothing was cut; each group names its doc.
 | What posts to the ledger, and at what value | `docs/LEDGER_POSTING_RULES.md` |
 | The sales chain and what may be skipped | `docs/SALES_CHAIN_RULES.md` |
 | Commission rules, ladders and payouts | `docs/COMMISSION_FRAMEWORK.md` |
+| Messaging: email, WhatsApp, SMS -- off until the firm enables it (not built; BACKLOG §51) | `docs/MESSAGING_FRAMEWORK.md` |
 | Demo and sample data | `docs/DEMO_DATA.md` |
 | Custom fields / the attribute framework | `docs/CUSTOM_FIELDS_FRAMEWORK.md` |
 | Geography masters | `docs/GEOGRAPHY_MASTERS.md` |

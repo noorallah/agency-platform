@@ -35,6 +35,8 @@ class SalesInvoice(BaseEntity):
         Index("IX_sales_invoices_firm_customer", "firm_id", "customer_id"),
         Index("IX_sales_invoices_firm_branch", "firm_id", "branch_id"),
         Index("IX_sales_invoices_firm_due_date", "firm_id", "due_date"),
+        # Backlog 56 C: the list's default sort, newest first.
+        Index("IX_sales_invoices_firm_created", "firm_id", "created_at"),
     )
 
     firm_id: Mapped[UUID] = mapped_column(
@@ -223,6 +225,11 @@ class SalesInvoiceLine(BaseEntity):
     product_id: Mapped[UUID] = mapped_column(
         UUIDType(), ForeignKey("products.id", ondelete="RESTRICT"), nullable=False
     )
+    #: The HSN or SAC code the line was billed under (D-CMP-22). Stamped from
+    #: the product when the line is written, so correcting a product's code
+    #: later does not rewrite the HSN summary of a month already filed or
+    #: reprint an old bill with a code it was not issued with.
+    hsn_sac: Mapped[str | None] = mapped_column(String(20))
     description: Mapped[str | None] = mapped_column(String(500))
     delivered_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
     already_invoiced_quantity: Mapped[Decimal] = mapped_column(

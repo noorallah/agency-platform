@@ -49,6 +49,7 @@ from sqlalchemy.orm import Session
 
 from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ValidationError
+from app.core.utils.chunks import chunks, over_chunks
 from app.core.utils.money import ZERO, quantize_ledger, quantize_money
 from app.credit_note.models import CreditNote, CreditNoteLine, CreditNoteStatus
 from app.customers.models import Customer, CustomerReceivableTransaction
@@ -186,6 +187,19 @@ class _RateRow:
         self.buckets = self.buckets.plus(buckets.negated())
 
 
+@dataclass(frozen=True)
+class _Billed:
+    """What the HSN summary needs of one line: its code as billed, and a name.
+
+    The code is the one the invoice line was billed under (D-CMP-22), read off
+    the line, and the product's own only for a line written before lines kept
+    one -- so correcting a product does not rewrite a month already filed.
+    """
+
+    hsn_sac: str | None
+    name: str
+
+
 @dataclass(slots=True)
 class _CreditNotes:
     """The period's credit notes, split by whether the buyer is registered.
@@ -200,7 +214,7 @@ class _CreditNotes:
     unregistered_large: list[dict[str, object]] = field(default_factory=list)
     #: Every credited line, to take off the HSN summary: Table 12 is declared
     #: net of credit notes (GSTN FAQ on GSTR-1 Table 12; D-CMP-17).
-    hsn: list[tuple[Product | None, Decimal, Decimal, GstBuckets]] = field(
+    hsn: list[tuple[_Billed | None, Decimal, Decimal, GstBuckets]] = field(
         default_factory=list
     )
     #: Nil-rated, exempt and non-GST value a late cancellation gave back, as
@@ -227,9 +241,10 @@ class _Credit:
     against_invoice_number: str
     rates: dict[Decimal, _RateRow]
     document_type: str
-    #: Each line as the HSN summary nets it: product, quantity, taxable
+    #: Each line as the HSN summary nets it: product, the invoice line it
+    #: credits (whose billed code it nets under, D-CMP-22), quantity, taxable
     #: value and tax (D-CMP-17).
-    items: list[tuple[UUID | None, Decimal, Decimal, GstBuckets]] = field(
+    items: list[tuple[UUID | None, UUID | None, Decimal, Decimal, GstBuckets]] = field(
         default_factory=list
     )
 
@@ -667,7 +682,7 @@ class GstReturnService:
         tuple[
             SalesInvoice,
             Customer,
-            list[tuple[Decimal, GstBuckets, Product | None, Decimal, str]],
+            list[tuple[Decimal, GstBuckets, _Billed | None, Decimal, str]],
         ]
     ]:
         """Return each invoice the period declares, with its priced lines.
@@ -707,6 +722,7 @@ class GstReturnService:
         """Say whether a bill was cancelled after its month's return was due."""
         return on is not None and on > gstr1_due_date(invoice.invoice_date)
 
+    @over_chunks("invoice_ids")
     def _cancellation_dates(self, invoice_ids: list[UUID]) -> dict[UUID, date]:
         """Return the day each cancelled invoice was cancelled.
 
@@ -741,7 +757,7 @@ class GstReturnService:
         tuple[
             SalesInvoice,
             Customer,
-            list[tuple[Decimal, GstBuckets, Product | None, Decimal, str]],
+            list[tuple[Decimal, GstBuckets, _Billed | None, Decimal, str]],
             date,
         ]
     ]:
@@ -789,7 +805,7 @@ class GstReturnService:
         credits: _CreditNotes,
         invoice: SalesInvoice,
         customer: Customer,
-        lines: list[tuple[Decimal, GstBuckets, Product | None, Decimal, str]],
+        lines: list[tuple[Decimal, GstBuckets, _Billed | None, Decimal, str]],
         cancelled_on: date,
         seller_state: str,
     ) -> None:
@@ -851,29 +867,29 @@ class GstReturnService:
         tuple[
             SalesInvoice,
             Customer,
-            list[tuple[Decimal, GstBuckets, Product | None, Decimal, str]],
+            list[tuple[Decimal, GstBuckets, _Billed | None, Decimal, str]],
         ]
     ]:
         """Return each invoice with its lines, priced into GST buckets."""
         if not invoices:
             return []
-        lines = list(
-            self._session.scalars(
+        # Read in chunks: a quarter's lines are about as many as one
+        # statement may name (backlog 56 C).
+        lines = [
+            line
+            for part in chunks([invoice.id for invoice in invoices])
+            for line in self._session.scalars(
                 select(SalesInvoiceLine).where(
-                    SalesInvoiceLine.sales_invoice_id.in_(
-                        [invoice.id for invoice in invoices]
-                    ),
+                    SalesInvoiceLine.sales_invoice_id.in_(part),
                     SalesInvoiceLine.is_deleted.is_(False),
                 )
             ).all()
-        )
+        ]
         taxes: dict[UUID, list[SalesInvoiceLineTax]] = defaultdict(list)
-        if lines:
+        for part in chunks([line.id for line in lines]):
             for component in self._session.scalars(
                 select(SalesInvoiceLineTax).where(
-                    SalesInvoiceLineTax.sales_invoice_line_id.in_(
-                        [line.id for line in lines]
-                    ),
+                    SalesInvoiceLineTax.sales_invoice_line_id.in_(part),
                     SalesInvoiceLineTax.is_deleted.is_(False),
                 )
             ).all():
@@ -902,7 +918,7 @@ class GstReturnService:
                             for component in taxes.get(line.id, [])
                         ]
                     ),
-                    products.get(line.product_id),
+                    self._billed(line.hsn_sac, products.get(line.product_id)),
                     Decimal(str(line.current_invoice_quantity)),
                     self._kind(line, taxes.get(line.id, [])),
                 )
@@ -978,19 +994,34 @@ class GstReturnService:
             [
                 product_id
                 for credit in credits
-                for product_id, _, _, _ in credit.items
+                for product_id, _, _, _, _ in credit.items
                 if product_id is not None
+            ]
+        )
+        billed_codes = self._billed_codes(
+            [
+                line_id
+                for credit in credits
+                for _, line_id, _, _, _ in credit.items
+                if line_id is not None
             ]
         )
         for credit in credits:
             answer.hsn.extend(
                 (
-                    products.get(product_id) if product_id is not None else None,
+                    (
+                        self._billed(
+                            billed_codes.get(line_id) if line_id else None,
+                            products.get(product_id),
+                        )
+                        if product_id is not None
+                        else None
+                    ),
                     quantity,
                     taxable,
                     buckets,
                 )
-                for product_id, quantity, taxable, buckets in credit.items
+                for product_id, line_id, quantity, taxable, buckets in credit.items
             )
             customer = customers.get(credit.customer_id)
             gstin = (getattr(customer, "gst_number", None) or "").strip().upper()
@@ -1073,9 +1104,12 @@ class GstReturnService:
             lines = lines_by_note.get(note.id, [])
             # Each line at its own rate (D-CMP-13): a note crediting a 5% and
             # an 18% line was declared wholly at whichever came first.
-            parts: list[tuple[UUID | None, Decimal, Decimal, Decimal, Decimal]] = [
+            parts: list[
+                tuple[UUID | None, UUID | None, Decimal, Decimal, Decimal, Decimal]
+            ] = [
                 (
                     line.product_id,
+                    line.sales_invoice_line_id,
                     Decimal(str(line.quantity)),
                     Decimal(str(line.taxable_amount)),
                     Decimal(str(line.tax_rate_percent)),
@@ -1084,6 +1118,7 @@ class GstReturnService:
                 for line in lines
             ] or [
                 (
+                    None,
                     None,
                     ZERO,
                     Decimal(str(note.taxable_amount)),
@@ -1101,16 +1136,18 @@ class GstReturnService:
                         sgst=ZERO if interstate else tax / 2,
                         rate=rate,
                     )
-                    for _, _, _, rate, tax in parts
+                    for _, _, _, _, rate, tax in parts
                 ]
             )
             rates: dict[Decimal, _RateRow] = {}
-            items: list[tuple[UUID | None, Decimal, Decimal, GstBuckets]] = []
-            for (product_id, quantity, taxable, rate, _), buckets in zip(
+            items: list[
+                tuple[UUID | None, UUID | None, Decimal, Decimal, GstBuckets]
+            ] = []
+            for (product_id, credited, quantity, taxable, rate, _), buckets in zip(
                 parts, settled, strict=True
             ):
                 rates.setdefault(rate, _RateRow(rate=rate)).add(taxable, buckets)
-                items.append((product_id, quantity, taxable, buckets))
+                items.append((product_id, credited, quantity, taxable, buckets))
             answer.append(
                 _Credit(
                     number=note.credit_note_number,
@@ -1213,7 +1250,9 @@ class GstReturnService:
                     for line in ordered
                 ]
             )
-            items: list[tuple[UUID | None, Decimal, Decimal, GstBuckets]] = []
+            items: list[
+                tuple[UUID | None, UUID | None, Decimal, Decimal, GstBuckets]
+            ] = []
             for line, buckets in zip(ordered, settled, strict=True):
                 # What the line credited before tax: `net_amount` carries the
                 # tax, exactly as an invoice line's does.
@@ -1224,6 +1263,12 @@ class GstReturnService:
                 items.append(
                     (
                         line.product_id,
+                        # The invoice line it returns, when it returns a bill.
+                        (
+                            line.source_document_line_id
+                            if line.source_document_id in billed
+                            else None
+                        ),
                         Decimal(str(line.current_return_quantity)),
                         taxable,
                         buckets,
@@ -1252,6 +1297,7 @@ class GstReturnService:
             )
         return answer
 
+    @over_chunks("invoice_ids")
     def _invoice_numbers(self, invoice_ids: list[UUID]) -> dict[UUID, str]:
         """Return the numbers of these invoices."""
         if not invoice_ids:
@@ -1265,6 +1311,7 @@ class GstReturnService:
             ).all()
         }
 
+    @over_chunks("invoice_ids")
     def _b2cl_invoices(self, invoice_ids: list[UUID]) -> set[UUID]:
         """Return which of these invoices were declared in B2CL.
 
@@ -1426,10 +1473,35 @@ class GstReturnService:
             "cess": _filed(buckets.cess),
         }
 
+    @staticmethod
+    def _billed(code: str | None, product: Product | None) -> _Billed | None:
+        """Return one line's code as billed, falling back to the product's."""
+        if product is None and not code:
+            return None
+        return _Billed(
+            hsn_sac=code or (product.hsn_sac if product is not None else None),
+            name=product.name if product is not None else "",
+        )
+
+    def _billed_codes(self, line_ids: list[UUID]) -> dict[UUID, str]:
+        """Return the code each invoice line was billed under, where it kept one."""
+        if not line_ids:
+            return {}
+        return {
+            line_id: code
+            for line_id, code in self._session.execute(
+                select(SalesInvoiceLine.id, SalesInvoiceLine.hsn_sac).where(
+                    SalesInvoiceLine.id.in_(set(line_ids)),
+                    SalesInvoiceLine.hsn_sac.is_not(None),
+                )
+            ).all()
+            if code
+        }
+
     def _fold_hsn(
         self,
         hsn: dict[tuple[str, str], dict[str, object]],
-        product: Product | None,
+        product: _Billed | None,
         quantity: Decimal,
         taxable: Decimal,
         buckets: GstBuckets,
@@ -1546,6 +1618,7 @@ class GstReturnService:
         """
         return "" if charged.igst > ZERO else seller_state
 
+    @over_chunks("invoice_ids")
     def _interstate_invoices(self, invoice_ids: list[UUID]) -> set[UUID]:
         """Return which of these invoices crossed a state border.
 
@@ -1591,6 +1664,7 @@ class GstReturnService:
                 crossed.add(invoice_id)
         return crossed
 
+    @over_chunks("ids")
     def _products(self, ids: list[UUID]) -> dict[UUID, Product]:
         """Return the products named by a set of lines."""
         if not ids:
@@ -1602,6 +1676,7 @@ class GstReturnService:
             ).all()
         }
 
+    @over_chunks("ids")
     def _customers(self, ids: list[UUID]) -> dict[UUID, Customer]:
         """Return the customers named by a set of documents."""
         if not ids:

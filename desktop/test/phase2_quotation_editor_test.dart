@@ -162,4 +162,184 @@ void main() {
     expect(result?[QuotationEditorDialog.printAfterSave], isTrue);
     expect(result?['customer_id'], 'c1');
   });
+
+  Future<List<Json>> pumpEditor(
+    WidgetTester tester, {
+    Quotation? existing,
+    required void Function(Json?) onResult,
+  }) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final List<Json> asked = [];
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => TextButton(
+            onPressed: () async {
+              onResult(await Navigator.of(context).push<Json>(
+                MaterialPageRoute(
+                  builder: (_) => Scaffold(
+                    body: Phase2Scope(
+                      child: QuotationEditorDialog(
+                        existing: existing,
+                        customers: [
+                          Customer.fromJson({
+                            'id': 'c1',
+                            'code': 'C-0102',
+                            'name': 'Sri Murugan Stores',
+                            'display_name': 'Sri Murugan Stores',
+                          }),
+                        ],
+                        products: [
+                          Product.fromJson({
+                            'id': 'p1',
+                            'code': 'P-1002',
+                            'name': 'Tata Salt 1kg',
+                            'selling_price': '26.00',
+                          }),
+                        ],
+                        branches: [
+                          BranchRecord.fromJson({
+                            'id': 'ho',
+                            'code': 'HO',
+                            'name': 'Head office',
+                            'display_name': 'Head office',
+                            'is_default': true,
+                          }),
+                        ],
+                        warehouses: [
+                          WarehouseRecord.fromJson({
+                            'id': 'w1',
+                            'code': 'MAIN',
+                            'name': 'Main',
+                            'display_name': 'Main',
+                            'branch_id': 'ho',
+                            'is_default': true,
+                          }),
+                        ],
+                        today: DateTime(2026, 9, 26),
+                        preview: (draft) async {
+                          asked.add(draft);
+                          return _priced(draft);
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+              ));
+            },
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    return asked;
+  }
+
+  Quotation saved({String coupon = 'SAVE10', String free = '0'}) =>
+      Quotation.fromJson({
+        'id': 'q1',
+        'version': 3,
+        'customer_id': 'c1',
+        'branch_id': 'ho',
+        'warehouse_id': 'w1',
+        'quotation_number': 'QT-1',
+        'quotation_date': '2026-09-20',
+        'valid_until': '2026-10-20',
+        'status': 'DRAFT',
+        'coupon_code': coupon,
+        'lines': [
+          {
+            'line_number': 1,
+            'product_id': 'p1',
+            'quantity': '10',
+            'unit_price': '26.00',
+            'discount_percent': '0',
+            'free_quantity': free,
+          },
+        ],
+      });
+
+  Finder lineBoxes() => find.descendant(
+        of: find.byKey(const ValueKey('quotation-line-0')),
+        matching: find.byType(EditableText),
+      );
+
+  // D-SELL-43: a quotation is priced with the customer's coupon.
+  testWidgets('a new quotation sends its coupon, trimmed, and prices with it',
+      (tester) async {
+    Json? result;
+    final List<Json> asked =
+        await pumpEditor(tester, onResult: (value) => result = value);
+    expect(asked.last.containsKey('coupon_code'), isFalse);
+
+    await tester.enterText(
+        find.byKey(const ValueKey('quotation-coupon')), ' SAVE10 ');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(asked.last['coupon_code'], 'SAVE10');
+
+    await tester.tap(find.byKey(const ValueKey('quotation-save-print')));
+    await tester.pumpAndSettle();
+    expect(result?['coupon_code'], 'SAVE10');
+  });
+
+  testWidgets('an edit opens with the coupon the quotation was priced with',
+      (tester) async {
+    Json? result;
+    await pumpEditor(tester,
+        existing: saved(), onResult: (value) => result = value);
+    expect(find.widgetWithText(TextFormField, 'SAVE10'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('quotation-save-print')));
+    await tester.pumpAndSettle();
+    // Sent back as it was read, so saving an edit does not drop the coupon.
+    expect(result?['coupon_code'], 'SAVE10');
+  });
+
+  testWidgets('clearing the coupon on an edit sends none', (tester) async {
+    Json? result;
+    await pumpEditor(tester,
+        existing: saved(), onResult: (value) => result = value);
+    await tester.enterText(find.byKey(const ValueKey('quotation-coupon')), '');
+    await tester.tap(find.byKey(const ValueKey('quotation-save-print')));
+    await tester.pumpAndSettle();
+    expect(result?.containsKey('coupon_code'), isFalse);
+  });
+
+  // D-SELL-41: blank free goods take the offer's; a typed 0 refuses them.
+  testWidgets('free goods: blank is omitted, a typed zero is sent, and an '
+      'edit does not prefill zero', (tester) async {
+    Json? result;
+    await pumpEditor(tester,
+        existing: saved(coupon: '', free: '0'),
+        onResult: (value) => result = value);
+    // The line was stored with no free goods; the box reads empty.
+    expect(
+      tester
+          .widget<EditableText>(lineBoxes().at(2))
+          .controller
+          .text,
+      isEmpty,
+    );
+    await tester.tap(find.byKey(const ValueKey('quotation-save-print')));
+    await tester.pumpAndSettle();
+    expect((result!['lines'] as List).single.containsKey('free_quantity'),
+        isFalse);
+  });
+
+  testWidgets('a typed zero in the free box is sent as zero', (tester) async {
+    Json? result;
+    await pumpEditor(tester,
+        existing: saved(coupon: ''), onResult: (value) => result = value);
+    await tester.enterText(lineBoxes().at(2), '0');
+    await tester.tap(find.byKey(const ValueKey('quotation-save-print')));
+    await tester.pumpAndSettle();
+    expect((result!['lines'] as List).single['free_quantity'], '0');
+  });
 }

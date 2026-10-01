@@ -21,12 +21,15 @@ from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader
 from app.common.report_names import (
     branch_names,
+    customer_labels,
     customer_names,
     customers_matching,
     product_names,
 )
+from app.core.database.batch import children_by_parent
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
+from app.core.utils.chunks import chunks
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger
 from app.core.utils.pricing import (
@@ -105,7 +108,10 @@ from app.sales_invoice.schemas import (
     SalesInvoiceStatus,
     SalesInvoiceSummary,
 )
-from app.sales_invoice.services.sales_chain_service import SalesChainService
+from app.sales_invoice.services.sales_chain_service import (
+    SalesChainService,
+    refuse_coupon_on_documents,
+)
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import SalesOrderStatus
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
@@ -114,6 +120,10 @@ from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.place_of_supply import SALES_INTERSTATE
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
+from app.trade_licences.services.licence_check import (
+    LicenceCheckService,
+    LicenceDocument,
+)
 from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService, assert_quantity_fits_unit
 
@@ -303,36 +313,43 @@ class SalesInvoiceService(TransactionalDocumentService):
         return rows, int(self._session.scalar(count) or 0)
 
     def summary(self, *, firm_scope: UUID) -> SalesInvoiceSummary:
-        """Return aggregate sales invoice values for the visible firm scope."""
-        rows = list(
-            self._session.scalars(
-                select(SalesInvoice).where(
+        """Return aggregate sales invoice values for the visible firm scope.
+
+        Counted and summed in SQL, one row per status. It loaded every invoice
+        the firm ever raised to count them in Python, on every visit to the
+        Sales Invoices page (backlog 56 C).
+        """
+        by_status: dict[str, tuple[int, Decimal]] = {
+            status: (int(count), Decimal(str(total)))
+            for status, count, total in self._session.execute(
+                select(
+                    SalesInvoice.status,
+                    func.count(),
+                    func.coalesce(func.sum(SalesInvoice.grand_total), 0),
+                )
+                .where(
                     SalesInvoice.firm_id == firm_scope,
                     SalesInvoice.is_deleted.is_(False),
                 )
+                .group_by(SalesInvoice.status)
             ).all()
-        )
+        }
+
+        def count(status: SalesInvoiceStatus) -> int:
+            """Return how many invoices are in one status."""
+            return by_status.get(status.value, (0, ZERO))[0]
+
         # The tile and the overdue report must agree, so the tile counts the
         # report's rows: invoices past due that still owe something (D-RPT-3).
         overdue = len(self.overdue_report(firm_scope=firm_scope))
         return SalesInvoiceSummary(
-            total=len(rows),
-            draft=sum(
-                1 for row in rows if row.status == SalesInvoiceStatus.DRAFT.value
-            ),
-            approved=sum(
-                1 for row in rows if row.status == SalesInvoiceStatus.APPROVED.value
-            ),
-            cancelled=sum(
-                1 for row in rows if row.status == SalesInvoiceStatus.CANCELLED.value
-            ),
-            closed=sum(
-                1 for row in rows if row.status == SalesInvoiceStatus.CLOSED.value
-            ),
-            total_value=self._q(sum((row.grand_total for row in rows), ZERO)),
-            pending_invoices=sum(
-                1 for row in rows if row.status == SalesInvoiceStatus.DRAFT.value
-            ),
+            total=sum(number for number, _ in by_status.values()),
+            draft=count(SalesInvoiceStatus.DRAFT),
+            approved=count(SalesInvoiceStatus.APPROVED),
+            cancelled=count(SalesInvoiceStatus.CANCELLED),
+            closed=count(SalesInvoiceStatus.CLOSED),
+            total_value=self._q(sum((value for _, value in by_status.values()), ZERO)),
+            pending_invoices=count(SalesInvoiceStatus.DRAFT),
             overdue_invoices=overdue,
         )
 
@@ -582,6 +599,8 @@ class SalesInvoiceService(TransactionalDocumentService):
         row = self.get_invoice(invoice_id, firm_scope=firm_id)
         if row.status != SalesInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft sales invoices can be updated.")
+        # An edit bills the documents the first save raised, at their prices.
+        refuse_coupon_on_documents(data)
         own_notes = self._notes_raised_by(row)
         data = self._restate_own_serials(
             data, row=row, own_notes=own_notes, firm_id=firm_id, actor_id=actor_id
@@ -720,15 +739,30 @@ class SalesInvoiceService(TransactionalDocumentService):
         return row
 
     def approve_invoice(
-        self, invoice_id: UUID, *, firm_scope: UUID, actor_id: UUID
+        self,
+        invoice_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        licence_override_reason: str | None = None,
     ) -> SalesInvoice:
         """Approve one sales invoice and commit it."""
-        row = self.stage_approval(invoice_id, firm_scope=firm_scope, actor_id=actor_id)
+        row = self.stage_approval(
+            invoice_id,
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+            licence_override_reason=licence_override_reason,
+        )
         self._session.commit()
         return row
 
     def stage_approval(
-        self, invoice_id: UUID, *, firm_scope: UUID, actor_id: UUID
+        self,
+        invoice_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        licence_override_reason: str | None = None,
     ) -> SalesInvoice:
         """Approve one sales invoice without committing it.
 
@@ -776,6 +810,15 @@ class SalesInvoiceService(TransactionalDocumentService):
             CreditControlService(self._session).assert_within_limit(
                 customer, additional_amount=self._q(row.grand_total)
             )
+        # Judged on the bill's date, before any stock leaves (backlog 54).
+        licence_remark, licence_details = LicenceCheckService(
+            self._session
+        ).approve_sale(
+            LicenceDocument.SALES_INVOICE,
+            row.id,
+            firm_id=firm_scope,
+            override_reason=licence_override_reason,
+        )
         # The goods leave now, not when the draft was saved: a draft is a
         # proposal, and it used to ship the stock and post cost of goods sold
         # the moment it was typed (D-SELL-13, driven 2026-09-19).
@@ -835,6 +878,8 @@ class SalesInvoiceService(TransactionalDocumentService):
             from_state=before,
             to_state=row.status,
             actor_id=actor_id,
+            remarks=licence_remark,
+            details=licence_details,
         )
         record_audit(
             self._session,
@@ -843,6 +888,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            after_data=licence_details,
         )
         return row
 
@@ -889,6 +935,17 @@ class SalesInvoiceService(TransactionalDocumentService):
                 actor_id=actor_id,
             )
         return data.model_copy(update={"lines": kept})
+
+    def _billed_hsn(self, product_id: UUID | None) -> str | None:
+        """Return the HSN or SAC code the product carries now, for the line.
+
+        Read once, as the line is written, and kept on it (D-CMP-22).
+        """
+        if product_id is None:
+            return None
+        product = self._session.get(Product, product_id)
+        code = (product.hsn_sac or "").strip() if product is not None else ""
+        return code or None
 
     def _notes_raised_by(self, row: SalesInvoice) -> frozenset[UUID]:
         """Return the ids of the delivery notes this bill raised for itself."""
@@ -1293,82 +1350,107 @@ class SalesInvoiceService(TransactionalDocumentService):
 
     def invoice_response(self, row: SalesInvoice) -> SalesInvoiceResponse:
         """Render one sales invoice row as its API contract."""
-        sources = list(
-            self._session.scalars(
-                select(SalesInvoiceSource).where(
-                    SalesInvoiceSource.sales_invoice_id == row.id,
-                    SalesInvoiceSource.is_deleted.is_(False),
-                )
-            ).all()
+        return self.invoice_responses([row])[0]
+
+    def invoice_responses(
+        self, rows: Sequence[SalesInvoice]
+    ) -> list[SalesInvoiceResponse]:
+        """Render a page of invoices, reading each child table once.
+
+        One query per child table for the whole page, grouped by invoice in
+        Python, rather than about ten per invoice (backlog 56 C, step 3). The
+        single-invoice builder is this with a list of one, so a list row and
+        the invoice opened from it cannot differ.
+        """
+        if not rows:
+            return []
+        ids = [row.id for row in rows]
+        sources = children_by_parent(
+            self._session,
+            SalesInvoiceSource,
+            SalesInvoiceSource.sales_invoice_id,
+            ids,
         )
-        lines = list(
-            self._session.scalars(
-                select(SalesInvoiceLine)
-                .where(
-                    SalesInvoiceLine.sales_invoice_id == row.id,
-                    SalesInvoiceLine.is_deleted.is_(False),
-                )
-                .order_by(SalesInvoiceLine.line_number.asc())
-            ).all()
+        lines = children_by_parent(
+            self._session,
+            SalesInvoiceLine,
+            SalesInvoiceLine.sales_invoice_id,
+            ids,
+            SalesInvoiceLine.line_number.asc(),
         )
-        # Read for the whole invoice rather than per line: a bill with thirty
-        # lines would otherwise be thirty queries, the shape `values_for_many`
-        # exists to avoid.
-        taxes: dict[UUID, list[SalesInvoiceLineTax]] = defaultdict(list)
-        if lines:
-            for component in self._session.scalars(
-                select(SalesInvoiceLineTax)
-                .where(
-                    SalesInvoiceLineTax.sales_invoice_line_id.in_(
-                        [item.id for item in lines]
-                    ),
-                    SalesInvoiceLineTax.is_deleted.is_(False),
-                )
-                .order_by(SalesInvoiceLineTax.sequence.asc())
-            ):
-                taxes[component.sales_invoice_line_id].append(component)
-        attachments = list(
-            self._session.scalars(
-                select(SalesInvoiceAttachment).where(
-                    SalesInvoiceAttachment.sales_invoice_id == row.id,
-                    SalesInvoiceAttachment.is_deleted.is_(False),
-                )
-            ).all()
+        every_line = [item for group in lines.values() for item in group]
+        taxes = children_by_parent(
+            self._session,
+            SalesInvoiceLineTax,
+            SalesInvoiceLineTax.sales_invoice_line_id,
+            [item.id for item in every_line],
+            SalesInvoiceLineTax.sequence.asc(),
         )
-        notes = list(
-            self._session.scalars(
-                select(SalesInvoiceNote).where(
-                    SalesInvoiceNote.sales_invoice_id == row.id,
-                    SalesInvoiceNote.is_deleted.is_(False),
-                )
-            ).all()
+        attachments = children_by_parent(
+            self._session,
+            SalesInvoiceAttachment,
+            SalesInvoiceAttachment.sales_invoice_id,
+            ids,
         )
-        accounting_events = list(
-            self._session.scalars(
-                select(SalesInvoiceAccountingEvent).where(
-                    SalesInvoiceAccountingEvent.sales_invoice_id == row.id,
-                    SalesInvoiceAccountingEvent.is_deleted.is_(False),
-                )
-            ).all()
+        notes = children_by_parent(
+            self._session,
+            SalesInvoiceNote,
+            SalesInvoiceNote.sales_invoice_id,
+            ids,
         )
-        warning = self._duplicate_warning(
-            firm_id=row.firm_id,
-            customer_id=row.customer_id,
-            customer_invoice_number=row.customer_invoice_number,
-            current_id=row.id,
+        accounting_events = children_by_parent(
+            self._session,
+            SalesInvoiceAccountingEvent,
+            SalesInvoiceAccountingEvent.sales_invoice_id,
+            ids,
         )
-        picked = self._own_note_picks(row, lines)
-        # One query for every product on the document rather than one per
-        # line. `description` is nullable and the seeded documents leave it
-        # null, so a client with only `product_id` to work with can label a
-        # line nothing better than "Line 1" -- which is what the credit-note
-        # and sales-return pickers were reduced to.
-        products = self._products_named(lines)
+        warnings = self._duplicate_warnings(rows)
+        # One query for every product on the page rather than one per line.
+        # `description` is nullable and the seeded documents leave it null, so
+        # a client with only `product_id` to work with can label a line nothing
+        # better than "Line 1" -- which is what the credit-note and
+        # sales-return pickers were reduced to.
+        products = self._products_named(every_line)
+        picked = self._own_note_picks_for(rows, lines, products)
+        names = customer_labels(self._session, (row.customer_id for row in rows))
+        return [
+            self._invoice_response(
+                row,
+                lines=lines[row.id],
+                taxes=taxes,
+                products=products,
+                picked=picked,
+                sources=sources[row.id],
+                attachments=attachments[row.id],
+                notes=notes[row.id],
+                accounting_events=accounting_events[row.id],
+                warning=warnings.get(row.id),
+                customer_name=names.get(row.customer_id, ""),
+            )
+            for row in rows
+        ]
+
+    def _invoice_response(
+        self,
+        row: SalesInvoice,
+        *,
+        lines: list[SalesInvoiceLine],
+        taxes: dict[UUID, list[SalesInvoiceLineTax]],
+        products: dict[UUID, Product],
+        picked: dict[UUID, list[PickedSerial]],
+        sources: list[SalesInvoiceSource],
+        attachments: list[SalesInvoiceAttachment],
+        notes: list[SalesInvoiceNote],
+        accounting_events: list[SalesInvoiceAccountingEvent],
+        warning: str | None,
+        customer_name: str,
+    ) -> SalesInvoiceResponse:
+        """Build one invoice's response from what the page already read."""
         return SalesInvoiceResponse(
             id=row.id,
             firm_id=row.firm_id,
             customer_id=row.customer_id,
-            customer_name=self._customer_name(row.customer_id),
+            customer_name=customer_name,
             salesman_id=row.salesman_id,
             territory_id=row.territory_id,
             route_id=row.route_id,
@@ -1410,7 +1492,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             lines=[
                 self._line_response(
                     item,
-                    taxes[item.id],
+                    taxes.get(item.id, []),
                     products.get(item.product_id),
                     serials=picked.get(item.source_document_line_id),
                 )
@@ -1482,29 +1564,37 @@ class SalesInvoiceService(TransactionalDocumentService):
         if owing:
             invoices = {
                 row.id: row
+                for part in chunks([item.invoice_id for item in owing])
                 for row in self._session.scalars(
-                    select(SalesInvoice).where(
-                        SalesInvoice.id.in_([item.invoice_id for item in owing])
-                    )
+                    select(SalesInvoice).where(SalesInvoice.id.in_(part))
                 ).all()
             }
-        names = self._customer_names({row.customer_id for row in invoices.values()})
+        names = self._customer_names(
+            {record.party_id for record in owing if record.party_id is not None}
+        )
         records: list[SalesInvoiceOverdueRecord] = []
         for record in owing:
-            row = invoices[record.invoice_id]
-            if record.due_date is None:  # pragma: no cover - filtered above
+            if record.due_date is None or record.party_id is None:  # pragma: no cover
                 continue
+            # A customer's opening bill is owed and can be overdue like any
+            # other, but it is not a sales invoice, so the record carries what
+            # the row would have said.
+            row = invoices.get(record.invoice_id)
             records.append(
                 SalesInvoiceOverdueRecord(
-                    invoice_id=row.id,
-                    invoice_number=row.invoice_number,
-                    customer_invoice_number=row.customer_invoice_number,
-                    customer_id=row.customer_id,
-                    customer_name=names.get(row.customer_id, str(row.customer_id)),
-                    invoice_date=row.invoice_date,
+                    invoice_id=record.invoice_id,
+                    invoice_number=record.invoice_number,
+                    customer_invoice_number=(
+                        None if row is None else row.customer_invoice_number
+                    ),
+                    customer_id=record.party_id,
+                    customer_name=names.get(record.party_id, str(record.party_id)),
+                    invoice_date=record.invoice_date,
                     due_date=record.due_date,
                     days_overdue=(today - record.due_date).days,
-                    grand_total=row.grand_total,
+                    grand_total=(
+                        record.invoice_total if row is None else row.grand_total
+                    ),
                     settled_amount=record.allocated_amount,
                     outstanding_amount=record.outstanding_amount,
                 )
@@ -1976,9 +2066,9 @@ class SalesInvoiceService(TransactionalDocumentService):
 
         # The bill discount is split across the lines here, between pricing
         # them and taxing them. It has to reach a taxable value to reduce any
-        # tax, which is what `header_discount_amount` on a purchase order does
-        # not do -- that one is subtracted after tax and so the customer pays
-        # tax on money they were never charged.
+        # tax. `header_discount_amount` on a purchase order was subtracted
+        # after tax, so tax was paid on money never charged, until D-BUY-19
+        # moved it onto the lines too.
         shares = self._bill_discount_shares(
             row,
             percent=bill_percent,
@@ -2076,6 +2166,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 source_document_line_id=priced_source.id,
                 source_document_line_number=self._source_line_number(priced_source),
                 product_id=self._product_id(priced_source),
+                hsn_sac=self._billed_hsn(self._product_id(priced_source)),
                 description=self._source_description(priced_source),
                 delivered_quantity=source_quantity,
                 already_invoiced_quantity=already_invoiced,
@@ -3315,6 +3406,38 @@ class SalesInvoiceService(TransactionalDocumentService):
         if warning is not None:
             raise ConflictError(warning)
 
+    def _duplicate_warnings(self, rows: Sequence[SalesInvoice]) -> dict[UUID, str]:
+        """Answer `_duplicate_warning` for a page of invoices in one query."""
+        numbered = {
+            row.id: (row.firm_id, row.customer_id, row.customer_invoice_number.strip())
+            for row in rows
+            if row.customer_invoice_number and row.customer_invoice_number.strip()
+        }
+        if not numbered:
+            return {}
+        # A page is at most MAX_PAGE_SIZE rows, so the numbers fit one read.
+        holders: dict[tuple[UUID, UUID, str], set[UUID]] = defaultdict(set)
+        for found_id, firm_id, customer_id, number in self._session.execute(
+            select(
+                SalesInvoice.id,
+                SalesInvoice.firm_id,
+                SalesInvoice.customer_id,
+                SalesInvoice.customer_invoice_number,
+            ).where(
+                SalesInvoice.firm_id.in_({key[0] for key in numbered.values()}),
+                SalesInvoice.customer_invoice_number.in_(
+                    {key[2] for key in numbered.values()}
+                ),
+                SalesInvoice.is_deleted.is_(False),
+            )
+        ):
+            holders[(firm_id, customer_id, number)].add(found_id)
+        return {
+            row_id: "A sales invoice with this customer invoice number already exists."
+            for row_id, key in numbered.items()
+            if holders.get(key, set()) - {row_id}
+        }
+
     def _duplicate_warning(
         self,
         *,
@@ -3393,6 +3516,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         to_state: str | None,
         actor_id: UUID,
         remarks: str | None = None,
+        details: dict[str, object] | None = None,
     ) -> None:
         self._documents.record_event(
             firm_id,
@@ -3409,6 +3533,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                     "invoice_number": invoice.invoice_number,
                     "customer_invoice_number": invoice.customer_invoice_number,
                     "grand_total": str(invoice.grand_total),
+                    **(details or {}),
                 },
                 snapshot_json={
                     "status": invoice.status,
@@ -3473,29 +3598,45 @@ class SalesInvoiceService(TransactionalDocumentService):
             ).all()
         }
 
-    def _own_note_picks(
-        self, row: SalesInvoice, lines: list[SalesInvoiceLine]
+    def _own_note_picks_for(
+        self,
+        rows: Sequence[SalesInvoice],
+        lines: dict[UUID, list[SalesInvoiceLine]],
+        products: dict[UUID, Product],
     ) -> dict[UUID, list[PickedSerial]]:
         """Return the units each serial-tracked line's own note ships.
 
         Keyed by note line id, and only for a draft whose lines bill a note
         the bill raised for itself -- the one case where the bill, not a
-        note somebody typed, names the units (D-SELL-33).
+        note somebody typed, names the units (D-SELL-33). Read for the whole
+        page: one query for the notes the drafts raised, one for the picks.
         """
-        if row.status != SalesInvoiceStatus.DRAFT.value:
+        drafts = [
+            row.id for row in rows if row.status == SalesInvoiceStatus.DRAFT.value
+        ]
+        if not drafts:
             return {}
-        own = self._notes_raised_by(row)
+        own: dict[UUID, set[UUID]] = defaultdict(set)
+        for chunk in chunks(drafts):
+            for note_id, invoice_id in self._session.execute(
+                select(DeliveryNote.id, DeliveryNote.raised_by_sales_invoice_id).where(
+                    DeliveryNote.raised_by_sales_invoice_id.in_(chunk),
+                    DeliveryNote.is_deleted.is_(False),
+                )
+            ):
+                own[invoice_id].add(note_id)
         if not own:
             return {}
-        trail = SerialTrailService(self._session)
         line_ids = [
             item.source_document_line_id
-            for item in lines
-            if item.source_document_id in own and trail.is_serialised(item.product_id)
+            for invoice_id, notes in own.items()
+            for item in lines.get(invoice_id, [])
+            if item.source_document_id in notes
+            and bool(getattr(products.get(item.product_id), "track_serial", False))
         ]
         if not line_ids:
             return {}
-        picked = trail.picked_serials(line_ids)
+        picked = SerialTrailService(self._session).picked_serials(line_ids)
         return {line_id: picked.get(line_id, []) for line_id in line_ids}
 
     def _line_response(

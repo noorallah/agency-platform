@@ -15,7 +15,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.batch_serial.models import BatchRecord, SerialNumber
-from app.batch_serial.schemas import SerialStatus
+from app.batch_serial.schemas import PickedSerial, SerialStatus
 from app.batch_serial.services.serial_trail_service import (
     DELIVERY_NOTE,
     LineRef,
@@ -28,12 +28,15 @@ from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader, platform_reader
 from app.common.report_names import (
     branch_names,
+    customer_labels,
     customer_names,
     customers_matching,
     warehouse_names,
 )
+from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
+from app.core.utils.chunks import chunks
 from app.core.utils.dates import utc_now
 from app.core.utils.pricing import (
     LineDiscount,
@@ -95,6 +98,10 @@ from app.sales_order.schemas import SalesOrderStatus
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
+from app.trade_licences.services.licence_check import (
+    LicenceCheckService,
+    LicenceDocument,
+)
 from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService, assert_quantity_fits_unit
 
@@ -241,37 +248,41 @@ class DeliveryNoteService(TransactionalDocumentService):
         return rows, int(self._session.scalar(count) or 0)
 
     def summary(self, *, firm_scope: UUID) -> DeliveryNoteSummary:
-        """Return aggregate delivery note values for the visible firm scope."""
-        rows = list(
-            self._session.scalars(
-                select(DeliveryNote).where(
+        """Return aggregate delivery note values for the visible firm scope.
+
+        Counted and summed in SQL, one row per status, rather than loading every
+        document the firm ever raised (backlog 56 C).
+        """
+        by_status: dict[str, tuple[int, Decimal]] = {
+            status: (int(count), Decimal(str(total)))
+            for status, count, total in self._session.execute(
+                select(
+                    DeliveryNote.status,
+                    func.count(),
+                    func.coalesce(func.sum(DeliveryNote.grand_total), 0),
+                )
+                .where(
                     DeliveryNote.firm_id == firm_scope,
                     DeliveryNote.is_deleted.is_(False),
                 )
+                .group_by(DeliveryNote.status)
             ).all()
-        )
+        }
+
+        def count(status: DeliveryNoteStatus) -> int:
+            """Return how many documents are in one status."""
+            return by_status.get(status.value, (0, ZERO))[0]
+
         progress = self.partially_delivered_orders(firm_scope=firm_scope)
         return DeliveryNoteSummary(
-            total=len(rows),
-            draft=sum(
-                1 for row in rows if row.status == DeliveryNoteStatus.DRAFT.value
-            ),
-            approved=sum(
-                1 for row in rows if row.status == DeliveryNoteStatus.APPROVED.value
-            ),
-            dispatched=sum(
-                1 for row in rows if row.status == DeliveryNoteStatus.DISPATCHED.value
-            ),
-            completed=sum(
-                1 for row in rows if row.status == DeliveryNoteStatus.COMPLETED.value
-            ),
-            cancelled=sum(
-                1 for row in rows if row.status == DeliveryNoteStatus.CANCELLED.value
-            ),
-            closed=sum(
-                1 for row in rows if row.status == DeliveryNoteStatus.CLOSED.value
-            ),
-            total_value=self._q(sum((row.grand_total for row in rows), ZERO)),
+            total=sum(number for number, _ in by_status.values()),
+            draft=count(DeliveryNoteStatus.DRAFT),
+            approved=count(DeliveryNoteStatus.APPROVED),
+            dispatched=count(DeliveryNoteStatus.DISPATCHED),
+            completed=count(DeliveryNoteStatus.COMPLETED),
+            cancelled=count(DeliveryNoteStatus.CANCELLED),
+            closed=count(DeliveryNoteStatus.CLOSED),
+            total_value=self._q(sum((value for _, value in by_status.values()), ZERO)),
             pending_orders=sum(
                 1 for item in progress if item.delivered_quantity <= ZERO
             ),
@@ -513,23 +524,53 @@ class DeliveryNoteService(TransactionalDocumentService):
         return row
 
     def approve_note(
-        self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID
+        self,
+        note_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        licence_override_reason: str | None = None,
     ) -> DeliveryNote:
         """Approve one delivery note and commit it."""
-        row = self.stage_approval(note_id, firm_scope=firm_scope, actor_id=actor_id)
+        row = self.stage_approval(
+            note_id,
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+            licence_override_reason=licence_override_reason,
+        )
         self._session.commit()
         return row
 
     def stage_approval(
-        self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID
+        self,
+        note_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        licence_override_reason: str | None = None,
+        check_licences: bool = True,
     ) -> DeliveryNote:
-        """Approve one delivery note without committing it."""
+        """Approve one delivery note without committing it.
+
+        ``check_licences`` is false only for a note the chain raised for an
+        invoice, which is checked at its own approval (backlog 54).
+        """
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status != DeliveryNoteStatus.DRAFT.value:
             raise ValidationError("Only draft delivery notes can be approved.")
         order = self._sales_order(row.sales_order_id, firm_id=firm_scope)
         self._refuse_unless_order_open(order)
         self._refuse_if_held(order)
+        licence_remark, licence_details = (
+            LicenceCheckService(self._session).approve_sale(
+                LicenceDocument.DELIVERY_NOTE,
+                row.id,
+                firm_id=firm_scope,
+                override_reason=licence_override_reason,
+            )
+            if check_licences
+            else (None, None)
+        )
         row.status = DeliveryNoteStatus.APPROVED.value
         row.approved_at = utc_now()
         row.updated_by = actor_id
@@ -541,6 +582,8 @@ class DeliveryNoteService(TransactionalDocumentService):
             from_state=DeliveryNoteStatus.DRAFT.value,
             to_state=row.status,
             actor_id=actor_id,
+            remarks=licence_remark,
+            details=licence_details,
         )
         record_audit(
             self._session,
@@ -549,6 +592,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            after_data=licence_details,
         )
         return row
 
@@ -783,36 +827,82 @@ class DeliveryNoteService(TransactionalDocumentService):
 
     def note_response(self, row: DeliveryNote) -> DeliveryNoteResponse:
         """Render one delivery note row as its API contract."""
-        lines = list(
-            self._session.scalars(
-                select(DeliveryNoteLine)
-                .where(DeliveryNoteLine.delivery_note_id == row.id)
-                .order_by(DeliveryNoteLine.line_number.asc())
-            ).all()
+        return self.note_responses([row])[0]
+
+    def note_responses(
+        self, rows: Sequence[DeliveryNote]
+    ) -> list[DeliveryNoteResponse]:
+        """Render a page of delivery notes, reading each child table once.
+
+        One query per child table for the whole page, grouped by note in
+        Python, rather than seven per note (backlog 56 C, step 3). The
+        single-note builder is this with a list of one.
+        """
+        if not rows:
+            return []
+        ids = [row.id for row in rows]
+        # Children are read with their soft-deleted rows, as they always were.
+        lines = children_by_parent(
+            self._session,
+            DeliveryNoteLine,
+            DeliveryNoteLine.delivery_note_id,
+            ids,
+            DeliveryNoteLine.line_number.asc(),
+            live_only=False,
         )
-        attachments = list(
-            self._session.scalars(
-                select(DeliveryNoteAttachment).where(
-                    DeliveryNoteAttachment.delivery_note_id == row.id
-                )
-            ).all()
+        attachments = children_by_parent(
+            self._session,
+            DeliveryNoteAttachment,
+            DeliveryNoteAttachment.delivery_note_id,
+            ids,
+            live_only=False,
         )
-        notes = list(
-            self._session.scalars(
-                select(DeliveryNoteNote).where(
-                    DeliveryNoteNote.delivery_note_id == row.id
-                )
-            ).all()
+        notes = children_by_parent(
+            self._session,
+            DeliveryNoteNote,
+            DeliveryNoteNote.delivery_note_id,
+            ids,
+            live_only=False,
         )
-        products = self._products_named(lines)
-        serials = self._trail.picked_serials(line.id for line in lines)
+        every_line = [item for group in lines.values() for item in group]
+        products = self._products_named(every_line)
+        serials = self._trail.picked_serials(line.id for line in every_line)
+        names = customer_labels(self._session, (row.customer_id for row in rows))
+        warnings = self._duplicate_warnings(rows)
+        return [
+            self._note_response_from(
+                row,
+                lines=lines[row.id],
+                attachments=attachments[row.id],
+                notes=notes[row.id],
+                products=products,
+                serials=serials,
+                customer_name=names.get(row.customer_id, ""),
+                warning=warnings.get(row.id),
+            )
+            for row in rows
+        ]
+
+    def _note_response_from(
+        self,
+        row: DeliveryNote,
+        *,
+        lines: list[DeliveryNoteLine],
+        attachments: list[DeliveryNoteAttachment],
+        notes: list[DeliveryNoteNote],
+        products: dict[UUID, Product],
+        serials: dict[UUID, list[PickedSerial]],
+        customer_name: str,
+        warning: str | None,
+    ) -> DeliveryNoteResponse:
+        """Build one note's response from what the page already read."""
         return DeliveryNoteResponse(
             id=row.id,
             version=row.version,
             firm_id=row.firm_id,
             sales_order_id=row.sales_order_id,
             customer_id=row.customer_id,
-            customer_name=self._customer_name(row.customer_id),
+            customer_name=customer_name,
             branch_id=row.branch_id,
             warehouse_id=row.warehouse_id,
             business_profile_id=row.business_profile_id,
@@ -857,7 +947,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             ],
             attachments=[self._attachment_response(item) for item in attachments],
             notes=[self._note_response(item) for item in notes],
-            duplicate_warning=self._duplicate_warning(row),
+            duplicate_warning=warning,
         )
 
     def timeline(
@@ -980,13 +1070,16 @@ class DeliveryNoteService(TransactionalDocumentService):
             return mapped_like(order_rows, [])
         order_ids = [order.id for order in order_rows]
         lines_by_order: dict[UUID, list[SalesOrderLine]] = defaultdict(list)
-        for line in self._session.scalars(
-            select(SalesOrderLine).where(
-                SalesOrderLine.sales_order_id.in_(order_ids),
-                SalesOrderLine.is_deleted.is_(False),
-            )
-        ).all():
-            lines_by_order[line.sales_order_id].append(line)
+        # In chunks: a firm's open orders over two years are more ids than
+        # one statement may name (backlog 56 C, found timing PERF01).
+        for part in chunks(order_ids):
+            for line in self._session.scalars(
+                select(SalesOrderLine).where(
+                    SalesOrderLine.sales_order_id.in_(part),
+                    SalesOrderLine.is_deleted.is_(False),
+                )
+            ).all():
+                lines_by_order[line.sales_order_id].append(line)
         sent = delivered_by_order_line(
             self._session, firm_id=firm_scope, sales_order_ids=order_ids
         )
@@ -1342,8 +1435,8 @@ class DeliveryNoteService(TransactionalDocumentService):
         # the whole document has to be split across the lines *before* tax is
         # asked for. Tax is charged per line, so a document-level deduction
         # that never reaches a taxable value reduces no tax -- which is what
-        # `header_discount_amount` does on a purchase order, and the reason
-        # that shape is not copied here. Nothing in this pass touches the
+        # `header_discount_amount` did on a purchase order until D-BUY-19
+        # moved it onto the lines too. Nothing in this pass touches the
         # database, so every validation below still runs in its own order.
         # Resolved once and used everywhere below, so the price a line is
         # discounted at, taxed at and stored at cannot disagree.
@@ -2316,6 +2409,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         to_state: str | None,
         actor_id: UUID,
         remarks: str | None = None,
+        details: dict[str, object] | None = None,
     ) -> None:
         self._documents.record_event(
             firm_id,
@@ -2331,6 +2425,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                 details_json={
                     "delivery_note_number": document.delivery_note_number,
                     "grand_total": str(document.grand_total),
+                    **(details or {}),
                 },
                 snapshot_json={
                     "status": document.status,
@@ -2615,6 +2710,42 @@ class DeliveryNoteService(TransactionalDocumentService):
                 counts.keys(), key=lambda item: labels.get(item, str(item))
             )
         ]
+
+    def _duplicate_warnings(self, rows: Sequence[DeliveryNote]) -> dict[UUID, str]:
+        """Answer `_duplicate_warning` for a page of notes in one query.
+
+        The same test -- another live, uncancelled note of the firm for the
+        same order, date and vehicle, a missing order or vehicle matching a
+        missing one -- read once for every date on the page.
+        """
+        holders: dict[tuple[object, ...], set[UUID]] = defaultdict(set)
+        for found in self._session.execute(
+            select(
+                DeliveryNote.id,
+                DeliveryNote.firm_id,
+                DeliveryNote.sales_order_id,
+                DeliveryNote.delivery_date,
+                DeliveryNote.vehicle,
+            ).where(
+                DeliveryNote.firm_id.in_({row.firm_id for row in rows}),
+                DeliveryNote.delivery_date.in_({row.delivery_date for row in rows}),
+                DeliveryNote.is_deleted.is_(False),
+                DeliveryNote.status != DeliveryNoteStatus.CANCELLED.value,
+            )
+        ):
+            holders[tuple(found[1:])].add(found[0])
+        return {
+            row.id: (
+                "Potential duplicate dispatch detected for this "
+                "sales order/date/vehicle."
+            )
+            for row in rows
+            if holders.get(
+                (row.firm_id, row.sales_order_id, row.delivery_date, row.vehicle),
+                set(),
+            )
+            - {row.id}
+        }
 
     def _duplicate_warning(self, row: DeliveryNote) -> str | None:
         duplicate = self._session.scalar(

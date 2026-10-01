@@ -62,6 +62,9 @@ class TaxComponentRecord {
     required this.isDeleted,
     this.recoverable = false,
     this.includedInPrice = false,
+    this.shortLabel = '',
+    this.displayOrder = 0,
+    this.calculationOrder = 0,
     this.version = 0,
   });
 
@@ -71,6 +74,11 @@ class TaxComponentRecord {
   final String name;
   final String label;
   final String percentage;
+
+  /// Fields the edit form sends back; without them an edit would reset them.
+  final String shortLabel;
+  final int displayOrder;
+  final int calculationOrder;
   final String status;
   final bool isDeleted;
 
@@ -96,6 +104,9 @@ class TaxComponentRecord {
         isDeleted: boolValue(json['is_deleted']),
         recoverable: json['recoverable'] as bool? ?? false,
         includedInPrice: json['included_in_price'] as bool? ?? false,
+        shortLabel: stringValue(json['short_label']),
+        displayOrder: (json['display_order'] as num?)?.toInt() ?? 0,
+        calculationOrder: (json['calculation_order'] as num?)?.toInt() ?? 0,
         version: (json['version'] as num?)?.toInt() ?? 0,
       );
 }
@@ -151,6 +162,12 @@ class TaxProfileRecord {
     required this.isHistorical,
     required this.isDeleted,
     required this.components,
+    this.description = '',
+    this.displayOrder = 0,
+    this.groupCode = '',
+    this.businessProfileId = '',
+    this.effectiveFrom = '',
+    this.effectiveTo = '',
     this.version = 0,
   });
 
@@ -160,6 +177,12 @@ class TaxProfileRecord {
   final String name;
   final String label;
   final String status;
+  final String description;
+  final int displayOrder;
+  final String groupCode;
+  final String businessProfileId;
+  final String effectiveFrom;
+  final String effectiveTo;
   final bool isHistorical;
   final bool isDeleted;
   final List<TaxProfileComponentRecord> components;
@@ -182,6 +205,12 @@ class TaxProfileRecord {
         components: _objects(json['components'])
             .map(TaxProfileComponentRecord.fromJson)
             .toList(),
+        description: stringValue(json['description']),
+        displayOrder: (json['display_order'] as num?)?.toInt() ?? 0,
+        groupCode: stringValue(json['group_code']),
+        businessProfileId: stringValue(json['business_profile_id']),
+        effectiveFrom: stringValue(json['effective_from']),
+        effectiveTo: stringValue(json['effective_to']),
         version: (json['version'] as num?)?.toInt() ?? 0,
       );
 }
@@ -195,10 +224,14 @@ class TaxCountryMappingRecord {
     required this.status,
     required this.isDefault,
     required this.isDeleted,
+    this.effectiveFrom = '',
+    this.effectiveTo = '',
     this.version = 0,
   });
 
   final String id;
+  final String effectiveFrom;
+  final String effectiveTo;
   final String countryId;
   final String businessProfileId;
   final String taxSystemId;
@@ -221,6 +254,8 @@ class TaxCountryMappingRecord {
         status: stringValue(json['status']),
         isDefault: boolValue(json['is_default']),
         isDeleted: boolValue(json['is_deleted']),
+        effectiveFrom: stringValue(json['effective_from']),
+        effectiveTo: stringValue(json['effective_to']),
         version: (json['version'] as num?)?.toInt() ?? 0,
       );
 }
@@ -371,6 +406,9 @@ class TaxRuleConditionRecord {
     required this.operatorType,
     required this.valueText,
     required this.valueNumber,
+    this.valueDate = '',
+    this.valueBoolean,
+    this.valueJson,
   });
 
   final String id;
@@ -380,6 +418,11 @@ class TaxRuleConditionRecord {
   final String operatorType;
   final String valueText;
   final String valueNumber;
+  final String valueDate;
+  final bool? valueBoolean;
+
+  /// A list value (`{"values": [...]}`) for IN, NOT_IN and BETWEEN.
+  final Object? valueJson;
 
   factory TaxRuleConditionRecord.fromJson(Json json) => TaxRuleConditionRecord(
         id: stringValue(json['id']),
@@ -389,6 +432,9 @@ class TaxRuleConditionRecord {
         operatorType: stringValue(json['operator']),
         valueText: stringValue(json['value_text']),
         valueNumber: stringValue(json['value_number']),
+        valueDate: stringValue(json['value_date']),
+        valueBoolean: json['value_boolean'] as bool?,
+        valueJson: json['value_json'],
       );
 }
 
@@ -401,11 +447,13 @@ class TaxRuleActionRecord {
     required this.targetTaxProfileId,
     required this.targetTaxComponentId,
     required this.percentageOverride,
+    this.parameters = const <String, dynamic>{},
   });
 
   final String id;
   final String taxRuleId;
   final int sequence;
+  final Map<String, dynamic> parameters;
   final String actionType;
   final String targetTaxProfileId;
   final String targetTaxComponentId;
@@ -419,6 +467,9 @@ class TaxRuleActionRecord {
         targetTaxProfileId: stringValue(json['target_tax_profile_id']),
         targetTaxComponentId: stringValue(json['target_tax_component_id']),
         percentageOverride: stringValue(json['percentage_override']),
+        parameters: json['parameters'] is Map
+            ? Map<String, dynamic>.from(json['parameters'] as Map)
+            : const <String, dynamic>{},
       );
 }
 
