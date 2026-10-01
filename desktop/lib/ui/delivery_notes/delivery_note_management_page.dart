@@ -16,6 +16,7 @@ import '../../models/bulk_action.dart';
 import '../../models/document_framework.dart';
 import '../../models/entities.dart';
 import '../../models/product.dart';
+import '../../phase2/document_page.dart' show documentDate;
 import '../../phase2/indian_format.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../document_framework/document_status_gate.dart';
@@ -27,6 +28,7 @@ import '../workspace/reason_prompt.dart';
 import '../workspace/printed_document.dart';
 import '../workspace/print_settings_dialog.dart';
 import 'delivery_note_editor_dialog.dart';
+import 'delivery_proof_dialog.dart';
 
 /// A named view over the one delivery note list.
 ///
@@ -110,6 +112,10 @@ class _DeliveryNoteManagementPageState
   /// The document dates the list is narrowed to (owner, 2026-09-27).
   DatePeriod _period = const DatePeriod.all();
   late DeliveryNoteView _view = widget.initialView;
+
+  /// Narrowed to dispatched or completed notes with no proof of delivery yet
+  /// (backlog 67 row 6): the goods that left and nobody has said arrived.
+  bool _awaitingProof = false;
   bool _loading = false;
   String? _error;
   int _page = 1;
@@ -319,6 +325,7 @@ class _DeliveryNoteManagementPageState
           descending: true,
           additionalQuery: {
             ..._view.query,
+            if (_awaitingProof) 'awaiting_delivery_proof': 'true',
             ..._period.query('delivery_from', 'delivery_to'),
           },
         ),
@@ -630,6 +637,14 @@ class _DeliveryNoteManagementPageState
                       ? null
                       : () => unawaited(_printChallan(_selected!)),
                 ),
+                ToolbarCommand(
+                  id: 'proof-of-delivery',
+                  label: 'Proof of delivery',
+                  icon: Icons.task_alt_outlined,
+                  onPressed: _canRecordProof(_selected)
+                      ? () => unawaited(_recordProof(_selected!))
+                      : null,
+                ),
                 for (final (DocumentToolbarAction action, String suffix)
                     in const [
                   (DocumentToolbarAction.approve, '/approve'),
@@ -689,6 +704,36 @@ class _DeliveryNoteManagementPageState
                 _actionButton(DocumentToolbarAction.close, '/close'),
               ],
       );
+
+  /// Whether proof of delivery can be recorded against [note]: only goods
+  /// that left, by someone who may change a note.
+  bool _canRecordProof(_DeliveryNoteRecord? note) =>
+      note != null &&
+      (note.status.toUpperCase() == 'DISPATCHED' ||
+          note.status.toUpperCase() == 'COMPLETED') &&
+      widget.permissions.hasPermission('SALES_UPDATE');
+
+  /// Ask when, and by whom, the goods were received, and record it. The
+  /// dialog makes the call, so a refusal leaves it open.
+  Future<void> _recordProof(_DeliveryNoteRecord note) async {
+    final Json? saved = await showDialog<Json>(
+      context: context,
+      builder: (_) => DeliveryProofDialog(
+        api: widget.api,
+        noteId: note.id,
+        noteNumber: note.deliveryNoteNumber,
+        now: DateTime.now(),
+      ),
+    );
+    if (saved == null || !mounted) return;
+    await _load();
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      'Delivery of ${note.deliveryNoteNumber} recorded.',
+      kind: AppNotificationKind.success,
+    );
+  }
 
   /// Render the challan and hand it to whatever prints on this machine.
   Future<void> _printChallan(_DeliveryNoteRecord note) async {
@@ -854,6 +899,12 @@ class _DeliveryNoteManagementPageState
         cell: (item) => item.status,
         shownByDefault: true,
       ),
+      // The badge: blank until somebody records that the goods arrived.
+      ChoosableColumn(
+        column: const GridColumn(key: 'delivered', label: 'Delivered'),
+        cell: (item) => item.deliveredLabel,
+        shownByDefault: true,
+      ),
       ChoosableColumn(
         column: const GridColumn(key: 'subtotal', label: 'Taxable Value', numeric: true),
         cell: (item) => item.subtotal,
@@ -914,7 +965,25 @@ class _DeliveryNoteManagementPageState
                       _view == view ? DeliveryNoteView.all : view,
                     ),
           ),
+        // Not a status: a second filter that sits across them, so it is
+        // chosen and cleared on its own.
+        SummaryCount(
+          key: const ValueKey('view-counter-awaiting-proof'),
+          label: 'Not yet delivered',
+          value: '${_summary['awaiting_delivery_proof'] ?? 0}',
+          selected: _awaitingProof,
+          onTap: _loading ? null : _toggleAwaitingProof,
+        ),
       ];
+
+  void _toggleAwaitingProof() {
+    setState(() {
+      _awaitingProof = !_awaitingProof;
+      _page = 1;
+      _selected = null;
+    });
+    unawaited(_load(requestedPage: 1));
+  }
 
   void _selectView(DeliveryNoteView view) {
     if (view == _view) return;
@@ -996,6 +1065,10 @@ class _DeliveryNoteRecord {
     this.vehicle = '',
     this.driver = '',
     this.quantity = '',
+    this.isDelivered = false,
+    this.deliveredAt = '',
+    this.receivedBy = '',
+    this.deliveryRemarks = '',
   });
 
   final String id;
@@ -1019,6 +1092,30 @@ class _DeliveryNoteRecord {
   final String vehicle;
   final String driver;
   final String quantity;
+
+  /// Proof of delivery (backlog 67 row 6), blank until recorded.
+  final bool isDelivered;
+  final String deliveredAt;
+  final String receivedBy;
+  final String deliveryRemarks;
+
+  /// When the goods arrived, as the Delivered column and the view say it:
+  /// `Delivered 14-08-2026 15:30`, in the PC's own time.
+  String get deliveredLabel {
+    if (!isDelivered) return '';
+    final DateTime? when = DateTime.tryParse(deliveredAt)?.toLocal();
+    if (when == null) return 'Delivered';
+    return 'Delivered ${documentDate(when)} '
+        '${when.hour.toString().padLeft(2, '0')}:'
+        '${when.minute.toString().padLeft(2, '0')}';
+  }
+
+  /// What the view shows of the delivery: who received it, and any remark.
+  String get deliveryNote => [
+        if (isDelivered) deliveredLabel,
+        if (isDelivered && receivedBy.isNotEmpty) 'received by $receivedBy',
+        if (isDelivered && deliveryRemarks.isNotEmpty) deliveryRemarks,
+      ].join(' · ');
 
   factory _DeliveryNoteRecord.fromJson(Json json) {
     final List<_DeliveryNoteLine> lines = (json['lines'] is List)
@@ -1048,6 +1145,10 @@ class _DeliveryNoteRecord {
       vehicle: stringValue(json['vehicle']),
       driver: stringValue(json['driver']),
       quantity: stringValue(json['total_current_delivery_quantity']),
+      isDelivered: json['is_delivered'] == true,
+      deliveredAt: stringValue(json['delivered_at']),
+      receivedBy: stringValue(json['delivery_received_by']),
+      deliveryRemarks: stringValue(json['delivery_remarks']),
     );
   }
 
@@ -1060,7 +1161,11 @@ class _DeliveryNoteRecord {
         branch: branchId,
         warehouse: warehouseId,
         status: status,
-        remarks: remarks,
+        // The delivery, once recorded, read beside the note's own remarks.
+        remarks: [
+          if (remarks.isNotEmpty) remarks,
+          if (deliveryNote.isNotEmpty) deliveryNote,
+        ].join('\n'),
       );
 
   DocumentTotalsSnapshot toTotals() => DocumentTotalsSnapshot(

@@ -3912,6 +3912,31 @@ class ApiClient {
   ) =>
       _bulk('/api/v1/delivery-notes/bulk-cancel', rows, reason: reason);
 
+  /// Record that a dispatched note's goods arrived (backlog 67 row 6): when,
+  /// who signed for them, a remark and optionally the signed copy.
+  ///
+  /// Recording on a DISPATCHED note also completes it; the server refuses a
+  /// note in any other state. [deliveredAt] goes as UTC with its offset, and
+  /// the attachment as the file's name, type and path -- the server sets its
+  /// kind.
+  Future<Json> recordDeliveryProof(
+    String noteId, {
+    required DateTime deliveredAt,
+    required String receivedBy,
+    String? remarks,
+    Json? attachment,
+  }) =>
+      request(
+        'POST',
+        '/api/v1/delivery-notes/$noteId/proof-of-delivery',
+        body: <String, dynamic>{
+          'delivered_at': deliveredAt.toUtc().toIso8601String(),
+          'received_by': receivedBy,
+          'remarks': remarks,
+          'attachment': attachment,
+        },
+      );
+
   Future<BulkActionResult> bulkApproveCreditNotes(List<BulkRow> rows) =>
       _bulk('/api/v1/credit-notes/bulk-approve', rows);
 
