@@ -179,6 +179,15 @@ class Settings(BaseSettings):
     messaging_worker_enabled: bool = True
     #: Seconds between outbox passes.
     messaging_worker_interval_seconds: int = Field(default=60, ge=5)
+    #: Where `Back up now` writes (`manual/<stamp>`) and where the backups
+    #: screen looks for the nightly (`daily/`) and pre-upgrade ones. Setup
+    #: points it at `<data root>/backups` through the service definition.
+    backup_directory: Path = Path("backups")
+    #: How many manual backups are kept; the oldest beyond this are deleted.
+    backup_keep_manual: int = Field(default=10, ge=1)
+    #: The folder holding `pg_dump` and `pg_restore`. Unset, the server looks
+    #: beside itself (`<install>/pgsql/bin`), then on PATH.
+    backup_pg_bin: Path | None = None
 
     model_config = SettingsConfigDict(
         case_sensitive=False,

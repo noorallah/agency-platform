@@ -95,5 +95,8 @@ def _is_platform_path(path: str) -> bool:
         # product, so they live in one place rather than scattered across firm
         # stores. `firm_id` is recorded as data, not used as routing.
         "/api/v1/diagnostics",
+        # A backup is of the whole installation, not of one firm, and its
+        # audit row belongs in the platform's own trail.
+        "/api/v1/backups",
     )
     return path.startswith(prefixes)

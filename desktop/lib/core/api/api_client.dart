@@ -16,6 +16,7 @@ import '../../models/batch_serial.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
 import '../../models/customer_opening_bill.dart';
+import '../../models/backup.dart';
 import '../../models/diagnostics.dart';
 import '../../models/document_framework.dart';
 import '../../models/print_template.dart';
@@ -265,6 +266,19 @@ class ApiClient {
   }) =>
       _list('/api/v1/firms', Firm.fromJson, page, search,
           sortBy: sortBy, descending: descending);
+
+  /// The backups on the server's disk and the run in progress, if any.
+  ///
+  /// A platform path: no firm header decides what comes back.
+  Future<BackupOverview> getBackups() async => BackupOverview.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/backups')),
+      );
+
+  /// Starts a backup and returns at once; the answer says it is running, and
+  /// [getBackups] says when it is done. A 409 means one is already running.
+  Future<BackupOverview> startBackup() async => BackupOverview.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/backups')),
+      );
 
   /// Sends queued crash reports.
   ///
