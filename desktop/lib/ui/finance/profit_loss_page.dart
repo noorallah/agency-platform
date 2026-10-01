@@ -8,6 +8,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/finance.dart';
 import '../workspace/desktop_framework.dart';
 import 'period_line.dart';
+import 'profit_loss_range_view.dart';
 import 'statement_amount.dart';
 
 // Re-exported so a screen that shows figures does not have to know which file
@@ -41,6 +42,9 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
   List<AccountingPeriod> _periods = const [];
   AccountingPeriod? _period;
   ProfitLossReport _report = ProfitLossReport.empty;
+
+  /// One month with the year to date, or a run of months (backlog 50).
+  bool _range = false;
   bool _loading = false;
   String? _error;
 
@@ -116,6 +120,35 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
         message: 'Choose a firm to see its result.',
       );
     }
+    final Widget show = SizedBox(
+      width: 170,
+      child: DropdownButtonFormField<bool>(
+        key: const ValueKey('pl-show'),
+        initialValue: _range,
+        isExpanded: true,
+        decoration: const InputDecoration(isDense: true, labelText: 'Show'),
+        items: const [
+          DropdownMenuItem(value: false, child: Text('One month')),
+          DropdownMenuItem(value: true, child: Text('Months or year')),
+        ],
+        onChanged: (value) => setState(() => _range = value ?? false),
+      ),
+    );
+    if (_range && _periods.isNotEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg, AppSpacing.md, AppSpacing.lg, 0),
+            child: Align(alignment: Alignment.centerLeft, child: show),
+          ),
+          Expanded(
+            child: ProfitLossRangeView(api: widget.api, periods: _periods),
+          ),
+        ],
+      );
+    }
     return LoadingOverlay(
       loading: _loading,
       child: Column(
@@ -124,6 +157,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
           // Phase 2: the period and refresh on the page line (4.5).
           if (Phase2Scope.of(context))
             AccountingPeriodLine(
+              leading: [show],
               periods: _periods,
               value: _period,
               hint: 'Accounting period',
@@ -138,6 +172,8 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
           Padding(
             padding: const EdgeInsets.all(AppSpacing.lg),
             child: Row(children: [
+              show,
+              const SizedBox(width: AppSpacing.md),
               SizedBox(
                 width: 360,
                 child: DropdownButtonFormField<String>(

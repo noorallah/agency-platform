@@ -253,6 +253,12 @@ already have been paid.
 **Paying the challan** is still a journal: Dr TDS Payable, Cr Bank. **Claiming
 TDS Receivable** against the firm's own tax is the CA's year-end entry.
 
+## A month's GST is settled in one journal
+
+Built 2026-10-01 (`docs/BACKLOG.md` §63, `app/gst_returns/services/gst_payment_service.py`). The month's liability per head is GSTR-3B 3.1(a) after credit notes, and its credit is table 4's net input credit plus what the month before carried. The set-off follows section 49(5) and rule 88A: IGST credit first and wholly, split across CGST and SGST in whichever way leaves the least cash; CGST credit never against SGST, nor SGST against CGST; cess only against cess.
+
+Recording the challan posts **one journal**: Dr Output tax for the whole liability; Cr each head's input-tax account (`INPUT_TAX_IGST/CGST/SGST`, cess to `INPUT_TAX`) for the credit it gave; Cr the bank for cash, interest and late fee; Dr the expense accounts the user chose for interest and late fee -- never the tax accounts, which must clear. Output tax is one account today (item 3 would split it), so the per-head figures live on the `gst_payments` row, never as JSON. The next month's brought-forward credit is the row's `carried_*`, so only the latest settled month can be reversed, and one standing settlement per month is held by `UQ_gst_payments_firm_period_posted`.
+
 ## Input tax is claimed head by head
 
 **A bill's input tax posts one leg per GST head, and a return reverses the

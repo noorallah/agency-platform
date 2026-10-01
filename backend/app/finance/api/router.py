@@ -18,6 +18,11 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.pagination.reports import ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.document_framework.schemas.bulk_actions import (
+    BulkActionResult,
+    BulkApproveRequest,
+)
+from app.document_framework.services.bulk_actions import run_each
 from app.finance.schemas import (
     AccountGroupCreate,
     AccountGroupResponse,
@@ -53,6 +58,7 @@ from app.finance.schemas import (
     ProfitCenterCreate,
     ProfitCenterResponse,
     ProfitCenterUpdate,
+    ProfitLossRangeReport,
     ProfitLossReport,
     TdsRegisterRecord,
     TrialBalanceReport,
@@ -700,6 +706,41 @@ def list_journal_entries(
     )
 
 
+@router.post("/journal-entries/bulk-post", response_model=ApiResponse[BulkActionResult])
+def bulk_post_journal_entries(
+    data: BulkApproveRequest,
+    scope: JournalPostScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BulkActionResult]:
+    """Post the ticked draft journals, each on its own (backlog 56 A).
+
+    Each is asked what a single post asks -- a hand journal may not touch a
+    control account a document owns (D-FIN-11) -- and committed on its own,
+    so one refused leaves the rest posted.
+    """
+    engine = JournalEntryEngine(db)
+    control = ControlAccountService(db)
+
+    def act(entry_id: UUID) -> None:
+        draft = engine.get_entry(entry_id, firm_id=scope.firm_id)
+        if draft.source_module is None:
+            control.assert_open_to_hand_journals(
+                scope.firm_id, (line.ledger_account_id for line in draft.lines)
+            )
+        engine.post_entry(entry_id, firm_id=scope.firm_id, actor_id=scope.actor_id)
+        db.commit()
+
+    return ApiResponse(
+        data=run_each(
+            db,
+            data.items,
+            load=lambda entry_id: engine.get_entry(entry_id, firm_id=scope.firm_id),
+            act=act,
+            number=lambda row: row.reference_number,
+        )
+    )
+
+
 @router.get(
     "/journal-entries/{entry_id}", response_model=ApiResponse[JournalEntryResponse]
 )
@@ -952,6 +993,28 @@ def profit_and_loss(
     """Return the profit and loss for one period, with the year to date."""
     report = GeneralLedgerService(db).profit_and_loss(
         firm_id=scope.firm_id, accounting_period_id=accounting_period_id
+    )
+    return ApiResponse(data=report)
+
+
+@router.get("/profit-loss/range", response_model=ApiResponse[ProfitLossRangeReport])
+def profit_and_loss_range(
+    from_period_id: UUID,
+    to_period_id: UUID,
+    scope: ProfitLossScope,
+    compare: Literal["none", "previous_year"] = "none",
+    db: Session = Depends(get_db),
+) -> ApiResponse[ProfitLossRangeReport]:
+    """Return the profit and loss over a run of months in one year (backlog 50).
+
+    Each month as a column with the span's total, and with
+    ``compare=previous_year`` the previous financial year's same months.
+    """
+    report = GeneralLedgerService(db).profit_and_loss_range(
+        firm_id=scope.firm_id,
+        from_period_id=from_period_id,
+        to_period_id=to_period_id,
+        compare_previous_year=compare == "previous_year",
     )
     return ApiResponse(data=report)
 

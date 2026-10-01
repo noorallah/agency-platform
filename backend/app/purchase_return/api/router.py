@@ -30,6 +30,12 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.document_framework.schemas import DocumentLifecycleEventResponse
+from app.document_framework.schemas.bulk_actions import (
+    BulkActionResult,
+    BulkApproveRequest,
+    BulkCancelRequest,
+)
+from app.document_framework.services.bulk_actions import run_each
 from app.purchase_return.schemas import (
     PurchaseReturnByProductRecord,
     PurchaseReturnByVendorRecord,
@@ -222,6 +228,71 @@ def export_purchase_returns(
         iter([csv_content.encode("utf-8")]),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=purchase_returns.csv"},
+    )
+
+
+@router.post("/bulk-approve", response_model=ApiResponse[BulkActionResult])
+def bulk_approve_purchase_returns(
+    data: BulkApproveRequest,
+    scope: PurchaseReturnApproveScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BulkActionResult]:
+    """Approve the ticked purchase returns, each on its own (backlog 56 A).
+
+    Each goes through the single approval's own service and commits on its
+    own: a refused one is reported with the reason and the rest go ahead.
+    One that needs a licence override is refused here -- the override is a
+    reason given for one document, on its own screen.
+    """
+    service = PurchaseReturnService(db)
+
+    def act(document_id: UUID) -> None:
+        service.approve_return(
+            document_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+        )
+        db.commit()
+
+    return ApiResponse(
+        data=run_each(
+            db,
+            data.items,
+            load=lambda document_id: service.get_return(
+                document_id, firm_scope=scope.firm_id
+            ),
+            act=act,
+            number=lambda row: row.return_number,
+        )
+    )
+
+
+@router.post("/bulk-cancel", response_model=ApiResponse[BulkActionResult])
+def bulk_cancel_purchase_returns(
+    data: BulkCancelRequest,
+    scope: PurchaseReturnCancelScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BulkActionResult]:
+    """Cancel the ticked purchase returns with one reason, each on its own (56 A)."""
+    service = PurchaseReturnService(db)
+
+    def act(document_id: UUID) -> None:
+        service.cancel_return(
+            document_id,
+            firm_scope=scope.firm_id,
+            actor_id=scope.actor_id,
+            reason=data.reason,
+        )
+        db.commit()
+
+    return ApiResponse(
+        data=run_each(
+            db,
+            data.items,
+            load=lambda document_id: service.get_return(
+                document_id, firm_scope=scope.firm_id
+            ),
+            act=act,
+            number=lambda row: row.return_number,
+        )
     )
 
 

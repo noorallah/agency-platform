@@ -33,6 +33,11 @@ from app.credit_note.schemas import (
     CreditNoteUpdate,
 )
 from app.credit_note.services import CreditNoteService
+from app.document_framework.schemas.bulk_actions import (
+    BulkActionResult,
+    BulkApproveRequest,
+)
+from app.document_framework.services.bulk_actions import run_each
 
 router = APIRouter(
     prefix="/api/v1/credit-notes",
@@ -183,6 +188,40 @@ def credit_notes_by_reason(
     window = ReportWindow(from_date, to_date, page, page_size)
     return window.respond(
         CreditNoteService(db).by_reason_report(firm_scope=scope.firm_id, window=window)
+    )
+
+
+@router.post("/bulk-approve", response_model=ApiResponse[BulkActionResult])
+def bulk_approve_credit_notes(
+    data: BulkApproveRequest,
+    scope: CreditNoteApproveScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BulkActionResult]:
+    """Approve the ticked credit notes, each on its own (backlog 56 A).
+
+    Each goes through the single approval's own service and commits on its
+    own: a refused one is reported with the reason and the rest go ahead.
+    One that needs a licence override is refused here -- the override is a
+    reason given for one document, on its own screen.
+    """
+    service = CreditNoteService(db)
+
+    def act(document_id: UUID) -> None:
+        service.approve_note(
+            document_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+        )
+        db.commit()
+
+    return ApiResponse(
+        data=run_each(
+            db,
+            data.items,
+            load=lambda document_id: service.get_note(
+                document_id, firm_scope=scope.firm_id
+            ),
+            act=act,
+            number=lambda row: row.credit_note_number,
+        )
     )
 
 

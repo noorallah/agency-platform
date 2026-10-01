@@ -3882,6 +3882,8 @@ every part cut to the user's role (`desktop/lib/phase2/home_page.dart`).
 
 ## 50. Profit and loss for a financial year or chosen months
 
+**Status, 2026-10-01: items 1-4 built.** `GET /api/v1/finance/profit-loss/range?from_period_id=&to_period_id=&compare=previous_year` sums any run of months inside one financial year (a span across two is refused), returns each month's amount per account beside the total and the month-by-month net profit, and with `compare=previous_year` the previous year's same months by period number. The screen's *Show* picker adds **Months or year**: presets (This financial year, Year to date, This quarter, Last financial year, Custom), *Month by month* columns and *Compare with last year*. Checked on WHOLE01: every year's total equals the one-month report's year to date. Left: item 5, the same range on the trial balance and the ledger statement.
+
 Owner, 2026-09-26: Profit & Loss shows one month at a time; it should also
 show a whole financial year, or the months a user picks.
 
@@ -4333,7 +4335,7 @@ entry, S10 §44 and §37, S13 §43, G1 §54, G2 §53, G3 §52, N3 §42.14, N4
 
 ## 56. Bulk approval, migration from other tools, and data over the years -- HIGH PRIORITY
 
-**Status, 2026-10-01.** *A -- bulk approval:* sales and purchase orders built (#864): `POST .../bulk-approve` and `.../bulk-cancel` (a reason), up to 100 rows, each row through the single action's service and committed on its own, refusals reported per row with *Retry the refused*; `run_each` in `app/document_framework/services/bulk_actions.py` is the pattern for invoices, credit notes, returns and journals next. Neither order has a *reject* transition, so the second action is Cancel with a reason. *B -- migration:* see §36 and §46. *C -- performance:* steps 1-3 and 5 merged (#854, #856, #857, #859), step 4 in #860 and a second part after it; results in `docs/PERFORMANCE_AT_VOLUME.md`. *Year-end close:* built (#865) -- close refuses while a period is open or a draft journal is dated in the year, then locks; reopen needs `FINANCIAL_YEAR_REOPEN` and a reason. **No closing entry is posted** (decided 2026-10-01, as Tally does): the balance sheet already derives retained earnings and the trial balance brings profit forward (D-FIN-22).
+**Status, 2026-10-01.** *A -- bulk approval:* sales and purchase orders built (#864); **sales and purchase invoices, delivery notes, credit notes (approve only), sales and purchase returns and draft journals (post) built 2026-10-01** -- the same `run_each`, each row through its single action's service, ticked on the phase 2 lists. Sales and purchase orders: `POST .../bulk-approve` and `.../bulk-cancel` (a reason), up to 100 rows, each row through the single action's service and committed on its own, refusals reported per row with *Retry the refused*; `run_each` in `app/document_framework/services/bulk_actions.py` is the pattern for invoices, credit notes, returns and journals next. Neither order has a *reject* transition, so the second action is Cancel with a reason. *B -- migration:* see §36 and §46. *C -- performance:* steps 1-3 and 5 merged (#854, #856, #857, #859), step 4 in #860 and a second part after it; results in `docs/PERFORMANCE_AT_VOLUME.md`. *Year-end close:* built (#865) -- close refuses while a period is open or a draft journal is dated in the year, then locks; reopen needs `FINANCIAL_YEAR_REOPEN` and a reason. **No closing entry is posted** (decided 2026-10-01, as Tally does): the balance sheet already derives retained earnings and the trial balance brings profit forward (D-FIN-22).
 
 Owner, 2026-09-27: three streams to run in parallel, designed from how
 Tally, BUSY, Marg, Vyapar, Zoho, Odoo and ERPNext do it. **The design is
@@ -4518,7 +4520,7 @@ branch, salesman, document type and date, and the tests "is one of", "between",
 | 10 | **Offer templates** | "copy last Diwali's offers, new dates" | copy a promotion, or a set of them |
 | 11 | **Manufacturer scheme claims** | free goods given on the company's scheme, claimed back | track the value per scheme to claim from the supplier |
 | 12 | **Offer shown on the print** | "Diwali offer: 250 saved" on the bill | print each applied offer and the total saved |
-| 13 | **Try an offer before launch** | see today what next week's Diwali offer does to an order | a Try screen on Promotions over `POST /api/v1/promotions/simulate` (built, no caller) taking a date, a customer and lines, and showing each offer tried and why it applied or not; the workaround today is a test customer (`docs/PROMOTIONS_AND_DISCOUNTS_GUIDE.md` section 13) |
+| 13 | **Try an offer before launch** | see today what next week's Diwali offer does to an order | **Built.** *Try offers* on the Promotions screen (behind "...") over `POST /api/v1/promotions/simulate`: a date, document, optional customer, coupon and delivery charge, and lines; it shows each line's discount and free goods, the bill discount, delivery waived, gifts, the total saved, and every offer tried with why it applied or not |
 
 **Rules that stay** (from `docs/PRICING_AND_PROMOTIONS.md`): one engine for
 every document; a typed discount beats every offer; offers are counted at
@@ -4650,6 +4652,8 @@ design once this lands; the existing Purchase Analytics screen is not offered
 in phase 2.
 
 ## 63. Paying the tax: GST payable, set-off and payment; TCS deposit
+
+**Status, 2026-10-01: items 1, 2 and 6 built.** Accounts > GST Payment works out a month from its GSTR-3B -- output tax per head after credit notes, net input credit per head, plus the credit the month before carried -- and sets the credit off by section 49(5) and rule 88A (IGST credit first and wholly, split across CGST and SGST to leave the least cash; CGST never against SGST nor SGST against CGST; cess only against cess), showing cash payable and credit carried per head, with interest at 18% a year suggested for days after the 20th. Recording the challan (CPIN, CIN, bank, interest and late fee to expense accounts the user picks) posts one journal and keeps the month in `gst_payments` (migration `20261001_0176`); one standing settlement per month, and only the latest month can be reversed. A firm's first month takes its opening credit from the portal's electronic credit ledger. Recording needs `JOURNAL_POST`. Left: item 3 (output tax split by head in the ledger), 4 (tax calendar on Home), 5 (TCS deposit and 27EQ -- 206C(1H) TCS ended on 1 April 2025, so low).
 
 Owner, 2026-09-28: sales collect tax -- is anything to be paid, and does the
 product show it?
