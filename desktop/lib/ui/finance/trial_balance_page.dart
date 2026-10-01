@@ -34,6 +34,9 @@ class TrialBalancePage extends StatefulWidget {
 class _TrialBalancePageState extends State<TrialBalancePage> {
   List<AccountingPeriod> _periods = const [];
   AccountingPeriod? _period;
+
+  /// The last month of a run (backlog 50 item 5); null is [_period] alone.
+  AccountingPeriod? _toPeriod;
   TrialBalanceReport _report = TrialBalanceReport.empty;
   bool _loading = false;
   String? _error;
@@ -85,7 +88,8 @@ class _TrialBalancePageState extends State<TrialBalancePage> {
       _error = null;
     });
     try {
-      final TrialBalanceReport report = await widget.api.trialBalance(period.id);
+      final TrialBalanceReport report = await widget.api
+          .trialBalance(period.id, toPeriodId: _toPeriod?.id);
       if (!mounted) return;
       setState(() => _report = report);
     } on ApiException catch (exception) {
@@ -127,7 +131,15 @@ class _TrialBalancePageState extends State<TrialBalancePage> {
               value: _period,
               hint: 'Accounting period',
               onChanged: (period) {
-                setState(() => _period = period);
+                setState(() {
+                  _period = period;
+                  _toPeriod = null;
+                });
+                unawaited(_loadReport());
+              },
+              toValue: _toPeriod,
+              onToChanged: (period) {
+                setState(() => _toPeriod = period);
                 unawaited(_loadReport());
               },
               onRefresh: _loading ? null : () => unawaited(_loadReport()),

@@ -20,6 +20,8 @@ class AccountingPeriodLine extends StatelessWidget {
     this.hint = 'Accounting period',
     this.leading = const [],
     this.trailing = const [],
+    this.toValue,
+    this.onToChanged,
   });
 
   final List<AccountingPeriod> periods;
@@ -27,6 +29,25 @@ class AccountingPeriodLine extends StatelessWidget {
   final ValueChanged<AccountingPeriod> onChanged;
   final VoidCallback? onRefresh;
   final String hint;
+
+  /// The last month of a run of months (backlog 50 item 5); null is the
+  /// chosen month on its own. Offered only where [onToChanged] is given --
+  /// the trial balance and a ledger -- and only months of the chosen
+  /// month's own financial year from it onwards, because the server refuses
+  /// a span across two years or a backwards one.
+  final AccountingPeriod? toValue;
+  final ValueChanged<AccountingPeriod?>? onToChanged;
+
+  List<AccountingPeriod> get _laterInYear {
+    final AccountingPeriod? from = value;
+    if (from == null) return const [];
+    return [
+      for (final AccountingPeriod period in periods)
+        if (period.financialYearId == from.financialYearId &&
+            period.startsOn.compareTo(from.startsOn) > 0)
+          period,
+    ]..sort((a, b) => a.startsOn.compareTo(b.startsOn));
+  }
 
   /// Pickers before the period (a ledger's account).
   final List<Widget> leading;
@@ -58,6 +79,31 @@ class AccountingPeriodLine extends StatelessWidget {
             },
           ),
         ),
+        if (onToChanged != null)
+          SizedBox(
+            width: 200,
+            child: DropdownButtonFormField<String>(
+              // Keyed on the first month, so choosing another one starts the
+              // list again rather than keeping a month it no longer offers.
+              key: ValueKey('period-line-to-${value?.id}'),
+              initialValue: toValue?.id ?? '',
+              isExpanded: true,
+              decoration: const InputDecoration(isDense: true, prefixText: 'to  '),
+              items: [
+                const DropdownMenuItem<String>(
+                  value: '',
+                  child: Text('the same month'),
+                ),
+                for (final AccountingPeriod period in _laterInYear)
+                  DropdownMenuItem<String>(
+                    value: period.id,
+                    child: Text(period.label, overflow: TextOverflow.ellipsis),
+                  ),
+              ],
+              onChanged: (id) => onToChanged!(
+                  periods.where((period) => period.id == id).firstOrNull),
+            ),
+          ),
         ...trailing,
         Phase2Refresh(onPressed: onRefresh, child: const SizedBox.shrink()),
       ]);

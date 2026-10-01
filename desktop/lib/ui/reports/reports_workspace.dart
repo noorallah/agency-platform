@@ -9,7 +9,9 @@ import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
+import '../../models/finance.dart';
 import '../../models/report.dart';
+import '../finance/journal_entry_view_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/module_catalog.dart';
 import 'report_catalog.dart';
@@ -208,6 +210,28 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
       });
     } finally {
       if (mounted && load == _loads) setState(() => _loading = false);
+    }
+  }
+
+  /// Open what a row stands for (55 M9): the journal behind a day book
+  /// voucher or a cash book posting. An opening or closing row names no
+  /// journal and opens nothing.
+  Future<void> _drill(ReportDefinition report, Json row) async {
+    switch (report.drill) {
+      case ReportDrill.journal:
+        final dynamic id = row['journal_entry_id'];
+        if (id is! String || id.isEmpty) return;
+        try {
+          final JournalEntry entry = await widget.api.journalEntry(id);
+          if (!mounted) return;
+          await JournalEntryViewDialog.show(context,
+              api: widget.api, entry: entry);
+        } on ApiException catch (exception) {
+          if (!mounted) return;
+          setState(() => _error = exception.message);
+        }
+      case null:
+        return;
     }
   }
 
@@ -611,6 +635,9 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
                       shown(row, column),
                   ],
                   onSelect: (_) {},
+                  onOpen: report.drill == null
+                      ? null
+                      : (row) => unawaited(_drill(report, row)),
                   onPageChanged: (offset) => unawaited(
                     _load(page: offset ~/ _pageSize + 1),
                   ),

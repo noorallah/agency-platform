@@ -17,7 +17,7 @@ from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
-from app.core.pagination.reports import ReportWindow
+from app.core.pagination.reports import ReportWindow, mapped_like
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.document_framework.schemas.bulk_actions import (
     BulkActionResult,
@@ -38,6 +38,7 @@ from app.finance.schemas import (
     CostCenterCreate,
     CostCenterResponse,
     CostCenterUpdate,
+    DayBookRecord,
     FinancialYearCreate,
     FinancialYearReopen,
     FinancialYearResponse,
@@ -54,6 +55,7 @@ from app.finance.schemas import (
     LedgerAccountCreate,
     LedgerAccountResponse,
     LedgerAccountUpdate,
+    MoneyBookRecord,
     OpeningTrialBalanceReplace,
     OpeningTrialBalanceResponse,
     ProfitCenterCreate,
@@ -73,6 +75,7 @@ from app.finance.services import (
     JournalEntryEngine,
     JournalLineData,
 )
+from app.finance.services.books_register import BooksRegisterService
 from app.finance.services.control_accounts import (
     ControlAccountPurpose,
     ControlAccountService,
@@ -965,10 +968,17 @@ def trial_balance(
     accounting_period_id: UUID,
     scope: TrialBalanceScope,
     db: Session = Depends(get_db),
+    to_period_id: UUID | None = None,
 ) -> ApiResponse[TrialBalanceReport]:
-    """Return the trial balance for one accounting period."""
+    """Return the trial balance for one accounting period, or a run of them.
+
+    With ``to_period_id``, every month from ``accounting_period_id`` to it, in
+    one financial year (backlog 50 item 5).
+    """
     report = GeneralLedgerService(db).trial_balance(
-        firm_id=scope.firm_id, accounting_period_id=accounting_period_id
+        firm_id=scope.firm_id,
+        accounting_period_id=accounting_period_id,
+        to_period_id=to_period_id,
     )
     return ApiResponse(data=report)
 
@@ -982,12 +992,18 @@ def general_ledger(
     accounting_period_id: UUID,
     scope: LedgerViewScope,
     db: Session = Depends(get_db),
+    to_period_id: UUID | None = None,
 ) -> ApiResponse[GeneralLedgerReport]:
-    """Return the movement statement for one ledger account."""
+    """Return the movement statement for one ledger account.
+
+    With ``to_period_id``, over every month from ``accounting_period_id`` to
+    it, in one financial year (backlog 50 item 5).
+    """
     report = GeneralLedgerService(db).general_ledger(
         firm_id=scope.firm_id,
         ledger_account_id=ledger_account_id,
         accounting_period_id=accounting_period_id,
+        to_period_id=to_period_id,
     )
     return ApiResponse(data=report)
 
@@ -1105,6 +1121,84 @@ def tds_deducted_by_customers_register(
     return window.respond(
         [TdsRegisterRecord.model_validate(row, from_attributes=True) for row in rows]
     )
+
+
+#: The day book lists journals, so it opens to whoever may read them; the cash
+#: and bank books are ledgers. Either opens to REPORT_VIEW as well (D-RPT-4).
+DayBookScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("JOURNAL_VIEW", "REPORT_VIEW")
+]
+MoneyBookScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("LEDGER_VIEW", "REPORT_VIEW")
+]
+
+
+@router.get("/reports/day-book", response_model=PaginatedResponse[DayBookRecord])
+def day_book(
+    scope: DayBookScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[DayBookRecord]:
+    """Every journal in the books over the dates, in date order (55 M9).
+
+    One row per voucher with its totals; each names its journal, so the
+    screen opens it, and the document that raised it.
+    """
+    window = ReportWindow(from_date, to_date, page, page_size)
+    rows = BooksRegisterService(db).day_book(scope.firm_id, window)
+    return window.respond(
+        mapped_like(
+            rows,
+            (DayBookRecord.model_validate(row, from_attributes=True) for row in rows),
+        )
+    )
+
+
+def _money_book(
+    purpose: ControlAccountPurpose,
+    firm_id: UUID,
+    window: ReportWindow,
+    db: Session,
+) -> PaginatedResponse[MoneyBookRecord]:
+    """Answer the cash or the bank book for one window."""
+    rows = BooksRegisterService(db).money_book(firm_id, purpose, window)
+    return window.respond(
+        mapped_like(
+            rows,
+            (MoneyBookRecord.model_validate(row, from_attributes=True) for row in rows),
+        )
+    )
+
+
+@router.get("/reports/cash-book", response_model=PaginatedResponse[MoneyBookRecord])
+def cash_book(
+    scope: MoneyBookScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[MoneyBookRecord]:
+    """Read the cash book: opening, each posting with its balance, closing (M9)."""
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return _money_book(ControlAccountPurpose.CASH, scope.firm_id, window, db)
+
+
+@router.get("/reports/bank-book", response_model=PaginatedResponse[MoneyBookRecord])
+def bank_book(
+    scope: MoneyBookScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[MoneyBookRecord]:
+    """Read the bank book: opening, each posting with its balance, closing (M9)."""
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return _money_book(ControlAccountPurpose.BANK, scope.firm_id, window, db)
 
 
 @router.get(

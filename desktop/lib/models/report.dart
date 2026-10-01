@@ -27,6 +27,14 @@ enum ReportFile {
   tds26q,
 }
 
+/// What opening a report's row shows (backlog 55 M9). Named rather than a
+/// callback, because a definition is data.
+enum ReportDrill {
+  /// The journal the row names in `journal_entry_id`, with its lines: the
+  /// day book's voucher, a cash or bank book's posting.
+  journal,
+}
+
 /// One report the server can produce.
 ///
 /// A definition rather than a screen. Every report endpoint answers with flat
@@ -49,7 +57,11 @@ class ReportDefinition {
     this.openToReportView = true,
     this.quarterly = false,
     this.file,
+    this.drill,
   });
+
+  /// What double-clicking a row opens, when anything does.
+  final ReportDrill? drill;
 
   /// A report of one return quarter -- the quarterly TDS return (53.1). The
   /// workspace then asks for a financial year and a quarter rather than a

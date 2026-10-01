@@ -6480,12 +6480,21 @@ class ApiClient {
   ///
   /// Whether it balances is the server's answer, carried through rather than
   /// recomputed: two places deciding that is two places that can disagree.
-  Future<TrialBalanceReport> trialBalance(String accountingPeriodId) async =>
+  ///
+  /// With [toPeriodId], every month from [accountingPeriodId] to it, in one
+  /// financial year (backlog 50 item 5).
+  Future<TrialBalanceReport> trialBalance(
+    String accountingPeriodId, {
+    String? toPeriodId,
+  }) async =>
       TrialBalanceReport.fromJson(
         await request(
           'GET',
           '/api/v1/finance/trial-balance',
-          query: {'accounting_period_id': accountingPeriodId},
+          query: {
+            'accounting_period_id': accountingPeriodId,
+            if (toPeriodId != null) 'to_period_id': toPeriodId,
+          },
         ),
       );
 
@@ -6798,15 +6807,22 @@ class ApiClient {
   /// The running balance comes down with the lines. It starts from the opening
   /// balance and moves in whichever direction the account type increases in,
   /// so adding the column up here would be a second opinion about the ledger.
+  ///
+  /// With [toPeriodId], over every month from [accountingPeriodId] to it, in
+  /// one financial year (backlog 50 item 5).
   Future<GeneralLedgerReport> generalLedger({
     required String ledgerAccountId,
     required String accountingPeriodId,
+    String? toPeriodId,
   }) async =>
       GeneralLedgerReport.fromJson(
         await request(
           'GET',
           '/api/v1/finance/general-ledger/$ledgerAccountId',
-          query: {'accounting_period_id': accountingPeriodId},
+          query: {
+            'accounting_period_id': accountingPeriodId,
+            if (toPeriodId != null) 'to_period_id': toPeriodId,
+          },
         ),
       );
 

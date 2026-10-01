@@ -857,6 +857,58 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'position', label: 'Position'),
     ],
   ),
+  // Tally's Day Book (55 M9): every journal in the books over the dates, in
+  // date order. Double-click a row for the journal's lines.
+  ReportDefinition(
+    id: 'day-book',
+    label: 'Day book',
+    description: 'Every voucher in the books over the dates, in date order: '
+        'what raised it, its narration and its totals. Double-click a row '
+        'to see the journal.',
+    path: '/api/v1/finance/reports/day-book',
+    permission: 'JOURNAL_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    drill: ReportDrill.journal,
+    columns: [
+      ReportColumn(key: 'journal_date', label: 'Date'),
+      ReportColumn(key: 'voucher', label: 'Voucher'),
+      ReportColumn(key: 'voucher_type', label: 'Type'),
+      ReportColumn(key: 'source', label: 'Raised by'),
+      ReportColumn(key: 'narration', label: 'Narration'),
+      ReportColumn(key: 'debit', label: 'Debit', numeric: true),
+      ReportColumn(key: 'credit', label: 'Credit', numeric: true),
+      ReportColumn(key: 'status', label: 'Status'),
+    ],
+  ),
+  // The cash and bank books (55 M9): opening, each posting with the balance
+  // after it -- in date order -- and closing.
+  ReportDefinition(
+    id: 'cash-book',
+    label: 'Cash book',
+    description: 'Every movement of cash over the dates with the balance '
+        'after it, from the opening balance to the closing. Double-click a '
+        'row to see the journal.',
+    path: '/api/v1/finance/reports/cash-book',
+    permission: 'LEDGER_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    drill: ReportDrill.journal,
+    columns: _moneyBookColumns,
+  ),
+  ReportDefinition(
+    id: 'bank-book',
+    label: 'Bank book',
+    description: 'Every movement through the bank over the dates with the '
+        'balance after it, from the opening balance to the closing. '
+        'Double-click a row to see the journal.',
+    path: '/api/v1/finance/reports/bank-book',
+    permission: 'LEDGER_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    drill: ReportDrill.journal,
+    columns: _moneyBookColumns,
+  ),
   // What the quarterly TDS return (26Q) is filed from (53.1): every
   // deduction the firm made on payments and expenses, by deductee and PAN.
   ReportDefinition(
@@ -934,6 +986,20 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'status', label: 'Status'),
     ],
   ),
+];
+
+/// The cash book's and the bank book's columns: Tally's layout, with the
+/// account beside the particulars because a bank book can span accounts.
+const List<ReportColumn> _moneyBookColumns = [
+  ReportColumn(key: 'date', label: 'Date'),
+  ReportColumn(key: 'voucher', label: 'Voucher'),
+  ReportColumn(key: 'particulars', label: 'Particulars'),
+  ReportColumn(key: 'source', label: 'Raised by'),
+  ReportColumn(key: 'account', label: 'Account'),
+  ReportColumn(key: 'narration', label: 'Narration'),
+  ReportColumn(key: 'receipt', label: 'Receipt', numeric: true),
+  ReportColumn(key: 'payment', label: 'Payment', numeric: true),
+  ReportColumn(key: 'balance', label: 'Balance', numeric: true),
 ];
 
 /// The reports belonging to one tab, narrowed to what `canRead` allows.

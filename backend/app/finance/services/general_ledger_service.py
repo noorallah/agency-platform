@@ -9,7 +9,7 @@ from datetime import timedelta
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError, ValidationError
@@ -59,9 +59,13 @@ class GeneralLedgerService:
         self._session = session
 
     def trial_balance(
-        self, *, firm_id: UUID, accounting_period_id: UUID
+        self,
+        *,
+        firm_id: UUID,
+        accounting_period_id: UUID,
+        to_period_id: UUID | None = None,
     ) -> TrialBalanceReport:
-        """Return the trial balance for one accounting period.
+        """Return the trial balance for one accounting period, or a run of them.
 
         The standard layout: the opening and the closing balance each split by
         side, the period's movement between them, and every column totalled.
@@ -69,21 +73,23 @@ class GeneralLedgerService:
         movement columns, so it was not the sum of the figures above it
         (D-FIN-18). Balanced is judged on the closing columns, which is the
         question a trial balance answers.
+
+        With ``to_period_id`` it covers every month from
+        ``accounting_period_id`` to that one (backlog 50 item 5): the opening
+        is the first month's, the closing the last month's, and the movement
+        the months' own, summed in SQL. Periods stay the unit and the span
+        stays inside one financial year, as the profit and loss range does,
+        because an income account starts again at the year.
         """
-        period = self._require_period(
-            firm_id=firm_id, accounting_period_id=accounting_period_id
+        period, last, months = self._span(
+            firm_id=firm_id,
+            from_period_id=accounting_period_id,
+            to_period_id=to_period_id,
+            what="A trial balance",
         )
-        rows = self._balances(
-            firm_id=firm_id, accounting_period_id=accounting_period_id
+        rows = self._range_balances(
+            firm_id=firm_id, first=period, last=last, months=months
         )
-        rows.extend(
-            self._carried_balances(
-                firm_id=firm_id,
-                accounting_period_id=accounting_period_id,
-                already_listed={account.id for _, account in rows},
-            )
-        )
-        rows.sort(key=lambda row: row[1].code)
         # An income or expense account starts every financial year at zero,
         # and what earlier years earned is one line under equity (D-FIN-22).
         # The stored balances run on across years -- the balance sheet reads
@@ -159,6 +165,7 @@ class GeneralLedgerService:
 
         return TrialBalanceReport(
             accounting_period_id=accounting_period_id,
+            to_period_id=None if last.id == period.id else last.id,
             generated_at=utc_now(),
             lines=lines,
             total_opening_debit=totals["opening_debit"],
@@ -173,9 +180,20 @@ class GeneralLedgerService:
         )
 
     def general_ledger(
-        self, *, firm_id: UUID, ledger_account_id: UUID, accounting_period_id: UUID
+        self,
+        *,
+        firm_id: UUID,
+        ledger_account_id: UUID,
+        accounting_period_id: UUID,
+        to_period_id: UUID | None = None,
     ) -> GeneralLedgerReport:
-        """Return the movement statement for one account and period."""
+        """Return the movement statement for one account and period.
+
+        With ``to_period_id`` the statement runs from the first month's
+        opening through every posting of the months up to that one, in journal
+        date order, to the last month's closing (backlog 50 item 5) -- within
+        one financial year, as the trial balance range is.
+        """
         account = self._session.scalar(
             select(LedgerAccount).where(
                 LedgerAccount.id == ledger_account_id,
@@ -185,9 +203,13 @@ class GeneralLedgerService:
         )
         if account is None:
             raise ResourceNotFoundError("Ledger account not found.")
-        period = self._require_period(
-            firm_id=firm_id, accounting_period_id=accounting_period_id
+        period, last, months = self._span(
+            firm_id=firm_id,
+            from_period_id=accounting_period_id,
+            to_period_id=to_period_id,
+            what="A ledger statement",
         )
+        month_ids = [month.id for month in months]
 
         balance = self._session.scalar(
             select(LedgerBalance).where(
@@ -225,13 +247,21 @@ class GeneralLedgerService:
         # than the sequence the business ran in -- and the running balance is
         # only meaningful in the latter.
         postings = self._session.execute(
-            select(GLPosting, JournalEntry, JournalLine)
+            select(
+                JournalEntry.id,
+                JournalEntry.journal_date,
+                JournalEntry.reference_number,
+                JournalLine.description,
+                JournalEntry.description,
+                GLPosting.debit_amount,
+                GLPosting.credit_amount,
+            )
             .join(JournalEntry, JournalEntry.id == GLPosting.journal_entry_id)
             .join(JournalLine, JournalLine.id == GLPosting.journal_line_id)
             .where(
                 GLPosting.firm_id == firm_id,
                 GLPosting.ledger_account_id == ledger_account_id,
-                GLPosting.accounting_period_id == accounting_period_id,
+                GLPosting.accounting_period_id.in_(month_ids),
             )
             .order_by(
                 JournalEntry.journal_date.asc(),
@@ -241,30 +271,59 @@ class GeneralLedgerService:
 
         running = opening
         lines: list[GeneralLedgerLine] = []
-        for posting, entry, line in postings:
-            movement = (
-                posting.debit_amount - posting.credit_amount
-                if increases_on_debit
-                else posting.credit_amount - posting.debit_amount
-            )
+        for (
+            entry_id,
+            journal_date,
+            reference_number,
+            line_description,
+            entry_description,
+            debit,
+            credit,
+        ) in postings:
+            movement = debit - credit if increases_on_debit else credit - debit
             running += movement
             lines.append(
                 GeneralLedgerLine(
-                    journal_entry_id=entry.id,
-                    journal_date=entry.journal_date,
-                    reference_number=entry.reference_number,
+                    journal_entry_id=entry_id,
+                    journal_date=journal_date,
+                    reference_number=reference_number,
                     # The line's own narration, which is what says *what* this
                     # movement was; the entry description is the fallback. This
                     # read ``posting.error_message or entry.description``, so a
                     # narration typed on every line was never displayed, and a
                     # posting that had failed would have shown its error text
                     # as the ledger narration.
-                    description=line.description or entry.description,
-                    debit_amount=posting.debit_amount,
-                    credit_amount=posting.credit_amount,
+                    description=line_description or entry_description,
+                    debit_amount=debit,
+                    credit_amount=credit,
                     running_balance=running,
                 )
             )
+
+        if last.id == period.id:
+            closing_row = balance
+            total_debit = balance.period_debit if balance is not None else ZERO
+            total_credit = balance.period_credit if balance is not None else ZERO
+        else:
+            closing_row = self._session.scalar(
+                select(LedgerBalance).where(
+                    LedgerBalance.ledger_account_id == ledger_account_id,
+                    LedgerBalance.accounting_period_id == last.id,
+                    LedgerBalance.firm_id == firm_id,
+                )
+            )
+            debit_sum, credit_sum = self._session.execute(
+                select(
+                    func.coalesce(func.sum(LedgerBalance.period_debit), 0),
+                    func.coalesce(func.sum(LedgerBalance.period_credit), 0),
+                ).where(
+                    LedgerBalance.ledger_account_id == ledger_account_id,
+                    LedgerBalance.accounting_period_id.in_(month_ids),
+                    LedgerBalance.firm_id == firm_id,
+                )
+            ).one()
+            total_debit = Decimal(str(debit_sum)) + ZERO
+            total_credit = Decimal(str(credit_sum)) + ZERO
 
         return GeneralLedgerReport(
             ledger_account_id=account.id,
@@ -272,10 +331,13 @@ class GeneralLedgerService:
             account_name=account.name,
             account_type=AccountTypeEnum(account.account_type),
             accounting_period_id=accounting_period_id,
+            to_period_id=None if last.id == period.id else last.id,
             opening_balance=opening,
-            total_debit=balance.period_debit if balance is not None else ZERO,
-            total_credit=balance.period_credit if balance is not None else ZERO,
-            closing_balance=balance.closing_balance if balance is not None else running,
+            total_debit=total_debit,
+            total_credit=total_credit,
+            closing_balance=(
+                closing_row.closing_balance if closing_row is not None else running
+            ),
             lines=lines,
         )
 
@@ -514,29 +576,11 @@ class GeneralLedgerService:
                 span runs backwards.
 
         """
-        first = self._require_period(
-            firm_id=firm_id, accounting_period_id=from_period_id
-        )
-        last = self._require_period(firm_id=firm_id, accounting_period_id=to_period_id)
-        if first.financial_year_id != last.financial_year_id:
-            raise ValidationError(
-                "A profit and loss runs within one financial year; choose two "
-                "months of the same year."
-            )
-        if first.starts_on > last.starts_on:
-            raise ValidationError("The first month must come before the last.")
-        months = list(
-            self._session.scalars(
-                select(AccountingPeriod)
-                .where(
-                    AccountingPeriod.firm_id == firm_id,
-                    AccountingPeriod.financial_year_id == first.financial_year_id,
-                    AccountingPeriod.is_deleted.is_(False),
-                    AccountingPeriod.starts_on >= first.starts_on,
-                    AccountingPeriod.starts_on <= last.starts_on,
-                )
-                .order_by(AccountingPeriod.starts_on.asc())
-            ).all()
+        first, _, months = self._span(
+            firm_id=firm_id,
+            from_period_id=from_period_id,
+            to_period_id=to_period_id,
+            what="A profit and loss",
         )
         position = {period.id: index for index, period in enumerate(months)}
         accounts, movements = self._movements(firm_id, list(position))
@@ -760,6 +804,155 @@ class GeneralLedgerService:
         if period is None:
             raise ResourceNotFoundError("Accounting period not found.")
         return period
+
+    def _span(
+        self,
+        *,
+        firm_id: UUID,
+        from_period_id: UUID,
+        to_period_id: UUID | None,
+        what: str,
+    ) -> tuple[AccountingPeriod, AccountingPeriod, list[AccountingPeriod]]:
+        """Return the first and last month of a span and every month in it.
+
+        One rule for every statement read over a run of months (backlog 50):
+        both ends are the firm's own periods, in one financial year -- income
+        and expense start again at the year, so a span across two would carry
+        last year's result into this year's figures -- and not backwards. No
+        ``to_period_id`` is the one month on its own.
+
+        Raises:
+            ResourceNotFoundError: If either period is not the firm's.
+            ValidationError: If the two periods are in different years, or the
+                span runs backwards.
+
+        """
+        first = self._require_period(
+            firm_id=firm_id, accounting_period_id=from_period_id
+        )
+        if to_period_id is None or to_period_id == from_period_id:
+            return first, first, [first]
+        last = self._require_period(firm_id=firm_id, accounting_period_id=to_period_id)
+        if first.financial_year_id != last.financial_year_id:
+            raise ValidationError(
+                f"{what} runs within one financial year; choose two months of "
+                "the same year."
+            )
+        if first.starts_on > last.starts_on:
+            raise ValidationError("The first month must come before the last.")
+        months = list(
+            self._session.scalars(
+                select(AccountingPeriod)
+                .where(
+                    AccountingPeriod.firm_id == firm_id,
+                    AccountingPeriod.financial_year_id == first.financial_year_id,
+                    AccountingPeriod.is_deleted.is_(False),
+                    AccountingPeriod.starts_on >= first.starts_on,
+                    AccountingPeriod.starts_on <= last.starts_on,
+                )
+                .order_by(AccountingPeriod.starts_on.asc())
+            ).all()
+        )
+        return first, last, months
+
+    def _period_positions(
+        self, *, firm_id: UUID, accounting_period_id: UUID
+    ) -> list[tuple[LedgerBalance, LedgerAccount]]:
+        """Return every account with a stored or carried balance in one period."""
+        rows = self._balances(
+            firm_id=firm_id, accounting_period_id=accounting_period_id
+        )
+        rows.extend(
+            self._carried_balances(
+                firm_id=firm_id,
+                accounting_period_id=accounting_period_id,
+                already_listed={account.id for _, account in rows},
+            )
+        )
+        rows.sort(key=lambda row: row[1].code)
+        return rows
+
+    def _range_balances(
+        self,
+        *,
+        firm_id: UUID,
+        first: AccountingPeriod,
+        last: AccountingPeriod,
+        months: list[AccountingPeriod],
+    ) -> list[tuple[LedgerBalance, LedgerAccount]]:
+        """Return each account's opening, movement and closing over a span.
+
+        One month is the stored and carried balances as they are. Over several,
+        the opening is the first month's, the closing the last month's -- both
+        read the way a single month reads them, carried balances included --
+        and the debits and credits between are summed in SQL over the months'
+        stored balances. The rows are built in memory and never added to the
+        session, as carried ones are.
+        """
+        if first.id == last.id:
+            return self._period_positions(
+                firm_id=firm_id, accounting_period_id=first.id
+            )
+        opening = {
+            account.id: (balance.opening_balance, account)
+            for balance, account in self._period_positions(
+                firm_id=firm_id, accounting_period_id=first.id
+            )
+        }
+        closing = {
+            account.id: (balance.closing_balance, account)
+            for balance, account in self._period_positions(
+                firm_id=firm_id, accounting_period_id=last.id
+            )
+        }
+        moved = (
+            select(
+                LedgerBalance.ledger_account_id.label("account_id"),
+                func.sum(LedgerBalance.period_debit).label("debit"),
+                func.sum(LedgerBalance.period_credit).label("credit"),
+            )
+            .where(
+                LedgerBalance.firm_id == firm_id,
+                LedgerBalance.accounting_period_id.in_([m.id for m in months]),
+            )
+            .group_by(LedgerBalance.ledger_account_id)
+            .subquery()
+        )
+        movements: dict[UUID, tuple[Decimal, Decimal, LedgerAccount]] = {}
+        for account, debit, credit in self._session.execute(
+            select(LedgerAccount, moved.c.debit, moved.c.credit)
+            .join(moved, moved.c.account_id == LedgerAccount.id)
+            .where(LedgerAccount.is_deleted.is_(False))
+        ).all():
+            movements[account.id] = (
+                Decimal(str(debit or 0)) + ZERO,
+                Decimal(str(credit or 0)) + ZERO,
+                account,
+            )
+        rows: list[tuple[LedgerBalance, LedgerAccount]] = []
+        for account_id in set(opening) | set(closing) | set(movements):
+            account = (
+                opening.get(account_id)
+                or closing.get(account_id)
+                or (ZERO, movements[account_id][2])
+            )[1]
+            debit, credit, _ = movements.get(account_id, (ZERO, ZERO, account))
+            rows.append(
+                (
+                    LedgerBalance(
+                        firm_id=firm_id,
+                        ledger_account_id=account_id,
+                        accounting_period_id=last.id,
+                        opening_balance=opening.get(account_id, (ZERO, account))[0],
+                        period_debit=debit,
+                        period_credit=credit,
+                        closing_balance=closing.get(account_id, (ZERO, account))[0],
+                    ),
+                    account,
+                )
+            )
+        rows.sort(key=lambda row: row[1].code)
+        return rows
 
     def _balances(
         self, *, firm_id: UUID, accounting_period_id: UUID

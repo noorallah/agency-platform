@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/models/finance.dart';
 import 'package:agency_desktop/models/report.dart';
 import 'package:agency_desktop/ui/reports/report_catalog.dart';
 import 'package:agency_desktop/ui/reports/reports_workspace.dart';
@@ -52,6 +53,29 @@ class _ReportApi extends ApiClient {
     rowsKeys.add(rowsKey);
     return ReportPage(rows: rows, total: total);
   }
+
+  /// Every journal opened from a row (55 M9).
+  final List<String> journalsOpened = [];
+
+  @override
+  Future<JournalEntry> journalEntry(String id) async {
+    journalsOpened.add(id);
+    return JournalEntry.fromJson({
+      'id': id,
+      'reference_number': 'SI-7',
+      'journal_date': '2026-05-05',
+      'status': 'POSTED',
+      'lines': const [],
+    });
+  }
+
+  @override
+  Future<PagedResult<LedgerAccount>> ledgerAccounts({
+    String? accountGroupId,
+    bool? isActive,
+    bool openToHandJournals = false,
+  }) async =>
+      const PagedResult(items: [], total: 0);
 
   /// Every Form 26Q file asked for, as `year Qn format`.
   final List<String> files = [];
@@ -520,6 +544,90 @@ void main() {
     expect(find.text('1,12,050.42'), findsOneWidget);
     expect(find.text('false'), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  group('the day book and the cash and bank books (55 M9)', () {
+    Future<void> pumpBook(
+        WidgetTester tester, _ReportApi api, String view) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: ListViewRequestScope(
+              request:
+                  ListViewRequest(path: 'reports/financial', view: view, serial: 1),
+              child: ReportsWorkspace(
+                api: api,
+                permissions:
+                    _permissionsFor(const ['JOURNAL_VIEW', 'LEDGER_VIEW']),
+                hasActiveFirm: true,
+                tabId: 'financial',
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    test('each is listed under Financial, dated, and opens its journal', () {
+      for (final String id in ['day-book', 'cash-book', 'bank-book']) {
+        final ReportDefinition report =
+            reportCatalog.singleWhere((report) => report.id == id);
+        expect(report.area, ReportArea.financial, reason: id);
+        expect(report.needsPeriod, isTrue, reason: id);
+        expect(report.drill, ReportDrill.journal, reason: id);
+      }
+    });
+
+    testWidgets('double-clicking a day book voucher shows its journal',
+        (tester) async {
+      final _ReportApi api = _ReportApi(rows: [
+        {
+          'journal_entry_id': 'je-7',
+          'journal_date': '2026-05-05',
+          'voucher': 'SI-7',
+          'voucher_type': 'Sales',
+          'source': 'Sales invoice',
+          'narration': 'Sales invoice SI-7',
+          'debit': '118.00',
+          'credit': '118.00',
+          'status': 'POSTED',
+        },
+      ]);
+      await pumpBook(tester, api, 'day-book');
+      expect(api.requested.last, '/api/v1/finance/reports/day-book');
+      await tester.tap(find.text('SI-7'));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.text('SI-7'));
+      await tester.pumpAndSettle();
+      expect(api.journalsOpened, ['je-7']);
+      expect(find.byType(Dialog), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('an opening balance row opens nothing', (tester) async {
+      final _ReportApi api = _ReportApi(rows: [
+        {
+          'row_type': 'OPENING',
+          'date': '2026-05-01',
+          'voucher': '',
+          'particulars': 'Opening balance',
+          'balance': '50.00',
+          'journal_entry_id': null,
+        },
+      ]);
+      await pumpBook(tester, api, 'cash-book');
+      expect(api.requested.last, '/api/v1/finance/reports/cash-book');
+      await tester.tap(find.text('Opening balance'));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.text('Opening balance'));
+      await tester.pumpAndSettle();
+      expect(api.journalsOpened, isEmpty);
+      expect(tester.takeException(), isNull);
+    });
   });
 
   group('the quarterly TDS return (53.1)', () {
