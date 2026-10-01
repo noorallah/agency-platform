@@ -47,6 +47,7 @@ from app.customers.schemas import (
 )
 from app.customers.services import CreditControlService
 from app.customers.services.customer_service import CustomerService
+from app.customers.services.ship_to import resolve_ship_to, ship_to_is_valid
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.delivery_note.rules import goods_have_left_clause, require_dispatched_note
 from app.delivery_note.schemas import DeliveryNoteStatus
@@ -405,6 +406,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                     # The invoice's own customer: one billed from its source
                     # documents names none in the request.
                     customer_id=response.customer_id,
+                    shipping_address_id=response.shipping_address_id,
                 )
                 == SALES_INTERSTATE
             )
@@ -513,9 +515,15 @@ class SalesInvoiceService(TransactionalDocumentService):
         # Read once for the two fields below; the customer's terms decide when
         # payment falls due and its billing address decides the place of supply.
         customer = self._session.get(Customer, customer_id)
+        shipping_address_id = self._ship_to(
+            data.shipping_address_id,
+            customer_id=customer_id,
+            source_rows=source_rows,
+        )
         row = SalesInvoice(
             firm_id=firm_id,
             customer_id=customer_id,
+            shipping_address_id=shipping_address_id,
             salesman_id=salesman_id,
             territory_id=territory_id,
             route_id=route_id,
@@ -534,7 +542,9 @@ class SalesInvoiceService(TransactionalDocumentService):
             exchange_rate=data.exchange_rate,
             payment_terms=data.payment_terms,
             due_date=data.due_date or self._due_date(customer, data.invoice_date),
-            place_of_supply=self._place_of_supply(customer),
+            place_of_supply=self._place_of_supply(
+                customer, shipping_address_id=shipping_address_id
+            ),
             buyer_gst_registration_type=_buyer_gst_type(customer),
             reference_number=data.reference_number,
             remarks=data.remarks,
@@ -639,8 +649,25 @@ class SalesInvoiceService(TransactionalDocumentService):
         header, source_rows, line_specs = self._prepare_invoice_sources(
             data, firm_id, own_notes=own_notes
         )
+        customer_before = row.customer_id
         row.customer_id = data.customer_id or header["customer_id"]
         row.branch_id = data.branch_id or header["branch_id"]
+        # Absent keeps the bill's own ship-to while it still names the
+        # buyer's address; otherwise it is inherited again from what it bills.
+        if (
+            "shipping_address_id" in data.model_fields_set
+            or row.customer_id != customer_before
+            or not ship_to_is_valid(
+                self._session,
+                customer_id=row.customer_id,
+                address_id=row.shipping_address_id,
+            )
+        ):
+            row.shipping_address_id = self._ship_to(
+                data.shipping_address_id,
+                customer_id=row.customer_id,
+                source_rows=source_rows,
+            )
         row.business_profile_id = data.business_profile_id
         salesman_id, territory_id, route_id = self._fill_missing_scope(
             firm_id=firm_id,
@@ -675,7 +702,9 @@ class SalesInvoiceService(TransactionalDocumentService):
         # A draft is re-priced on every save, against the buyer as they stand
         # now, so what it prints must follow the same answer (D-CMP-15).
         buyer = self._session.get(Customer, row.customer_id)
-        row.place_of_supply = self._place_of_supply(buyer)
+        row.place_of_supply = self._place_of_supply(
+            buyer, shipping_address_id=row.shipping_address_id
+        )
         row.buyer_gst_registration_type = _buyer_gst_type(buyer)
         row.reference_number = data.reference_number
         row.remarks = data.remarks
@@ -1669,6 +1698,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             invoice_date=row.invoice_date,
             customer_invoice_number=row.customer_invoice_number,
             place_of_supply=row.place_of_supply,
+            shipping_address_id=row.shipping_address_id,
             currency_code=row.currency_code,
             exchange_rate=row.exchange_rate,
             payment_terms=row.payment_terms,
@@ -2374,6 +2404,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             line_tax = self._resolve_tax(
                 document_id=row.id,
                 line_number=index,
+                shipping_address_id=row.shipping_address_id,
                 invoice_date=invoice_date,
                 firm_id=firm_id,
                 business_profile_id=business_profile_id,
@@ -2755,7 +2786,47 @@ class SalesInvoiceService(TransactionalDocumentService):
             return None
         return invoice_date + timedelta(days=int(customer.payment_terms_days))
 
-    def _place_of_supply(self, customer: Customer | None) -> str | None:
+    def _ship_to(
+        self,
+        requested: UUID | None,
+        *,
+        customer_id: UUID,
+        source_rows: list[dict[str, object]],
+    ) -> UUID | None:
+        """Return where a bill's goods went (backlog 67 row 3).
+
+        The address named, checked as the buyer's own; else the ship-to of the
+        delivery notes billed when they agree -- a bill continues them and
+        inherits what they said; else the customer's default shipping address.
+        Notes that went to different addresses leave the bill to the default
+        unless the person names one, since a bill prints one ship-to.
+        """
+        if requested is not None:
+            return resolve_ship_to(
+                self._session, customer_id=customer_id, address_id=requested
+            )
+        note_ids = [
+            note_id
+            for item in source_rows
+            if item["source_document_type"]
+            == SalesInvoiceSourceType.DELIVERY_NOTE.value
+            and (note_id := _optional_uuid(item["source_document_id"])) is not None
+        ]
+        if note_ids:
+            inherited = set(
+                self._session.scalars(
+                    select(DeliveryNote.shipping_address_id).where(
+                        DeliveryNote.id.in_(note_ids)
+                    )
+                ).all()
+            )
+            if len(inherited) == 1 and None not in inherited:
+                return inherited.pop()
+        return resolve_ship_to(self._session, customer_id=customer_id, address_id=None)
+
+    def _place_of_supply(
+        self, customer: Customer | None, *, shipping_address_id: UUID | None = None
+    ) -> str | None:
         """Return the state the supply is made in, as the invoice prints it.
 
         Copied onto the invoice rather than read through the customer at print
@@ -2770,7 +2841,9 @@ class SalesInvoiceService(TransactionalDocumentService):
         """
         if customer is None:
             return None
-        return self._tax.place_of_supply(customer.id)
+        return self._tax.place_of_supply(
+            customer.id, shipping_address_id=shipping_address_id
+        )
 
     def _resolve_tax(
         self,
@@ -2787,6 +2860,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         invoice_value: Decimal,
         document_id: UUID | None = None,
         line_number: int | None = None,
+        shipping_address_id: UUID | None = None,
     ) -> _LineTax:
         """Work out the line's tax, and keep everything that decided it.
 
@@ -2826,6 +2900,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 firm_id=firm_id,
                 branch_id=branch_id,
                 customer_id=customer_id,
+                shipping_address_id=shipping_address_id,
             ),
             transaction_date=invoice_date,
             business_profile_id=business_profile_id,

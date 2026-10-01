@@ -100,6 +100,10 @@ class SalesOrderCreate(SalesOrderSchema):
     order_date: date
     delivery_date: date | None = None
     customer_reference: str | None = Field(default=None, max_length=80)
+    #: Where the goods go: one of the customer's own addresses (backlog 67
+    #: row 3). None takes the customer's default shipping address; on an
+    #: update, leaving it out keeps the order's own.
+    shipping_address_id: UUID | None = None
     reference_number: str | None = Field(default=None, max_length=80)
     currency_code: str | None = Field(default=None, max_length=10)
     exchange_rate: Decimal | None = Field(
@@ -283,6 +287,8 @@ class SalesOrderResponse(SalesOrderSchema):
     order_date: date
     delivery_date: date | None
     customer_reference: str | None
+    #: The ship-to address the order names (backlog 67 row 3).
+    shipping_address_id: UUID | None = None
     reference_number: str | None
     currency_code: str | None
     exchange_rate: Decimal | None

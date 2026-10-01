@@ -38,6 +38,27 @@ template's ``PURCHASE_INTERSTATE_GST_*`` rules switch to IGST. Purchase order,
 goods receipt, supplier invoice and purchase return all ask through
 ``inward_transaction_type``.
 
+**A ship-to in another state** (backlog 67 row 3). A sale of goods is supplied
+where their movement ends (IGST Act section 10(1)(a)), so an order, note or
+invoice that ships to an address other than the billing one can move the
+place of supply. How far depends on who the buyer is:
+
+- **A registered buyer keeps its GSTIN's state.** Shipping to an address the
+  buyer names is the bill-to-ship-to case of section 10(1)(b): goods delivered
+  to a person (or place) on the direction of a third person -- the buyer --
+  are supplied at that third person's principal place of business, which is
+  the state its GSTIN is registered in. That is also the only answer the
+  buyer's input credit can follow: the credit is taken under the GSTIN the
+  invoice names. So a ship-to never moves a registered buyer's place of
+  supply, and the GSTIN still outranks every address.
+- **An unregistered buyer is supplied at the ship-to.** With no GSTIN there is
+  no registered place of business to point to, so section 10(1)(a) reads
+  plainly: the supply is made where the goods are delivered. The ship-to's
+  state outranks the billing address; with no ship-to the billing address
+  decides, as before.
+- An SEZ buyer stays inter-state and an OVERSEAS one stays abroad, whatever
+  address the goods go to.
+
 Where either state cannot be told, the supply is treated as the document's own
 type, which is what every document did before; nothing is guessed.
 """
@@ -229,6 +250,7 @@ class SupplyPlaceResolver:
         firm_id: UUID,
         branch_id: UUID | None,
         customer_id: UUID | None,
+        shipping_address_id: UUID | None = None,
     ) -> str:
         """Return the transaction type an outward supply is priced as.
 
@@ -238,6 +260,8 @@ class SupplyPlaceResolver:
             firm_id: The supplying firm.
             branch_id: The branch the document is raised at.
             customer_id: The buyer.
+            shipping_address_id: The document's ship-to, which places the
+                supply of an unregistered buyer (see the module docstring).
 
         Returns:
             ``SALES_INTERSTATE`` when the supplier's and the buyer's states are
@@ -245,13 +269,21 @@ class SupplyPlaceResolver:
 
         """
         if self.is_interstate(
-            firm_id=firm_id, branch_id=branch_id, customer_id=customer_id
+            firm_id=firm_id,
+            branch_id=branch_id,
+            customer_id=customer_id,
+            shipping_address_id=shipping_address_id,
         ):
             return SALES_INTERSTATE
         return document_type
 
     def is_interstate(
-        self, *, firm_id: UUID, branch_id: UUID | None, customer_id: UUID | None
+        self,
+        *,
+        firm_id: UUID,
+        branch_id: UUID | None,
+        customer_id: UUID | None,
+        shipping_address_id: UUID | None = None,
     ) -> bool:
         """Return whether the supply is made in a state other than the supplier's.
 
@@ -264,7 +296,7 @@ class SupplyPlaceResolver:
             if customer is not None and customer.gst_registration_type in SEZ_TYPES:
                 return True
         seller = self.supplier_state(firm_id=firm_id, branch_id=branch_id)
-        buyer = self.buyer_state(customer_id)
+        buyer = self.buyer_state(customer_id, shipping_address_id=shipping_address_id)
         return seller is not None and buyer is not None and seller != buyer
 
     def supplier_state(self, *, firm_id: UUID, branch_id: UUID | None) -> str | None:
@@ -372,8 +404,14 @@ class SupplyPlaceResolver:
                     return address
         return live[0] if live else None
 
-    def buyer_state(self, customer_id: UUID | None) -> str | None:
-        """Return the GST state code of the buyer's place of supply."""
+    def buyer_state(
+        self, customer_id: UUID | None, *, shipping_address_id: UUID | None = None
+    ) -> str | None:
+        """Return the GST state code of the buyer's place of supply.
+
+        The GSTIN first, then an OVERSEAS declaration, then -- for an
+        unregistered buyer -- the document's ship-to, then the billing address.
+        """
         if customer_id is None:
             return None
         customer = self._session.get(Customer, customer_id)
@@ -385,7 +423,9 @@ class SupplyPlaceResolver:
         if customer.gst_registration_type == "OVERSEAS":
             # Declared abroad, whatever address was typed (section 7(5)(a)).
             return FOREIGN_STATE_CODE
-        address = self._addressed_to(customer)
+        address = self._shipped_to(customer, shipping_address_id) or (
+            self._addressed_to(customer)
+        )
         if address is None:
             return None
         country = (address.country or "").strip().upper()
@@ -397,7 +437,9 @@ class SupplyPlaceResolver:
                 return keyed
         return gst_state_code(address.state)
 
-    def place_of_supply(self, customer_id: UUID | None) -> str | None:
+    def place_of_supply(
+        self, customer_id: UUID | None, *, shipping_address_id: UUID | None = None
+    ) -> str | None:
         """Return the place of supply a tax invoice to this buyer prints.
 
         The state the tax is charged by -- ``buyer_state``, so a registered
@@ -407,7 +449,7 @@ class SupplyPlaceResolver:
         told, the address's own state text is kept, which is what was printed
         before; nothing is guessed.
         """
-        code = self.buyer_state(customer_id)
+        code = self.buyer_state(customer_id, shipping_address_id=shipping_address_id)
         if code is not None:
             return place_of_supply_label(code)
         customer = (
@@ -415,8 +457,29 @@ class SupplyPlaceResolver:
             if customer_id is not None
             else None
         )
-        address = self._addressed_to(customer) if customer is not None else None
+        address = (
+            (
+                self._shipped_to(customer, shipping_address_id)
+                or self._addressed_to(customer)
+            )
+            if customer is not None
+            else None
+        )
         return str(address.state) if address is not None and address.state else None
+
+    @staticmethod
+    def _shipped_to(
+        customer: Customer, shipping_address_id: UUID | None
+    ) -> CustomerAddress | None:
+        """Return the document's ship-to, when it is one of the buyer's own."""
+        if shipping_address_id is None:
+            return None
+        for address in customer.addresses or []:
+            if address.id == shipping_address_id and (
+                address.state or address.state_id
+            ):
+                return address
+        return None
 
     @staticmethod
     def _addressed_to(customer: Customer) -> CustomerAddress | None:

@@ -46,6 +46,7 @@ from app.core.utils.pricing import (
 )
 from app.core.utils.report_labels import UNASSIGNED
 from app.customers.models import Customer
+from app.customers.services.ship_to import resolve_ship_to
 from app.delivery_note.models import (
     DeliveryNote,
     DeliveryNoteAttachment,
@@ -360,6 +361,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             delivery_note_number=note_number,
             delivery_date=data.delivery_date,
             sales_order_reference=order.order_number,
+            shipping_address_id=self._ship_to(order, data.shipping_address_id),
             vehicle=data.vehicle,
             driver=data.driver,
             remarks=data.remarks,
@@ -458,6 +460,12 @@ class DeliveryNoteService(TransactionalDocumentService):
             )
             if order.id != row.sales_order_id or asked != self._to_ship(row.id):
                 self._refuse_if_held(order)
+        # Absent keeps the note's own ship-to, unless it now ships another
+        # order, whose ship-to it takes.
+        if "shipping_address_id" in data.model_fields_set:
+            row.shipping_address_id = self._ship_to(order, data.shipping_address_id)
+        elif order.id != row.sales_order_id:
+            row.shipping_address_id = self._ship_to(order, None)
         self._delete_children(note_id)
         row.sales_order_id = order.id
         row.customer_id = order.customer_id
@@ -822,6 +830,18 @@ class DeliveryNoteService(TransactionalDocumentService):
         self._session.commit()
         return row
 
+    def _ship_to(self, order: SalesOrder, address_id: UUID | None) -> UUID | None:
+        """Return where a note ships: the address named, else the order's.
+
+        A note continues its order, so it inherits the order's ship-to
+        (backlog 67 row 3) rather than re-reading the customer's default.
+        """
+        if address_id is None and order.shipping_address_id is not None:
+            return order.shipping_address_id
+        return resolve_ship_to(
+            self._session, customer_id=order.customer_id, address_id=address_id
+        )
+
     def get_note(self, note_id: UUID, *, firm_scope: UUID) -> DeliveryNote:
         """Return one delivery note."""
         row = self._session.scalar(
@@ -927,6 +947,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             delivery_note_number=row.delivery_note_number,
             delivery_date=row.delivery_date,
             sales_order_reference=row.sales_order_reference,
+            shipping_address_id=row.shipping_address_id,
             vehicle=row.vehicle,
             driver=row.driver,
             remarks=row.remarks,
@@ -1527,6 +1548,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             tax = self._tax_amount(
                 document_id=row.id,
                 line_number=item.line_number,
+                shipping_address_id=row.shipping_address_id,
                 delivery_date=row.delivery_date,
                 firm_id=row.firm_id,
                 actor_id=actor_id,
@@ -2148,6 +2170,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         invoice_value: Decimal,
         document_id: UUID | None = None,
         line_number: int | None = None,
+        shipping_address_id: UUID | None = None,
     ) -> Decimal:
         if invoice_value <= ZERO:
             return ZERO
@@ -2179,6 +2202,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                 firm_id=firm_id,
                 branch_id=branch_id,
                 customer_id=customer_id,
+                shipping_address_id=shipping_address_id,
             ),
             transaction_date=delivery_date,
             business_profile_id=business_profile_id,

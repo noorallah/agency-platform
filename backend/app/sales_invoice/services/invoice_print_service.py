@@ -229,7 +229,13 @@ class SalesInvoicePrintService:
                     )
                 ),
             ),
-            ship_to=self._customer_block(invoice.customer_id, "SHIPPING"),
+            # The address the bill names (backlog 67 row 3).
+            ship_to=customer_party(
+                self._session,
+                invoice.customer_id,
+                "SHIPPING",
+                address_id=invoice.shipping_address_id,
+            ),
             lines=tuple(printed),
             bill_discount=invoice.bill_discount_amount,
             gross_before_bill_discount=invoice.subtotal + invoice.bill_discount_amount,

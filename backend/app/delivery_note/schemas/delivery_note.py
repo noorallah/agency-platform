@@ -95,6 +95,10 @@ class DeliveryNoteCreate(DeliveryNoteSchema):
 
     sales_order_id: UUID
     delivery_date: date
+    #: Where this dispatch goes (backlog 67 row 3). None inherits the order's
+    #: ship-to; a note may name another of the customer's addresses when a
+    #: part goes elsewhere. On an update, leaving it out keeps the note's own.
+    shipping_address_id: UUID | None = None
     vehicle: str | None = Field(default=None, max_length=120)
     driver: str | None = Field(default=None, max_length=120)
     remarks: str | None = None
@@ -251,6 +255,8 @@ class DeliveryNoteResponse(DeliveryNoteSchema):
     delivery_note_number: str
     delivery_date: date
     sales_order_reference: str
+    #: The ship-to address the note names, inherited from the order.
+    shipping_address_id: UUID | None = None
     vehicle: str | None
     driver: str | None
     remarks: str | None

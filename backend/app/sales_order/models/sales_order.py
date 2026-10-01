@@ -66,6 +66,12 @@ class SalesOrder(BaseEntity):
     order_date: Mapped[date] = mapped_column(Date, nullable=False)
     delivery_date: Mapped[date | None] = mapped_column(Date)
     customer_reference: Mapped[str | None] = mapped_column(String(80))
+    #: Where the goods go: one of the customer's own addresses (backlog 67
+    #: row 3). A bare id, validated by ``app/customers/services/ship_to.py``
+    #: when it is set, so a document still prints the address it named after
+    #: the address is deleted. NULL only for a customer with no shipping
+    #: address, which ships to the billing address as before.
+    shipping_address_id: Mapped[UUID | None] = mapped_column(UUIDType())
     reference_number: Mapped[str | None] = mapped_column(String(80))
     currency_code: Mapped[str | None] = mapped_column(String(10))
     exchange_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))

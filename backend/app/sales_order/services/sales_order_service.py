@@ -42,6 +42,7 @@ from app.core.utils.report_labels import UNASSIGNED
 from app.customers.models import Customer, CustomerGroup
 from app.customers.schemas import CreditStatus
 from app.customers.services import CreditAssessment, CreditControlService
+from app.customers.services.ship_to import resolve_ship_to
 from app.customers.services.trading_status import (
     assert_customer_takes_new_documents,
 )
@@ -357,6 +358,7 @@ class SalesOrderService(TransactionalDocumentService):
                     firm_id=firm_id,
                     branch_id=data.branch_id,
                     customer_id=data.customer_id,
+                    shipping_address_id=row.shipping_address_id,
                 )
                 == SALES_INTERSTATE
             )
@@ -451,6 +453,11 @@ class SalesOrderService(TransactionalDocumentService):
             order_date=data.order_date,
             delivery_date=data.delivery_date,
             customer_reference=data.customer_reference,
+            shipping_address_id=resolve_ship_to(
+                self._session,
+                customer_id=data.customer_id,
+                address_id=data.shipping_address_id,
+            ),
             reference_number=data.reference_number,
             currency_code=data.currency_code,
             exchange_rate=data.exchange_rate,
@@ -548,6 +555,18 @@ class SalesOrderService(TransactionalDocumentService):
             route_id=data.route_id,
             on_date=data.order_date,
         )
+        # Absent keeps the order's own ship-to -- unless the order moved to
+        # another customer, whose addresses the old one is not among.
+        if "shipping_address_id" in data.model_fields_set:
+            row.shipping_address_id = resolve_ship_to(
+                self._session,
+                customer_id=data.customer_id,
+                address_id=data.shipping_address_id,
+            )
+        elif data.customer_id != row.customer_id:
+            row.shipping_address_id = resolve_ship_to(
+                self._session, customer_id=data.customer_id, address_id=None
+            )
         self._delete_children(order_id)
         row.customer_id = data.customer_id
         row.salesman_id = scope.salesman_id
@@ -1290,6 +1309,7 @@ class SalesOrderService(TransactionalDocumentService):
             order_date=row.order_date,
             delivery_date=row.delivery_date,
             customer_reference=row.customer_reference,
+            shipping_address_id=row.shipping_address_id,
             reference_number=row.reference_number,
             currency_code=row.currency_code,
             exchange_rate=row.exchange_rate,
@@ -2175,6 +2195,7 @@ class SalesOrderService(TransactionalDocumentService):
                 actor_id=actor_id,
                 business_profile_id=row.business_profile_id,
                 customer_id=row.customer_id,
+                shipping_address_id=row.shipping_address_id,
                 branch_id=row.branch_id,
                 warehouse_id=item.warehouse_id or row.warehouse_id,
                 product_id=item.product_id,
@@ -2460,6 +2481,7 @@ class SalesOrderService(TransactionalDocumentService):
         invoice_value: Decimal,
         document_id: UUID | None = None,
         line_number: int | None = None,
+        shipping_address_id: UUID | None = None,
     ) -> Decimal:
         if invoice_value <= ZERO:
             return ZERO
@@ -2491,6 +2513,7 @@ class SalesOrderService(TransactionalDocumentService):
                 firm_id=firm_id,
                 branch_id=branch_id,
                 customer_id=customer_id,
+                shipping_address_id=shipping_address_id,
             ),
             transaction_date=order_date,
             business_profile_id=business_profile_id,

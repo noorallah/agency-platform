@@ -156,7 +156,13 @@ class DeliveryChallanPrintService:
             # goods left and the paperwork has to exist.
             buyer=self._customer(note, "BILLING")
             or PartyBlock(name="", address_lines=[]),
-            ship_to=self._customer(note, "SHIPPING"),
+            # The address this dispatch names (backlog 67 row 3).
+            ship_to=customer_party(
+                self._session,
+                note.customer_id,
+                "SHIPPING",
+                address_id=note.shipping_address_id,
+            ),
             lines=tuple(printed),
             bill_discount=note.bill_discount_amount,
             gross_before_bill_discount=note.subtotal + note.bill_discount_amount,

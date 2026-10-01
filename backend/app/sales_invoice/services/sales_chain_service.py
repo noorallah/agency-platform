@@ -128,6 +128,9 @@ class SalesChainService:
                 warehouse_id=warehouse_id,
                 business_profile_id=data.business_profile_id,
                 order_date=data.invoice_date,
+                # Where the bill says the goods go; the note and the bill
+                # inherit it from here (backlog 67 row 3).
+                shipping_address_id=data.shipping_address_id,
                 reference_number=data.reference_number,
                 currency_code=data.currency_code,
                 exchange_rate=data.exchange_rate,
@@ -287,6 +290,7 @@ class SalesChainService:
             DeliveryNoteCreate(
                 sales_order_id=order.id,
                 delivery_date=data.invoice_date,
+                shipping_address_id=data.shipping_address_id,
                 remarks=data.remarks,
                 additional_charges=data.additional_charges,
                 round_off=data.round_off,
