@@ -422,7 +422,63 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
           onChanged: (_) => _schedulePreview(),
         ),
       ),
+      DocumentField(
+        label: 'Payment terms',
+        width: 200,
+        child: TextFormField(
+          key: const ValueKey('sales-order-payment-terms'),
+          controller: _paymentTerms,
+          readOnly: _locked,
+          maxLength: 200,
+          buildCounter: _hideCounter,
+          decoration: documentBoxDecoration(context, hint: 'e.g. 30 days net'),
+        ),
+      ),
+      DocumentField(
+        label: 'Credit days',
+        width: 150,
+        // Said beside the box, never filled into it: a typed figure would
+        // stop following the customer.
+        below: customer == null
+            ? null
+            : Text(
+                "blank takes the customer's ${customer.paymentTermsDays} days",
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontSize: 11,
+                      color: scheme.onSurfaceVariant,
+                    ),
+              ),
+        child: TextFormField(
+          key: const ValueKey('sales-order-payment-days'),
+          controller: _paymentTermsDays,
+          readOnly: _locked,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          decoration: documentBoxDecoration(context),
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          validator: _creditDays,
+        ),
+      ),
     ]);
+  }
+
+  /// No character counter under a box in a header row.
+  Widget? _hideCounter(
+    BuildContext context, {
+    required int currentLength,
+    required bool isFocused,
+    required int? maxLength,
+  }) =>
+      null;
+
+  /// Days the server would refuse, caught before the round trip.
+  String? _creditDays(String? value) {
+    final String text = (value ?? '').trim();
+    if (text.isEmpty) return null;
+    final int? days = int.tryParse(text);
+    if (days == null || days < 0 || days > 3650) return '0 to 3650.';
+    return null;
   }
 
   Map<String, dynamic>? _pricedLine(int index) {

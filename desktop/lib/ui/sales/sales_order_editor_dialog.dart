@@ -159,6 +159,12 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   String _billResolvedHelper = '';
   final TextEditingController _freightAmount = TextEditingController();
 
+  /// What was agreed on payment (backlog 67 row 4). Both stay blank unless
+  /// somebody types them: blank days takes the customer's, and the order
+  /// says so beside the box rather than filling it in.
+  final TextEditingController _paymentTerms = TextEditingController();
+  final TextEditingController _paymentTermsDays = TextEditingController();
+
   final List<_LineDraft> _lines = <_LineDraft>[];
 
   List<Customer> _customers = const [];
@@ -283,6 +289,8 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     _billDiscountPercent.dispose();
     _billDiscountAmount.dispose();
     _freightAmount.dispose();
+    _paymentTerms.dispose();
+    _paymentTermsDays.dispose();
     super.dispose();
   }
 
@@ -394,6 +402,8 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     _customerReference.text = stringValue(order['customer_reference']);
     _reference.text = stringValue(order['reference_number']);
     _coupon.text = stringValue(order['coupon_code']);
+    _paymentTerms.text = stringValue(order['payment_terms']);
+    _paymentTermsDays.text = stringValue(order['payment_terms_days']);
     _remarks.text = stringValue(order['remarks']);
     // Blank rather than '0' where there was none, so the box reads as empty
     // and the payload omits it.
@@ -644,6 +654,15 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
         'bill_discount_amount': _billDiscountAmount.text.trim(),
       if (_freightAmount.text.trim().isNotEmpty)
         'freight_amount': _freightAmount.text.trim(),
+      // Both sent on every phase 2 save: absent keeps the order's own on an
+      // update, so a cleared box has to say null. Blank days is null, which
+      // takes the customer's on a new order.
+      if (_phase2) ...<String, dynamic>{
+        'payment_terms': _paymentTerms.text.trim().isEmpty
+            ? null
+            : _paymentTerms.text.trim(),
+        'payment_terms_days': int.tryParse(_paymentTermsDays.text.trim()),
+      },
       'lines': <Json>[
         for (int index = 0; index < _lines.length; index += 1)
           <String, dynamic>{

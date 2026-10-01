@@ -233,6 +233,53 @@ Future<void> _save(WidgetTester tester) async {
 }
 
 void main() {
+  group('payment terms (backlog 67 row 4)', () {
+    testWidgets('blank boxes say what blank takes and send null',
+        (tester) async {
+      final _OrderApi api = _OrderApi();
+      await _open(tester, api);
+      await _pickCustomer(tester);
+      expect(find.text("blank takes the customer's 30 days"), findsOneWidget);
+      // Never prefilled: the box reads empty.
+      final TextField days = tester.widget<TextField>(
+        find.descendant(
+          of: find.byKey(const ValueKey('sales-order-payment-days')),
+          matching: find.byType(TextField),
+        ),
+      );
+      expect(days.controller!.text, isEmpty);
+      await _save(tester);
+      expect(api.created!.containsKey('payment_terms'), isTrue);
+      expect(api.created!['payment_terms'], isNull);
+      expect(api.created!['payment_terms_days'], isNull);
+    });
+
+    testWidgets('typed terms and days are sent', (tester) async {
+      final _OrderApi api = _OrderApi();
+      await _open(tester, api);
+      await _pickCustomer(tester);
+      await tester.enterText(
+          find.byKey(const ValueKey('sales-order-payment-terms')), 'Net 45');
+      await tester.enterText(
+          find.byKey(const ValueKey('sales-order-payment-days')), '45');
+      await _save(tester);
+      expect(api.created!['payment_terms'], 'Net 45');
+      expect(api.created!['payment_terms_days'], 45);
+    });
+
+    testWidgets('reopening shows what was saved and sends it back',
+        (tester) async {
+      final _OrderApi api =
+          _OrderApi(existing: _draft(terms: '50% advance', termsDays: 15));
+      await _open(tester, api, id: 'so-1');
+      expect(find.text('50% advance'), findsOneWidget);
+      expect(find.text('15'), findsOneWidget);
+      await _save(tester);
+      expect(api.updated!['payment_terms'], '50% advance');
+      expect(api.updated!['payment_terms_days'], 15);
+    });
+  });
+
   group('ship to (backlog 67 row 3)', () {
     testWidgets('a new order preselects the default shipping address',
         (tester) async {
