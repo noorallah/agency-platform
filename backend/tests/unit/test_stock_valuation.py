@@ -158,3 +158,107 @@ def test_quarantined_goods_are_still_owned_and_still_valued() -> None:
     assert items["RICE"].quantity == Decimal("15")
     totals = {row.row_type: row.value for row in rows if row.row_type != "ITEM"}
     assert totals["DIFFERENCE"] == Decimal("0.00")
+
+
+# -- The stock statement for the bank (backlog 70 row 6) ----------------------
+
+
+def _identity_holds(rows: list[object]) -> None:
+    """Check opening + in - out = closing, in quantity and value, every row."""
+    for row in rows:
+        assert (
+            row.opening_quantity + row.inward_quantity - row.outward_quantity  # type: ignore[attr-defined]
+            == row.closing_quantity  # type: ignore[attr-defined]
+        ), row
+        assert (
+            row.opening_value + row.inward_value - row.outward_value  # type: ignore[attr-defined]
+            == row.closing_value  # type: ignore[attr-defined]
+        ), row
+
+
+def test_the_month_the_stock_arrived_shows_it_coming_in() -> None:
+    """Nothing before; all of it in; closing is the valuation as on the day."""
+    from app.inventory.services.stock_valuation import StockStatementService
+
+    session, firm = _stocked()
+    rows = StockStatementService(session).statement(
+        firm.id, from_date=_ON - timedelta(days=5), to_date=_ON
+    )
+
+    items = [row for row in rows if row.row_type == "ITEM"]
+    assert items and all(row.opening_quantity == 0 for row in items)
+    assert all(row.outward_quantity == 0 for row in items)
+    total = rows[-1]
+    assert total.row_type == "TOTAL"
+    valued = StockValuationService(session).valuation(firm.id, on=_ON)
+    grand = next(row for row in valued if row.row_type == "TOTAL")
+    assert total.closing_value == grand.value
+    _identity_holds(rows)
+
+
+def test_a_write_off_is_an_issue_and_the_next_month_opens_where_it_closed() -> None:
+    """Goods out at the moving average; next period's opening is this closing."""
+    from app.inventory.models import InventoryRecord
+    from app.inventory.schemas import StockWriteOffCreate
+    from app.inventory.services import InventoryService
+    from app.inventory.services.stock_valuation import StockStatementService
+    from app.products.models import Product
+
+    session, firm = _stocked()
+    rice = session.scalar(
+        select(Product).where(Product.firm_id == firm.id, Product.code == "RICE")
+    )
+    assert rice is not None
+    record = session.scalar(
+        select(InventoryRecord).where(
+            InventoryRecord.firm_id == firm.id, InventoryRecord.product_id == rice.id
+        )
+    )
+    assert record is not None
+    later = _ON + timedelta(days=10)
+    InventoryService(session).write_off_stock(
+        StockWriteOffCreate(
+            branch_id=record.branch_id,
+            warehouse_id=record.warehouse_id,
+            product_id=rice.id,
+            reason="DAMAGE",  # type: ignore[arg-type]
+            quantity=Decimal("3"),
+            transaction_date=later,
+        ),
+        firm_scope=firm.id,
+        actor_id=firm.id,
+    )
+    session.commit()
+    service = StockStatementService(session)
+
+    first = service.statement(firm.id, from_date=_ON - timedelta(days=5), to_date=_ON)
+    second = service.statement(
+        firm.id, from_date=_ON + timedelta(days=1), to_date=later
+    )
+
+    rice_first = next(row for row in first if row.product_code == "RICE")
+    rice_second = next(row for row in second if row.product_code == "RICE")
+    assert rice_second.opening_quantity == rice_first.closing_quantity
+    assert rice_second.opening_value == rice_first.closing_value
+    assert rice_second.outward_quantity == Decimal("3")
+    assert rice_second.outward_value > 0
+    _identity_holds(second)
+
+
+def test_a_period_that_ends_before_it_starts_is_refused() -> None:
+    """Named rather than answered with an empty statement."""
+    from app.core.exceptions import ValidationError
+    from app.inventory.api.router import stock_statement
+
+    session, firm = _stocked()
+    scope = type("Scope", (), {"firm_id": firm.id})()
+    with pytest.raises(ValidationError, match="ends before it starts"):
+        stock_statement(
+            scope=scope,  # type: ignore[arg-type]
+            from_date=_ON,
+            to_date=_ON - timedelta(days=1),
+            warehouse_id=None,
+            page=1,
+            page_size=100,
+            db=session,
+        )

@@ -75,7 +75,10 @@ from app.inventory.services.opening_stock_import import (
 from app.inventory.services.opening_stock_import import (
     template_workbook as opening_stock_template_workbook,
 )
-from app.inventory.services.stock_valuation import StockValuationService
+from app.inventory.services.stock_valuation import (
+    StockStatementService,
+    StockValuationService,
+)
 
 router = APIRouter(
     prefix="/api/v1/inventory",
@@ -220,6 +223,60 @@ def stock_valuation(
     window = ReportWindow(None, None, page, page_size)
     return window.respond(
         [StockValuationRecord.model_validate(row, from_attributes=True) for row in rows]
+    )
+
+
+class StockStatementRecord(BaseModel):
+    """One item's opening, in, out and closing over a period, or the total."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    #: ITEM, or TOTAL for the last row.
+    row_type: str
+    product_code: str
+    product_name: str
+    category: str
+    unit: str
+    opening_quantity: Decimal
+    opening_value: Decimal
+    inward_quantity: Decimal
+    inward_value: Decimal
+    outward_quantity: Decimal
+    outward_value: Decimal
+    closing_quantity: Decimal
+    closing_value: Decimal
+
+
+@router.get(
+    "/reports/stock-statement",
+    response_model=PaginatedResponse[StockStatementRecord],
+)
+def stock_statement(
+    scope: StockValuationScope,
+    from_date: date,
+    to_date: date,
+    warehouse_id: UUID | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[StockStatementRecord]:
+    """Return the bank stock statement: opening, in, out, closing, value.
+
+    Backlog 70 row 6. Opening and closing agree with *Stock valuation* as on
+    the day before ``from_date`` and on ``to_date``; what went out is valued
+    as opening + in - closing, so the columns add up exactly.
+    """
+    if to_date < from_date:
+        raise ValidationError("The period ends before it starts.")
+    rows = StockStatementService(db).statement(
+        scope.firm_id,
+        from_date=from_date,
+        to_date=min(to_date, utc_now().date()),
+        warehouse_id=warehouse_id,
+    )
+    window = ReportWindow(None, None, page, page_size)
+    return window.respond(
+        [StockStatementRecord.model_validate(row, from_attributes=True) for row in rows]
     )
 
 

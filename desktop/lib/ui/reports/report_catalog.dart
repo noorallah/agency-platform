@@ -736,6 +736,33 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'value', label: 'Value', numeric: true),
     ],
   ),
+  // The drawing-power statement a bank asks a distributor for every month
+  // (backlog 70 row 6): opening, in, out and closing, each with its value.
+  ReportDefinition(
+    id: 'stock-statement',
+    label: 'Stock statement for the bank',
+    description: 'Opening stock, receipts, issues and closing stock with '
+        'their values over the period -- the monthly statement a bank asks '
+        'for against a cash-credit limit.',
+    path: '/api/v1/inventory/reports/stock-statement',
+    permission: 'INVENTORY_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    columns: [
+      ReportColumn(key: 'product_code', label: 'Code'),
+      ReportColumn(key: 'product_name', label: 'Item'),
+      ReportColumn(key: 'category', label: 'Category'),
+      ReportColumn(key: 'unit', label: 'Unit'),
+      ReportColumn(key: 'opening_quantity', label: 'Opening', numeric: true),
+      ReportColumn(key: 'opening_value', label: 'Opening value', numeric: true),
+      ReportColumn(key: 'inward_quantity', label: 'In', numeric: true),
+      ReportColumn(key: 'inward_value', label: 'In value', numeric: true),
+      ReportColumn(key: 'outward_quantity', label: 'Out', numeric: true),
+      ReportColumn(key: 'outward_value', label: 'Out value', numeric: true),
+      ReportColumn(key: 'closing_quantity', label: 'Closing', numeric: true),
+      ReportColumn(key: 'closing_value', label: 'Closing value', numeric: true),
+    ],
+  ),
   // Where a supplier billed a rate other than the goods were received at
   // (65 row 5): the difference posts to Purchase Price Variance, and this
   // names it line by line so a buyer can take it up.
