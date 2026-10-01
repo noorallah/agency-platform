@@ -71,6 +71,7 @@ from app.purchase.schemas import (
     PurchaseOrderUpdate,
     PurchaseSummary,
 )
+from app.purchase.services.approval_limit import PurchaseApprovalLimitService
 from app.sales.services.document_preview import purchase_line_companions
 from app.tax.models import TaxProfile
 from app.tax.schemas import TaxRuleSimulationRequest
@@ -769,7 +770,12 @@ class PurchaseService(TransactionalDocumentService):
         return row
 
     def stage_approval(
-        self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
+        self,
+        order_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        enforce_limit: bool = True,
     ) -> PurchaseOrder:
         """Approve a submitted order, committing the firm to buy, unsaved.
 
@@ -779,6 +785,10 @@ class PurchaseService(TransactionalDocumentService):
         `SalesOrderService.approve_order` goes straight from DRAFT because the
         thing it guards is credit, checked at that moment, not a second pair of
         eyes.
+
+        ``enforce_limit`` is False only where a supplier bill raises the order
+        for a firm that switched the order stage off: nobody typed that order,
+        so there is no approval of it for a limit to govern (BACKLOG 68 row 4).
         """
         row = self.get_order(order_id, firm_scope=firm_scope)
         if row.status == PurchaseOrderStatus.APPROVED.value:
@@ -792,6 +802,17 @@ class PurchaseService(TransactionalDocumentService):
         licence_remark, licence_details = LicenceCheckService(
             self._session
         ).approve_purchase(LicenceDocument.PURCHASE_ORDER, row.id, firm_id=firm_scope)
+        # The approver's limit (backlog 68 row 4): above it the order stays
+        # submitted and the refusal names the amount it needs.
+        limit_details = (
+            PurchaseApprovalLimitService(self._session).enforce(
+                firm_scope, actor_id, order_amount=row.grand_total
+            )
+            if enforce_limit
+            else None
+        )
+        if limit_details:
+            licence_details = {**(licence_details or {}), **limit_details}
         return self._transition(
             row,
             to_status=PurchaseOrderStatus.APPROVED,
