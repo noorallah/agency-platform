@@ -34,6 +34,7 @@ const Map<String, List<String>> _synonyms = {
   MenuLayout.salesStagesRoute: ['sales workflow', 'stages', 'quotation stage'],
   MenuLayout.creditControlRoute: ['credit limit', 'credit policy'],
   MenuLayout.loyaltySchemeRoute: ['loyalty', 'reward points'],
+  MenuLayout.workDefaultsRoute: ['usual branch', 'default warehouse', 'my defaults'],
   MenuLayout.tcsSettingsRoute: ['tcs', 'tax collected at source', '206c'],
 };
 

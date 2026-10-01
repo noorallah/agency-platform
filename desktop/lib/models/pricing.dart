@@ -510,3 +510,108 @@ class PromotionCouponRecord {
         if (effectiveTo.isNotEmpty) 'effective_to': effectiveTo,
       };
 }
+
+/// What one line of a tried document earned.
+class PromotionTryLine {
+  const PromotionTryLine({
+    required this.lineNumber,
+    required this.discountAmount,
+    required this.freeQuantity,
+    required this.offerCodes,
+  });
+
+  factory PromotionTryLine.fromJson(Map<String, dynamic> json) =>
+      PromotionTryLine(
+        lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
+        discountAmount: stringValue(json['discount_amount']),
+        freeQuantity: stringValue(json['free_quantity']),
+        offerCodes: stringList(json['applied_promotion_codes']),
+      );
+
+  final int lineNumber;
+  final String discountAmount;
+  final String freeQuantity;
+  final List<String> offerCodes;
+}
+
+/// Goods an offer adds to the document.
+class PromotionTryGift {
+  const PromotionTryGift({
+    required this.productId,
+    required this.quantity,
+    required this.offerCode,
+  });
+
+  factory PromotionTryGift.fromJson(Map<String, dynamic> json) =>
+      PromotionTryGift(
+        productId: stringValue(json['product_id']),
+        quantity: stringValue(json['quantity']),
+        offerCode: stringValue(json['promotion_code']),
+      );
+
+  final String productId;
+  final String quantity;
+  final String offerCode;
+}
+
+/// Why one offer did or did not apply to the tried document.
+class PromotionTryDecision {
+  const PromotionTryDecision({
+    required this.code,
+    required this.priority,
+    required this.applied,
+    required this.reason,
+  });
+
+  factory PromotionTryDecision.fromJson(Map<String, dynamic> json) =>
+      PromotionTryDecision(
+        code: stringValue(json['code']),
+        priority: (json['priority'] as num?)?.toInt() ?? 0,
+        applied: json['matched'] == true,
+        reason: stringValue(json['reason']),
+      );
+
+  final String code;
+  final int priority;
+  final bool applied;
+  final String reason;
+}
+
+/// The answer to `POST /api/v1/promotions/simulate`: what a document would
+/// earn, and why. Nothing is saved or claimed by asking.
+class PromotionTryResult {
+  const PromotionTryResult({
+    required this.lines,
+    required this.billDiscount,
+    required this.freightWaived,
+    required this.gifts,
+    required this.decisions,
+  });
+
+  factory PromotionTryResult.fromJson(Map<String, dynamic> json) {
+    List<Map<String, dynamic>> maps(String key) => [
+          for (final dynamic item in (json[key] as List<dynamic>? ?? const []))
+            Map<String, dynamic>.from(item as Map),
+        ];
+    return PromotionTryResult(
+      lines: maps('lines').map(PromotionTryLine.fromJson).toList(),
+      billDiscount: stringValue(json['bill_discount_amount']),
+      freightWaived: stringValue(json['freight_waived']),
+      gifts: maps('gifts').map(PromotionTryGift.fromJson).toList(),
+      decisions: maps('decisions').map(PromotionTryDecision.fromJson).toList(),
+    );
+  }
+
+  final List<PromotionTryLine> lines;
+  final String billDiscount;
+  final String freightWaived;
+  final List<PromotionTryGift> gifts;
+  final List<PromotionTryDecision> decisions;
+
+  /// Line discounts, the bill discount and the delivery waived, together.
+  double get totalSaved =>
+      lines.fold<double>(
+          0, (sum, line) => sum + (double.tryParse(line.discountAmount) ?? 0)) +
+      (double.tryParse(billDiscount) ?? 0) +
+      (double.tryParse(freightWaived) ?? 0);
+}
