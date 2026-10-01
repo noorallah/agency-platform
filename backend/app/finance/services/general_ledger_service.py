@@ -233,12 +233,15 @@ class GeneralLedgerService:
                 accounting_period_id=accounting_period_id,
             )
         )
+        carried = ZERO
         if account.account_type in PROFIT_LOSS_ACCOUNT_TYPES:
             # A new financial year opens an income or expense ledger at zero
-            # (D-FIN-22); what it held before belongs to earlier years.
-            opening -= self._brought_forward(
+            # (D-FIN-22); what it held before belongs to earlier years. The
+            # closing balance below takes the same figure off (D-FIN-24).
+            carried = self._brought_forward(
                 firm_id=firm_id, period=period, account_ids=[account.id]
             ).get(account.id, ZERO)
+            opening -= carried
         increases_on_debit = account.account_type in DEBIT_BALANCE_ACCOUNT_TYPES
 
         # Ordered by the journal date, not by ``posting_date``. A back-dated
@@ -336,7 +339,9 @@ class GeneralLedgerService:
             total_debit=total_debit,
             total_credit=total_credit,
             closing_balance=(
-                closing_row.closing_balance if closing_row is not None else running
+                closing_row.closing_balance - carried
+                if closing_row is not None
+                else running
             ),
             lines=lines,
         )

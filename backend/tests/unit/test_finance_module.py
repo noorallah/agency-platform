@@ -3590,6 +3590,29 @@ def test_a_new_year_opens_income_at_zero_and_brings_the_profit_forward() -> None
     )
     assert ledger.opening_balance == Decimal("0.00")
 
+    # D-FIN-24: the closing takes the same figure off as the opening, so it
+    # is where the running balance ends, on both statement paths.
+    for to_period in (None, may.id):
+        income = reports.general_ledger(
+            firm_id=firm.id,
+            ledger_account_id=book.sales.id,
+            accounting_period_id=april.id,
+            to_period_id=to_period,
+        )
+        assert income.opening_balance == Decimal("0.00")
+        assert income.closing_balance == Decimal("40.00")
+        assert income.lines[-1].running_balance == income.closing_balance
+        # A balance sheet account is not restarted by the year.
+        cash = reports.general_ledger(
+            firm_id=firm.id,
+            ledger_account_id=book.cash.id,
+            accounting_period_id=april.id,
+            to_period_id=to_period,
+        )
+        assert cash.opening_balance == Decimal("100.00")
+        assert cash.closing_balance == Decimal("140.00")
+        assert cash.lines[-1].running_balance == cash.closing_balance
+
     sheet = reports.balance_sheet(firm_id=firm.id, accounting_period_id=april.id)
     assert sheet.retained_earnings_brought_forward == Decimal("100.00")
     assert sheet.is_balanced
