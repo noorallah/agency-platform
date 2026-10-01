@@ -1,0 +1,52 @@
+{
+  "data": {
+    "gstin": "YOUR-FIRM-GSTIN",
+    "rtnprd": "082026",
+    "docdata": {
+      "b2b": [
+        {
+          "ctin": "SUPPLIER-GSTIN",
+          "trdnm": "Fixture Supplier qa",
+          "inv": [
+            {
+              "inum": "FIRST-SUPPLIER-BILL-NO",
+              "dt": "02-08-2026",
+              "val": 708,
+              "txval": 600,
+              "igst": 0,
+              "cgst": 54,
+              "sgst": 54,
+              "cess": 0,
+              "itcavl": "Y",
+              "rev": "N"
+            },
+            {
+              "inum": "SECOND-SUPPLIER-BILL-NO",
+              "dt": "05-08-2026",
+              "val": 713,
+              "txval": 600,
+              "igst": 0,
+              "cgst": 59,
+              "sgst": 54,
+              "cess": 0,
+              "itcavl": "Y",
+              "rev": "N"
+            },
+            {
+              "inum": "NOT-IN-BOOKS-1",
+              "dt": "09-08-2026",
+              "val": 118,
+              "txval": 100,
+              "igst": 0,
+              "cgst": 9,
+              "sgst": 9,
+              "cess": 0,
+              "itcavl": "Y",
+              "rev": "N"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

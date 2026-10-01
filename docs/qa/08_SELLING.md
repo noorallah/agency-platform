@@ -153,6 +153,14 @@ promotion, or the customer's standing rate).
 - **Expect**
   - Step 1: "PF-… raised. Issue it when the customer needs it." then "PF-… issued."; a `PF` series number (never `PI`, which purchase invoices use); **nothing** posted; Outstanding unchanged; the pane says "Not a tax invoice — no input tax credit is available against this document."
   - Step 2: the proforma's lines and totals are unchanged — snapshotted when it was raised.
+### TC-SELL-018 — Why the goods go out, and dispatch before the invoice
+
+*Added 2026-10-02 (backlog 77 rows 1-3, A35).*
+
+- **Preconditions:** *sell-ready*: an approved sales order for 10 of `QA-S` with stock.
+- **Steps:** as the prepared **Firm admin**: Settings (gear) → Tax → **GST Documents**: leave *Dispatch of a sale before its invoice* at **Warn** → Save. Delivery Notes → **New** off the order for 2, **Reason** *Sale* → Save → Approve → **Dispatch**. Repeat with **Reason** *Supply on approval*. Then set the policy to **Block** and dispatch a *Sale* note. Then on another approved *Sale* note use **Dispatch and invoice**. Then a note with **Reason** *Other* and no words. Print one challan.
+- **Expect:** under Warn, Dispatch on a *Sale* note shows the GST message with **Dispatch and invoice / Dispatch anyway / Cancel**; *Dispatch anyway* dispatches and the audit trail keeps the warning. *Supply on approval* dispatches with no question. Under Block there is no *Dispatch anyway*. **Dispatch and invoice** dispatches the note and creates an **approved** invoice of it in one step ("Dispatched and invoiced as SI-…"); if the invoice is refused (e.g. price below its floor) nothing is dispatched. *Other* without words is refused ("Say why…"). The challan print shows **Reason**. *Van or route sale* dispatches freely unless **Van or route sales need the invoice** is switched on.
+
 ---
 
 ## Screen checks
