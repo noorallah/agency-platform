@@ -20,6 +20,7 @@ const Map<String, List<String>> _synonyms = {
   'accounting/receipts': ['collection', 'money in'],
   'accounting/payments': ['money out', 'pay supplier'],
   'accounting/journal-entries': ['journal', 'jv'],
+  'accounting/expenses': ['expense', 'payment voucher', 'rent', 'fuel'],
   'accounting/ledgers': ['ledger', 'account book'],
   'masters/customers': ['party', 'debtor', 'buyer', 'retailer'],
   'masters/vendors': ['supplier', 'creditor', 'party'],

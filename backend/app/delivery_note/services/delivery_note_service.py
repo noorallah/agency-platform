@@ -12,7 +12,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.batch_serial.models import BatchRecord, SerialNumber
 from app.batch_serial.schemas import PickedSerial, SerialStatus
@@ -1113,35 +1113,14 @@ class DeliveryNoteService(TransactionalDocumentService):
             )
         return mapped_like(order_rows, result)
 
-    def _shipped_notes(
-        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
-    ) -> list[DeliveryNote]:
-        """Every note whose goods actually left the warehouse.
-
-        The by-route, by-salesman and by-warehouse reports say "delivered",
-        and used to sum every non-cancelled note -- a DRAFT's typed quantity
-        raised the warehouse's delivered total (D-RPT-9). Only a dispatched
-        note has delivered anything, and `goods_have_left_clause` is the one
-        test of that (D-SELL-4).
-        """
-        return list(
-            self._session.scalars(
-                select(DeliveryNote).where(
-                    DeliveryNote.firm_id == firm_scope,
-                    DeliveryNote.is_deleted.is_(False),
-                    goods_have_left_clause(),
-                    *window.dated(DeliveryNote.delivery_date),
-                )
-            ).all()
-        )
-
     def by_route_report(
         self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
     ) -> list[DeliveryNoteByDimensionRecord]:
         """Deliveries per route: dispatched notes only."""
         return self._aggregate_dimension(
-            rows=self._shipped_notes(firm_scope=firm_scope, window=window),
-            attr="route_id",
+            firm_scope=firm_scope,
+            window=window,
+            column=DeliveryNote.route_id,
             dimension="route",
         )
 
@@ -1150,8 +1129,9 @@ class DeliveryNoteService(TransactionalDocumentService):
     ) -> list[DeliveryNoteByDimensionRecord]:
         """Deliveries per salesperson: dispatched notes only."""
         return self._aggregate_dimension(
-            rows=self._shipped_notes(firm_scope=firm_scope, window=window),
-            attr="salesman_id",
+            firm_scope=firm_scope,
+            window=window,
+            column=DeliveryNote.salesman_id,
             dimension="salesman",
         )
 
@@ -1160,8 +1140,9 @@ class DeliveryNoteService(TransactionalDocumentService):
     ) -> list[DeliveryNoteByDimensionRecord]:
         """Deliveries per warehouse: dispatched notes only."""
         return self._aggregate_dimension(
-            rows=self._shipped_notes(firm_scope=firm_scope, window=window),
-            attr="warehouse_id",
+            firm_scope=firm_scope,
+            window=window,
+            column=DeliveryNote.warehouse_id,
             dimension="warehouse",
         )
 
@@ -2643,33 +2624,62 @@ class DeliveryNoteService(TransactionalDocumentService):
         return self._q(self._session.scalar(statement) or ZERO)
 
     def _aggregate_dimension(
-        self, *, rows: list[DeliveryNote], attr: str, dimension: str
+        self,
+        *,
+        firm_scope: UUID,
+        window: ReportWindow,
+        column: InstrumentedAttribute[UUID | None],
+        dimension: str,
     ) -> list[DeliveryNoteByDimensionRecord]:
-        quantities: dict[UUID | None, Decimal] = defaultdict(lambda: ZERO)
-        values: dict[UUID | None, Decimal] = defaultdict(lambda: ZERO)
-        counts: dict[UUID | None, int] = defaultdict(int)
+        """Count, value and quantity of the shipped notes, grouped in SQL.
+
+        The by-route, by-salesman and by-warehouse reports say "delivered",
+        and used to sum every non-cancelled note -- a DRAFT's typed quantity
+        raised the warehouse's delivered total (D-RPT-9). Only a dispatched
+        note has delivered anything, and `goods_have_left_clause` is the one
+        test of that (D-SELL-4). Grouped in SQL: reading every note whole to
+        add them up took 4-6 s for a year on the volume firm (backlog 56 C,
+        step 4).
+        """
+        shipped = (
+            DeliveryNote.firm_id == firm_scope,
+            DeliveryNote.is_deleted.is_(False),
+            goods_have_left_clause(),
+            *window.dated(DeliveryNote.delivery_date),
+        )
+        counts: dict[UUID | None, int] = {}
+        values: dict[UUID | None, Decimal] = {}
+        for key, count, total in self._session.execute(
+            select(
+                column,
+                func.count(),
+                func.coalesce(func.sum(DeliveryNote.grand_total), 0),
+            )
+            .where(*shipped)
+            .group_by(column)
+        ).all():
+            counts[key] = int(count)
+            values[key] = Decimal(str(total))
+        quantities: dict[UUID | None, Decimal] = {
+            key: Decimal(str(total))
+            for key, total in self._session.execute(
+                select(
+                    column,
+                    func.coalesce(func.sum(DeliveryNoteLine.delivered_quantity), 0),
+                )
+                .join(
+                    DeliveryNoteLine,
+                    DeliveryNoteLine.delivery_note_id == DeliveryNote.id,
+                )
+                .where(*shipped, DeliveryNoteLine.is_deleted.is_(False))
+                .group_by(column)
+            ).all()
+        }
         labels: dict[UUID | None, str] = {None: UNASSIGNED}
-        # One grouped read of the quantities, not one per note.
-        delivered_by_note: dict[UUID, Decimal] = {}
-        if rows:
-            delivered_by_note = {
-                note_id: self._q(Decimal(str(total)))
-                for note_id, total in self._session.execute(
-                    select(
-                        DeliveryNoteLine.delivery_note_id,
-                        func.coalesce(func.sum(DeliveryNoteLine.delivered_quantity), 0),
-                    )
-                    .where(
-                        DeliveryNoteLine.delivery_note_id.in_([row.id for row in rows]),
-                        DeliveryNoteLine.is_deleted.is_(False),
-                    )
-                    .group_by(DeliveryNoteLine.delivery_note_id)
-                ).all()
-            }
         # Every name in one read for the whole report, whichever dimension it
         # is grouped by: the route and warehouse labels used to cost one query
         # per distinct key (D-RPT-19).
-        keys = {getattr(row, attr) for row in rows} - {None}
+        keys = {key for key in counts if key is not None}
         if dimension == "salesman":
             for person, person_name in self._salesman_names(keys).items():
                 labels[person] = person_name
@@ -2689,21 +2699,16 @@ class DeliveryNoteService(TransactionalDocumentService):
                 if route_name:
                     labels[profile_id] = route_name
         else:
-            for warehouse in self._session.scalars(
-                select(Warehouse).where(Warehouse.id.in_(keys))
+            for warehouse_id, warehouse_name in self._session.execute(
+                select(Warehouse.id, Warehouse.name).where(Warehouse.id.in_(keys))
             ).all():
-                labels[warehouse.id] = warehouse.name
-        for row in rows:
-            key = getattr(row, attr)
-            counts[key] += 1
-            values[key] += row.grand_total
-            quantities[key] += delivered_by_note.get(row.id, ZERO)
+                labels[warehouse_id] = warehouse_name
         return [
             DeliveryNoteByDimensionRecord(
                 dimension_id=key,
                 dimension_name=labels.get(key, str(key)),
                 note_count=counts[key],
-                delivered_quantity=self._q(quantities[key]),
+                delivered_quantity=self._q(quantities.get(key, ZERO)),
                 total_value=self._q(values[key]),
             )
             for key in sorted(
