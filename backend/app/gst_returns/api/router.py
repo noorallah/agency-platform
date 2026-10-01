@@ -21,20 +21,24 @@ from app.common.scope import (
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.responses.models import ApiResponse
-from app.gst_returns.models import HEADS, GstPayment
+from app.gst_returns.models import HEADS, GstPayment, GstReturnType
 from app.gst_returns.schemas import (
     GstHeadRow,
     GstPaymentCreate,
     GstPaymentPreviewResponse,
     GstPaymentResponse,
     GstPaymentReverse,
+    GstReturnFilingCreate,
+    GstReturnFilingResponse,
     GstUtilisationRow,
+    TaxCalendarItemResponse,
 )
 from app.gst_returns.services import GstReturnService
 from app.gst_returns.services.gst_payment_service import (
     GstPaymentPreview,
     GstPaymentService,
 )
+from app.gst_returns.services.tax_calendar import TaxCalendarService
 
 router = APIRouter(
     prefix="/api/v1/gst-returns",
@@ -256,3 +260,61 @@ def reverse_gst_payment(
     )
     db.commit()
     return ApiResponse(data=_payment_response(row))
+
+
+@router.get("/calendar", response_model=ApiResponse[list[TaxCalendarItemResponse]])
+def tax_calendar(
+    scope: GstPaymentViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[TaxCalendarItemResponse]]:
+    """Return what the last few months owe: due, late or done (63.4)."""
+    return ApiResponse(
+        data=[
+            TaxCalendarItemResponse(
+                kind=item.kind,
+                return_period=item.return_period,
+                due_date=item.due_date,
+                amount=item.amount,
+                status=item.status,
+                days_late=item.days_late,
+                done_on=item.done_on,
+                reference=item.reference,
+                filing_id=item.filing_id,
+            )
+            for item in TaxCalendarService(db).calendar(scope.firm_id)
+        ]
+    )
+
+
+@router.post("/filings", response_model=ApiResponse[GstReturnFilingResponse])
+def mark_gst_return_filed(
+    data: GstReturnFilingCreate,
+    scope: GstPaymentPostScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GstReturnFilingResponse]:
+    """Record that a return was filed on the portal, with its ARN (63.4)."""
+    row = TaxCalendarService(db).mark_filed(
+        scope.firm_id,
+        return_type=GstReturnType(data.return_type),
+        return_period=data.return_period,
+        filed_on=data.filed_on,
+        arn=data.arn,
+        remarks=data.remarks,
+        actor_id=scope.actor_id,
+    )
+    db.commit()
+    return ApiResponse(data=GstReturnFilingResponse.model_validate(row))
+
+
+@router.delete("/filings/{filing_id}", response_model=ApiResponse[dict[str, str]])
+def withdraw_gst_return_filing(
+    filing_id: UUID,
+    scope: GstPaymentPostScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[dict[str, str]]:
+    """Take back a return recorded as filed in error."""
+    TaxCalendarService(db).withdraw(
+        filing_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    db.commit()
+    return ApiResponse(data={"id": str(filing_id)}, message="Filing withdrawn.")

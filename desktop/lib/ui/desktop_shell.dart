@@ -6260,6 +6260,17 @@ class _ShellHomeSource implements HomeSource {
       (await api.expiringTradeLicences()).length;
 
   @override
+  Future<List<Map<String, dynamic>>> taxCalendar() => api.gstTaxCalendar();
+
+  @override
+  Future<void> markGstReturnFiled(Map<String, dynamic> body) =>
+      api.markGstReturnFiled(body);
+
+  @override
+  Future<void> withdrawGstReturnFiling(String id) =>
+      api.withdrawGstReturnFiling(id);
+
+  @override
   Future<Map<String, dynamic>> summary(String path) async {
     final Map<String, dynamic> response = switch (path) {
       'salesInvoices/sales-invoices' =>

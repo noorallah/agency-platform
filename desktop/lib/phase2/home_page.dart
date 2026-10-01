@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../core/api/api_client.dart' show ApiException;
 import '../core/design/design_tokens.dart';
 
+import '../ui/workspace/save_in_dialog.dart';
 import 'indian_format.dart';
 import 'menu_layout.dart';
 
@@ -30,6 +32,17 @@ abstract class HomeSource {
   /// Trade licences -- the firm's own, and its customers' and vendors' --
   /// that have run out or run out within the server's warning window.
   Future<int> expiringLicences();
+
+  /// The tax calendar: returns and deposits due, latest month first
+  /// (backlog 63 item 4).
+  Future<List<Map<String, dynamic>>> taxCalendar();
+
+  /// Record a month's GSTR-1 or GSTR-3B as filed: `return_type`,
+  /// `return_period`, `filed_on` and optionally `arn`.
+  Future<void> markGstReturnFiled(Map<String, dynamic> body);
+
+  /// Withdraw a filing recorded in error.
+  Future<void> withdrawGstReturnFiling(String id);
 
   /// A document list's summary, by its screen's path.
   Future<Map<String, dynamic>> summary(String path);
@@ -111,6 +124,7 @@ class Phase2HomePage extends StatefulWidget {
     'figures': 'Key figures',
     'chart': 'Sales, last 14 days',
     'recent': 'Recent invoices',
+    'tax': 'Tax calendar',
     'todo': 'To do',
     'screens': 'Favourites',
   };
@@ -120,6 +134,8 @@ class Phase2HomePage extends StatefulWidget {
   static const String expiry = 'inventory/expiry-monitor';
   static const String tradeLicences = 'masters/trade-licences';
   static const String receipts = 'accounting/receipts';
+  static const String gstPayment = 'sales/gst-payment';
+  static const String gstReturns = 'sales/gst-returns';
 
   /// The to-do list, in the order of a trading day.
   ///
@@ -197,6 +213,7 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
   final _Figure<double> _receiptsToday = _Figure();
   final _Figure<int> _expiring = _Figure();
   final _Figure<int> _licencesExpiring = _Figure();
+  final _Figure<List<Map<String, dynamic>>> _calendar = _Figure();
   final Map<String, _Figure<Map<String, dynamic>>> _summaries = {};
 
   bool get _sales => widget.allowed(Phase2HomePage.salesInvoices);
@@ -204,6 +221,7 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
   bool get _receipts => widget.allowed(Phase2HomePage.receipts);
   bool get _batches => widget.allowed(Phase2HomePage.expiry);
   bool get _licences => widget.allowed(Phase2HomePage.tradeLicences);
+  bool get _tax => widget.allowed(Phase2HomePage.gstPayment);
 
   DateTime get _day =>
       DateTime(widget.today.year, widget.today.month, widget.today.day);
@@ -223,6 +241,7 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
     if (_stock) _load(_belowReorder, widget.source.itemsBelowReorder());
     if (_receipts) _load(_receiptsToday, widget.source.receiptsOn(_day));
     if (_batches) _load(_expiring, widget.source.batchesExpiringIn30Days());
+    if (_tax) _loadCalendar();
     if (_licences) {
       _load(_licencesExpiring, widget.source.expiringLicences());
     }
@@ -242,6 +261,12 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
     }, onError: (Object _) {
       if (mounted) setState(() => figure.failed = true);
     });
+  }
+
+  void _loadCalendar() {
+    _calendar.value = null;
+    _calendar.failed = false;
+    _load(_calendar, widget.source.taxCalendar());
   }
 
   void _open(String path) {
@@ -310,6 +335,7 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
     ]);
     final List<Widget> side = _spaced([
       if (shown('todo')) _todo(context),
+      if (shown('tax')) _taxCalendar(context),
       if (shown('screens')) _yourScreens(context),
     ]);
     return Material(
@@ -365,6 +391,7 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
   Set<String> get _available => {
         if (_sales || _stock) 'figures',
         if (_sales) ...{'chart', 'recent'},
+        if (_tax) 'tax',
         if (_todoRows().isNotEmpty || _batches || _licences) 'todo',
         if (_screens().isNotEmpty) 'screens',
       };
@@ -707,6 +734,219 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
     );
   }
 
+  // -- tax calendar ----------------------------------------------------------
+
+  static const List<String> _monthNames = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+
+  static String _kindName(String kind) => switch (kind) {
+        'GSTR1' => 'GSTR-1',
+        'GSTR3B' => 'GSTR-3B',
+        _ => 'TCS deposit',
+      };
+
+  /// "2026-08" as "Aug 2026".
+  static String _month(String period) {
+    final List<String> parts = period.split('-');
+    final int? month = parts.length == 2 ? int.tryParse(parts[1]) : null;
+    if (month == null || month < 1 || month > 12) return period;
+    return '${_monthNames[month - 1]} ${parts[0]}';
+  }
+
+  /// "2026-09-20" as "20 Sep".
+  static String _dayMonth(Object? iso) {
+    final DateTime? d = DateTime.tryParse('${iso ?? ''}');
+    return d == null ? '' : '${d.day} ${_monthNames[d.month - 1]}';
+  }
+
+  /// What a row says about its state, and whether it is a warning.
+  (String, bool) _calendarStatus(Map<String, dynamic> row) {
+    final String status = '${row['status'] ?? ''}';
+    if (status == 'DONE') {
+      final bool paid = row['kind'] == 'GSTR3B' && row['reference'] != null;
+      return ('${paid ? 'Paid' : 'Filed'} ${_dayMonth(row['done_on'])}', false);
+    }
+    if (status == 'LATE') {
+      final int days = (row['days_late'] as num?)?.toInt() ?? 0;
+      return ('$days ${days == 1 ? 'day' : 'days'} late', true);
+    }
+    final DateTime? due = DateTime.tryParse('${row['due_date'] ?? ''}');
+    if (due == null) return ('due', false);
+    final int left = DateTime.utc(due.year, due.month, due.day)
+        .difference(DateTime.utc(_day.year, _day.month, _day.day))
+        .inDays;
+    return (
+      left <= 0
+          ? 'due today'
+          : left == 1
+              ? 'due in 1 day'
+              : 'due in $left days',
+      false,
+    );
+  }
+
+  Widget _taxCalendar(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final List<Map<String, dynamic>> rows = _calendar.value ?? const [];
+    return _Section(
+      title: 'TAX CALENDAR',
+      child: _calendar.failed
+          ? Text('The tax calendar could not be read.',
+              style: theme.textTheme.bodySmall)
+          : _calendar.loading
+              ? const LinearProgressIndicator(minHeight: 2)
+              : rows.isEmpty
+                  ? Text('Nothing due.', style: theme.textTheme.bodySmall)
+                  : Column(children: [
+                      for (final Map<String, dynamic> row in rows)
+                        _taxRow(context, row),
+                    ]),
+    );
+  }
+
+  Widget _taxRow(BuildContext context, Map<String, dynamic> row) {
+    final ThemeData theme = Theme.of(context);
+    final String kind = '${row['kind']}';
+    final String period = '${row['return_period']}';
+    final bool done = row['status'] == 'DONE';
+    final (String status, bool late) = _calendarStatus(row);
+    final String? filingId = row['filing_id'] as String?;
+    final bool canRecord =
+        kind != 'TCS' && widget.allowed(Phase2HomePage.gstReturns);
+    final double amount = double.tryParse('${row['amount'] ?? 0}') ?? 0;
+    final Color statusColour =
+        late ? theme.colorScheme.error : theme.colorScheme.onSurfaceVariant;
+    return InkWell(
+      key: ValueKey('home-tax-$kind-$period'),
+      onTap: () => _open(kind == 'GSTR1'
+          ? Phase2HomePage.gstReturns
+          : Phase2HomePage.gstPayment),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(color: theme.colorScheme.outlineVariant),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Expanded(
+                child: Text(
+                  '${_kindName(kind)} · ${_month(period)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium
+                      ?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                indianAmount(amount),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ]),
+            const SizedBox(height: 2),
+            Row(children: [
+              if (done)
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: Icon(Icons.check_circle,
+                      size: 14, color: theme.colorScheme.primary),
+                ),
+              Expanded(
+                child: Text(
+                  done
+                      ? status
+                      : '$status · due ${_dayMonth(row['due_date'])}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: statusColour),
+                ),
+              ),
+              if (!done && canRecord)
+                _linkButton(
+                  key: 'home-tax-mark-$kind-$period',
+                  label: 'Mark filed',
+                  onPressed: () => _markFiled(kind, period),
+                ),
+              if (done && canRecord && filingId != null)
+                _linkButton(
+                  key: 'home-tax-undo-$kind-$period',
+                  label: 'Undo',
+                  onPressed: () => _withdraw(filingId),
+                ),
+            ]),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _linkButton({
+    required String key,
+    required String label,
+    required VoidCallback onPressed,
+  }) =>
+      TextButton(
+        key: ValueKey(key),
+        onPressed: onPressed,
+        style: TextButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          minimumSize: const Size(0, 24),
+          visualDensity: VisualDensity.compact,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        child: Text(label),
+      );
+
+  Future<void> _markFiled(String kind, String period) async {
+    final bool? saved = await showDialog<bool>(
+      context: context,
+      builder: (context) => _MarkFiledDialog(
+        title: '${_kindName(kind)} · ${_month(period)}',
+        today: widget.today,
+        onSave: (String filedOn, String arn) =>
+            widget.source.markGstReturnFiled({
+          'return_type': kind,
+          'return_period': period,
+          'filed_on': filedOn,
+          if (arn.isNotEmpty) 'arn': arn,
+        }),
+      ),
+    );
+    if (saved == true && mounted) setState(_loadCalendar);
+  }
+
+  Future<void> _withdraw(String filingId) async {
+    try {
+      await widget.source.withdrawGstReturnFiling(filingId);
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(exception.message)),
+      );
+      return;
+    }
+    if (mounted) setState(_loadCalendar);
+  }
+
   List<HomeTodo> _todoRows() => [
         for (final HomeTodo todo in Phase2HomePage.todos)
           if (widget.allowed(todo.path)) todo,
@@ -899,6 +1139,95 @@ class _Section extends StatelessWidget {
           child,
         ],
       ),
+    );
+  }
+}
+
+/// Records a filing. Saves itself and stays open with the server's message on
+/// a refusal (D-DLG-1).
+class _MarkFiledDialog extends StatefulWidget {
+  const _MarkFiledDialog({
+    required this.title,
+    required this.today,
+    required this.onSave,
+  });
+
+  final String title;
+  final DateTime today;
+  final Future<void> Function(String filedOn, String arn) onSave;
+
+  @override
+  State<_MarkFiledDialog> createState() => _MarkFiledDialogState();
+}
+
+class _MarkFiledDialogState extends State<_MarkFiledDialog>
+    with SaveInDialog<_MarkFiledDialog> {
+  late final TextEditingController _date;
+  final TextEditingController _arn = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    final DateTime t = widget.today;
+    _date = TextEditingController(
+      text: '${t.year.toString().padLeft(4, '0')}-'
+          '${t.month.toString().padLeft(2, '0')}-'
+          '${t.day.toString().padLeft(2, '0')}',
+    );
+  }
+
+  @override
+  void dispose() {
+    _date.dispose();
+    _arn.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Mark filed: ${widget.title}'),
+      content: SizedBox(
+        width: 340,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            saveErrorBanner(),
+            TextField(
+              key: const ValueKey('home-tax-filed-on'),
+              controller: _date,
+              decoration: const InputDecoration(
+                labelText: 'Filed on',
+                helperText: 'YYYY-MM-DD',
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              key: const ValueKey('home-tax-arn'),
+              controller: _arn,
+              maxLength: 30,
+              decoration: const InputDecoration(labelText: 'ARN (optional)'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: saving ? null : () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const ValueKey('home-tax-save'),
+          onPressed: saving
+              ? null
+              : () => saveAndClose<bool>(() async {
+                    await widget.onSave(_date.text.trim(), _arn.text.trim());
+                    return true;
+                  }),
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }

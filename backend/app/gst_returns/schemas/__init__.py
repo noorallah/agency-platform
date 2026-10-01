@@ -2,6 +2,7 @@
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -111,3 +112,44 @@ __all__ = [
     "GstPaymentReverse",
     "GstUtilisationRow",
 ]
+
+
+class TaxCalendarItemResponse(GstSchema):
+    """One return or deposit a month owes, on Home's tax calendar (63.4)."""
+
+    #: ``GSTR1``, ``GSTR3B`` or ``TCS``.
+    kind: str
+    return_period: str
+    due_date: date
+    #: GSTR-1: the month's output tax. GSTR-3B: the cash its payment works
+    #: out to. TCS: what was collected.
+    amount: Decimal
+    #: ``DONE``, ``DUE`` or ``LATE``.
+    status: str
+    days_late: int
+    done_on: date | None = None
+    #: The ARN, or the challan's CPIN, where one was kept.
+    reference: str | None = None
+    #: The filed-return record behind a done item, which can be withdrawn.
+    filing_id: UUID | None = None
+
+
+class GstReturnFilingCreate(GstSchema):
+    """Say a return was filed on the portal (63.4)."""
+
+    return_type: Literal["GSTR1", "GSTR3B"]
+    return_period: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    filed_on: date
+    arn: str | None = Field(default=None, max_length=30)
+    remarks: str | None = Field(default=None, max_length=500)
+
+
+class GstReturnFilingResponse(GstSchema):
+    """A return recorded as filed."""
+
+    id: UUID
+    return_type: str
+    return_period: str
+    filed_on: date
+    arn: str | None = None
+    remarks: str | None = None
