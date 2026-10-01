@@ -111,13 +111,18 @@ class PromotionService:
         decisions: list[PromotionDecision] = []
 
         coupon = self._coupon_for(data, firm_scope=firm_scope)
-        best_only = self._best_offer_only(firm_scope)
+        best_only, line_cap = self._promotion_policy(firm_scope)
         candidates: list[tuple[Promotion, list[_LineState]]] = []
+        # Which offer added how much to which line, in the order applied, so a
+        # combined cap can take back the last slice first (backlog 59 item 3).
+        slices: list[list[tuple[int, Decimal]]] = [[] for _ in states]
+        applied_promotions: list[Promotion] = []
 
         def apply_one(promotion: Promotion, matched_lines: list[_LineState]) -> bool:
             """Apply one offer to the document; True when evaluation must stop."""
             nonlocal bill_discount, freight_waived
-            before_lines = sum((state.discount for state in states), ZERO)
+            before_each = [state.discount for state in states]
+            before_lines = sum(before_each, ZERO)
             added_bill, waives_freight = self._apply(
                 promotion,
                 matched=matched_lines,
@@ -160,6 +165,11 @@ class PromotionService:
                     ),
                 )
             )
+            applied_promotions.append(promotion)
+            for index, state in enumerate(states):
+                delta = state.discount - before_each[index]
+                if delta > ZERO:
+                    slices[index].append((len(applications) - 1, delta))
             for state in matched_lines:
                 state.codes.append(promotion.code)
             decisions.append(self._decision(promotion, True, "Applied."))
@@ -225,6 +235,15 @@ class PromotionService:
 
         if best_only and candidates:
             self._apply_best(candidates, states, data, decisions, apply_one)
+        elif line_cap is not None:
+            self._cap_lines(
+                line_cap,
+                states=states,
+                slices=slices,
+                applications=applications,
+                applied_promotions=applied_promotions,
+                decisions=decisions,
+            )
 
         response = PromotionEvaluationResponse(
             lines=[
@@ -599,17 +618,79 @@ class PromotionService:
                 )
             )
 
-    def _best_offer_only(self, firm_scope: UUID) -> bool:
-        """Say whether the firm gives only the single best offer (backlog 59)."""
+    def _promotion_policy(self, firm_scope: UUID) -> tuple[bool, Decimal | None]:
+        """Return (best offer only, combined line cap %) for the firm (backlog 59).
+
+        A firm with no settings row combines with no cap, as offers always
+        have. The cap is read only in Combine mode: a single best offer is
+        already one offer.
+        """
         from app.sales_order.models import SalesWorkflowSettings
 
-        mode = self._session.scalar(
-            select(SalesWorkflowSettings.promotion_mode).where(
+        row = self._session.execute(
+            select(
+                SalesWorkflowSettings.promotion_mode,
+                SalesWorkflowSettings.max_line_discount_percent,
+            ).where(
                 SalesWorkflowSettings.firm_id == firm_scope,
                 SalesWorkflowSettings.is_deleted.is_(False),
             )
-        )
-        return mode == "BEST_OFFER"
+        ).first()
+        if row is None:
+            return False, None
+        mode, cap = row
+        if mode == "BEST_OFFER":
+            return True, None
+        return False, (None if cap is None else Decimal(str(cap)))
+
+    def _cap_lines(
+        self,
+        cap_percent: Decimal,
+        *,
+        states: list[_LineState],
+        slices: list[list[tuple[int, Decimal]]],
+        applications: list[PromotionApplication],
+        applied_promotions: list[Promotion],
+        decisions: list[PromotionDecision],
+    ) -> None:
+        """Hold each line's combined offer discount to the firm's cap.
+
+        Backlog 59 item 3. Offers compound, so the one applied last added the
+        last slice; it is trimmed first, then the one before it. Each trimmed
+        offer's ``benefit_amount`` falls by what was taken back, so a
+        campaign is costed at what it actually gave. The bill discount is not
+        a line discount and is left alone.
+        """
+        for index, state in enumerate(states):
+            limit = quantize_money(state.gross * cap_percent / HUNDRED)
+            excess = state.discount - limit
+            if excess <= ZERO:
+                continue
+            trimmed_from: list[str] = []
+            for application_index, slice_amount in reversed(slices[index]):
+                if excess <= ZERO:
+                    break
+                take = min(slice_amount, excess)
+                state.discount -= take
+                excess -= take
+                application = applications[application_index]
+                application.benefit_amount = quantize_money(
+                    application.benefit_amount - take
+                )
+                trimmed_from.append(application.code)
+            if not trimmed_from:
+                continue
+            last = applied_promotions[next(i for i, _ in reversed(slices[index]))]
+            decisions.append(
+                self._decision(
+                    last,
+                    True,
+                    f"Line {state.line_number}: offers combined past the "
+                    f"firm's cap of {cap_percent.normalize():f}% of the line, so "
+                    f"its discount was held at {quantize_ledger(limit)} "
+                    f"(trimmed from {', '.join(trimmed_from)}).",
+                )
+            )
 
     def _worth_alone(
         self,

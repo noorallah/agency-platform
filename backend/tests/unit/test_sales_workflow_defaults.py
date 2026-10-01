@@ -246,3 +246,24 @@ def test_the_offer_mode_is_saved_and_an_omission_leaves_it() -> None:
 
     with pytest.raises(PydanticValidationError):
         _write(promotion_mode="LOUDEST")
+
+
+def test_the_line_discount_cap_is_left_by_an_omission_and_cleared_by_null() -> None:
+    """Backlog 59 item 3: omitted leaves the cap, an explicit null clears it."""
+    setup = _setup()
+    service = SalesWorkflowService(setup.session)
+    assert service.settings_response(setup.firm.id).max_line_discount_percent is None
+
+    _save(setup, max_line_discount_percent="25")
+    saved = service.settings_response(setup.firm.id).max_line_discount_percent
+    assert saved == Decimal("25")
+
+    _save(setup)
+    kept = service.settings_response(setup.firm.id).max_line_discount_percent
+    assert kept == Decimal("25")
+
+    _save(setup, max_line_discount_percent=None)
+    assert service.settings_response(setup.firm.id).max_line_discount_percent is None
+
+    with pytest.raises(PydanticValidationError):
+        _write(max_line_discount_percent="101")

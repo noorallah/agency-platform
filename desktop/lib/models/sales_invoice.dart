@@ -131,6 +131,7 @@ class SalesWorkflowSettings {
     this.defaultBranchId,
     this.defaultWarehouseId,
     this.promotionMode = 'COMBINE',
+    this.maxLineDiscountPercent,
   });
 
   final bool quotationStage;
@@ -145,6 +146,10 @@ class SalesWorkflowSettings {
   /// How matching offers meet (backlog 59): COMBINE applies each in order,
   /// BEST_OFFER gives only the single offer worth most.
   final String promotionMode;
+
+  /// In Combine mode, the most the offers together may take off one line, as
+  /// a percentage of its gross (backlog 59 item 3). Null is no cap.
+  final String? maxLineDiscountPercent;
 
   /// What a firm gets before anybody configures anything, and what the client
   /// falls back to when the settings cannot be read. Failing open matters: an
@@ -169,6 +174,7 @@ class SalesWorkflowSettings {
         promotionMode: stringValue(json['promotion_mode']).isEmpty
             ? 'COMBINE'
             : stringValue(json['promotion_mode']),
+        maxLineDiscountPercent: _orNull(json['max_line_discount_percent']),
       );
 
   /// The three switches only. No screen here edits the default branch or
@@ -179,6 +185,8 @@ class SalesWorkflowSettings {
         'sales_order_stage': salesOrderStage,
         'delivery_note_stage': deliveryNoteStage,
         'promotion_mode': promotionMode,
+        // Shown on the same screen, so sent on every save: null clears it.
+        'max_line_discount_percent': maxLineDiscountPercent,
       };
 
   SalesWorkflowSettings copyWith({
@@ -186,6 +194,7 @@ class SalesWorkflowSettings {
     bool? salesOrderStage,
     bool? deliveryNoteStage,
     String? promotionMode,
+    String? Function()? maxLineDiscountPercent,
   }) =>
       SalesWorkflowSettings(
         quotationStage: quotationStage ?? this.quotationStage,
@@ -195,6 +204,9 @@ class SalesWorkflowSettings {
         defaultWarehouseId: defaultWarehouseId,
         isConfigured: isConfigured,
         promotionMode: promotionMode ?? this.promotionMode,
+        maxLineDiscountPercent: maxLineDiscountPercent != null
+            ? maxLineDiscountPercent()
+            : this.maxLineDiscountPercent,
       );
 }
 

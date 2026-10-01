@@ -118,6 +118,7 @@ void main() {
       'sales_order_stage': false,
       'delivery_note_stage': false,
       'promotion_mode': 'COMBINE',
+      'max_line_discount_percent': null,
     });
   });
 
@@ -136,6 +137,28 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.saved.single['promotion_mode'], 'BEST_OFFER');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a combined line discount cap is typed here and sent',
+      (tester) async {
+    // Backlog 59 item 3: Combine mode may cap one line's offer discount.
+    final _StagesApi api = _StagesApi(failReads: 0);
+    await _open(tester, api);
+
+    final Finder cap =
+        find.byKey(const ValueKey('sales-settings-line-discount-cap'));
+    await tester.ensureVisible(cap);
+    await tester.enterText(cap, '120');
+    await tester.pumpAndSettle();
+    expect(find.textContaining('from 0 to 100'), findsOneWidget);
+
+    await tester.enterText(cap, '25');
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.saved.single['max_line_discount_percent'], '25');
     expect(tester.takeException(), isNull);
   });
 }

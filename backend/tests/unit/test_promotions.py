@@ -2596,3 +2596,112 @@ def test_best_offer_only_values_a_capped_percentage_at_its_cap() -> None:
     assert best.lines[0].discount_amount == Decimal("150.00")
     lost = next(d for d in best.decisions if d.code == "CAPPED20")
     assert "150.00 against 100.00" in lost.reason
+
+
+def _line_cap(session: Session, firm_id: UUID, percent: str) -> None:
+    """Cap the combined offer discount per line (backlog 59 item 3)."""
+    from app.sales_order.models import SalesWorkflowSettings
+
+    session.add(
+        SalesWorkflowSettings(
+            firm_id=firm_id,
+            quotation_stage=True,
+            sales_order_stage=True,
+            delivery_note_stage=True,
+            promotion_mode="COMBINE",
+            max_line_discount_percent=Decimal(percent),
+        )
+    )
+    session.commit()
+
+
+def test_a_line_cap_trims_the_last_offer_first_and_costs_it_truly() -> None:
+    """10% then 15% compound to 235 on 1000; a 20% cap takes 35 off FIFTEEN."""
+    session = _session_factory()()
+    firm = _firm(session)
+    product = _product(session, firm_id=firm.id)
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="TEN",
+        priority=10,
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="FIFTEEN",
+        priority=20,
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "15"})],
+    )
+    _line_cap(session, firm.id, "20")
+
+    result = PromotionService(session).evaluate(
+        _request(lines=[(1, product.id, "1", "1000")]), firm_scope=firm.id
+    )
+
+    assert result.applied_promotion_codes == ["TEN", "FIFTEEN"]
+    assert result.lines[0].discount_amount == Decimal("200.00")
+    benefits = {item.code: item.benefit_amount for item in result.applied}
+    assert benefits == {"TEN": Decimal("100.00"), "FIFTEEN": Decimal("100.00")}
+    capped = [d for d in result.decisions if "cap of 20%" in d.reason]
+    assert len(capped) == 1
+    assert capped[0].code == "FIFTEEN"
+    assert "Line 1" in capped[0].reason
+
+
+def test_a_line_cap_reaches_past_the_last_offer_when_it_must() -> None:
+    """A 5% cap takes all of FIFTEEN's line slice and part of TEN's."""
+    session = _session_factory()()
+    firm = _firm(session)
+    product = _product(session, firm_id=firm.id)
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="TEN",
+        priority=10,
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="FIFTEEN",
+        priority=20,
+        actions=[
+            (PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "15"}),
+            (PromotionActionType.BILL_DISCOUNT_AMOUNT, {"amount": "10"}),
+        ],
+    )
+    _line_cap(session, firm.id, "5")
+
+    result = PromotionService(session).evaluate(
+        _request(lines=[(1, product.id, "1", "1000")]), firm_scope=firm.id
+    )
+
+    assert result.lines[0].discount_amount == Decimal("50.00")
+    # The bill discount is not a line discount and is left alone.
+    assert result.bill_discount_amount == Decimal("10.00")
+    benefits = {item.code: item.benefit_amount for item in result.applied}
+    assert benefits == {"TEN": Decimal("50.00"), "FIFTEEN": Decimal("10.00")}
+
+
+def test_a_line_under_the_cap_is_untouched() -> None:
+    """A cap above what the offers combine to changes nothing."""
+    session = _session_factory()()
+    firm = _firm(session)
+    product = _product(session, firm_id=firm.id)
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="TEN",
+        priority=10,
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    _line_cap(session, firm.id, "50")
+
+    result = PromotionService(session).evaluate(
+        _request(lines=[(1, product.id, "1", "1000")]), firm_scope=firm.id
+    )
+
+    assert result.lines[0].discount_amount == Decimal("100.00")
+    assert not [d for d in result.decisions if "cap of" in d.reason]

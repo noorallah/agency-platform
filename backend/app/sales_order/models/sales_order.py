@@ -371,6 +371,11 @@ class SalesWorkflowSettings(BaseEntity):
     promotion_mode: Mapped[str] = mapped_column(
         String(20), nullable=False, default="COMBINE", server_default="COMBINE"
     )
+    #: In Combine mode, the most the offers together may take off one line,
+    #: as a percentage of its gross (backlog 59 item 3). Null is no cap.
+    max_line_discount_percent: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 2), nullable=True
+    )
     default_branch_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("branches.id", ondelete="RESTRICT")
     )

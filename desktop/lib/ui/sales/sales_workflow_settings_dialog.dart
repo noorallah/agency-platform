@@ -50,6 +50,9 @@ class _SalesWorkflowSettingsDialogState
   /// prove it read the settings before it may write them.
   bool _read = false;
 
+  /// Backlog 59 item 3: the cap on one line's combined offer discount.
+  final TextEditingController _capController = TextEditingController();
+
   bool get _mayManage =>
       widget.permissions.hasPermission('SALES_MANAGE_SETTINGS');
 
@@ -57,6 +60,23 @@ class _SalesWorkflowSettingsDialogState
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _capController.dispose();
+    super.dispose();
+  }
+
+  /// The cap as typed: blank is no cap, otherwise 0 to 100.
+  String? get _capError {
+    final String text = _capController.text.trim();
+    if (text.isEmpty) return null;
+    final double? value = double.tryParse(text);
+    if (value == null || value < 0 || value > 100) {
+      return 'A percentage from 0 to 100, or blank for no cap.';
+    }
+    return null;
   }
 
   void _retry() {
@@ -75,6 +95,7 @@ class _SalesWorkflowSettingsDialogState
       if (!mounted) return;
       setState(() {
         _settings = settings;
+        _capController.text = settings.maxLineDiscountPercent ?? '';
         _read = true;
         _loading = false;
       });
@@ -90,6 +111,13 @@ class _SalesWorkflowSettingsDialogState
 
   Future<void> _save() async {
     if (!_read) return;
+    if (_capError != null) {
+      setState(() => _error = _capError);
+      return;
+    }
+    final String cap = _capController.text.trim();
+    _settings = _settings.copyWith(
+        maxLineDiscountPercent: () => cap.isEmpty ? null : cap);
     setState(() {
       _saving = true;
       _error = null;
@@ -221,6 +249,24 @@ class _SalesWorkflowSettingsDialogState
                             )
                         : null,
                   ),
+                  if (_settings.promotionMode == 'COMBINE') ...[
+                    const SizedBox(height: AppSpacing.md),
+                    TextFormField(
+                      key: const ValueKey('sales-settings-line-discount-cap'),
+                      controller: _capController,
+                      enabled: _mayManage && _read && !_saving,
+                      keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true),
+                      decoration: InputDecoration(
+                        labelText: 'Most offers may take off one line (%)',
+                        helperText: 'Blank is no cap. Past it, the last offer '
+                            'applied gives back first; the bill discount is '
+                            'not counted.',
+                        errorText: _capError,
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ],
                   if (!_settings.deliveryNoteStage) ...[
                     const SizedBox(height: AppSpacing.md),
                     _Notice(

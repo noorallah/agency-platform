@@ -475,6 +475,8 @@ class SalesWorkflowSettingsResponse(SalesOrderSchema):
     default_warehouse_id: UUID | None
     #: COMBINE or BEST_OFFER (backlog 59).
     promotion_mode: str = "COMBINE"
+    #: Combine mode's cap on one line's offer discount, % of gross; null none.
+    max_line_discount_percent: Decimal | None = None
     is_configured: bool
 
 
@@ -498,6 +500,11 @@ class SalesWorkflowSettingsWrite(SalesOrderSchema):
     default_warehouse_id: UUID | None = None
     #: COMBINE or BEST_OFFER. Omitted is left as it is, like the defaults.
     promotion_mode: Literal["COMBINE", "BEST_OFFER"] | None = None
+    #: Combine mode's cap on one line's offer discount, as % of its gross
+    #: (backlog 59 item 3). Omitted is left as it is; an explicit null clears.
+    max_line_discount_percent: Decimal | None = Field(
+        default=None, ge=0, le=100, max_digits=5, decimal_places=2
+    )
 
 
 class SalesOrderPreview(SalesOrderSchema):
