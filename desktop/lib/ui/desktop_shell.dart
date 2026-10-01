@@ -54,6 +54,7 @@ import 'commission/sales_target_page.dart';
 import 'sales/credit_note_page.dart';
 import 'sales/einvoice_page.dart';
 import 'sales/gst_return_page.dart';
+import 'sales/sales_analysis_page.dart';
 import 'sales/proforma_page.dart';
 import 'sales/tcs_page.dart';
 import 'pricing/price_list_page.dart';
@@ -2728,6 +2729,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),
+      'sales-analysis' => SalesAnalysisPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+        ),
       'gst-returns' => GstReturnPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -2791,6 +2797,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           'E-Invoice',
           'What the tax authority knows about this firm’s invoices and their '
               'movement. A reference marked sandbox filed nothing.',
+        ),
+      'sales-analysis' => (
+          'Sales Analysis',
+          'Billed sales by any one or two dimensions, net of returns. Click '
+              'a figure to see the invoices behind it.',
         ),
       'gst-returns' => (
           'GST Returns',
