@@ -43,9 +43,6 @@ from app.customers.models import Customer
 from app.debit_note.api.router import list_debit_notes
 from app.debit_note.models import DebitNote, DebitNoteLine
 from app.debit_note.services import DebitNoteService
-from app.party_adjustments.api.router import list_party_adjustments
-from app.party_adjustments.models import PartyAdjustment, PartyAdjustmentAllocation
-from app.party_adjustments.services import PartyAdjustmentService
 from app.delivery_note.api.router import list_delivery_notes
 from app.delivery_note.models import (
     DeliveryNote,
@@ -78,6 +75,9 @@ from app.inventory.models import (
     StockLedgerEntry,
 )
 from app.inventory.services import InventoryService
+from app.party_adjustments.api.router import list_party_adjustments
+from app.party_adjustments.models import PartyAdjustment, PartyAdjustmentAllocation
+from app.party_adjustments.services import PartyAdjustmentService
 from app.products.models import Product
 from app.purchase.api.router import list_purchase_orders
 from app.purchase.models import (
@@ -985,9 +985,7 @@ CASES: dict[str, _Case] = {
     "party adjustments": _Case(
         _seed_party_adjustments,
         lambda s, w: list_party_adjustments(scope=_scope(w.firm), db=s, page_size=50),
-        lambda s, r: PartyAdjustmentService(s).response(
-            _get(s, PartyAdjustment, r.id)
-        ),
+        lambda s, r: PartyAdjustmentService(s).response(_get(s, PartyAdjustment, r.id)),
     ),
     "quotations": _Case(
         _seed_quotations,
