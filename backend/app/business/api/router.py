@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.business.models import (
+    AttributeDefinition,
     AttributeEntityType,
     BusinessProfile,
     CategoryAttributeRule,
@@ -146,9 +147,13 @@ def _replicated(
         row, other_profile_stores(request, platform_db), actor_id
     )
     body = BusinessProfileResponse.model_validate(row).model_dump()
+    message = replication_summary(outcomes)
+    failed = any(item.status == "FAILED" for item in outcomes)
     return ApiResponse(
-        data=BusinessProfileWriteResponse(**body, stores=outcomes),
-        message=replication_summary(outcomes),
+        data=BusinessProfileWriteResponse(
+            **body, stores=outcomes, warning=message if failed else None
+        ),
+        message=message,
     )
 
 
@@ -406,8 +411,21 @@ def create_attribute_definition(
     principal: PlatformPrincipal,
     db: Session = Depends(get_db),
 ) -> ApiResponse[AttributeDefinitionResponse]:
-    row = _service(db).create_attribute(data, _actor_id(principal))
-    return ApiResponse(data=AttributeDefinitionResponse.model_validate(row))
+    service = _service(db)
+    row = service.create_attribute(data, _actor_id(principal))
+    return _attribute_response(
+        row, service.mandatory_warning(row) if row.mandatory else None
+    )
+
+
+def _attribute_response(
+    row: AttributeDefinition, warning: str | None
+) -> ApiResponse[AttributeDefinitionResponse]:
+    """Answer an attribute save, with any mandatory warning (backlog 16)."""
+    body = AttributeDefinitionResponse.model_validate(row)
+    return ApiResponse(
+        data=body.model_copy(update={"warning": warning}), message=warning
+    )
 
 
 @router.put(
@@ -422,11 +440,14 @@ def update_attribute_definition(
     db: Session = Depends(get_db),
     expected_version: ExpectedVersion = None,
 ) -> ApiResponse[AttributeDefinitionResponse]:
-    row = _service(db).update_attribute(
+    service = _service(db)
+    was_mandatory = service.get_attribute(attribute_id).mandatory
+    row = service.update_attribute(
         attribute_id, data, _actor_id(principal), expected_version
     )
     set_etag(response, row)
-    return ApiResponse(data=AttributeDefinitionResponse.model_validate(row))
+    newly = row.mandatory and not was_mandatory
+    return _attribute_response(row, service.mandatory_warning(row) if newly else None)
 
 
 @router.delete(
@@ -499,7 +520,13 @@ def create_category_rule(
 ) -> ApiResponse[CategoryAttributeRuleResponse]:
     service = _service(db)
     row = service.create_category_rule(data, _actor_id(principal))
-    return ApiResponse(data=_rule_response(row, service))
+    warning = (
+        service.mandatory_warning(service.get_attribute(row.attribute_definition_id))
+        if row.is_mandatory
+        else None
+    )
+    body = _rule_response(row, service).model_copy(update={"warning": warning})
+    return ApiResponse(data=body, message=warning)
 
 
 @router.put(
@@ -515,11 +542,18 @@ def update_category_rule(
     expected_version: ExpectedVersion = None,
 ) -> ApiResponse[CategoryAttributeRuleResponse]:
     service = _service(db)
+    was_mandatory = service.get_category_rule(rule_id).is_mandatory
     row = service.update_category_rule(
         rule_id, data, _actor_id(principal), expected_version
     )
     set_etag(response, row)
-    return ApiResponse(data=_rule_response(row, service))
+    warning = (
+        service.mandatory_warning(service.get_attribute(row.attribute_definition_id))
+        if row.is_mandatory and not was_mandatory
+        else None
+    )
+    body = _rule_response(row, service).model_copy(update={"warning": warning})
+    return ApiResponse(data=body, message=warning)
 
 
 @router.delete(

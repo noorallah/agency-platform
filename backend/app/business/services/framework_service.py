@@ -6,12 +6,13 @@ from datetime import datetime
 from typing import cast
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import Table, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.business.gating import resolve_profile_id
 from app.business.models import (
     AttributeDefinition,
+    AttributeValueBase,
     BusinessFeature,
     BusinessModule,
     BusinessProfile,
@@ -541,8 +542,23 @@ class BusinessProfileFrameworkService:
         self._assert_unique(AttributeDefinition, data.code, current_id=row.id)
         if data.applicable_business_profile_id is not None:
             self.get_profile(data.applicable_business_profile_id)
+        values = data.model_dump(exclude_unset=True)
+        # Backlog 16: once a value is stored, the type is part of what it
+        # means. A NUMBER field turned TEXT leaves every value in
+        # `value_number` while each read looks in `value_text` -- orphaned,
+        # not deleted, and nothing reports it. Refused rather than converted:
+        # a conversion that fails does so silently, per row.
+        new_type = values.get("data_type", row.data_type)
+        if str(new_type) != row.data_type:
+            held = self.attribute_value_count(row)
+            if held:
+                raise ConflictError(
+                    f"{row.code} holds {held} stored value(s), so its type "
+                    f"cannot change from {row.data_type} to {new_type}. Add a "
+                    "new field of the new type and retire this one."
+                )
         before = row_state(row)
-        for field, value in data.model_dump(exclude_unset=True).items():
+        for field, value in values.items():
             setattr(row, field, value)
         row.updated_by = actor_id
         record_change(
@@ -558,6 +574,15 @@ class BusinessProfileFrameworkService:
 
     def delete_attribute(self, attribute_id: UUID, actor_id: UUID) -> None:
         row = self.get_attribute(attribute_id)
+        # Backlog 16: a soft delete never reaches the RESTRICT key on the
+        # value tables, so the values would outlive their definition unseen.
+        held = self.attribute_value_count(row)
+        if held:
+            raise ConflictError(
+                f"{row.code} holds {held} stored value(s), so it cannot be "
+                "deleted. Deactivate it instead: it stops being offered and "
+                "its history stays readable."
+            )
         before = row_state(row)
         row.is_deleted = True
         row.deleted_at = utc_now()
@@ -1130,6 +1155,65 @@ class BusinessProfileFrameworkService:
                 f"One or more {label} identifiers do not exist."
             )
 
+    def attribute_value_count(self, row: AttributeDefinition) -> int:
+        """Count live stored values of one definition, across its value table.
+
+        A definition extends one kind of record, and each kind keeps its
+        values in its own table; the one whose ``ENTITY_TYPE`` matches is
+        asked.
+        """
+        model = _value_model(row.entity_type)
+        if model is None:
+            return 0
+        return int(
+            self._session.scalar(
+                select(func.count())
+                .select_from(model)
+                .where(
+                    model.attribute_definition_id == row.id,
+                    model.is_deleted.is_(False),
+                )
+            )
+            or 0
+        )
+
+    def records_missing_value(self, row: AttributeDefinition) -> int:
+        """Count live records of the definition's kind holding no value for it.
+
+        What a mandatory flag would refuse at each record's next save. An
+        upper bound: a definition scoped to a category or a business profile
+        applies to fewer records than its whole kind.
+        """
+        model = _value_model(row.entity_type)
+        if model is None:
+            return 0
+        owner = cast(Table, model.__table__).c[model.OWNER_COLUMN]
+        owner_table = next(iter(owner.foreign_keys)).column.table
+        held = select(owner).where(
+            model.attribute_definition_id == row.id,
+            model.is_deleted.is_(False),
+        )
+        statement = (
+            select(func.count())
+            .select_from(owner_table)
+            .where(owner_table.c.id.not_in(held))
+        )
+        if "is_deleted" in owner_table.c:
+            statement = statement.where(owner_table.c.is_deleted.is_(False))
+        return int(self._session.scalar(statement) or 0)
+
+    def mandatory_warning(self, row: AttributeDefinition) -> str | None:
+        """Say how many records a newly mandatory field will refuse, if any."""
+        missing = self.records_missing_value(row)
+        if not missing:
+            return None
+        kind = row.entity_type.lower().replace("_", " ")
+        return (
+            f"{row.code} is now mandatory, and up to {missing} {kind} record(s) "
+            "have no value for it: each will be refused at its next save until "
+            "one is entered."
+        )
+
     def _assert_unique(
         self,
         model: (
@@ -1158,3 +1242,18 @@ class BusinessProfileFrameworkService:
             if except_id is not None and row.id == except_id:
                 continue
             row.is_default = False
+
+
+def _value_model(entity_type: str) -> type[AttributeValueBase] | None:
+    """Return the value table that holds one kind of record's custom fields."""
+    from app.core.database.base import Base
+
+    for mapper in Base.registry.mappers:
+        model = mapper.class_
+        if (
+            isinstance(model, type)
+            and issubclass(model, AttributeValueBase)
+            and model.ENTITY_TYPE.value == entity_type
+        ):
+            return model
+    return None

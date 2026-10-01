@@ -82,6 +82,8 @@ class BusinessProfileWriteResponse(BusinessProfileResponse):
     """A saved profile, and how far it reached across the stores."""
 
     stores: list[ProfileStoreOutcome] = Field(default_factory=list)
+    #: Set when a store did not take it: the summary of which and why.
+    warning: str | None = None
 
 
 class BusinessFeatureCreate(BusinessFrameworkSchema):
@@ -241,6 +243,9 @@ class AttributeDefinitionResponse(BusinessFrameworkSchema):
     version: int
     created_at: datetime
     updated_at: datetime
+    #: Set on a save that made the field mandatory while records lack it
+    #: (backlog 16): how many will be refused at their next save.
+    warning: str | None = None
 
 
 class AttributeValueInput(BusinessFrameworkSchema):
@@ -321,6 +326,8 @@ class CategoryAttributeRuleResponse(BusinessFrameworkSchema):
     attribute_name: str | None = None
     is_mandatory: bool
     validation_override: dict[str, object] | None
+    #: Set on a save that made the field mandatory while records lack it.
+    warning: str | None = None
     #: Optimistic-concurrency counter, echoed back as ``If-Match``.
     version: int
     created_at: datetime
