@@ -331,6 +331,32 @@ class DeliveryNoteLine(BaseEntity):
     remarks: Mapped[str | None] = mapped_column(Text)
 
 
+class DeliveryNoteLineBatch(BaseEntity):
+    """Which batches one delivery line takes, as a person chose them (79).
+
+    Backlog 79, decision A38. With none, dispatch draws earliest expiry first,
+    as it always has; with some, it draws exactly these, after checking each
+    batch is the product's, in date on the note's own date and free to take.
+    The quantities are stock units and must add up to what the line delivers.
+    """
+
+    __tablename__ = "delivery_note_line_batches"
+    __table_args__ = (
+        Index("IX_delivery_note_line_batches_line", "delivery_note_line_id"),
+    )
+
+    delivery_note_line_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("delivery_note_lines.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    batch_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("batches.id", ondelete="RESTRICT"), nullable=False
+    )
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+
+
 class DeliveryNoteAttachment(BaseEntity):
     """Store delivery note attachments."""
 
