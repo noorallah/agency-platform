@@ -24,8 +24,11 @@ import '../inventory/inventory_import_wizard.dart';
 import 'purchase_import_sample.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../trade_licences/licence_check_dialog.dart';
+import '../../models/bulk_action.dart';
+import '../workspace/bulk_action.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/print_settings_dialog.dart';
+import '../workspace/reason_prompt.dart';
 import '../workspace/printed_document.dart';
 import '../../models/document_framework.dart';
 import '../../models/document_preview.dart';
@@ -1164,7 +1167,9 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         // Option C (owner, 2026-09-27): the order's actions on a bar that
         // names it, above the grid.
         selectionBar: true,
-        selection: _selected == null
+        selection: _bulkMode
+            ? _bulkSummary()
+            : _selected == null
             ? null
             : SelectionSummary.document(
                 number: _selected!.poNumber,
@@ -1430,6 +1435,87 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     );
   }
 
+  /// More than one row ticked: the bar names the batch and offers the two
+  /// bulk actions instead of the one row's (backlog 56 A).
+  bool get _bulkMode => _selectedIds.length > 1;
+
+  List<PurchaseOrder> get _tickedOrders =>
+      _orders.where((order) => _selectedIds.contains(order.id)).toList();
+
+  SelectionSummary _bulkSummary() {
+    double total = 0;
+    for (final PurchaseOrder order in _tickedOrders) {
+      total += double.tryParse(order.grandTotal) ?? 0;
+    }
+    return SelectionSummary(
+      title: '${_selectedIds.length} selected',
+      detail: indianAmount(total, full: true),
+      onClear: () => setState(() => _selectedIds = <String>{}),
+    );
+  }
+
+  /// The two bulk actions, each behind the permission the single one takes.
+  /// The order model carries no row version, so none is sent.
+  List<ToolbarCommand> _bulkCommands() => [
+        ToolbarCommand(
+          id: 'bulk-approve',
+          label: 'Approve selected',
+          icon: Icons.check_circle_outline,
+          onPressed: _loading || !_canApprove
+              ? null
+              : () => unawaited(_bulkApprove()),
+        ),
+        ToolbarCommand(
+          id: 'cancel',
+          label: 'Cancel selected',
+          icon: Icons.cancel_outlined,
+          onPressed: _loading || !_canCancel
+              ? null
+              : () => unawaited(_bulkCancel()),
+        ),
+      ];
+
+  List<BulkRow> _bulkRows() => [
+        for (final PurchaseOrder order in _tickedOrders)
+          (id: order.id, version: null),
+      ];
+
+  Future<void> _bulkApprove() async {
+    await runBulkAction(
+      context,
+      verb: 'Approved',
+      rows: _bulkRows(),
+      send: widget.api.bulkApprovePurchaseOrders,
+    );
+    await _afterBulk();
+  }
+
+  Future<void> _bulkCancel() async {
+    final List<BulkRow> rows = _bulkRows();
+    final String? reason = await askForReason(
+      context,
+      title: 'Cancel ${rows.length} purchase orders',
+      explanation: 'Each order is cancelled on its own; one the server '
+          'refuses does not stop the others. The reason is recorded on every '
+          'order cancelled.',
+      confirmLabel: 'Cancel orders',
+    );
+    if (reason == null || !mounted) return;
+    await runBulkAction(
+      context,
+      verb: 'Cancelled',
+      rows: rows,
+      send: (rows) => widget.api.bulkCancelPurchaseOrders(rows, reason),
+    );
+    await _afterBulk();
+  }
+
+  Future<void> _afterBulk() async {
+    if (!mounted) return;
+    setState(() => _selectedIds = <String>{});
+    await _load();
+  }
+
   Future<void> _runOrderAction(
     Future<PurchaseOrder> Function() action, {
     required String done,
@@ -1545,9 +1631,9 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         ColumnsButton(onPressed: () => unawaited(_openColumnChooser())),
       ],
       isEnabled: (action) => switch (action) {
-        ToolbarAction.view => selected != null,
-        ToolbarAction.edit => canEditSelected,
-        ToolbarAction.delete => canDeleteSelected,
+        ToolbarAction.view => selected != null && !_bulkMode,
+        ToolbarAction.edit => canEditSelected && !_bulkMode,
+        ToolbarAction.delete => canDeleteSelected && !_bulkMode,
         ToolbarAction.refresh => !_loading,
         ToolbarAction.import => _canImport,
         ToolbarAction.export => _canExport && _orders.isNotEmpty,
@@ -1579,6 +1665,8 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         }
       },
       commands: [
+        if (_bulkMode) ..._bulkCommands(),
+        if (!_bulkMode) ...[
         ToolbarCommand(
           id: 'submit',
           label: 'Submit',
@@ -1638,6 +1726,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
                     successMessage: 'Purchase order closed.',
                   ),
         ),
+        ],
         ToolbarCommand(
           id: 'duplicate',
           label: 'Duplicate',
@@ -1708,6 +1797,13 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
           icon: const Icon(Icons.add),
           label: const Text('New'),
         ),
+        if (_bulkMode)
+          for (final ToolbarCommand command in _bulkCommands())
+            FilledButton.tonalIcon(
+              onPressed: command.onPressed,
+              icon: Icon(command.icon),
+              label: Text(command.label),
+            ),
         if (canSubmitSelected)
           FilledButton.tonalIcon(
             onPressed: () => unawaited(_submitSelected(selected)),
@@ -2084,16 +2180,14 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
       total: _total,
       pageOffset: (_page - 1) * _rowsPerPage,
       rowsPerPage: _rowsPerPage,
-      // Phase 2 (as Products): no row numbers and no ticks; a row is chosen
-      // by clicking it.
+      // Phase 2 (as Products): no row numbers; a row is chosen by clicking
+      // it. Ticks are back, for bulk approve and cancel (backlog 56 A).
       showRowNumbers: !Phase2Scope.of(context),
       columns: columns,
       id: (item) => item.id,
       selectedId: _selected?.id,
       selectedIds: _selectedIds,
-      onSelectionChanged: Phase2Scope.of(context)
-          ? null
-          : (value) => setState(() => _selectedIds = value),
+      onSelectionChanged: (value) => setState(() => _selectedIds = value),
       cells: (item) => [
         item.poNumber,
         _labelForVendor(item.vendorId),

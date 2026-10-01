@@ -14,6 +14,9 @@ import '../../core/notifications/notification_service.dart';
 import '../../models/entities.dart';
 import '../trade_licences/licence_check_dialog.dart';
 import '../workspace/desktop_framework.dart';
+import '../../models/bulk_action.dart';
+import '../../phase2/indian_format.dart';
+import '../workspace/bulk_action.dart';
 import '../workspace/reason_prompt.dart';
 import 'credit_notice.dart';
 import 'sales_order_editor_dialog.dart';
@@ -78,6 +81,10 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
   String? _error;
   List<Map<String, dynamic>> _orders = const [];
   Map<String, dynamic>? _selected;
+
+  /// The rows ticked for a bulk approve or cancel (backlog 56 A). Only rows
+  /// on the loaded page are ever kept, so nothing off screen is acted on.
+  Set<String> _ticked = <String>{};
   Map<String, dynamic> _summary = const {};
   SalesOrderView _view = SalesOrderView.all;
 
@@ -278,6 +285,9 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         _orders = rows;
         _total = total;
         _selected = selected;
+        _ticked = _ticked
+            .where((id) => rows.any((row) => '${row['id']}' == id))
+            .toSet();
       });
     } on ApiException catch (error) {
       if (!mounted || load != _loads) return;
@@ -285,6 +295,90 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
     } finally {
       if (mounted && load == _loads) setState(() => _loading = false);
     }
+  }
+
+  /// More than one row ticked: the bar names the batch and offers the two
+  /// bulk actions instead of the one row's.
+  bool get _bulkMode => _ticked.length > 1;
+
+  List<Map<String, dynamic>> get _tickedRows => [
+        for (final Map<String, dynamic> row in _orders)
+          if (_ticked.contains('${row['id']}')) row,
+      ];
+
+  List<BulkRow> _bulkRows() => [
+        for (final Map<String, dynamic> row in _tickedRows)
+          (id: '${row['id']}', version: (row['version'] as num?)?.toInt()),
+      ];
+
+  SelectionSummary _bulkSummary() {
+    double total = 0;
+    for (final Map<String, dynamic> row in _tickedRows) {
+      total += double.tryParse('${row['grand_total'] ?? ''}') ?? 0;
+    }
+    return SelectionSummary(
+      title: '${_ticked.length} selected',
+      detail: indianAmount(total, full: true),
+      onClear: () => setState(() => _ticked = <String>{}),
+    );
+  }
+
+  /// The two bulk actions, each behind the permission the single one takes.
+  List<ToolbarCommand> _bulkCommands() => [
+        ToolbarCommand(
+          id: 'bulk-approve',
+          label: 'Approve selected',
+          icon: Icons.check_circle_outline,
+          onPressed: _loading || !_mayApprove()
+              ? null
+              : () => unawaited(_bulkApprove()),
+        ),
+        ToolbarCommand(
+          id: 'cancel',
+          label: 'Cancel selected',
+          icon: Icons.cancel_outlined,
+          onPressed:
+              _loading || !widget.permissions.hasPermission('SALES_CANCEL')
+                  ? null
+                  : () => unawaited(_bulkCancel()),
+        ),
+      ];
+
+  Future<void> _bulkApprove() async {
+    final List<BulkRow> rows = _bulkRows();
+    await runBulkAction(
+      context,
+      verb: 'Approved',
+      rows: rows,
+      send: widget.api.bulkApproveSalesOrders,
+    );
+    await _afterBulk();
+  }
+
+  Future<void> _bulkCancel() async {
+    final List<BulkRow> rows = _bulkRows();
+    final String? reason = await askForReason(
+      context,
+      title: 'Cancel ${rows.length} orders',
+      explanation: 'Each order is cancelled on its own and its stock is '
+          'released; one the server refuses does not stop the others. The '
+          'reason is recorded on every order cancelled.',
+      confirmLabel: 'Cancel orders',
+    );
+    if (reason == null || !mounted) return;
+    await runBulkAction(
+      context,
+      verb: 'Cancelled',
+      rows: rows,
+      send: (rows) => widget.api.bulkCancelSalesOrders(rows, reason),
+    );
+    await _afterBulk();
+  }
+
+  Future<void> _afterBulk() async {
+    if (!mounted) return;
+    setState(() => _ticked = <String>{});
+    await _load();
   }
 
   Future<void> _act(String suffix, {String? overrideReason}) async {
@@ -473,7 +567,9 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         // Option C (owner, 2026-09-27): the order's actions on a bar that
         // names it, above the grid.
         selectionBar: true,
-        selection: _selected == null
+        selection: _bulkMode
+            ? _bulkSummary()
+            : _selected == null
             ? null
             : SelectionSummary.document(
                 number: '${_selected!['order_number'] ?? ''}',
@@ -538,8 +634,9 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
       isEnabled: (action) =>
           !_loading &&
           switch (action) {
-            ToolbarAction.view => selected != null,
-            ToolbarAction.edit => selected != null && status == 'DRAFT',
+            ToolbarAction.view => selected != null && !_bulkMode,
+            ToolbarAction.edit =>
+              selected != null && status == 'DRAFT' && !_bulkMode,
             ToolbarAction.refresh => true,
             ToolbarAction.newItem => widget.hasActiveFirm,
             _ => false,
@@ -558,7 +655,9 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
             break;
         }
       },
-      commands: [
+      commands: _bulkMode
+          ? _bulkCommands()
+          : [
         _command(DocumentToolbarAction.approve, '/approve'),
         ToolbarCommand(
           id: 'hold',
@@ -573,7 +672,7 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         ),
         _command(DocumentToolbarAction.cancel, '/cancel'),
         _command(DocumentToolbarAction.close, '/close'),
-      ],
+              ],
     );
   }
 
@@ -592,10 +691,11 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
 
   Widget _phase1Toolbar() => WorkspaceToolbar(
         actions: const [ToolbarAction.view, ToolbarAction.refresh],
+        commands: _bulkMode ? _bulkCommands() : const [],
         isEnabled: (action) =>
             !_loading &&
             switch (action) {
-              ToolbarAction.view => _selected != null,
+              ToolbarAction.view => _selected != null && !_bulkMode,
               ToolbarAction.refresh => true,
               _ => false,
             },
@@ -964,6 +1064,10 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         items: _orders,
         id: (item) => '${item['id']}',
         selectedId: _selected == null ? null : '${_selected!['id']}',
+        // Ticks, for a bulk approve or cancel. A single row is still chosen
+        // by clicking it.
+        selectedIds: _ticked,
+        onSelectionChanged: (ticked) => setState(() => _ticked = ticked),
         cells: _columns.cells,
         onSelect: _selectOrder,
         onOpen: (item) => unawaited(_openOrder(item)),
