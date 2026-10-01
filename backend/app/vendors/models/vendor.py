@@ -138,6 +138,9 @@ class Vendor(BaseEntity):
         Boolean, nullable=False, default=False, server_default="false"
     )
     gstin: Mapped[str | None] = mapped_column(String(32))
+    #: REGULAR, COMPOSITION, UNREGISTERED, OVERSEAS or SEZ (backlog 78 row 2);
+    #: NULL is read off the GSTIN (`app/vendors/gst_registration.py`).
+    gst_registration_type: Mapped[str | None] = mapped_column(String(30))
     pan: Mapped[str | None] = mapped_column(String(32))
     #: Why the supplier is BLOCKED (backlog 69 row 4); NULL otherwise.
     blocked_reason: Mapped[str | None] = mapped_column(Text)

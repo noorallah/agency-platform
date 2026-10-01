@@ -47,6 +47,9 @@ from app.tax.schemas import (
     TaxStatus,
 )
 from app.tax.services.place_of_supply import SupplyPlaceResolver
+from app.vendors.gst_registration import CHARGES_NO_TAX
+from app.vendors.gst_registration import effective_type as supplier_gst_type
+from app.vendors.models import Vendor
 
 
 class TaxRuleService:
@@ -697,6 +700,15 @@ class TaxRuleService:
         base_amount = Decimal(str(context.get("invoice_value") or "0"))
         if exempt:
             components = []
+        # A supplier declared a composition dealer, unregistered or abroad
+        # charges no GST on its own bill (backlog 78 row 2, A37): nothing to
+        # bill, nothing to claim. Reverse charge still stands -- the firm owes
+        # it. A supplier never declared is taxed by the rules, as before.
+        if (
+            not reverse_charge
+            and str(context.get("vendor_gst_declared") or "").upper() in CHARGES_NO_TAX
+        ):
+            components = []
         preview_components = [
             TaxRuleComponentPreview(
                 tax_component_id=item["tax_component_id"],
@@ -1006,6 +1018,17 @@ class TaxRuleService:
             destination = self._supply.buyer_state(data.customer_id)
             if destination is not None:
                 context["destination"] = destination
+        # What the supplier is under GST (backlog 78 row 2), so a rule can be
+        # written against it and a supplier who charges none is not taxed.
+        if context.get("vendor_type") is None and data.vendor_id is not None:
+            vendor = self._session.get(Vendor, data.vendor_id)
+            if vendor is not None and vendor.firm_id == firm_scope:
+                context["vendor_type"] = supplier_gst_type(
+                    vendor.gst_registration_type, vendor.gstin
+                )
+                # Only a type somebody declared drops the tax: a supplier
+                # whose GSTIN was never typed in is not thereby unregistered.
+                context["vendor_gst_declared"] = vendor.gst_registration_type
         return context
 
     def _country_for_profile(

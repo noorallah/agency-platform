@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.core.validation import validate_email, validate_phone
+from app.vendors.gst_registration import SupplierGstType
 
 
 class VendorStatus(StrEnum):
@@ -176,6 +177,9 @@ class VendorWrite(VendorSchema):
     business_profile_id: UUID | None = None
     gst_registration: bool = False
     gstin: str | None = Field(default=None, max_length=32)
+    #: What the supplier is under GST (backlog 78 row 2). None reads it off
+    #: the GSTIN: REGULAR with one, UNREGISTERED without.
+    gst_registration_type: SupplierGstType | None = None
     pan: str | None = Field(default=None, max_length=32)
     #: Days of credit; a bill's due date defaults from it (backlog 68 row 1).
     payment_terms_days: int = Field(default=0, ge=0, le=3650)
@@ -443,6 +447,7 @@ class VendorResponse(VendorSchema):
     business_profile_id: UUID | None
     gst_registration: bool
     gstin: str | None
+    gst_registration_type: str | None = None
     pan: str | None
     payment_terms_days: int = 0
     udyam_number: str | None = None

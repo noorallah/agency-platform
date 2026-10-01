@@ -239,6 +239,26 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
     );
   }
 
+  /// The line under a supplier picker, with a note added when the supplier
+  /// is declared to charge no GST (backlog 78 row 2). Informational only.
+  Widget? _withNoGstNote(BuildContext context, Widget? line, Vendor? vendor) {
+    if (vendor == null || !vendor.chargesNoGst) return line;
+    final ThemeData theme = Theme.of(context);
+    final Widget note = Text(
+      'This supplier charges no GST; the bill will carry no tax.',
+      key: const ValueKey('purchase-invoice-no-gst-note'),
+      style: theme.textTheme.bodySmall?.copyWith(
+        fontSize: 11,
+        color: theme.colorScheme.tertiary,
+      ),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [if (line != null) line, note],
+    );
+  }
+
   /// What the bill charges for: a receipt, an order or -- typed directly --
   /// the supplier.
   Widget _sourceField(BuildContext context) {
@@ -300,14 +320,18 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
         return DocumentField(
           label: 'Purchase order being billed (approved only)',
           width: 400,
-          below: order == null
-              ? null
-              : _quietLine(
-                  context,
-                  '${_vendor(order.vendorId)?.displayName ?? 'supplier'}'
-                  '  ·  ordered ${_dayOf(order.purchaseDate)}'
-                  '  ·  saving receives what the bill charges for',
-                ),
+          below: _withNoGstNote(
+            context,
+            order == null
+                ? null
+                : _quietLine(
+                    context,
+                    '${_vendor(order.vendorId)?.displayName ?? 'supplier'}'
+                    '  ·  ordered ${_dayOf(order.purchaseDate)}'
+                    '  ·  saving receives what the bill charges for',
+                  ),
+            order == null ? null : _vendor(order.vendorId),
+          ),
           child: DropdownMenu<String>(
             key: const ValueKey('purchase-invoice-order'),
             initialSelection: order?.id,
@@ -342,15 +366,19 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
         return DocumentField(
           label: 'Supplier (type code or name)',
           width: 400,
-          below: vendor == null
-              ? null
-              : _quietLine(
-                  context,
-                  [
-                    vendor.code,
-                    if (vendor.gstin.isNotEmpty) 'GSTIN ${vendor.gstin}',
-                  ].join('  ·  '),
-                ),
+          below: _withNoGstNote(
+            context,
+            vendor == null
+                ? null
+                : _quietLine(
+                    context,
+                    [
+                      vendor.code,
+                      if (vendor.gstin.isNotEmpty) 'GSTIN ${vendor.gstin}',
+                    ].join('  ·  '),
+                  ),
+            vendor,
+          ),
           child: DropdownMenu<String>(
             key: const ValueKey('purchase-invoice-vendor'),
             initialSelection: _vendorId,

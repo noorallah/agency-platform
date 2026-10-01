@@ -159,7 +159,21 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
     if (!creating && !_canEdit) return;
     // Phase 2 opens the record as a full-page tab titled with the vendor's
     // name (owner, 2026-09-26); phase 1 keeps its dialog.
-    final Json? payload = Phase2Scope.of(context)
+    final bool phase2 = Phase2Scope.of(context);
+    // Phase 2 saves inside the page, so a refusal keeps what was typed (D-DLG-1).
+    Future<void> saveIt(Json data) async {
+      if (creating) {
+        await widget.api.createVendor(data);
+      } else {
+        await widget.api.updateVendor(
+          vendor.id,
+          data,
+          expectedVersion: preconditionFor(vendor.version),
+        );
+      }
+    }
+
+    final Json? payload = phase2
         ? await showDocument<Json>(
             context,
             title: creating
@@ -170,6 +184,7 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
             builder: (context) => _VendorEditorDialog(
               api: widget.api,
               vendor: vendor,
+              onSave: saveIt,
               loadLicences: vendor != null &&
                       widget.permissions.hasPermission('TRADE_LICENCE_VIEW')
                   ? () => widget.api.tradeLicences(vendorId: vendor.id)
@@ -202,15 +217,11 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
           );
     if (payload == null || !mounted) return;
     try {
-      if (creating) {
-        await widget.api.createVendor(payload);
-      } else {
-        await widget.api.updateVendor(
-          vendor.id,
-          payload,
-          expectedVersion: preconditionFor(vendor.version),
-        );
+      if (phase2) {
+        await _load();
+        return;
       }
+      await saveIt(payload);
       await _load();
     } on ApiException catch (exception) {
       if (!mounted) return;
@@ -463,6 +474,7 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
             _column('Code', 'code'),
             _column('Name', 'name'),
             const GridColumn(key: 'gstin', label: 'GSTIN'),
+            const GridColumn(key: 'gst_type', label: 'GST type'),
             const GridColumn(key: 'phone', label: 'Phone'),
             _column('Status', 'status'),
             _column('Created', 'created_at'),
@@ -472,6 +484,7 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
             item.code,
             item.displayName,
             item.gstin,
+            item.gstTypeShort,
             item.mobile.isNotEmpty ? item.mobile : item.phone,
             item.isDeleted ? 'DELETED' : item.status,
             item.createdAt.split('T').first,
@@ -578,7 +591,13 @@ class _VendorEditorDialog extends StatefulWidget {
     this.onAddLicence,
     this.loadOpeningBills,
     this.canManageOpeningBills = false,
+    this.onSave,
   });
+
+  /// Makes the create or update call. When given, the page runs it itself and
+  /// stays open with the server's message on a refusal; null pops the payload
+  /// for the caller to save (phase 1).
+  final Future<void> Function(Json payload)? onSave;
 
   /// Needed for the geography ladder behind an address.
   final ApiClient api;
@@ -611,7 +630,7 @@ class _VendorEditorDialog extends StatefulWidget {
 }
 
 class _VendorEditorDialogState extends State<_VendorEditorDialog>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, SaveInDialog {
   /// Made in `initState`, not on first use: the phase 2 page never shows the
   /// tabs, and a controller first made in `dispose` looks up a ticker on a
   /// widget already gone.
@@ -687,6 +706,9 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
   String _status = 'ACTIVE';
   bool _gstRegistration = false;
 
+  /// The declared GST type; null is "Not set", which changes no tax.
+  String? _gstType;
+
   /// The two masters a vendor points at, loaded once when the dialog opens.
   ///
   /// Empty until they arrive, and **empty is not the same as none**: while
@@ -735,6 +757,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         ? widget.vendor!.status
         : 'ACTIVE';
     _gstRegistration = widget.vendor?.gstRegistration ?? false;
+    _gstType = widget.vendor?.gstRegistrationType;
     _categoryId = widget.vendor?.categoryId.isNotEmpty == true
         ? widget.vendor!.categoryId
         : null;
@@ -1155,6 +1178,36 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
               Expanded(child: _field(_gstin, 'GSTIN')),
               const SizedBox(width: 12),
               Expanded(child: _field(_pan, 'PAN')),
+              const SizedBox(width: 12),
+              // A declaration, not a default: blank changes no tax, and the
+              // server refuses a type that disagrees with the GSTIN.
+              Expanded(
+                child: DropdownButtonFormField<String?>(
+                  key: const ValueKey('vendor-gst-type'),
+                  isExpanded: true,
+                  initialValue: _gstType,
+                  decoration: InputDecoration(
+                    labelText: 'GST type',
+                    helperText: _gstType == null
+                        ? vendorGstTypeNotSet
+                        : vendorGstTypeLabels[_gstType],
+                    helperMaxLines: 2,
+                  ),
+                  items: [
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('Not set'),
+                    ),
+                    for (final MapEntry<String, String> option
+                        in vendorGstTypeLabels.entries)
+                      DropdownMenuItem<String?>(
+                        value: option.key,
+                        child: Text(vendorGstTypeName(option.key)),
+                      ),
+                  ],
+                  onChanged: (value) => setState(() => _gstType = value),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -1694,6 +1747,8 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         if (_classificationsLoaded) 'category_id': _categoryId,
         if (_classificationsLoaded) 'type_id': _typeId,
         'gst_registration': _gstRegistration,
+        // Sent whole like the other optional fields: null is "Not set".
+        'gst_registration_type': _gstType,
         'gstin': _gstin.text.trim().toUpperCase(),
         'pan': _pan.text.trim().toUpperCase(),
         'payment_terms_days': int.tryParse(_creditDays.text.trim()) ?? 0,

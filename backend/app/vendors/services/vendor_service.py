@@ -32,6 +32,7 @@ from app.core.exceptions import (
 )
 from app.core.utils.dates import utc_now
 from app.core.validation import check_tan_if_set, settle_pan
+from app.vendors.gst_registration import assert_consistent
 from app.vendors.models import (
     Vendor,
     VendorAddress,
@@ -1007,6 +1008,17 @@ class VendorService:
         update: dict[str, object] = {}
         sent = set(data.model_fields_set)
         creating = current is None
+        # The GST type against the GSTIN (backlog 78 row 2), as the write
+        # leaves them: what it sends, the row's own where it sends nothing.
+        if creating or "gst_registration_type" in sent or "gstin" in sent:
+            assert_consistent(
+                (
+                    data.gst_registration_type
+                    if current is None or "gst_registration_type" in sent
+                    else current.gst_registration_type
+                ),
+                data.gstin if current is None or "gstin" in sent else current.gstin,
+            )
         if creating or "pan" in sent or "gstin" in sent:
             pan_now = data.pan if current is None or "pan" in sent else current.pan
             pan = settle_pan(

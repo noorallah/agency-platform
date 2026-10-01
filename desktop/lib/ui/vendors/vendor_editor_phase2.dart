@@ -33,7 +33,7 @@ extension _Phase2VendorForm on _VendorEditorDialogState {
           kind: AppNotificationKind.warning);
       return;
     }
-    Navigator.pop(context, _payload());
+    unawaited(submit<Json>(_payload(), widget.onSave));
   }
 
   Widget _phase2Page(BuildContext context) {
@@ -66,16 +66,21 @@ extension _Phase2VendorForm on _VendorEditorDialogState {
                 hint: 'Ctrl+S save  ·  Esc close',
                 actions: [
                   TextButton(
-                    onPressed: () => Navigator.pop(context),
+                    onPressed: cancelHandler,
                     child: const Text('Cancel'),
                   ),
                   FilledButton(
                     key: const ValueKey('vendor-save'),
-                    onPressed: _submit,
+                    onPressed: saving ? null : _submit,
                     child: const Text('Save vendor'),
                   ),
                 ],
               ),
+              if (saveError != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                  child: saveErrorBanner(),
+                ),
               Expanded(
                 child: LayoutBuilder(
                   builder: (context, constraints) => Row(
@@ -251,6 +256,14 @@ extension _Phase2VendorForm on _VendorEditorDialogState {
             : _gstRegistration
                 ? 'registered, no GSTIN yet'
                 : 'unregistered',
+      ),
+      DocumentSidePair(
+        'GST type',
+        _gstType == null
+            ? (_gstin.text.trim().isNotEmpty
+                ? 'Regular (from GSTIN)'
+                : 'Unregistered (from GSTIN)')
+            : vendorGstTypeName(_gstType!),
       ),
       const DocumentSideNote(
         'the GSTIN\'s state decides whether their bills charge IGST or CGST '

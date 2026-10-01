@@ -254,6 +254,30 @@ class VendorClassification {
       );
 }
 
+/// The GST types a supplier can be declared as (backlog 78 row 2), in the
+/// order the form offers them, each with the sentence that says what it means.
+const Map<String, String> vendorGstTypeLabels = {
+  'REGULAR': 'Registered, charges GST',
+  'COMPOSITION': 'Composition dealer: bill of supply, no GST, no credit',
+  'UNREGISTERED': 'No GST registration: charges no GST',
+  'OVERSEAS': 'Supplier outside India: IGST is paid at customs',
+  'SEZ': 'Unit in a Special Economic Zone',
+};
+
+/// A type as one word: Regular, Composition, Unregistered, Overseas, SEZ.
+String vendorGstTypeName(String type) =>
+    type == 'SEZ' ? 'SEZ' : type[0] + type.substring(1).toLowerCase();
+
+/// What a blank type reads as: not a declaration, so it changes no tax.
+const String vendorGstTypeNotSet = 'Not set (read from the GSTIN)';
+
+/// The types whose bills carry no GST, so the bill editor can say so.
+const Set<String> vendorGstTypesChargingNoGst = {
+  'COMPOSITION',
+  'UNREGISTERED',
+  'OVERSEAS',
+};
+
 class Vendor {
   const Vendor({
     required this.id,
@@ -268,6 +292,7 @@ class Vendor {
     required this.status,
     required this.businessProfileId,
     required this.gstRegistration,
+    this.gstRegistrationType,
     required this.gstin,
     required this.pan,
     this.blockedReason = '',
@@ -311,6 +336,33 @@ class Vendor {
   final String status;
   final String businessProfileId;
   final bool gstRegistration;
+
+  /// REGULAR, COMPOSITION, UNREGISTERED, OVERSEAS, SEZ, or null when nobody
+  /// declared one. Null is read off the GSTIN for display only and changes
+  /// no tax (backlog 78 row 2).
+  final String? gstRegistrationType;
+
+  /// The type for display: the declared one, or what the GSTIN implies.
+  String get gstTypeLabel {
+    final String? type = gstRegistrationType;
+    if (type != null && type.isNotEmpty) {
+      return vendorGstTypeLabels[type] ?? type;
+    }
+    return gstin.trim().isNotEmpty
+        ? 'Regular (from GSTIN)'
+        : 'Unregistered (from GSTIN)';
+  }
+
+  /// One word for a list column.
+  String get gstTypeShort {
+    final String? type = gstRegistrationType;
+    if (type == null || type.isEmpty) return gstTypeLabel;
+    return vendorGstTypeName(type);
+  }
+
+  /// True when a declared type means this supplier's bills carry no GST.
+  bool get chargesNoGst =>
+      vendorGstTypesChargingNoGst.contains(gstRegistrationType);
 
   /// Why the supplier is BLOCKED (backlog 69 row 4); empty otherwise.
   final String blockedReason;
@@ -358,6 +410,10 @@ class Vendor {
         status: stringValue(json['status']),
         businessProfileId: stringValue(json['business_profile_id']),
         gstRegistration: boolValue(json['gst_registration']),
+        gstRegistrationType: json['gst_registration_type'] is String &&
+                (json['gst_registration_type'] as String).isNotEmpty
+            ? json['gst_registration_type'] as String
+            : null,
         gstin: stringValue(json['gstin']),
         pan: stringValue(json['pan']),
         blockedReason: stringValue(json['blocked_reason']),

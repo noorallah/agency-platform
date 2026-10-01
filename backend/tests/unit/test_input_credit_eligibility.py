@@ -48,6 +48,9 @@ def _bill(
     rule_blocks: bool = False,
     product_says: str = "ELIGIBLE",
     line_says: str | None = None,
+    supplier_type: str | None = None,
+    supplier_gstin: str | None = None,
+    reverse_charge: bool = False,
 ) -> tuple[Session, UUID, UUID, UUID, PurchaseInvoiceLine]:
     """Bill and approve 4 x 100 at 18% local GST: CGST 36 + SGST 36."""
     session = bills._session_factory()()
@@ -58,6 +61,9 @@ def _bill(
     branch = bills._branch(session, firm_id=firm.id)
     warehouse = bills._warehouse(session, firm_id=firm.id, branch_id=branch.id)
     vendor = bills._vendor(session, firm_id=firm.id)
+    vendor.gst_registration_type = supplier_type
+    vendor.gstin = supplier_gstin
+    session.commit()
     order = bills._purchase_order(
         session,
         firm_id=firm.id,
@@ -86,6 +92,8 @@ def _bill(
     ]
     if rule_blocks:
         actions.append({"sequence": 2, "action_type": "INPUT_CREDIT_BLOCKED"})
+    if reverse_charge:
+        actions.append({"sequence": 3, "action_type": "REVERSE_CHARGE"})
     TaxRuleService(session).create_rule(
         TaxRuleWrite(
             country_id=country.id,
