@@ -46,6 +46,8 @@ class _ReorderApi extends ApiClient {
             'reorder_level': '5.0000',
             'on_order_quantity': '0.0000',
             'suggested_quantity': '17.0000',
+            'basis': 'SALES',
+            'average_daily_sales': '1.5000',
             'supplier_id': 'v-1',
             'supplier_name': 'Sri Ganesh Traders',
           },
@@ -59,10 +61,24 @@ class _ReorderApi extends ApiClient {
             'reorder_level': '4.0000',
             'on_order_quantity': '0.0000',
             'suggested_quantity': '3.0000',
+            'basis': 'LEVEL',
+            'average_daily_sales': null,
             'supplier_id': null,
             'supplier_name': null,
           },
         ],
+      };
+    }
+    if (path.endsWith('/reorder-planning')) {
+      return <String, dynamic>{
+        'data': <String, dynamic>{
+          'basis': 'SALES',
+          'sales_window_days': 30,
+          'lead_time_days': 7,
+          'safety_days': 3,
+          'cover_days': 30,
+          'is_configured': true,
+        },
       };
     }
     if (path.endsWith('/reorder-drafts')) {
@@ -127,6 +143,20 @@ void main() {
       },
     ]);
     expect(find.byType(ReorderDialog), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('each row says its basis and the firm basis is noted',
+      (tester) async {
+    await _open(tester, _ReorderApi());
+
+    expect(find.byKey(const ValueKey('reorder-planning-note')), findsOneWidget);
+    expect(find.textContaining('30-day average'), findsOneWidget);
+    expect(find.text('Basis'), findsOneWidget);
+    expect(find.text('Avg/day'), findsOneWidget);
+    expect(find.text('Sales'), findsOneWidget);
+    expect(find.text('Level'), findsOneWidget);
+    expect(find.text('1.5'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

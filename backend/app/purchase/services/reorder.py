@@ -19,6 +19,12 @@ maximum level set, the shortfall to the reorder level. Never negative: a row
 whose need is already on order is listed with zero, so the buyer can see why
 nothing is suggested.
 
+**Or from what sold** (backlog 69 row 12, A39). A firm planning on SALES
+gets a derived level for every product with none typed: net sales over the
+window as a daily rate, a reorder point of that times lead plus safety days and
+a target of the point plus the cover days -- see ``ReorderPlanningSettings``.
+A typed level always wins, and a derived suggestion rounds up to whole units.
+
 **The supplier** is the one last billed for the product (there is no
 preferred-supplier field), and the rate that bill's rate when it was billed in
 the stock unit, else the product's purchase price.
@@ -31,19 +37,26 @@ whole batch by name, as an import does.
 
 from collections import defaultdict
 from dataclasses import dataclass
-from decimal import Decimal
+from datetime import timedelta
+from decimal import ROUND_CEILING, Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.branches.models import Warehouse
+from app.common.audit.services import record_audit
 from app.core.exceptions import ValidationError
 from app.core.utils.dates import utc_now
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
-from app.inventory.models import InventoryRecord
+from app.inventory.models import InventoryRecord, InventoryTransaction
+from app.inventory.schemas import REVERSAL_SUFFIX
 from app.products.models import Product
-from app.purchase.models import PurchaseOrder, PurchaseOrderLine
+from app.purchase.models import (
+    PurchaseOrder,
+    PurchaseOrderLine,
+    ReorderPlanningSettings,
+)
 from app.purchase.schemas import (
     PurchaseLineWrite,
     PurchaseOrderCreate,
@@ -87,6 +100,59 @@ class ReorderRow:
     supplier_id: UUID | None
     supplier_name: str | None
     unit_price: Decimal
+    #: ``LEVEL`` when typed on the stock row, ``SALES`` when derived from what
+    #: sold (backlog 69 row 12); then ``reorder_level`` and ``maximum_level``
+    #: are the derived reorder point and order-up-to level.
+    basis: str = "LEVEL"
+    average_daily_sales: Decimal | None = None
+
+
+@dataclass(frozen=True)
+class PlanningSettings:
+    """A firm's reorder planning, with the defaults where it set none."""
+
+    basis: str = "LEVELS"
+    sales_window_days: int = 90
+    lead_time_days: int = 7
+    safety_days: int = 7
+    cover_days: int = 30
+    is_configured: bool = False
+
+
+#: The movements that are a sale or its undoing: stock out to customers, back
+#: from them, and the reversal of either. Their deltas, summed and negated,
+#: are what the customers kept.
+SALES_MOVEMENTS = (
+    "DISPATCH",
+    "DISPATCH" + REVERSAL_SUFFIX,
+    "SALES_RETURN",
+    "SALES_RETURN" + REVERSAL_SUFFIX,
+)
+
+
+@dataclass(frozen=True)
+class _Level:
+    """One warehouse and product due for reorder, and the level that says so."""
+
+    warehouse_id: UUID
+    product_id: UUID
+    branch_id: UUID
+    held: Decimal
+    reorder: Decimal
+    maximum: Decimal | None
+    basis: str = "LEVEL"
+    daily: Decimal | None = None
+
+
+def _planning_snapshot(values: PlanningSettings) -> dict[str, object]:
+    """Return the planning figures as the audit trail keeps them."""
+    return {
+        "basis": values.basis,
+        "sales_window_days": values.sales_window_days,
+        "lead_time_days": values.lead_time_days,
+        "safety_days": values.safety_days,
+        "cover_days": values.cover_days,
+    }
 
 
 @dataclass(frozen=True)
@@ -110,6 +176,8 @@ class ReorderService:
         self, firm_id: UUID, *, warehouse_id: UUID | None = None
     ) -> list[ReorderRow]:
         """Return every warehouse and product at or below its reorder level."""
+        planning = self.planning(firm_id)
+        by_sales = planning.basis == "SALES"
         level = func.max(
             func.coalesce(InventoryRecord.reorder_level, InventoryRecord.minimum_level)
         )
@@ -128,15 +196,55 @@ class ReorderService:
                 InventoryRecord.is_deleted.is_(False),
             )
             .group_by(InventoryRecord.warehouse_id, InventoryRecord.product_id)
-            .having(level.is_not(None), available <= level)
         )
+        if not by_sales:
+            # Only typed levels count, so let the database drop the rest.
+            statement = statement.having(level.is_not(None), available <= level)
         if warehouse_id is not None:
             statement = statement.where(InventoryRecord.warehouse_id == warehouse_id)
-        stock = self._session.execute(statement).all()
+        demand = (
+            self._sales_by_location(firm_id, planning, warehouse_id) if by_sales else {}
+        )
+        stock: list[_Level] = []
+        for found in self._session.execute(statement).all():
+            warehouse, product_id, branch, held_raw, typed, maximum = found
+            held = Decimal(str(held_raw))
+            if typed is not None:
+                if held <= Decimal(str(typed)):
+                    stock.append(
+                        _Level(
+                            warehouse,
+                            product_id,
+                            branch,
+                            held,
+                            Decimal(str(typed)),
+                            None if maximum is None else Decimal(str(maximum)),
+                        )
+                    )
+                continue
+            sold = demand.get((warehouse, product_id))
+            if sold is None:
+                continue
+            daily = sold / planning.sales_window_days
+            point = daily * (planning.lead_time_days + planning.safety_days)
+            if held > point:
+                continue
+            stock.append(
+                _Level(
+                    warehouse,
+                    product_id,
+                    branch,
+                    held,
+                    point.quantize(QUANTUM),
+                    (point + daily * planning.cover_days).quantize(QUANTUM),
+                    basis="SALES",
+                    daily=daily.quantize(QUANTUM),
+                )
+            )
         if not stock:
             return []
-        product_ids = {row[1] for row in stock}
-        warehouse_ids = {row[0] for row in stock}
+        product_ids = {row.product_id for row in stock}
+        warehouse_ids = {row.warehouse_id for row in stock}
         on_order = self._on_order(firm_id, warehouse_ids, product_ids)
         products = {
             row.id: row
@@ -162,16 +270,23 @@ class ReorderService:
             ).all()
         }
         result: list[ReorderRow] = []
-        for warehouse, product_id, branch, held, reorder, maximum in stock:
+        for entry in stock:
+            warehouse, product_id = entry.warehouse_id, entry.product_id
             product = products.get(product_id)
             if product is None:
                 continue
-            held = Decimal(str(held))
-            reorder = Decimal(str(reorder))
-            maximum = None if maximum is None else Decimal(str(maximum))
+            held, reorder, maximum = entry.held, entry.reorder, entry.maximum
             coming = on_order.get((warehouse, product_id), ZERO)
             target = maximum if maximum is not None else reorder
-            suggested = max(target - held - coming, ZERO).quantize(QUANTUM)
+            gap = max(target - held - coming, ZERO)
+            # A derived level orders whole units; a typed one orders exactly
+            # the gap, as it always has.
+            suggested = (
+                gap.to_integral_value(rounding=ROUND_CEILING)
+                if entry.basis == "SALES"
+                else gap
+            ).quantize(QUANTUM)
+            branch = entry.branch_id
             supplier, rate = suppliers.get(product_id, (None, None))
             result.append(
                 ReorderRow(
@@ -193,10 +308,126 @@ class ReorderService:
                         if rate is not None
                         else Decimal(str(product.purchase_price or 0))
                     ),
+                    basis=entry.basis,
+                    average_daily_sales=entry.daily,
                 )
             )
         result.sort(key=lambda row: (row.warehouse_code, row.product_code))
         return result
+
+    def planning(self, firm_id: UUID) -> PlanningSettings:
+        """Return the firm's reorder planning, or the defaults (LEVELS)."""
+        row = self._planning_row(firm_id)
+        if row is None:
+            return PlanningSettings()
+        return PlanningSettings(
+            basis=row.basis,
+            sales_window_days=row.sales_window_days,
+            lead_time_days=row.lead_time_days,
+            safety_days=row.safety_days,
+            cover_days=row.cover_days,
+            is_configured=True,
+        )
+
+    def save_planning(
+        self, firm_id: UUID, values: PlanningSettings, *, actor_id: UUID
+    ) -> PlanningSettings:
+        """Replace the firm's reorder planning and keep the change in the trail.
+
+        Raises:
+            ValidationError: When the basis is not LEVELS or SALES, or a number
+                of days is out of range.
+
+        """
+        if values.basis not in ("LEVELS", "SALES"):
+            raise ValidationError("Reorder on LEVELS or on SALES.")
+        if not 7 <= values.sales_window_days <= 365:
+            raise ValidationError("Read sales over 7 to 365 days.")
+        for label, days in (
+            ("Lead time", values.lead_time_days),
+            ("Safety stock", values.safety_days),
+        ):
+            if not 0 <= days <= 365:
+                raise ValidationError(f"{label} is 0 to 365 days.")
+        if not 1 <= values.cover_days <= 365:
+            raise ValidationError("Order enough for 1 to 365 days.")
+        before = self.planning(firm_id)
+        row = self._planning_row(firm_id)
+        if row is None:
+            row = ReorderPlanningSettings(
+                firm_id=firm_id, created_by=actor_id, updated_by=actor_id
+            )
+            self._session.add(row)
+        row.basis = values.basis
+        row.sales_window_days = values.sales_window_days
+        row.lead_time_days = values.lead_time_days
+        row.safety_days = values.safety_days
+        row.cover_days = values.cover_days
+        row.updated_by = actor_id
+        self._session.flush()
+        record_audit(
+            self._session,
+            action="purchase.reorder_planning_updated",
+            entity_type="reorder_planning_settings",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            before_data=_planning_snapshot(before),
+            after_data=_planning_snapshot(values),
+        )
+        self._session.commit()
+        return self.planning(firm_id)
+
+    def _planning_row(self, firm_id: UUID) -> ReorderPlanningSettings | None:
+        """Return the firm's live planning row, if it has one."""
+        return self._session.scalar(
+            select(ReorderPlanningSettings).where(
+                ReorderPlanningSettings.firm_id == firm_id,
+                ReorderPlanningSettings.is_deleted.is_(False),
+            )
+        )
+
+    def _sales_by_location(
+        self,
+        firm_id: UUID,
+        planning: PlanningSettings,
+        warehouse_id: UUID | None,
+    ) -> dict[tuple[UUID, UUID], Decimal]:
+        """Return what customers kept per warehouse and product over the window.
+
+        Dispatches less returns, each net of its reversals, in stock units,
+        dated within the last ``sales_window_days`` up to today. Only what
+        actually went out counts: an order nobody shipped is not demand yet.
+        """
+        today = utc_now().date()
+        since = today - timedelta(days=planning.sales_window_days)
+        kept = -func.sum(InventoryTransaction.current_quantity_delta)
+        statement = (
+            select(
+                InventoryTransaction.warehouse_id,
+                InventoryTransaction.product_id,
+                kept,
+            )
+            .where(
+                InventoryTransaction.firm_id == firm_id,
+                InventoryTransaction.is_deleted.is_(False),
+                InventoryTransaction.transaction_type.in_(SALES_MOVEMENTS),
+                InventoryTransaction.transaction_date > since,
+                InventoryTransaction.transaction_date <= today,
+            )
+            .group_by(
+                InventoryTransaction.warehouse_id, InventoryTransaction.product_id
+            )
+            .having(kept > 0)
+        )
+        if warehouse_id is not None:
+            statement = statement.where(
+                InventoryTransaction.warehouse_id == warehouse_id
+            )
+        return {
+            (warehouse, product): Decimal(str(quantity))
+            for warehouse, product, quantity in self._session.execute(statement).all()
+        }
 
     def raise_drafts(
         self, firm_id: UUID, picks: list[ReorderPick], *, actor_id: UUID

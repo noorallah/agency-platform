@@ -442,6 +442,31 @@ supplier per warehouse through `PurchaseService.stage_order` and commits once
 supplier, or with nothing left to order refuses the batch by name. Because
 drafts count as on order, running it twice does not order twice.
 
+### Reorder on what sold (backlog 69 row 12, decision A39, 2026-10-02)
+
+`GET`/`PUT /api/v1/purchases/reorder-planning` (`reorder_planning_settings`,
+migration 0215; reading takes `PURCHASE_VIEW` or `REPORT_VIEW`, writing
+`PURCHASE_MANAGE_SETTINGS`). **LEVELS**, the default and what a firm with no row
+gets, is the report above. **SALES** adds every product nobody typed a level
+for, per warehouse:
+
+- *daily* = what customers kept over the last `sales_window_days` (90) --
+  dispatches less sales returns, each net of its reversals, in stock units,
+  dated up to today -- divided by the window. Orders nobody shipped are not
+  demand.
+- listed when available stock is at or below *daily* x (`lead_time_days` 7 +
+  `safety_days` 7), the **reorder point**;
+- suggested up to *daily* x (lead + safety + `cover_days` 30), less available
+  and on order, **rounded up to whole units**. Cover 30 is "keep a month's
+  stock and order back what sold".
+
+A level typed on the stock row always wins over the derived one, as an Odoo
+reordering rule or an ERPNext item reorder level does. The report rows carry
+`basis` (LEVEL / SALES) and `average_daily_sales`; for a SALES row
+`reorder_level` and `maximum_level` are the derived point and target. Lead time
+is firm-wide until suppliers carry their own (row 3), and there is no MOQ or
+order-multiple rounding until the supplier catalogue exists (rows 1-2).
+
 ## Not built
 
 - ~~The purchase order's received status~~ -- built: receiving moves the

@@ -30,6 +30,7 @@ class _ReorderDialogState extends State<ReorderDialog>
   List<Json> _rows = const [];
   bool _loading = true;
   String? _loadError;
+  String? _planningNote;
   final Set<int> _ticked = <int>{};
 
   /// One box per row, owned here (CLAUDE.md: a dialog owns its controllers).
@@ -52,7 +53,23 @@ class _ReorderDialogState extends State<ReorderDialog>
   Future<void> _load() async {
     try {
       final List<Json> rows = await widget.api.belowReorderLevel();
+      // Which basis the firm plans on is a note, not a precondition: a
+      // refusal to read it (no view permission) just leaves the note out.
+      String? basis;
+      try {
+        final Json planning = await widget.api.reorderPlanning();
+        basis = stringValue(planning['basis']) == 'SALES'
+            ? 'From sales: ${stringValue(planning['sales_window_days'])}-day '
+                'average, ${stringValue(planning['lead_time_days'])} days '
+                'lead time, ${stringValue(planning['safety_days'])} days '
+                'safety, ${stringValue(planning['cover_days'])} days cover. '
+                'A level typed on a product wins.'
+            : 'Typed levels per product.';
+      } on ApiException {
+        basis = null;
+      }
       if (!mounted) return;
+      _planningNote = basis;
       for (final TextEditingController controller in _quantities) {
         controller.dispose();
       }
@@ -129,6 +146,15 @@ class _ReorderDialogState extends State<ReorderDialog>
               'per warehouse.',
               style: theme.textTheme.bodySmall,
             ),
+            if (_planningNote != null) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'Planning basis -- $_planningNote',
+                key: const ValueKey('reorder-planning-note'),
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ],
             const SizedBox(height: AppSpacing.sm),
             saveErrorBanner(),
             Expanded(child: _body(theme)),
@@ -180,6 +206,8 @@ class _ReorderDialogState extends State<ReorderDialog>
           const SizedBox(width: 40),
           Expanded(flex: 2, child: Text('Warehouse', style: head)),
           Expanded(flex: 4, child: Text('Product', style: head)),
+          Expanded(flex: 2, child: Text('Basis', style: head)),
+          Expanded(flex: 2, child: Text('Avg/day', style: head)),
           Expanded(flex: 2, child: Text('Available', style: head)),
           Expanded(flex: 2, child: Text('Reorder at', style: head)),
           Expanded(flex: 2, child: Text('On order', style: head)),
@@ -226,6 +254,26 @@ class _ReorderDialogState extends State<ReorderDialog>
             '${stringValue(row['product_name'])}',
             style: cell,
             overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        Expanded(
+          flex: 2,
+          child: Text(
+            stringValue(row['basis']) == 'SALES'
+                ? 'Sales'
+                : stringValue(row['basis']).isEmpty
+                    ? ''
+                    : 'Level',
+            style: cell,
+          ),
+        ),
+        Expanded(
+          flex: 2,
+          child: Text(
+            row['average_daily_sales'] == null
+                ? ''
+                : _plain(row['average_daily_sales']),
+            style: cell,
           ),
         ),
         Expanded(

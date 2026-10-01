@@ -1476,6 +1476,22 @@ class ApiClient {
         ),
       );
 
+  /// How the below-reorder list decides what is short (backlog 69 row 12):
+  /// `LEVELS` (typed per product) or `SALES` (derived from what sold). Readable
+  /// with `PURCHASE_VIEW` or `REPORT_VIEW`.
+  Future<Json> reorderPlanning() async =>
+      _unwrapMap(await request('GET', '/api/v1/purchases/reorder-planning'));
+
+  /// All five fields are always sent; the server refuses extra keys and needs
+  /// `PURCHASE_MANAGE_SETTINGS`.
+  Future<Json> updateReorderPlanning(Json settings) async => _unwrapMap(
+        await request(
+          'PUT',
+          '/api/v1/purchases/reorder-planning',
+          body: settings,
+        ),
+      );
+
   /// The largest order each role may approve (backlog 68 row 4). Readable by
   /// any purchase viewer.
   Future<List<RolePurchaseApprovalLimit>> purchaseApprovalLimits() async =>

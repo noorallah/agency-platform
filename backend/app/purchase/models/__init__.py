@@ -8,6 +8,7 @@ from app.purchase.models.purchase import (
     PurchaseOrderHistory,
     PurchaseOrderLine,
     PurchaseWorkflowSettings,
+    ReorderPlanningSettings,
     RolePurchaseApprovalLimit,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "PurchaseOrderHistory",
     "PurchaseOrderLine",
     "PurchaseWorkflowSettings",
+    "ReorderPlanningSettings",
     "RolePurchaseApprovalLimit",
 ]
