@@ -144,6 +144,7 @@ class Customer {
     required this.gstNumber,
     required this.panNumber,
     this.tanNumber = '',
+    this.gstRegistrationType = '',
     required this.email,
     required this.phone,
     required this.alternatePhone,
@@ -190,6 +191,10 @@ class Customer {
   /// The customer's TAN: it deducts TDS from what it pays, and the
   /// certificate it issues names it (backlog 53.1).
   final String tanNumber;
+
+  /// How the buyer stands under GST (backlog 75 row 2): REGULAR, SEZ_... and
+  /// so on; empty means the server reads it off the GSTIN.
+  final String gstRegistrationType;
   final String email;
   final String phone;
   final String alternatePhone;
@@ -236,6 +241,7 @@ class Customer {
         gstNumber: stringValue(json['gst_number']),
         panNumber: stringValue(json['pan_number']),
         tanNumber: stringValue(json['tan_number']),
+        gstRegistrationType: stringValue(json['gst_registration_type']),
         email: stringValue(json['email']),
         phone: stringValue(json['phone']),
         alternatePhone: stringValue(json['alternate_phone']),

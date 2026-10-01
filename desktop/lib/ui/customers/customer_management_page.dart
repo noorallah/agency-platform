@@ -997,6 +997,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
           .map(_ContactDraft.fromContact)
           .toList();
   late String _customerType = widget.customer?.customerType ?? 'BUSINESS';
+  late String _gstType = widget.customer?.gstRegistrationType ?? '';
   late String _status = widget.customer?.status ?? 'ACTIVE';
   // Empty string is "no group", which the dropdown shows and the payload
   // sends as null.
@@ -1198,6 +1199,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         'gst_number': _nullable('gst_number'),
         'pan_number': _nullable('pan_number'),
         'tan_number': _nullable('tan_number'),
+        'gst_registration_type': _gstType.isEmpty ? null : _gstType,
         'email': _nullable('email'),
         'phone': _nullable('phone'),
         'alternate_phone': _nullable('alternate_phone'),
@@ -1327,6 +1329,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
               }),
             ),
             _text('gst_number', 'GST number'),
+            _gstTypePicker(),
             _text('pan_number', 'PAN number'),
             _text(
               'tan_number',
@@ -2073,6 +2076,27 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         },
       );
 
+  /// The buyer's GST standing. Blank leaves it to the GSTIN: Regular with
+  /// one, Unregistered without. SEZ and export change the tax and the return.
+  Widget _gstTypePicker() => DropdownButtonFormField<String>(
+        isExpanded: true,
+        initialValue: _gstTypes.containsKey(_gstType) ? _gstType : '',
+        decoration: const InputDecoration(
+          labelText: 'GST registration',
+          helperText: 'SEZ is always IGST; exports go in the export table',
+        ),
+        items: [
+          for (final MapEntry<String, String> entry in _gstTypes.entries)
+            DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+        ],
+        onChanged: _readOnly
+            ? null
+            : (value) => setState(() {
+                  _gstType = value ?? '';
+                  _dirty = true;
+                }),
+      );
+
   Widget _dropdown(
     String label,
     String value,
@@ -2346,6 +2370,18 @@ String? _nullIfEmpty(String value) {
   final String normalized = value.trim();
   return normalized.isEmpty ? null : normalized;
 }
+
+/// The GST registration types the server takes, with what a person reads.
+const Map<String, String> _gstTypes = {
+  '': 'From the GSTIN',
+  'REGULAR': 'Regular',
+  'COMPOSITION': 'Composition',
+  'UNREGISTERED': 'Unregistered',
+  'SEZ_WITH_PAYMENT': 'SEZ, tax paid',
+  'SEZ_WITHOUT_PAYMENT': 'SEZ, under LUT (no tax)',
+  'DEEMED_EXPORT': 'Deemed export',
+  'OVERSEAS': 'Overseas (export)',
+};
 
 String _label(String value) => value
     .toLowerCase()
