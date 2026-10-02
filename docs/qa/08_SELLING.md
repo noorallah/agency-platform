@@ -185,6 +185,14 @@ promotion, or the customer's standing rate).
 - **Steps:** Settings → Stock → **Batch Rules**: note the defaults, then set *A near-expiry batch leaving* to **Need a reason** → Save. (a) A sales order for 2 at **100** → Approve. (b) A sales order for 15 at 100 → Approve. (c) A delivery note off order (a), batches untouched → Save → Approve → **Dispatch**; cancel the reason prompt; Dispatch again and give *Short-dated stock cleared*. (d) Set *FEFO skip* to **Need a reason**; a note choosing the *later* batch → Dispatch. (e) Untick *may be sold below the price floor* → repeat (a).
 - **Expect:** the defaults read 30 days, Warn, Record, ticked. (a) approves although 100 is below 150; its timeline names the near-expiry batch. (b) is refused below the minimum price -- 15 takes the later batch too, which is fresh stock. (c) the prompt names the line and the near-expiry batch; cancelling dispatches nothing; with the reason it dispatches and Settings → Audit trail shows **delivery_note.near_expiry_dispatched** with the reason. (d) asks for a reason before dispatching; **delivery_note.fefo_skipped** keeps it. (e) is refused like (b).
 
+
+### TC-SELL-023 — Choosing batches on a counter bill
+
+*Added 2026-10-02 (backlog 79 row 2).*
+
+- **Preconditions:** a firm with the delivery note stage **off** (Settings → Selling → Sales Stages). A batch-tracked product with two in-date batches, an earlier and a later expiry, 10 each, in the default warehouse.
+- **Steps:** Sell → **Counter bill** (New sales invoice): the product, quantity 4. Open the line's batches: note the pre-fill. Put 4 on the **later** batch → Save → reopen the draft and look at the batches → change to 1 earlier + 3 later → Save → **Approve**. Then a second bill of 4 with the batches untouched → Approve.
+- **Expect:** the picker lists both batches with expiry and days left, the earlier one pre-filled with 4. The saved draft shows 4 on the later batch. After approval, stock of the earlier batch is down by 1 and the later by 3 (Stock → by batch), and Settings → Audit trail shows **delivery_note.fefo_skipped**. The untouched bill draws 4 from the earlier batch, as before.
 ---
 
 ## Screen checks

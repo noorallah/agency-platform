@@ -5555,5 +5555,6 @@ Tally has a batch allocation sub-screen; ERPNext auto-picks by expiry with a
 batch; `docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`). Row 6 built the same day
 except minimum shelf life per customer: `batch_sale_settings` -- near-expiry
 window, near-expiry and FEFO-skip reasons judged at dispatch, and decision A2,
-near-expiry stock exempt from the price floor. Open: row 2 on the counter
-bill, row 4, row 6's minimum shelf life, row 7.
+near-expiry stock exempt from the price floor. Row 2 on the counter bill built
+the same day (picks handed to the note the bill raises). Open: row 4, row 6's
+minimum shelf life, row 7.
