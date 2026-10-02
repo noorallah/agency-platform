@@ -49,7 +49,12 @@ from app.products.schemas import (
     ProductSummary,
     ProductUpdate,
 )
+from app.products.schemas.labels import ProductLabelRequest
 from app.products.services import ProductService
+from app.products.services.barcode_labels import (
+    BarcodeLabelService,
+    LabelRequestItem,
+)
 from app.products.services.product_import import template_csv, template_workbook
 from app.products.services.product_service import PRODUCT_DUTIES
 
@@ -328,6 +333,31 @@ def export_products(
         iter([text]),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="products.csv"'},
+    )
+
+
+@router.post("/labels", response_class=StreamingResponse)
+def print_product_labels(
+    payload: ProductLabelRequest,
+    scope: ProductViewScope,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Draw price and barcode labels for the products picked (STK-16).
+
+    A4 label sheets or a 50 x 25 mm thermal roll; the barcode is the
+    product's own, else its code. Nothing is written.
+    """
+    pdf = BarcodeLabelService(db).product_labels(
+        [LabelRequestItem(item.product_id, item.copies) for item in payload.items],
+        firm_id=scope.firm_id,
+        layout=payload.layout,
+        skip=payload.skip,
+        show_price=payload.show_price,
+    )
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="labels.pdf"'},
     )
 
 

@@ -17,6 +17,7 @@ import 'product_import_dialog.dart';
 import '../../models/trade_licence.dart';
 import '../../models/uom_packaging.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/label_print_dialog.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 
@@ -1153,6 +1154,32 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
     await _controller.load(requestedPage: 1);
   }
 
+  /// The products a label print is for: the ticked rows, else the picked one.
+  List<Product> _labelProducts(Product? selected) {
+    final List<Product> ticked =
+        _selectedIds.map(_controller.itemById).whereType<Product>().toList();
+    if (ticked.isNotEmpty) return ticked;
+    return selected == null ? const [] : [selected];
+  }
+
+  Future<void> _printLabels() async {
+    final List<Product> products = _labelProducts(_controller.selected);
+    if (products.isEmpty) return;
+    await showDialog<Object>(
+      context: context,
+      builder: (context) => LabelPrintDialog(
+        api: widget.api,
+        subtitle: products.length == 1
+            ? products.first.name
+            : '${products.length} products',
+        products: [
+          for (final Product product in products)
+            LabelProduct(id: product.id, name: product.name),
+        ],
+      ),
+    );
+  }
+
   /// What the selection bar names: the ticked rows by count, else the one
   /// picked row, else nothing.
   SelectionSummary? _selectionSummary(Product? selected) {
@@ -1279,6 +1306,19 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
             break;
         }
       },
+      // Phase 2 only (STK-16): barcode labels for the ticked rows, else the
+      // picked one.
+      commands: phase2
+          ? [
+              ToolbarCommand(
+                id: 'labels',
+                label: 'Print labels',
+                icon: Icons.label_outline,
+                onPressed:
+                    _labelProducts(selected).isEmpty ? null : _printLabels,
+              ),
+            ]
+          : const [],
     );
     final Widget phase1Search = Row(
       children: [

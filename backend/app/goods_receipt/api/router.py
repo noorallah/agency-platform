@@ -45,6 +45,10 @@ from app.goods_receipt.schemas import (
     GoodsReceiptUpdate,
 )
 from app.goods_receipt.services import GoodsReceiptService
+from app.products.services.barcode_labels import (
+    BarcodeLabelService,
+    LabelLayout,
+)
 
 router = APIRouter(
     prefix="/api/v1/goods-receipts",
@@ -313,6 +317,34 @@ def get_goods_receipt(
     row = service.get_receipt(receipt_id, firm_scope=scope.firm_id)
     set_etag(response, row)
     return ApiResponse(data=service.receipt_response(row))
+
+
+@router.get("/{receipt_id}/labels", response_class=StreamingResponse)
+def goods_receipt_labels(
+    receipt_id: UUID,
+    scope: GoodsReceiptViewScope,
+    layout: LabelLayout = LabelLayout.A4_65,
+    skip: Annotated[int, Query(ge=0, le=64)] = 0,
+    show_price: bool = True,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Draw a price and barcode label for every piece the receipt stocked.
+
+    STK-16: one per stock unit accepted plus free goods, with the batch, its
+    expiry and the delivery's own MRP and price where the line has them.
+    """
+    pdf, filename = BarcodeLabelService(db).receipt_labels(
+        receipt_id,
+        firm_id=scope.firm_id,
+        layout=layout,
+        skip=skip,
+        show_price=show_price,
+    )
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @router.get(

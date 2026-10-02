@@ -19,6 +19,7 @@ import '../../models/purchase.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../trade_licences/licence_check_dialog.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/label_print_dialog.dart';
 import '../document_framework/document_status_gate.dart';
 import 'goods_receipt_editor_dialog.dart';
 import 'goods_receipt_eway_dialog.dart';
@@ -643,6 +644,16 @@ class _GoodsReceiptManagementPageState
                   DocumentToolbarAction.close,
                 ),
                 _recordEwayBillCommand(),
+                // One label per piece received (STK-16); nothing to label on
+                // a cancelled receipt.
+                ToolbarCommand(
+                  id: 'labels',
+                  label: 'Print labels',
+                  icon: Icons.label_outline,
+                  onPressed: _selected == null || _selected!.status == 'CANCELLED'
+                      ? null
+                      : _printLabels,
+                ),
               ]
             : const [],
         // Period right after the search, then Columns, as every sales list
@@ -702,6 +713,19 @@ class _GoodsReceiptManagementPageState
           label: Text(label),
         ),
       );
+
+  Future<void> _printLabels() async {
+    final GoodsReceiptRecord? receipt = _selected;
+    if (receipt == null) return;
+    await showDialog<Object>(
+      context: context,
+      builder: (context) => LabelPrintDialog(
+        api: widget.api,
+        subtitle: receipt.grnNumber,
+        receiptId: receipt.id,
+      ),
+    );
+  }
 
   /// The same step as a phase 2 command, enabled as its button is.
   ToolbarCommand _command(
