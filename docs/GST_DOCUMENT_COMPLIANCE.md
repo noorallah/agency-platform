@@ -69,7 +69,7 @@ rules about what a firm may skip are in `docs/SALES_CHAIN_RULES.md`.
 | Debit note **to a supplier** | Built (`app/debit_note`, §55 G8) |
 | Debit note **to a customer** | Built 2026-10-02 (`app/customer_debit_note`, §77 row 5): names the invoice and lines, taxed at the invoice line's rate, owed on the invoice, GSTR-1 note type D, added to 3B 3.1(a) |
 | Numbering per financial year | Built (`include_financial_year`, `auto_reset`) |
-| 16-character limit on a GST document number | **Not checked** |
+| 16-character limit on a GST document number | **Enforced 2026-10-02** (GST-2, A47, D-TAX-3): the six GST documents (tax invoice, credit note, sales return, debit note to a customer, delivery challan, RCM self-invoice) default to `SI-26-27-000001` -- the year printed short, no firm or branch code; a series for one whose longest number passes 16 characters, or uses anything but letters, digits, '-' and '/', is refused when saved, and so is a typed number. Migration 0235 moved the untouched default and demo series of every store; the numbering editor shows the length |
 | Transport details on the delivery note (transporter, GSTIN, mode, LR, distance) | Built (§67 row 5) |
 | IRN, acknowledgement and signed QR on the printed invoice, credit note and debit note (rule 48(4)) | Built 2026-10-02 (§77 row 11); only a REGISTERED registration prints; notes printable since the same change |
 | E-invoice of credit and debit notes | Built 2026-10-02 (§77 row 4): CRN and DBN, referring to the invoice (`RefDtls.PrecDocDtls`), on the firm's route -- sandbox, or the offline bulk upload with the invoices |
@@ -234,10 +234,10 @@ goes live; **P2** for every firm; **P3** completes the picture.
 | 10 | **₹50,000 prompt:** offer the e-way bill when the goods value crosses the limit; state-wise limit as a setting -- **built 2026-10-02 (#937)** | P2 |
 | 11 | **IRN, acknowledgement and signed QR on the printed invoice, credit and debit note** -- **built 2026-10-02 (#939)** | P2 |
 | 12 | **Credit note after 30 November** of the following year: warn, naming the date -- **built 2026-10-02** (GST-1, A46) | P3 |
-| 13 | **16-character check** on GST document numbering rules | P3 |
+| 13 | **16-character check** on GST document numbering rules -- **built 2026-10-02** (GST-2, A47) | P3 |
 | 14 | **Bill of supply** for exempt goods and composition firms | P3 |
 
-Rows 1 to 7, 9 to 11 and 12 are built; 8, 13 and 14 are not. **Order of work:** 2, 3 and 1 (small, and they settle the flow) → 5 and 4 →
+Rows 1 to 7 and 9 to 13 are built; 8 and 14 are not. **Order of work:** 2, 3 and 1 (small, and they settle the flow) → 5 and 4 →
 9, 10, 11 → 6, 7 → 8 once a GSP is chosen → 12-14.
 
 ## 5. Decisions

@@ -36,6 +36,11 @@ from app.document_framework.schemas import (
     DocumentTypeCreate,
     DocumentTypeUpdate,
 )
+from app.document_framework.services.gst_numbering import (
+    GST_NUMBERED_TYPES,
+    gst_number_problem,
+    short_year,
+)
 
 #: The only fields of a module-owned lifecycle state an administrator may edit.
 #: Everything else describes what the module's own code does in that state.
@@ -468,6 +473,7 @@ class DocumentFrameworkService:
             created_by=actor_id,
             updated_by=actor_id,
         )
+        self._assert_fits_a_gst_number(row)
         self._keep_one_default(row, firm_id=firm_id, actor_id=actor_id)
         self._session.add(row)
         self._session.flush()
@@ -565,6 +571,7 @@ class DocumentFrameworkService:
         )
         for field, value in values.items():
             setattr(row, field, value)
+        self._assert_fits_a_gst_number(row)
         row.updated_by = actor_id
         self._keep_one_default(row, firm_id=firm_id, actor_id=actor_id)
         # The prefix, the pattern and the yearly restart are what the next
@@ -881,6 +888,7 @@ class DocumentFrameworkService:
             and a.separator == b.separator
             and (a.format_pattern or "") == (b.format_pattern or "")
             and a.include_financial_year == b.include_financial_year
+            and a.short_financial_year == b.short_financial_year
             and a.include_branch_code == b.include_branch_code
             and a.include_company_code == b.include_company_code
             and a.sequence_padding == b.sequence_padding
@@ -1238,7 +1246,10 @@ class DocumentFrameworkService:
         if not auto_reset:
             return
         if format_pattern:
-            if "{financial_year}" in format_pattern:
+            if (
+                "{financial_year}" in format_pattern
+                or "{financial_year_short}" in format_pattern
+            ):
                 return
             raise ValidationError(
                 "This rule restarts its numbering every financial year, so its "
@@ -1323,13 +1334,35 @@ class DocumentFrameworkService:
                 int(retired or 1),
             )
         sequence = max(sequence, self._carried_on(rule, scope_signature))
+        return self._format_number(
+            rule,
+            sequence=sequence,
+            financial_year_label=financial_year_label,
+            branch_code=branch_code,
+            company_code=company_code,
+            document_date=document_date,
+        )
+
+    @staticmethod
+    def _format_number(
+        rule: DocumentNumberingRule,
+        *,
+        sequence: int,
+        financial_year_label: str | None,
+        branch_code: str | None,
+        company_code: str | None,
+        document_date: date,
+    ) -> str:
+        """Print one number of ``rule``: its pattern if it has one, else its flags."""
+        year = financial_year_label or str(document_date.year)
         if rule.format_pattern:
             return rule.format_pattern.format(
                 prefix=rule.prefix or "",
                 suffix=rule.suffix or "",
                 separator=rule.separator,
                 sequence=str(sequence).zfill(rule.sequence_padding),
-                financial_year=financial_year_label or str(document_date.year),
+                financial_year=year,
+                financial_year_short=short_year(year),
                 branch_code=branch_code or "",
                 company_code=company_code or "",
                 document_date=document_date.isoformat(),
@@ -1342,11 +1375,64 @@ class DocumentFrameworkService:
         if rule.include_branch_code and branch_code:
             parts.append(branch_code)
         if rule.include_financial_year:
-            parts.append(financial_year_label or str(document_date.year))
+            parts.append(short_year(year) if rule.short_financial_year else year)
         parts.append(str(sequence).zfill(rule.sequence_padding))
         if rule.suffix:
             parts.append(rule.suffix)
         return rule.separator.join(parts)
+
+    def _assert_fits_a_gst_number(self, rule: DocumentNumberingRule) -> None:
+        """Refuse a GST document series whose numbers could pass 16 characters.
+
+        Judged on the longest number the series can print: every digit of its
+        padding (or of its counter, once past it) a nine, a full year label,
+        and the firm's own code and its longest branch code where the number
+        carries them. A series of a document that is not a GST document is
+        never judged (GST-2, CGST rule 46(b)).
+
+        Raises:
+            ValidationError: Naming the longest number and the limit.
+
+        """
+        document_type = self._session.get(DocumentTypeDefinition, rule.document_type_id)
+        if document_type is None or document_type.code not in GST_NUMBERED_TYPES:
+            return
+        branch_code: str | None = None
+        if self._number_carries(rule, "branch_code"):
+            # Imported here: branches is a domain this framework otherwise
+            # does not depend on.
+            from app.branches.models import Branch
+
+            codes = self._session.scalars(
+                select(Branch.code).where(
+                    Branch.firm_id == rule.firm_id, Branch.is_deleted.is_(False)
+                )
+            ).all()
+            branch_code = max(
+                (code.upper() for code in codes if code), key=len, default="BR"
+            )
+        company_code: str | None = None
+        if self._number_carries(rule, "company_code"):
+            company_code = (
+                FirmMetadataReader(self._session).get(rule.firm_id).code or "FIRM"
+            ).upper()
+        digits = max(rule.sequence_padding, len(str(rule.next_sequence or 1)))
+        longest = self._format_number(
+            rule,
+            sequence=10**digits - 1,
+            financial_year_label="2026-2027",
+            branch_code=branch_code,
+            company_code=company_code,
+            document_date=date(2026, 4, 1),
+        )
+        problem = gst_number_problem(longest)
+        if problem is not None:
+            raise ValidationError(
+                f"{document_type.name} is a GST document, and at its longest "
+                f"this series fails the rule: {problem}. Shorten the prefix, "
+                "print the year as 26-27, leave out the firm or branch code, "
+                "or use fewer digits."
+            )
 
     def _scope_signature(
         self,

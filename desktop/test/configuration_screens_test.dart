@@ -549,6 +549,31 @@ void main() {
       );
     });
 
+    testWidgets('a number past 16 characters says so; 26-27 brings it back',
+        (tester) async {
+      // GST-2: rule 46(b) caps a GST document's number at 16 characters.
+      final _ConfigApi api = _ConfigApi(rules: [_rule()], types: [type()]);
+      await _pumpRules(
+        tester,
+        api,
+        perms: const ['SETTINGS_VIEW', 'SETTINGS_UPDATE'],
+      );
+
+      await tester.tap(find.byTooltip('Edit'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('numbering-too-long')), findsOneWidget);
+
+      await tester.ensureVisible(find.text('Print the year as 26-27'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Print the year as 26-27'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('numbering-too-long')), findsNothing);
+
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(api.updated.single.value['short_financial_year'], isTrue);
+    });
+
     testWidgets('retiring asks first, and says what survives', (tester) async {
       final _ConfigApi api = _ConfigApi(rules: [_rule()], types: [type()]);
       await _pumpRules(

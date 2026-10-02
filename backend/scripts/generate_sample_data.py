@@ -87,6 +87,7 @@ from app.document_framework.schemas import (
     DocumentTypeCreate,
 )
 from app.document_framework.services import DocumentFrameworkService
+from app.document_framework.services.gst_numbering import GST_NUMBERED_TYPES
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm, FirmStorageMapping
 from app.firms.schemas import FirmCreate
@@ -5830,6 +5831,9 @@ def _seed_document_framework(
                 ),
                 actor_id,
             )
+        # A GST document's number stays inside 16 characters (rule 46(b),
+        # GST-2): the year as 26-27 and no branch code.
+        gst = code in GST_NUMBERED_TYPES
         documents.create_numbering_rule(
             context.firm.id,
             DocumentNumberingRuleCreate(
@@ -5840,7 +5844,8 @@ def _seed_document_framework(
                 suffix=None,
                 separator="/",
                 include_financial_year=True,
-                include_branch_code=True,
+                short_financial_year=gst,
+                include_branch_code=not gst,
                 include_company_code=False,
                 auto_reset=True,
                 manual_allowed=True,

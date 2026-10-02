@@ -42,6 +42,10 @@ from app.document_framework.schemas import (
 from app.document_framework.services.document_framework_service import (
     DocumentFrameworkService,
 )
+from app.document_framework.services.gst_numbering import (
+    GST_NUMBERED_TYPES,
+    gst_number_problem,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -330,6 +334,10 @@ class TransactionalDocumentService:
             .limit(1)
         )
         if numbering_rule is None:
+            # A GST document's default prints ``SI-26-27-000001``: the full
+            # year, a firm or a branch code would take it past the 16
+            # characters rule 46(b) allows (GST-2).
+            gst = spec.code in GST_NUMBERED_TYPES
             numbering_rule = self._documents.create_numbering_rule(
                 firm_id,
                 DocumentNumberingRuleCreate(
@@ -340,8 +348,9 @@ class TransactionalDocumentService:
                     suffix=None,
                     separator="-",
                     include_financial_year=True,
-                    include_branch_code=spec.include_branch_code,
-                    include_company_code=spec.include_company_code,
+                    short_financial_year=gst,
+                    include_branch_code=spec.include_branch_code and not gst,
+                    include_company_code=spec.include_company_code and not gst,
                     auto_reset=True,
                     manual_allowed=False,
                     sequence_padding=spec.sequence_padding,
@@ -421,6 +430,18 @@ class TransactionalDocumentService:
                     "number in the series is issued, or allow typed numbers on "
                     "the series first."
                 )
+            document_type = self._session.get(
+                DocumentTypeDefinition, numbering_rule.document_type_id
+            )
+            problem = (
+                gst_number_problem(typed)
+                if document_type is not None
+                and document_type.code in GST_NUMBERED_TYPES
+                else None
+            )
+            if problem is not None:
+                # A typed number is the one way past the series check (GST-2).
+                raise ValidationError(f"{problem}.")
             return typed
         label = self._financial_year_label(document_date, firm_id)
         for _ in range(self.MAX_NUMBER_SKIPS):

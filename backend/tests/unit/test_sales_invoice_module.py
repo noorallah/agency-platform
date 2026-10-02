@@ -387,10 +387,12 @@ def test_sales_invoice_created_from_sales_order_reaches_draft() -> None:
     # and tax profile are still ids; that is the rest of 18.3.
     assert response.customer_name == "Customer CUS-001"
     # The firm's financial year starts 1 April, and the invoice is dated
-    # 2026-08-04, so the number must carry the shared YYYY-YYYY label. This
+    # 2026-08-04, so the number must carry the shared financial year. This
     # module previously emitted a bare calendar year while purchase orders in
-    # the same period emitted 2026-2027.
-    assert response.invoice_number.startswith("SI-2026-2027-")
+    # the same period emitted 2026-2027. A tax invoice prints it as 26-27, to
+    # stay inside the 16 characters rule 46(b) allows (GST-2).
+    assert response.invoice_number.startswith("SI-26-27-")
+    assert len(response.invoice_number) <= 16
     assert response.grand_total == Decimal("400.0000")
     assert service.summary(firm_scope=firm.id).total == 1
     assert session.scalar(select(AuditLog.id)) is not None

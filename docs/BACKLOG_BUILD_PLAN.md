@@ -117,7 +117,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | ACC-12 | §55 S11 | Cheque printing | Nothing (a cheque leaf to align) | S | Claude alone |
 | **GST** | | | | | |
 | GST-1 | §77 row 12 | Warn on a credit note after 30 November -- **built 2026-10-02** (A46) | Nothing | S | Claude alone |
-| GST-2 | §77 row 13 | GST document numbers kept to 16 characters | Nothing | S | Claude alone |
+| GST-2 | §77 row 13 | GST document numbers kept to 16 characters -- **built 2026-10-02** (A47) | Nothing | S | Claude alone |
 | GST-3 | §78 row 7 | Warn on a supplier bill entered after its credit's last date | Nothing | S | Claude alone |
 | GST-4 | §78 row 9 | Common credit reversal for a firm with exempt sales (rules 42/43) | Nothing (CA confirms at hand-over) | M | Claude alone |
 | GST-5 | §74.1 row 9 | GST checks before filing: an exception list | Nothing | M | Claude alone |
@@ -601,6 +601,7 @@ otherwise it is built as written.
 - **What it is:** a GST invoice number may not be longer than 16 characters.
 - **What gets built:** a check on numbering rules for GST document types in `backend/app/document_framework`, refusing a pattern whose longest number passes 16 (r.46(b)); the numbering editor (`numbering_series_editor.dart`) shows the length. Tests.
 - **Effort / Who:** S, Claude alone.
+- **Built 2026-10-02** (A47, D-TAX-3): the platform's own default was 19 characters, so the defaults changed too -- `short_financial_year` on the series (migration 0235), `app/document_framework/services/gst_numbering.py`; tests in `tests/unit/test_gst_document_numbers.py`.
 
 #### GST-3. Supplier bill after the credit's last date (§78 row 7)
 - **What it is:** credit for a year must be claimed by 30 November after it; a later bill is warned.

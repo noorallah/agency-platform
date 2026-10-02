@@ -195,6 +195,8 @@ def test_back_dating_a_document_does_not_renumber_the_current_year() -> None:
             name="Default Numbering",
             prefix="INV",
             include_financial_year=True,
+            # A tax invoice prints the year short to stay inside 16 (GST-2).
+            short_financial_year=True,
         ),
         actor_id,
     )
@@ -211,20 +213,20 @@ def test_back_dating_a_document_does_not_renumber_the_current_year() -> None:
     # Three invoices in the current year.
     current = [reserve("2026-2027", date(2026, 8, day)) for day in (1, 2, 3)]
     assert current == [
-        "INV-2026-2027-000001",
-        "INV-2026-2027-000002",
-        "INV-2026-2027-000003",
+        "INV-26-27-000001",
+        "INV-26-27-000002",
+        "INV-26-27-000003",
     ]
 
     # A missed invoice from last year. It starts its own series at one.
-    assert reserve("2025-2026", date(2026, 3, 30)) == "INV-2025-2026-000001"
+    assert reserve("2025-2026", date(2026, 3, 30)) == "INV-25-26-000001"
 
     # Back in the current year, numbering continues where it left off. It used
     # to restart at 000001 and collide with the first invoice above.
-    assert reserve("2026-2027", date(2026, 8, 4)) == "INV-2026-2027-000004"
+    assert reserve("2026-2027", date(2026, 8, 4)) == "INV-26-27-000004"
 
     # And last year continues independently too.
-    assert reserve("2025-2026", date(2026, 3, 31)) == "INV-2025-2026-000002"
+    assert reserve("2025-2026", date(2026, 3, 31)) == "INV-25-26-000002"
 
 
 def test_every_number_a_rule_issues_is_unique() -> None:
@@ -246,6 +248,7 @@ def test_every_number_a_rule_issues_is_unique() -> None:
             name="Default Numbering",
             prefix="DN",
             include_financial_year=True,
+            short_financial_year=True,
         ),
         actor_id,
     )
