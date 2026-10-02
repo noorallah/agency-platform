@@ -43,10 +43,19 @@ _FOUR = (
 
 
 def _replace_check(inspector: sa.Inspector, sql: str) -> None:
-    """Drop the one-document check if present and create it as ``sql``."""
-    checks = {item["name"] for item in inspector.get_check_constraints(_TABLE)}
-    if _CHECK in checks:
-        op.drop_constraint(_CHECK, _TABLE, type_="check")
+    """Drop the one-document check, under whatever name it has, and recreate it.
+
+    The metadata's naming convention rewrites ``CK_einvoice_registrations_
+    one_document`` into a longer, truncated name when it is created -- by 0229
+    and by ``create_all`` alike -- so the check is found by what its name
+    contains and dropped by its real name (``op.f`` stops the convention
+    renaming it a second time). Created by the plain name, so it gets the
+    same name the ORM gives it.
+    """
+    for item in inspector.get_check_constraints(_TABLE):
+        name = item.get("name") or ""
+        if "one_d" in name:
+            op.drop_constraint(op.f(name), _TABLE, type_="check")
     op.create_check_constraint(_CHECK, _TABLE, sql)
 
 
