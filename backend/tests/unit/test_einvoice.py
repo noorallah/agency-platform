@@ -1024,3 +1024,141 @@ def test_a_consignment_above_the_limit_is_due_until_it_has_a_bill() -> None:
         actor_id=books.actor_id,
     )
     assert service.due(books.firm.id) == []
+
+
+# -- Credit and debit notes on the portal (backlog 77 row 4) -------------------
+
+
+def _note(
+    books: "_Books", kind: str, *, taxable: str = "200", tax: str = "36"
+) -> object:
+    """Record an approved credit or debit note of one line against SI-1."""
+    from app.credit_note.models import CreditNote, CreditNoteLine
+    from app.customer_debit_note.models import CustomerDebitNote, CustomerDebitNoteLine
+
+    line_id = books.session.scalar(
+        select(SalesInvoiceLine.id).where(
+            SalesInvoiceLine.sales_invoice_id == books.invoice.id
+        )
+    )
+    common = {
+        "firm_id": books.firm.id,
+        "customer_id": books.customer.id,
+        "branch_id": books.branch.id,
+        "sales_invoice_id": books.invoice.id,
+        "status": "APPROVED",
+        "taxable_amount": Decimal(taxable),
+        "tax_amount": Decimal(tax),
+        "total_amount": Decimal(taxable) + Decimal(tax),
+    }
+    if kind == "CREDIT_NOTE":
+        note = CreditNote(credit_note_number="CN-1", credit_note_date=WHEN, **common)
+    else:
+        note = CustomerDebitNote(
+            debit_note_number="SDN-1", debit_note_date=WHEN, **common
+        )
+    books.session.add(note)
+    books.session.flush()
+    line_values = {
+        "firm_id": books.firm.id,
+        "line_number": 1,
+        "sales_invoice_line_id": line_id,
+        "product_id": books.product.id,
+        "quantity": Decimal("2"),
+        "taxable_amount": Decimal(taxable),
+        "tax_amount": Decimal(tax),
+        "total_amount": Decimal(taxable) + Decimal(tax),
+        "tax_rate_percent": Decimal("18"),
+    }
+    if kind == "CREDIT_NOTE":
+        books.session.add(CreditNoteLine(credit_note_id=note.id, **line_values))
+    else:
+        books.session.add(CustomerDebitNoteLine(debit_note_id=note.id, **line_values))
+    books.session.commit()
+    return note
+
+
+@pytest.mark.parametrize(
+    ("kind", "portal_type"), [("CREDIT_NOTE", "CRN"), ("DEBIT_NOTE", "DBN")]
+)
+def test_a_note_registers_as_its_own_document_referring_to_the_invoice(
+    kind: str, portal_type: str
+) -> None:
+    """CRN or DBN, its own values, the invoice it corrects, tax split as charged."""
+    from app.einvoice.services.note_registration import NoteRegistrationService
+
+    books = _Books(_session_factory()())
+    note = _note(books, kind)
+    service = NoteRegistrationService(books.session, base=books.service())
+
+    row = service.register(
+        kind, note.id, firm_scope=books.firm.id, actor_id=books.actor_id  # type: ignore[attr-defined]
+    )
+    books.session.commit()
+
+    assert row.status == "REGISTERED"
+    assert row.sales_invoice_id is None
+    payload = row.request_payload or {}
+    assert payload["DocDtls"]["Typ"] == portal_type  # type: ignore[index]
+    assert payload["RefDtls"]["PrecDocDtls"][0]["InvNo"] == "SI-1"  # type: ignore[index]
+    values = payload["ValDtls"]
+    assert values["AssVal"] == 200.0  # type: ignore[index]
+    assert (values["CgstVal"], values["SgstVal"]) == (18.0, 18.0)  # type: ignore[index]
+    assert values["TotInvVal"] == 236.0  # type: ignore[index]
+    with pytest.raises(ConflictError, match="registered already"):
+        service.register(
+            kind, note.id, firm_scope=books.firm.id, actor_id=books.actor_id  # type: ignore[attr-defined]
+        )
+
+
+def test_a_note_registration_is_listed_with_its_own_number() -> None:
+    """The list names a credit note by its number, not as a nameless row."""
+    from app.einvoice.services.note_registration import NoteRegistrationService
+
+    books = _Books(_session_factory()())
+    note = _note(books, "CREDIT_NOTE")
+    row = NoteRegistrationService(books.session, base=books.service()).register(
+        "CREDIT_NOTE", note.id, firm_scope=books.firm.id, actor_id=books.actor_id  # type: ignore[attr-defined]
+    )
+    books.session.commit()
+
+    labels = books.service().document_labels(firm_scope=books.firm.id, rows=[row])
+    assert labels[row.id][:2] == ("CREDIT_NOTE", "CN-1")
+
+
+def test_offline_notes_go_out_with_the_invoices_and_come_back_by_type() -> None:
+    """One upload; the result's document type finds the note, not the invoice."""
+    import json as _json
+
+    from app.einvoice.services.note_registration import NoteRegistrationService
+    from app.einvoice.services.offline import OfflineEInvoiceService
+
+    books = _Books(_session_factory()())
+    note = _note(books, "CREDIT_NOTE")
+    offline = OfflineEInvoiceService(books.session)
+    payloads = offline.export(
+        [books.invoice.id],
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+        credit_note_ids=[note.id],  # type: ignore[attr-defined]
+    )
+    assert [item["DocDtls"]["Typ"] for item in payloads] == ["INV", "CRN"]  # type: ignore[index]
+
+    result = _json.dumps(
+        [{"DocDtls": {"Typ": "CRN", "No": "CN-1"}, "Irn": "c" * 64, "AckNo": "1"}]
+    ).encode()
+    report = offline.import_result(
+        result, "json", firm_scope=books.firm.id, actor_id=books.actor_id
+    )
+
+    assert report.registered == ["CN-1"]
+    registration = NoteRegistrationService(
+        books.session, base=books.service()
+    ).registration_for(
+        "CREDIT_NOTE", note.id, firm_scope=books.firm.id
+    )  # type: ignore[attr-defined]
+    assert registration is not None and registration.irn == "c" * 64
+    invoice_row = books.service().registration_for(
+        books.invoice.id, firm_scope=books.firm.id
+    )
+    assert invoice_row is not None and invoice_row.status == "PENDING"

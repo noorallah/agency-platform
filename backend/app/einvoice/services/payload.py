@@ -13,6 +13,7 @@ invoice re-reading a customer's discount.
 
 import re
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -356,6 +357,145 @@ class EInvoicePayloadBuilder:
                 "OthChrg": _paise(invoice.additional_charges),
                 "RndOffAmt": _paise(invoice.round_off),
                 "TotInvVal": _paise(invoice.grand_total),
+            },
+        }
+
+    def build_note(
+        self,
+        *,
+        kind: str,
+        number: str,
+        on: str,
+        invoice: SalesInvoice,
+        lines: list[Any],
+        firm_id: UUID,
+    ) -> dict[str, object]:
+        """Return the payload for a credit note (CRN) or debit note (DBN).
+
+        Backlog 77 row 4. A note corrects the invoice it names, so it carries
+        that invoice's parties, place of supply and supply type -- built from
+        the invoice and checked as it is -- with its own document details,
+        its own lines and values, and the invoice it refers to. Each line's tax
+        is split into heads in the proportion its invoice line was charged,
+        which is how the note was posted.
+
+        Raises:
+            ValidationError: When the invoice cannot produce a valid payload, or
+                a line names nothing to register.
+
+        """
+        base = self.build(invoice, firm_id=firm_id)
+        invoice_lines = {
+            row.id: row
+            for row in self._session.scalars(
+                select(SalesInvoiceLine).where(
+                    SalesInvoiceLine.id.in_(
+                        [line.sales_invoice_line_id for line in lines] or [None]
+                    )
+                )
+            )
+        }
+        charged = self._taxes_by_line(list(invoice_lines))
+        products = {
+            row.id: row
+            for row in self._session.scalars(
+                select(Product).where(
+                    Product.id.in_([line.product_id for line in lines] or [None])
+                )
+            )
+        }
+        items: list[dict[str, object]] = []
+        splits: list[GstBuckets] = []
+        taxables: list[Decimal] = []
+        total_taxable = ZERO
+        for index, line in enumerate(lines, start=1):
+            source = invoice_lines.get(line.sales_invoice_line_id)
+            product = products.get(line.product_id)
+            hsn = (
+                getattr(source, "hsn_sac", None)
+                or getattr(product, "hsn_sac", None)
+                or ""
+            ).strip()
+            taxable = quantize_money(Decimal(str(line.taxable_amount)))
+            tax = Decimal(str(line.tax_amount))
+            components = charged.get(line.sales_invoice_line_id, [])
+            whole = sum((Decimal(str(item.amount)) for item in components), ZERO)
+            split = split_components(
+                [
+                    TaxComponent(
+                        code=item.component_code,
+                        percentage=Decimal(str(item.percentage)),
+                        amount=(
+                            tax * Decimal(str(item.amount)) / whole
+                            if whole > ZERO
+                            else ZERO
+                        ),
+                    )
+                    for item in components
+                ]
+            )
+            quantity = Decimal(str(line.quantity or 0))
+            items.append(
+                {
+                    "SlNo": str(index),
+                    "PrdDesc": str(
+                        line.description or getattr(product, "name", "") or ""
+                    )[:300],
+                    "IsServc": "N",
+                    "HsnCd": hsn,
+                    "Qty": float(quantity),
+                    "UnitPrice": float(
+                        (taxable / quantity if quantity > ZERO else taxable).quantize(
+                            Decimal("0.001")
+                        )
+                    ),
+                    "TotAmt": _paise(taxable),
+                    "Discount": 0.0,
+                    "AssAmt": _paise(taxable),
+                    "GstRt": float(split.rate),
+                }
+            )
+            splits.append(split)
+            taxables.append(taxable)
+            total_taxable += quantize_ledger(taxable)
+        if not items:
+            raise ValidationError("The note has no lines to register.")
+        heads = {_CGST: ZERO, _SGST: ZERO, _IGST: ZERO, _CESS: ZERO}
+        for item, taxable, filed in zip(
+            items, taxables, settle_to_ledger(splits), strict=True
+        ):
+            item["CgstAmt"] = float(filed.cgst)
+            item["SgstAmt"] = float(filed.sgst)
+            item["IgstAmt"] = float(filed.igst)
+            item["CesAmt"] = float(filed.cess)
+            item["TotItemVal"] = float(quantize_ledger(taxable) + filed.total)
+            heads[_CGST] += filed.cgst
+            heads[_SGST] += filed.sgst
+            heads[_IGST] += filed.igst
+            heads[_CESS] += filed.cess
+        tax_total = sum(heads.values(), ZERO)
+        return base | {
+            "DocDtls": {"Typ": kind, "No": number, "Dt": on},
+            "ItemList": items,
+            "ValDtls": {
+                "AssVal": float(total_taxable),
+                "CgstVal": float(quantize_ledger(heads[_CGST])),
+                "SgstVal": float(quantize_ledger(heads[_SGST])),
+                "IgstVal": float(quantize_ledger(heads[_IGST])),
+                "CesVal": float(quantize_ledger(heads[_CESS])),
+                "Discount": 0.0,
+                "OthChrg": 0.0,
+                "RndOffAmt": 0.0,
+                "TotInvVal": float(total_taxable + tax_total),
+            },
+            # The invoice the note corrects, which the portal ties it to.
+            "RefDtls": {
+                "PrecDocDtls": [
+                    {
+                        "InvNo": invoice.invoice_number,
+                        "InvDt": invoice.invoice_date.strftime("%d/%m/%Y"),
+                    }
+                ]
             },
         }
 

@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
+from app.core.exceptions import ResourceNotFoundError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
@@ -26,6 +27,11 @@ from app.core.utils.dates import utc_now
 from app.einvoice.models import EInvoiceRegistration, EWayBill
 from app.einvoice.services import EInvoiceService
 from app.einvoice.services.eway_bills import EWayBillService
+from app.einvoice.services.note_registration import (
+    CREDIT_NOTE,
+    DEBIT_NOTE,
+    NoteRegistrationService,
+)
 from app.einvoice.services.offline import OfflineEInvoiceService
 from app.einvoice.services.settings import (
     AVAILABLE_PROVIDERS,
@@ -53,7 +59,12 @@ class RegistrationResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    sales_invoice_id: UUID
+    sales_invoice_id: UUID | None
+    #: A credit note or a debit note to a customer (77 row 4), else null.
+    credit_note_id: UUID | None = None
+    customer_debit_note_id: UUID | None = None
+    #: SALES_INVOICE, CREDIT_NOTE or DEBIT_NOTE.
+    document_type: str = "SALES_INVOICE"
     #: What the grid needs to tell one registration from another: an id
     #: alone left the screen a list of references nobody could match to a
     #: bill (mapping section 12, 2026-09-13).
@@ -84,12 +95,11 @@ def _labelled(
     screen showed a registration it had just made as a nameless row
     (D-CMP-13).
     """
-    labels = EInvoiceService(db).invoice_labels(
-        firm_scope=firm_id, invoice_ids=[row.sales_invoice_id]
-    )
-    number, name = labels.get(row.sales_invoice_id, ("", ""))
+    kind, number, name = EInvoiceService(db).document_labels(
+        firm_scope=firm_id, rows=[row]
+    )[row.id]
     return RegistrationResponse.model_validate(row).model_copy(
-        update={"invoice_number": number, "customer_name": name}
+        update={"document_type": kind, "invoice_number": number, "customer_name": name}
     )
 
 
@@ -172,7 +182,10 @@ class OfflineExportRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    invoice_ids: list[UUID] = Field(min_length=1, max_length=500)
+    invoice_ids: list[UUID] = Field(default_factory=list, max_length=500)
+    #: Notes go with the invoices in one upload (77 row 4).
+    credit_note_ids: list[UUID] = Field(default_factory=list, max_length=500)
+    debit_note_ids: list[UUID] = Field(default_factory=list, max_length=500)
 
 
 class OfflineImportResponse(BaseModel):
@@ -227,7 +240,11 @@ def export_offline(
     e-invoice portal and import the result it gives back.
     """
     payloads = OfflineEInvoiceService(db).export(
-        data.invoice_ids, firm_scope=scope.firm_id, actor_id=scope.actor_id
+        data.invoice_ids,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        credit_note_ids=data.credit_note_ids,
+        debit_note_ids=data.debit_note_ids,
     )
     stamp = utc_now().strftime("%Y%m%d-%H%M")
     return Response(
@@ -445,15 +462,14 @@ def list_registrations(
         page_size=page_size,
         status=registration_status,
     )
-    labels = EInvoiceService(db).invoice_labels(
-        firm_scope=scope.firm_id, invoice_ids=[row.sales_invoice_id for row in rows]
-    )
+    labels = EInvoiceService(db).document_labels(firm_scope=scope.firm_id, rows=rows)
     return PaginatedResponse(
         data=[
             RegistrationResponse.model_validate(row).model_copy(
                 update={
-                    "invoice_number": labels.get(row.sales_invoice_id, ("", ""))[0],
-                    "customer_name": labels.get(row.sales_invoice_id, ("", ""))[1],
+                    "document_type": labels[row.id][0],
+                    "invoice_number": labels[row.id][1],
+                    "customer_name": labels[row.id][2],
                 }
             )
             for row in rows
@@ -605,4 +621,94 @@ def cancel_eway_bill(
     return ApiResponse(
         data=EWayBillResponse.model_validate(row),
         message="E-way bill withdrawn.",
+    )
+
+
+# Declared last: the first path segment is a parameter, and FastAPI matches in
+# declaration order, so declared earlier these would answer the invoice routes.
+_NOTE_KINDS = {"credit-notes": CREDIT_NOTE, "debit-notes": DEBIT_NOTE}
+
+
+def _note_kind(segment: str) -> str:
+    """Return the note kind a path segment names, or refuse it."""
+    kind = _NOTE_KINDS.get(segment)
+    if kind is None:
+        raise ResourceNotFoundError("Choose credit-notes or debit-notes.")
+    return kind
+
+
+@router.get(
+    "/{notes}/{note_id}/registration",
+    response_model=ApiResponse[RegistrationResponse | None],
+)
+def get_note_registration(
+    notes: str,
+    note_id: UUID,
+    scope: EInvoiceViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[RegistrationResponse | None]:
+    """Return a credit or debit note's registration, or nothing (77 row 4)."""
+    service = NoteRegistrationService(
+        db, base=EInvoiceService.for_firm(db, scope.firm_id)
+    )
+    row = service.registration_for(_note_kind(notes), note_id, firm_scope=scope.firm_id)
+    return ApiResponse(
+        data=None if row is None else _labelled(db, row, firm_id=scope.firm_id)
+    )
+
+
+@router.post(
+    "/{notes}/{note_id}/register", response_model=ApiResponse[RegistrationResponse]
+)
+def register_note(
+    notes: str,
+    note_id: UUID,
+    scope: EInvoiceManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[RegistrationResponse]:
+    """Register an approved credit or debit note with the portal (77 row 4)."""
+    service = NoteRegistrationService(
+        db, base=EInvoiceService.for_firm(db, scope.firm_id)
+    )
+    row = service.register(
+        _note_kind(notes), note_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    db.commit()
+    db.refresh(row)
+    return ApiResponse(
+        data=_labelled(db, row, firm_id=scope.firm_id),
+        message=(
+            f"Registered in {row.mode} mode."
+            if row.status == "REGISTERED"
+            else "The portal refused this note."
+        ),
+    )
+
+
+@router.post(
+    "/{notes}/{note_id}/cancel", response_model=ApiResponse[RegistrationResponse]
+)
+def cancel_note_registration(
+    notes: str,
+    note_id: UUID,
+    payload: CancellationRequest,
+    scope: EInvoiceManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[RegistrationResponse]:
+    """Withdraw a note's registration within 24 hours."""
+    service = NoteRegistrationService(
+        db, base=EInvoiceService.for_firm(db, scope.firm_id)
+    )
+    row = service.cancel(
+        _note_kind(notes),
+        note_id,
+        reason=payload.reason,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    db.commit()
+    db.refresh(row)
+    return ApiResponse(
+        data=_labelled(db, row, firm_id=scope.firm_id),
+        message="Registration withdrawn.",
     )
