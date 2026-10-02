@@ -33,6 +33,7 @@ from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.document_framework.schemas import DocumentLifecycleEventResponse
 from app.goods_receipt.schemas import (
     GoodsReceiptCreate,
+    GoodsReceiptEwayBillWrite,
     GoodsReceiptImportRequest,
     GoodsReceiptLineResponse,
     GoodsReceiptListFilters,
@@ -224,6 +225,27 @@ def update_goods_receipt(
     )
     row = service.update_receipt(
         receipt_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    set_etag(response, row)
+    return ApiResponse(data=service.receipt_response(row))
+
+
+@router.put("/{receipt_id}/eway-bill", response_model=ApiResponse[GoodsReceiptResponse])
+def set_goods_receipt_eway_bill(
+    receipt_id: UUID,
+    data: GoodsReceiptEwayBillWrite,
+    scope: GoodsReceiptUpdateScope,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GoodsReceiptResponse]:
+    """Record or clear the e-way bill, completed receipts included (78.6)."""
+    service = GoodsReceiptService(db)
+    row = service.set_eway_bill(
+        receipt_id,
+        number=data.eway_bill_number,
+        on=data.eway_bill_date,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
     )
     set_etag(response, row)
     return ApiResponse(data=service.receipt_response(row))
