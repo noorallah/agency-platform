@@ -147,6 +147,14 @@ the order is what gets approved. An unrecognised code leaves the order
 saveable and simply gives nothing -- a typo in a field that gives money away
 must not refuse a sale.
 
+**A campaign's codes are minted as a batch** (SEL-5, A70): up to 5,000 random
+`PREFIX-XXXXXXXX` codes against one offer, each single-use in all and per
+customer, all or nothing, with one audit row for the batch. Random, never
+sequential, so the next code cannot be guessed; drawn from an alphabet with no
+0/O or 1/I/L, since it is read off paper. `UQ_promotion_coupons_firm_code`
+covers retired codes too, so a candidate clashing with any code the firm ever
+minted is drawn again. The offer's codes export as CSV with their uses.
+
 **An order converted from a quotation is priced and claims as an order.**
 A quotation quotes offers but claims nothing; converting it used to hand the
 order both figures of every line, so every line read as priced by hand, the

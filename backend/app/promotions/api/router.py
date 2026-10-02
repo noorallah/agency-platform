@@ -5,6 +5,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.common.scope import (
@@ -19,6 +20,8 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.promotions.schemas import (
+    CouponBatchRequest,
+    CouponBatchResponse,
     PromotionCouponPerformanceRecord,
     PromotionCouponResponse,
     PromotionCouponWrite,
@@ -35,6 +38,7 @@ from app.promotions.services import (
     PromotionReportService,
     PromotionService,
 )
+from app.promotions.services.coupon_batches import CouponBatchService
 from app.promotions.services.promotion_crud import PromotionCrudService
 
 router = APIRouter(
@@ -202,6 +206,51 @@ def delete_coupon(
         coupon_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data={"status": "deleted"})
+
+
+@router.post(
+    "/{promotion_id}/coupons/generate",
+    response_model=ApiResponse[CouponBatchResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def generate_coupons(
+    promotion_id: UUID,
+    data: CouponBatchRequest,
+    scope: PromotionManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CouponBatchResponse]:
+    """Mint a campaign's single-use codes against the offer (SEL-5)."""
+    codes = CouponBatchService(db).generate(
+        promotion_id,
+        count=data.count,
+        prefix=data.prefix,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        description=data.description,
+        effective_from=data.effective_from,
+        effective_to=data.effective_to,
+    )
+    return ApiResponse(
+        data=CouponBatchResponse(count=len(codes), codes=codes),
+        message=f"{len(codes)} codes generated.",
+    )
+
+
+@router.get("/{promotion_id}/coupons/export", response_class=StreamingResponse)
+def export_coupons(
+    promotion_id: UUID,
+    scope: PromotionViewScope,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Return the offer's codes, and how often each was used, as a CSV."""
+    text, filename = CouponBatchService(db).export_csv(
+        promotion_id, firm_id=scope.firm_id
+    )
+    return StreamingResponse(
+        iter([text]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get(

@@ -54,7 +54,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | SEL-2 | §60 row 4 | Offer: buy 2, second at 50% off | Nothing | M | Claude alone |
 | SEL-3 | §60 row 5 | Offer: combo price (shampoo + soap for 150) | Nothing | M | Claude alone |
 | SEL-4 | §60 row 6 | Offer: double loyalty points during a festival | Nothing | S | Claude alone |
-| SEL-5 | §60 row 7 | Offer: 500 single-use coupon codes at once, exported to a file | Nothing | S | Claude alone |
+| SEL-5 | §60 row 7 | Offer: 500 single-use coupon codes at once, exported to a file -- **built 2026-10-03** (A70) | Nothing | S | Claude alone |
 | SEL-6 | §60 row 8 | Offer only for a first order, or for customers not billed in 90 days | Nothing | M | Claude alone |
 | SEL-7 | §60 row 9 | Offer only on certain weekdays or hours | Nothing | S | Claude alone |
 | SEL-8 | §60 row 10 | Copy last Diwali's offers with new dates | Nothing | S | Claude alone |
@@ -297,6 +297,7 @@ otherwise it is built as written.
 - **What it is:** generate 500 codes for a campaign and hand them out as a file.
 - **What gets built:** `POST /promotions/{id}/coupons/generate` (count, prefix) in `backend/app/promotions/api/router.py` using `coupon_crud.py`, each code single-use; a CSV export; *Generate codes* and *Export* on the coupon screen (`coupon_dialog.dart`). No migration (codes are coupon rows).
 - **Depends on:** nothing. **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A70): `app/promotions/services/coupon_batches.py` -- `POST /promotions/{id}/coupons/generate` (count up to 5,000, prefix, description, window) mints random `PREFIX-XXXXXXXX` codes from a misread-proof alphabet, each `max_redemptions = 1` and one per customer, all or nothing, drawing again on any clash with a code the firm ever minted; `GET /promotions/{id}/coupons/export` returns the offer's codes with uses as CSV. No migration. Desktop: *Generate codes* and *Export codes* on the coupon screen. Tests: `test_coupon_batches.py`, `coupon_batches_test.dart`.
 
 #### SEL-6. Customer eligibility conditions (§60 row 8)
 - **What it is:** an offer only for a customer's first order, or for customers not billed in N days.

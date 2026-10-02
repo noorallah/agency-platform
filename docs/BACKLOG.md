@@ -4601,7 +4601,7 @@ branch, salesman, document type and date, and the tests "is one of", "between",
 | 4 | **Buy X get Y at a discount** | buy 2, second at 50% off | new benefit; today only fully free |
 | 5 | **Combo / bundle price** | shampoo + soap for 150 | new benefit: a set price for a set of lines |
 | 6 | **Festival bonus points** | double loyalty points during Diwali | a benefit that multiplies the loyalty earn rate for the offer's dates |
-| 7 | **Bulk coupon codes** | 500 single-use codes for a campaign, exported to CSV | today codes are made one at a time |
+| 7 | **Bulk coupon codes** | 500 single-use codes for a campaign, exported to CSV | **Built 2026-10-03** (SEL-5, A70): *Generate codes* mints up to 5,000 single-use codes; *Export codes* gives the CSV |
 | 8 | **Customer eligibility** | first order only; customers not billed in 90 days | new conditions |
 | 9 | **Day and time** | weekends only; 4-6 pm | condition on weekday and time; mainly retail |
 | 10 | **Offer templates** | "copy last Diwali's offers, new dates" | copy a promotion, or a set of them |

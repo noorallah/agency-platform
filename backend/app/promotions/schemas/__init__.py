@@ -1,6 +1,8 @@
 """Promotion schema exports."""
 
 from app.promotions.schemas.promotion import (
+    CouponBatchRequest,
+    CouponBatchResponse,
     PromotionActionResponse,
     PromotionActionType,
     PromotionActionWrite,
@@ -33,6 +35,8 @@ __all__ = [
     "PromotionConditionOperator",
     "PromotionConditionResponse",
     "PromotionConditionWrite",
+    "CouponBatchRequest",
+    "CouponBatchResponse",
     "PromotionCouponResponse",
     "PromotionCouponWrite",
     "PromotionDecision",
