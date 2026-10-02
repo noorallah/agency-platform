@@ -21,6 +21,17 @@ Treat a failure in one of them as possibly the case's mistake, and correct the
 case once it is settled. *Rate includes GST* on orders and quotations
 (TC-SELL-021) is so far in `docs/INDEPENDENT_TEST_CASES.md` only.
 
+## Start with the sanity check
+
+**`SANITY_CHECK.md`** comes before every file below. It has two parts, about
+20 minutes in all:
+
+- the quick check, `agency-server quick-check`, which signs in to the
+  running server and opens every list and report of every firm, read only;
+- a fifteen-step walk through the screens.
+
+If it fails, the cases below cannot be trusted until the failure is fixed.
+
 ## The files
 
 | File | Area | Detailed cases | Screen checks |
