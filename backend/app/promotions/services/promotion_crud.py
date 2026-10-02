@@ -375,6 +375,8 @@ class PromotionCrudService:
             PromotionActionType.BILL_DISCOUNT_AMOUNT,
         }:
             return {"amount": str(getattr(action, "amount", None))}
+        if kind is PromotionActionType.LOYALTY_MULTIPLIER:
+            return {"multiplier": str(getattr(action, "multiplier", None))}
         if kind is PromotionActionType.FREE_PRODUCT:
             gift = getattr(action, "free_product_id", None)
             return {

@@ -53,7 +53,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | SEL-1 | §58 items 2, 4 | Several delivery notes on one bill: pick the customer first, tick the notes, refuse a mix on screen -- **built 2026-10-03** (A54) | Nothing | S | Claude alone |
 | SEL-2 | §60 row 4 | Offer: buy 2, second at 50% off | Nothing | M | Claude alone |
 | SEL-3 | §60 row 5 | Offer: combo price (shampoo + soap for 150) | Nothing | M | Claude alone |
-| SEL-4 | §60 row 6 | Offer: double loyalty points during a festival | Nothing | S | Claude alone |
+| SEL-4 | §60 row 6 | Offer: double loyalty points during a festival -- **built 2026-10-03** (A73) | Nothing | S | Claude alone |
 | SEL-5 | §60 row 7 | Offer: 500 single-use coupon codes at once, exported to a file -- **built 2026-10-03** (A70) | Nothing | S | Claude alone |
 | SEL-6 | §60 row 8 | Offer only for a first order, or for customers not billed in 90 days | Nothing | M | Claude alone |
 | SEL-7 | §60 row 9 | Offer only on certain weekdays or hours -- **built 2026-10-03** (A72) | Nothing | S | Claude alone |
@@ -292,6 +292,7 @@ otherwise it is built as written.
 - **What it is:** double (or any multiple of) loyalty points for the offer's dates.
 - **What gets built:** an action type carrying a multiplier, read by `backend/app/loyalty/services/loyalty_service.py` where points are earned at invoice approval. Dialog field. Tests: earn doubled only inside the dates; reversal on cancel.
 - **Depends on:** nothing. **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A73): `PromotionActionType.LOYALTY_MULTIPLIER` (`multiplier` 1-10, alone on its offer). `LoyaltyService.bonus_for` finds the live points offers on the bill's date whose header conditions hold and takes the largest multiplier; `stage_earning` multiplies by it and audits the offer and multiplier. `PromotionService.evaluate` passes over a points offer with a trace note (`is_points_offer`). No migration. Desktop: *Bonus loyalty points* benefit in the offer editor. Tests: `test_festival_points.py`, `promotion_bonus_points_test.dart`.
 
 #### SEL-5. Bulk single-use coupon codes (§60 row 7)
 - **What it is:** generate 500 codes for a campaign and hand them out as a file.

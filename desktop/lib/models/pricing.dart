@@ -432,11 +432,16 @@ class PromotionActionRecord {
     this.freeQuantity = '',
     this.freeProductId = '',
     this.maxAmount = '',
+    this.multiplier = '',
   });
 
   final String id;
   final int sequence;
   final String actionType;
+
+  /// For `LOYALTY_MULTIPLIER`: how many times the usual points a bill earns
+  /// (2 = double). Applied when the bill is approved, not on the document.
+  final String multiplier;
   final String percent;
 
   /// For a percent benefit: the most it may take off the whole document --
@@ -470,6 +475,7 @@ class PromotionActionRecord {
       freeQuantity: read('free_quantity'),
       freeProductId: read('free_product_id'),
       maxAmount: read('max_amount'),
+      multiplier: read('multiplier'),
     );
   }
 
@@ -484,8 +490,13 @@ class PromotionActionRecord {
         if (freeProductId.trim().isNotEmpty)
           'free_product_id': freeProductId.trim(),
         if (maxAmount.trim().isNotEmpty) 'max_amount': maxAmount.trim(),
+        if (multiplier.trim().isNotEmpty) 'multiplier': multiplier.trim(),
       };
 }
+
+/// "2x loyalty points" for a bonus-points benefit (`2.00` reads as `2x`).
+String bonusPointsLabel(String multiplier) =>
+    '${_plainNumber(multiplier)}x loyalty points';
 
 /// A code a customer presents to claim an offer.
 ///

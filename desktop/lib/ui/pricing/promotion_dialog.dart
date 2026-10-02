@@ -38,6 +38,7 @@ class _PromotionDialogState extends State<PromotionDialog> {
     'FREE_QUANTITY': 'Free goods (buy X, get Y)',
     'FREE_PRODUCT': 'A free product (buy X, get another)',
     'FREE_SHIPPING': 'Free delivery',
+    'LOYALTY_MULTIPLIER': 'Bonus loyalty points',
   };
 
   static const int _pickerPageSize = 20;
@@ -244,7 +245,24 @@ class _PromotionDialogState extends State<PromotionDialog> {
     return null;
   }
 
+  /// A bonus-points offer gives nothing else; the server says so, and so
+  /// does the form before anything is sent.
+  String? _actionProblem() {
+    final bool hasBonus =
+        _actions.any((a) => a.actionType == 'LOYALTY_MULTIPLIER');
+    if (hasBonus && _actions.length > 1) {
+      return 'A bonus-points offer gives nothing else; make the discount a '
+          'separate offer.';
+    }
+    return null;
+  }
+
   Future<void> _save() async {
+    final String? mixed = _actionProblem();
+    if (mixed != null) {
+      setState(() => _error = mixed);
+      return;
+    }
     if (!(_form.currentState?.validate() ?? false)) return;
     final String? problem = _conditionProblem();
     if (problem != null) {
@@ -487,6 +505,7 @@ class _PromotionDialogState extends State<PromotionDialog> {
     final bool isFree = action.actionType == 'FREE_QUANTITY';
     final bool isGift = action.actionType == 'FREE_PRODUCT';
     final bool isShipping = action.actionType == 'FREE_SHIPPING';
+    final bool isBonus = action.actionType == 'LOYALTY_MULTIPLIER';
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.sm),
       child: Row(
@@ -514,6 +533,31 @@ class _PromotionDialogState extends State<PromotionDialog> {
               child: Padding(
                 padding: EdgeInsets.only(top: AppSpacing.md),
                 child: Text('The delivery charge is waived whole.'),
+              ),
+            )
+          else if (isBonus)
+            Expanded(
+              child: TextFormField(
+                key: ValueKey('promotion-action-multiplier-$index'),
+                controller: action.multiplier,
+                decoration: const InputDecoration(
+                  labelText: 'Times the usual points',
+                  helperText: 'Points are multiplied when the bill is '
+                      'approved; nothing changes on the bill',
+                  helperMaxLines: 2,
+                ),
+                keyboardType: TextInputType.number,
+                validator: (value) {
+                  final String text = (value ?? '').trim();
+                  if (text.isEmpty) {
+                    return 'Say how many times the usual points, such as 2.';
+                  }
+                  final double? parsed = double.tryParse(text);
+                  if (parsed == null || parsed <= 1 || parsed > 10) {
+                    return 'More than 1 and at most 10, such as 2.';
+                  }
+                  return null;
+                },
               ),
             )
           else if (isGift) ...[
@@ -1109,6 +1153,7 @@ class _ActionDraft {
     draft.freeQuantity.text = record.freeQuantity;
     draft.freeProductId = record.freeProductId;
     draft.maxAmount.text = record.maxAmount;
+    draft.multiplier.text = record.multiplier;
     // Nothing reads one product by id, so a saved gift is named generically
     // until somebody searches for another.
     draft.freeProductLabel =
@@ -1122,6 +1167,7 @@ class _ActionDraft {
   final TextEditingController buyQuantity = TextEditingController();
   final TextEditingController freeQuantity = TextEditingController();
   final TextEditingController maxAmount = TextEditingController();
+  final TextEditingController multiplier = TextEditingController();
   String freeProductId = '';
   String freeProductLabel = '';
 
@@ -1142,6 +1188,7 @@ class _ActionDraft {
                 : '',
         freeProductId: actionType == 'FREE_PRODUCT' ? freeProductId : '',
         maxAmount: actionType.endsWith('_PERCENT') ? maxAmount.text : '',
+        multiplier: actionType == 'LOYALTY_MULTIPLIER' ? multiplier.text : '',
       ).toJson();
 }
 

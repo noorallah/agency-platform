@@ -42,6 +42,7 @@ from app.sales_invoice.models import SalesInvoice
 from app.settlements.models import Settlement, SettlementAllocation, SettlementStatus
 
 HUNDRED = Decimal("100")
+ONE = Decimal("1")
 
 #: How far ahead "expiring soon" looks. Ninety days is long enough for a
 #: customer to do something about it and short enough that the warning still
@@ -308,8 +309,13 @@ class LoyaltyService:
             # One credit per bill. A second would pay twice for one sale and
             # nothing would say which was the real one.
             return None
+        bonus = self.bonus_for(invoice, firm_id=firm_id)
+        multiplier = ONE if bonus is None else bonus[1]
         points = quantize_money(
-            Decimal(str(invoice.grand_total)) * settings.points_per_amount / HUNDRED
+            Decimal(str(invoice.grand_total))
+            * settings.points_per_amount
+            / HUNDRED
+            * multiplier
         )
         if points <= ZERO:
             return None
@@ -346,9 +352,79 @@ class LoyaltyService:
             entity_id=entry.id,
             actor_id=actor_id,
             firm_id=firm_id,
-            after_data=self._entry_snapshot(entry),
+            after_data={
+                **self._entry_snapshot(entry),
+                # Which festival offer multiplied it, so a statement can say
+                # why this bill earned double (SEL-4).
+                **(
+                    {}
+                    if bonus is None
+                    else {"bonus_offer": bonus[0], "multiplier": str(bonus[1])}
+                ),
+            },
         )
         return entry
+
+    def bonus_for(
+        self, invoice: SalesInvoice, *, firm_id: UUID
+    ) -> tuple[str, Decimal] | None:
+        """Return the bonus-points offer this bill earns under, if any (SEL-4).
+
+        An offer counts when it is live on the bill's date and its conditions
+        hold for the bill as a whole -- customer, group, branch, territory,
+        route, salesman, day and hour, the bill's value. A condition on a
+        product cannot hold for a whole bill and so never matches here, and an
+        offer that needs a coupon is passed over, since a bill carries none.
+        Where several run at once the largest multiplier wins: festival points
+        are a rate, and two rates stacked would multiply into a figure no
+        leaflet promised.
+        """
+        # Imported here: promotions price the sales documents this module
+        # credits, and loyalty is read by them in turn.
+        from app.customers.models import Customer
+        from app.promotions.schemas import PromotionActionType, PromotionField
+        from app.promotions.services import PromotionService
+        from app.promotions.services.promotion_service import (
+            is_points_offer,
+            minutes_of_day_in_india,
+        )
+
+        engine = PromotionService(self._session)
+        customer = self._session.get(Customer, invoice.customer_id)
+        context: dict[str, object] = {
+            PromotionField.CUSTOMER_ID.value: invoice.customer_id,
+            PromotionField.CUSTOMER_GROUP_ID.value: (
+                None if customer is None else customer.customer_group_id
+            ),
+            PromotionField.BRANCH_ID.value: invoice.branch_id,
+            PromotionField.TERRITORY_ID.value: invoice.territory_id,
+            PromotionField.ROUTE_ID.value: invoice.route_id,
+            PromotionField.SALESMAN_ID.value: invoice.salesman_id,
+            PromotionField.DOCUMENT_GROSS.value: Decimal(str(invoice.grand_total)),
+            PromotionField.TRANSACTION_TYPE.value: "SALES_INVOICE",
+            PromotionField.TRANSACTION_DATE.value: invoice.invoice_date,
+            PromotionField.WEEKDAY.value: invoice.invoice_date.isoweekday(),
+            PromotionField.TIME_OF_DAY.value: minutes_of_day_in_india(
+                invoice.created_at
+            ),
+        }
+        best: tuple[str, Decimal] | None = None
+        for promotion in engine._active_promotions(
+            firm_scope=firm_id, on=invoice.invoice_date
+        ):
+            if not is_points_offer(promotion) or promotion.requires_coupon:
+                continue
+            if not engine._matches(promotion, context=context):
+                continue
+            for action in promotion.actions:
+                if action.is_deleted or (
+                    action.action_type != PromotionActionType.LOYALTY_MULTIPLIER.value
+                ):
+                    continue
+                rate = Decimal(str((action.parameters or {}).get("multiplier", "1")))
+                if best is None or rate > best[1]:
+                    best = (promotion.code, rate)
+        return best
 
     def stage_reversal(
         self, invoice: SalesInvoice, *, firm_id: UUID, actor_id: UUID

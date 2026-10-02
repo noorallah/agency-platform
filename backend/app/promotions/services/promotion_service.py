@@ -74,6 +74,14 @@ def minutes_of_day_in_india(moment: datetime | None) -> int:
     return local.hour * 60 + local.minute
 
 
+def is_points_offer(promotion: Promotion) -> bool:
+    """Say whether an offer gives bonus loyalty points rather than a price."""
+    kinds = {
+        action.action_type for action in promotion.actions if not action.is_deleted
+    }
+    return kinds == {PromotionActionType.LOYALTY_MULTIPLIER.value}
+
+
 @dataclass(slots=True)
 class _LineState:
     """What one line has earned so far as promotions are applied."""
@@ -203,6 +211,19 @@ class PromotionService:
         for promotion in self._active_promotions(
             firm_scope=firm_scope, on=data.transaction_date
         ):
+            if is_points_offer(promotion):
+                # Earned when the bill is approved, not given while it is
+                # priced: passing it here keeps it off the claim count and
+                # stops a non-stacking points offer ending evaluation.
+                decisions.append(
+                    self._decision(
+                        promotion,
+                        False,
+                        "A bonus-points offer: its points are earned when the "
+                        "bill is approved.",
+                    )
+                )
+                continue
             refusal = self._unavailable(
                 promotion, coupon=coupon, data=data, firm_scope=firm_scope
             )

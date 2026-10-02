@@ -680,6 +680,7 @@ class _PromotionPageState extends State<PromotionPage> {
             : 'buy ${action.buyQuantity}, get ${action.freeQuantity} of '
                 'another product free',
         'FREE_SHIPPING' => 'free delivery',
+        'LOYALTY_MULTIPLIER' => bonusPointsLabel(action.multiplier),
         _ => action.actionType,
       };
 
