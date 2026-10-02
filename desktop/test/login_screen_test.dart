@@ -109,6 +109,13 @@ class _FakeSessionController extends SessionController {
   String? get notice => _notice;
 
   DateTime? lockedUntilOverride;
+
+  /// A lock stamped when the sign-in fails rather than when the test starts.
+  ///
+  /// The screen reads the wall clock once, when the lock arrives; a lock
+  /// fixed at the top of the test lost a second to a loaded machine before
+  /// the sign-in failed and showed 01:29 for 01:30 (D-TEST-2).
+  Duration? lockOnFailure;
   @override
   DateTime? get lockedUntil => lockedUntilOverride;
 
@@ -145,6 +152,9 @@ class _FakeSessionController extends SessionController {
       await pendingLogin!.future;
     }
     if (loginShouldFail) {
+      if (lockOnFailure != null) {
+        lockedUntilOverride = DateTime.now().add(lockOnFailure!);
+      }
       _error = 'Invalid email or password.';
       _status = SessionStatus.error;
     } else {
@@ -461,8 +471,9 @@ void main() {
     final session = await _session(prefs);
     final themes = await _themes(prefs);
     session.loginShouldFail = true;
-    session.lockedUntilOverride =
-        DateTime.now().add(const Duration(seconds: 90));
+    // Half a second short of 90, so the screen still reads 01:30 when up to
+    // half a second passes between the failure and the frame that shows it.
+    session.lockOnFailure = const Duration(seconds: 89, milliseconds: 500);
     await tester.pumpWidget(
       _TestHarness(session: session, preferences: prefs, themes: themes),
     );

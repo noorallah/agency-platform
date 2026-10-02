@@ -12,6 +12,8 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/import_file.dart';
+
 class _Call {
   _Call(this.side, this.apply, this.postingDate);
   final String side;
@@ -104,11 +106,7 @@ Future<void> _open(
 }
 
 Future<void> _checkAndImport(WidgetTester tester) async {
-  await tester.runAsync(() async {
-    await tester.tap(find.text('Choose file…'));
-    await Future<void>.delayed(const Duration(milliseconds: 200));
-  });
-  await tester.pumpAndSettle();
+  await chooseImportFile(tester);
   await tester.ensureVisible(find.text('Check file'));
   await tester.pumpAndSettle();
   await tester.tap(find.text('Check file'));
