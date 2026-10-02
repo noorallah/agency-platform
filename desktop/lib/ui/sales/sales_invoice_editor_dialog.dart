@@ -736,8 +736,12 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
             saved is Map ? stringValue(saved['invoice_number']) : 'invoice';
         if (savedId.isNotEmpty) {
           try {
-            final List<int> pdf = await widget.api.salesInvoicePdf(savedId);
-            if (!mounted) return;
+            final List<int>? pdf = await fetchPrintablePdf(
+              context,
+              ({bool referenceCopy = false}) => widget.api
+                  .salesInvoicePdf(savedId, referenceCopy: referenceCopy),
+            );
+            if (pdf == null || !mounted) return;
             await printDocument(context, bytes: pdf, documentName: number);
           } on ApiException catch (error) {
             // Saved either way: the bill is there to print from the list.

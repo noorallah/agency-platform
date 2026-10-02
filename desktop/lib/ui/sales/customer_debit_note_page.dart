@@ -213,8 +213,12 @@ class _CustomerDebitNotePageState extends State<CustomerDebitNotePage> {
   /// Render the note on the server and hand it to the machine's printer.
   Future<void> _print(CustomerDebitNoteRecord note) async {
     try {
-      final List<int> pdf = await widget.api.printCustomerDebitNote(note.id);
-      if (!mounted) return;
+      final List<int>? pdf = await fetchPrintablePdf(
+        context,
+        ({bool referenceCopy = false}) => widget.api
+            .printCustomerDebitNote(note.id, referenceCopy: referenceCopy),
+      );
+      if (pdf == null || !mounted) return;
       await printDocument(
         context,
         bytes: pdf,

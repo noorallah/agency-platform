@@ -755,6 +755,25 @@ class MessagingService:
             raise ResourceNotFoundError("Sales invoice not found.")
         if invoice.status in {"DRAFT", "CANCELLED"}:
             raise ValidationError("Only an approved invoice can be sent.")
+        if data.channel == "EMAIL":
+            # Only the email carries the invoice itself; a WhatsApp or SMS
+            # names it, and naming it issues nothing (77 row 6).
+            from app.einvoice.services.issue_gate import (
+                missing_irn,
+                refuse_without_irn,
+            )
+
+            refuse_without_irn(
+                missing_irn(
+                    self._session,
+                    firm_scope=firm_id,
+                    number=invoice.invoice_number,
+                    on=invoice.invoice_date,
+                    customer_id=invoice.customer_id,
+                    status=invoice.status,
+                    sales_invoice_id=invoice.id,
+                )
+            )
         template = next(
             (
                 row

@@ -214,8 +214,12 @@ class _CreditNotePageState extends State<CreditNotePage> {
   /// Render the note on the server and hand it to the machine's printer.
   Future<void> _print(CreditNoteRecord note) async {
     try {
-      final List<int> pdf = await widget.api.printCreditNote(note.id);
-      if (!mounted) return;
+      final List<int>? pdf = await fetchPrintablePdf(
+        context,
+        ({bool referenceCopy = false}) =>
+            widget.api.printCreditNote(note.id, referenceCopy: referenceCopy),
+      );
+      if (pdf == null || !mounted) return;
       await printDocument(
         context,
         bytes: pdf,

@@ -5478,6 +5478,8 @@ gaps, pinned with a pointer here, each to build when a firm asks:
 
 ## 77. GST documents for the sales chain -- HIGH PRIORITY
 
+**Status, 2026-10-02 (night):** row 6 built (A43). Once the firm's *e-invoicing applies from* date has passed, an approved invoice to a buyer with a GSTIN -- and a credit or debit note against one -- is refused at print (`/print` on all three) and at a person's email send until it has a live IRN, by name and with `details.reason = irn_required`; *Print reference copy* (`?reference_copy=true`) prints it under "NO IRN YET - NOT A VALID TAX INVOICE". The automatic *Invoice approved* email waits in the outbox, saying why, and goes on the first pass after registration (rechecked every 5 minutes; waiting rows no longer crowd the worker's page). WhatsApp and SMS are not held: they name the invoice and issue nothing. A sales return's credit note cannot be e-invoiced yet and is left out (D-TAX-2).
+
 **Status, 2026-10-02 (evening):** row 11 built -- a registered invoice, credit note or debit note prints its IRN, acknowledgement number and date and the signed QR in a box under the banner (the thermal roll prints the IRN and acknowledgement without the QR); a refused or withdrawn registration prints nothing. Credit notes and debit notes to customers are printable for the first time (`GET /credit-notes/{id}/print`, `GET /customer-debit-notes/{id}/print`), in the invoice's layout with "Against invoice" and the reason in the head and each line's tax split into the invoice line's heads.
 
 **Status, 2026-10-02 (later still):** row 4 built -- credit notes and customer debit notes are registered on the portal as CRN and DBN, each carrying the invoice's parties and place of supply, its own lines and values, tax split into heads as the invoice line was charged, and `RefDtls` naming the invoice; through the sandbox or exported offline with the invoices (migration 0229).
@@ -5499,7 +5501,7 @@ OWNER_DECISIONS A35. Summary of the rows (numbered as in that doc's section 4):
 | 3 | Challan reason on the delivery note, printed | P1 |
 | 4 | E-invoice credit notes and debit notes | P1 |
 | 5 | Debit note to a customer (§67 row 7) -- **built 2026-10-02** (A40) | P1 |
-| 6 | No print or send of a B2B invoice without an IRN where e-invoicing applies | P1 |
+| 6 | No print or send of a B2B invoice without an IRN where e-invoicing applies -- **built 2026-10-02** (A43) | P1 |
 | 7 | 30-day list and check | P1 |
 | 8 | Live e-invoice and e-way bill through a GSP (§55 M2) -- needs the owner's GSP | P1 |
 | 9 | E-way bill without an IRN, from the invoice or (only when there is none) the delivery note | P2 |

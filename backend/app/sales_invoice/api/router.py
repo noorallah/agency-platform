@@ -919,15 +919,19 @@ def print_sales_invoice(
     invoice_id: UUID,
     scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
+    reference_copy: Annotated[bool, Query()] = False,
 ) -> StreamingResponse:
     """Render one invoice as the PDF a customer is sent.
 
     Rendered here rather than in the client so the layout is right in one
     place, and so the same bytes can be attached to an email later. Viewing is
     the permission: printing a bill shows nothing the screen does not.
+
+    A B2B invoice the firm must e-invoice is refused until it has its IRN
+    (77 row 6); ``reference_copy`` prints it marked not valid instead.
     """
     pdf, filename = SalesInvoicePrintService(db).render(
-        invoice_id, firm_scope=scope.firm_id
+        invoice_id, firm_scope=scope.firm_id, reference_copy=reference_copy
     )
     return StreamingResponse(
         iter([pdf]),

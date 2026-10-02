@@ -921,3 +921,118 @@ def test_switching_messaging_off_holds_what_was_queued(shop: _Shop) -> None:
     shop.switch_on()
     shop.run()
     assert len(_STATE.sent) == 1
+
+
+# -- No invoice goes out before its IRN (backlog 77 row 6) ----------------------
+
+
+def _einvoicing_b2b(shop: _Shop) -> None:
+    """Make the firm e-invoice and the customer a registered buyer."""
+    from app.tax.schemas.gst_compliance import GstComplianceSettingsWrite
+    from app.tax.services.gst_compliance import GstComplianceService
+
+    shop.customer.gst_number = "27AAPFU0939F1ZV"
+    shop.session.commit()
+    GstComplianceService(shop.session).update_settings(
+        GstComplianceSettingsWrite(
+            einvoice_applicable_from=date(2020, 1, 1),
+            thirty_day_rule_from=None,
+            dispatch_without_invoice="WARN",
+            route_sale_needs_invoice=False,
+        ),
+        firm_id=shop.firm.id,
+        actor_id=shop.actor_id,
+    )
+
+
+def _registered(shop: _Shop, bill: SalesInvoice) -> None:
+    """Record the bill's IRN as the portal would have issued it."""
+    from app.einvoice.models import EInvoiceRegistration
+
+    shop.session.add(
+        EInvoiceRegistration(
+            firm_id=shop.firm.id,
+            sales_invoice_id=bill.id,
+            mode="SANDBOX",
+            status="REGISTERED",
+            irn="a" * 64,
+        )
+    )
+    shop.session.commit()
+
+
+def test_an_email_waits_for_the_invoices_irn_then_goes_once(shop: _Shop) -> None:
+    """Held, saying why, while there is no IRN; sent on the pass after it."""
+    shop.switch_on()
+    shop.channel("EMAIL")
+    shop.event("SALES_INVOICE_APPROVED", "EMAIL")
+    _einvoicing_b2b(shop)
+    bill = shop.approved_bill()
+    now = datetime.now(UTC)
+
+    shop.run(now)
+    (row,) = shop.outbox()
+    assert _STATE.sent == []
+    assert row.status == "QUEUED" and row.attempts == 0
+    assert row.reason is not None and "IRN" in row.reason
+
+    _registered(shop, bill)
+    shop.run(now + timedelta(minutes=1))
+    assert _STATE.sent == [], "not looked at again before the recheck"
+    shop.run(now + timedelta(minutes=10))
+    assert [channel for channel, _ in _STATE.sent] == ["EMAIL"]
+    assert shop.outbox()[0].status == "SENT"
+
+
+def test_a_held_email_does_not_hold_up_the_rest_of_the_queue(shop: _Shop) -> None:
+    """Rows waiting are left out of the page, so they cannot crowd it."""
+    from app.messaging.services import outbox_worker
+
+    shop.switch_on()
+    shop.channel("EMAIL")
+    shop.event("SALES_INVOICE_APPROVED", "EMAIL")
+    _einvoicing_b2b(shop)
+    now = datetime.now(UTC)
+    for _ in range(4):
+        shop.approved_bill()
+    shop.run(now)
+    assert len(shop.outbox()) == 4 and _STATE.sent == []
+
+    shop.customer.gst_number = None
+    shop.session.commit()
+    shop.approved_bill()
+    original = outbox_worker.BATCH
+    outbox_worker.BATCH = 1
+    try:
+        # A page is four rows. Four rows wait ahead of the new one, so it is
+        # reached only because waiting rows are filtered in the query.
+        shop.run(now + timedelta(minutes=1))
+    finally:
+        outbox_worker.BATCH = original
+    assert len(_STATE.sent) == 1
+
+
+def test_sending_an_unregistered_b2b_bill_by_email_is_refused(shop: _Shop) -> None:
+    """By hand, the refusal is immediate and names the way out."""
+    from app.core.exceptions import BusinessRuleError
+
+    shop.switch_on()
+    shop.channel("EMAIL")
+    _einvoicing_b2b(shop)
+    bill = shop.approved_bill()
+    with pytest.raises(BusinessRuleError, match="has no IRN yet") as refused:
+        shop.messaging.send_document(
+            ManualSendRequest(document_id=bill.id, channel="EMAIL"),
+            firm_id=shop.firm.id,
+            actor_id=shop.actor_id,
+        )
+    assert refused.value.details == {"reason": "irn_required"}
+    assert shop.outbox() == []
+
+    _registered(shop, bill)
+    shop.messaging.send_document(
+        ManualSendRequest(document_id=bill.id, channel="EMAIL"),
+        firm_id=shop.firm.id,
+        actor_id=shop.actor_id,
+    )
+    assert len(shop.outbox()) == 1

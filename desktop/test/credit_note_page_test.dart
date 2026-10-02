@@ -96,9 +96,24 @@ class _CreditNoteApi extends ApiClient {
   /// widget test, so the call refuses the way an offline printer would.
   String? printed;
 
+  /// When set, the plain print is refused as the server refuses a bill with
+  /// no IRN; [referenceCopies] records each print asked for as a reference.
+  bool irnRequired = false;
+  final List<bool> referenceCopies = <bool>[];
+
   @override
-  Future<List<int>> printCreditNote(String id) async {
+  Future<List<int>> printCreditNote(String id,
+      {bool referenceCopy = false}) async {
     printed = id;
+    referenceCopies.add(referenceCopy);
+    if (irnRequired && !referenceCopy) {
+      throw const ApiException(
+        'CN-1 has no IRN yet. Register it first.',
+        statusCode: 422,
+        code: 'business_rule_violation',
+        details: <String, dynamic>{'reason': 'irn_required'},
+      );
+    }
     throw ApiException('The printer is offline.', statusCode: 503);
   }
 
@@ -658,6 +673,38 @@ void main() {
       expect(api.printed, 'cn-1');
       // The refusal is said, not swallowed.
       expect(find.text('The printer is offline.'), findsOneWidget);
+    });
+
+    testWidgets('no IRN: the refusal offers a reference copy, which is asked '
+        'for with referenceCopy true', (tester) async {
+      final _CreditNoteApi api = await open(tester, status: 'APPROVED');
+      api.irnRequired = true;
+      await tester.tap(find.text('CN-2026-0001').first);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('selection-print')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('CN-1 has no IRN yet. Register it first.'),
+          findsOneWidget);
+      expect(api.referenceCopies, <bool>[false]);
+
+      await tester.tap(find.text('Print reference copy'));
+      await tester.pumpAndSettle();
+      expect(api.referenceCopies, <bool>[false, true]);
+    });
+
+    testWidgets('no IRN: Cancel asks for nothing more', (tester) async {
+      final _CreditNoteApi api = await open(tester, status: 'APPROVED');
+      api.irnRequired = true;
+      await tester.tap(find.text('CN-2026-0001').first);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('selection-print')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(api.referenceCopies, <bool>[false]);
     });
 
     testWidgets('an approved note prints too, and view alone is enough',
