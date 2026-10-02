@@ -467,8 +467,18 @@ The picker's availability takes `customer_id`, flags such a batch
 `shelf_life_policy`. The order's earlier reservation may sit on the short
 batch; dispatch lets it go and draws the compliant one.
 
-Still open (backlog 79): *pin batch* on the sales order line, price from the
-batch (a batch carries no MRP yet).
+### Pinning a batch on the order (backlog 79 row 4)
+
+`sales_order_lines.pinned_batch_id` (migration 0224) is the batch the customer
+asked for. Approval holds **that batch and no other**
+(`allocate_for_reservation(only_batch=)`): what it cannot cover is a back
+order rather than a quiet hold on another batch, and a pinned batch out of
+date on the order's date is refused by name. A delivery note line raised from
+the order starts with the pinned batch picked, so dispatch ships it -- and the
+audit trail records it as a FEFO skip where it was not the earliest, which is
+the record wanted. The person may still change the pick on the note.
+
+Still open (backlog 79): price from the batch (a batch carries no MRP yet).
 
 ---
 

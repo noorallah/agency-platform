@@ -1829,6 +1829,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             ).all()
         }
         seen: set[int] = set()
+        pinned_new: list[tuple[DeliveryNoteLine, UUID]] = []
         source_lines = {
             item.id: item
             for item in self._session.scalars(
@@ -2005,6 +2006,8 @@ class DeliveryNoteService(TransactionalDocumentService):
             persisted = existing.get(item.line_number)
             if persisted is None:
                 self._session.add(line)
+                if item.batches is None and source_line.pinned_batch_id is not None:
+                    pinned_new.append((line, source_line.pinned_batch_id))
             else:
                 self._apply_line_values(persisted, line, actor_id=actor_id, preserve=())
             seen.add(item.line_number)
@@ -2025,6 +2028,23 @@ class DeliveryNoteService(TransactionalDocumentService):
                 self._session.delete(obsolete)
         self._replace_serial_picks(row, lines, actor_id=actor_id)
         self._replace_batch_picks(row, lines, actor_id=actor_id)
+        # A new line from an order line that pins a batch starts with that
+        # batch picked (backlog 79 row 4), so dispatch ships what the customer
+        # asked for; the person may still change it.
+        if pinned_new:
+            self._session.flush()
+            for new_line, batch_id in pinned_new:
+                if new_line.delivered_quantity > ZERO:
+                    self.set_line_batches(
+                        new_line,
+                        [
+                            DeliveryNoteBatchPick(
+                                batch_id=batch_id, quantity=new_line.delivered_quantity
+                            )
+                        ],
+                        label=f"Line {new_line.line_number}",
+                        actor_id=actor_id,
+                    )
         return {key: self._q(value) for key, value in totals.items()}
 
     def _replace_batch_picks(

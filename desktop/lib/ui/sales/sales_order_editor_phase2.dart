@@ -580,6 +580,99 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
         },
       );
 
+  /// Read the line's batches again when what they depend on has moved: the
+  /// product, the warehouse or the order date. Started from a build, so it
+  /// never touches state until the answer arrives.
+  void _ensureBatches(_LineDraft line) {
+    final String? productId = line.productId;
+    final String? warehouseId = _warehouseId;
+    if (productId == null || warehouseId == null) return;
+    final String key = '$productId|$warehouseId|${_iso(_orderDate)}';
+    if (line.batchKey == key) return;
+    line.batchKey = key;
+    unawaited(() async {
+      try {
+        final List<BatchAvailabilityRecord> rows =
+            await widget.api.batchAvailability(
+          productId: productId,
+          warehouseId: warehouseId,
+          asOf: _iso(_orderDate),
+        );
+        if (!mounted || line.batchKey != key) return;
+        _setState(() => line.batches = rows);
+      } on Object {
+        // A courtesy: without the list the order still goes earliest expiry
+        // first, or to the batch it already names.
+        if (!mounted || line.batchKey != key) return;
+        _setState(() => line.batches = const <BatchAvailabilityRecord>[]);
+      }
+    }());
+  }
+
+  /// "Batch": earliest expiry, or the one batch the customer asked for.
+  Widget _batchChoice(BuildContext context, int index, _LineDraft line) {
+    _ensureBatches(line);
+    final ThemeData theme = Theme.of(context);
+    final String? pinned = line.pinnedBatchId;
+    final List<BatchAvailabilityRecord> rows =
+        line.batches ?? const <BatchAvailabilityRecord>[];
+    final TextStyle? small = theme.textTheme.bodySmall?.copyWith(fontSize: 11);
+    final BatchAvailabilityRecord? current = rows
+        .where((BatchAvailabilityRecord batch) => batch.batchId == pinned)
+        .firstOrNull;
+    String describe(BatchAvailabilityRecord batch) =>
+        '${batch.batchNumber}  ·  exp '
+        '${batch.expiryDate.isEmpty ? '—' : batch.expiryDate}  ·  '
+        '${documentQuantity('${batch.available}')} available'
+        '${batch.expired ? '  ·  expired' : ''}';
+    return Row(
+      children: [
+        Text('Batch ', style: small),
+        Expanded(
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String?>(
+              key: ValueKey<String>('sales-order-line-batch-$index'),
+              value: pinned,
+              isExpanded: true,
+              isDense: true,
+              style: small?.copyWith(color: theme.colorScheme.onSurface),
+              items: [
+                const DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text('Earliest expiry', overflow: TextOverflow.ellipsis),
+                ),
+                for (final BatchAvailabilityRecord batch in rows)
+                  if (batch.available > 0 || batch.batchId == pinned)
+                    DropdownMenuItem<String?>(
+                      value: batch.batchId,
+                      // An expired batch is shown but cannot be chosen.
+                      enabled: !batch.expired || batch.batchId == pinned,
+                      child: Text(describe(batch),
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                // Kept so the pin survives a batch that has since sold out.
+                if (pinned != null && current == null)
+                  DropdownMenuItem<String?>(
+                    value: pinned,
+                    child: const Text('Pinned batch',
+                        overflow: TextOverflow.ellipsis),
+                  ),
+              ],
+              onChanged: _locked
+                  ? null
+                  : (String? value) {
+                      _setState(() {
+                        line.pinnedBatchId = value;
+                        _current = index;
+                      });
+                    },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _orderRow(BuildContext context, int index) {
     final ThemeData theme = Theme.of(context);
     final _LineDraft line = _lines[index];
@@ -645,6 +738,8 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
+              if (product != null && product.trackBatch && !product.trackSerial)
+                _batchChoice(context, index, line),
             ],
           ),
         ),

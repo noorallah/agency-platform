@@ -201,6 +201,14 @@ promotion, or the customer's standing rate).
 - **Preconditions:** a firm whose business profile has expiry tracking. A batch-tracked product with a batch expiring in about 4 months and one in about 9 months, 10 each. A customer with **Minimum shelf life** 180 days (Masters → Customers → edit). An approved sales order of 8 for that customer.
 - **Steps:** (a) Delivery Notes → New off the order, batches untouched → Save → Approve → **Dispatch**. (b) A second order and note: open the batch picker. (c) Put 8 on the 4-month batch → Save → Approve → Dispatch. (d) Settings → Stock → **Batch Rules**: *short of the customer's minimum shelf life* → **Warn** → Save, and dispatch (c) again.
 - **Expect:** (a) ships the **9-month** batch -- the 4-month one is passed over without anybody choosing. (b) the 4-month batch carries **Too short for customer** and the pre-fill is on the 9-month one. (c) Dispatch is refused with a message naming the batch and the customer's minimum; no reason prompt is offered. (d) it dispatches, and Settings → Audit trail shows **delivery_note.short_shelf_life_dispatched**.
+
+### TC-SELL-025 — Pinning the batch a customer asked for
+
+*Added 2026-10-02 (backlog 79 row 4).*
+
+- **Preconditions:** a batch-tracked product with an earlier and a later in-date batch, 10 each, and one expired batch with stock.
+- **Steps:** Sales Orders → New: 5 of the product, **Batch** = the later batch → Save → Approve. Stock → by batch. Delivery Notes → New off the order → look at the batch picker → Approve → Dispatch. Then an order for 12 pinning the later batch → Approve. Then an order pinning the expired batch → Approve.
+- **Expect:** approval holds 5 of the **later** batch and nothing of the earlier. The note opens with 5 on the later batch, and dispatch ships it (audit trail: **delivery_note.fefo_skipped**). The order for 12 holds 10 of the later batch and leaves 2 as a back order -- the earlier batch stays free. Pinning the expired batch is refused at approval naming it.
 ---
 
 ## Screen checks

@@ -297,6 +297,12 @@ class SalesOrderLine(BaseEntity):
     storage_node_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("warehouse_storage_nodes.id", ondelete="RESTRICT")
     )
+    #: The batch the customer asked for (backlog 79 row 4). Approval holds
+    #: this batch and no other -- what it cannot cover is a back order -- and
+    #: a delivery note raised from the line starts with it picked.
+    pinned_batch_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("batches.id", ondelete="RESTRICT")
+    )
     remarks: Mapped[str | None] = mapped_column(Text)
 
 

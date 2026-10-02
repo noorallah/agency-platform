@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/concurrency.dart';
 import '../../core/design/design_tokens.dart';
+import '../../models/batch_serial.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
 import '../../models/entities.dart';
@@ -74,6 +75,14 @@ class _LineDraft {
   bool priceEdited = false;
 
   /// Fill the price from the product's own, unless it was typed into.
+  /// The batch the customer asked for (backlog 79 row 4), or null for
+  /// earliest expiry. Kept even when the batch is no longer listed.
+  String? pinnedBatchId;
+
+  /// The product's batches with stock, read for [batchKey]; null until read.
+  List<BatchAvailabilityRecord>? batches;
+  String batchKey = '';
+
   void followProduct(String price) {
     if (priceEdited) return;
     unitPrice.text = price;
@@ -488,7 +497,9 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
               ? ''
               : stringValue(line['discount_percent']),
           lastSource: stringValue(line['discount_source']),
-        )..priceEdited = true,
+        )
+          ..priceEdited = true
+          ..pinnedBatchId = _blankToNull(stringValue(line['pinned_batch_id'])),
       );
     }
   }
@@ -556,6 +567,12 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   /// Move an unpriced line onto the newly chosen product's price.
   void _chooseProduct(_LineDraft line, String? productId) {
     setState(() {
+      // A batch belongs to one product: choosing another drops the pin.
+      if (line.productId != productId) {
+        line.pinnedBatchId = null;
+        line.batches = null;
+        line.batchKey = '';
+      }
       line.productId = productId;
       line.followProduct(_priceOf(productId));
     });
@@ -721,6 +738,9 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
               'unit_price': _lines[index].unitPrice.text.trim(),
             if (_lines[index].free.text.trim().isNotEmpty)
               'free_quantity': _lines[index].free.text.trim(),
+            // Null is "earliest expiry"; sent on every line so a cleared pin
+            // clears on update, since absent keeps the line's own.
+            'pinned_batch_id': _lines[index].pinnedBatchId,
             // Blank is omitted and zero is sent. Absent means the server
             // applies the price list or the customer's standing rate; zero
             // means somebody refused it for this line. Coercing blank to zero

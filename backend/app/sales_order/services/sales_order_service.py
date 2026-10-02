@@ -14,6 +14,7 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
+from app.batch_serial.models import BatchRecord
 from app.branches.models import Branch, Warehouse
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
@@ -2301,6 +2302,12 @@ class SalesOrderService(TransactionalDocumentService):
             line.net_amount = net
             line.warehouse_id = item.warehouse_id or row.warehouse_id
             line.storage_node_id = item.storage_node_id
+            line.pinned_batch_id = self._pinned_batch(
+                item.pinned_batch_id,
+                product_id=item.product_id,
+                firm_id=row.firm_id,
+                line_number=item.line_number,
+            )
             line.remarks = item.remarks
             line.updated_by = actor_id
             seen.add(item.line_number)
@@ -2379,6 +2386,34 @@ class SalesOrderService(TransactionalDocumentService):
             SalesOrderNote.sales_order_id == order_id
         ).delete(synchronize_session=False)
 
+    def _pinned_batch(
+        self,
+        batch_id: UUID | None,
+        *,
+        product_id: UUID,
+        firm_id: UUID,
+        line_number: int,
+    ) -> UUID | None:
+        """Return the batch a line pins, refused if it is not the product's.
+
+        Raises:
+            ValidationError: When the batch is another product's or firm's.
+
+        """
+        if batch_id is None:
+            return None
+        batch = self._session.get(BatchRecord, batch_id)
+        if (
+            batch is None
+            or batch.is_deleted
+            or batch.firm_id != firm_id
+            or batch.product_id != product_id
+        ):
+            raise ValidationError(
+                f"Line {line_number}: that batch is not this product's."
+            )
+        return batch.id
+
     def _reserve_inventory(self, row: SalesOrder, *, actor_id: UUID) -> None:
         lines = list(
             self._session.scalars(
@@ -2397,6 +2432,20 @@ class SalesOrderService(TransactionalDocumentService):
             # Expired batches are not candidates, judged on the order's own
             # date -- the same stock dispatch will draw from, so the hold
             # protects what will actually ship (D-STK-2).
+            if line.pinned_batch_id is not None:
+                # A pinned batch out of date is refused by name rather than
+                # held as a back order nobody can explain (79.4).
+                stale = self._session.scalar(
+                    select(BatchRecord).where(
+                        BatchRecord.id == line.pinned_batch_id,
+                        BatchRecord.expired_condition(row.order_date),
+                    )
+                )
+                if stale is not None:
+                    raise ValidationError(
+                        f"Line {line.line_number}: the batch the customer asked "
+                        f"for, {stale.batch_number}, has expired."
+                    )
             plan = self._inventory.allocate_for_reservation(
                 firm_scope=row.firm_id,
                 branch_id=row.branch_id,
@@ -2405,6 +2454,7 @@ class SalesOrderService(TransactionalDocumentService):
                 product_id=line.product_id,
                 quantity=line.reservable_quantity,
                 as_of=row.order_date,
+                only_batch=line.pinned_batch_id,
             )
             allocation = plan.batches
             entered_total = self._q(line.quantity + line.free_quantity)
