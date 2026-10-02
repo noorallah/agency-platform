@@ -12,6 +12,8 @@ and, where it reads real data, against the demo firms WHOLE01 and PERF01
 
 Each row names the screen. Do them on a copy of a firm, or on the demo firm.
 
+**Start with the sanity check** (`docs/qa/SANITY_CHECK.md`, PDF *Sanity check* in the hand-over folder). The quick check proves the server answers, every store is migrated and every list and report of every firm opens, module by module; the 49 cases after it walk each module on the demo firm WHOLE01 with the figures to expect. If it fails, report that before anything below.
+
 | # | What | Where | What to look for |
 | --- | --- | --- | --- |
 | 1 | **Opening balances checklist** | Admin > Firms > Set up | Under the steps, *Opening balances* lists products, customers, suppliers, opening bills both sides, the trial balance and opening stock, ticked as each fills, with the screen to use for the rest |
@@ -41,6 +43,7 @@ Each row names the screen. Do them on a copy of a firm, or on the demo firm.
 | 25 | **Batches, the rest** | Settings > Stock > Batch Rules; a counter bill; a sales order line *Pinned batch*; a customer's *Minimum shelf life (days)*; a goods receipt with MRP | Reasons asked at dispatch; the counter bill's picks are what leaves; the pinned batch is reserved and picked; short batches passed over; no bill above the batch MRP (`docs/qa/08_SELLING.md` TC-SELL-022 to 026) |
 | 26 | **Mapping an import's columns** | Masters > Products (or Customers, Vendors, opening bills, opening stock) > Import, a file with its own headings | Each heading beside the template column it is read as; change one, *Save mapping as...*, pick it again from *Saved mappings* (`docs/qa/05_MASTERS.md` TC-MAST-010) |
 | 27 | **Places from India Post** | Masters > Places, a new firm | Southern states' districts, towns and PIN codes are already there; *Load places from India Post...* adds another state (`docs/qa/10_TERRITORY.md` TC-TERR-006) |
+| 28 | **Quick check** | On the server PC, PowerShell: `agency-server.exe quick-check --email <you>` (see the sanity check) | Asks for the password; a table per firm, one row per module, and *RESULT: everything answered*; an HTML page with every check. Exit code 1 if anything failed |
 
 The other changes of 2026-10-02 have their own cases: TC-BUY-009 to 018,
 TC-SELL-018, TC-SELL-020 to 026, TC-MAST-009 and 010, and TC-COMP-009 to
@@ -203,6 +206,15 @@ screen (1.1.0).
   the credit note, since #939.
 - Four desktop tests that failed only on a loaded machine now wait for what
   they test (#917, D-TEST-2).
+- **The quick check**: `agency-server quick-check` signs in to the running
+  server and, reading only, checks every store is migrated and every list
+  and report of every firm opens, counted module by module, with an HTML
+  page of the result (#949, #950). With it, `docs/qa/SANITY_CHECK.md`: 49
+  cases module by module on the demo firm WHOLE01.
+- **Below reorder level** answered an error on every installed copy
+  (PostgreSQL has no `max` of an id, which the report used) -- found by the
+  quick check's first run and fixed (#949, D-BUY-21). Row 18 above depends
+  on it.
 
 ## Upgrading
 

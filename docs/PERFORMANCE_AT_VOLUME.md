@@ -193,6 +193,12 @@ To remove PERF01 for good: delete it on the Firms screen, then
 
 ### `scripts/time_routes.py` -- the timings
 
+The route walker itself -- which routes, how a report's parameters are
+filled, the signed-in client -- lives in `app/diagnostics/route_walk.py`
+since 2026-10-02, shared with `agency-server quick-check`, which walks the
+same routes once each on an installed copy (`docs/qa/SANITY_CHECK.md`).
+This script adds the repeats, the medians and the CSV.
+
 Signs in through `/api/v1/auth/login` as the desktop does, picks the firm from
 `/api/v1/me/firms`, and times every firm-owned GET in the application's own
 OpenAPI document: no path parameter (plus the per-customer and per-supplier

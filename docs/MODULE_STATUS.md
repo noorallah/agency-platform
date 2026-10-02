@@ -110,7 +110,7 @@ no seeded row satisfies.
 | --- | ---: | ---: | --- | --- |
 | Firms and tenancy `app/firms` | 6 | 0 | Built | Shared schema, dedicated schema, or dedicated database — possibly on another server. Provisioning is an explicit action. |
 | Audit trail `app/common/audit` | 1 | 0 | Built | Append-only, enforced by a trigger in **every** schema. Per store, so no single query answers "everything that happened". A firm can grant its own trail with `FIRM_AUDIT_LOG_VIEW` (B1). |
-| Diagnostics `app/diagnostics` | 3 | 0 | Built | A screenshot joins its traceback by request id, and a fault fingerprints on this codebase's frames rather than the ASGI plumbing. |
+| Diagnostics `app/diagnostics` | 3 | 0 | Built | A screenshot joins its traceback by request id, and a fault fingerprints on this codebase's frames rather than the ASGI plumbing. Also `agency-server quick-check` (2026-10-02): the read-only sanity check of a running server, module by module (`quick_check.py`, `route_walk.py`). |
 | Messaging `app/messaging` | 14 | 0 | Built 2026-10-01 | Email, WhatsApp and SMS, off until the firm switches it on with its own provider accounts. A failed send never blocks a document. Overdue reminders stop 90 days past due (A12); an invoice email waits for the IRN (A43). Not exercised by any demo firm. |
 | Global search `app/search` | 1 | 0 | Built | Platform-owned definitions read the platform store; before that every Ctrl+K inside a firm answered 503. |
 
