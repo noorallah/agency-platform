@@ -111,6 +111,9 @@ screen (1.1.0).
   switching reminders on does not chase every old bill (decision A12).
 - **Preferred supplier** on a product: *Below reorder level* orders from it,
   else from the supplier last billed (decision A18).
+- **Cash-in-Hand and Bank Accounts groups** for a new firm's chart, so a
+  contra voucher offers only money accounts (decision A22; existing firms
+  unchanged).
 - **Reorder from sales**: the planning formula behind *Below reorder level*
   (#913, decision A39).
 - **Debit note to a customer**: more charged on an invoice after billing,

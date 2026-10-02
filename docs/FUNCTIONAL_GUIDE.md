@@ -992,7 +992,7 @@ with no purpose mapped is invisible to it.
 | 5600 | Commission Expense | Expense | `COMMISSION_EXPENSE` |
 | 5700 | Loyalty Expense | Expense | `LOYALTY_EXPENSE` |
 
-Groups: `CA` Current Assets, `CL` Current Liabilities, `REV` Revenue, `EXP` Direct Expenses, `EQ` Equity.
+Groups: `CA` Current Assets, `CL` Current Liabilities, `REV` Revenue, `EXP` Direct Expenses, `EQ` Equity. A firm set up from 2026-10-02 also has `CA-CASH` *Cash-in-Hand* (1000) and `CA-BANK` *Bank Accounts* (1010) inside Current Assets (decision A22); an older firm has cash and bank directly in `CA`.
 
 **`2300` and `5400` are the two people ask about.** *Goods Received Not
 Invoiced* holds the accrual between a receipt and the bill for it. *Purchase

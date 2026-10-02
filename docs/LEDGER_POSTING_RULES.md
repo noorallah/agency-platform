@@ -416,12 +416,16 @@ original), and the original stays.
 **Which accounts hold money** (decided by convention, 2026-10-01): the firm's
 `CASH` and `BANK` control accounts, and every other active ASSET account in
 the same account group as either that no other control purpose claims -- a
-second bank account, petty cash. In the seeded chart cash and bank share
-*Current Assets* with receivables, inventory and input tax; those are mapped to
-their own purposes and kept by their own documents, so they are never offered.
-An asset account a firm opens itself in that group (a deposit, an advance to
-staff) **is** offered; a firm that wants it kept out gives cash and bank a
-group of their own. **Cash or bank**: the CASH account is cash and the BANK
+second bank account, petty cash. **A firm set up from 2026-10-02 has cash and
+bank in groups of their own** (decision A22): *Cash-in-Hand* (`CA-CASH`, 1000)
+and *Bank Accounts* (`CA-BANK`, 1010), both under *Current Assets*, as Tally
+keeps them -- so only money accounts are offered, and a bank account opened in
+*Bank Accounts* is a bank everywhere. A firm set up before keeps its chart
+unchanged: there cash and bank share *Current Assets* with receivables,
+inventory and input tax, which are mapped to their own purposes and never
+offered, while an asset account the firm opened itself in that group (a
+deposit, an advance to staff) **is** offered until the firm moves cash and bank
+to a group of their own. **Cash or bank**: the CASH account is cash and the BANK
 account a bank; any other is cash when it sits in cash's group and not
 bank's, a bank in the reverse case, and -- where the two share a group, as
 seeded -- cash when its name says "cash" and a bank otherwise.
