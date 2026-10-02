@@ -4814,7 +4814,7 @@ containers, M2 live e-invoice and e-way bill, M10 counter billing.
 
 ## 65. Purchases: what the review with the owner found
 
-**Status, 2026-10-02:** row 5's last part (the variance on the bill's own screen) and row 6 (debit note, §55 G8) built.
+**Status, 2026-10-02:** row 5's last part (the variance on the bill's own screen) and row 6 (debit note, §55 G8) built. A debit note on a bill already paid leaves its excess as supplier credit (decision A4, migration 0218).
 
 Owner, 2026-09-28, the purchases half of the review that produced §57-§64.
 `docs/PURCHASE_FRAMEWORK.md` and `docs/PURCHASE_TO_PAYMENT_FLOW.md` describe

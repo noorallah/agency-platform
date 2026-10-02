@@ -334,7 +334,9 @@ bill, approving it posts Dr payable / Cr input tax (by head) and price
 variance, the bill's outstanding is derived lower, the supplier statement
 names the supplier's note, and GSTR-3B 4(B)(2) reverses the credit; cancelling
 reverses all of it. Both fields or neither, not dated before the supplier's
-bill, and one supplier's number on one live note. It takes its bill's reverse
+bill, and one supplier's number on one live note. A claim on a bill already
+paid leaves its excess as a **supplier credit** (decision A4), the same rule as
+a return off a paid bill (`docs/PURCHASE_TO_PAYMENT_FLOW.md`). It takes its bill's reverse
 charge share off the same way a return does. Reason *Discount after
 billing* (`DISCOUNT`) joins price difference and short supply.
 

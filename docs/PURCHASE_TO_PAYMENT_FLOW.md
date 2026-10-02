@@ -383,6 +383,26 @@ bill then owes more again, say its payment is reversed, and the credit has
 already been used elsewhere, the part used goes back onto the bill
 (`drawn_back_onto_bills`), so the payables list and the ledger agree.
 
+### A debit note on a bill that is already paid (decision A4)
+
+A debit note debits payables against its bill exactly as a return off the
+bill's lines does, so it follows the same rule. Until 2026-10-02 a claim larger
+than the bill still owed was refused; now the part the bill cannot absorb is a
+**supplier credit** on the debit note, set against another bill or paid back
+like a return's. Returns and debit notes off one bill spill **newest first
+whichever kind**. A claim is refused only past what the bill was worth -- its
+total less what returns and other debit notes already took off it -- under a
+lock on the bill.
+
+A credit is named by its **source**: `GET /api/v1/payments/supplier-credits`
+returns `source_id` and `source_type` (`PURCHASE_RETURN` or `DEBIT_NOTE`), and
+`/supplier-credits/{source_id}/apply` and `/refunds` take either kind. An
+application or refund row carries exactly one of `purchase_return_id` and
+`debit_note_id` (migration 0218). A debit note's credit may be paid back
+without an outcome to change first. Cancelling the debit note withdraws what
+was set against other bills (they owe it again) and is refused while a refund
+against it stands.
+
 ---
 
 ## Undoing it
@@ -393,6 +413,7 @@ already been used elsewhere, the part used goes back onto the bill
 | Cancel a **completed** receipt | reversed, line by line | mirror journal cancels it; refused outright once the receipt has been invoiced |
 | Purchase return, completed | stock goes back off | posted; blocked tax credits 5450, not input tax |
 | Cancel a purchase return | reversed | mirror journal cancels it; refused while a supplier refund stands against it |
+| Cancel a debit note | nothing moved | mirror journal; credit it left that was set against other bills is withdrawn; refused while a supplier refund stands against it (A4) |
 | Reverse a supplier refund | — | mirror journal cancels it; the return's credit is free again |
 | Reverse a settlement | — | mirror journal cancels it, every deduction leg with it; allocations stop clearing invoices but still record what they had cleared |
 | Cancel an approved party adjustment | — | mirror journal cancels it; the bills it named owe again; the customer's row is undone by its stored deltas |

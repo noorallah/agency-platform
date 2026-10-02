@@ -139,6 +139,14 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Steps:** as the **Firm admin**: Settings (gear) → Buying → **Purchase Settings** → **Reorder planning** → Open. Note it says the firm plans on typed levels. Reports → Operational → **Below reorder level**. Then choose **From sales**, leave 90 / 7 / 7 / 30 → Save. Open the report again, and Purchase Orders → "..." → **Below reorder level...**. Try Cover 0 → Save. Open the dialog as a role without *Manage purchase settings*.
 - **Expect:** on typed levels the first product is **not** listed. On sales it is listed with **Basis Sales**, **Avg/day 1**, reorder level 14, maximum 44 and **suggested 34** (44 − 10), whole units; the second product keeps **Basis Level** with its typed figures. The *Below reorder level...* dialog names the basis above the grid, and **Raise draft orders** raises a draft for 34. Cover 0 is refused with the range. Without the permission the dialog is read-only. Settings → Audit trail shows **purchase.reorder_planning_updated**.
 
+### TC-BUY-017 — A debit note on a bill already paid
+
+*Added 2026-10-02 (decision A4).*
+
+- **Preconditions:** an approved supplier bill of 1,180.00 (1,000 + 18% GST), **paid in full**, and a second approved bill of the same supplier for 500.00.
+- **Steps:** Buy → **Debit Notes** → New against the paid bill: 100 on its line, reason *Price difference* → Save → **Approve**. Pay → New payment for the supplier: look at the supplier credits. Set the debit note's credit against the second bill. Then cancel the debit note. Then raise and approve it again, record a supplier **refund** of 50 against its credit, and try to cancel it.
+- **Expect:** approval succeeds (it used to refuse "still owes only 0"). The payment screen lists a credit of **118.00** marked as a debit note; set against the second bill, that bill owes **382.00**. Cancelling the debit note withdraws it -- the second bill owes 500.00 again and the credit is gone. With the refund standing, the cancel is refused ("Reverse that refund…").
+
 ### TC-BUY-016 — One quantity picture per order line, and the billing status
 
 *Added 2026-10-02 (backlog 69 row 5, A33). Not yet driven on an installed copy.*

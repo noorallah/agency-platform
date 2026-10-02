@@ -174,8 +174,8 @@ reference.
   anything is written; then each bill goes through the service's own
   `_stage`, so the journal, the balance and every refusal are the form's.
   `app/common/opening_bill_import.py` is the one importer, a subclass per side.
-- **Not yet:** a purchase return's supplier credit cannot be set against an
-  opening bill (refused by name).
+- **Not yet:** a supplier credit -- a purchase return's or a debit note's --
+  cannot be set against an opening bill (refused by name).
 
 ## A customer's opening balance is one figure or bills, never both
 
