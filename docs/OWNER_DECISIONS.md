@@ -10,19 +10,19 @@ a question only the owner, a go-live firm or its CA can answer.
 The owner went through every row on 2026-10-02. Most were confirmed as built.
 The ones that change the product, in the order they will be built:
 
-1. §79 rest (A38, A2): batch settings, near-expiry exemption from the floor, counter-bill picks, pinning, minimum shelf life
-2. A4 supplier debit note excess to supplier credit
-3. A7/B5 PAN may repeat across customers, with a warning
-4. A12 reminder window (firm setting, 90 days)
-5. A16 no 206C(1H) TCS from 1 April 2025
-6. A18 preferred supplier per product
-7. A22 Cash and Bank group for new firms
-8. A29 ready-made reverse-charge rules in the GST template
-9. B1 firm administrator reads own audit trail
-10. B2 refuse a custom field's type change once it holds values (check what is built)
+1. §79 rest (A38, A2): batch settings, near-expiry exemption from the floor, counter-bill picks, pinning, minimum shelf life -- **settings and A2 built (#922)**; counter-bill picks, pinning and minimum shelf life open
+2. A4 supplier debit note excess to supplier credit -- **built (#923)**
+3. A7/B5 PAN may repeat across customers, with a warning -- **built (#924)**
+4. A12 reminder window (firm setting, 90 days) -- **built (#925)**
+5. A16 no 206C(1H) TCS from 1 April 2025 -- **already built** (D-CMP-12)
+6. A18 preferred supplier per product -- **built (#926)**
+7. A22 Cash and Bank group for new firms -- **built (#927)**
+8. A29 ready-made reverse-charge rules in the GST template -- **built (#928)**
+9. B1 firm administrator reads own audit trail -- **built (#929)**
+10. B2 refuse a custom field's type change once it holds values (check what is built) -- **already built**
 11. B3 field mapping on file imports
 12. B6 India Post PIN directory
-13. B8 drop TCS 27EQ from the backlog
+13. B8 drop TCS 27EQ from the backlog -- **done**
 
 For the CA, in the hand-over: A5, A8, A9, A20, A31. Waiting on the owner: A13
 (messaging accounts), B9 and B11 (parked), B10 (spare PC, icon), the GSP.
@@ -76,13 +76,13 @@ For the CA, in the hand-over: A5, A8, A9, A20, A31. Waiting on the owner: A13
 | # | Backlog | Question |
 | --- | --- | --- |
 | B1 | Firm audit trail (Also open, after §33) | Should a firm administrator read their own firm's audit trail? Today only the platform tier can. Recommended: split a firm-scoped `FIRM_AUDIT_LOG_VIEW` -- **Answered 2026-10-02:** **Yes:** a firm-scoped `FIRM_AUDIT_LOG_VIEW` for the firm administrator, own firm only. **Built 2026-10-02** (`20261002_0222`); the administrator could already read it since 2026-09-06 -- what is new is that they can grant it. |
-| B2 | §16 custom fields | May a firm administrator change their own business profile once trading? Refuse or convert a custom field's type change (recommended: refuse) -- **Answered 2026-10-02:** Changing a trading firm's business profile is a platform-administrator action; a custom field's type cannot change once it holds values. |
+| B2 | §16 custom fields | May a firm administrator change their own business profile once trading? Refuse or convert a custom field's type change (recommended: refuse) -- **Answered 2026-10-02:** Changing a trading firm's business profile is a platform-administrator action; a custom field's type cannot change once it holds values. **Already built**: assigning a firm's business profile is a platform-administrator route (`PUT /business/firms/{id}/profile-assignment`, `require_platform_admin`), and a field's type change is refused once a value is stored (`framework_service.py`, `test_attribute_lifecycle_guards.py`). |
 | B3 | §36 onboarding | Which tools are firms coming from, and real export files from them (Tally XML import is built only against real files) -- **Answered 2026-10-02:** **One common import with field mapping**, so a file from any software (Tally, Marg, Busy, Excel) is mapped onto our templates rather than a reader per product. |
 | B4 | §70 rows 9-10 | FIFO costing as a firm option? A *warn* rather than *refuse* policy for negative stock at the counter? -- **Answered 2026-10-02:** Weighted average only; negative stock at the counter stays refused. |
 | B5 | §75 row 3 | One GSTIN or PAN on several customer accounts (branches of one company) -- allow? (Goes with A7) -- **Answered 2026-10-02:** Allowed with a warning (A7). |
 | B6 | §41 | Districts / cities / PIN codes: which source, its licence, and may the server download it -- **Answered 2026-10-02:** India Post's All-India PIN directory (data.gov.in, open licence), shipped with the installer. |
 | B7 | §42.14, §42.6, §39, §48 | Customer/vendor portal (needs outside access), salesman mobile app and field collections, phone layouts -- product direction and timing -- **Answered 2026-10-02:** Next phase, after go-live. |
-| B8 | Low value -- keep or drop? | §42.15 BOM / job work / recurring invoices / marketplaces; §55 G11-13, N1, N2, N7-N9; §74 row 6 fixed assets; §63 item 5 TCS 27EQ (206C(1H) ended 1 April 2025) -- **Answered 2026-10-02:** Drop TCS 27EQ; park the rest as later. |
+| B8 | Low value -- keep or drop? | §42.15 BOM / job work / recurring invoices / marketplaces; §55 G11-13, N1, N2, N7-N9; §74 row 6 fixed assets; §63 item 5 TCS 27EQ (206C(1H) ended 1 April 2025) -- **Answered 2026-10-02:** Drop TCS 27EQ; park the rest as later. **Done 2026-10-02**: BACKLOG §63 item 5 marked dropped. |
 | B9 | §71-73 | Sign-in/branding, menu A or B, dialog review -- **parked by you** |
 | B10 | §3, §47 | A clean-machine installer test needs a spare PC; the window icon needs your `.ico` -- **Answered 2026-10-02:** Owner arranges later (icon with the Jugnix rebrand). |
 | B11 | §2, §43 | Licensing -- deferred by you |
