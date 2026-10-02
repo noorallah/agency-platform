@@ -5135,14 +5135,51 @@ class ApiClient {
         body: <String, dynamic>{'provider': provider},
       )));
 
-  /// The portal's bulk-upload JSON for [invoiceIds]; each invoice becomes a
-  /// registration waiting for its IRN.
-  Future<List<int>> exportOfflineEinvoices(List<String> invoiceIds) =>
+  /// The portal's bulk-upload JSON for [invoiceIds] and the approved credit
+  /// and debit notes named; each becomes a registration waiting for its IRN.
+  Future<List<int>> exportOfflineEinvoices(
+    List<String> invoiceIds, {
+    List<String> creditNoteIds = const [],
+    List<String> debitNoteIds = const [],
+  }) =>
       downloadBytes(
         '/api/v1/einvoice/offline/export',
         method: 'POST',
-        body: <String, dynamic>{'invoice_ids': invoiceIds},
+        body: <String, dynamic>{
+          'invoice_ids': invoiceIds,
+          if (creditNoteIds.isNotEmpty) 'credit_note_ids': creditNoteIds,
+          if (debitNoteIds.isNotEmpty) 'debit_note_ids': debitNoteIds,
+        },
       );
+
+  /// A credit note's (`credit-notes`) or customer debit note's
+  /// (`debit-notes`) registration, or null where the portal knows nothing.
+  Future<EInvoiceRegistrationRecord?> einvoiceNoteRegistration(
+      String kind, String noteId) async {
+    final Json response =
+        await request('GET', '/api/v1/einvoice/$kind/$noteId/registration');
+    final dynamic data = response['data'];
+    return data is Map
+        ? EInvoiceRegistrationRecord.fromJson(Map<String, dynamic>.from(data))
+        : null;
+  }
+
+  Future<EInvoiceRegistrationRecord> registerEInvoiceNote(
+          String kind, String noteId) async =>
+      EInvoiceRegistrationRecord.fromJson(_unwrapMap(
+        await request('POST', '/api/v1/einvoice/$kind/$noteId/register'),
+      ));
+
+  Future<EInvoiceRegistrationRecord> cancelEInvoiceNote(
+    String kind,
+    String noteId, {
+    required String reason,
+  }) async =>
+      EInvoiceRegistrationRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/einvoice/$kind/$noteId/cancel',
+        body: <String, dynamic>{'reason': reason},
+      )));
 
   /// Post the portal's result file (.json, .csv or .xlsx).
   Future<OfflineEInvoiceImport> importOfflineEinvoiceResult({

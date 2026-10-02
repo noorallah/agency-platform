@@ -132,6 +132,57 @@ class EInvoiceService:
             invoice_id: (number or "", name or "") for invoice_id, number, name in rows
         }
 
+    def document_labels(
+        self, *, firm_scope: UUID, rows: Iterable[EInvoiceRegistration]
+    ) -> dict[UUID, tuple[str, str, str]]:
+        """Return each registration's document type, number and customer.
+
+        An invoice, a credit note or a debit note (77 row 4); one query per
+        kind for the page rather than one per row.
+        """
+        from app.credit_note.models import CreditNote
+        from app.customer_debit_note.models import CustomerDebitNote
+
+        rows = list(rows)
+        found: dict[UUID, tuple[str, str]] = {}
+        for model, number_column in (
+            (SalesInvoice, SalesInvoice.invoice_number),
+            (CreditNote, CreditNote.credit_note_number),
+            (CustomerDebitNote, CustomerDebitNote.debit_note_number),
+        ):
+            column = {
+                SalesInvoice: "sales_invoice_id",
+                CreditNote: "credit_note_id",
+                CustomerDebitNote: "customer_debit_note_id",
+            }[model]
+            ids = {getattr(row, column) for row in rows} - {None}
+            if not ids:
+                continue
+            for document_id, label, name in self._session.execute(
+                select(model.id, number_column, Customer.name)
+                .join(
+                    Customer,
+                    Customer.id == model.customer_id,
+                    isouter=True,
+                )
+                .where(model.id.in_(ids))
+            ).all():
+                found[document_id] = (label or "", name or "")
+        labels: dict[UUID, tuple[str, str, str]] = {}
+        for row in rows:
+            kind, document_id = (
+                ("SALES_INVOICE", row.sales_invoice_id)
+                if row.sales_invoice_id
+                else (
+                    ("CREDIT_NOTE", row.credit_note_id)
+                    if row.credit_note_id
+                    else ("DEBIT_NOTE", row.customer_debit_note_id)
+                )
+            )
+            number, name = found.get(document_id, ("", "")) if document_id else ("", "")
+            labels[row.id] = (kind, number, name)
+        return labels
+
     def list_registrations(
         self, *, firm_scope: UUID, page: int, page_size: int, status: str | None = None
     ) -> tuple[list[EInvoiceRegistration], int]:

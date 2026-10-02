@@ -10,6 +10,9 @@ class EInvoiceRegistrationRecord {
   const EInvoiceRegistrationRecord({
     required this.id,
     required this.salesInvoiceId,
+    this.documentType = 'SALES_INVOICE',
+    this.creditNoteId = '',
+    this.customerDebitNoteId = '',
     this.invoiceNumber = '',
     this.customerName = '',
     required this.mode,
@@ -25,7 +28,14 @@ class EInvoiceRegistrationRecord {
   });
 
   final String id;
+
+  /// Empty where the row is about a credit or debit note (77 row 4).
   final String salesInvoiceId;
+
+  /// SALES_INVOICE, CREDIT_NOTE or DEBIT_NOTE.
+  final String documentType;
+  final String creditNoteId;
+  final String customerDebitNoteId;
 
   /// How it reaches the portal: SANDBOX or OFFLINE (A42).
   final String provider;
@@ -47,6 +57,31 @@ class EInvoiceRegistrationRecord {
 
   bool get isRegistered => status == 'REGISTERED';
 
+  bool get isInvoice => documentType == 'SALES_INVOICE';
+  bool get isCreditNote => documentType == 'CREDIT_NOTE';
+  bool get isDebitNote => documentType == 'DEBIT_NOTE';
+
+  /// The id of whichever document this row is about.
+  String get documentId => isCreditNote
+      ? creditNoteId
+      : isDebitNote
+          ? customerDebitNoteId
+          : salesInvoiceId;
+
+  /// The path segment the note routes use, or null for an invoice.
+  String? get noteKind => isCreditNote
+      ? 'credit-notes'
+      : isDebitNote
+          ? 'debit-notes'
+          : null;
+
+  /// What kind of document this is, in words for a grid column.
+  String get documentLabel => switch (documentType) {
+        'CREDIT_NOTE' => 'Credit note',
+        'DEBIT_NOTE' => 'Debit note',
+        _ => 'Invoice',
+      };
+
   /// The portal refused it; no IRN was issued, so it can be sent again.
   bool get isFailed => status == 'FAILED';
   bool get isSandbox => mode == 'SANDBOX';
@@ -61,6 +96,11 @@ class EInvoiceRegistrationRecord {
       EInvoiceRegistrationRecord(
         id: stringValue(json['id']),
         salesInvoiceId: stringValue(json['sales_invoice_id']),
+        documentType: json['document_type'] == null
+            ? 'SALES_INVOICE'
+            : stringValue(json['document_type']),
+        creditNoteId: stringValue(json['credit_note_id']),
+        customerDebitNoteId: stringValue(json['customer_debit_note_id']),
         invoiceNumber: stringValue(json['invoice_number']),
         customerName: stringValue(json['customer_name']),
         mode: stringValue(json['mode']),

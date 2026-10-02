@@ -34,6 +34,13 @@ from app.einvoice.models import (
     RegistrationMode,
     RegistrationStatus,
 )
+from app.einvoice.services.note_registration import (
+    CREDIT_NOTE,
+    DEBIT_NOTE,
+    note_column,
+    note_payload,
+    read_note,
+)
 from app.einvoice.services.payload import EInvoicePayloadBuilder
 from app.sales_invoice.models import SalesInvoice
 
@@ -47,7 +54,11 @@ _KEYS: dict[str, tuple[str, ...]] = {
     "qr": ("signedqrcode", "qrcode", "signedqr"),
     "signed": ("signedinvoice",),
     "error": ("error", "errordetails", "errormessage", "errors", "remarks"),
+    "type": ("typ", "doctype", "documenttype", "doctyp"),
 }
+
+#: The portal's document type to the kind of record it names (77 row 4).
+_TYPES = {"INV": "SALES_INVOICE", "CRN": "CREDIT_NOTE", "DBN": "DEBIT_NOTE"}
 
 
 @dataclass
@@ -81,6 +92,8 @@ def _flatten(entry: dict[str, Any]) -> dict[str, Any]:
     document = flat.get("DocDtls")
     if isinstance(document, dict) and "No" in document:
         flat.setdefault("DocNo", document["No"])
+    if isinstance(document, dict) and "Typ" in document:
+        flat.setdefault("DocTyp", document["Typ"])
     return flat
 
 
@@ -137,7 +150,13 @@ class OfflineEInvoiceService:
         self._payloads = EInvoicePayloadBuilder(session)
 
     def export(
-        self, invoice_ids: list[UUID], *, firm_scope: UUID, actor_id: UUID
+        self,
+        invoice_ids: list[UUID],
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        credit_note_ids: list[UUID] | None = None,
+        debit_note_ids: list[UUID] | None = None,
     ) -> list[dict[str, object]]:
         """Return the bulk-upload JSON for these invoices, marking them PENDING.
 
@@ -146,8 +165,8 @@ class OfflineEInvoiceService:
                 already, or was cancelled on the portal.
 
         """
-        if not invoice_ids:
-            raise ValidationError("Choose at least one invoice to export.")
+        if not (invoice_ids or credit_note_ids or debit_note_ids):
+            raise ValidationError("Choose at least one document to export.")
         invoices = list(
             self._session.scalars(
                 select(SalesInvoice).where(
@@ -192,15 +211,32 @@ class OfflineEInvoiceService:
             row.error_message = None
             row.updated_by = actor_id
             payloads.append(payload)
+        exported = [row.invoice_number for row in invoices]
+        for kind, ids in (
+            (CREDIT_NOTE, credit_note_ids or []),
+            (DEBIT_NOTE, debit_note_ids or []),
+        ):
+            for note_id in ids:
+                payloads.append(
+                    self._export_note(
+                        kind, note_id, firm_scope=firm_scope, actor_id=actor_id
+                    )
+                )
+                exported.append(str(payloads[-1]["DocDtls"]["No"]))  # type: ignore[index]
         self._session.flush()
         record_audit(
             self._session,
             action="einvoice.exported",
             entity_type="einvoice_registration",
-            entity_id=invoices[0].id,
+            # The first document of the upload names the event.
+            entity_id=(
+                invoices[0].id
+                if invoices
+                else [*(credit_note_ids or []), *(debit_note_ids or [])][0]
+            ),
             actor_id=actor_id,
             firm_id=firm_scope,
-            after_data={"invoices": [row.invoice_number for row in invoices]},
+            after_data={"documents": exported},
         )
         self._session.commit()
         return payloads
@@ -228,15 +264,10 @@ class OfflineEInvoiceService:
             number = _pick(entry, "number") or _number_from_signed(signed)
             if not number:
                 continue
-            invoice = self._session.scalar(
-                select(SalesInvoice).where(
-                    SalesInvoice.firm_id == firm_scope,
-                    SalesInvoice.invoice_number == number,
-                    SalesInvoice.is_deleted.is_(False),
-                )
-            )
-            row = (
-                None if invoice is None else self._registration(invoice.id, firm_scope)
+            row = self._registration_by_number(
+                number,
+                _TYPES.get(_pick(entry, "type").upper()),
+                firm_scope=firm_scope,
             )
             if row is None:
                 report.unmatched.append(number)
@@ -277,6 +308,102 @@ class OfflineEInvoiceService:
             )
         self._session.commit()
         return report
+
+    def _export_note(
+        self, kind: str, note_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> dict[str, object]:
+        """Build one note's payload and mark it PENDING, as an invoice is."""
+        note = read_note(self._session, kind, note_id, firm_scope=firm_scope)
+        if note.status != "APPROVED":
+            raise ValidationError(
+                f"{note.number} is {note.status.lower()}; only an approved note "
+                "is registered."
+            )
+        column = note_column(kind)
+        row = self._session.scalar(
+            select(EInvoiceRegistration).where(
+                EInvoiceRegistration.firm_id == firm_scope,
+                getattr(EInvoiceRegistration, column) == note_id,
+                EInvoiceRegistration.is_deleted.is_(False),
+            )
+        )
+        if row is not None and row.status in (
+            RegistrationStatus.REGISTERED.value,
+            RegistrationStatus.CANCELLED.value,
+        ):
+            raise ValidationError(
+                f"{note.number} is {row.status.lower()} already ({row.irn}); it "
+                "is not exported again."
+            )
+        payload = note_payload(self._session, note, firm_id=firm_scope)
+        if row is None:
+            row = EInvoiceRegistration(
+                firm_id=firm_scope, created_by=actor_id, **{column: note_id}
+            )
+            self._session.add(row)
+        row.mode = RegistrationMode.LIVE.value
+        row.provider = EInvoiceProvider.OFFLINE.value
+        row.status = RegistrationStatus.PENDING.value
+        row.request_payload = payload
+        row.attempts = int(row.attempts or 0) + 1
+        row.error_code = None
+        row.error_message = None
+        row.updated_by = actor_id
+        return payload
+
+    def _registration_by_number(
+        self, number: str, kind: str | None, *, firm_scope: UUID
+    ) -> EInvoiceRegistration | None:
+        """Find the registration of the document a portal result names.
+
+        By the portal's document type where the result gives it; otherwise an
+        invoice first, then a credit note, then a debit note.
+        """
+        from app.credit_note.models import CreditNote
+        from app.customer_debit_note.models import CustomerDebitNote
+
+        lookups = (
+            (
+                "SALES_INVOICE",
+                SalesInvoice,
+                SalesInvoice.invoice_number,
+                "sales_invoice_id",
+            ),
+            (
+                "CREDIT_NOTE",
+                CreditNote,
+                CreditNote.credit_note_number,
+                "credit_note_id",
+            ),
+            (
+                "DEBIT_NOTE",
+                CustomerDebitNote,
+                CustomerDebitNote.debit_note_number,
+                "customer_debit_note_id",
+            ),
+        )
+        for name, model, column, key in lookups:
+            if kind is not None and kind != name:
+                continue
+            document_id = self._session.scalar(
+                select(model.id).where(
+                    model.firm_id == firm_scope,
+                    column == number,
+                    model.is_deleted.is_(False),
+                )
+            )
+            if document_id is None:
+                continue
+            row = self._session.scalar(
+                select(EInvoiceRegistration).where(
+                    EInvoiceRegistration.firm_id == firm_scope,
+                    getattr(EInvoiceRegistration, key) == document_id,
+                    EInvoiceRegistration.is_deleted.is_(False),
+                )
+            )
+            if row is not None:
+                return row
+        return None
 
     def _registration(
         self, invoice_id: UUID, firm_scope: UUID

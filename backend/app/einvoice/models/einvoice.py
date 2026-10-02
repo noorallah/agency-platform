@@ -82,26 +82,53 @@ class RegistrationStatus(StrEnum):
 
 
 class EInvoiceRegistration(BaseEntity):
-    """One sales invoice, as the Invoice Registration Portal knows it."""
+    """One document, as the Invoice Registration Portal knows it.
+
+    A sales invoice, or since backlog 77 row 4 a credit note or a debit note
+    to a customer, which the portal registers too (document types CRN and
+    DBN). Exactly one is named.
+    """
 
     __tablename__ = "einvoice_registrations"
     __table_args__ = (
-        # One invoice, one registration. A second would leave two IRNs for one
-        # supply and nothing to say which the customer holds.
+        # One document, one registration. A second would leave two IRNs for
+        # one supply and nothing to say which the customer holds.
         UniqueConstraint(
             "firm_id",
             "sales_invoice_id",
             name="UQ_einvoice_registrations_invoice",
+        ),
+        UniqueConstraint(
+            "firm_id",
+            "credit_note_id",
+            name="UQ_einvoice_registrations_credit_note",
+        ),
+        UniqueConstraint(
+            "firm_id",
+            "customer_debit_note_id",
+            name="UQ_einvoice_registrations_debit_note",
+        ),
+        CheckConstraint(
+            "(CASE WHEN sales_invoice_id IS NULL THEN 0 ELSE 1 END)"
+            " + (CASE WHEN credit_note_id IS NULL THEN 0 ELSE 1 END)"
+            " + (CASE WHEN customer_debit_note_id IS NULL THEN 0 ELSE 1 END) = 1",
+            name="CK_einvoice_registrations_one_document",
         ),
         Index("IX_einvoice_registrations_firm_status", "firm_id", "status"),
     )
 
     #: No foreign key: `firms` lives only in the platform schema.
     firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
-    sales_invoice_id: Mapped[UUID] = mapped_column(
-        UUIDType(),
-        ForeignKey("sales_invoices.id", ondelete="RESTRICT"),
-        nullable=False,
+    sales_invoice_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("sales_invoices.id", ondelete="RESTRICT")
+    )
+    #: A credit note registered as CRN (77 row 4).
+    credit_note_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("credit_notes.id", ondelete="RESTRICT")
+    )
+    #: A debit note to a customer registered as DBN (77 row 4).
+    customer_debit_note_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("customer_debit_notes.id", ondelete="RESTRICT")
     )
     mode: Mapped[str] = mapped_column(String(20), nullable=False)
     #: The route it took (``EInvoiceProvider``); null on rows from before A42,

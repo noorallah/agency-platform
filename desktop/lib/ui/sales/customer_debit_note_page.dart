@@ -22,6 +22,7 @@ import '../../models/entities.dart';
 import '../../models/sales_return.dart';
 import '../workspace/bulk_action.dart';
 import '../workspace/desktop_framework.dart';
+import 'note_einvoice_dialog.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 
@@ -89,6 +90,10 @@ class _CustomerDebitNotePageState extends State<CustomerDebitNotePage> {
   /// server refuse after the click.
   bool get _mayApprove =>
       widget.permissions.hasPermission('CUSTOMER_DEBIT_NOTE_APPROVE');
+
+  bool get _mayEInvoice => widget.permissions.hasPermission('EINVOICE_VIEW');
+  bool get _mayEInvoiceManage =>
+      widget.permissions.hasPermission('EINVOICE_MANAGE');
 
   @override
   void initState() {
@@ -188,6 +193,20 @@ class _CustomerDebitNotePageState extends State<CustomerDebitNotePage> {
             builder: (context) => CustomerDebitNoteDialog(api: widget.api),
           );
     if (saved == true) await _load();
+  }
+
+  /// The note's e-invoice: its IRN where it has one, Register where it has
+  /// not (backlog 77 row 4).
+  Future<void> _eInvoice(CustomerDebitNoteRecord note) async {
+    final bool changed = await showNoteEInvoice(
+      context,
+      widget.api,
+      kind: debitNotesEInvoiceKind,
+      noteId: note.id,
+      noteNumber: note.debitNoteNumber,
+      mayManage: _mayEInvoiceManage,
+    );
+    if (changed && mounted) await _load();
   }
 
   Future<void> _act(
@@ -370,6 +389,14 @@ class _CustomerDebitNotePageState extends State<CustomerDebitNotePage> {
                     ),
                     'cancelled. Whatever it did has been put back.',
                   )
+              : null,
+        ),
+        ToolbarCommand(
+          id: 'einvoice',
+          label: 'E-invoice',
+          icon: Icons.qr_code_2_outlined,
+          onPressed: selected != null && selected.isApproved && _mayEInvoice
+              ? () => unawaited(_eInvoice(selected))
               : null,
         ),
       ],
