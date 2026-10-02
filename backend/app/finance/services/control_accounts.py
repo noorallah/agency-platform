@@ -128,6 +128,14 @@ class ControlAccountPurpose(StrEnum):
     #: s.17(5) blocked credit, or ineligible): a cost of the purchase, kept
     #: on its own account so the books show what credit was given up.
     INELIGIBLE_INPUT_TAX = "INELIGIBLE_INPUT_TAX"
+    #: Stock taken off the shelf for the firm's own use -- the office, the
+    #: shop floor (STK-3). An expense, not a loss of stock.
+    INTERNAL_USE = "INTERNAL_USE"
+    #: Stock given to staff (STK-3): staff welfare, not a loss.
+    STAFF_WELFARE = "STAFF_WELFARE"
+    #: Stock put out on display or handed out as a sample or demo (STK-3):
+    #: a selling cost.
+    SAMPLES_AND_DISPLAY = "SAMPLES_AND_DISPLAY"
 
 
 INPUT_TAX_PURPOSE_BY_COMPONENT.update(
@@ -246,6 +254,9 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     ControlAccountPurpose.BAD_DEBTS: frozenset({"EXPENSE"}),
     ControlAccountPurpose.BALANCES_WRITTEN_BACK: frozenset({"INCOME"}),
     ControlAccountPurpose.INELIGIBLE_INPUT_TAX: frozenset({"EXPENSE"}),
+    ControlAccountPurpose.INTERNAL_USE: frozenset({"EXPENSE"}),
+    ControlAccountPurpose.STAFF_WELFARE: frozenset({"EXPENSE"}),
+    ControlAccountPurpose.SAMPLES_AND_DISPLAY: frozenset({"EXPENSE"}),
 }
 
 
@@ -308,6 +319,9 @@ PURPOSE_LABELS: dict[ControlAccountPurpose, str] = {
     ControlAccountPurpose.BAD_DEBTS: "Bad debts",
     ControlAccountPurpose.BALANCES_WRITTEN_BACK: "Balances written back",
     ControlAccountPurpose.INELIGIBLE_INPUT_TAX: "Input tax not claimable",
+    ControlAccountPurpose.INTERNAL_USE: "Stock used in business",
+    ControlAccountPurpose.STAFF_WELFARE: "Staff welfare",
+    ControlAccountPurpose.SAMPLES_AND_DISPLAY: "Samples and display",
 }
 
 

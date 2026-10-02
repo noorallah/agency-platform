@@ -86,7 +86,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | **Stock** | | | | | |
 | STK-1 | §70 row 1 | A stock transfer as a document: dispatch, in transit, receive | Nothing | L | Claude alone |
 | STK-2 | §70 row 2 | A GSTIN per branch, and transfers between GSTINs as tax invoices | Nothing | L | Claude alone |
-| STK-3 | §70 row 3 | Issue stock for internal use, staff or display | Nothing | S | Claude alone |
+| STK-3 | §70 row 3 | Issue stock for internal use, staff or display -- **built 2026-10-03** (A61) | Nothing | S | Claude alone |
 | STK-4 | §70 row 4 | Repacking: a 25 kg bag into 25 one-kg packs | Nothing | M | Claude alone |
 | STK-5 | §70 row 7 | Expiry rules per product: stop selling, alert, return to supplier | Nothing | M | Claude alone |
 | STK-6 | §70 row 8 | Planned and blind stock counts, with variance approval | Nothing | M | Claude alone |
@@ -453,6 +453,7 @@ otherwise it is built as written.
 - **What it is:** stock taken for the office, staff or display, booked to the right expense.
 - **What gets built:** reasons *Internal use*, *Staff*, *Display / demo* with control purposes in `opening_setup.py` (backfilled by migration); the write-off action in `stock_action_dialog.dart` offers them. Tests.
 - **Depends on:** nothing (or STK-7, which turns reasons into a master). **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A61): `WriteOffReason` gains `INTERNAL_USE`, `STAFF` and `DISPLAY`; each posts to its own expense through new purposes `INTERNAL_USE` (6900 *Stock Used in Business*), `STAFF_WELFARE` (6910 *Staff Welfare*) and `SAMPLES_AND_DISPLAY` (6920 *Samples and Display*), indirect expenses seeded by `opening_setup.py` and given to existing firms by migration 0243 (only where missing, never overwriting). `post_stock_adjustment` takes the expense purpose; damage, expiry and loss stay on *Inventory Adjustment*. The write-off dialog offers the three. Tests: `test_stock_issue_reasons.py`, `stock_action_dialog_test.dart`.
 
 #### STK-4. Repacking and bulk breaking (§70 row 4)
 - **What it is:** turn one product into another -- a 25 kg bag into 25 packs -- carrying the cost and recording wastage.

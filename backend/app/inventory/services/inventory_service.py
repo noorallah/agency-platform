@@ -26,6 +26,7 @@ from app.core.exceptions import ConflictError, ResourceNotFoundError, Validation
 from app.core.utils.chunks import chunks
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_money
+from app.finance.services.control_accounts import ControlAccountPurpose
 from app.finance.services.document_posting import DocumentPostingService
 from app.inventory.models import (
     InventoryRecord,
@@ -74,6 +75,14 @@ from app.uom.services.uom_service import (
 )
 
 ZERO = Decimal("0")
+
+#: Stock issued rather than lost, and the expense each is booked to (STK-3).
+#: Damage, expiry and loss stay on the inventory adjustment account.
+ISSUE_PURPOSES: dict[str, ControlAccountPurpose] = {
+    "INTERNAL_USE": ControlAccountPurpose.INTERNAL_USE,
+    "STAFF": ControlAccountPurpose.STAFF_WELFARE,
+    "DISPLAY": ControlAccountPurpose.SAMPLES_AND_DISPLAY,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -1693,6 +1702,9 @@ class InventoryService:
             value_delta=-value,
             actor_id=actor_id,
             remarks=narration,
+            expense_purpose=ISSUE_PURPOSES.get(
+                reason, ControlAccountPurpose.INVENTORY_ADJUSTMENT
+            ),
         )
         record_audit(
             self._session,

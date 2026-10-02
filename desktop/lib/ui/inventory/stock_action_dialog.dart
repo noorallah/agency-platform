@@ -274,6 +274,14 @@ class _StockActionDialogState extends State<StockActionDialog>
                 DropdownMenuItem<String>(
                     value: 'EXPIRY', child: Text('Expiry')),
                 DropdownMenuItem<String>(value: 'LOSS', child: Text('Loss')),
+                // Issued rather than lost (STK-3): each booked to its own
+                // expense, not to stock adjustment.
+                DropdownMenuItem<String>(
+                    value: 'INTERNAL_USE', child: Text('Internal use')),
+                DropdownMenuItem<String>(
+                    value: 'STAFF', child: Text('Given to staff')),
+                DropdownMenuItem<String>(
+                    value: 'DISPLAY', child: Text('Display / sample / demo')),
               ],
               onChanged: (value) => setState(() => _reason = value ?? 'DAMAGE'),
             ),

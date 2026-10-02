@@ -98,6 +98,11 @@ INDIRECT_EXPENSE_ACCOUNTS: tuple[SeedAccount, ...] = tuple(
         ("6500", "Office and General Expenses", None),
         ("6600", "Repairs and Maintenance", None),
         ("6700", "Bank Charges", ControlAccountPurpose.BANK_CHARGES),
+        # Stock issued rather than sold (STK-3): each reason its own cost.
+        # Migration 20261003_0243 gives existing firms the same three.
+        ("6900", "Stock Used in Business", ControlAccountPurpose.INTERNAL_USE),
+        ("6910", "Staff Welfare", ControlAccountPurpose.STAFF_WELFARE),
+        ("6920", "Samples and Display", ControlAccountPurpose.SAMPLES_AND_DISPLAY),
     )
 )
 

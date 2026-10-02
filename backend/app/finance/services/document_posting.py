@@ -810,6 +810,9 @@ class DocumentPostingService:
         value_delta: Decimal,
         actor_id: UUID,
         remarks: str | None = None,
+        expense_purpose: ControlAccountPurpose = (
+            ControlAccountPurpose.INVENTORY_ADJUSTMENT
+        ),
     ) -> JournalEntry | None:
         """Post a stock adjustment, which is the movement with no document.
 
@@ -836,6 +839,9 @@ class DocumentPostingService:
             value_delta: The change in stock value, positive when stock rose.
             actor_id: The user who made the adjustment.
             remarks: Why, carried onto the journal line.
+            expense_purpose: The account the other side lands in: the
+                inventory adjustment account, or for stock issued rather than
+                lost, its own expense (STK-3).
 
         Returns:
             The posted journal entry, or None when there was no value to post.
@@ -847,7 +853,9 @@ class DocumentPostingService:
         delta = quantize_ledger(quantize_money(value_delta))
         if delta == ZERO:
             return None
-        accounts = self._require_mapping(firm_id, STOCK_ADJUSTMENT_PURPOSES)
+        accounts = self._require_mapping(
+            firm_id, (ControlAccountPurpose.INVENTORY, expense_purpose)
+        )
         context = self.context_for(firm_id, transaction_date)
         rising = delta > ZERO
         amount = delta if rising else -delta
@@ -860,7 +868,7 @@ class DocumentPostingService:
                 description=narration,
             ),
             JournalLineData(
-                ledger_account_id=accounts[ControlAccountPurpose.INVENTORY_ADJUSTMENT],
+                ledger_account_id=accounts[expense_purpose],
                 debit_amount=ZERO if rising else amount,
                 credit_amount=amount if rising else ZERO,
                 description=narration,
