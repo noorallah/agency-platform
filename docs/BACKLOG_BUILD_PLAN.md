@@ -118,7 +118,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | **GST** | | | | | |
 | GST-1 | §77 row 12 | Warn on a credit note after 30 November -- **built 2026-10-02** (A46) | Nothing | S | Claude alone |
 | GST-2 | §77 row 13 | GST document numbers kept to 16 characters -- **built 2026-10-02** (A47) | Nothing | S | Claude alone |
-| GST-3 | §78 row 7 | Warn on a supplier bill entered after its credit's last date | Nothing | S | Claude alone |
+| GST-3 | §78 row 7 | Warn on a supplier bill entered after its credit's last date -- **built 2026-10-02** (A48) | Nothing | S | Claude alone |
 | GST-4 | §78 row 9 | Common credit reversal for a firm with exempt sales (rules 42/43) | Nothing (CA confirms at hand-over) | M | Claude alone |
 | GST-5 | §74.1 row 9 | GST checks before filing: an exception list | Nothing | M | Claude alone |
 | GST-6 | §74.1 row 10 | A filed return's figures kept as filed; later changes as amendments | Nothing | L | Claude alone |
@@ -607,6 +607,7 @@ otherwise it is built as written.
 - **What it is:** credit for a year must be claimed by 30 November after it; a later bill is warned.
 - **What gets built:** a warning at purchase invoice approval when the supplier's date belongs to a year whose 30 November has passed (s.16(4)), in `backend/app/purchase_invoice`. Tests.
 - **Effort / Who:** S, Claude alone.
+- **Built 2026-10-02** (A48): `credit_time_limit_warning` on the bill response (helper in `app/tax/services/gst_time_limits.py`); tests in `tests/unit/test_gst_time_limits.py`.
 
 #### GST-4. Common credit reversal, rules 42/43 (§78 row 9)
 - **What it is:** a firm with exempt sales gives back the share of common input credit that relates to them.

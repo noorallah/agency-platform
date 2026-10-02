@@ -381,6 +381,10 @@ class PurchaseInvoiceResponse(PurchaseInvoiceSchema):
     #: Why the IRN wants a look (backlog 78 row 5): the supplier e-invoices
     #: and the bill has none, or another bill carries the same one.
     irn_warning: str | None = None
+    # Set when the bill is entered past 30 November after the year of the
+    # supplier's invoice, so its credit can no longer be claimed (s.16(4),
+    # GST-3).
+    credit_time_limit_warning: str | None = None
 
 
 class PurchaseInvoiceListFilters(PurchaseInvoiceSchema):

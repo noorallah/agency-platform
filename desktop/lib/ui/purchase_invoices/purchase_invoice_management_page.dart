@@ -234,7 +234,10 @@ class _PurchaseInvoiceManagementPageState
     if (saved == null || !mounted) return;
     await _load();
     if (!mounted) return;
-    final String irnWarning = stringValue(saved['irn_warning']);
+    final String irnWarning = [
+      stringValue(saved['irn_warning']),
+      stringValue(saved['credit_time_limit_warning']),
+    ].where((String text) => text.isNotEmpty).join(' ');
     NotificationService.show(
       context,
       'Purchase invoice ${stringValue(saved['invoice_number'])} created as a '
@@ -899,8 +902,21 @@ class _PurchaseInvoiceManagementPageState
       return;
     }
     try {
-      await widget.api.documentAction('purchase-invoices', selected.id, suffix);
+      final Json done = await widget.api
+          .documentAction('purchase-invoices', selected.id, suffix);
+      // Past 30 November after the supplier's year the credit is lost
+      // (s.16(4), GST-3): said on the approval, when the credit is taken.
+      final String late = suffix == '/approve'
+          ? stringValue(_unwrap(done)['credit_time_limit_warning'])
+          : '';
       await _load();
+      if (late.isNotEmpty && mounted) {
+        NotificationService.show(
+          context,
+          '${selected.invoiceNumber} approved. $late',
+          kind: AppNotificationKind.warning,
+        );
+      }
     } on ApiException catch (error) {
       if (!mounted) {
         return;

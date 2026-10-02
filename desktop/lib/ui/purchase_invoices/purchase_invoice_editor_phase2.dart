@@ -70,6 +70,8 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
     final String duplicate =
         stringValue(_preview?.invoice['duplicate_warning']);
     final String irnWarning = stringValue(_preview?.invoice['irn_warning']);
+    final String lateCredit =
+        stringValue(_preview?.invoice['credit_time_limit_warning']);
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () {
@@ -118,6 +120,8 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
                     _supplierInvoiceNumber.trim().isNotEmpty)
                   '$duplicate Check it is not the same bill entered twice.',
                 if (irnWarning.isNotEmpty) irnWarning,
+                // Past the credit's last date (s.16(4), GST-3).
+                if (lateCredit.isNotEmpty) lateCredit,
               ])
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),

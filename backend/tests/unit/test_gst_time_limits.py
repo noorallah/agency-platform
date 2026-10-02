@@ -16,11 +16,16 @@ from uuid import uuid4
 import pytest
 
 from app.credit_note.services import CreditNoteService
+from app.purchase_invoice.models import PurchaseInvoice, PurchaseInvoiceLine
+from app.purchase_invoice.services.purchase_invoice_service import (
+    PurchaseInvoiceService,
+)
 from app.sales_return.models import SalesReturn, SalesReturnSource
 from app.sales_return.schemas import SalesReturnSourceType, SalesReturnStatus
 from app.sales_return.services.sales_return_service import SalesReturnService
 from app.tax.services.gst_time_limits import (
     credit_note_time_limit_warning,
+    credit_time_limit_warning,
     gst_year_label,
     november_limit,
 )
@@ -160,3 +165,64 @@ def test_a_cancelled_or_tax_free_return_is_not_warned() -> None:
     ):
         row, sources = _return(status, tax, (invoice, date(2024, 5, 1)))
         assert SalesReturnService._time_limit_warning(row, sources) is None
+
+
+# ---------------------------------------------------------------------------
+# GST-3: a supplier bill entered after its credit's last date (s.16(4))
+# ---------------------------------------------------------------------------
+
+
+def _bill(
+    entered: date,
+    *,
+    tax: str = "18",
+    eligibility: str = "ELIGIBLE",
+    reverse_charge: str = "0",
+    status: str = "DRAFT",
+) -> tuple[PurchaseInvoice, list[PurchaseInvoiceLine]]:
+    """Build an unsaved bill of a supplier's 10 June 2025 invoice."""
+    row = PurchaseInvoice(
+        status=status,
+        invoice_date=entered,
+        supplier_invoice_date=date(2025, 6, 10),
+        reverse_charge_tax_total=Decimal(reverse_charge),
+    )
+    return row, [
+        PurchaseInvoiceLine(itc_eligibility=eligibility, tax_amount=Decimal(tax))
+    ]
+
+
+def test_credit_on_a_bill_is_claimable_until_30_november_after_its_year() -> None:
+    """A 2025-26 invoice's credit runs out after 30 November 2026."""
+    assert credit_time_limit_warning(date(2025, 6, 10), date(2026, 11, 30)) is None
+    late = credit_time_limit_warning(date(2025, 6, 10), date(2026, 12, 1))
+
+    assert late is not None
+    assert "2025-26" in late and "30 Nov 2026" in late and "s.16(4)" in late
+
+
+def test_a_bill_entered_late_is_warned_on_the_day_it_is_entered() -> None:
+    """Judged on `invoice_date`, the day the books take the credit."""
+    in_time = PurchaseInvoiceService._credit_time_limit_warning(
+        *_bill(date(2026, 11, 30))
+    )
+    late = PurchaseInvoiceService._credit_time_limit_warning(*_bill(date(2026, 12, 1)))
+
+    assert in_time is None
+    assert late is not None and "30 Nov 2026" in late
+
+
+def test_only_credit_actually_at_stake_is_warned() -> None:
+    """Blocked, tax-free and cancelled bills claim nothing; RCM credit counts."""
+    late = date(2027, 1, 5)
+    service = PurchaseInvoiceService
+
+    assert (
+        service._credit_time_limit_warning(*_bill(late, eligibility="BLOCKED")) is None
+    )
+    assert service._credit_time_limit_warning(*_bill(late, tax="0")) is None
+    assert service._credit_time_limit_warning(*_bill(late, status="CANCELLED")) is None
+    assert (
+        service._credit_time_limit_warning(*_bill(late, tax="0", reverse_charge="18"))
+        is not None
+    )

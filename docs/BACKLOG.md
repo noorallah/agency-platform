@@ -5542,7 +5542,7 @@ decisions OWNER_DECISIONS A36. Rows, numbered as there:
 | 4 | 180-day unpaid-bill reversal and reclaim (rule 37) -- **built 2026-10-02** (#941) | P2 |
 | 5 | Supplier's IRN on the bill; warn when an e-invoicing supplier's bill has none -- **built 2026-10-02** (#943) | P2 |
 | 6 | E-way bill number on the goods receipt above the firm's limit -- **built 2026-10-02** (#944) | P2 |
-| 7 | Warn on a bill entered after its credit's last date (30 November) | P3 |
+| 7 | Warn on a bill entered after its credit's last date (30 November) -- **built 2026-10-02** (GST-3, A48) | P3 |
 | 8 | Import bill of entry (§68) | P3 |
 | 9 | Common credit reversal for a firm with exempt sales (rules 42/43) | P3 |
 

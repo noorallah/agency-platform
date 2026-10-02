@@ -300,12 +300,12 @@ product lacks it.
 | 4 | **180-day check**: a list of bills unpaid past 180 days with the credit to reverse; the reversal posted on request, and the reclaim when paid -- **built 2026-10-02 (#941)** | Off / Report / Report and post | Report | P2 |
 | 5 | **Supplier's IRN** on the bill, and a flag on the supplier that it e-invoices; warn when that supplier's bill has none -- **built 2026-10-02 (#943)** | Off / Warn | Warn | P2 |
 | 6 | **E-way bill number on the goods receipt**, asked for above the firm's limit (the same setting as sales, §77 row 10) -- **built 2026-10-02 (#944)** | Limit per firm | ₹50,000 | P2 |
-| 7 | **30 November warning** on a bill entered after its year's credit can be claimed | -- | On | P3 |
+| 7 | **30 November warning** on a bill entered after its year's credit can be claimed -- **built 2026-10-02** (GST-3, A48): `credit_time_limit_warning` on the bill when its entry date is past 30 November after the supplier invoice's year and it claims credit (eligible tax or reverse charge); shown while it is entered and on approval | -- | On | P3 |
 | 8 | **Import bill of entry** (IGST on imports) | -- | -- | P3 (§68) |
 | 9 | **Common credit reversal** for a firm with exempt sales | -- | -- | P3 |
 
-**Order:** 1 (it overstated credit) → 2 → 3 → 4, 5, 6 → 7-9. Rows 1 to 6 are
-built (2026-10-02); 7 to 9 are not.
+**Order:** 1 (it overstated credit) → 2 → 3 → 4, 5, 6 → 7-9. Rows 1 to 7 are
+built (2026-10-02); 8 and 9 are not.
 
 **Decided by Claude** (OWNER_DECISIONS A36), by the products above: the
 eligibility lives on the line with a default from the master, as Zoho and
