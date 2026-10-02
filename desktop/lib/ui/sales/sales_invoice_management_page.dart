@@ -22,6 +22,7 @@ import 'sales_invoice_editor_dialog.dart';
 import '../workspace/print_settings_dialog.dart';
 import '../workspace/printed_document.dart';
 import 'credit_notice.dart';
+import 'eway_bill_actions.dart';
 import 'price_floor_check_dialog.dart';
 import 'sales_workflow_settings_dialog.dart';
 import '../settings/send_message_dialog.dart';
@@ -112,6 +113,9 @@ class _SalesInvoiceManagementPageState
   List<Map<String, dynamic>> _invoices = const [];
   Map<String, dynamic>? _selected;
   Map<String, dynamic> _summary = const {};
+
+  /// Reads the firm's e-way bill limit once, for the prompt after an approval.
+  late final EwayBillNudge _ewayNudge = EwayBillNudge(widget.api);
 
   /// The rows ticked for a bulk approve or cancel (backlog 56 A). Only rows
   /// on the page being read stay ticked.
@@ -370,6 +374,16 @@ class _SalesInvoiceManagementPageState
               },
       );
       await _load();
+      // Approved: if it is worth an e-way bill and has none, say so. Never
+      // awaited -- the prompt is a snack bar, not a gate (backlog 77 row 10).
+      if (suffix == '/approve' && mounted) {
+        unawaited(_ewayNudge.offer(
+          context,
+          invoiceId: '${selected['id']}',
+          grandTotal: '${selected['grand_total'] ?? ''}',
+          onDone: () => unawaited(_load()),
+        ));
+      }
     } on ApiException catch (error) {
       if (!mounted) return;
       NotificationService.show(

@@ -5202,6 +5202,56 @@ class ApiClient {
         body: <String, dynamic>{'reason': reason},
       )));
 
+  /// A delivery note's e-way bill, or null: only for a note no invoice bills.
+  Future<EWayBillRecord?> deliveryNoteEwayBill(String noteId) async {
+    final Json response = await request(
+        'GET', '/api/v1/einvoice/delivery-notes/$noteId/eway-bill');
+    final dynamic data = response['data'];
+    return data is Map
+        ? EWayBillRecord.fromJson(Map<String, dynamic>.from(data))
+        : null;
+  }
+
+  Future<EWayBillRecord> generateDeliveryNoteEwayBill(
+    String noteId,
+    Json body,
+  ) async =>
+      EWayBillRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/einvoice/delivery-notes/$noteId/eway-bill',
+        body: body,
+      )));
+
+  Future<EWayBillRecord> cancelDeliveryNoteEwayBill(
+    String noteId, {
+    required String reason,
+  }) async =>
+      EWayBillRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/einvoice/delivery-notes/$noteId/eway-bill/cancel',
+        body: <String, dynamic>{'reason': reason},
+      )));
+
+  /// Record an e-way bill raised by hand on the portal. [body] names one of
+  /// `sales_invoice_id` / `delivery_note_id` and the bill's number.
+  Future<EWayBillRecord> recordEwayBill(Json body) async =>
+      EWayBillRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/einvoice/eway-bills/record',
+        body: body,
+      )));
+
+  /// Consignments of the last 30 days above the firm's limit with no live
+  /// e-way bill.
+  Future<EWayBillDueList> ewayBillsDue() async {
+    final Json response =
+        await request('GET', '/api/v1/einvoice/eway-bills/due');
+    final dynamic data = response['data'];
+    return data is Map
+        ? EWayBillDueList.fromJson(Map<String, dynamic>.from(data))
+        : const EWayBillDueList(limit: '', items: <EWayBillDue>[]);
+  }
+
   // ---- tax collected at source ----------------------------------------
 
   Future<TcsSettings> tcsSettings() async => TcsSettings.fromJson(
