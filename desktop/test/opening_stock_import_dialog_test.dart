@@ -12,6 +12,8 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/import_file.dart';
+
 class _Call {
   _Call(this.apply, this.postingDate);
   final bool apply;
@@ -106,11 +108,7 @@ Future<void> _open(
 }
 
 Future<void> _chooseFile(WidgetTester tester) async {
-  await tester.runAsync(() async {
-    await tester.tap(find.text('Choose file…'));
-    await Future<void>.delayed(const Duration(milliseconds: 200));
-  });
-  await tester.pumpAndSettle();
+  await chooseImportFile(tester);
 }
 
 Future<void> _check(WidgetTester tester) async {

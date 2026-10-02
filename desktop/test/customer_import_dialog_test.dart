@@ -13,6 +13,8 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/import_file.dart';
+
 PermissionService _permissions(List<String> codes) => PermissionService()
   ..applyAccessToken(
     'h.${base64Url.encode(utf8.encode(jsonEncode({
@@ -129,11 +131,7 @@ Future<FileImportReport?> Function() _open(
 }
 
 Future<void> _chooseFile(WidgetTester tester) async {
-  await tester.runAsync(() async {
-    await tester.tap(find.text('Choose file…'));
-    await Future<void>.delayed(const Duration(milliseconds: 200));
-  });
-  await tester.pumpAndSettle();
+  await chooseImportFile(tester);
 }
 
 FilledButton _import(WidgetTester tester) =>
