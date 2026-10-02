@@ -131,7 +131,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | MST-4 | §75 row 9 | Attachments and a bank account on the customer -- **built 2026-10-03** (A68) | Nothing | S | Claude alone |
 | MST-5 | §75 row 10 | Customer, supplier and product codes issued automatically -- **built 2026-10-03** (A67) | Nothing | S | Claude alone |
 | MST-6 | §52 | Extra fields on documents, not only on masters | Nothing | L | Claude alone |
-| MST-7 | §17 | Features and modules created at runtime reach every store | Nothing | S | Claude alone |
+| MST-7 | §17 | Features and modules created at runtime reach every store -- **built 2026-10-03** (A69) | Nothing | S | Claude alone |
 | MST-8 | §16 | A firm configures its own custom fields | Nothing | M | Claude alone |
 | **Reports** | | | | | |
 | RPT-1 | §62 remainder | Sales analysis: filters, orders basis, margin, compare, chart, export, saved layouts | Nothing | M | Claude alone |
@@ -687,6 +687,7 @@ otherwise it is built as written.
 - **What it is:** a new feature or module made by the platform administrator works in every firm, not just one store.
 - **What gets built:** extend `backend/app/business/services/profile_replication.py` (profiles already replicate) to features and modules, reporting each store written or failed. Tests.
 - **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A69): `mirror_feature` / `mirror_module` in `framework_service.py` (one `_mirror_catalogue_row` beside `mirror_profile`) and `replicate_feature` / `replicate_module` in `profile_replication.py`. Create, update and delete of a feature or module answer with `stores` and `warning` (deletes now return the per-store list instead of 204). No migration, no desktop change -- the Feature and Module Management pages are generic resource pages. Tests: `test_catalogue_replication.py`.
 
 #### MST-8. A firm configures its own custom fields (§16)
 - **What it is:** a firm administrator adds fields to their own products and customers, without touching another firm's.
