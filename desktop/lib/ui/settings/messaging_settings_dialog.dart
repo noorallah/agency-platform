@@ -95,6 +95,7 @@ class MessagingScheduleTab extends StatefulWidget {
 class _MessagingScheduleTabState extends State<MessagingScheduleTab> {
   final TextEditingController _dueSoon = TextEditingController();
   final TextEditingController _overdue = TextEditingController();
+  final TextEditingController _stopAfter = TextEditingController(text: '90');
   MessagingSettings? _settings;
   bool _enabled = false;
   bool _loading = true;
@@ -112,6 +113,7 @@ class _MessagingScheduleTabState extends State<MessagingScheduleTab> {
   void dispose() {
     _dueSoon.dispose();
     _overdue.dispose();
+    _stopAfter.dispose();
     super.dispose();
   }
 
@@ -124,6 +126,7 @@ class _MessagingScheduleTabState extends State<MessagingScheduleTab> {
         _enabled = settings.isEnabled;
         _dueSoon.text = '${settings.dueSoonDays}';
         _overdue.text = '${settings.overdueEveryDays}';
+        _stopAfter.text = '${settings.overdueStopAfterDays}';
         _loading = false;
       });
     } on ApiException catch (error) {
@@ -138,12 +141,17 @@ class _MessagingScheduleTabState extends State<MessagingScheduleTab> {
   Future<void> _save() async {
     final int? dueSoon = int.tryParse(_dueSoon.text.trim());
     final int? overdue = int.tryParse(_overdue.text.trim());
+    final int? stopAfter = int.tryParse(_stopAfter.text.trim());
     if (dueSoon == null || dueSoon < 0 || dueSoon > 60) {
       setState(() => _saveError = 'Days before due must be from 0 to 60.');
       return;
     }
     if (overdue == null || overdue < 1 || overdue > 90) {
       setState(() => _saveError = 'Repeat every must be from 1 to 90 days.');
+      return;
+    }
+    if (stopAfter == null || stopAfter < 1 || stopAfter > 3650) {
+      setState(() => _saveError = 'Stop after must be from 1 to 3650 days.');
       return;
     }
     setState(() {
@@ -156,6 +164,7 @@ class _MessagingScheduleTabState extends State<MessagingScheduleTab> {
           isEnabled: _enabled,
           dueSoonDays: dueSoon,
           overdueEveryDays: overdue,
+          overdueStopAfterDays: stopAfter,
           isConfigured: true,
           canStoreCredentials: _settings?.canStoreCredentials ?? false,
         ),
@@ -273,6 +282,19 @@ class _MessagingScheduleTabState extends State<MessagingScheduleTab> {
                   decoration: const InputDecoration(
                     labelText: 'Payment overdue: repeat every n days',
                     helperText: '1 to 90',
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 320,
+                child: TextField(
+                  key: const ValueKey('messaging-overdue-stop-after'),
+                  controller: _stopAfter,
+                  enabled: editable,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Payment overdue: stop after n days',
+                    helperText: 'Older bills are not reminded (1 to 3650)',
                   ),
                 ),
               ),

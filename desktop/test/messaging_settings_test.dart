@@ -303,7 +303,7 @@ Future<void> _openTab(WidgetTester tester, String name) async {
 }
 
 void main() {
-  testWidgets('the schedule tab saves the switch and the two day counts',
+  testWidgets('the schedule tab saves the switch and the three day counts',
       (tester) async {
     final _MessagingApi api = _MessagingApi();
     await _pump(tester, api);
@@ -314,6 +314,16 @@ void main() {
         find.byKey(const ValueKey('messaging-due-soon-days')), '5');
     await tester.enterText(
         find.byKey(const ValueKey('messaging-overdue-days')), '10');
+    // Decision A12: older bills are not reminded.
+    expect(
+        tester
+            .widget<TextField>(
+                find.byKey(const ValueKey('messaging-overdue-stop-after')))
+            .controller!
+            .text,
+        '90');
+    await tester.enterText(
+        find.byKey(const ValueKey('messaging-overdue-stop-after')), '60');
     await tester.tap(find.byKey(const ValueKey('messaging-settings-save')));
     await tester.pumpAndSettle();
 
@@ -321,6 +331,7 @@ void main() {
       'is_enabled': true,
       'due_soon_days': 5,
       'overdue_every_days': 10,
+      'overdue_stop_after_days': 60,
     });
   });
 

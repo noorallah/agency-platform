@@ -107,6 +107,8 @@ screen (1.1.0).
 - **One company, several customer accounts**: a GSTIN or PAN may repeat
   across customers; saving one already on another account names it and asks
   first (decision A7).
+- **Overdue reminders stop after 90 days** past due (a firm setting), so
+  switching reminders on does not chase every old bill (decision A12).
 - **Reorder from sales**: the planning formula behind *Below reorder level*
   (#913, decision A39).
 - **Debit note to a customer**: more charged on an invoice after billing,

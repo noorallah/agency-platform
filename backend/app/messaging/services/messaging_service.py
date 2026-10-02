@@ -101,6 +101,7 @@ class MessagingService:
             is_enabled=bool(row and row.is_enabled),
             due_soon_days=row.due_soon_days if row else 3,
             overdue_every_days=row.overdue_every_days if row else 7,
+            overdue_stop_after_days=row.overdue_stop_after_days if row else 90,
             is_configured=row is not None,
             can_store_credentials=credential_key() is not None,
         )
@@ -939,6 +940,7 @@ def _settings_snapshot(row: MessagingSettings) -> dict[str, object]:
         "is_enabled": row.is_enabled,
         "due_soon_days": row.due_soon_days,
         "overdue_every_days": row.overdue_every_days,
+        "overdue_stop_after_days": row.overdue_stop_after_days,
     }
 
 

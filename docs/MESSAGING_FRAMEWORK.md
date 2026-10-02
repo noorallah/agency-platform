@@ -97,7 +97,7 @@ and fail at volume.
 | `DELIVERY_DISPATCHED` | a delivery note is dispatched | delivery note | customer_name, document_number, document_date, firm_name |
 | `RECEIPT_POSTED` | a customer receipt is recorded | receipt | customer_name, document_number, document_date, amount, firm_name |
 | `PAYMENT_DUE_SOON` | daily scan: an unpaid bill falls due within *n* days (`due_soon_days`, default 3) | sales invoice | customer_name, document_number, amount_due, due_date, firm_name |
-| `PAYMENT_OVERDUE` | daily scan: the day after due, then every *n* days while owed (`overdue_every_days`, default 7) | sales invoice | customer_name, document_number, amount_due, due_date, days_overdue, firm_name |
+| `PAYMENT_OVERDUE` | daily scan: the day after due, then every *n* days while owed (`overdue_every_days`, default 7), and not once a bill is more than `overdue_stop_after_days` (default 90) past due -- so switching reminders on never messages a customer about years-old bills (decision A12) | sales invoice | customer_name, document_number, amount_due, due_date, days_overdue, firm_name |
 
 The two payment events are **reminders**: a customer marked *no reminders* gets
 a SKIPPED row with the reason instead (§51, decision 7). What a bill still owes
@@ -195,7 +195,7 @@ status fetch (every 15 min for 3 days, where the adapter supports it)
 All firm-owned, in every firm store; none carries a foreign key to `firms`.
 
 - **`messaging_settings`** -- per firm: `is_enabled` (default false),
-  `due_soon_days` (3), `overdue_every_days` (7), `last_reminder_scan_on`.
+  `due_soon_days` (3), `overdue_every_days` (7), `overdue_stop_after_days` (90, migration 0220), `last_reminder_scan_on`.
 - **`messaging_channel_configs`** -- per firm and channel: `provider`,
   `is_enabled`, `public_settings` (JSON), `credentials_encrypted`, `health`
   (`NOT_CONFIGURED` / `UNTESTED` / `OK` / `NEEDS_ATTENTION`), `last_tested_at`,

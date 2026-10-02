@@ -6,6 +6,7 @@ class MessagingSettings {
     required this.isEnabled,
     required this.dueSoonDays,
     required this.overdueEveryDays,
+    this.overdueStopAfterDays = 90,
     required this.isConfigured,
     required this.canStoreCredentials,
   });
@@ -18,6 +19,9 @@ class MessagingSettings {
 
   /// An overdue reminder repeats every this many days (1-90).
   final int overdueEveryDays;
+
+  /// A bill more than this many days overdue is not reminded (1-3650, A12).
+  final int overdueStopAfterDays;
   final bool isConfigured;
 
   /// False when the server operator has not set `AGENCY_MESSAGING_KEY`, so
@@ -28,6 +32,8 @@ class MessagingSettings {
         isEnabled: boolValue(json['is_enabled']),
         dueSoonDays: (json['due_soon_days'] as num?)?.toInt() ?? 3,
         overdueEveryDays: (json['overdue_every_days'] as num?)?.toInt() ?? 7,
+        overdueStopAfterDays:
+            (json['overdue_stop_after_days'] as num?)?.toInt() ?? 90,
         isConfigured: boolValue(json['is_configured']),
         canStoreCredentials: boolValue(json['can_store_credentials']),
       );
@@ -36,6 +42,7 @@ class MessagingSettings {
         'is_enabled': isEnabled,
         'due_soon_days': dueSoonDays,
         'overdue_every_days': overdueEveryDays,
+        'overdue_stop_after_days': overdueStopAfterDays,
       };
 }
 
