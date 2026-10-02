@@ -98,7 +98,7 @@ screen (1.1.0).
   **tax calendar** on Home (#898).
 - **Choosing batches** on a delivery note, printed one row per batch (#911,
   decision A38).
-- **Batch rules** (Settings > Selling > Batch Rules): how many days count
+- **Batch rules** (Settings > Stock > Batch Rules): how many days count
   as near expiry, whether a near-expiry batch or a later batch chosen ahead of
   an earlier one needs a reason at dispatch, and near-expiry stock may be sold
   below the price floor with the batches kept on the approval (decision A2).
