@@ -32,6 +32,7 @@ from app.sales_invoice.models import (
     SalesInvoiceSource,
 )
 from app.sales_invoice.services.invoice_pdf import (
+    EInvoiceStamp,
     InvoiceDocument,
     InvoiceLineBlock,
     InvoicePdfRenderer,
@@ -67,6 +68,50 @@ NOT_FINAL: dict[str, str] = {
 #: own note, which is how Tally prints a bill made of many dispatches.
 MAX_LISTED_SOURCES = 3
 SEVERAL = "Several - see lines"
+
+
+def einvoice_stamp(
+    session: Session,
+    *,
+    firm_scope: UUID,
+    sales_invoice_id: UUID | None = None,
+    credit_note_id: UUID | None = None,
+    customer_debit_note_id: UUID | None = None,
+) -> EInvoiceStamp | None:
+    """Return the live registration of one document, as its print carries it.
+
+    Only a REGISTERED row prints: a refused or withdrawn one gave the
+    document no IRN it may claim (77 row 11).
+    """
+    from app.einvoice.models import EInvoiceRegistration
+
+    column, value = next(
+        (column, value)
+        for column, value in (
+            (EInvoiceRegistration.sales_invoice_id, sales_invoice_id),
+            (EInvoiceRegistration.credit_note_id, credit_note_id),
+            (EInvoiceRegistration.customer_debit_note_id, customer_debit_note_id),
+        )
+        if value is not None
+    )
+    row = session.scalar(
+        select(EInvoiceRegistration).where(
+            EInvoiceRegistration.firm_id == firm_scope,
+            column == value,
+            EInvoiceRegistration.status == "REGISTERED",
+            EInvoiceRegistration.is_deleted.is_(False),
+        )
+    )
+    if row is None or not row.irn:
+        return None
+    return EInvoiceStamp(
+        irn=row.irn,
+        acknowledgement_number=row.acknowledgement_number,
+        acknowledged_on=(
+            f"{row.acknowledged_at:%d %b %Y %H:%M}" if row.acknowledged_at else None
+        ),
+        signed_qr=row.signed_qr_code,
+    )
 
 
 def _dated(number: str, on: object) -> str:
@@ -233,6 +278,9 @@ class SalesInvoicePrintService:
             # A draft has not been approved or posted, and a cancelled bill
             # charges nobody: neither may pass for a tax invoice on paper.
             not_final=NOT_FINAL.get(invoice.status),
+            einvoice=einvoice_stamp(
+                self._session, firm_scope=firm_scope, sales_invoice_id=invoice.id
+            ),
             number=invoice.invoice_number,
             date=invoice.invoice_date.strftime("%d %b %Y"),
             due_date=(
