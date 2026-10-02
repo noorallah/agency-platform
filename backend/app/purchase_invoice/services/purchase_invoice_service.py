@@ -99,6 +99,7 @@ from app.sales.services.document_preview import purchase_line_companions
 from app.settlements.schemas import OutstandingInvoiceRecord
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.gst_compliance import GstComplianceService
+from app.tax.services.gst_time_limits import credit_time_limit_warning
 from app.tax.services.place_of_supply import PURCHASE_INTERSTATE
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
@@ -1053,7 +1054,32 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             ],
             duplicate_warning=warning,
             irn_warning=irn_warning,
+            credit_time_limit_warning=self._credit_time_limit_warning(row, lines),
         )
+
+    @staticmethod
+    def _credit_time_limit_warning(
+        row: PurchaseInvoice, lines: list[PurchaseInvoiceLine]
+    ) -> str | None:
+        """Say whether the bill's credit is past its last date (backlog GST-3).
+
+        CGST s.16(4): credit on a supplier's invoice is claimed by 30
+        November after the end of the year it is dated in. The bill is
+        judged on the day it is entered (`invoice_date`, which decides the
+        return the credit goes into) against the supplier's own date. Only
+        credit actually at stake is warned: a cancelled bill, or one whose
+        tax is all blocked or ineligible, claims nothing. A warning, not a
+        refusal -- the annual return's date is not recorded, so 30 November
+        is only the outer limit, and the bill is still owed.
+        """
+        if row.status == PurchaseInvoiceStatus.CANCELLED.value:
+            return None
+        claims = row.reverse_charge_tax_total > 0 or any(
+            line.itc_eligibility == "ELIGIBLE" and line.tax_amount > 0 for line in lines
+        )
+        if not claims:
+            return None
+        return credit_time_limit_warning(row.supplier_invoice_date, row.invoice_date)
 
     def timeline(
         self, *, invoice_id: UUID, firm_scope: UUID, page: int, page_size: int

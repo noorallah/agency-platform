@@ -80,3 +80,28 @@ def credit_note_time_limit_warning(
         "filed if earlier. Approved as it stands, it still takes the tax off "
         "the books and out of GSTR-1 -- check with your CA before approving."
     )
+
+
+def credit_time_limit_warning(supply_date: date, claim_date: date) -> str | None:
+    """Say why credit on a bill entered on ``claim_date`` can no longer be taken.
+
+    Args:
+        supply_date: The supplier's invoice date.
+        claim_date: The date the bill is entered in the books, which decides
+            the return its credit is claimed in.
+
+    Returns:
+        The warning, or ``None`` while the credit is within the limit.
+
+    """
+    limit = november_limit(supply_date)
+    if claim_date <= limit:
+        return None
+    return (
+        f"The supplier's invoice is of {gst_year_label(supply_date)}, so its "
+        f"input credit could be claimed only until {limit:%d %b %Y} (CGST "
+        "s.16(4)), or the date the annual return was filed if earlier. Entered "
+        "later, the credit is lost: approved as it stands, the bill still "
+        "takes it into input tax and GSTR-3B -- check with your CA, and book "
+        "the tax as cost if it cannot be claimed."
+    )
