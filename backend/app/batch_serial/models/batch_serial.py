@@ -73,6 +73,14 @@ class BatchRecord(BaseEntity):
         String(30), nullable=False, default="AVAILABLE", server_default="AVAILABLE"
     )
     shelf_life_days: Mapped[int | None] = mapped_column()
+    #: The MRP printed on this batch's packs, per stock unit, tax included
+    #: (backlog 79 row 7). The manufacturer prints a different one on each
+    #: batch, so it lives here, as Marg and Busy keep it; null falls back to
+    #: the product's. No sale may charge more (Legal Metrology).
+    mrp: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    #: The rate this batch is sold at, per stock unit before tax, where the
+    #: firm prices from the batch (``batch_sale_settings.price_from_batch``).
+    selling_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     remarks: Mapped[str | None] = mapped_column(Text)
 
     # A batch stores no quantities. It carries identity -- the number, who
@@ -298,4 +306,10 @@ class BatchSaleSettings(BaseEntity):
     #: allocation passes over such a batch whatever this says.
     shelf_life_policy: Mapped[str] = mapped_column(
         String(10), nullable=False, default="BLOCK", server_default="BLOCK"
+    )
+    #: A line whose batch is chosen takes the batch's selling price as its
+    #: rate, before the price list (backlog 79 row 7). The MRP is checked and
+    #: printed per batch whatever this says.
+    price_from_batch: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
     )

@@ -96,6 +96,15 @@ class SalesInvoicePrintService:
 
         template = self._template(firm_scope)
         document = self._document(invoice, firm_scope=firm_scope)
+        if any(line.batch for line in document.lines):
+            # The batches the goods left in, with their expiry and printed
+            # MRP, as the challan carries them (backlog 79 row 7).
+            template = replace(
+                template,
+                show_batch_column=True,
+                show_expiry_column=True,
+                show_mrp_column=any(line.mrp is not None for line in document.lines),
+            )
         pdf = InvoicePdfRenderer(template).render(document)
         safe = invoice.invoice_number.replace("/", "-").replace(" ", "-")
         return pdf, f"{safe}.pdf"
@@ -158,45 +167,63 @@ class SalesInvoicePrintService:
 
         references, source_of_line = self._sources(invoice, lines)
 
+        # Imported here: the delivery note's print imports this module.
+        from app.delivery_note.services.challan_print_service import (
+            drawn_batches,
+            per_batch,
+        )
+
+        drawn = drawn_batches(
+            self._session,
+            [
+                line.source_document_line_id
+                for line in lines
+                if line.source_document_type == "DELIVERY_NOTE"
+            ],
+        )
         printed: list[InvoiceLineBlock] = []
         for line in lines:
             product = products.get(line.product_id)
             unit = units.get(line.invoice_uom_id) if line.invoice_uom_id else None
-            printed.append(
-                InvoiceLineBlock(
-                    number=line.line_number,
-                    description=(
-                        line.description or (product.name if product else "") or ""
-                    )
-                    + source_of_line.get(line.id, ""),
-                    # As billed (D-CMP-22); an old line with none stamped
-                    # falls back to the product.
-                    hsn=line.hsn_sac or (product.hsn_sac if product else None),
-                    quantity=line.current_invoice_quantity,
-                    free_quantity=line.free_quantity,
-                    uom=(unit.code if unit else None),
-                    rate=line.unit_price,
-                    discount=line.discount_amount,
-                    # The line's share of any bill discount is in the taxable
-                    # figure but not in the discount column: that column is
-                    # what was agreed on this line, and the deduction from the
-                    # whole document is stated once, in the totals.
-                    taxable=line.gross_amount
-                    - line.discount_amount
-                    - line.bill_discount_amount,
-                    total=line.net_amount,
-                    batch=line.batch_number,
-                    expiry=line.expiry_date.isoformat() if line.expiry_date else None,
-                    taxes=tuple(
-                        (item.component_code, item.percentage, item.amount)
-                        for item in taxes.get(line.id, [])
-                    ),
-                    # Both rates print where the bill typed them with GST in
-                    # (backlog 64 row 4).
-                    entered_rate=(
-                        line.entered_rate if invoice.rate_includes_tax else None
-                    ),
+            batches = (
+                drawn.get(line.source_document_line_id, [])
+                if line.source_document_type == "DELIVERY_NOTE"
+                else []
+            )
+            whole = InvoiceLineBlock(
+                number=line.line_number,
+                description=(
+                    line.description or (product.name if product else "") or ""
                 )
+                + source_of_line.get(line.id, ""),
+                # As billed (D-CMP-22); an old line with none stamped
+                # falls back to the product.
+                hsn=line.hsn_sac or (product.hsn_sac if product else None),
+                quantity=line.current_invoice_quantity,
+                free_quantity=line.free_quantity,
+                uom=(unit.code if unit else None),
+                rate=line.unit_price,
+                discount=line.discount_amount,
+                # The line's share of any bill discount is in the taxable
+                # figure but not in the discount column: that column is
+                # what was agreed on this line, and the deduction from the
+                # whole document is stated once, in the totals.
+                taxable=line.gross_amount
+                - line.discount_amount
+                - line.bill_discount_amount,
+                total=line.net_amount,
+                batch=line.batch_number,
+                expiry=line.expiry_date.isoformat() if line.expiry_date else None,
+                taxes=tuple(
+                    (item.component_code, item.percentage, item.amount)
+                    for item in taxes.get(line.id, [])
+                ),
+                # Both rates print where the bill typed them with GST in
+                # (backlog 64 row 4).
+                entered_rate=(line.entered_rate if invoice.rate_includes_tax else None),
+            )
+            printed.extend(
+                per_batch(whole, batches, sum((qty for _, qty in batches), ZERO))
             )
 
         # The licences valid on the bill's own date: a drug or FSSAI number

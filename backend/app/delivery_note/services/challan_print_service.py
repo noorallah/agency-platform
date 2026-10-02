@@ -84,6 +84,7 @@ def _per_batch(
                 whole,
                 batch=batch.batch_number,
                 expiry=batch.expiry_date.isoformat() if batch.expiry_date else None,
+                mrp=batch.mrp,
             )
         ]
     rows: list[InvoiceLineBlock] = []
@@ -122,6 +123,7 @@ def _per_batch(
                 description=whole.description if index == 0 else "",
                 batch=batch.batch_number,
                 expiry=batch.expiry_date.isoformat() if batch.expiry_date else None,
+                mrp=batch.mrp,
                 quantity=values["quantity"],
                 free_quantity=values["free_quantity"],
                 discount=values["discount"],
@@ -130,6 +132,39 @@ def _per_batch(
             )
         )
     return rows
+
+
+def drawn_batches(
+    session: Session, line_ids: list[UUID]
+) -> dict[UUID, list[tuple[BatchRecord, Decimal]]]:
+    """Return each note line's batches -- chosen, or drawn at dispatch (79).
+
+    Shared by the challan and the tax invoice, which prints the batches of the
+    note line it bills (79 row 7).
+    """
+    if not line_ids:
+        return {}
+    found: dict[UUID, list[tuple[BatchRecord, Decimal]]] = {}
+    for pick, batch in session.execute(
+        select(DeliveryNoteLineBatch, BatchRecord)
+        .join(BatchRecord, BatchRecord.id == DeliveryNoteLineBatch.batch_id)
+        .where(
+            DeliveryNoteLineBatch.delivery_note_line_id.in_(line_ids),
+            DeliveryNoteLineBatch.is_deleted.is_(False),
+        )
+        .order_by(DeliveryNoteLineBatch.created_at.asc())
+    ).all():
+        found.setdefault(pick.delivery_note_line_id, []).append((batch, pick.quantity))
+    return found
+
+
+def per_batch(
+    whole: InvoiceLineBlock,
+    batches: list[tuple[BatchRecord, Decimal]],
+    stock_quantity: Decimal,
+) -> list[InvoiceLineBlock]:
+    """Print a line once per batch it takes; see ``_per_batch``."""
+    return _per_batch(whole, batches, stock_quantity)
 
 
 class DeliveryChallanPrintService:
@@ -157,7 +192,11 @@ class DeliveryChallanPrintService:
             # Goods that carry batches travel with their batch and expiry on
             # the paper (backlog 79), whatever the firm's template hides.
             template = replace(
-                template, show_batch_column=True, show_expiry_column=True
+                template,
+                show_batch_column=True,
+                show_expiry_column=True,
+                # And the MRP each batch carries, where any does (79 row 7).
+                show_mrp_column=any(line.mrp is not None for line in document.lines),
             )
         pdf = InvoicePdfRenderer(template).render(document)
         safe = note.delivery_note_number.replace("/", "-").replace(" ", "-")
@@ -300,22 +339,7 @@ class DeliveryChallanPrintService:
         self, line_ids: list[UUID]
     ) -> dict[UUID, list[tuple[BatchRecord, Decimal]]]:
         """Return each line's batches -- chosen, or drawn at dispatch (79)."""
-        if not line_ids:
-            return {}
-        found: dict[UUID, list[tuple[BatchRecord, Decimal]]] = {}
-        for pick, batch in self._session.execute(
-            select(DeliveryNoteLineBatch, BatchRecord)
-            .join(BatchRecord, BatchRecord.id == DeliveryNoteLineBatch.batch_id)
-            .where(
-                DeliveryNoteLineBatch.delivery_note_line_id.in_(line_ids),
-                DeliveryNoteLineBatch.is_deleted.is_(False),
-            )
-            .order_by(DeliveryNoteLineBatch.created_at.asc())
-        ).all():
-            found.setdefault(pick.delivery_note_line_id, []).append(
-                (batch, pick.quantity)
-            )
-        return found
+        return drawn_batches(self._session, line_ids)
 
     def _firm(self, firm_scope: UUID) -> PartyBlock:
         """Describe the dispatching firm."""

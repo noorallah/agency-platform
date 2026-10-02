@@ -40,6 +40,7 @@ DEFAULT_NEAR_EXPIRY_POLICY = "WARN"
 DEFAULT_FEFO_SKIP_POLICY = "RECORD"
 DEFAULT_NEAR_EXPIRY_BELOW_FLOOR = True
 DEFAULT_SHELF_LIFE_POLICY = "BLOCK"
+DEFAULT_PRICE_FROM_BATCH = False
 
 _ZERO = Decimal("0")
 
@@ -87,6 +88,7 @@ class BatchSalePolicyService:
                 fefo_skip_policy=DEFAULT_FEFO_SKIP_POLICY,
                 near_expiry_below_floor=DEFAULT_NEAR_EXPIRY_BELOW_FLOOR,
                 shelf_life_policy=DEFAULT_SHELF_LIFE_POLICY,
+                price_from_batch=DEFAULT_PRICE_FROM_BATCH,
                 is_configured=False,
             )
         return BatchSaleSettingsResponse(
@@ -95,6 +97,7 @@ class BatchSalePolicyService:
             fefo_skip_policy=stored.fefo_skip_policy,
             near_expiry_below_floor=stored.near_expiry_below_floor,
             shelf_life_policy=stored.shelf_life_policy,
+            price_from_batch=stored.price_from_batch,
             is_configured=True,
         )
 
@@ -114,6 +117,7 @@ class BatchSalePolicyService:
         row.fefo_skip_policy = data.fefo_skip_policy
         row.near_expiry_below_floor = data.near_expiry_below_floor
         row.shelf_life_policy = data.shelf_life_policy
+        row.price_from_batch = data.price_from_batch
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -142,6 +146,7 @@ class BatchSalePolicyService:
             "fefo_skip_policy": row.fefo_skip_policy,
             "near_expiry_below_floor": row.near_expiry_below_floor,
             "shelf_life_policy": row.shelf_life_policy,
+            "price_from_batch": row.price_from_batch,
         }
 
     def near_expiry_days(self, firm_id: UUID) -> int:

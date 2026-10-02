@@ -81,6 +81,12 @@ class GoodsReceiptLineWrite(GoodsReceiptSchema):
     batch_number: str | None = Field(default=None, max_length=120)
     expiry_date: date | None = None
     manufacturing_date: date | None = None
+    #: The batch's printed MRP (with tax) and selling price (before tax), per
+    #: stock unit, kept on the batch (backlog 79 row 7).
+    mrp: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=2)
+    selling_price: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=2
+    )
     remarks: str | None = None
 
 
@@ -188,6 +194,8 @@ class GoodsReceiptLineResponse(GoodsReceiptSchema):
     batch_number: str | None
     expiry_date: date | None
     manufacturing_date: date | None
+    mrp: Decimal | None = None
+    selling_price: Decimal | None = None
     inventory_transaction_id: UUID | None
     remarks: str | None
     created_at: datetime
