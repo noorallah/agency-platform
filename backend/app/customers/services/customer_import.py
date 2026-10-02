@@ -99,7 +99,7 @@ COLUMNS: tuple[Column, ...] = (
         "GSTIN",
         ("gstnumber", "gstno", "gst", "gstinuin"),
         False,
-        "GST number; unique among the firm's customers.",
+        "GST number. Several accounts of one company may share it.",
         "33AAAPL1234C1Z5",
     ),
     Column(
@@ -115,7 +115,7 @@ COLUMNS: tuple[Column, ...] = (
         "PAN",
         ("pannumber", "panno", "itpan"),
         False,
-        "PAN; unique among the firm's customers.",
+        "PAN. Several accounts of one company may share it.",
         "AAAPL1234C",
     ),
     Column("TAN", ("tannumber",), False, "TAN, as DELA12345B.", ""),

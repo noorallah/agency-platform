@@ -45,6 +45,7 @@ from app.firms.api import router as firms_router
 from app.goods_receipt.api import router as goods_receipt_router
 from app.gst_returns.api.router import router as gst_returns_router
 from app.identity.api import router as identity_router
+from app.imports.api import router as imports_router
 from app.inventory.api import router as inventory_router
 from app.loyalty.api import router as loyalty_router
 from app.messaging.api import router as messaging_router
@@ -199,6 +200,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(diagnostics_router)
     application.include_router(messaging_router)
     application.include_router(backups_router)
+    application.include_router(imports_router)
     register_exception_handlers(application)
     return application
 

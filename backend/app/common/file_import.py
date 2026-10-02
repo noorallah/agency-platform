@@ -196,11 +196,7 @@ def read_rows(
     Returns the rows, the headings used and the headings ignored. The header
     is row 1, as a spreadsheet shows it, so data starts at row 2.
     """
-    lookup: dict[str, str] = {}
-    for column in columns:
-        lookup[normalise_heading(column.heading)] = column.heading
-        for alias in column.aliases:
-            lookup[alias] = column.heading
+    lookup = heading_lookup(columns)
     grid = _read_csv(content) if file_format == "csv" else _read_xlsx(content)
     try:
         header = next(grid)
@@ -224,6 +220,127 @@ def read_rows(
         rows.append(ImportRow(number=number, cells=cells))
     used = [column.heading for column in columns if column.heading in positions]
     return rows, used, ignored
+
+
+def heading_lookup(columns: Sequence[Column]) -> dict[str, str]:
+    """Return every name a template column answers to, normalised, to it."""
+    lookup: dict[str, str] = {}
+    for column in columns:
+        lookup[normalise_heading(column.heading)] = column.heading
+        for alias in column.aliases:
+            lookup[alias] = column.heading
+    return lookup
+
+
+def read_grid(
+    content: bytes, file_format: FileFormat, *, limit: int | None = None
+) -> tuple[list[str], list[list[str]]]:
+    """Return a file's heading row and up to ``limit`` data rows, as text.
+
+    For the mapping screen (decision B3): what the file calls its columns,
+    and a few rows so a person can see what each holds.
+    """
+    grid = _read_csv(content) if file_format == "csv" else _read_xlsx(content)
+    try:
+        header = [_cell_text(value) for value in next(grid)]
+    except StopIteration:
+        return [], []
+    rows: list[list[str]] = []
+    for values in grid:
+        if limit is not None and len(rows) >= limit:
+            break
+        rows.append([_cell_text(value) for value in values])
+    return header, rows
+
+
+def suggest_mapping(
+    headings: Sequence[str], columns: Sequence[Column]
+) -> dict[str, str | None]:
+    """Say which template column each file heading would be read as (B3).
+
+    By the same names an import already accepts, ignoring case, spaces and
+    punctuation; a heading nothing matches, or that repeats a column an
+    earlier heading took, maps to None -- ignored.
+    """
+    lookup = heading_lookup(columns)
+    taken: set[str] = set()
+    suggested: dict[str, str | None] = {}
+    for heading in headings:
+        if not heading.strip():
+            continue
+        target = lookup.get(normalise_heading(heading))
+        if target is None or target in taken:
+            suggested[heading] = None
+            continue
+        taken.add(target)
+        suggested[heading] = target
+    return suggested
+
+
+def remap_headings(
+    content: bytes,
+    file_format: FileFormat,
+    mapping: Mapping[str, str | None],
+    columns: Sequence[Column],
+) -> bytes:
+    """Rewrite a file's heading row as a person mapped it, as CSV (B3).
+
+    ``mapping`` names, for a file heading, the template column it is read as,
+    or None to leave it out. A heading the mapping does not mention keeps
+    its name, so the usual matching still applies to it. Done to the file
+    rather than threaded through every importer, so each import's checks,
+    staging and all-or-nothing commit are exactly what they were. The result
+    is CSV whatever came in; cells are read as an import reads them.
+
+    Raises:
+        ValidationError: When the mapping names a column the template does
+            not have, or two headings to one column.
+
+    """
+    known = {column.heading for column in columns}
+    by_key = {normalise_heading(key): value for key, value in mapping.items()}
+    targets = [value for value in by_key.values() if value]
+    unknown = sorted({value for value in targets if value not in known})
+    if unknown:
+        raise ValidationError(
+            "The mapping names columns this import does not have: "
+            + ", ".join(unknown)
+            + "."
+        )
+    twice = sorted({value for value in targets if targets.count(value) > 1})
+    if twice:
+        raise ValidationError(
+            "Two file columns are mapped to "
+            + ", ".join(twice)
+            + "; map each template column once."
+        )
+    grid = _read_csv(content) if file_format == "csv" else _read_xlsx(content)
+    out = io.StringIO()
+    writer = csv.writer(out)
+    try:
+        header = [_cell_text(value) for value in next(grid)]
+    except StopIteration:
+        return b""
+    lookup = heading_lookup(columns)
+    chosen = set(targets)
+    renamed: list[str] = []
+    for heading in header:
+        key = normalise_heading(heading)
+        if key in by_key:
+            target = by_key[key]
+            # Left out: a heading no column answers to, still listed as
+            # ignored under the name the file gave it.
+            renamed.append(target if target else f"(not imported) {heading}")
+        elif lookup.get(key) in chosen:
+            # Its name answers to a column the person gave another heading:
+            # theirs wins, and this one is not read at all.
+            renamed.append(f"(not imported) {heading}")
+        else:
+            renamed.append(heading)
+    writer.writerow(renamed)
+    for values in grid:
+        writer.writerow([_cell_text(value) for value in values])
+    return out.getvalue().encode("utf-8")
 
 
 def _read_csv(content: bytes) -> Iterator[list[object]]:

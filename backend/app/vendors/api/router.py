@@ -27,6 +27,7 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.core.utils.dates import utc_now
+from app.imports.services import columns_for_kind, mapped_content, parse_mapping
 from app.vendors.models import Vendor
 from app.vendors.schemas import (
     VendorCategoryResponse,
@@ -409,6 +410,7 @@ async def import_vendor_opening_bill_file(
     db: Session = Depends(get_db),
     posting_date: Annotated[str | None, Form()] = None,
     apply: Annotated[bool, Form()] = False,
+    mapping: Annotated[str | None, Form()] = None,
 ) -> ApiResponse[ImportReportResponse]:
     """Check a CSV or XLSX file of opening bills, and with ``apply`` post it.
 
@@ -418,6 +420,13 @@ async def import_vendor_opening_bill_file(
     """
     firm_id = _firm(scope)
     file_format = file_format_of(file.filename)
+    # A file mapped on the import screen is read as mapped (decision B3).
+    content, file_format = mapped_content(
+        await file.read(),
+        file_format,
+        parse_mapping(mapping),
+        columns_for_kind(db, "vendor-opening-bills"),
+    )
     if posting_date:
         try:
             on = date.fromisoformat(posting_date)
@@ -426,7 +435,7 @@ async def import_vendor_opening_bill_file(
     else:
         on = utc_now().date()
     report = VendorOpeningBillFileImporter(db).run(
-        await file.read(),
+        content,
         file_format=file_format,
         firm_id=firm_id,
         actor_id=scope.actor_id,
@@ -528,6 +537,7 @@ async def import_vendor_file(
     db: Session = Depends(get_db),
     existing: Annotated[Literal["refuse", "update"], Form()] = "refuse",
     apply: Annotated[bool, Form()] = False,
+    mapping: Annotated[str | None, Form()] = None,
 ) -> ApiResponse[ImportReportResponse]:
     """Check a CSV or XLSX supplier file, and with ``apply`` import it whole.
 
@@ -538,6 +548,13 @@ async def import_vendor_file(
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required when importing vendors.")
     file_format = file_format_of(file.filename)
+    # A file mapped on the import screen is read as mapped (decision B3).
+    content, file_format = mapped_content(
+        await file.read(),
+        file_format,
+        parse_mapping(mapping),
+        columns_for_kind(db, "vendors"),
+    )
     if existing == "update" and not scope.principal.has_permission("VENDOR_UPDATE"):
         raise AuthorizationError(
             "Updating existing suppliers from a file needs the right to edit "
@@ -548,7 +565,7 @@ async def import_vendor_file(
         VendorService(db),
         may_manage_bank_details=_may_manage_bank(scope),
     ).run(
-        await file.read(),
+        content,
         file_format=file_format,
         firm_id=scope.firm_id,
         actor_id=scope.actor_id,
