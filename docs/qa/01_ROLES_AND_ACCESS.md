@@ -1,7 +1,7 @@
 # Roles and access
 
 Part of the QA test suite in `docs/qa/`. What each job template may reach,
-computed on 2026-09-25 from the application's own rules: the role seed
+computed on 2026-09-25 (the Sales > Debit Notes row added by hand on 2026-10-02, #918) from the application's own rules: the role seed
 (`backend/app/identity/system_seed.py`) and the desktop's screen catalogue and
 visibility filter. Regenerate rather than hand-edit.
 
@@ -29,17 +29,17 @@ names it.
 
 | Job template | Roles | Screens offered |
 | --- | --- | --- |
-| Firm Administrator | FIRM_ADMIN | 88 |
-| Firm Manager | FIRM_MANAGER | 82 |
+| Firm Administrator | FIRM_ADMIN | 89 |
+| Firm Manager | FIRM_MANAGER | 83 |
 | Counter Sales | CASHIER, BILLING_EXECUTIVE | 10 |
 | Field Sales | SALES_EXECUTIVE | 17 |
-| Sales Manager | SALES_MANAGER | 27 |
+| Sales Manager | SALES_MANAGER | 28 |
 | Warehouse | INVENTORY_MANAGER | 14 |
 | Purchasing | PURCHASE_EXECUTIVE | 9 |
 | Purchase Manager | PURCHASE_MANAGER | 9 |
 | Accounts | ACCOUNTANT | 22 |
 | Customer Support | CUSTOMER_SUPPORT | 4 |
-| Read Only | VIEWER | 77 |
+| Read Only | VIEWER | 78 |
 
 ## R01. Firm Administrator
 
@@ -86,6 +86,7 @@ Roles: `FIRM_ADMIN`. 164 permission codes.
 | Sales | Targets | `SALES_TARGET_MANAGE` | Not run | |
 | Sales | Proforma | `PROFORMA_MANAGE` | Not run | |
 | Sales | Credit Notes | `CREDIT_NOTE_APPROVE`, `CREDIT_NOTE_MANAGE` | Not run | |
+| Sales | Debit Notes | `CUSTOMER_DEBIT_NOTE_APPROVE`, `CUSTOMER_DEBIT_NOTE_MANAGE` | Not run | |
 | Sales | E-Invoice | `EINVOICE_MANAGE` | Not run | |
 | Sales | GST Returns | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
 | Sales | TCS | `TCS_MANAGE` | Not run | |
@@ -178,6 +179,7 @@ Roles: `FIRM_MANAGER`. 150 permission codes.
 | Sales | Targets | `SALES_TARGET_MANAGE` | Not run | |
 | Sales | Proforma | `PROFORMA_MANAGE` | Not run | |
 | Sales | Credit Notes | `CREDIT_NOTE_APPROVE`, `CREDIT_NOTE_MANAGE` | Not run | |
+| Sales | Debit Notes | `CUSTOMER_DEBIT_NOTE_APPROVE`, `CUSTOMER_DEBIT_NOTE_MANAGE` | Not run | |
 | Sales | E-Invoice | `EINVOICE_MANAGE` | Not run | |
 | Sales | GST Returns | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
 | Sales | TCS | `TCS_MANAGE` | Not run | |
@@ -292,6 +294,7 @@ Roles: `SALES_MANAGER`. 35 permission codes.
 | Sales | Targets | none beyond viewing | Not run | |
 | Sales | Proforma | `PROFORMA_MANAGE` | Not run | |
 | Sales | Credit Notes | `CREDIT_NOTE_MANAGE` | Not run | |
+| Sales | Debit Notes | `CUSTOMER_DEBIT_NOTE_MANAGE` | Not run | |
 | Sales | E-Invoice | none beyond viewing | Not run | |
 | Sales | GST Returns | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_UPDATE` | Not run | |
 | Sales | TCS | none beyond viewing | Not run | |
@@ -449,6 +452,7 @@ Roles: `VIEWER`. 37 permission codes.
 | Sales | Targets | none beyond viewing | Not run | |
 | Sales | Proforma | none beyond viewing | Not run | |
 | Sales | Credit Notes | none beyond viewing | Not run | |
+| Sales | Debit Notes | none beyond viewing | Not run | |
 | Sales | E-Invoice | none beyond viewing | Not run | |
 | Sales | GST Returns | none beyond viewing | Not run | |
 | Sales | TCS | none beyond viewing | Not run | |

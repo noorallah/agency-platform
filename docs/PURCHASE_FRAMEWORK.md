@@ -3,7 +3,7 @@
 How a firm buys — from raising an order to paying the supplier — and which
 other modules each step depends on.
 
-Verified against the code and the running backend on 2026-08-18. Every status,
+Verified against the code and the running backend on 2026-08-18; the quantity picture, return outcomes and reverse charge on returns added 2026-10-02. Every status,
 transition and side effect below was read from the service that performs it,
 not remembered. Where something is *not* built, this file says so rather than
 describing the intent.
@@ -28,7 +28,7 @@ Four documents, four separate modules, each with its own permissions, routes
 and tables. The sidebar files the last three under Purchases; they are not tabs
 of it.
 
-**Only three transitions do anything outside their own module**, and knowing
+**Only four transitions do anything outside their own module**, and knowing
 which is most of understanding this area:
 
 | Transition | What it does |
@@ -154,6 +154,29 @@ Two things follow that are easy to trip on:
 - "what is still outstanding" is computed from the receipts themselves
   (below), never read off the order's status.
 
+### One quantity picture per line, and a billing status (backlog 69 row 5, A33)
+
+Receipts, bills and returns each kept their own idea of how much of an order
+line they had dealt with, and the order showed none of it. Since 2026-10-02
+`app/purchase/services/line_quantities.py` answers it once, for a whole page of
+orders in a fixed number of statements, and the order response carries it:
+
+| Figure | Counts |
+| --- | --- |
+| received, accepted, rejected, damaged | completed or closed goods receipts against the line |
+| returned | completed or closed purchase returns, traced back through the receipt or the bill they were raised off |
+| invoiced | **approved** or closed bills, raised off the line or off a receipt of it (a draft has not happened) |
+| pending receipt | ordered less received, plus what a *replacement* return reopened |
+| to invoice | accepted less returned less invoiced |
+
+All of it is **derived on every read and never stored**: a counter on the line
+is one more thing to disagree with the documents. The order also carries
+`billing_status` (`NOT_INVOICED`, `PARTIALLY_INVOICED`, `INVOICED`) and
+`is_complete` (every line received in full and nothing left to bill) *beside*
+its lifecycle status rather than as new statuses, so billing never overwrites
+how far receiving got. The figures appear once the order has left draft and are
+never sent back on a save.
+
 ### What a line carries
 
 Product, ordered quantity, free quantity, unit price, discount, tax profile,
@@ -249,9 +272,12 @@ The goods value clears the **receipt accrual** rather than touching inventory
 again — the stock was already valued at what the receipt cost it. That is why
 receiving and invoicing do not double-count.
 
-> CLAUDE.md still says automatic GL posting from invoices is not built. That is
-> out of date for this module: `post_purchase_invoice` exists and runs on
-> approval.
+Not all the tax on a bill is claimable. Each bill line carries an **input
+credit** decision (Eligible, Blocked or Ineligible), and what the supplier is
+under GST (regular, composition, unregistered, overseas, SEZ) is set on the
+supplier; blocked tax is booked as cost, never as input tax. The rules, the
+GSTR-2B match and the posting are in `docs/PURCHASE_TO_PAYMENT_FLOW.md`
+("GST on the purchase").
 
 ---
 
@@ -275,6 +301,29 @@ For a batch-tracked product the line names the batch being sent back — a
 dropdown of that product's registered batches, defaulting to the one the
 receipt brought in. There is no free-text batch box, by design.
 
+### What the supplier gives back, and a bill already paid (A34, D-BUY-20)
+
+A return records an **outcome**, changeable until it is cancelled because the
+supplier often decides after the goods have gone: `CREDIT` (the default, set
+against a later bill), `REPLACEMENT` (completing the return reopens the order
+line for the quantity sent back, so the next ordinary goods receipt against the
+same order takes the goods in) or `REFUND` (money in against the return's
+credit, `Dr cash or bank / Cr payables`, reversed rather than deleted; the
+return cannot be cancelled while a refund stands). A return raised off a bill
+that is already paid has nothing on the bill left to come off, so the part the
+bill cannot absorb becomes a **supplier credit**. The mechanics, accounts and
+routes are in `docs/PURCHASE_TO_PAYMENT_FLOW.md` ("Goods coming back").
+
+**Reverse charge** (#897). When the bill charged tax under reverse charge, the
+supplier charged none, so the return carries no tax of its own, and until
+2026-10-02 the liability and the input credit the bill raised stayed in full
+after the goods went back. A returned line now takes the same share of its bill
+line's reverse charge as its value is of the bill line's
+(`app/purchase_invoice/services/reverse_charge.py`); completing the return
+debits reverse-charge payable and credits input tax per head, the bill's legs
+mirrored, and GSTR-3B (3.1(d) and 4(A)(3)) falls by the same in that period. The
+supplier's credit note below does the same.
+
 ### The supplier's credit note, with no goods back (backlog 68 row 10)
 
 A rate difference or a discount after billing that the **supplier** credits
@@ -285,7 +334,8 @@ bill, approving it posts Dr payable / Cr input tax (by head) and price
 variance, the bill's outstanding is derived lower, the supplier statement
 names the supplier's note, and GSTR-3B 4(B)(2) reverses the credit; cancelling
 reverses all of it. Both fields or neither, not dated before the supplier's
-bill, and one supplier's number on one live note. Reason *Discount after
+bill, and one supplier's number on one live note. It takes its bill's reverse
+charge share off the same way a return does. Reason *Discount after
 billing* (`DISCOUNT`) joins price difference and short supply.
 
 ---

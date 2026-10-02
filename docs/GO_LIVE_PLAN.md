@@ -40,6 +40,22 @@ item names the backlog section or defect that holds its detail.
   offers, percent off up to a limit, best offer only, money received on the
   bill, and the go-live guide.
 
+- **Built after 1.1.0, the night of 2026-10-01 and on 2026-10-02**
+  (#891-#918; the owner's decisions are `docs/OWNER_DECISIONS.md` A32-A40):
+  back up now and a restore drill (#891), a price floor and a discount limit
+  per role (#892), messaging (email, WhatsApp, SMS, off until a firm switches
+  it on), a **tax calendar on Home** with *Mark filed* (#898), *Rate includes
+  GST* on the sales order and quotation (#896), one quantity picture and a
+  billing status per purchase order line (#899), what a purchase return comes
+  back as and supplier refunds (#900, #901), reverse charge taken off by a
+  return or debit note (#897), challan reasons, the dispatch-before-invoice
+  policy and *Dispatch and invoice* (#903), input credit per bill line, the
+  supplier's GST type and **GSTR-2B reconciliation** (#905, #906, #909),
+  **choosing batches** on a delivery note (#911), **reorder from sales**
+  (#913) and the **debit note to a customer** (#918). None of these has been
+  driven by the demo seeders (`docs/DEMO_DATA.md`), so the owner's first walk
+  through them is the first run on real stores.
+
 ## Tier 1 -- before the first firm starts (weeks 1-4)
 
 | # | What | Why it blocks | Size | Who |
@@ -85,7 +101,8 @@ feature nobody uses is a feature nobody tests.
   purchase analysis.
 - Stock: §70 the inventory checklist, FIFO costing if an accountant requires
   it.
-- Messaging (email, WhatsApp, SMS) and field collections, designed in #848.
+- Field collections, designed in #848. (Messaging -- email, WhatsApp, SMS --
+  was built 2026-10-01, off until a firm switches it on.)
 - Year-data archiving and log partitioning: not before a firm has years of
   data (`docs/BULK_APPROVAL_MIGRATION_AND_YEAR_DATA.md` section 4.5).
 

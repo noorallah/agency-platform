@@ -35,6 +35,7 @@ so nobody types these:
 | Approve a **sales invoice** | Sales (income) up by the taxable value |
 | Dispatch a **delivery note** | Cost of Goods Sold (expense) up by what the goods cost |
 | Complete a **sales return** / approve a **credit note** | Sales Returns (reduces income) |
+| Approve a **debit note to a customer** (more charged on an invoice already raised) | Sales (income) up by the extra taxable value -- the same Sales account as the invoice, not a separate income account |
 | Approve a **purchase invoice** at a price different from the receipt | Purchase Price Variance |
 | Post a stock **adjustment** or **write-off** | Inventory Adjustment |
 | Approve a **commission payout** | Commission Expense |

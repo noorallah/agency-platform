@@ -313,7 +313,7 @@ None open (2026-10-01). D-GOLIVE-1 (#870), D-GOLIVE-2 (#884) and D-GOLIVE-3
 | Id | Found | Summary | Severity | Evidence | Where |
 | --- | --- | --- | --- | --- | --- |
 
-None open (2026-10-02; D-TEST-2 fixed).
+| D-UI-1 | 2026-10-02 | The GSTR-3B screen (`desktop/lib/ui/sales/gst_return_page.dart`) still reads `inward_supplies`, which the server no longer sends, so it prints an empty value; and the GST Documents dialog starts its dispatch policy at Off while the server's default is Warn (overwritten once loaded). Found in the 10-02 documentation audit. | Low | Code | This row |
 
 ### Found in manual testing and not yet fixed -- `docs/BACKLOG.md` §31
 

@@ -2163,6 +2163,38 @@ The stock side is §10.6; this is the whole request.
   join   fx_<suffix>_s.sales_invoice_lines il on il.id = l.sales_invoice_line_id;
   ```
 
+### 11.17a Debit note to a customer (TC-SELL-020)
+
+*Added 2026-10-02 (backlog 77 row 5, #918); not yet seen in a live row.*
+
+- **Raise** (the invoice must be APPROVED or CLOSED, the note not dated before
+  it) inserts `customer_debit_notes` (DRAFT, number `SDN-…`, `reason` —
+  `PRICE_INCREASE`, `SHORT_BILLED`, `ADDITIONAL_CHARGES`, `OTHER` —
+  `taxable_amount`, `tax_amount`, `total_amount`, `sales_invoice_id`) and
+  `customer_debit_note_lines` (`sales_invoice_line_id`, `quantity`,
+  `taxable_amount`, `tax_amount`, **`tax_rate_percent` = the rate that line
+  was charged**). No cap. Lifecycle `CUSTOMER_DEBIT_NOTE.CREATED`; audit
+  `customer_debit_note.created`.
+- **Approve:** journal (`source_module` `customer_debit_note`, reference the
+  SDN number) **Dr 1100 Trade Receivables 118.00 / Cr 4000 Sales Revenue
+  100.00 / Cr 2220 CGST 9.00 / Cr 2230 SGST 9.00** (or 2210 IGST, as the invoice
+  was taxed); receivable row `DEBIT_NOTE` 118.00, `reference_type`
+  `CUSTOMER_DEBIT_NOTE`; `status` APPROVED; audit
+  `customer_debit_note.approved`. The invoice row is **not** changed: what it
+  owes is derived (`settled_against` less `debited_against`).
+- **Not written:** no stock, no allocation row.
+- **Cancel:** journal mirrored `SDN-…-REV` on the day, receivable reversed by
+  its deltas; refused while money allocated to the invoice exceeds the
+  invoice without this note.
+- **Check:**
+  ```sql
+  select n.debit_note_number, n.status, n.taxable_amount, n.tax_amount,
+         l.tax_rate_percent, n.journal_entry_id is not null as posted
+  from   fx_<suffix>_s.customer_debit_notes n
+  join   fx_<suffix>_s.customer_debit_note_lines l
+         on l.debit_note_id = n.id and l.is_deleted = false;
+  ```
+
 ### 11.18 Proforma — posts nothing and does not follow the order (TC-SELL-017)
 
 - **Raise** (the order must be APPROVED, PARTIALLY_DELIVERED, DELIVERED or

@@ -38,11 +38,12 @@ else — raising, editing, sending, approving a delivery note — writes history
 | **Hold** / release the order | Flag only — status kept | Stays reserved | — | — | Delivery notes refused while held | — |
 | **Cancel** the order | CANCELLED | Reservation **released** | — | — | Promotion claims reversed | Already closed/cancelled |
 | Raise / approve a **delivery note** | DRAFT → APPROVED | — | — | — | — | Order on hold; order not approved |
-| **Dispatch** the delivery note | DISPATCHED; order → PARTIALLY_DELIVERED / DELIVERED | Reservation released, **on hand down** | Dr 5200 Cost of Goods Sold / Cr 1200 Inventory (at moving average) | — | — | Available stock short; no open period |
+| **Dispatch** the delivery note | DISPATCHED; order → PARTIALLY_DELIVERED / DELIVERED | Reservation released, **on hand down** (from the batches picked, if the line names any) | Dr 5200 Cost of Goods Sold / Cr 1200 Inventory (at moving average) | — | A **Sale** note with no approved invoice yet is judged by the firm's dispatch policy: Off says nothing, **Warn** (default) lets it go and keeps the warning in the audit trail; the challan prints its reason | Available stock short; no open period; policy **Block** on a Sale note with no approved invoice; a batch pick that is expired, short, or of another product |
+| **Dispatch and invoice** | DISPATCHED, and the invoice APPROVED, in one action | As a dispatch | Both journals: the cost of goods sold, then the invoice's receivable, sales and output tax | **Up** by the invoice total | The invoice exists at removal | Either half refused (e.g. price below its floor) -- then nothing is dispatched |
 | **Cancel** a delivery note | CANCELLED | — | — | — | — | Already DISPATCHED / COMPLETED / CLOSED |
 | Raise a **sales invoice** (draft) | DRAFT | — | — | — | Tax breakup stored for reprint | Billing more than was dispatched |
 | **Approve** the invoice | APPROVED | — (stock left at dispatch) | Dr 1100 Trade Receivables / Cr 4000 Sales + Cr 2200 Output Tax | **Up** by the grand total | Loyalty points earned (if scheme on): Dr 5700 Loyalty Expense / Cr 2600 Loyalty Payable; appears in GST Returns | Credit BLOCK; closed period; missing control account |
-| **Cancel** an approved invoice | CANCELLED | — | Mirror of the approval journal | **Down** by the grand total | Drops out of GST Returns | Money applied from a receipt; a live credit note or sales return; loyalty points spent on it; registered with the tax authority (message names each) |
+| **Cancel** an approved invoice | CANCELLED | — | Mirror of the approval journal | **Down** by the grand total | Drops out of GST Returns | Money applied from a receipt; a live credit note, **debit note** or sales return; loyalty points spent on it; registered with the tax authority (message names each) |
 | **Record a receipt** | Receipt POSTED | — | Dr 1010 Bank (or Cash) / Cr 1100 Trade Receivables | **Down**; excess over what is owed becomes unapplied **advance** | TCS if applicable (next row); commission on collected basis counts it | Allocations above what an invoice owes |
 | …with **TCS** due (buyer past the threshold) | Register row COLLECTED | — | Separate entry `TCS-RC-…`: Dr 1100 Trade Receivables / Cr 2500 TCS Payable | Falls by receipt **less** the TCS | 0.1% with PAN, 1% without, on the part above the threshold | — |
 | **Apply an advance** to an invoice | — | — | **None** (the receipt already posted) | Only the advance part moves | — | More than the unapplied advance |
@@ -50,6 +51,8 @@ else — raising, editing, sending, approving a delivery note — writes history
 | **Refund** an advance | Refund POSTED | — | Dr 1100 Trade Receivables / Cr 1010 Bank | Advance down | — | More than the advance |
 | **Redeem loyalty points** on a bill | — | — | Dr 2600 Loyalty Payable / Cr 1100 Trade Receivables | **Down** (settles part of the bill, tax unchanged) | Points balance down | More points than held |
 | **Credit note** approve | APPROVED | — | Dr 4100 Sales Returns + Dr 2200 Output Tax / Cr 1100 Trade Receivables | **Down** | Lands in GST Returns CDNR in the month issued | More than the invoice line's charged value less earlier credits |
+| **Debit note to a customer** approve | APPROVED | — (no stock moves) | Dr 1100 Trade Receivables / Cr 4000 Sales + Cr output tax per GST head, at the rate each line was charged | **Up**, and owed **on the invoice**: a receipt allocated to it settles it | GSTR-1 CDNR note type D; GSTR-3B `debit_notes_added`; prefix SDN | Not a draft; invoice not approved; nothing charged. No cap on the amount -- the control is the separate `CUSTOMER_DEBIT_NOTE_APPROVE` |
+| **Cancel** a debit note | CANCELLED | — | Mirror of the approval journal | **Down** | — | Money received on the invoice has already met it (reverse that receipt first) |
 | **Sales return** complete | COMPLETED | **On hand up** (goods back) | Two entries: Dr 4100 Sales Returns + Dr 2200 Output Tax / Cr 1100; and Dr 1200 Inventory / Cr 5200 COGS | **Down** | — | More than was delivered |
 | **Proforma** issue | ISSUED | — | **None, by design** | — | Own PI number series | Order not approved |
 | **E-invoice** register / e-way bill | REGISTERED (SANDBOX) | — | — | — | Reference `SBX…` — nothing is filed | No GSTIN / HSN (named) |
@@ -62,9 +65,9 @@ else — raising, editing, sending, approving a delivery note — writes history
 | Raise a goods receipt (draft) | DRAFT | — | — | — | Order not approved |
 | **Complete** the goods receipt | COMPLETED; order → PARTIALLY_RECEIVED / RECEIVED | **On hand up** | Dr 1200 Inventory / Cr 2300 Goods Received Not Invoiced (cost, no tax) | — | — |
 | **Cancel** a completed receipt | CANCELLED | Stock back off | Reversal at the moving average; gap to 5400 Purchase Price Variance | — | Already invoiced (use a purchase return) |
-| **Approve** a purchase invoice | APPROVED | — | Dr 2300 GRNI + Dr 1300 Input Tax / Cr 2100 Trade Payables; price difference to 5400 | **Up** | Closed period |
+| **Approve** a purchase invoice | APPROVED | — | Dr 2300 GRNI + Dr 1300 Input Tax / Cr 2100 Trade Payables; price difference to 5400. On a line whose credit is **Blocked** (s.17(5)) or **Ineligible**, its tax goes to Dr 5450 Input Tax Not Claimable instead of 1300 | **Up** | Closed period |
 | **Record a payment** | POSTED | — | Dr 2100 Trade Payables / Cr 1010 Bank | **Down** | — |
-| **Purchase return** complete | COMPLETED | **On hand down** | Dr 2100 Trade Payables / Cr 1200 Inventory + Cr 1300 Input Tax | **Down** | — |
+| **Purchase return** complete | COMPLETED | **On hand down** | Dr 2100 Trade Payables / Cr 1200 Inventory + Cr 1300 Input Tax; off a bill paid reverse charge, its share of the reverse-charge tax comes off too | **Down** | — |
 
 ## Stock on its own
 
@@ -96,7 +99,9 @@ else — raising, editing, sending, approving a delivery note — writes history
 | **Reverse** a posted entry | Mirror entry | — |
 | Customer **opening balance** | Dr 1100 Trade Receivables / Cr Opening Balance Equity | No chart or open period → refused |
 | **Credit policy** change | Next approvals judged by it | Needs `CUSTOMER_MANAGE_SETTINGS` |
-| **GST Returns** | Nothing stored — read from the documents every time | A cancelled invoice drops out; a credit note lands in its issue month |
+| **GST Returns** | The two returns store nothing -- read from the documents every time | A cancelled invoice drops out; a credit note or debit note lands in its issue month. 3B lists blocked credit in 4(A)(5)/4(B)(1) and ineligible credit in 4(D)(2) |
+| **Import GSTR-2B** and reconcile | Each portal document reads Matched, Different, In 2B only, or In books only | Changes the 3B claim only if the firm chose *claim matched bills only* (default: all bills, with what 2B lacks listed) |
+| **Mark a return filed** | A row in `gst_return_filings` | The **tax calendar** on Home shows that month's GSTR-1/3B as done instead of due or late |
 
 ## Two quick sanity checks after any test
 

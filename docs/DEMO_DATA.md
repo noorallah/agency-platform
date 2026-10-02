@@ -82,6 +82,30 @@ problem first. Expect this every time a master gains a field the demo needs.
 
 **The demo reaches the five paths nothing had exercised, as of 2026-09-08.** `docs/MODULE_STATUS.md` had listed them: 42 of 182 tables held no live row anywhere, and five of those were whole code paths the demo could not reach. Each is now one deliberate choice on one blueprint rather than a setting everywhere, so the ordinary case sits beside the exceptional one. **FOOD01 leaves the delivery note to the service** (`ships_by_hand=False` → `sales_workflow_settings.delivery_note_stage`), so every one of its invoices is billed off the order and `SalesChainService` dispatches the goods -- the one path that moves stock from an invoice, and one that had never run on a store; `generate_transaction_history.sell()` branches on the firm's setting and the two paths share the same deposit, points, collection, return and credit note tail, because the first cut returned early after the invoice and quietly produced a firm with zero returns. **MEDI01 blocks on credit** (`credit_enforcement=BLOCK`, warn 80, block 100) and CityMed Clinic sits on a 20,000 limit the history crosses, so refused approvals appear in the seeder's notes and the refused orders stay unapproved on the grid -- 40,000 was the first figure and refused nothing in two years, because three bills in four are collected and the exposure peaks near 25,000; the other firms get a WARN row rather than none, so `credit_control_settings` is configured everywhere. **ELEC01's mixer grinder is serialised** (`requires_serial=True` → `track_serial`, tracking only, so receipts and issues do not demand the numbers and the history is unaffected) and up to twenty serials with warranty dates are laid onto the inventory record the history left; that needed `SERIAL_NUMBER` and `WARRANTY` on the ELECTRONICS profile, which the feature seed backfills. **Each firm's first product carries a `Case` packaging level** with a barcode, and **each firm has two cost centres, two profit centres and one posted manual journal naming them** -- a manual expense, since the automatic postings name no centre and a seeded account that required one would refuse them. The seeder prints a `once-empty paths` line per firm with the five counts, so a store that seeded without one is visible from the entry point. `lots` still holds nothing.
 
+## What the seeders do not yet exercise, as of 2026-10-02
+
+The night of 2026-10-02 added eight features and **no seeder drives any of
+them**, which is the state this file's other sections exist to warn about, so
+each is listed rather than left to be found. Checked by searching
+`scripts/` and the seed modules for the names, not remembered.
+
+| Feature | What the demo holds | Consequence |
+| --- | --- | --- |
+| Customer debit notes (A40) | none in any store | the whole approve, post and settle path runs on tests alone |
+| Purchase return outcome and supplier refunds (A34, D-BUY-20) | every return takes the default `CREDIT`; no refund, no return off a paid bill | replacement and refund paths are unexercised |
+| Delivery-note challan reason and the dispatch-before-invoice policy (A35) | every note is a *Sale*; no firm has a GST Documents row | the warn and block paths and *Dispatch and invoice* are unexercised |
+| Batch picks on a delivery line (A38) | the history lets dispatch draw earliest expiry first, so the table fills with the FEFO split but never with a person's own choice | no `delivery_note.fefo_skipped` row exists |
+| Input credit per bill line and supplier GST type (A36, A37) | vendors carry no declared GST type; no bill line is blocked | the 5450 posting and the composition and overseas branches are unexercised |
+| GSTR-2B import and reconciliation | no import | matching and the matched-only claim run on tests alone |
+| Tax calendar (`gst_return_filings`) | no filing recorded | every month on Home reads as due or late |
+| Rate includes GST on orders and quotations (A32) | none seeded with it on | |
+| Reorder planning from sales (A39) | no firm has a settings row, so all use typed levels | the 90-day formula is unexercised |
+| Messaging (2026-10-01) | no firm has switched it on | sending runs on tests alone |
+
+Run the *which columns no live row populates* sweep when these are driven, and
+add the one-line `once-empty paths` entry for each so a store that seeded
+without it is visible from the entry point.
+
 ## The demo seeds the incentives
 
 **The demo seeds the incentives as of 2026-09-03**, and each firm carries

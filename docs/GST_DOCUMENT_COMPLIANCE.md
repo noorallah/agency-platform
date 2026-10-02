@@ -74,11 +74,12 @@ rules about what a firm may skip are in `docs/SALES_CHAIN_RULES.md`.
 | E-invoice: IRN, QR, 24-hour cancellation, e-way bill from the IRN | Built, **sandbox only** (`app/einvoice`) |
 | E-invoice live through a GSP | **Not built** (§55 M2) |
 | E-invoice for credit and debit notes | **Not built** -- registration links to `sales_invoices` only |
-| Whether a firm must e-invoice, and the 30-day rule | **Not recorded** -- any firm can register, none is required to |
-| E-way bill for a firm that does not e-invoice | **Not possible** -- generation needs a registered IRN |
+| Whether a firm must e-invoice, and the 30-day rule | **Recorded, not yet enforced** (#903): *e-invoicing applies from* and *30-day rule from* are dated firm settings (Settings > Tax > GST documents, `TAX_MANAGE_SETTINGS`); nothing yet refuses an unregistered B2B invoice or a late registration |
+| E-way bill for a firm that does not e-invoice | **Still not possible** -- generation needs a registered IRN (A35 decides otherwise; not yet built) |
 | E-way bill for a challan with no invoice (stock transfer, job work) | **Not possible** |
-| Dispatch before the invoice exists | **Allowed without question** (the delivery-note stage) |
-| Why a challan went out without an invoice | **Not recorded** |
+| Dispatch before the invoice exists | **Judged by a firm policy** (#903): OFF, WARN (the default) or BLOCK, applied to a Sale note (and a van or route sale only if the firm says *route sales need the invoice first*) dispatched by hand with no approved invoice; the warning is recorded on the dispatch and names CGST s.31. A bill that dispatches the note it raised is never judged (`GstComplianceService.dispatch_check`) |
+| *Dispatch and invoice* | **Built** (#903): `POST /api/v1/delivery-notes/{id}/dispatch-and-invoice` raises and approves the invoice in the same transaction as the dispatch |
+| Why a challan went out without an invoice | **Recorded and printed** (#903): every delivery note carries `challan_reason` -- Sale (default), Van or route sale, Supply on approval, Quantity not known, Job work, Other with a note |
 | Credit note after 30 November | **Not checked** |
 | Bill of supply | **Not built** |
 
@@ -216,9 +217,9 @@ goes live; **P2** for every firm; **P3** completes the picture.
 
 | # | Change | Pri |
 | --- | --- | --- |
-| 1 | **Firm GST settings:** *e-invoicing applies* (turnover crossed ₹5 cr) and *30-day rule applies* (₹10 cr or more), dated, set by the firm administrator | P1 |
-| 2 | **Invoice before dispatch:** a per-firm policy -- *warn* (default) or *block* -- when a delivery note is dispatched with no invoice and no challan reason | P1 |
-| 3 | **Challan reason** on the delivery note: sale (invoice follows at once), on approval, job work, stock transfer, quantity not known, other; printed on the challan | P1 |
+| 1 | **Firm GST settings:** *e-invoicing applies* (turnover crossed ₹5 cr) and *30-day rule applies* (₹10 cr or more), dated, set by the firm administrator -- **built 2026-10-02 (#903)**, recorded only until rows 6 and 7 read them | P1 |
+| 2 | **Invoice before dispatch:** a per-firm policy -- *off*, *warn* (default) or *block* -- when a delivery note is dispatched with no invoice and no challan reason, with *Dispatch and invoice* -- **built 2026-10-02 (#903)** | P1 |
+| 3 | **Challan reason** on the delivery note: sale (invoice follows at once), on approval, job work, stock transfer, quantity not known, other; printed on the challan -- **built 2026-10-02 (#903)** | P1 |
 | 4 | **E-invoice credit notes and debit notes**, not only invoices: a document type on the registration | P1 |
 | 5 | **Debit note to a customer** (§67 row 7) -- **built 2026-10-02** | P1 |
 | 6 | **Refuse to print or send a B2B invoice without an IRN** where e-invoicing applies; a B2C invoice is unaffected | P1 |
@@ -231,7 +232,7 @@ goes live; **P2** for every firm; **P3** completes the picture.
 | 13 | **16-character check** on GST document numbering rules | P3 |
 | 14 | **Bill of supply** for exempt goods and composition firms | P3 |
 
-**Order of work:** 2, 3 and 1 (small, and they settle the flow) → 5 and 4 →
+Rows 1 to 3 and 5 are built; 4 and 6 to 14 are not. **Order of work:** 2, 3 and 1 (small, and they settle the flow) → 5 and 4 →
 9, 10, 11 → 6, 7 → 8 once a GSP is chosen → 12-14.
 
 ## 5. Decisions

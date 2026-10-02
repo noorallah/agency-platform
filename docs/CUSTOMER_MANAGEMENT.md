@@ -73,7 +73,7 @@ A customer carries three figures, and only one of them is an input.
 | Field | Written by |
 | --- | --- |
 | `opening_balance` | The user, at create. Effectively frozen afterwards |
-| `current_outstanding` | Receivable activity — invoices, receipts, credit notes, returns |
+| `current_outstanding` | Receivable activity — invoices, debit notes to the customer, receipts, credit notes, returns |
 | `unapplied_advance_balance` | Money received against no invoice |
 
 **An opening balance posts to the ledger.** Creating a customer with one debits

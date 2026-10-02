@@ -448,12 +448,30 @@ paper, each copy its own page, the same facts as the A4 bill (seller, GSTIN, num
 buyer, lines, tax by rate, total in words, terms). It applies to every document that
 prints through the shared renderer. Still open: sending the PDF by email or WhatsApp.
 
+**Added to the document screens, 2026-10-02** (all in the same shared pieces):
+**Sell > Documents > Debit Notes** (a customer debit note, drawn like the credit
+note it mirrors: pick the invoice, its lines, no stock); the **Rate includes
+GST** switch in the header of the sales order and quotation, as on the
+invoice; on the **delivery note**, a **Reason** and, in the side panel, the
+**batch picker** (every batch of the line's product in its warehouse, nearest
+expiry first and pre-filled, expired ones disabled, **Use earliest expiry** to
+go back); the delivery notes list's **Dispatch** asks *Dispatch and invoice* or *Dispatch anyway* when a sale has no invoice yet; on the **purchase order**, a billing
+chip (*Not billed*, *Part billed*, *Billed*) and **Complete** after the status,
+and a *Received and billed* block in the line's side panel once the order has
+left draft. **Accounts > Tax filing > GSTR-2B Reconciliation** is a screen of
+its own. None of these is ever sent back on a save except what the user typed.
+
 ### 4.9 Home per role
 
 A counter clerk, a storeman, an accountant and an owner get different homes:
 today's numbers (sales, receipts due, stock below reorder), their to-do
 (orders to approve, deliveries pending), favourites and recent documents.
 Built from the same permissions the menu uses.
+
+**Tax calendar (2026-10-02).** For whoever may open GST Payment, a card below
+*To do* lists the last three finished months' GSTR-1, GSTR-3B and TCS deposit as
+due, late by N days, or filed, with **Mark filed** (date and acknowledgement
+number, in its own dialog) and *Undo*; its rows open GST Returns or GST Payment.
 
 ### 4.10 Keyboard
 
@@ -549,11 +567,11 @@ visits to look through, not a place they work:
 
 | Section | What it holds (phase 1 home in brackets) |
 | --- | --- |
-| **Firm** | Firm Settings (Masters), Financial Years (Masters), Numbering Series (Administration) |
-| **Selling** | Sales workflow stages (dialog on Sales Invoices), Credit control (dialog on Customers), Loyalty scheme (dialog on Loyalty), TCS (dialog on TCS) |
-| **Buying** | Purchase Settings (Purchases) |
+| **Firm** | Firm Settings (Masters), Financial Years (Masters), Numbering Series (Administration); added later: My Branch and Warehouse, Messaging |
+| **Selling** | Sales workflow stages (dialog on Sales Invoices), Credit control (dialog on Customers), Loyalty scheme (dialog on Loyalty), TCS (dialog on TCS); added later: Price Floor, Discount Limits |
+| **Buying** | Purchase Settings (Purchases), which also holds **Reorder planning** (typed levels or from sales, 2026-10-02); added later: Approval Limits |
 | **Stock** | Inventory Settings (Inventory), Branch & Warehouse Settings (Masters) |
-| **Tax** | Tax Configuration, Tax Rules, Rule Simulator, Execution Log, Tax Settings (all Administration) |
+| **Tax** | Tax Configuration, Tax Rules, Rule Simulator, Execution Log, Tax Settings (all Administration); added 2026-10-02: **GST Documents** (dispatch before invoice, route sales, e-invoicing dates, how input credit is claimed against GSTR-2B) |
 | **Business profile** | Feature Management, Module Configuration, Attribute Definitions, Mandatory Attributes, Profile Assignment, Industry Templates (Administration) |
 | **Printing** | print settings for invoices, delivery notes and purchase orders (dialogs on three lists) |
 | **This PC and me** | server address (Application Settings), theme, density, landing page, export format, printer -- per user and per PC |

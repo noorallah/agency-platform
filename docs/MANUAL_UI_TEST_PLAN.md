@@ -319,6 +319,12 @@ Anand's negotiated list, BULK5, BIGORDER, CLEARANCE, WELCOME and its two
 coupons, TCS, loyalty), and four stage fixtures carry one sale to where each
 step begins.
 
+Cases added after this section was moved (the challan reason, the dispatch
+policy, **Dispatch and invoice**, the batch picker, the debit note to a
+customer, input credit eligibility, GSTR-2B) are in
+`docs/INDEPENDENT_TEST_CASES.md` and `docs/qa/08_SELLING.md`,
+`docs/qa/11_COMPLIANCE.md` only; they have no old row to map from.
+
 Every pricing figure and document total below was re-driven in a fixture firm
 and matches WHOLE01's: 2%, 6.75%, 9.25%, 7.5%, 2.5%, an invoice of 483.21
 (409.50 + 73.71), a return crediting 193.28, a credit note of 59.00 and its

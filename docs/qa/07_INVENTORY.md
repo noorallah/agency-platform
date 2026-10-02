@@ -58,7 +58,7 @@ toolbar buttons on the Inventory tab and act on the selected row.
 - **Preconditions:** A firm on the **Pharmacy** profile, with a batch-tracked product in two batches with different expiry dates, and two orders for it. (`QA-AMX` in three batches of 10: `-B1` **expired 30 days ago**, `-B2` expiring in 20 days, `-B3` in 400; an approved order for **5**.)
 - **Steps**
   1. Sign in as the prepared **Firm admin** → Inventory → **Batch & Serial** → **Batches**, search `QA-B`.
-  2. Delivery Notes → **New** → the prepared order for 5 → read "Expected to ship from — earliest expiry first, decided at dispatch" → **Save** → **Approve** → **Dispatch**.
+  2. Delivery Notes → **New** → the prepared order for 5 → read "Expected to ship from — earliest expiry first, decided at dispatch" (in the phase 2 editor the side panel instead lists the batches, already filled earliest expiry first; see TC-SELL-019) → **Save** → **Approve** → **Dispatch**.
   3. Batches again; Stock Ledger for `QA-AMX`.
   4. Inventory → Batch & Serial → **Expiry Monitor**.
 - **Expect**
