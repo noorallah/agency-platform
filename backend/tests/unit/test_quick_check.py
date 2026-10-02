@@ -105,3 +105,43 @@ def test_the_command_is_offered_by_the_shipped_binary() -> None:
     )
     assert args.firm == ["KUMAR", "WHOLE01"]
     assert args.no_stores and args.base_url == "http://127.0.0.1:8000"
+
+
+def test_routes_are_grouped_into_the_modules_the_sanity_cases_use() -> None:
+    """A route belongs to the module its first segment names."""
+    from app.diagnostics.quick_check import module_of
+
+    assert module_of("/api/v1/sales-invoices/summary") == "Selling"
+    assert module_of("/api/v1/goods-receipts") == "Buying"
+    assert module_of("/api/v1/finance/trial-balance") == "Accounts"
+    assert module_of("/api/v1/gst-returns/gstr1") == "GST and compliance"
+    # A module named nowhere still shows, under its own segment.
+    assert module_of("/api/v1/something-new") == "something-new"
+
+
+def test_every_walked_route_has_a_named_module() -> None:
+    """A new top-level resource must be filed, or the report scatters it."""
+    from app.diagnostics.quick_check import MODULES, module_of
+    from app.diagnostics.route_walk import select_routes
+    from app.main import create_app
+
+    named = {name for name, _ in MODULES}
+    routes = select_routes(create_app().openapi(), include_exports=False)
+    loose = sorted({module_of(r.path) for r in routes} - named)
+    assert not loose, f"file these under a module in MODULES: {loose}"
+
+
+def test_the_summary_and_page_show_each_firm_module_by_module(
+    tmp_path: Path,
+) -> None:
+    """Per firm: one row per module with its counts, in the cases' order."""
+    report = _report(
+        Check("WHOLE01", "/api/v1/goods-receipts", PASS, module="Buying"),
+        Check("WHOLE01", "/api/v1/sales-invoices", FAIL, "500", module="Selling"),
+        Check("WHOLE01", "/api/v1/quotations", SLOW, "1,200 ms", module="Selling"),
+    )
+    text = summary(report)
+    assert text.index("Selling") < text.index("Buying")
+    assert "  Selling                          0     1     0     1" in text
+    page = write_html(report, tmp_path / "q.html").read_text(encoding="utf-8")
+    assert "<th>Module</th>" in page and "<td class='FAIL'>Selling</td>" in page

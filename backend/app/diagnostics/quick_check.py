@@ -49,6 +49,93 @@ SLOW = "SLOW"
 SKIP = "SKIP"
 FAIL = "FAIL"
 
+#: Which module a route belongs to, by the first segment after ``/api/v1/``,
+#: in the order the sanity cases take them (``docs/qa/SANITY_CHECK.md``). A
+#: segment named nowhere is reported under its own name, so a module added
+#: tomorrow still shows up -- just not grouped until it is named here.
+MODULES: tuple[tuple[str, frozenset[str]], ...] = (
+    (
+        "Masters",
+        frozenset(
+            {
+                "customers",
+                "vendors",
+                "products",
+                "branches",
+                "warehouses",
+                "branch-types",
+                "warehouse-types",
+                "branch-warehouse",
+                "trade-licences",
+                "uom-framework",
+                "firm-members",
+            }
+        ),
+    ),
+    (
+        "Pricing and promotions",
+        frozenset({"price-lists", "promotions", "loyalty"}),
+    ),
+    (
+        "Selling",
+        frozenset(
+            {
+                "quotations",
+                "sales-orders",
+                "delivery-notes",
+                "sales-invoices",
+                "sales-returns",
+                "credit-notes",
+                "customer-debit-notes",
+                "proforma-invoices",
+                "receipts",
+                "refunds",
+            }
+        ),
+    ),
+    (
+        "Buying",
+        frozenset(
+            {
+                "purchases",
+                "goods-receipts",
+                "purchase-invoices",
+                "purchase-returns",
+                "debit-notes",
+                "payments",
+            }
+        ),
+    ),
+    ("Stock", frozenset({"inventory", "batch-serial"})),
+    (
+        "Accounts",
+        frozenset({"finance", "expenses", "contra-vouchers", "party-adjustments"}),
+    ),
+    (
+        "GST and compliance",
+        frozenset({"gst-returns", "einvoice", "tcs", "tax-framework"}),
+    ),
+    (
+        "Field sales and incentives",
+        frozenset({"sales-territories", "sales-targets", "commission"}),
+    ),
+    (
+        "Configuration and audit",
+        frozenset({"business-framework", "document-framework", "audit-logs", "search"}),
+    ),
+)
+
+
+def module_of(path: str) -> str:
+    """Return the module a route belongs to, for grouping the result."""
+    parts = [part for part in path.split("/") if part]
+    segment = parts[2] if len(parts) > 2 else path
+    for name, segments in MODULES:
+        if segment in segments:
+            return name
+    return segment
+
+
 #: Platform screens a signed-in person opens before choosing a firm. A 403
 #: is a SKIP: the person is not an administrator, which is not a defect.
 PLATFORM_READS = (
@@ -69,6 +156,9 @@ class Check:
     status: str
     detail: str = ""
     ms: float | None = None
+    #: The module of a firm's route (``module_of``); empty for the checks
+    #: that are not about one.
+    module: str = ""
 
 
 @dataclass
@@ -206,10 +296,12 @@ def _walk_firm(
                     "the firm has no "
                     + ", ".join(sorted(set(unresolved)))
                     + " to ask about",
+                    module=module_of(route.path),
                 )
             )
             continue
         check = _call(client, label, route, path, params)
+        check.module = module_of(route.path)
         report.checks.append(check)
         if check.status != PASS:
             say(f"  {check.status:<4} {route.path}  {check.detail}")
@@ -385,14 +477,49 @@ def run_quick_check(
     return report
 
 
+def _module_rank(name: str) -> int:
+    """Order modules as the sanity cases take them; unnamed ones last."""
+    names = [module for module, _ in MODULES]
+    return names.index(name) if name in names else len(names)
+
+
+def by_module(checks: list[Check]) -> list[tuple[str, dict[str, int]]]:
+    """Count each module's checks by status, in the sanity cases' order."""
+    counts: dict[str, dict[str, int]] = {}
+    for check in checks:
+        if not check.module:
+            continue
+        tally = counts.setdefault(check.module, {PASS: 0, SLOW: 0, SKIP: 0, FAIL: 0})
+        tally[check.status] = tally.get(check.status, 0) + 1
+    return sorted(counts.items(), key=lambda item: (_module_rank(item[0]), item[0]))
+
+
 def summary(report: QuickCheckReport) -> str:
-    """Return the run's totals and every check that did not pass."""
+    """Return the run's totals, each firm module by module, and every failure."""
     lines = [
         "",
         f"{len(report.checks)} checks: {report.count(PASS)} PASS, "
         f"{report.count(SLOW)} SLOW, {report.count(SKIP)} SKIP, "
         f"{report.count(FAIL)} FAIL",
     ]
+    sections: dict[str, list[Check]] = {}
+    for check in report.checks:
+        sections.setdefault(check.section, []).append(check)
+    for section, checks in sections.items():
+        modules = by_module(checks)
+        if not modules:
+            continue
+        lines.append("")
+        lines.append(section)
+        lines.append(
+            f"  {'module':<28} {'pass':>5} {'slow':>5} {'skip':>5} {'fail':>5}"
+        )
+        for module, tally in modules:
+            lines.append(
+                f"  {module:<28} {tally[PASS]:>5} {tally[SLOW]:>5} "
+                f"{tally[SKIP]:>5} {tally[FAIL]:>5}"
+            )
+    lines.append("")
     for check in report.checks:
         if check.status == FAIL:
             lines.append(f"  FAIL  [{check.section}] {check.name}  {check.detail}")
@@ -441,13 +568,37 @@ def write_html(report: QuickCheckReport, target: Path) -> Path:
             f"<h2>{cell(section)} <span class='{FAIL if failed else PASS}'>"
             f"({len(checks)} checks, {failed} failed)</span></h2>"
         )
-        parts.append("<table><tr><th>Status</th><th>Check</th><th>ms</th>")
-        parts.append("<th>Detail</th></tr>")
-        for check in sorted(checks, key=lambda item: order.get(item.status, 9)):
+        modules = by_module(checks)
+        if modules:
+            parts.append(
+                "<table><tr><th>Module</th><th>Pass</th><th>Slow</th>"
+                "<th>Skipped</th><th>Failed</th></tr>"
+            )
+            for module, tally in modules:
+                worst = next((status for status in (FAIL, SLOW) if tally[status]), PASS)
+                parts.append(
+                    f"<tr><td class='{worst}'>{cell(module)}</td>"
+                    f"<td>{tally[PASS]}</td><td>{tally[SLOW]}</td>"
+                    f"<td>{tally[SKIP]}</td><td>{tally[FAIL]}</td></tr>"
+                )
+            parts.append("</table><p></p>")
+        parts.append("<table><tr><th>Status</th>")
+        if modules:
+            parts.append("<th>Module</th>")
+        parts.append("<th>Check</th><th>ms</th><th>Detail</th></tr>")
+        for check in sorted(
+            checks,
+            key=lambda item: (
+                order.get(item.status, 9),
+                _module_rank(item.module),
+                item.module,
+            ),
+        ):
             ms = f"{check.ms:,.0f}" if check.ms is not None else ""
+            module_cell = f"<td>{cell(check.module)}</td>" if modules else ""
             parts.append(
                 f"<tr><td class='{check.status}'>{check.status}</td>"
-                f"<td>{cell(check.name)}</td><td>{ms}</td>"
+                f"{module_cell}<td>{cell(check.name)}</td><td>{ms}</td>"
                 f"<td>{cell(check.detail)}</td></tr>"
             )
         parts.append("</table>")
