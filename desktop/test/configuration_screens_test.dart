@@ -132,6 +132,35 @@ class _ConfigApi extends ApiClient {
   Future<String> setPeriodCloseSetting(String value) async =>
       closeSetting = value;
 
+  /// The firm's ageing boundaries (ACC-6) and what a save sends.
+  List<int> ageingDays = [30, 60, 90];
+  String? ageingRefusal;
+  final List<List<int>> ageingSaves = [];
+
+  Json _ageing() => <String, dynamic>{
+        'bucket_days': ageingDays,
+        'bands': [
+          for (int i = 0; i <= ageingDays.length; i++)
+            <String, dynamic>{
+              'label': i == ageingDays.length
+                  ? '${ageingDays.last}+'
+                  : '${i == 0 ? 0 : ageingDays[i - 1]}-${ageingDays[i] - 1}',
+            },
+        ],
+      };
+
+  @override
+  Future<Json> ageingSettings() async => _ageing();
+
+  @override
+  Future<Json> updateAgeingSettings(List<int> bucketDays) async {
+    ageingSaves.add(bucketDays);
+    final String? refusal = ageingRefusal;
+    if (refusal != null) throw ApiException(refusal, statusCode: 422);
+    ageingDays = bucketDays;
+    return _ageing();
+  }
+
   @override
   Future<AccountingPeriod> setPeriodStatus(String id, String status) async {
     statusCalls.add('$id:$status');
@@ -371,6 +400,50 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(api.yearCalls, ['reopen:fy-1:Audit adjustment']);
+    });
+
+    testWidgets('ageing columns load, save and show a refusal',
+        (tester) async {
+      final _ConfigApi api =
+          _ConfigApi(years: [_year()], periods: [_period()]);
+      await _pumpYears(tester, api, perms: const [
+        'FINANCIAL_YEAR_VIEW',
+        'FINANCIAL_YEAR_CREATE',
+      ]);
+      const Key box = ValueKey<String>('ageing-bands');
+      expect(find.text('30, 60, 90'), findsOneWidget);
+      expect(find.text('0-29, 30-59, 60-89, 90+'), findsOneWidget);
+
+      await tester.enterText(find.byKey(box), '15, 45');
+      await tester.tap(find.byKey(const ValueKey<String>('ageing-save')));
+      await tester.pumpAndSettle();
+      expect(api.ageingSaves, [
+        [15, 45],
+      ]);
+      expect(find.text('0-14, 15-44, 45+'), findsOneWidget);
+
+      await tester.enterText(find.byKey(box), '15, abc');
+      await tester.tap(find.byKey(const ValueKey<String>('ageing-save')));
+      await tester.pumpAndSettle();
+      expect(api.ageingSaves.length, 1, reason: 'not a number: never sent');
+      expect(find.textContaining('whole numbers'), findsOneWidget);
+
+      api.ageingRefusal = 'Boundaries must rise.';
+      await tester.enterText(find.byKey(box), '45 15');
+      await tester.tap(find.byKey(const ValueKey<String>('ageing-save')));
+      await tester.pumpAndSettle();
+      expect(find.text('Boundaries must rise.'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('ageing columns are hidden without the create code',
+        (tester) async {
+      await _pumpYears(
+        tester,
+        _ConfigApi(years: [_year()], periods: [_period()]),
+        perms: const ['FINANCIAL_YEAR_VIEW'],
+      );
+      expect(find.byKey(const ValueKey<String>('ageing-bands')), findsNothing);
     });
 
     testWidgets('year buttons are hidden without the codes', (tester) async {

@@ -32,6 +32,9 @@ from app.finance.schemas import (
     AccountingPeriodResponse,
     AccountingPeriodUpdate,
     AccountSummary,
+    AgeingBandResponse,
+    AgeingSettingsResponse,
+    AgeingSettingsUpdate,
     BalanceSheetReport,
     ControlAccountAssign,
     ControlAccountResponse,
@@ -308,6 +311,51 @@ def update_period_close_settings(
     )
     db.commit()
     return ApiResponse(data=PeriodCloseSettingsResponse(close_check=value))
+
+
+def _ageing_settings_response(days: tuple[int, ...]) -> AgeingSettingsResponse:
+    """State the firm's boundaries and the columns they make."""
+    from app.finance.services.ageing_settings import band_label
+
+    bounds = (0, *days)
+    return AgeingSettingsResponse(
+        bucket_days=list(days),
+        bands=[
+            AgeingBandResponse(
+                from_days=lower,
+                to_days=bounds[index + 1] - 1 if index + 1 < len(bounds) else None,
+                label=band_label(bounds, index),
+            )
+            for index, lower in enumerate(bounds)
+        ],
+    )
+
+
+@router.get("/ageing-settings", response_model=ApiResponse[AgeingSettingsResponse])
+def get_ageing_settings(
+    scope: YearViewScope, db: Session = Depends(get_db)
+) -> ApiResponse[AgeingSettingsResponse]:
+    """Return the bands the firm's ageing reports are read in (ACC-6)."""
+    from app.finance.services.ageing_settings import AgeingSettingsService
+
+    days = AgeingSettingsService(db).bucket_days(scope.firm_id)
+    return ApiResponse(data=_ageing_settings_response(days))
+
+
+@router.put("/ageing-settings", response_model=ApiResponse[AgeingSettingsResponse])
+def update_ageing_settings(
+    payload: AgeingSettingsUpdate,
+    scope: YearManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[AgeingSettingsResponse]:
+    """Set the firm's ageing boundaries, for customers and suppliers (ACC-6)."""
+    from app.finance.services.ageing_settings import AgeingSettingsService
+
+    days = AgeingSettingsService(db).set_bucket_days(
+        scope.firm_id, payload.bucket_days, actor_id=scope.actor_id
+    )
+    db.commit()
+    return ApiResponse(data=_ageing_settings_response(days))
 
 
 @router.get(

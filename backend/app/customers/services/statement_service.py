@@ -36,8 +36,9 @@ from app.customers.schemas.statement import (
 )
 from app.sales_invoice.models import SalesInvoice
 
-#: The buckets a receivables ageing is read in. Open-ended at the top, because
-#: a debt older than the last boundary still has to appear somewhere.
+#: The buckets a firm that never chose its own is aged in (ACC-6: a firm sets
+#: them in ``ageing_settings``). Open-ended at the top, because a debt older
+#: than the last boundary still has to appear somewhere.
 BUCKET_BOUNDS: tuple[int, ...] = (0, 30, 60, 90)
 
 #: Invoice statuses that represent a real debt. A draft is not a sale and a
@@ -191,7 +192,10 @@ class CustomerStatementService:
         """
         today = as_of or utc_now().date()
         # Imported here: the settlement module imports the customer services.
+        from app.finance.services.ageing_settings import bucket_bounds
         from app.settlements.services.settlement_service import settled_against
+
+        bounds = bucket_bounds(self._session, firm_scope)
 
         query = select(
             SalesInvoice.id,
@@ -331,7 +335,7 @@ class CustomerStatementService:
                     account_balance=balance,
                     unapplied_credits=quantize_ledger(gap) if gap > ZERO else ZERO,
                     charges_not_billed=quantize_ledger(-gap) if gap < ZERO else ZERO,
-                    buckets=self._bucketed(invoices),
+                    buckets=self._bucketed(invoices, bounds),
                     invoices=sorted(
                         invoices, key=lambda row: row.days_overdue, reverse=True
                     ),
@@ -397,16 +401,19 @@ class CustomerStatementService:
             )
 
     @staticmethod
-    def _bucketed(invoices: list[OverdueInvoice]) -> list[AgeingBucket]:
+    def _bucketed(
+        invoices: list[OverdueInvoice], bounds: tuple[int, ...] = BUCKET_BOUNDS
+    ) -> list[AgeingBucket]:
         """Split what is outstanding into the ageing buckets.
 
-        Built from `BUCKET_BOUNDS` rather than written out, so the boundaries
-        are stated once. The last bucket is open-ended: a debt older than the
+        Built from the firm's boundaries rather than written out, so they are
+        stated once (ACC-6). The last bucket is open-ended: a debt older than the
         final boundary still has to appear somewhere, and a set of buckets
         that does not add up to the total is one nobody can reconcile.
 
         Args:
             invoices: What is outstanding for one customer.
+            bounds: The lower edge of each band, from zero.
 
         Returns:
             One bucket per band, in order, including empty ones.
@@ -415,18 +422,14 @@ class CustomerStatementService:
         buckets = [
             AgeingBucket(
                 from_days=lower,
-                to_days=(
-                    BUCKET_BOUNDS[index + 1] - 1
-                    if index + 1 < len(BUCKET_BOUNDS)
-                    else None
-                ),
+                to_days=(bounds[index + 1] - 1 if index + 1 < len(bounds) else None),
                 amount=ZERO,
             )
-            for index, lower in enumerate(BUCKET_BOUNDS)
+            for index, lower in enumerate(bounds)
         ]
         for invoice in invoices:
             slot = 0
-            for index, lower in enumerate(BUCKET_BOUNDS):
+            for index, lower in enumerate(bounds):
                 if invoice.days_overdue >= lower:
                     slot = index
             buckets[slot].amount = quantize_ledger(

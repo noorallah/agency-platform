@@ -164,6 +164,28 @@ class PeriodCloseSettingsUpdate(FinanceSchema):
     close_check: str = Field(pattern=r"^(WARN|BLOCK)$")
 
 
+class AgeingBandResponse(FinanceSchema):
+    """One column of the firm's ageing: ``0-29``, ``90+``."""
+
+    from_days: int
+    #: None on the last band, which is open-ended.
+    to_days: int | None
+    label: str
+
+
+class AgeingSettingsResponse(FinanceSchema):
+    """The ageing bands the firm reads what it is owed and owes in (ACC-6)."""
+
+    bucket_days: list[int]
+    bands: list[AgeingBandResponse]
+
+
+class AgeingSettingsUpdate(FinanceSchema):
+    """Set the firm's ageing boundaries: ``[30, 60, 90]`` is 0-29 ... 90+."""
+
+    bucket_days: list[int] = Field(min_length=1, max_length=5)
+
+
 class AccountingPeriodResponse(FinanceSchema):
     """Return one accounting period."""
 
@@ -967,6 +989,9 @@ __all__ = [
     "AccountTypeEnum",
     "AccountingPeriodCreate",
     "AccountingPeriodResponse",
+    "AgeingBandResponse",
+    "AgeingSettingsResponse",
+    "AgeingSettingsUpdate",
     "PeriodCloseCheckItemResponse",
     "PeriodCloseCheckResponse",
     "PeriodCloseSettingsResponse",

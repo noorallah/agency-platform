@@ -694,6 +694,28 @@ def get_overdue_invoices(
 
 
 @router.get(
+    "/reports/due",
+    response_model=ApiResponse[list[SalesInvoiceOverdueRecord]],
+    status_code=status.HTTP_200_OK,
+)
+def get_invoices_falling_due(
+    scope: SalesInvoiceReportScope,
+    db: Annotated[Session, Depends(get_db)],
+    days: Annotated[int, Query(ge=0, le=366)] = 7,
+) -> ApiResponse[list[SalesInvoiceOverdueRecord]]:
+    """List the invoices falling due from today to ``days`` ahead (ACC-6).
+
+    ``days=0`` is what falls due today; the default, 7, is the week ahead.
+    An invoice already overdue is on the overdue list, not here.
+    """
+    return ApiResponse(
+        data=SalesInvoiceService(db).overdue_report(
+            firm_scope=scope.firm_id, due_within=days
+        )
+    )
+
+
+@router.get(
     "/reports/summary",
     response_model=ApiResponse[SalesInvoiceSummary],
     status_code=status.HTTP_200_OK,

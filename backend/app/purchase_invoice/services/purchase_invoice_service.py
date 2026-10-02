@@ -7,7 +7,7 @@ import io
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -1212,7 +1212,9 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             )
         return sorted(records, key=lambda item: (item.pay_by, item.invoice_number))
 
-    def overdue_report(self, *, firm_scope: UUID) -> list[PurchaseInvoiceOverdueRecord]:
+    def overdue_report(
+        self, *, firm_scope: UUID, due_within: int | None = None
+    ) -> list[PurchaseInvoiceOverdueRecord]:
         """List the bills past their due date that still owe something.
 
         Judged on what is owed rather than on status: a bill paid in full used
@@ -1222,10 +1224,18 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         payment terms.
         """
         today = utc_now().date()
+        # ``due_within`` turns the list round to what falls due from today
+        # to that many days ahead (ACC-6): 0 is today, 7 the week ahead.
+        last = None if due_within is None else today + timedelta(days=due_within)
         owing = [
             record
             for record in self._owing(firm_scope=firm_scope)
-            if record.due_date is not None and record.due_date < today
+            if record.due_date is not None
+            and (
+                record.due_date < today
+                if last is None
+                else today <= record.due_date <= last
+            )
         ]
         # The two things the row needs of the bill, never the whole row, and
         # in chunks: a firm's overdue bills can be more ids than one statement
@@ -1263,7 +1273,8 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                     vendor_name=names.get(record.party_id, str(record.party_id)),
                     invoice_date=record.invoice_date,
                     due_date=record.due_date,
-                    days_overdue=(today - record.due_date).days,
+                    days_overdue=max((today - record.due_date).days, 0),
+                    days_until_due=max((record.due_date - today).days, 0),
                     grand_total=record.invoice_total if row is None else row[1],
                     allocated_amount=record.allocated_amount,
                     outstanding_amount=record.outstanding_amount,

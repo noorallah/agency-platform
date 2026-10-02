@@ -2093,7 +2093,9 @@ class SalesInvoiceService(TransactionalDocumentService):
             firm_id=firm_scope, party_id=None
         )
 
-    def overdue_report(self, *, firm_scope: UUID) -> list[SalesInvoiceOverdueRecord]:
+    def overdue_report(
+        self, *, firm_scope: UUID, due_within: int | None = None
+    ) -> list[SalesInvoiceOverdueRecord]:
         """List the invoices past their due date that still owe something.
 
         Judged on what is owed rather than on status: a collected invoice
@@ -2102,10 +2104,18 @@ class SalesInvoiceService(TransactionalDocumentService):
         23 were paid in full).
         """
         today = utc_now().date()
+        # ``due_within`` turns the list round to what falls due from today
+        # to that many days ahead (ACC-6): 0 is today, 7 the week ahead.
+        last = None if due_within is None else today + timedelta(days=due_within)
         owing = [
             record
             for record in self._owing(firm_scope=firm_scope)
-            if record.due_date is not None and record.due_date < today
+            if record.due_date is not None
+            and (
+                record.due_date < today
+                if last is None
+                else today <= record.due_date <= last
+            )
         ]
         # The two things the row needs of the invoice, never the whole row.
         invoices: dict[UUID, tuple[str | None, Decimal]] = {}
@@ -2141,7 +2151,8 @@ class SalesInvoiceService(TransactionalDocumentService):
                     customer_name=names.get(record.party_id, str(record.party_id)),
                     invoice_date=record.invoice_date,
                     due_date=record.due_date,
-                    days_overdue=(today - record.due_date).days,
+                    days_overdue=max((today - record.due_date).days, 0),
+                    days_until_due=max((record.due_date - today).days, 0),
                     # The bill as Record Receipt states it -- with any debit
                     # note raised on it (backlog 77 row 5) -- so the row's
                     # total less what was settled is what it still owes.

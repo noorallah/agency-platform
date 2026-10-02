@@ -108,7 +108,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | ACC-3 | §74.1 row 12 | How money moved: UPI, cheque, NEFT, card, cash, with number and date -- **built 2026-10-02** (A49) | Nothing | S | Claude alone |
 | ACC-4 | §74.1 row 13 | The firm's bank details printed on bills; account numbers masked | Nothing | M | Claude alone |
 | ACC-5 | §74.1 row 14 | Checks before closing a month -- **built 2026-10-02** (A50) | Nothing | S | Claude alone |
-| ACC-6 | §74.1 row 16 | Ageing buckets set per firm; due today and this week | Nothing | S | Claude alone |
+| ACC-6 | §74.1 row 16 | Ageing buckets set per firm; due today and this week -- **built 2026-10-03** (A51) | Nothing | S | Claude alone |
 | ACC-7 | §53.1 | TDS challan screen; a supplier's usual TDS section | Nothing | M | Claude alone |
 | ACC-8 | §42.4 | TDS 194Q worked out automatically past ₹50 lakh per supplier | Nothing (CA confirms the rate at hand-over) | M | Claude alone |
 | ACC-9 | §74 row 5 | Cash flow statement | Nothing | M | Claude alone |
@@ -560,6 +560,8 @@ otherwise it is built as written.
 - **What it is:** a firm chooses its ageing columns, and sees what falls due today and this week.
 - **What gets built:** buckets per firm replacing the fixed `BUCKET_BOUNDS` in `statement_service.py` (migration for the setting); "due today / this week" filters on the receivable and payable due lists. Tests.
 - **Depends on:** nothing. **Effort / Who:** S, Claude alone.
+
+- **Built 2026-10-03** (A51): `app/finance/services/ageing_settings.py`; `ageing_settings` (migration 0238); `GET`/`PUT /finance/ageing-settings`; the customer and vendor ageing both read the firm's bands (the vendor ageing row now carries `buckets` instead of four fixed columns); `GET /sales-invoices/reports/due` and `/purchase-invoices/reports/due?days=` (0 = today, 7 = the week ahead); the bands are set on the Financial years screen. Tests in `test_customer_statement.py` and `test_stock_and_vendor_ageing.py`.
 
 #### ACC-7. TDS challan screen; a supplier's default section (§53.1)
 - **What it is:** record the TDS deposit as a challan, and stop typing the section on every payment.

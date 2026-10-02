@@ -45,6 +45,8 @@ class _StatementApi extends ApiClient {
   @override
   Future<List<int>> downloadBytes(
     String path, {
+    Json? body,
+    String method = 'GET',
     Map<String, String>? query,
     bool retrying = false,
   }) async {

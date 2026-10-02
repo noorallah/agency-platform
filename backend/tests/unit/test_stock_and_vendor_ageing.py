@@ -19,6 +19,7 @@ from uuid import UUID
 from sqlalchemy import event
 
 from app.core.utils.dates import utc_now
+from app.finance.services.ageing_settings import AgeingSettingsService
 from app.inventory.api.router import dead_stock, router, slow_moving_stock, stock_ageing
 from app.inventory.models import InventoryTransaction
 from app.inventory.services.stock_ageing import StockAgeingService
@@ -276,12 +277,31 @@ def test_vendor_ageing_buckets_what_record_payment_says_is_owed() -> None:
     assert [row.vendor_code for row in rows] == ["V-ACME", "V-BOLT"]
     acme_row, bolt_row = rows
     assert acme_row.total_outstanding == Decimal("350.00")
-    assert (
-        acme_row.days_0_29,
-        acme_row.days_30_59,
-        acme_row.days_60_89,
-        acme_row.days_90_plus,
-    ) == (Decimal("100.00"), Decimal("200.00"), Decimal("0.00"), Decimal("50.00"))
+    assert [(band.label, band.amount) for band in acme_row.buckets] == [
+        ("0-29", Decimal("100.00")),
+        ("30-59", Decimal("200.00")),
+        ("60-89", Decimal("0.00")),
+        ("90+", Decimal("50.00")),
+    ]
     assert acme_row.bills == 3
     assert acme_row.oldest_days == 100
-    assert bolt_row.days_90_plus == Decimal("50.00")
+    assert bolt_row.buckets[-1].amount == Decimal("50.00")
+
+    # The firm's own bands (ACC-6): the same bills read in 0-14 / 15-59 / 60+.
+    AgeingSettingsService(session).set_bucket_days(firm, [15, 60], actor_id=firm)
+    acme_row = vendor_ageing(report_scope(firm), db=session).data[0]
+    assert [(band.label, band.amount) for band in acme_row.buckets] == [
+        ("0-14", Decimal("100.00")),
+        ("15-59", Decimal("200.00")),
+        ("60+", Decimal("50.00")),
+    ]
+
+    # Falling due (ACC-6): the bill five days ahead is in the week, not today.
+    from app.purchase_invoice.api.router import purchase_invoices_falling_due
+
+    week = purchase_invoices_falling_due(report_scope(firm), days=7, db=session)
+    assert [(row.outstanding_amount, row.days_until_due) for row in week.data] == [
+        (Decimal("100.00"), 5)
+    ]
+    today_only = purchase_invoices_falling_due(report_scope(firm), days=0, db=session)
+    assert today_only.data == []
