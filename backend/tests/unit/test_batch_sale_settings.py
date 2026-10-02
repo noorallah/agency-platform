@@ -338,3 +338,93 @@ def test_a_bill_is_judged_on_the_batches_its_note_shipped(
     assert len(result.findings) == 1
     assert (result.findings[0].exemption is not None) is exempt
     assert result.would_block is not exempt
+
+
+# -- A customer's minimum shelf life (row 6) --------------------------------------
+
+
+def _wants(shop: _Shop, days: int, *, policy: str = "BLOCK") -> None:
+    """Give the order's customer a minimum shelf life, and the firm a rule."""
+    from app.customers.models import Customer
+
+    customer = shop.session.get(Customer, shop.order.customer_id)
+    assert customer is not None
+    customer.minimum_shelf_life_days = days
+    shop.session.commit()
+    BatchSalePolicyService(shop.session).update_settings(
+        BatchSaleSettingsWrite(
+            near_expiry_days=30,
+            near_expiry_policy="WARN",
+            fefo_skip_policy="RECORD",
+            near_expiry_below_floor=True,
+            shelf_life_policy=policy,  # type: ignore[arg-type]
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor_id,
+    )
+
+
+def test_earliest_expiry_passes_over_a_batch_too_short_for_the_customer() -> None:
+    """MARCH has 196 days, the customer wants 200: JUNE goes instead."""
+    shop = _Shop()
+    _wants(shop, 200)
+    note = shop.note(None)
+
+    shop.dispatch(note)
+
+    assert shop.drawn(note) == {"JUNE": Decimal("8.0000")}
+    assert shop.stock("MARCH").reserved_quantity == Decimal("0.0000")
+
+
+def test_a_short_batch_chosen_by_hand_is_refused_under_block() -> None:
+    """The customer's rule is not a question for whoever dispatches."""
+    shop = _Shop()
+    _wants(shop, 200)
+    note = _approved(shop, shop.note(shop.picks(MARCH="8")))
+
+    check = shop.notes.batch_check(note.id, firm_scope=shop.firm_id)
+    assert check.would_block is True
+    assert [item.kind for item in check.findings][0] == "SHORT_SHELF_LIFE"
+    with pytest.raises(ValidationError, match="minimum shelf life"):
+        shop.notes.dispatch_note(
+            note.id,
+            firm_scope=shop.firm_id,
+            actor_id=shop.actor_id,
+            batch_reason="it is what we have",
+        )
+
+
+def test_under_warn_a_short_batch_goes_and_is_recorded() -> None:
+    """WARN lets it through, with the trail saying so."""
+    shop = _Shop()
+    _wants(shop, 200, policy="WARN")
+    note = shop.note(shop.picks(MARCH="8"))
+
+    shop.dispatch(note)
+
+    assert shop.drawn(note) == {"MARCH": Decimal("8.0000")}
+    assert len(_audit(shop, "delivery_note.short_shelf_life_dispatched")) == 1
+
+
+def test_the_picker_flags_a_short_batch_and_never_prefills_it() -> None:
+    """Availability for the customer: MARCH flagged, the pre-fill on JUNE."""
+    from app.batch_serial.services import BatchSerialService
+
+    shop = _Shop()
+    _wants(shop, 200)
+    rows = BatchSerialService(shop.session).batch_availability(
+        firm_scope=shop.firm_id,
+        product_id=shop.product.id,
+        warehouse_id=shop.warehouse_id,
+        as_of=NOTE_DATE,
+        quantity=Decimal("8"),
+        sales_order_line_id=shop.order_line_id,
+        keep_until=BatchSalePolicyService(shop.session).keep_until(
+            shop.order.customer_id, on=NOTE_DATE
+        ),
+    )
+    by_name = {row.batch_number: row for row in rows}
+
+    assert by_name["MARCH"].short_for_customer is True
+    assert by_name["MARCH"].fefo == Decimal("0")
+    assert by_name["JUNE"].fefo == Decimal("8")

@@ -166,6 +166,11 @@ class Customer(BaseEntity):
     )
     #: EMAIL, WHATSAPP or SMS: tried first when an event offers it.
     preferred_channel: Mapped[str | None] = mapped_column(String(20))
+    #: How many days of shelf life goods must have left when they reach this
+    #: customer (backlog 79 row 6) -- a hospital or a chain often asks for six
+    #: months. Earliest-expiry allocation passes over a batch with less; one
+    #: chosen by hand meets the firm's rule. None asks nothing.
+    minimum_shelf_life_days: Mapped[int | None] = mapped_column(Integer)
     #: The customer agreed to be messaged on WhatsApp; nothing goes there
     #: without it. ``whatsapp_opt_in_at`` is when it was recorded, set by the
     #: server when the box is ticked and cleared when it is unticked.

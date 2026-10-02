@@ -200,6 +200,9 @@ class CustomerWrite(CustomerSchema):
     notes: str | None = None
     #: Messaging (backlog 51): no payment reminders to this customer.
     no_reminders: bool = False
+    #: Days of shelf life goods must have left on reaching this customer
+    #: (backlog 79 row 6). Needs the firm's EXPIRY_TRACKING feature.
+    minimum_shelf_life_days: int | None = Field(default=None, ge=1, le=3650)
     #: Tried first when an event offers it; blank follows the firm's order.
     preferred_channel: Literal["EMAIL", "WHATSAPP", "SMS"] | None = None
     #: The customer agreed to WhatsApp messages. The server records when.
@@ -319,6 +322,7 @@ class CustomerResponse(CustomerSchema):
     status: CustomerStatus
     notes: str | None
     no_reminders: bool = False
+    minimum_shelf_life_days: int | None = None
     preferred_channel: str | None = None
     whatsapp_opt_in: bool = False
     whatsapp_opt_in_at: datetime | None = None

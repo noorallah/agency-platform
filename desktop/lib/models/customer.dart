@@ -154,6 +154,7 @@ class Customer {
     required this.defaultDiscountPercent,
     required this.openingBalance,
     required this.paymentTermsDays,
+    this.minimumShelfLifeDays,
     required this.currencyCode,
     required this.currentOutstanding,
     required this.unappliedAdvanceBalance,
@@ -215,6 +216,10 @@ class Customer {
   final String defaultDiscountPercent;
   final String openingBalance;
   final int paymentTermsDays;
+
+  /// The fewest days of shelf life a batch may have left when it is sent
+  /// to this customer; null means no minimum.
+  final int? minimumShelfLifeDays;
   final String currencyCode;
   final String currentOutstanding;
   final String unappliedAdvanceBalance;
@@ -280,6 +285,7 @@ class Customer {
             ? '0.00'
             : stringValue(json['opening_balance']),
         paymentTermsDays: (json['payment_terms_days'] as num?)?.toInt() ?? 0,
+        minimumShelfLifeDays: (json['minimum_shelf_life_days'] as num?)?.toInt(),
         currencyCode: stringValue(json['currency_code']),
         currentOutstanding: stringValue(json['current_outstanding']).isEmpty
             ? '0.00'

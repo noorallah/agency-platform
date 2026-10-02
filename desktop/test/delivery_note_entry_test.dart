@@ -67,6 +67,7 @@ class _DeliveryApi extends ApiClient {
     String? asOf,
     num? quantity,
     String? salesOrderLineId,
+    String? customerId,
   }) async =>
       [
         for (final InventoryRecord row in stock)

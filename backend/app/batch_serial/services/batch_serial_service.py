@@ -660,6 +660,7 @@ class BatchSerialService:
         quantity: Decimal = Decimal("0"),
         sales_order_line_id: UUID | None = None,
         near_expiry_days: int = 30,
+        keep_until: date | None = None,
     ) -> list[BatchAvailability]:
         """List a product's batches in one warehouse for a batch picker (79).
 
@@ -675,6 +676,9 @@ class BatchSerialService:
         line's to take -- ``available_to_line``. ``quantity`` asks for the
         earliest-expiry split dispatch would make with nobody choosing, which
         the picker fills in so that Enter keeps today's behaviour.
+        ``keep_until`` is the customer's minimum shelf life as a date: a batch
+        expiring before it is flagged and never pre-filled, as dispatch passes
+        it over.
         """
         rows = self._session.execute(
             select(InventoryRecord, BatchRecord)
@@ -731,8 +735,13 @@ class BatchSerialService:
             freed = min(reserved, hold_left)
             hold_left -= freed
             is_expired = batch_id in expired
+            short = (
+                keep_until is not None
+                and batch.expiry_date is not None
+                and batch.expiry_date < keep_until
+            )
             fefo = ZERO
-            if not is_expired and wanted > ZERO:
+            if not is_expired and not short and wanted > ZERO:
                 fefo = min(wanted, available + freed)
                 wanted -= fefo
             result.append(
@@ -757,6 +766,7 @@ class BatchSerialService:
                         and batch.expiry_date <= near_line
                     ),
                     fefo=fefo,
+                    short_for_customer=short,
                 )
             )
         return result

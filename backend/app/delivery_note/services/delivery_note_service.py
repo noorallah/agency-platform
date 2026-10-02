@@ -748,6 +748,8 @@ class DeliveryNoteService(TransactionalDocumentService):
         stock = BatchSerialService(self._session)
         findings: list[DispatchBatchFinding] = []
         needs_reason = False
+        would_block = False
+        keep_until = policy.keep_until(row.customer_id, on=row.delivery_date)
         for line in lines:
             if line.warehouse_id is None or line.delivered_quantity <= ZERO:
                 continue
@@ -764,6 +766,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                     quantity=line.delivered_quantity,
                     sales_order_line_id=line.sales_order_line_id,
                     near_expiry_days=rules.near_expiry_days,
+                    keep_until=keep_until,
                 )
                 if item.fefo > ZERO
             ]
@@ -772,6 +775,27 @@ class DeliveryNoteService(TransactionalDocumentService):
                 for pick in picks.get(line.id, [])
             ]
             split = chosen or fefo
+            short = (
+                policy.short_of(
+                    [batch_id for batch_id, _ in split], keep_until=keep_until
+                )
+                if keep_until is not None
+                else []
+            )
+            if short:
+                would_block = would_block or rules.shelf_life_policy == "BLOCK"
+                findings.append(
+                    DispatchBatchFinding(
+                        line_number=line.line_number,
+                        kind="SHORT_SHELF_LIFE",
+                        message=(
+                            f"Line {line.line_number}: "
+                            f"{describe_batches(short, row.delivery_date)} "
+                            "expires before the customer's minimum shelf life "
+                            f"({keep_until.isoformat() if keep_until else ''})."
+                        ),
+                    )
+                )
             near = policy.near_expiry(
                 firm_scope,
                 [batch_id for batch_id, _ in split],
@@ -807,6 +831,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             findings=findings,
             needs_reason=needs_reason,
             message=" ".join(item.message for item in findings) or None,
+            would_block=would_block,
         )
 
     def _gst_dispatch_warning(
@@ -2201,6 +2226,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         branch_id: UUID,
         actor_id: UUID,
         reason: str | None = None,
+        keep_until: date | None = None,
     ) -> bool:
         """Audit a chosen split that is not the one expiry order would draw (79).
 
@@ -2221,6 +2247,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                 product_id=line.product_id,
                 quantity=line.delivered_quantity,
                 as_of=row.delivery_date,
+                keep_until=keep_until,
             )
         except ValidationError:
             fefo = []
@@ -2255,6 +2282,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         reason: str | None,
         enforce: bool,
         actor_id: UUID,
+        keep_until: date | None = None,
     ) -> list[str]:
         """Judge the batches one line takes under the firm's rules (79 row 6).
 
@@ -2267,13 +2295,45 @@ class DeliveryNoteService(TransactionalDocumentService):
 
         """
         given = (reason or "").strip()
+        notes: list[str] = []
+        if keep_until is not None:
+            short = policy.short_of(
+                [batch_id for batch_id, qty in allocation if qty > ZERO],
+                keep_until=keep_until,
+            )
+            if short:
+                named = describe_batches(short, row.delivery_date)
+                message = (
+                    f"Line {line.line_number}: {named} expires before "
+                    f"{keep_until.isoformat()}, the customer's minimum shelf life."
+                )
+                # A rule about the customer, not a question for whoever
+                # dispatches: refused on a bill's own dispatch as well.
+                if rules.shelf_life_policy == "BLOCK":
+                    raise ValidationError(
+                        f"{message} Choose a later batch, or change the "
+                        "customer's minimum shelf life."
+                    )
+                notes.append(message)
+                record_audit(
+                    self._session,
+                    action="delivery_note.short_shelf_life_dispatched",
+                    entity_type="delivery_note",
+                    entity_id=row.id,
+                    actor_id=actor_id,
+                    firm_id=row.firm_id,
+                    after_data={
+                        "line_number": line.line_number,
+                        "batches": [str(batch.id) for batch in short],
+                        "keep_until": keep_until.isoformat(),
+                    },
+                )
         near = policy.near_expiry(
             row.firm_id,
             [batch_id for batch_id, qty in allocation if qty > ZERO],
             as_of=row.delivery_date,
             days=rules.near_expiry_days,
         )
-        notes: list[str] = []
         if near:
             named = describe_batches(near, row.delivery_date)
             if enforce and rules.near_expiry_policy == "REASON" and not given:
@@ -2603,6 +2663,9 @@ class DeliveryNoteService(TransactionalDocumentService):
         """Move every line's stock out, and say what the batch rules noticed."""
         policy = BatchSalePolicyService(self._session)
         rules = policy.settings_response(row.firm_id)
+        # The customer's minimum shelf life, as a date the goods must last to
+        # (backlog 79 row 6); None when they ask for none.
+        keep_until = policy.keep_until(row.customer_id, on=row.delivery_date)
         batch_notes: list[str] = []
         lines = list(
             self._session.scalars(
@@ -2774,6 +2837,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                     branch_id=goods_branch_id,
                     actor_id=actor_id,
                     reason=batch_reason,
+                    keep_until=keep_until,
                 )
                 shares = self._trail.deal(
                     picks, [allocated for _, allocated in allocation]
@@ -2790,6 +2854,8 @@ class DeliveryNoteService(TransactionalDocumentService):
                     # own date rather than today, so rebuilding a year of
                     # history posts what it posted at the time.
                     as_of=row.delivery_date,
+                    # Nor is a batch too short-dated for this customer.
+                    keep_until=keep_until,
                 )
                 shares = self._trail.deal(
                     picks, [allocated for _, allocated in allocation]
@@ -2805,6 +2871,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                     reason=batch_reason,
                     enforce=judge_batches,
                     actor_id=actor_id,
+                    keep_until=keep_until,
                 )
             )
             entered_total = self._q(line.current_delivery_quantity + line.free_quantity)

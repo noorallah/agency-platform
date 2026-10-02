@@ -73,6 +73,63 @@ void main() {
     expect(sent?['code'], 'CUS-001');
   });
 
+  group('the minimum shelf life', () {
+    Future<List<Json>> pumpForm(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final List<Json> sent = <Json>[];
+      await tester.pumpWidget(MaterialApp(
+        builder: (context, child) => Phase2Scope(child: child!),
+        home: Scaffold(
+          body: CustomerWorkspaceDialog(
+            mode: CustomerDialogMode.edit,
+            customer: Customer.fromJson(<String, dynamic>{
+              ..._customerJson(),
+              'minimum_shelf_life_days': 90,
+            }),
+            onSave: (payload) async {
+              sent.add(payload);
+              return Customer.fromJson(_customerJson());
+            },
+            loadPlaces: (level, {parentId = ''}) async => const [],
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return sent;
+    }
+
+    final Finder box =
+        find.widgetWithText(TextFormField, 'Minimum shelf life (days)');
+
+    testWidgets('loads, and an untouched edit sends it back', (tester) async {
+      final List<Json> sent = await pumpForm(tester);
+      expect(tester.widget<TextFormField>(box).controller!.text, '90');
+      await tester.tap(find.byKey(const ValueKey('customer-save')));
+      await tester.pumpAndSettle();
+      expect(sent.last['minimum_shelf_life_days'], 90);
+    });
+
+    testWidgets('above 3650 is refused on the form', (tester) async {
+      final List<Json> sent = await pumpForm(tester);
+      await tester.enterText(box, '4000');
+      await tester.tap(find.byKey(const ValueKey('customer-save')));
+      await tester.pumpAndSettle();
+      expect(sent, isEmpty);
+      expect(find.textContaining('cannot be more than 3650'), findsOneWidget);
+    });
+
+    testWidgets('blank is sent as null, clearing it', (tester) async {
+      final List<Json> sent = await pumpForm(tester);
+      await tester.enterText(box, '');
+      await tester.tap(find.byKey(const ValueKey('customer-save')));
+      await tester.pumpAndSettle();
+      expect(sent.last.containsKey('minimum_shelf_life_days'), isTrue);
+      expect(sent.last['minimum_shelf_life_days'], isNull);
+    });
+  });
+
   testWidgets('the account manager is picked from the firm and kept if gone',
       (tester) async {
     // Backlog 67 row 2: a stored manager who has left stays selectable and

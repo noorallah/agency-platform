@@ -313,6 +313,7 @@ class BatchAvailabilityRecord {
     required this.expired,
     required this.nearExpiry,
     required this.fefo,
+    this.shortForCustomer = false,
   });
 
   final String batchId;
@@ -327,6 +328,10 @@ class BatchAvailabilityRecord {
   final bool expired;
   final bool nearExpiry;
   final double fefo;
+
+  /// Has less shelf life left than the customer's minimum. Never pre-filled
+  /// into a pick; the server judges what is dispatched.
+  final bool shortForCustomer;
 
   static double _num(dynamic value) =>
       value is num ? value.toDouble() : double.tryParse('${value ?? ''}') ?? 0;
@@ -347,6 +352,7 @@ class BatchAvailabilityRecord {
         expired: json['expired'] == true,
         nearExpiry: json['near_expiry'] == true,
         fefo: _num(json['fefo']),
+        shortForCustomer: json['short_for_customer'] == true,
       );
 }
 

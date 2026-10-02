@@ -420,6 +420,7 @@ is the one implementation.
 | `near_expiry_policy` | `WARN` | WARN records a near-expiry batch leaving (`delivery_note.near_expiry_dispatched`, and `batch_warnings` on the DISPATCHED event). REASON refuses a dispatch by hand until `batch_reason` is given, naming the line and batch |
 | `fefo_skip_policy` | `RECORD` | RECORD audits a skip as before. REASON refuses it without `batch_reason`, which `delivery_note.fefo_skipped` then keeps beside both splits |
 | `near_expiry_below_floor` | on | A2: a line drawn **wholly** from near-expiry batches may be sold below its price floor. The finding is still made and kept as `price_near_expiry` on the APPROVED event with the batches named; it neither warns nor blocks |
+| `shelf_life_policy` | `BLOCK` | A batch **chosen by hand** that expires before the customer's minimum shelf life: BLOCK refuses the dispatch -- on a bill's own dispatch too, because it is the customer's rule rather than a question for whoever dispatches -- and WARN records it (`delivery_note.short_shelf_life_dispatched`) |
 
 **Judged where a person dispatches**: `POST /delivery-notes/{id}/dispatch`
 and `/dispatch-and-invoice` take `batch_reason` as a query parameter (the
@@ -451,8 +452,23 @@ empty list clears it. A bill billing a note somebody else typed is refused
 batches its note line takes. The batch rules judge a bill's dispatch as a
 record only (no reason asked), as before.
 
-Still open (backlog 79): *pin batch* on the sales order line, minimum shelf
-life per customer, price from the batch (a batch carries no MRP yet).
+### A customer's minimum shelf life (backlog 79 row 6)
+
+`customers.minimum_shelf_life_days` (migration 0223; the field needs the
+firm's EXPIRY_TRACKING feature) is how many days goods must have left when they
+reach the customer -- a hospital or a chain often asks for six months. It is
+read on the delivery note's date as a date the goods must last to. Earliest-
+expiry allocation **passes over** a batch expiring before it, exactly as it
+passes over an expired one (`allocate_for_dispatch(keep_until=)`), and names it
+if the rest fall short; so with nobody choosing, a compliant batch simply goes.
+The picker's availability takes `customer_id`, flags such a batch
+`short_for_customer` and never pre-fills it; `batch-check` reports
+`SHORT_SHELF_LIFE` and `would_block`. A batch chosen by hand anyway meets
+`shelf_life_policy`. The order's earlier reservation may sit on the short
+batch; dispatch lets it go and draws the compliant one.
+
+Still open (backlog 79): *pin batch* on the sales order line, price from the
+batch (a batch carries no MRP yet).
 
 ---
 

@@ -1,6 +1,6 @@
 // Backlog 79 row 6, desktop half: the firm's batch rules.
 //
-// These pin: the Batch rules dialog loads, saves exactly the four keys the
+// These pin: the Batch rules dialog loads, saves exactly the five keys the
 // server declares and is read-only without SALES_MANAGE_SETTINGS; dispatching
 // asks the batch check first and sends the reason as `batch_reason` when a
 // rule needs one; cancelling dispatches nothing; and a price-floor finding
@@ -36,7 +36,11 @@ const String _findingText =
     'Line 1: batch B-1 expires in 10 days and is left behind.';
 
 class _BatchApi extends ApiClient {
-  _BatchApi({this.findings = false, this.needsReason = false})
+  _BatchApi({
+    this.findings = false,
+    this.needsReason = false,
+    this.wouldBlock = false,
+  })
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -46,6 +50,7 @@ class _BatchApi extends ApiClient {
 
   final bool findings;
   final bool needsReason;
+  final bool wouldBlock;
 
   final List<String> calls = <String>[];
   final List<Map<String, String>?> queries = <Map<String, String>?>[];
@@ -76,6 +81,7 @@ class _BatchApi extends ApiClient {
                 ]
               : <Json>[],
           'needs_reason': needsReason,
+          'would_block': wouldBlock,
           'message': findings ? _findingText : null,
         },
       };
@@ -211,7 +217,7 @@ Future<void> _pumpSettings(
 
 void main() {
   group('the Batch rules dialog', () {
-    testWidgets('loads, and saves exactly the four keys', (tester) async {
+    testWidgets('loads, and saves exactly the five keys', (tester) async {
       final _BatchApi api = _BatchApi();
       await _pumpSettings(tester, api, ['SALES_VIEW', 'SALES_MANAGE_SETTINGS']);
       expect(tester.takeException(), isNull);
@@ -231,7 +237,21 @@ void main() {
         'near_expiry_policy': 'REASON',
         'fefo_skip_policy': 'RECORD',
         'near_expiry_below_floor': false,
+        'shelf_life_policy': 'BLOCK',
       });
+    });
+
+    testWidgets('the shelf-life policy can be set to Warn', (tester) async {
+      final _BatchApi api = _BatchApi();
+      await _pumpSettings(tester, api, ['SALES_VIEW', 'SALES_MANAGE_SETTINGS']);
+      await tester.tap(find.byKey(const ValueKey('batch-rules-shelf-life')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Warn').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('batch-rules-save')));
+      await tester.pumpAndSettle();
+
+      expect(api.savedSettings?['shelf_life_policy'], 'WARN');
     });
 
     testWidgets('a window outside 0 to 730 is not sent', (tester) async {
@@ -309,6 +329,20 @@ void main() {
 
       expect(api.calls, contains('POST /api/v1/delivery-notes/dn-1/dispatch'));
       expect(api.queryOf('/dispatch'), isNull);
+    });
+
+    testWidgets('a batch that would be refused is told, not dispatched',
+        (tester) async {
+      final _BatchApi api = _BatchApi(findings: true, wouldBlock: true);
+      await _pumpPage(tester, api);
+      await _tapDispatch(tester);
+
+      expect(find.text(_findingText), findsOneWidget);
+      expect(find.byKey(const ValueKey('batch-check-continue')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('batch-check-ok')));
+      await tester.pumpAndSettle();
+
+      expect(api.calls.any((call) => call.startsWith('POST')), isFalse);
     });
 
     testWidgets('Cancel on a warning dispatches nothing', (tester) async {

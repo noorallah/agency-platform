@@ -55,12 +55,14 @@ class _CounterApi extends ApiClient {
     String? asOf,
     num? quantity,
     String? salesOrderLineId,
+    String? customerId,
   }) async {
     asked = {
       'product_id': productId,
       'warehouse_id': warehouseId,
       'as_of': asOf,
       'quantity': quantity,
+      'customer_id': customerId,
     };
     return [
       _batch('old', expiry: '2026-12-01', days: 20, fefo: 6),
@@ -246,6 +248,7 @@ void main() {
     expect(api.asked!['warehouse_id'], 'wh-main');
     expect(api.asked!['as_of'], '2026-08-14');
     expect(api.asked!['quantity'], 10);
+    expect(api.asked!['customer_id'], 'cust-1');
     expect(find.textContaining('Chosen 10 of 10'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

@@ -964,6 +964,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
       api: widget.api,
       lineId: lineId,
       productId: productId,
+      customerId: _direct ? _customerId : _document?.customerId,
       warehouseId: warehouseId,
       asOf: _iso(widget.today),
       quantity: quantity,

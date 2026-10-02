@@ -2263,6 +2263,7 @@ class ApiClient {
     String? asOf,
     num? quantity,
     String? salesOrderLineId,
+    String? customerId,
   }) async =>
       _unwrapList(
         await request(
@@ -2276,6 +2277,8 @@ class ApiClient {
             if (quantity != null) 'quantity': '$quantity',
             if (salesOrderLineId != null && salesOrderLineId.isNotEmpty)
               'sales_order_line_id': salesOrderLineId,
+            if (customerId != null && customerId.isNotEmpty)
+              'customer_id': customerId,
           },
         ),
         BatchAvailabilityRecord.fromJson,

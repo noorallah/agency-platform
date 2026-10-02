@@ -2835,8 +2835,13 @@ class InventoryService:
         product_id: UUID,
         quantity: Decimal,
         as_of: date | None = None,
+        keep_until: date | None = None,
     ) -> list[tuple[UUID | None, Decimal]]:
         """Choose which batches a dispatch consumes, earliest expiry first.
+
+        ``keep_until`` is the date a customer's minimum shelf life asks the
+        goods to last to (backlog 79 row 6): a batch expiring before it is
+        passed over as an expired one is, and named if the rest fall short.
 
         A product held in one bay can now be several stock rows, one per batch,
         so a single document line may have to come out of more than one of
@@ -2886,6 +2891,13 @@ class InventoryService:
         if product is not None and product.require_batch_on_issue:
             rows = [row for row in rows if row.batch_id is not None]
         rows, expired, held_expired = self._without_expired(rows, as_of=as_of)
+        short: dict[UUID, tuple[str, date]] = {}
+        if keep_until is not None:
+            short = self._expired_batches(
+                {row.batch_id for row in rows if row.batch_id is not None},
+                as_of=keep_until,
+            )
+            rows = [row for row in rows if row.batch_id not in short]
         outstanding = Decimal(str(quantity))
         allocation: list[tuple[UUID | None, Decimal]] = []
         for row in rows:
@@ -2906,6 +2918,16 @@ class InventoryService:
                     else ""
                 )
                 + self._expired_note(expired, held_expired, verb="dispatched")
+                + (
+                    " Too short-dated for this customer's minimum shelf life: "
+                    + ", ".join(
+                        f"{number} (expires {expiry.isoformat()})"
+                        for number, expiry in short.values()
+                    )
+                    + "."
+                    if short
+                    else ""
+                )
             )
         return allocation
 

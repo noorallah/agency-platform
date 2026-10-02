@@ -100,6 +100,9 @@ screen (1.1.0).
   decision A38).
 - **Choosing batches on a counter bill**: a batch-tracked line opens the same
   picker as the delivery note, and the batch chosen is the one that leaves.
+- **Minimum shelf life per customer**: a customer may ask for goods with so
+  many days left; earliest-expiry dispatch passes over shorter batches, and
+  one chosen by hand is refused (or warned, as the firm sets).
 - **Batch rules** (Settings > Stock > Batch Rules): how many days count
   as near expiry, whether a near-expiry batch or a later batch chosen ahead of
   an earlier one needs a reason at dispatch, and near-expiry stock may be sold

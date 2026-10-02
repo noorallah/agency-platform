@@ -1007,6 +1007,8 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     'payment_terms_days':
         _controller(widget.customer?.paymentTermsDays.toString() ?? '0'),
     'currency_code': _controller(widget.customer?.currencyCode ?? 'INR'),
+    'minimum_shelf_life_days': _controller(
+        widget.customer?.minimumShelfLifeDays?.toString() ?? ''),
   };
   late final List<_AddressDraft> _addresses =
       (widget.customer?.addresses ?? const [])
@@ -1328,6 +1330,9 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         'payment_terms_days':
             int.tryParse(_fields['payment_terms_days']!.text.trim()) ?? 0,
         'currency_code': _fields['currency_code']!.text.trim().toUpperCase(),
+        // Blank means no minimum, sent as null so it clears a prior one.
+        'minimum_shelf_life_days':
+            int.tryParse(_fields['minimum_shelf_life_days']!.text.trim()),
         'status': _status,
         'no_reminders': _noReminders,
         'preferred_channel':
@@ -1559,6 +1564,16 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
               nonNegative: true,
             ),
             _text('currency_code', 'Currency', required: true),
+            _number(
+              'minimum_shelf_life_days',
+              'Minimum shelf life (days)',
+              integer: true,
+              blankIsNone: true,
+              minimum: 1,
+              maximum: 3650,
+              helper: 'Blank = none. Batches with less left are refused '
+                  'or flagged at dispatch.',
+            ),
           ]),
           _messagingGroup(),
         ]),
@@ -2230,27 +2245,35 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     bool nonNegative = false,
     num? maximum,
     bool blankIsZero = false,
+    bool blankIsNone = false,
+    num? minimum,
     bool locked = false,
     String? lockedHelper,
+    String? helper,
   }) =>
       TextFormField(
         controller: _fields[key],
         readOnly: _readOnly || locked,
         decoration: InputDecoration(
           labelText: label,
-          helperText: locked && !_readOnly ? lockedHelper : null,
+          helperText: locked && !_readOnly ? lockedHelper : helper,
           helperMaxLines: 2,
         ),
         validator: (value) {
           // An emptied discount box reads as "none" and nothing else, so it
           // is accepted and sent as zero. A blank credit limit is genuinely
           // ambiguous -- unlimited, or none? -- and still has to be typed.
-          if (blankIsZero && (value ?? '').trim().isEmpty) return null;
+          if ((blankIsZero || blankIsNone) && (value ?? '').trim().isEmpty) {
+            return null;
+          }
           final num? parsed = integer
               ? int.tryParse(value ?? '')
               : double.tryParse(value ?? '');
           if (parsed == null) return '$label must be a number.';
           if (nonNegative && parsed < 0) return '$label cannot be negative.';
+          if (minimum != null && parsed < minimum) {
+            return '$label cannot be less than $minimum.';
+          }
           // Caught here as well as on the server, which answers a schema
           // error naming a limit the form never mentioned.
           if (maximum != null && parsed > maximum) {
