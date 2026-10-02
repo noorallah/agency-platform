@@ -308,6 +308,12 @@ Tier 1 item 4 of `docs/GO_LIVE_PLAN.md`.
 None open (2026-10-01). D-GOLIVE-1 (#870), D-GOLIVE-2 (#884) and D-GOLIVE-3
 (#873) are under Fixed.
 
+### Tests -- found in the end-to-end run, 2026-10-02
+
+| Id | Found | Summary | Severity | Evidence | Where |
+| --- | --- | --- | --- | --- | --- |
+| D-TEST-2 | 2026-10-02 | Four desktop tests fail when the full suite runs on a loaded machine (about 3 GB free, other suites running) and pass alone, every time: `product_import_dialog_test`, `opening_stock_import_dialog_test`, `opening_bill_import_dialog_test` ("a check with problems lists them", "customers' bills go to the customer side") and `login_screen_test` ("a lockout counts down on screen"). They read as depending on real time or real file I/O rather than the fake clock, so a full run looks red for no product reason. Fix: drive them with `fakeAsync`/`tester.runAsync` and fake file reads. | Low | Live (2026-10-02 full runs: 4 and 2 failures; 0 alone) | This row |
+
 ### Found in manual testing and not yet fixed -- `docs/BACKLOG.md` §31
 
 | Id | Severity | Summary | Evidence |
