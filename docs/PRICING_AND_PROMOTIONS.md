@@ -147,6 +147,12 @@ the order is what gets approved. An unrecognised code leaves the order
 saveable and simply gives nothing -- a typo in a field that gives money away
 must not refuse a sale.
 
+**An offer can hold to days and hours** (SEL-7, A72): `weekday` is the
+document date's ISO weekday and `time_of_day` the minutes after midnight in
+India time of when the document was raised -- its own `created_at`, so a
+later save does not move it across the window's edge. Both ends count; a
+window across midnight is two offers, because every condition must hold.
+
 **A campaign's codes are minted as a batch** (SEL-5, A70): up to 5,000 random
 `PREFIX-XXXXXXXX` codes against one offer, each single-use in all and per
 customer, all or nothing, with one audit row for the batch. Random, never

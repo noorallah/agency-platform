@@ -25,13 +25,14 @@ publish a half-written order.
 
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.utils.dates import as_utc, utc_now
 from app.core.utils.money import quantize_ledger, quantize_money
 from app.core.utils.pricing import apportion
 from app.products.models import Product
@@ -56,6 +57,21 @@ from app.promotions.schemas import (
 
 ZERO = Decimal("0")
 HUNDRED = Decimal("100")
+
+
+#: India Standard Time. The product sells in India and keeps one zone; an
+#: offer for "4 to 6 pm" means the shop's clock, not the server's.
+INDIA = timezone(timedelta(hours=5, minutes=30), "IST")
+
+
+def minutes_of_day_in_india(moment: datetime | None) -> int:
+    """Return minutes after midnight in India for ``moment``, or for now.
+
+    A naive moment is read as UTC, as every stored timestamp here is.
+    """
+    when = as_utc(moment) if moment is not None else utc_now()
+    local = when.astimezone(INDIA)
+    return local.hour * 60 + local.minute
 
 
 @dataclass(slots=True)
@@ -510,6 +526,10 @@ class PromotionService:
             PromotionField.DOCUMENT_GROSS.value: document_gross,
             PromotionField.TRANSACTION_TYPE.value: data.transaction_type,
             PromotionField.TRANSACTION_DATE.value: data.transaction_date,
+            PromotionField.WEEKDAY.value: data.transaction_date.isoweekday(),
+            PromotionField.TIME_OF_DAY.value: minutes_of_day_in_india(
+                data.transaction_time
+            ),
         }
 
     def _matches(self, promotion: Promotion, *, context: dict[str, object]) -> bool:

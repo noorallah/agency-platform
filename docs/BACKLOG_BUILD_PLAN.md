@@ -56,7 +56,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | SEL-4 | §60 row 6 | Offer: double loyalty points during a festival | Nothing | S | Claude alone |
 | SEL-5 | §60 row 7 | Offer: 500 single-use coupon codes at once, exported to a file -- **built 2026-10-03** (A70) | Nothing | S | Claude alone |
 | SEL-6 | §60 row 8 | Offer only for a first order, or for customers not billed in 90 days | Nothing | M | Claude alone |
-| SEL-7 | §60 row 9 | Offer only on certain weekdays or hours | Nothing | S | Claude alone |
+| SEL-7 | §60 row 9 | Offer only on certain weekdays or hours -- **built 2026-10-03** (A72) | Nothing | S | Claude alone |
 | SEL-8 | §60 row 10 | Copy last Diwali's offers with new dates -- **built 2026-10-03** (A71) | Nothing | S | Claude alone |
 | SEL-9 | §64 row 1 | Special rate per customer, and named price levels (Retail, Wholesale, Dealer) | Nothing | M | Claude alone |
 | SEL-10 | §67 row 1 | Enquiries and leads before the quotation | Nothing | L | Claude alone |
@@ -308,6 +308,7 @@ otherwise it is built as written.
 - **What it is:** "weekends only", "4-6 pm".
 - **What gets built:** `PromotionField` keys for weekday and time of day, from the document date and its creation time in IST. Dialog conditions. Tests at the edges of the window.
 - **Depends on:** nothing. **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A72): `PromotionField.WEEKDAY` (ISO 1-7 of the document date; `IN [6, 7]` is weekends) and `PromotionField.TIME_OF_DAY` (minutes after midnight India time of `transaction_time`; `BETWEEN [960, 1079]` is 4-6 pm). `PromotionEvaluationRequest.transaction_time` -- the quotation and the sales order pass their own `created_at`, and absent means now (`minutes_of_day_in_india` in `promotion_service.py`). The condition write refuses a weekday outside 1-7, a minute outside the day and a window crossing midnight. No migration. Desktop: *Days of the week* chips and a *Time of day* window in the offer editor. Tests: `test_promotion_day_time.py`, `promotion_day_time_test.dart`.
 
 #### SEL-8. Offer templates (§60 row 10)
 - **What it is:** copy last year's offers with new dates.

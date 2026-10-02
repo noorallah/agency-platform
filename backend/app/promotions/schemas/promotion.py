@@ -1,6 +1,6 @@
 """Validated contracts for promotions."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID
@@ -67,6 +67,12 @@ class PromotionField(StrEnum):
     DOCUMENT_GROSS = "document_gross"
     TRANSACTION_TYPE = "transaction_type"
     TRANSACTION_DATE = "transaction_date"
+    #: The document date's day of the week, 1 Monday to 7 Sunday (SEL-7):
+    #: ``IN [6, 7]`` is "weekends only".
+    WEEKDAY = "weekday"
+    #: Minutes after midnight, India time, when the document was raised
+    #: (SEL-7): ``BETWEEN [960, 1079]`` is "4 to 6 pm".
+    TIME_OF_DAY = "time_of_day"
 
 
 class PromotionActionType(StrEnum):
@@ -145,7 +151,44 @@ class PromotionConditionWrite(PromotionSchema):
             and self.value_boolean is None
         ):
             raise ValueError("This operator needs a value to compare against.")
+        self._day_and_time_are_in_range()
         return self
+
+    def _day_and_time_are_in_range(self) -> None:
+        """Refuse a weekday outside 1-7 or a time outside the day (SEL-7).
+
+        A window crossing midnight would need "after 22:00 or before 02:00",
+        which one condition cannot say -- every condition must hold -- so it
+        is refused with what to do instead rather than saved never to match.
+        """
+        bounds = {PromotionField.WEEKDAY: (1, 7), PromotionField.TIME_OF_DAY: (0, 1439)}
+        if self.field_key not in bounds:
+            return
+        low, high = bounds[self.field_key]
+        values: list[object] = list(self.value_json or [])
+        if self.value_number is not None:
+            values.append(self.value_number)
+        if self.value_text is not None:
+            values.append(self.value_text)
+        try:
+            numbers = [Decimal(str(value)) for value in values]
+        except ArithmeticError as error:
+            raise ValueError("A day or a time is given as a number.") from error
+        if any(n != n.to_integral_value() or not low <= n <= high for n in numbers):
+            what = "A weekday is 1 (Monday) to 7 (Sunday)."
+            if self.field_key is PromotionField.TIME_OF_DAY:
+                what = "A time of day is 0 to 1439 minutes after midnight."
+            raise ValueError(what)
+        if (
+            self.field_key is PromotionField.TIME_OF_DAY
+            and self.operator is PromotionConditionOperator.BETWEEN
+            and len(numbers) == 2
+            and numbers[0] > numbers[1]
+        ):
+            raise ValueError(
+                "A time window cannot cross midnight; make it two offers, "
+                "one before and one after."
+            )
 
 
 class PromotionActionWrite(PromotionSchema):
@@ -310,6 +353,10 @@ class PromotionEvaluationRequest(PromotionSchema):
 
     transaction_type: str = Field(min_length=1, max_length=40)
     transaction_date: date
+    #: When the document was raised, for an offer on a time of day (SEL-7).
+    #: Absent means now; a document passes its own creation time so saving
+    #: it again later does not move it out of the window.
+    transaction_time: datetime | None = None
     customer_id: UUID | None = None
     #: The segment the customer belongs to, so an offer can be aimed at
     #: wholesalers without naming every one of them.
