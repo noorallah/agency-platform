@@ -92,6 +92,17 @@ extension _Phase2CreditNote on _CreditNoteDialogState {
                     ],
                   ),
                 ),
+              // Past 30 November after the invoice's year (GST-1).
+              if ((_preview?.timeLimitWarning ?? '').isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  child: MaterialBanner(
+                    key: const ValueKey('credit-note-time-limit'),
+                    contentTextStyle: theme.textTheme.bodyMedium,
+                    content: Text(_preview!.timeLimitWarning),
+                    actions: const [SizedBox.shrink()],
+                  ),
+                ),
               Expanded(
                 child: LayoutBuilder(
                   builder: (context, constraints) => Row(

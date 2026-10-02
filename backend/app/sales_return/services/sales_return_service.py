@@ -110,6 +110,7 @@ from app.sales_return.schemas import (
     SalesReturnSummary,
 )
 from app.tax.schemas import TaxRuleSimulationRequest
+from app.tax.services.gst_time_limits import credit_note_time_limit_warning
 from app.tax.services.place_of_supply import SALES_INTERSTATE
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
@@ -2308,6 +2309,32 @@ class SalesReturnService(TransactionalDocumentService):
                 SalesReturnNoteResponse.model_validate(item, from_attributes=True)
                 for item in notes
             ],
+            time_limit_warning=self._time_limit_warning(row, sources),
+        )
+
+    @staticmethod
+    def _time_limit_warning(
+        row: SalesReturn, sources: list[SalesReturnSource]
+    ) -> str | None:
+        """Say whether the return is too late to reduce tax (backlog GST-1).
+
+        A return is the firm's credit note for the goods, so CGST s.34(2)
+        binds it as it binds `CreditNoteService`: dated past 30 November after
+        the year of the invoice, it can no longer reduce output tax. Judged on
+        the oldest invoice it credits; a return raised only from delivery
+        notes credits no invoice yet, and a cancelled or tax-free one reduces
+        nothing, so neither is warned. A warning, not a refusal, for the
+        reasons given beside the helper.
+        """
+        if row.status == SalesReturnStatus.CANCELLED.value or row.tax_total <= 0:
+            return None
+        invoiced = [
+            source.source_document_date
+            for source in sources
+            if source.source_document_type == SalesReturnSourceType.SALES_INVOICE.value
+        ]
+        return credit_note_time_limit_warning(
+            min(invoiced) if invoiced else None, row.return_date
         )
 
     # ---- reports -------------------------------------------------------

@@ -84,7 +84,7 @@ rules about what a firm may skip are in `docs/SALES_CHAIN_RULES.md`.
 | Dispatch before the invoice exists | **Judged by a firm policy** (#903): OFF, WARN (the default) or BLOCK, applied to a Sale note (and a van or route sale only if the firm says *route sales need the invoice first*) dispatched by hand with no approved invoice; the warning is recorded on the dispatch and names CGST s.31. A bill that dispatches the note it raised is never judged (`GstComplianceService.dispatch_check`) |
 | *Dispatch and invoice* | **Built** (#903): `POST /api/v1/delivery-notes/{id}/dispatch-and-invoice` raises and approves the invoice in the same transaction as the dispatch |
 | Why a challan went out without an invoice | **Recorded and printed** (#903): every delivery note carries `challan_reason` -- Sale (default), Van or route sale, Supply on approval, Quantity not known, Job work, Other with a note |
-| Credit note after 30 November | **Not checked** |
+| Credit note after 30 November | **Warned 2026-10-02** (GST-1, A46): a credit note or a sales return dated past 30 November after the year of the invoice it credits carries `time_limit_warning`, naming the year and the date (CGST s.34(2)); shown on the note being raised and on approval (a return: on approve and complete). Still approved -- the outer date is all the books know |
 | Bill of supply | **Not built** |
 
 ## 3. The sales flow, read against the rules
@@ -233,11 +233,11 @@ goes live; **P2** for every firm; **P3** completes the picture.
 | 9 | **E-way bill without an IRN:** from the invoice or the delivery challan, so firms below ₹5 cr and non-sale movements can raise one -- **built 2026-10-02 (#937)** | P2 |
 | 10 | **₹50,000 prompt:** offer the e-way bill when the goods value crosses the limit; state-wise limit as a setting -- **built 2026-10-02 (#937)** | P2 |
 | 11 | **IRN, acknowledgement and signed QR on the printed invoice, credit and debit note** -- **built 2026-10-02 (#939)** | P2 |
-| 12 | **Credit note after 30 November** of the following year: warn, naming the date | P3 |
+| 12 | **Credit note after 30 November** of the following year: warn, naming the date -- **built 2026-10-02** (GST-1, A46) | P3 |
 | 13 | **16-character check** on GST document numbering rules | P3 |
 | 14 | **Bill of supply** for exempt goods and composition firms | P3 |
 
-Rows 1 to 7 and 9 to 11 are built; 8 and 12 to 14 are not. **Order of work:** 2, 3 and 1 (small, and they settle the flow) → 5 and 4 →
+Rows 1 to 7, 9 to 11 and 12 are built; 8, 13 and 14 are not. **Order of work:** 2, 3 and 1 (small, and they settle the flow) → 5 and 4 →
 9, 10, 11 → 6, 7 → 8 once a GSP is chosen → 12-14.
 
 ## 5. Decisions

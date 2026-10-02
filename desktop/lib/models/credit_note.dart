@@ -67,6 +67,7 @@ class CreditNoteRecord {
     this.journalEntryId = '',
     this.version = 0,
     this.lines = const <CreditNoteLineRecord>[],
+    this.timeLimitWarning = '',
   });
 
   final String id;
@@ -85,6 +86,10 @@ class CreditNoteRecord {
   final String journalEntryId;
   final int version;
   final List<CreditNoteLineRecord> lines;
+
+  /// Set when the note is dated past 30 November after its invoice's year,
+  /// so it can no longer reduce tax (CGST s.34(2), backlog GST-1).
+  final String timeLimitWarning;
 
   bool get isDraft => status == 'DRAFT';
   bool get isApproved => status == 'APPROVED';
@@ -123,5 +128,6 @@ class CreditNoteRecord {
             if (line is Map)
               CreditNoteLineRecord.fromJson(Map<String, dynamic>.from(line)),
         ],
+        timeLimitWarning: stringValue(json['time_limit_warning']),
       );
 }

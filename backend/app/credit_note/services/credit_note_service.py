@@ -49,6 +49,7 @@ from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_invoice.services.output_tax import credited_tax_by_component
+from app.tax.services.gst_time_limits import credit_note_time_limit_warning
 
 HUNDRED = Decimal("100")
 
@@ -788,11 +789,13 @@ class CreditNoteService(TransactionalDocumentService):
             ).items()
         }
         invoices = {
-            found[0]: found[1]
+            found[0]: (found[1], found[2])
             for found in self._session.execute(
-                select(SalesInvoice.id, SalesInvoice.invoice_number).where(
-                    SalesInvoice.id.in_({row.sales_invoice_id for row in rows})
-                )
+                select(
+                    SalesInvoice.id,
+                    SalesInvoice.invoice_number,
+                    SalesInvoice.invoice_date,
+                ).where(SalesInvoice.id.in_({row.sales_invoice_id for row in rows}))
             )
         }
         customers = customer_names(self._session, (row.customer_id for row in rows))
@@ -801,11 +804,28 @@ class CreditNoteService(TransactionalDocumentService):
                 row,
                 lines=lines[row.id],
                 names=names,
-                invoice_number=invoices.get(row.sales_invoice_id) or "",
+                invoice_number=invoices.get(row.sales_invoice_id, ("", None))[0],
                 customer_name=customers.get(row.customer_id) or "",
+                time_limit_warning=self._time_limit_warning(
+                    row, invoices.get(row.sales_invoice_id, ("", None))[1]
+                ),
             )
             for row in rows
         ]
+
+    @staticmethod
+    def _time_limit_warning(row: CreditNote, invoice_date: date | None) -> str | None:
+        """Say whether the note is too late to reduce tax (backlog GST-1).
+
+        Only a live note that credits tax is warned: a cancelled one reduces
+        nothing, and one with no tax has nothing the limit can take away.
+        It warns rather than refuses -- the outer date is all that is known
+        (an annual return filed earlier ends it sooner), and whether to
+        approve is the firm's call with its CA.
+        """
+        if row.status == CreditNoteStatus.CANCELLED.value or row.tax_amount <= ZERO:
+            return None
+        return credit_note_time_limit_warning(invoice_date, row.credit_note_date)
 
     def _note_response(
         self,
@@ -815,6 +835,7 @@ class CreditNoteService(TransactionalDocumentService):
         names: dict[UUID, str],
         invoice_number: str,
         customer_name: str,
+        time_limit_warning: str | None = None,
     ) -> CreditNoteResponse:
         """Build one note's response from what the page already read."""
         return CreditNoteResponse(
@@ -852,6 +873,7 @@ class CreditNoteService(TransactionalDocumentService):
                 )
                 for line in lines
             ],
+            time_limit_warning=time_limit_warning,
         )
 
     def _snapshot(self, row: CreditNote) -> dict[str, object]:

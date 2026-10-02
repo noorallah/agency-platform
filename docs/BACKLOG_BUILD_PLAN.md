@@ -116,7 +116,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | ACC-11 | §75 row 4 | A customer who is also a supplier, as one party | Nothing | M | Claude alone |
 | ACC-12 | §55 S11 | Cheque printing | Nothing (a cheque leaf to align) | S | Claude alone |
 | **GST** | | | | | |
-| GST-1 | §77 row 12 | Warn on a credit note after 30 November | Nothing | S | Claude alone |
+| GST-1 | §77 row 12 | Warn on a credit note after 30 November -- **built 2026-10-02** (A46) | Nothing | S | Claude alone |
 | GST-2 | §77 row 13 | GST document numbers kept to 16 characters | Nothing | S | Claude alone |
 | GST-3 | §78 row 7 | Warn on a supplier bill entered after its credit's last date | Nothing | S | Claude alone |
 | GST-4 | §78 row 9 | Common credit reversal for a firm with exempt sales (rules 42/43) | Nothing (CA confirms at hand-over) | M | Claude alone |
@@ -595,6 +595,7 @@ otherwise it is built as written.
 - **What it is:** tax on a credit note for a past year's sale can no longer be reduced after 30 November; the screen says so.
 - **What gets built:** a warning at credit note and sales return approval naming the date (s.34(2)), in `backend/app/credit_note/services/credit_note_service.py` and the sales return service. Tests.
 - **Effort / Who:** S, Claude alone.
+- **Built 2026-10-02** (A46): `app/tax/services/gst_time_limits.py` (shared with GST-3), `time_limit_warning` on the credit note and sales return responses; tests in `tests/unit/test_gst_time_limits.py`.
 
 #### GST-2. 16-character document numbers (§77 row 13)
 - **What it is:** a GST invoice number may not be longer than 16 characters.

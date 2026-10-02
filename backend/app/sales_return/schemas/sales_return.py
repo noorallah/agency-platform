@@ -374,6 +374,9 @@ class SalesReturnResponse(SalesReturnSchema):
     sources: list[SalesReturnSourceResponse]
     attachments: list[SalesReturnAttachmentResponse]
     notes: list[SalesReturnNoteResponse]
+    # Set when the return is dated past 30 November after the year of an
+    # invoice it credits, so it can no longer reduce tax (s.34(2), GST-1).
+    time_limit_warning: str | None = None
 
 
 class SalesReturnSummary(SalesReturnSchema):
