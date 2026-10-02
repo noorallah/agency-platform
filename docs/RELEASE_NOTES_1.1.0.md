@@ -100,6 +100,8 @@ screen (1.1.0).
   decision A38).
 - **Choosing batches on a counter bill**: a batch-tracked line opens the same
   picker as the delivery note, and the batch chosen is the one that leaves.
+- **Credit and debit notes are e-invoiced** like invoices, through the
+  sandbox or the offline portal upload (§77 row 4).
 - **E-way bills for every consignment**: from the invoice without an IRN
   where the firm need not e-invoice, from a delivery note no invoice bills
   (job work, approval, van sales), or recorded by hand after raising it on

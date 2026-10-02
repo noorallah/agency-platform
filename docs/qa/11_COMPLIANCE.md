@@ -91,6 +91,14 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Preconditions:** a firm with no *e-invoicing applies* date; Settings → Tax → GST Documents → *E-way bill needed above* **1,000**. An approved invoice worth more than 1,000 without an e-way bill; an approved **Job work** delivery note that no invoice bills; a second approved invoice.
 - **Steps:** Sell → E-Invoice → **E-way bills due**. Raise the first invoice's e-way bill (distance 120, road, a vehicle). Raise the job-work note's. On the second invoice choose **Record e-way bill...**: number `3510 1234 5678`. Then set an *e-invoicing applies* date in the past and try to raise an e-way bill on a new, unregistered B2B invoice. Dispatch a delivery note worth more than 1,000.
 - **Expect:** the due list shows the invoices and the note with the limit 1,000. The first invoice's bill is raised without an IRN; the note's bill carries supply type **Job work**; the recorded one shows `351012345678`, marked as entered by hand. Each leaves the due list. With e-invoicing on, the unregistered invoice is refused: "Register the invoice before raising its e-way bill". Dispatching the note prompts to raise its e-way bill.
+
+### TC-COMP-011 — Registering a credit note and a debit note
+
+*Added 2026-10-02 (backlog 77 row 4).*
+
+- **Preconditions:** a GST-registered firm on the **Sandbox** route; an approved, registered B2B invoice of 1,000 + 18% GST; an approved credit note of 200 + 36 against it, and an approved debit note to the customer of 100 + 18.
+- **Steps:** Sell → Credit Notes → the note → **E-invoice** → **Register**. The same on the debit note. Sell → E-Invoice: look at the list. Switch the firm to **Offline**, raise another credit note, and **Export for portal** with an invoice and that note ticked; open the file.
+- **Expect:** each note registers with an `SBX` IRN and shows mode **SANDBOX**; the list shows them as *Credit note* and *Debit note* with their own numbers. The exported file holds the invoice (`Typ` INV) and the note (`Typ` CRN) whose `RefDtls` names the invoice it corrects, CGST and SGST each 18.00 on the 200.
 ---
 
 ## Screen checks
