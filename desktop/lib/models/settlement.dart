@@ -227,7 +227,10 @@ class OutstandingInvoice {
 /// against one of their bills (D-FIN-19).
 class SupplierCredit {
   const SupplierCredit({
-    required this.purchaseReturnId,
+    required this.sourceId,
+    this.sourceType = 'PURCHASE_RETURN',
+    this.purchaseReturnId,
+    this.debitNoteId,
     required this.returnNumber,
     required this.returnDate,
     required this.creditAmount,
@@ -238,7 +241,16 @@ class SupplierCredit {
     this.outcome = 'CREDIT',
   });
 
-  final String purchaseReturnId;
+  /// The id every apply and refund call names: a purchase return's or a
+  /// debit note's, whichever raised the credit (A4).
+  final String sourceId;
+
+  /// PURCHASE_RETURN or DEBIT_NOTE.
+  final String sourceType;
+  final String? purchaseReturnId;
+  final String? debitNoteId;
+
+  /// The source document's number and date, whichever kind it is.
   final String returnNumber;
   final String returnDate;
   final String creditAmount;
@@ -252,13 +264,30 @@ class SupplierCredit {
   final String refundedAmount;
   final String outcome;
 
-  /// Only a return that comes back as a refund can be refunded.
-  bool get isRefundOutcome => outcome == 'REFUND';
+  bool get isDebitNote => sourceType == 'DEBIT_NOTE';
+
+  /// "Return PR-1" or "Debit note DN-1", so the two kinds can be told apart.
+  String get label => '${isDebitNote ? 'Debit note' : 'Return'} $returnNumber';
+
+  /// Only a return that comes back as a refund can be refunded; a debit
+  /// note's credit may always be.
+  bool get isRefundOutcome => isDebitNote || outcome == 'REFUND';
 
   double get available => double.tryParse(availableAmount) ?? 0;
 
   factory SupplierCredit.fromJson(Json json) => SupplierCredit(
-        purchaseReturnId: stringValue(json['purchase_return_id']),
+        sourceId: stringValue(json['source_id']).isEmpty
+            ? stringValue(json['purchase_return_id'])
+            : stringValue(json['source_id']),
+        sourceType: stringValue(json['source_type']).isEmpty
+            ? 'PURCHASE_RETURN'
+            : stringValue(json['source_type']),
+        purchaseReturnId: json['purchase_return_id'] == null
+            ? null
+            : stringValue(json['purchase_return_id']),
+        debitNoteId: json['debit_note_id'] == null
+            ? null
+            : stringValue(json['debit_note_id']),
         returnNumber: stringValue(json['return_number']),
         returnDate: stringValue(json['return_date']),
         creditAmount: stringValue(json['credit_amount']),
@@ -283,6 +312,7 @@ class SupplierRefund {
   const SupplierRefund({
     required this.id,
     required this.purchaseReturnId,
+    this.debitNoteId,
     required this.refundedOn,
     required this.amount,
     required this.method,
@@ -293,7 +323,8 @@ class SupplierRefund {
   });
 
   final String id;
-  final String purchaseReturnId;
+  final String? purchaseReturnId;
+  final String? debitNoteId;
   final String refundedOn;
   final String amount;
   final String method;
@@ -308,7 +339,12 @@ class SupplierRefund {
 
   factory SupplierRefund.fromJson(Json json) => SupplierRefund(
         id: stringValue(json['id']),
-        purchaseReturnId: stringValue(json['purchase_return_id']),
+        purchaseReturnId: json['purchase_return_id'] == null
+            ? null
+            : stringValue(json['purchase_return_id']),
+        debitNoteId: json['debit_note_id'] == null
+            ? null
+            : stringValue(json['debit_note_id']),
         refundedOn: stringValue(json['refunded_on']),
         amount: stringValue(json['amount']),
         method: stringValue(json['method']),

@@ -59,6 +59,9 @@ class _OutcomeApi extends ApiClient {
   bool refundReversed = false;
   String? refusal;
 
+  /// Adds a debit note's credit (A4) to what the credits list answers.
+  bool withDebitNote = false;
+
   Json _refund() => <String, dynamic>{
         'id': 'rf-1',
         'purchase_return_id': 'pr-1',
@@ -106,6 +109,8 @@ class _OutcomeApi extends ApiClient {
       return <String, dynamic>{
         'data': [
           <String, dynamic>{
+            'source_id': 'pr-1',
+            'source_type': 'PURCHASE_RETURN',
             'purchase_return_id': 'pr-1',
             'return_number': 'PR-2026-000001',
             'return_date': '2026-09-19',
@@ -117,6 +122,8 @@ class _OutcomeApi extends ApiClient {
             'applied_to': <String>[],
           },
           <String, dynamic>{
+            'source_id': 'pr-2',
+            'source_type': 'PURCHASE_RETURN',
             'purchase_return_id': 'pr-2',
             'return_number': 'PR-2026-000002',
             'return_date': '2026-09-21',
@@ -125,6 +132,20 @@ class _OutcomeApi extends ApiClient {
             'available_amount': '50.00',
             'applied_to': <String>[],
           },
+          if (withDebitNote)
+            <String, dynamic>{
+              'source_id': 'dn-1',
+              'source_type': 'DEBIT_NOTE',
+              'purchase_return_id': null,
+              'debit_note_id': 'dn-1',
+              'return_number': 'DN-2026-000001',
+              'return_date': '2026-09-22',
+              'credit_amount': '40.00',
+              'applied_amount': '0.00',
+              'available_amount': '40.00',
+              'outcome': 'CREDIT',
+              'applied_to': <String>[],
+            },
         ],
       };
     }
@@ -321,6 +342,34 @@ void main() {
     // One credit came back as a refund, the other as the default credit.
     expect(find.text('Record refund'), findsOneWidget);
     expect(find.text('Refunds'), findsNWidgets(2));
+  });
+
+  testWidgets('a debit note credit is labelled and offers a refund',
+      (tester) async {
+    final _OutcomeApi api = _OutcomeApi()..withDebitNote = true;
+    await _openCredits(tester, api);
+
+    expect(find.textContaining('Debit note DN-2026-000001'), findsOneWidget);
+    expect(find.textContaining('Return PR-2026-000001'), findsOneWidget);
+    // The refund-outcome return plus the debit note; the plain-credit
+    // return still offers none.
+    expect(find.text('Record refund'), findsNWidgets(2));
+
+    await tester.ensureVisible(find.text('Record refund').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Record refund').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('supplier-refund-amount')),
+      '40.00',
+    );
+    await tester.tap(find.byKey(const ValueKey('supplier-refund-save')));
+    await tester.pumpAndSettle();
+
+    final (String, String, Json?) post = api.calls.lastWhere(
+      (call) => call.$1 == 'POST' && call.$2.endsWith('/refunds'),
+    );
+    expect(post.$2, '/api/v1/payments/supplier-credits/dn-1/refunds');
   });
 
   testWidgets('Record refund posts exactly the keys the server declares',

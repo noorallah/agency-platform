@@ -856,13 +856,13 @@ class _SettlementsPageState extends State<SettlementsPage> {
         : await showDialog<SupplierCredit>(
             context: context,
             builder: (dialogContext) => SimpleDialog(
-              title: const Text('Which return?'),
+              title: const Text('Which credit?'),
               children: [
                 for (final SupplierCredit row in credits)
                   SimpleDialogOption(
                     onPressed: () => Navigator.pop(dialogContext, row),
                     child: Text(
-                      '${row.returnNumber} -- ${row.availableAmount} left',
+                      '${row.label} -- ${row.availableAmount} left',
                     ),
                   ),
               ],
@@ -872,9 +872,11 @@ class _SettlementsPageState extends State<SettlementsPage> {
     final _Application? chosen = await showDialog<_Application>(
       context: context,
       builder: (context) => _ApplyDialog(
-        title: 'Set ${credit.returnNumber} against a bill',
-        note: 'Nothing moves in the ledger. The return debited the supplier '
-            'when it completed; this says which bill that credit settles.',
+        title: 'Set ${credit.label} against a bill',
+        note: 'Nothing moves in the ledger. The '
+            '${credit.isDebitNote ? 'debit note' : 'return'} debited the '
+            'supplier when it was raised; this says which bill that credit '
+            'settles.',
         available: credit.availableAmount,
         availableLabel: 'of credit',
         invoiceLabel: 'Bill',
@@ -884,14 +886,14 @@ class _SettlementsPageState extends State<SettlementsPage> {
     if (chosen == null || !mounted) return;
     try {
       await widget.api.applySupplierCredit(
-        returnId: credit.purchaseReturnId,
+        sourceId: credit.sourceId,
         invoiceId: chosen.invoiceId,
         amount: chosen.amount,
       );
       if (!mounted) return;
       NotificationService.show(
         context,
-        '${credit.returnNumber} set against ${chosen.invoiceNumber}.',
+        '${credit.label} set against ${chosen.invoiceNumber}.',
         kind: AppNotificationKind.success,
       );
     } on ApiException catch (error) {

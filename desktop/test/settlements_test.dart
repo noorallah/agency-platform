@@ -128,12 +128,12 @@ class _SettlementApi extends ApiClient {
 
   @override
   Future<SupplierCredit> applySupplierCredit({
-    required String returnId,
+    required String sourceId,
     required String invoiceId,
     required String amount,
   }) async {
     appliedCredit = <String, dynamic>{
-      'return_id': returnId,
+      'return_id': sourceId,
       'invoice_id': invoiceId,
       'amount': amount,
     };
@@ -812,6 +812,8 @@ void main() {
 
   group('supplier credit from returns (D-FIN-19)', () {
     SupplierCredit credit() => SupplierCredit.fromJson({
+          'source_id': 'pr-1',
+          'source_type': 'PURCHASE_RETURN',
           'purchase_return_id': 'pr-1',
           'return_number': 'PR-2026-2027-000009',
           'return_date': '2026-09-19',
@@ -857,6 +859,46 @@ void main() {
         'invoice_id': 'pi-1',
         'amount': '236.00',
       });
+    });
+
+    testWidgets('a debit note credit is labelled and applied by its own id',
+        (tester) async {
+      final _SettlementApi api = vendorApi()
+        ..credits = [
+          SupplierCredit.fromJson({
+            'source_id': 'dn-1',
+            'source_type': 'DEBIT_NOTE',
+            'purchase_return_id': null,
+            'debit_note_id': 'dn-1',
+            'return_number': 'DN-2026-2027-000003',
+            'return_date': '2026-09-22',
+            'credit_amount': '40.00',
+            'applied_amount': '0.00',
+            'available_amount': '40.00',
+            'outcome': 'CREDIT',
+            'applied_to': <String>[],
+          }),
+        ];
+      await _pump(
+        tester,
+        api,
+        direction: SettlementDirection.payment,
+        perms: const ['PAYMENT_VIEW', 'PAYMENT_CREATE'],
+      );
+
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Supplier credits'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Fixture Supplier'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('Set Debit note DN-2026-2027-000003'),
+        findsOneWidget,
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
+      await tester.pumpAndSettle();
+
+      expect(api.appliedCredit!['return_id'], 'dn-1');
     });
 
     testWidgets('recording a payment says the supplier holds a credit',

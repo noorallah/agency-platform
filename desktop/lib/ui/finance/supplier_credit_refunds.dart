@@ -14,7 +14,8 @@ import '../workspace/reason_prompt.dart';
 /// one, or read and reverse the ones already recorded.
 ///
 /// Recording a refund posts to the ledger (money in, supplier payable down);
-/// the server only accepts one for a return whose outcome is Refund, and its
+/// the server accepts one for a debit note's credit, or for a return whose
+/// outcome is Refund, and its
 /// refusal is shown inside the dialog that asked.
 class SupplierCreditsDialog extends StatefulWidget {
   const SupplierCreditsDialog({
@@ -76,7 +77,7 @@ class _SupplierCreditsDialogState extends State<SupplierCreditsDialog> {
     if (!mounted) return;
     NotificationService.show(
       context,
-      'Refund of ${saved.amount} recorded against ${credit.returnNumber} '
+      'Refund of ${saved.amount} recorded against ${credit.label} '
       'and posted to the ledger.',
       kind: AppNotificationKind.success,
     );
@@ -118,7 +119,7 @@ class _SupplierCreditsDialogState extends State<SupplierCreditsDialog> {
               child: _credits.isEmpty && !_loading
                   ? Center(
                       child: Text(
-                        'This supplier holds no credit from returns.',
+                        'This supplier holds no credit from returns or debit notes.',
                         style: theme.textTheme.bodyMedium,
                       ),
                     )
@@ -144,9 +145,9 @@ class _SupplierCreditsDialogState extends State<SupplierCreditsDialog> {
     final bool canRefund =
         widget.canManage && credit.isRefundOutcome && credit.available > 0;
     return ListTile(
-      key: ValueKey<String>('supplier-credit-${credit.purchaseReturnId}'),
+      key: ValueKey<String>('supplier-credit-${credit.sourceId}'),
       title: Text(
-        '${credit.returnNumber}  ·  ${credit.returnDate}  ·  '
+        '${credit.label}  ·  ${credit.returnDate}  ·  '
         'Outcome: ${_outcomeLabel(credit.outcome)}',
       ),
       subtitle: Text(
@@ -221,7 +222,7 @@ class _RecordSupplierRefundDialogState extends State<RecordSupplierRefundDialog>
     setState(() => _problem = null);
     await saveAndClose<SupplierRefund>(
       () => widget.api.recordSupplierRefund(
-        returnId: widget.credit.purchaseReturnId,
+        sourceId: widget.credit.sourceId,
         amount: _amount.text.trim(),
         refundedOn: _day,
         method: _method,
@@ -233,7 +234,7 @@ class _RecordSupplierRefundDialogState extends State<RecordSupplierRefundDialog>
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: Text('Record refund for ${widget.credit.returnNumber}'),
+        title: Text('Record refund for ${widget.credit.label}'),
         content: SizedBox(
           width: 460,
           child: SingleChildScrollView(
@@ -379,7 +380,7 @@ class _SupplierRefundsDialogState extends State<SupplierRefundsDialog> {
     });
     try {
       final List<SupplierRefund> rows =
-          await widget.api.supplierRefunds(widget.credit.purchaseReturnId);
+          await widget.api.supplierRefunds(widget.credit.sourceId);
       if (!mounted) return;
       setState(() => _refunds = rows);
     } on ApiException catch (exception) {
@@ -415,7 +416,7 @@ class _SupplierRefundsDialogState extends State<SupplierRefundsDialog> {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     return AlertDialog(
-      title: Text('Refunds on ${widget.credit.returnNumber}'),
+      title: Text('Refunds on ${widget.credit.label}'),
       content: SizedBox(
         width: 560,
         height: 300,
