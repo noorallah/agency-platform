@@ -873,7 +873,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         standing = [
             refund
             for refund in live_refunds(
-                self._session, firm_id=firm_scope, purchase_return_id=row.id
+                self._session, firm_id=firm_scope, source_id=row.id
             )
             if refund.status == "POSTED"
         ]

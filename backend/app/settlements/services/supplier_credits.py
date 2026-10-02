@@ -1,4 +1,4 @@
-"""Supplier credit: what a purchase return left on the vendor's account.
+"""Supplier credit: what a purchase return or a debit note left on the vendor.
 
 A completed purchase return debits accounts payable with its whole total. A
 return raised from the supplier's **bill** takes that off the bill (D-BUY-6).
@@ -20,16 +20,25 @@ A return off a bill that was already paid has nothing left on that bill to
 come off, so the part the bill cannot absorb is credit too (D-BUY-20); should
 the bill owe more again once that credit is used, the part used goes back on
 the bill (`drawn_back_onto_bills`).
+
+**A debit note is a second source (decision A4, 2026-10-02).** An approved
+debit note debits payables against its bill exactly as a return off the bill's
+lines does, so the same arithmetic applies: what its bill cannot absorb --
+already paid, say -- is credit on the supplier's account, to set against
+another bill or be paid back. Bill parts from returns and from debit notes are
+one list, newest first, so a bill that cannot absorb them all turns the newest
+into credit whichever kind it is. A credit is named by its **source id** -- the
+return's id or the debit note's -- and an application or refund row carries
+exactly one of the two.
 """
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
@@ -39,10 +48,6 @@ from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_money
 from app.finance.services.journal_engine import quantize_money as quantize_ledger
 from app.purchase_invoice.models import PurchaseInvoice
-
-if TYPE_CHECKING:
-    from app.purchase_return.models import PurchaseReturn
-
 from app.settlements.models import (
     SettlementMethod,
     SupplierCreditApplication,
@@ -52,13 +57,23 @@ from app.settlements.models import (
 #: The return states whose posting stands: completing debits payables, a
 #: cancelled return has taken that back, and a draft has not posted.
 CREDITING_RETURN_STATES = ("COMPLETED", "CLOSED")
+#: The debit note state whose posting stands: approval is what posts.
+CREDITING_DEBIT_NOTE_STATES = ("APPROVED",)
+
+PURCHASE_RETURN = "PURCHASE_RETURN"
+DEBIT_NOTE = "DEBIT_NOTE"
 
 
 @dataclass
 class SupplierCredit:
-    """One return's credit on the vendor's account, and what is left of it."""
+    """One source's credit on the vendor's account, and what is left of it.
 
-    purchase_return_id: UUID
+    The source is a purchase return or, since A4, a debit note: exactly one of
+    ``purchase_return_id`` and ``debit_note_id`` is set. ``return_number`` and
+    ``return_date`` are that document's number and date.
+    """
+
+    purchase_return_id: UUID | None
     return_number: str
     return_date: date
     vendor_id: UUID
@@ -67,8 +82,22 @@ class SupplierCredit:
     applied_to: list[str] = field(default_factory=list)
     #: What the supplier has paid back against it (backlog 69 row 7).
     refunded_amount: Decimal = ZERO
-    #: CREDIT, REPLACEMENT or REFUND: what the return comes back as.
+    #: CREDIT, REPLACEMENT or REFUND: what the return comes back as. A debit
+    #: note's credit is always CREDIT -- set against a bill or paid back.
     outcome: str = "CREDIT"
+    debit_note_id: UUID | None = None
+
+    @property
+    def source_id(self) -> UUID:
+        """Return the id of the document that gave the credit."""
+        source = self.purchase_return_id or self.debit_note_id
+        assert source is not None
+        return source
+
+    @property
+    def source_type(self) -> str:
+        """Return PURCHASE_RETURN or DEBIT_NOTE."""
+        return PURCHASE_RETURN if self.purchase_return_id else DEBIT_NOTE
 
     @property
     def available_amount(self) -> Decimal:
@@ -78,37 +107,55 @@ class SupplierCredit:
         )
 
 
+@dataclass(frozen=True)
+class _Source:
+    """A document that can give supplier credit, read for a lock or a check."""
+
+    kind: str
+    id: UUID
+    number: str
+    on: date
+    vendor_id: UUID
+    outcome: str
+
+
+def _source_column() -> "ColumnElement[UUID]":
+    """Return the expression naming an application's source, whichever kind."""
+    return func.coalesce(
+        SupplierCreditApplication.purchase_return_id,
+        SupplierCreditApplication.debit_note_id,
+    )
+
+
 def supplier_credits(
     session: Session,
     *,
     firm_id: UUID,
     vendor_id: UUID | None = None,
-    purchase_return_ids: Sequence[UUID] | None = None,
+    source_ids: Sequence[UUID] | None = None,
 ) -> list[SupplierCredit]:
-    """Return each standing return's supplier credit, oldest first.
+    """Return each standing source's supplier credit, oldest first.
 
     A return's credit is what its posting debited payables with, less what its
     bill-sourced lines took off their own bills -- so a return raised from a
     goods receipt gives all of it -- plus whatever of those lines the bill
-    could not absorb because it was already paid (D-BUY-20).
+    could not absorb because it was already paid (D-BUY-20). A debit note's
+    is only the part its bill could not absorb (A4).
 
     Args:
         session: The firm's store.
         firm_id: The firm.
-        vendor_id: Only this vendor's returns, where given.
-        purchase_return_ids: Only these returns, where given.
+        vendor_id: Only this vendor's documents, where given.
+        source_ids: Only these returns and debit notes, where given.
 
     Returns:
-        One entry per return that gives any credit, applied or not.
+        One entry per source that gives any credit, applied or not.
 
     """
     return [
         credit
         for credit in _all_credits(
-            session,
-            firm_id=firm_id,
-            vendor_id=vendor_id,
-            purchase_return_ids=purchase_return_ids,
+            session, firm_id=firm_id, vendor_id=vendor_id, source_ids=source_ids
         )
         if credit.credit_amount > ZERO
     ]
@@ -119,21 +166,22 @@ def _all_credits(
     *,
     firm_id: UUID,
     vendor_id: UUID | None = None,
-    purchase_return_ids: Sequence[UUID] | None = None,
+    source_ids: Sequence[UUID] | None = None,
 ) -> list[SupplierCredit]:
-    """Return every standing return's credit figures, a credit of nothing too.
+    """Return every standing source's credit figures, a credit of nothing too.
 
     Args:
         session: The firm's store.
         firm_id: The firm.
-        vendor_id: Only this vendor's returns, where given.
-        purchase_return_ids: Only these returns, where given.
+        vendor_id: Only this vendor's documents, where given.
+        source_ids: Only these returns and debit notes, where given.
 
     Returns:
-        One entry per completed return, whatever it gives.
+        One entry per completed return and approved debit note.
 
     """
-    # Imported here: the return module imports settlement-adjacent models.
+    # Imported here: both modules import settlement-adjacent models.
+    from app.debit_note.models import DebitNote
     from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
 
     statement = select(PurchaseReturn).where(
@@ -141,18 +189,22 @@ def _all_credits(
         PurchaseReturn.is_deleted.is_(False),
         PurchaseReturn.status.in_(CREDITING_RETURN_STATES),
     )
+    notes_statement = select(DebitNote).where(
+        DebitNote.firm_id == firm_id,
+        DebitNote.is_deleted.is_(False),
+        DebitNote.status.in_(CREDITING_DEBIT_NOTE_STATES),
+    )
     if vendor_id is not None:
         statement = statement.where(PurchaseReturn.vendor_id == vendor_id)
-    if purchase_return_ids is not None:
-        statement = statement.where(PurchaseReturn.id.in_(purchase_return_ids))
-    returns = session.scalars(
-        statement.order_by(
-            PurchaseReturn.return_date.asc(), PurchaseReturn.return_number.asc()
-        )
-    ).all()
-    if not returns:
+        notes_statement = notes_statement.where(DebitNote.vendor_id == vendor_id)
+    if source_ids is not None:
+        statement = statement.where(PurchaseReturn.id.in_(source_ids))
+        notes_statement = notes_statement.where(DebitNote.id.in_(source_ids))
+    returns = session.scalars(statement).all()
+    notes = session.scalars(notes_statement).all()
+    if not returns and not notes:
         return []
-    ids = [row.id for row in returns]
+    ids = [row.id for row in returns] + [row.id for row in notes]
     billed = {
         return_id: Decimal(str(total))
         for return_id, total in session.execute(
@@ -161,7 +213,7 @@ def _all_credits(
                 func.coalesce(func.sum(PurchaseReturnLine.net_amount), 0),
             )
             .where(
-                PurchaseReturnLine.purchase_return_id.in_(ids),
+                PurchaseReturnLine.purchase_return_id.in_([row.id for row in returns]),
                 PurchaseReturnLine.source_document_type == "PURCHASE_INVOICE",
                 PurchaseReturnLine.is_deleted.is_(False),
             )
@@ -170,42 +222,40 @@ def _all_credits(
     }
     applied: dict[UUID, Decimal] = {}
     applied_to: dict[UUID, list[str]] = {}
-    for return_id, amount, number in session.execute(
-        select(
-            SupplierCreditApplication.purchase_return_id,
-            SupplierCreditApplication.amount,
-            PurchaseInvoice.invoice_number,
-        )
+    source = _source_column()
+    for source_id, amount, number in session.execute(
+        select(source, SupplierCreditApplication.amount, PurchaseInvoice.invoice_number)
         .join(
             PurchaseInvoice,
             PurchaseInvoice.id == SupplierCreditApplication.purchase_invoice_id,
         )
         .where(
             SupplierCreditApplication.firm_id == firm_id,
-            SupplierCreditApplication.purchase_return_id.in_(ids),
+            source.in_(ids),
             SupplierCreditApplication.is_deleted.is_(False),
         )
         .order_by(SupplierCreditApplication.created_at.asc())
     ).all():
-        applied[return_id] = applied.get(return_id, ZERO) + quantize_ledger(
+        applied[source_id] = applied.get(source_id, ZERO) + quantize_ledger(
             Decimal(str(amount))
         )
-        applied_to.setdefault(return_id, []).append(number)
+        applied_to.setdefault(source_id, []).append(number)
     refunded: dict[UUID, Decimal] = {}
-    for return_id, amount in session.execute(
-        select(
-            SupplierCreditRefund.purchase_return_id, SupplierCreditRefund.amount
-        ).where(
+    refund_source = func.coalesce(
+        SupplierCreditRefund.purchase_return_id, SupplierCreditRefund.debit_note_id
+    )
+    for source_id, amount in session.execute(
+        select(refund_source, SupplierCreditRefund.amount).where(
             SupplierCreditRefund.firm_id == firm_id,
-            SupplierCreditRefund.purchase_return_id.in_(ids),
+            refund_source.in_(ids),
             SupplierCreditRefund.is_deleted.is_(False),
             SupplierCreditRefund.status == "POSTED",
         )
     ).all():
-        refunded[return_id] = refunded.get(return_id, ZERO) + quantize_ledger(
+        refunded[source_id] = refunded.get(source_id, ZERO) + quantize_ledger(
             Decimal(str(amount))
         )
-    spilled = _spilled_over(session, firm_id=firm_id, purchase_return_ids=ids)
+    spilled = _spilled_over(session, firm_id=firm_id, source_ids=ids)
     credits: list[SupplierCredit] = []
     for row in returns:
         # What the posting debited payables with, at the ledger's scale.
@@ -225,6 +275,23 @@ def _all_credits(
                 outcome=row.outcome or "CREDIT",
             )
         )
+    for note in notes:
+        # All of a debit note came off its bill; only the part the bill
+        # could not absorb is the supplier's to give back (A4).
+        credits.append(
+            SupplierCredit(
+                purchase_return_id=None,
+                debit_note_id=note.id,
+                return_number=note.debit_note_number,
+                return_date=note.debit_note_date,
+                vendor_id=note.vendor_id,
+                credit_amount=spilled.get(note.id, ZERO),
+                applied_amount=applied.get(note.id, ZERO),
+                applied_to=applied_to.get(note.id, []),
+                refunded_amount=refunded.get(note.id, ZERO),
+            )
+        )
+    credits.sort(key=lambda item: (item.return_date, item.return_number))
     return credits
 
 
@@ -232,14 +299,16 @@ def _bill_parts(
     session: Session,
     *,
     firm_id: UUID,
-    purchase_return_ids: Sequence[UUID] | None = None,
+    source_ids: Sequence[UUID] | None = None,
     invoice_ids: Sequence[UUID] | None = None,
 ) -> list[tuple[UUID, UUID, Decimal]]:
-    """Return (return, bill, amount) for what standing returns took off bills.
+    """Return (source, bill, amount) for what returns and debit notes took off.
 
-    Newest return first, the order in which a bill that cannot absorb them all
-    turns them into credit. Narrowed to some returns, some bills, or both.
+    Newest document first, returns and debit notes together, the order in
+    which a bill that cannot absorb them all turns them into credit. Narrowed
+    to some sources, some bills, or both.
     """
+    from app.debit_note.models import DebitNote
     from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
 
     statement = (
@@ -247,6 +316,8 @@ def _bill_parts(
             PurchaseReturnLine.purchase_return_id,
             PurchaseReturnLine.source_document_id,
             func.coalesce(func.sum(PurchaseReturnLine.net_amount), 0),
+            PurchaseReturn.return_date,
+            PurchaseReturn.return_number,
         )
         .join(
             PurchaseReturn, PurchaseReturn.id == PurchaseReturnLine.purchase_return_id
@@ -264,36 +335,58 @@ def _bill_parts(
             PurchaseReturn.return_date,
             PurchaseReturn.return_number,
         )
-        .order_by(
-            PurchaseReturn.return_date.desc(),
-            PurchaseReturn.return_number.desc(),
-            PurchaseReturnLine.source_document_id.asc(),
-        )
     )
-    if purchase_return_ids is not None:
+    notes = select(
+        DebitNote.id,
+        DebitNote.purchase_invoice_id,
+        DebitNote.taxable_amount,
+        DebitNote.tax_amount,
+        DebitNote.debit_note_date,
+        DebitNote.debit_note_number,
+    ).where(
+        DebitNote.firm_id == firm_id,
+        DebitNote.is_deleted.is_(False),
+        DebitNote.status.in_(CREDITING_DEBIT_NOTE_STATES),
+    )
+    if source_ids is not None:
         statement = statement.where(
-            PurchaseReturnLine.purchase_return_id.in_(purchase_return_ids)
+            PurchaseReturnLine.purchase_return_id.in_(source_ids)
         )
+        notes = notes.where(DebitNote.id.in_(source_ids))
     if invoice_ids is not None:
         statement = statement.where(
             PurchaseReturnLine.source_document_id.in_(invoice_ids)
         )
-    return [
-        (return_id, bill_id, quantize_ledger(Decimal(str(amount))))
-        for return_id, bill_id, amount in session.execute(statement).all()
+        notes = notes.where(DebitNote.purchase_invoice_id.in_(invoice_ids))
+    parts: list[tuple[date, str, UUID, UUID, Decimal]] = [
+        (on, number, return_id, bill_id, quantize_ledger(Decimal(str(amount))))
+        for return_id, bill_id, amount, on, number in session.execute(statement).all()
     ]
+    # Counted as the bill counts it: each part rounded to the ledger, summed.
+    parts.extend(
+        (
+            on,
+            number,
+            note_id,
+            bill_id,
+            quantize_ledger(Decimal(str(taxable))) + quantize_ledger(Decimal(str(tax))),
+        )
+        for note_id, bill_id, taxable, tax, on, number in session.execute(notes).all()
+    )
+    parts.sort(key=lambda part: (part[0], part[1], str(part[3])), reverse=True)
+    return [(source_id, bill_id, amount) for _, _, source_id, bill_id, amount in parts]
 
 
 def _spilled_over(
-    session: Session, *, firm_id: UUID, purchase_return_ids: Sequence[UUID]
+    session: Session, *, firm_id: UUID, source_ids: Sequence[UUID]
 ) -> dict[UUID, Decimal]:
-    """Return what of each return its bills could not absorb (D-BUY-20).
+    """Return what of each source its bills could not absorb (D-BUY-20, A4).
 
-    A bill already paid has nothing left for a return off its lines to come
-    off, so the excess of everything taken off the bill over its total is the
-    supplier's to give back. It falls to the bill's returns newest first --
-    the earlier ones fitted when they were made -- each up to what it took off
-    that bill.
+    A bill already paid has nothing left for a return off its lines, or a
+    debit note against it, to come off, so the excess of everything taken off
+    the bill over its total is the supplier's to give back. It falls to the
+    bill's returns and debit notes newest first -- the earlier ones fitted when
+    they were made -- each up to what it took off that bill.
     """
     from app.settlements.services.settlement_service import PaymentService
 
@@ -301,7 +394,7 @@ def _spilled_over(
         {
             bill_id
             for _, bill_id, _ in _bill_parts(
-                session, firm_id=firm_id, purchase_return_ids=purchase_return_ids
+                session, firm_id=firm_id, source_ids=source_ids
             )
         }
     )
@@ -315,14 +408,14 @@ def _spilled_over(
         for bill_id, (total, already) in positions.items()
     }
     spilled: dict[UUID, Decimal] = {}
-    for return_id, bill_id, amount in _bill_parts(
+    for source_id, bill_id, amount in _bill_parts(
         session, firm_id=firm_id, invoice_ids=bills
     ):
         share = min(amount, left.get(bill_id, ZERO))
         if share <= ZERO:
             continue
         left[bill_id] -= share
-        spilled[return_id] = spilled.get(return_id, ZERO) + share
+        spilled[source_id] = spilled.get(source_id, ZERO) + share
     return spilled
 
 
@@ -330,26 +423,32 @@ def _spilled_over(
 def drawn_back_onto_bills(
     session: Session, *, firm_id: UUID, invoice_ids: Sequence[UUID]
 ) -> dict[UUID, Decimal]:
-    """Return what goes back on each bill from credit its returns no longer give.
+    """Return what goes back on each bill from credit its sources no longer give.
 
-    The part of a return its paid bill could not absorb is credit (D-BUY-20).
-    Once that credit has been set against another bill or paid back, and the
-    first bill then owes more again -- its payment reversed -- the return gives
-    less credit than was used. The difference was taken off the first bill
-    twice, so it goes back on it, and the payables list and the ledger agree.
+    The part of a return or debit note its paid bill could not absorb is
+    credit (D-BUY-20, A4). Once that credit has been set against another bill
+    or paid back, and the first bill then owes more again -- its payment
+    reversed -- the source gives less credit than was used. The difference was
+    taken off the first bill twice, so it goes back on it, and the payables
+    list and the ledger agree.
     """
     if not invoice_ids:
         return {}
     used = set(
         session.scalars(
-            select(SupplierCreditApplication.purchase_return_id).where(
+            select(_source_column()).where(
                 SupplierCreditApplication.firm_id == firm_id,
                 SupplierCreditApplication.is_deleted.is_(False),
             )
         ).all()
     ) | set(
         session.scalars(
-            select(SupplierCreditRefund.purchase_return_id).where(
+            select(
+                func.coalesce(
+                    SupplierCreditRefund.purchase_return_id,
+                    SupplierCreditRefund.debit_note_id,
+                )
+            ).where(
                 SupplierCreditRefund.firm_id == firm_id,
                 SupplierCreditRefund.is_deleted.is_(False),
                 SupplierCreditRefund.status == "POSTED",
@@ -358,35 +457,33 @@ def drawn_back_onto_bills(
     )
     if not used:
         return {}
-    returns = sorted(
+    sources = sorted(
         {
-            return_id
-            for return_id, _, _ in _bill_parts(
+            source_id
+            for source_id, _, _ in _bill_parts(
                 session, firm_id=firm_id, invoice_ids=invoice_ids
             )
-            if return_id in used
+            if source_id in used
         }
     )
-    if not returns:
+    if not sources:
         return {}
     short = {
-        credit.purchase_return_id: max(
+        credit.source_id: max(
             credit.applied_amount + credit.refunded_amount - credit.credit_amount,
             ZERO,
         )
-        for credit in _all_credits(
-            session, firm_id=firm_id, purchase_return_ids=returns
-        )
+        for credit in _all_credits(session, firm_id=firm_id, source_ids=sources)
     }
     wanted = set(invoice_ids)
     drawn: dict[UUID, Decimal] = {}
-    for return_id, bill_id, amount in _bill_parts(
-        session, firm_id=firm_id, purchase_return_ids=returns
+    for source_id, bill_id, amount in _bill_parts(
+        session, firm_id=firm_id, source_ids=sources
     ):
-        share = min(amount, short.get(return_id, ZERO))
+        share = min(amount, short.get(source_id, ZERO))
         if share <= ZERO:
             continue
-        short[return_id] -= share
+        short[source_id] -= share
         if bill_id in wanted:
             drawn[bill_id] = drawn.get(bill_id, ZERO) + share
     return drawn
@@ -423,13 +520,15 @@ def withdraw_credit_applications(
     actor_id: UUID,
     purchase_return_id: UUID | None = None,
     purchase_invoice_id: UUID | None = None,
+    debit_note_id: UUID | None = None,
 ) -> int:
-    """Withdraw the credit set against a bill, when the return or bill goes.
+    """Withdraw the credit set against a bill, when its source or bill goes.
 
-    Cancelling the return takes its payables debit back, so the credit it gave
-    is gone and the bill owes that part again. Cancelling the bill takes its
-    payable back, so the credit set against it is free again. Nothing posts:
-    each document's own cancellation already reversed its journal.
+    Cancelling the return or the debit note takes its payables debit back, so
+    the credit it gave is gone and the bill owes that part again. Cancelling
+    the bill takes its payable back, so the credit set against it is free
+    again. Nothing posts: each document's own cancellation already reversed
+    its journal.
 
     Returns:
         How many applications were withdrawn.
@@ -442,6 +541,10 @@ def withdraw_credit_applications(
     if purchase_return_id is not None:
         statement = statement.where(
             SupplierCreditApplication.purchase_return_id == purchase_return_id
+        )
+    if debit_note_id is not None:
+        statement = statement.where(
+            SupplierCreditApplication.debit_note_id == debit_note_id
         )
     if purchase_invoice_id is not None:
         statement = statement.where(
@@ -462,7 +565,10 @@ def withdraw_credit_applications(
             actor_id=actor_id,
             firm_id=firm_id,
             before_data={
-                "purchase_return_id": str(row.purchase_return_id),
+                "purchase_return_id": (
+                    str(row.purchase_return_id) if row.purchase_return_id else None
+                ),
+                "debit_note_id": str(row.debit_note_id) if row.debit_note_id else None,
                 "purchase_invoice_id": str(row.purchase_invoice_id),
                 "amount": str(row.amount),
             },
@@ -470,64 +576,121 @@ def withdraw_credit_applications(
     return len(rows)
 
 
-def apply_supplier_credit(
-    session: Session,
-    *,
-    firm_id: UUID,
-    purchase_return_id: UUID,
-    invoice_id: UUID,
-    amount: Decimal,
-    actor_id: UUID,
-) -> SupplierCredit:
-    """Set part of a return's supplier credit against one of the vendor's bills.
+def _locked_source(session: Session, *, firm_id: UUID, source_id: UUID) -> _Source:
+    """Return the return or debit note giving a credit, locked.
 
-    The return is locked for the check, because what is left of it is a sum
-    and two applications racing would each see the whole of it (a guard on a
-    sum takes a lock on the thing consumed).
+    What is left of a credit is a sum, and two applications racing would each
+    see the whole of it -- a guard on a sum takes a lock on the thing consumed.
 
     Raises:
-        ResourceNotFoundError: If the firm has no such return.
-        ValidationError: If the return gives no credit, has less left than
-            asked, or the bill is not the vendor's, not approved, or owes less.
+        ResourceNotFoundError: If the firm has neither with that id.
 
     """
-    # Imported here: the return module imports settlement-adjacent models, and
-    # the payment service imports this one.
+    from app.debit_note.models import DebitNote
     from app.purchase_return.models import PurchaseReturn
-    from app.settlements.services.settlement_service import PaymentService
 
-    asked = quantize_ledger(amount)
-    if asked <= ZERO:
-        raise ValidationError("An application must be for more than nothing.")
-    row = session.scalar(
+    found = session.scalar(
         select(PurchaseReturn)
         .where(
-            PurchaseReturn.id == purchase_return_id,
+            PurchaseReturn.id == source_id,
             PurchaseReturn.firm_id == firm_id,
             PurchaseReturn.is_deleted.is_(False),
         )
         .with_for_update()
     )
-    if row is None:
-        raise ResourceNotFoundError("Purchase return not found.")
-    found = supplier_credits(session, firm_id=firm_id, purchase_return_ids=[row.id])
-    if not found:
-        raise ValidationError(
-            f"{row.return_number} leaves no credit on the supplier's account: "
-            "it is not completed, or its lines already came off the bill they "
-            "were returned against."
+    if found is not None:
+        return _Source(
+            kind=PURCHASE_RETURN,
+            id=found.id,
+            number=found.return_number,
+            on=found.return_date,
+            vendor_id=found.vendor_id,
+            outcome=found.outcome or "CREDIT",
         )
+    note = session.scalar(
+        select(DebitNote)
+        .where(
+            DebitNote.id == source_id,
+            DebitNote.firm_id == firm_id,
+            DebitNote.is_deleted.is_(False),
+        )
+        .with_for_update()
+    )
+    if note is None:
+        raise ResourceNotFoundError("Purchase return or debit note not found.")
+    return _Source(
+        kind=DEBIT_NOTE,
+        id=note.id,
+        number=note.debit_note_number,
+        on=note.debit_note_date,
+        vendor_id=note.vendor_id,
+        outcome="CREDIT",
+    )
+
+
+def _no_credit_message(source: _Source) -> str:
+    """Say why a source gives nothing to apply or pay back."""
+    if source.kind == DEBIT_NOTE:
+        return (
+            f"{source.number} leaves no credit on the supplier's account: it is "
+            "not approved, or its bill still owed all of it."
+        )
+    return (
+        f"{source.number} leaves no credit on the supplier's account: it is not "
+        "completed, or its lines already came off the bill they were returned "
+        "against."
+    )
+
+
+def _source_columns(source: _Source) -> dict[str, UUID | None]:
+    """Return the application or refund columns naming a source."""
+    return {
+        "purchase_return_id": source.id if source.kind == PURCHASE_RETURN else None,
+        "debit_note_id": source.id if source.kind == DEBIT_NOTE else None,
+    }
+
+
+def apply_supplier_credit(
+    session: Session,
+    *,
+    firm_id: UUID,
+    source_id: UUID,
+    invoice_id: UUID,
+    amount: Decimal,
+    actor_id: UUID,
+) -> SupplierCredit:
+    """Set part of a supplier credit against one of the vendor's bills.
+
+    ``source_id`` is the purchase return or debit note that gave the credit,
+    locked for the check.
+
+    Raises:
+        ResourceNotFoundError: If the firm has no such return or debit note.
+        ValidationError: If it gives no credit, has less left than asked, or
+            the bill is not the vendor's, not approved, or owes less.
+
+    """
+    # Imported here: the payment service imports this module.
+    from app.settlements.services.settlement_service import PaymentService
+
+    asked = quantize_ledger(amount)
+    if asked <= ZERO:
+        raise ValidationError("An application must be for more than nothing.")
+    source = _locked_source(session, firm_id=firm_id, source_id=source_id)
+    found = supplier_credits(session, firm_id=firm_id, source_ids=[source.id])
+    if not found:
+        raise ValidationError(_no_credit_message(source))
     credit = found[0]
     if asked > credit.available_amount:
         raise ValidationError(
-            f"{row.return_number} has only {credit.available_amount} of credit "
+            f"{source.number} has only {credit.available_amount} of credit "
             "left to set against a bill."
         )
     bill = next(
         (
             record
             for record in PaymentService(session).outstanding_invoices(
-                firm_id=firm_id, party_id=row.vendor_id
+                firm_id=firm_id, party_id=source.vendor_id
             )
             if record.invoice_id == invoice_id
         ),
@@ -553,13 +716,13 @@ def apply_supplier_credit(
         )
     application = SupplierCreditApplication(
         firm_id=firm_id,
-        vendor_id=row.vendor_id,
-        purchase_return_id=row.id,
+        vendor_id=source.vendor_id,
         purchase_invoice_id=invoice_id,
         applied_on=utc_now().date(),
         amount=asked,
         created_by=actor_id,
         updated_by=actor_id,
+        **_source_columns(source),
     )
     session.add(application)
     session.flush()
@@ -571,39 +734,20 @@ def apply_supplier_credit(
         actor_id=actor_id,
         firm_id=firm_id,
         after_data={
-            "purchase_return": row.return_number,
+            "source": source.kind,
+            "source_number": source.number,
             "purchase_invoice": bill.invoice_number,
             "amount": str(asked),
         },
     )
-    return supplier_credits(session, firm_id=firm_id, purchase_return_ids=[row.id])[0]
-
-
-def _locked_return(
-    session: Session, *, firm_id: UUID, purchase_return_id: UUID
-) -> "PurchaseReturn":
-    """Return the purchase return, locked: what is left of it is a sum."""
-    from app.purchase_return.models import PurchaseReturn
-
-    row = session.scalar(
-        select(PurchaseReturn)
-        .where(
-            PurchaseReturn.id == purchase_return_id,
-            PurchaseReturn.firm_id == firm_id,
-            PurchaseReturn.is_deleted.is_(False),
-        )
-        .with_for_update()
-    )
-    if row is None:
-        raise ResourceNotFoundError("Purchase return not found.")
-    return row
+    return supplier_credits(session, firm_id=firm_id, source_ids=[source.id])[0]
 
 
 def refund_supplier_credit(
     session: Session,
     *,
     firm_id: UUID,
-    purchase_return_id: UUID,
+    source_id: UUID,
     amount: Decimal,
     refunded_on: date,
     method: SettlementMethod,
@@ -611,17 +755,19 @@ def refund_supplier_credit(
     reference: str | None = None,
     remarks: str | None = None,
 ) -> SupplierCreditRefund:
-    """Receive money a supplier paid back against a return's credit (69.7).
+    """Receive money a supplier paid back against a credit (69.7, A4).
 
     Posts ``Dr cash or bank / Cr accounts payable`` and uses that much of the
-    credit, under a lock on the return for the same reason applying it takes
-    one. Only a return whose outcome is a refund is paid back; one meant to be
-    replaced or set against a bill is refused by name. Does not commit.
+    credit, under a lock on its source for the same reason applying it takes
+    one. A return is paid back only when its outcome is a refund; one meant to
+    be replaced or set against a bill is refused by name. A debit note's
+    credit has no outcome: the supplier may set it off or pay it back. Does
+    not commit.
 
     Raises:
-        ResourceNotFoundError: If the firm has no such return.
-        ValidationError: If the return is not a refund, gives no credit, has
-            less left than asked, or the date is in the future.
+        ResourceNotFoundError: If the firm has no such return or debit note.
+        ValidationError: If a return is not a refund, the source gives no
+            credit or has less left than asked, or the date is wrong.
 
     """
     from app.finance.services.control_accounts import ControlAccountService
@@ -633,32 +779,26 @@ def refund_supplier_credit(
         raise ValidationError("A refund must be for more than nothing.")
     if refunded_on > utc_now().date():
         raise ValidationError("A refund cannot be received on a future date.")
-    row = _locked_return(
-        session, firm_id=firm_id, purchase_return_id=purchase_return_id
-    )
-    if (row.outcome or "CREDIT") != "REFUND":
+    source = _locked_source(session, firm_id=firm_id, source_id=source_id)
+    if source.kind == PURCHASE_RETURN and source.outcome != "REFUND":
         raise ValidationError(
-            f"{row.return_number} is to come back as "
-            f"{(row.outcome or 'CREDIT').lower()}, not a refund; change its "
-            "outcome first."
+            f"{source.number} is to come back as {source.outcome.lower()}, not a "
+            "refund; change its outcome first."
         )
-    found = supplier_credits(session, firm_id=firm_id, purchase_return_ids=[row.id])
+    found = supplier_credits(session, firm_id=firm_id, source_ids=[source.id])
     if not found:
-        raise ValidationError(
-            f"{row.return_number} leaves no credit on the supplier's account: "
-            "it is not completed, or its lines already came off the bill they "
-            "were returned against."
-        )
+        raise ValidationError(_no_credit_message(source))
     credit = found[0]
     if asked > credit.available_amount:
         raise ValidationError(
-            f"{row.return_number} has only {credit.available_amount} of credit "
+            f"{source.number} has only {credit.available_amount} of credit "
             "left to be paid back."
         )
-    if refunded_on < row.return_date:
+    if refunded_on < source.on:
         raise ValidationError(
-            f"A refund is received on or after the return, "
-            f"{row.return_date.isoformat()}."
+            "A refund is received on or after the "
+            f"{'return' if source.kind == PURCHASE_RETURN else 'debit note'}, "
+            f"{source.on.isoformat()}."
         )
     money_account_id = ControlAccountService(session).resolve(
         firm_id, METHOD_PURPOSE[method]
@@ -669,10 +809,13 @@ def refund_supplier_credit(
         .select_from(SupplierCreditRefund)
         .where(
             SupplierCreditRefund.firm_id == firm_id,
-            SupplierCreditRefund.purchase_return_id == row.id,
+            or_(
+                SupplierCreditRefund.purchase_return_id == source.id,
+                SupplierCreditRefund.debit_note_id == source.id,
+            ),
         )
     )
-    reference_number = f"{row.return_number}-RF{int(count or 0) + 1}"
+    reference_number = f"{source.number}-RF{int(count or 0) + 1}"
     entry = DocumentPostingService(session).post_supplier_refund(
         firm_id=firm_id,
         refund_id=refund_id,
@@ -685,8 +828,7 @@ def refund_supplier_credit(
     refund = SupplierCreditRefund(
         id=refund_id,
         firm_id=firm_id,
-        vendor_id=row.vendor_id,
-        purchase_return_id=row.id,
+        vendor_id=source.vendor_id,
         refunded_on=refunded_on,
         amount=asked,
         method=method.value,
@@ -697,6 +839,7 @@ def refund_supplier_credit(
         journal_entry_id=entry.id,
         created_by=actor_id,
         updated_by=actor_id,
+        **_source_columns(source),
     )
     session.add(refund)
     session.flush()
@@ -708,7 +851,8 @@ def refund_supplier_credit(
         actor_id=actor_id,
         firm_id=firm_id,
         after_data={
-            "purchase_return": row.return_number,
+            "source": source.kind,
+            "source_number": source.number,
             "amount": str(asked),
             "method": method.value,
             "refunded_on": refunded_on.isoformat(),
@@ -727,8 +871,8 @@ def reverse_supplier_refund(
 ) -> SupplierCreditRefund:
     """Take back a supplier refund recorded in error; does not commit.
 
-    Posts the mirror of its journal and frees that much of the return's
-    credit again. Refused once already reversed.
+    Posts the mirror of its journal and frees that much of the credit again.
+    Refused once already reversed.
     """
     from app.finance.services.journal_engine import JournalEntryEngine
 
@@ -739,9 +883,9 @@ def reverse_supplier_refund(
         raise ResourceNotFoundError("Supplier refund not found.")
     if refund.status != "POSTED":
         raise ValidationError("This refund has already been reversed.")
-    _locked_return(
-        session, firm_id=firm_id, purchase_return_id=refund.purchase_return_id
-    )
+    source_id = refund.purchase_return_id or refund.debit_note_id
+    assert source_id is not None
+    _locked_source(session, firm_id=firm_id, source_id=source_id)
     mirror = JournalEntryEngine(session).reverse_entry(
         refund.journal_entry_id,
         firm_id=firm_id,
@@ -767,15 +911,18 @@ def reverse_supplier_refund(
 
 
 def live_refunds(
-    session: Session, *, firm_id: UUID, purchase_return_id: UUID
+    session: Session, *, firm_id: UUID, source_id: UUID
 ) -> list[SupplierCreditRefund]:
-    """Return a return's refunds, oldest first, reversed ones included."""
+    """Return a return's or debit note's refunds, oldest first, reversed too."""
     return list(
         session.scalars(
             select(SupplierCreditRefund)
             .where(
                 SupplierCreditRefund.firm_id == firm_id,
-                SupplierCreditRefund.purchase_return_id == purchase_return_id,
+                or_(
+                    SupplierCreditRefund.purchase_return_id == source_id,
+                    SupplierCreditRefund.debit_note_id == source_id,
+                ),
                 SupplierCreditRefund.is_deleted.is_(False),
             )
             .order_by(SupplierCreditRefund.created_at.asc())

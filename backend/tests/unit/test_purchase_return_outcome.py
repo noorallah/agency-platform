@@ -63,7 +63,7 @@ def _available(session: object, firm_id: object, return_id: object) -> Decimal:
     found = supplier_credits(
         session,  # type: ignore[arg-type]
         firm_id=firm_id,  # type: ignore[arg-type]
-        purchase_return_ids=[return_id],  # type: ignore[list-item]
+        source_ids=[return_id],  # type: ignore[list-item]
     )
     return found[0].available_amount if found else Decimal("0")
 
@@ -81,7 +81,7 @@ def test_a_refund_return_is_paid_back_and_the_credit_nets_it() -> None:
         refund_supplier_credit(
             session,
             firm_id=firm.id,
-            purchase_return_id=row.id,
+            source_id=row.id,
             amount=Decimal("100"),
             refunded_on=WHEN,
             method=SettlementMethod.BANK,
@@ -120,7 +120,7 @@ def test_a_refund_return_is_paid_back_and_the_credit_nets_it() -> None:
         refund_supplier_credit(
             session,
             firm_id=firm.id,
-            purchase_return_id=row.id,
+            source_id=row.id,
             amount=Decimal("150"),
             refunded_on=WHEN,
             method=SettlementMethod.CASH,
@@ -177,7 +177,7 @@ def test_a_refund_waits_for_the_return_and_never_runs_ahead_of_today() -> None:
         refund_supplier_credit(
             session,
             firm_id=firm.id,
-            purchase_return_id=row.id,
+            source_id=row.id,
             amount=Decimal("10"),
             refunded_on=WHEN,
             method=SettlementMethod.BANK,
@@ -189,7 +189,7 @@ def test_a_refund_waits_for_the_return_and_never_runs_ahead_of_today() -> None:
         refund_supplier_credit(
             session,
             firm_id=firm.id,
-            purchase_return_id=row.id,
+            source_id=row.id,
             amount=Decimal("10"),
             refunded_on=date(2026, 8, 1),
             method=SettlementMethod.BANK,
@@ -200,7 +200,7 @@ def test_a_refund_waits_for_the_return_and_never_runs_ahead_of_today() -> None:
         refund_supplier_credit(
             session,
             firm_id=firm.id,
-            purchase_return_id=row.id,
+            source_id=row.id,
             amount=Decimal("10"),
             refunded_on=date(2099, 1, 1),
             method=SettlementMethod.BANK,

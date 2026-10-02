@@ -374,7 +374,7 @@ class VendorService:
             returns = ", ".join(credit.return_number for credit in credits[:5])
             reasons.append(
                 f"owes the firm {held:,.2f} of supplier credit from returns "
-                f"({returns}) not yet set against a bill"
+                f"and debit notes ({returns}) not yet set against a bill"
             )
         # The documents still in flight (D-MST-4). The guard stopped at bills,
         # so a supplier went while a purchase order was open or goods had been

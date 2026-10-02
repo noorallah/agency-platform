@@ -75,7 +75,7 @@ def test_a_return_off_a_paid_bill_is_a_credit() -> None:
     apply_supplier_credit(
         books.session,
         firm_id=books.firm.id,
-        purchase_return_id=credit.id,
+        source_id=credit.id,
         invoice_id=second.id,
         amount=Decimal("236.00"),
         actor_id=books.actor_id,
@@ -126,7 +126,7 @@ def test_a_used_credit_goes_back_on_the_bill_when_its_payment_is_reversed() -> N
     apply_supplier_credit(
         books.session,
         firm_id=books.firm.id,
-        purchase_return_id=credit.id,
+        source_id=credit.id,
         invoice_id=second.id,
         amount=Decimal("236.00"),
         actor_id=books.actor_id,

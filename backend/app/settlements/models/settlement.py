@@ -282,9 +282,14 @@ class SupplierCreditApplication(BaseEntity):
     __tablename__ = "supplier_credit_applications"
     __table_args__ = (
         CheckConstraint("amount > 0", name="CK_supplier_credit_applications_positive"),
+        CheckConstraint(
+            "(purchase_return_id IS NULL) <> (debit_note_id IS NULL)",
+            name="CK_supplier_credit_applications_one_source",
+        ),
         Index(
             "IX_supplier_credit_applications_return", "firm_id", "purchase_return_id"
         ),
+        Index("IX_supplier_credit_applications_debit_note", "firm_id", "debit_note_id"),
         Index(
             "IX_supplier_credit_applications_invoice", "firm_id", "purchase_invoice_id"
         ),
@@ -295,10 +300,13 @@ class SupplierCreditApplication(BaseEntity):
     vendor_id: Mapped[UUID] = mapped_column(
         UUIDType(), ForeignKey("vendors.id", ondelete="RESTRICT"), nullable=False
     )
-    purchase_return_id: Mapped[UUID] = mapped_column(
-        UUIDType(),
-        ForeignKey("purchase_returns.id", ondelete="RESTRICT"),
-        nullable=False,
+    #: The source of the credit: a purchase return, or (A4) a debit note.
+    #: Exactly one of the two is set.
+    purchase_return_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("purchase_returns.id", ondelete="RESTRICT")
+    )
+    debit_note_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("debit_notes.id", ondelete="RESTRICT")
     )
     purchase_invoice_id: Mapped[UUID] = mapped_column(
         UUIDType(),
@@ -322,7 +330,12 @@ class SupplierCreditRefund(BaseEntity):
     __tablename__ = "supplier_credit_refunds"
     __table_args__ = (
         CheckConstraint("amount > 0", name="CK_supplier_credit_refunds_positive"),
+        CheckConstraint(
+            "(purchase_return_id IS NULL) <> (debit_note_id IS NULL)",
+            name="CK_supplier_credit_refunds_one_source",
+        ),
         Index("IX_supplier_credit_refunds_return", "firm_id", "purchase_return_id"),
+        Index("IX_supplier_credit_refunds_debit_note", "firm_id", "debit_note_id"),
         Index("IX_supplier_credit_refunds_vendor", "firm_id", "vendor_id"),
     )
 
@@ -330,10 +343,12 @@ class SupplierCreditRefund(BaseEntity):
     vendor_id: Mapped[UUID] = mapped_column(
         UUIDType(), ForeignKey("vendors.id", ondelete="RESTRICT"), nullable=False
     )
-    purchase_return_id: Mapped[UUID] = mapped_column(
-        UUIDType(),
-        ForeignKey("purchase_returns.id", ondelete="RESTRICT"),
-        nullable=False,
+    #: The source of the credit, as on an application: exactly one is set.
+    purchase_return_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("purchase_returns.id", ondelete="RESTRICT")
+    )
+    debit_note_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("debit_notes.id", ondelete="RESTRICT")
     )
     refunded_on: Mapped[date] = mapped_column(Date, nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)

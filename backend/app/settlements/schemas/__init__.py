@@ -241,14 +241,22 @@ class SettlementPartyRecord(SettlementSchema):
 
 
 class SupplierCreditRecord(SettlementSchema):
-    """One purchase return's credit on a supplier's account (D-FIN-19).
+    """One return's or debit note's credit on a supplier's account (D-FIN-19).
 
     A return raised from the goods receipt names no bill, so its payables
-    debit stands on the vendor's account until somebody sets it against one.
-    `available_amount` is what is left to set; it is derived, never stored.
+    debit stands on the vendor's account until somebody sets it against one;
+    a return or debit note off a bill already paid leaves what the bill could
+    not absorb (D-BUY-20, A4). `available_amount` is what is left to set; it is
+    derived, never stored. `source_id` is what the apply and refund routes
+    take; exactly one of `purchase_return_id` and `debit_note_id` is set.
+    `return_number` and `return_date` are the source document's.
     """
 
-    purchase_return_id: UUID
+    source_id: UUID
+    #: PURCHASE_RETURN or DEBIT_NOTE.
+    source_type: str
+    purchase_return_id: UUID | None = None
+    debit_note_id: UUID | None = None
     return_number: str
     return_date: date
     vendor_id: UUID
@@ -282,7 +290,8 @@ class SupplierRefundResponse(SettlementSchema):
     """One supplier refund."""
 
     id: UUID
-    purchase_return_id: UUID
+    purchase_return_id: UUID | None = None
+    debit_note_id: UUID | None = None
     vendor_id: UUID
     refunded_on: date
     amount: Decimal

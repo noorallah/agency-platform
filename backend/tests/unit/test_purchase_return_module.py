@@ -1217,7 +1217,7 @@ def test_a_return_off_the_receipt_leaves_a_supplier_credit_until_cancelled() -> 
     apply_supplier_credit(
         session,
         firm_id=firm.id,
-        purchase_return_id=row.id,
+        source_id=row.id,
         invoice_id=bill.id,
         amount=Decimal("400"),
         actor_id=uuid4(),
