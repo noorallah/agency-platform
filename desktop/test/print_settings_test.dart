@@ -222,4 +222,45 @@ void main() {
       expect(copies.onChanged, isNull);
     });
   });
+
+  // MSG-2: the bill carries a pay-by-scan QR to the firm's UPI ID.
+  group('the UPI ID a bill asks to be paid into', () {
+    testWidgets('typed in, it is what gets saved', (tester) async {
+      final _TemplateApi api = _TemplateApi();
+      await _open(tester, api);
+
+      final Finder field =
+          find.widgetWithText(TextField, 'UPI ID, such as shop@okaxis');
+      await tester.ensureVisible(field);
+      await tester.enterText(field, ' sriram@okaxis ');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(api.saved?['upi_id'], 'sriram@okaxis');
+    });
+
+    testWidgets('left blank, none is sent', (tester) async {
+      final _TemplateApi api = _TemplateApi();
+      await _open(tester, api);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(api.saved!.containsKey('upi_id'), isTrue);
+      expect(api.saved!['upi_id'], isNull);
+    });
+
+    testWidgets('a saved one comes back on the next open', (tester) async {
+      final _TemplateApi api = _TemplateApi(stored: <String, dynamic>{
+        'document_type': 'SALES_INVOICE',
+        'title_text': 'TAX INVOICE',
+        'upi_id': 'sriram@okaxis',
+        'copy_labels': <String>[],
+        'is_customised': true,
+      });
+      await _open(tester, api);
+
+      expect(find.text('sriram@okaxis'), findsOneWidget);
+    });
+  });
 }

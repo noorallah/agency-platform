@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections import defaultdict
 from decimal import Decimal
 from io import BytesIO
+from xml.sax.saxutils import escape
 
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.styles import ParagraphStyle
@@ -30,6 +31,7 @@ from app.sales_invoice.services.invoice_pdf import (
     InvoiceDocument,
     TemplateSettings,
     amount_in_words,
+    qr_drawing,
 )
 
 #: The paper value a firm chooses in Print settings.
@@ -269,6 +271,22 @@ class ThermalReceiptRenderer:
         )
         story.append(Paragraph(amount_in_words(document.grand_total), self._small))
         story.append(self._rule(width))
+        if document.upi is not None:
+            # Under the total, where the customer at the counter is looking
+            # when they reach for their phone (MSG-2).
+            upi = document.upi
+            story.append(Paragraph("Scan to pay by UPI", self._banner))
+            code = Table([[qr_drawing(upi.uri, 32 * mm)]], colWidths=[width])
+            code.setStyle(TableStyle([("ALIGN", (0, 0), (-1, -1), "CENTER")]))
+            story.append(code)
+            story.append(
+                Paragraph(
+                    f"{document.currency_symbol} {_money(upi.amount)}"
+                    f" to {escape(upi.upi_id)}",
+                    self._centre,
+                )
+            )
+            story.append(self._rule(width))
 
         for note in (
             self._template.terms,

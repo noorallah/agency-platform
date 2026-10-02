@@ -1,11 +1,16 @@
 """Validated contracts for the reusable document lifecycle framework."""
 
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+#: What NPCI allows in a virtual payment address: letters, digits, dots,
+#: hyphens and underscores before the @, the bank's handle after it.
+_UPI_ID = re.compile(r"[A-Za-z0-9._-]{2,256}@[A-Za-z][A-Za-z0-9]{1,63}")
 
 _DOCUMENT_STATUS_VALUES = frozenset(
     {
@@ -396,6 +401,8 @@ class DocumentPrintTemplateWrite(DocumentFrameworkSchema):
     header_note: str | None = None
     show_bank_details: bool = True
     bank_details: str | None = Field(default=None, max_length=1000)
+    #: A UPI ID, ``name@bank``. Only a sales invoice prints it, as a QR.
+    upi_id: str | None = Field(default=None, max_length=255)
     terms: str | None = Field(default=None, max_length=2000)
     declaration: str | None = Field(default=None, max_length=1000)
     jurisdiction: str | None = Field(default=None, max_length=200)
@@ -409,6 +416,20 @@ class DocumentPrintTemplateWrite(DocumentFrameworkSchema):
     #: THERMAL80 is an 80 mm counter roll: one column, as long as the bill.
     page_size: Literal["A4", "A5", "THERMAL80"] = "A4"
     margin_mm: Decimal = Field(default=Decimal("12"), ge=5, le=40)
+
+    @field_validator("upi_id")
+    @classmethod
+    def _upi_id(cls, value: str | None) -> str | None:
+        """Keep a blank UPI ID as none, and refuse one no app could pay."""
+        text = (value or "").strip()
+        if not text:
+            return None
+        if not _UPI_ID.fullmatch(text):
+            raise ValueError(
+                "A UPI ID is a name, an @ and the bank's handle, such as "
+                "shop@okaxis."
+            )
+        return text
 
 
 class DocumentPrintTemplateResponse(DocumentPrintTemplateWrite):

@@ -15,6 +15,7 @@ class PrintTemplate {
     this.accentColor = '#0B3D6B',
     this.showBankDetails = true,
     this.bankDetails = '',
+    this.upiId = '',
     this.terms = '',
     this.declaration = '',
     this.jurisdiction = '',
@@ -34,6 +35,9 @@ class PrintTemplate {
   final String accentColor;
   final bool showBankDetails;
   final String bankDetails;
+
+  /// The UPI ID a sales invoice prints as a pay-by-scan QR. Blank prints none.
+  final String upiId;
   final String terms;
   final String declaration;
   final String jurisdiction;
@@ -61,6 +65,7 @@ class PrintTemplate {
         accentColor: stringValue(json['accent_color']),
         showBankDetails: boolValue(json['show_bank_details'], fallback: true),
         bankDetails: stringValue(json['bank_details']),
+        upiId: stringValue(json['upi_id']),
         terms: stringValue(json['terms']),
         declaration: stringValue(json['declaration']),
         jurisdiction: stringValue(json['jurisdiction']),
@@ -90,6 +95,7 @@ class PrintTemplate {
         'accent_color': accentColor,
         'show_bank_details': showBankDetails,
         'bank_details': bankDetails.isEmpty ? null : bankDetails,
+        'upi_id': upiId.isEmpty ? null : upiId,
         'terms': terms.isEmpty ? null : terms,
         'declaration': declaration.isEmpty ? null : declaration,
         'jurisdiction': jurisdiction.isEmpty ? null : jurisdiction,
@@ -107,6 +113,7 @@ class PrintTemplate {
     String? titleText,
     bool? showBankDetails,
     String? bankDetails,
+    String? upiId,
     String? terms,
     String? declaration,
     String? jurisdiction,
@@ -125,6 +132,7 @@ class PrintTemplate {
         accentColor: accentColor,
         showBankDetails: showBankDetails ?? this.showBankDetails,
         bankDetails: bankDetails ?? this.bankDetails,
+        upiId: upiId ?? this.upiId,
         terms: terms ?? this.terms,
         declaration: declaration ?? this.declaration,
         jurisdiction: jurisdiction ?? this.jurisdiction,

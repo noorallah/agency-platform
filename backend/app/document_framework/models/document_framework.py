@@ -220,6 +220,9 @@ class DocumentPrintTemplate(BaseEntity):
         Boolean, nullable=False, default=True, server_default="true"
     )
     bank_details: Mapped[str | None] = mapped_column(Text)
+    #: The UPI ID a customer pays into (MSG-2). A sales invoice that still
+    #: owes money prints a QR for that amount; blank prints none.
+    upi_id: Mapped[str | None] = mapped_column(String(255))
     terms: Mapped[str | None] = mapped_column(Text)
     declaration: Mapped[str | None] = mapped_column(Text)
     jurisdiction: Mapped[str | None] = mapped_column(String(200))

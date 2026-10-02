@@ -150,7 +150,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | PLT-11 | §53 item 4 | Report: parties with no PAN, and PAN that does not match the GSTIN -- **built 2026-10-03** (A53) | Nothing | S | Claude alone |
 | **Messaging and integration** | | | | | |
 | MSG-1 | §51 A2 | Share a document on WhatsApp by hand | Nothing | S | Claude alone |
-| MSG-2 | §51 A3 | UPI QR code on the printed bill | Nothing | S | Claude alone |
+| MSG-2 | §51 A3 | UPI QR code on the printed bill -- **built 2026-10-03** (A55) | Nothing | S | Claude alone |
 | MSG-3 | §51 A4 | Payment reminder by hand from the overdue list and statement | Nothing | S | Claude alone |
 | MSG-4 | §51 | Send documents other than the invoice by hand | Nothing | M | Claude alone |
 | MSG-5 | §55 G4 | Export to Tally (vouchers and masters, XML) | Nothing (the CA's Tally to check an import) | L | Claude alone |
@@ -763,6 +763,7 @@ otherwise it is built as written.
 - **What it is:** the customer scans the bill and pays by UPI.
 - **What gets built:** a UPI ID on firm settings (migration); a `upi://pay?pa=...&am=...&tn=...` QR for the amount due in `invoice_print_service.py` and the thermal print; skipped when no UPI ID is set. Tests.
 - **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A55): the UPI ID is kept on the sales invoice's **print template** beside the bank details (`document_print_templates.upi_id`, migration 0240), typed under *Print settings* on the invoice screen and checked as `name@handle`. A bill that stands and still owes money prints *Scan to pay by UPI* -- a `upi://pay` QR (payee, amount, INR, the bill number as the note) with the amount and the UPI ID beside it -- in the A4 footer and under the total on the 80 mm roll. The amount is what is left after `settled_against`, so a part-paid bill asks only for the rest and a paid one prints none; a draft, a cancelled bill or a reference copy awaiting its IRN prints none. `app/sales_invoice/services/upi_qr.py`. Tests: `test_upi_qr.py`, `print_settings_test.dart`.
 
 #### MSG-3. Payment reminders by hand (§51 A4)
 - **What it is:** *Remind* on the overdue list and the customer statement sends the statement by email or WhatsApp.

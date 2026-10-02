@@ -69,6 +69,7 @@ def load_template(
         header_note=row.header_note,
         show_bank_details=row.show_bank_details,
         bank_details=row.bank_details,
+        upi_id=row.upi_id,
         terms=row.terms,
         declaration=row.declaration or default.declaration,
         jurisdiction=row.jurisdiction,

@@ -29,6 +29,7 @@ from reportlab.lib.pagesizes import A4, A5
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import (
+    Flowable,
     KeepTogether,
     PageBreak,
     Paragraph,
@@ -37,6 +38,8 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
+
+from app.sales_invoice.services.upi_qr import UpiPayment
 
 ZERO = Decimal("0")
 
@@ -237,6 +240,24 @@ class InvoiceDocument:
     #: The registration the portal issued, printed under the banner (77 row
     #: 11). None for a document that is not registered.
     einvoice: EInvoiceStamp | None = None
+    #: What the bill asks for by UPI (MSG-2): the amount still owed, to the
+    #: firm's UPI ID. None where the firm has no UPI ID, nothing is owed, or
+    #: the document is not a bill that stands.
+    upi: UpiPayment | None = None
+
+
+def qr_drawing(payload: str, side: float) -> Flowable:
+    """Return a square QR of ``payload``, ``side`` points across."""
+    widget = QrCodeWidget(payload, barLevel="M")
+    left, bottom, right, top = widget.getBounds()
+    # Scaled by the drawing: the widget itself takes no transform.
+    drawing = Drawing(
+        side,
+        side,
+        transform=[side / (right - left), 0, 0, side / (top - bottom), 0, 0],
+    )
+    drawing.add(widget)
+    return drawing
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,6 +269,8 @@ class TemplateSettings:
     header_note: str | None = None
     show_bank_details: bool = True
     bank_details: str | None = None
+    #: Where a customer pays by scanning the bill (MSG-2).
+    upi_id: str | None = None
     terms: str | None = None
     declaration: str | None = (
         "Certified that the particulars given above are true, and that the "
@@ -445,23 +468,7 @@ class InvoicePdfRenderer:
         side = 26 * mm
         code: object = ""
         if stamp.signed_qr:
-            widget = QrCodeWidget(stamp.signed_qr, barLevel="M")
-            left, bottom, right, top = widget.getBounds()
-            # Scaled by the drawing: the widget itself takes no transform.
-            drawing = Drawing(
-                side,
-                side,
-                transform=[
-                    side / (right - left),
-                    0,
-                    0,
-                    side / (top - bottom),
-                    0,
-                    0,
-                ],
-            )
-            drawing.add(widget)
-            code = drawing
+            code = qr_drawing(stamp.signed_qr, side)
         table = Table(
             [[facts, code]],
             colWidths=[width - side - 8, side + 8],
@@ -776,6 +783,9 @@ class InvoicePdfRenderer:
             for line in self._template.bank_details.splitlines():
                 left.append(Paragraph(line, self._body))
             left.append(Spacer(1, 3))
+        if document.upi is not None:
+            left.append(self._upi_block(document.upi, document, width * 0.58 - 8))
+            left.append(Spacer(1, 3))
         if self._template.terms:
             left.append(Paragraph("TERMS", self._label))
             for line in self._template.terms.splitlines():
@@ -817,6 +827,37 @@ class InvoicePdfRenderer:
                 )
             )
         return flowables
+
+    def _upi_block(
+        self, upi: UpiPayment, document: InvoiceDocument, width: float
+    ) -> Table:
+        """Draw the pay-by-UPI QR beside the amount and the UPI ID (MSG-2)."""
+        side = 24 * mm
+        facts = [
+            Paragraph("SCAN TO PAY BY UPI", self._label),
+            Paragraph(
+                f"<b>{document.currency_symbol} {_money(upi.amount)}</b>",
+                self._body,
+            ),
+            Paragraph(f"to {escape(upi.upi_id)}", self._small),
+            Paragraph(f"for {escape(document.number)}", self._small),
+        ]
+        table = Table(
+            [[qr_drawing(upi.uri, side), facts]],
+            colWidths=[side + 6, max(width - side - 6, 40)],
+        )
+        table.setStyle(
+            TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ]
+            )
+        )
+        return table
 
     def _boxed(self) -> TableStyle:
         """Return the ruled box every block on a tax invoice sits inside."""
