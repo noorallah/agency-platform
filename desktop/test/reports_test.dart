@@ -724,6 +724,76 @@ void main() {
           reason: 'an ageing is as on today, not over a period');
     });
 
+    test('vendor ageing takes its band columns from the rows', () {
+      final ReportDefinition report =
+          reportCatalog.singleWhere((r) => r.id == 'vendor-ageing');
+      final List<Json> rows = [
+        {
+          'vendor_name': 'Acme',
+          'buckets': [
+            {'label': '0-14', 'amount': '10.00'},
+            {'label': '15+', 'amount': '5.00'},
+          ],
+        },
+      ];
+      final List<ReportColumn> columns = columnsFor(report, rows);
+      expect(columns.map((c) => c.label).toList().sublist(columns.length - 2),
+          ['0-14', '15+']);
+      expect(columns.last.numeric, isTrue);
+      expect(cellValue(rows.first, columns.last.key, bandsKey: 'buckets'),
+          '5.00');
+    });
+
+    test('the due reports are snapshots asking for a week by default', () {
+      for (final String id in [
+        'sales-invoice-due',
+        'purchase-invoice-due',
+      ]) {
+        final ReportDefinition report =
+            reportCatalog.singleWhere((r) => r.id == id);
+        expect(report.needsPeriod, isFalse, reason: id);
+        expect(report.days, 7, reason: id);
+        expect(report.columns.map((c) => c.key), contains('days_until_due'));
+      }
+    });
+
+    testWidgets('a due report sends its days', (tester) async {
+      final _ReportApi api = _ReportApi(rows: [
+        {
+          'invoice_number': 'SI-1',
+          'customer_name': 'Ravi',
+          'days_until_due': 3,
+        },
+      ]);
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: ListViewRequestScope(
+              request: const ListViewRequest(
+                path: 'reports/financial',
+                view: 'sales-invoice-due',
+                serial: 1,
+              ),
+              child: ReportsWorkspace(
+                api: api,
+                permissions: _permissionsFor(const ['SALES_VIEW']),
+                hasActiveFirm: true,
+                tabId: 'financial',
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(api.requested.last, '/api/v1/sales-invoices/reports/due');
+      expect(api.queries.last, {'days': '7'});
+      expect(find.text('Days left'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('dead stock asks for a day and a number of days',
         (tester) async {
       final _ReportApi api = _ReportApi(rows: [

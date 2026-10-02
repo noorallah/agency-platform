@@ -522,6 +522,27 @@ const List<ReportDefinition> reportCatalog = [
     ],
   ),
   ReportDefinition(
+    id: 'sales-invoice-due',
+    label: 'Sales invoices falling due',
+    description: 'Unpaid and falling due from today to the number of days '
+        'ahead. Days 0 shows what falls due today and 7 the week ahead.',
+    path: '/api/v1/sales-invoices/reports/due',
+    permission: 'SALES_VIEW',
+    area: ReportArea.financial,
+    days: 7,
+    columns: [
+      ReportColumn(key: 'invoice_number', label: 'Invoice number'),
+      ReportColumn(key: 'customer_name', label: 'Customer'),
+      ReportColumn(key: 'invoice_date', label: 'Invoice date'),
+      ReportColumn(key: 'due_date', label: 'Due date'),
+      ReportColumn(key: 'days_until_due', label: 'Days left', numeric: true),
+      ReportColumn(key: 'grand_total', label: 'Grand total', numeric: true),
+      ReportColumn(key: 'settled_amount', label: 'Settled', numeric: true),
+      ReportColumn(
+          key: 'outstanding_amount', label: 'Still owed', numeric: true),
+    ],
+  ),
+  ReportDefinition(
     id: 'sales-invoice-reconciliation',
     label: 'Sales invoice reconciliation',
     description: 'Invoices against the dispatches they were raised from.',
@@ -743,6 +764,29 @@ const List<ReportDefinition> reportCatalog = [
     ],
   ),
   ReportDefinition(
+    id: 'purchase-invoice-due',
+    label: 'Purchase bills falling due',
+    description: 'Unpaid and falling due from today to the number of days '
+        'ahead. Days 0 shows what falls due today and 7 the week ahead.',
+    path: '/api/v1/purchase-invoices/reports/due',
+    permission: 'PURCHASE_VIEW',
+    area: ReportArea.financial,
+    days: 7,
+    columns: [
+      ReportColumn(key: 'invoice_number', label: 'Invoice number'),
+      ReportColumn(
+          key: 'supplier_invoice_number', label: 'Supplier invoice number'),
+      ReportColumn(key: 'vendor_name', label: 'Supplier'),
+      ReportColumn(key: 'invoice_date', label: 'Invoice date'),
+      ReportColumn(key: 'due_date', label: 'Due date'),
+      ReportColumn(key: 'days_until_due', label: 'Days left', numeric: true),
+      ReportColumn(key: 'grand_total', label: 'Grand total', numeric: true),
+      ReportColumn(key: 'allocated_amount', label: 'Paid', numeric: true),
+      ReportColumn(
+          key: 'outstanding_amount', label: 'Still owed', numeric: true),
+    ],
+  ),
+  ReportDefinition(
     id: 'purchase-invoice-msme-dues',
     label: 'MSME payments due',
     description: 'Unpaid bills to micro and small suppliers against the '
@@ -780,7 +824,8 @@ const List<ReportDefinition> reportCatalog = [
     id: 'vendor-ageing',
     label: 'Vendor ageing',
     description: 'What each supplier is owed today, by how many days past '
-        'its due date: 0-29, 30-59, 60-89 and 90 or more.',
+        'its due date. The bands are the firm\'s own, set under Financial '
+        'years: 0-29, 30-59, 60-89 and 90+ unless changed.',
     path: '/api/v1/purchase-invoices/reports/vendor-ageing',
     permission: 'PURCHASE_VIEW',
     area: ReportArea.financial,
@@ -789,12 +834,9 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'vendor_name', label: 'Supplier'),
       ReportColumn(key: 'bills', label: 'Bills', numeric: true),
       ReportColumn(key: 'total_outstanding', label: 'Owed', numeric: true),
-      ReportColumn(key: 'days_0_29', label: '0-29 days', numeric: true),
-      ReportColumn(key: 'days_30_59', label: '30-59', numeric: true),
-      ReportColumn(key: 'days_60_89', label: '60-89', numeric: true),
-      ReportColumn(key: 'days_90_plus', label: '90+', numeric: true),
       ReportColumn(key: 'oldest_days', label: 'Oldest (days)', numeric: true),
     ],
+    bandsKey: 'buckets',
   ),
   ReportDefinition(
     id: 'purchase-return-by-vendor',

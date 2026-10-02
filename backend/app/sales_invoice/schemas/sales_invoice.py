@@ -641,6 +641,9 @@ class SalesInvoiceOverdueRecord(SalesInvoiceSchema):
     invoice_date: date
     due_date: date
     days_overdue: int
+    #: How many days until it falls due: 0 on the overdue list, and on the
+    #: due list (ACC-6) 0 for today, 1 for tomorrow.
+    days_until_due: int = 0
     grand_total: Decimal
     settled_amount: Decimal
     outstanding_amount: Decimal

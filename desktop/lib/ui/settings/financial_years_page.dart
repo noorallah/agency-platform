@@ -68,6 +68,7 @@ class _FinancialYearsPageState extends State<FinancialYearsPage> {
     super.initState();
     unawaited(_load());
     unawaited(_loadCloseSetting());
+    unawaited(_loadAgeing());
   }
 
   Future<void> _load() async {
@@ -309,6 +310,60 @@ class _FinancialYearsPageState extends State<FinancialYearsPage> {
     }
   }
 
+  /// The firm's ageing columns, shown to the same people (ACC-6).
+  final TextEditingController _ageing = TextEditingController();
+  List<String> _ageingLabels = const [];
+  bool _ageingLoaded = false;
+  String? _ageingError;
+
+  @override
+  void dispose() {
+    _ageing.dispose();
+    super.dispose();
+  }
+
+  void _applyAgeing(Json settings) {
+    final List<dynamic> days = settings['bucket_days'] as List<dynamic>? ?? [];
+    final List<dynamic> bands = settings['bands'] as List<dynamic>? ?? [];
+    _ageing.text = days.join(', ');
+    _ageingLabels = [
+      for (final dynamic band in bands) '${(band as Map)['label']}',
+    ];
+    _ageingLoaded = true;
+    _ageingError = null;
+  }
+
+  Future<void> _loadAgeing() async {
+    if (!_canDelete) return;
+    try {
+      final Json settings = await widget.api.ageingSettings();
+      if (mounted) setState(() => _applyAgeing(settings));
+    } on ApiException {
+      // The year list still works; the ageing control stays hidden.
+    }
+  }
+
+  Future<void> _saveAgeing() async {
+    final List<String> parts = _ageing.text
+        .split(RegExp(r'[,\s]+'))
+        .where((String part) => part.isNotEmpty)
+        .toList();
+    final List<int?> parsed = [for (final String p in parts) int.tryParse(p)];
+    if (parts.isEmpty || parsed.contains(null)) {
+      setState(() => _ageingError = 'Enter whole numbers of days, such as '
+          '30, 60, 90.');
+      return;
+    }
+    try {
+      final Json saved = await widget.api.updateAgeingSettings(
+        [for (final int? value in parsed) value!],
+      );
+      if (mounted) setState(() => _applyAgeing(saved));
+    } on ApiException catch (exception) {
+      if (mounted) setState(() => _ageingError = exception.message);
+    }
+  }
+
   Future<void> _setCloseSetting(String value) async {
     try {
       final String saved = await widget.api.setPeriodCloseSetting(value);
@@ -402,6 +457,33 @@ class _FinancialYearsPageState extends State<FinancialYearsPage> {
                     if (value != null) unawaited(_setCloseSetting(value));
                   },
                 ),
+              ),
+            ]),
+          ),
+        if (_ageingLoaded)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, 0),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Expanded(child: Text('Ageing columns (days)')),
+              SizedBox(
+                width: 320,
+                child: TextField(
+                  key: const ValueKey('ageing-bands'),
+                  controller: _ageing,
+                  decoration: InputDecoration(
+                    isDense: true,
+                    helperText: _ageingLabels.join(', '),
+                    errorText: _ageingError,
+                  ),
+                  onSubmitted: (_) => unawaited(_saveAgeing()),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              FilledButton(
+                key: const ValueKey('ageing-save'),
+                onPressed: () => unawaited(_saveAgeing()),
+                child: const Text('Save'),
               ),
             ]),
           ),

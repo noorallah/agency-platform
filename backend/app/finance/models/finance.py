@@ -628,3 +628,22 @@ class PeriodCloseSettings(BaseEntity):
     close_check: Mapped[str] = mapped_column(
         String(10), nullable=False, default="WARN", server_default="WARN"
     )
+
+
+class AgeingSettings(BaseEntity):
+    """The ageing bands a firm reads what it is owed and owes in (ACC-6).
+
+    ``bucket_days`` is the boundaries after the first band, ascending and
+    comma separated: ``30,60,90`` -- the default, and what a firm with no row
+    gets -- reads 0-29, 30-59, 60-89 and 90 and over. The customer ageing and
+    the vendor ageing both read it, so the two sides of the books are always
+    aged in the same columns.
+    """
+
+    __tablename__ = "ageing_settings"
+    __table_args__ = (UniqueConstraint("firm_id", name="UQ_ageing_settings_firm"),)
+
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    bucket_days: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="30,60,90", server_default="30,60,90"
+    )

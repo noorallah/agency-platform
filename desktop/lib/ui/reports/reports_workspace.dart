@@ -205,7 +205,9 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
                     'page': '$page',
                     'page_size': '$_pageSize',
                   }
-                : null,
+                : days != null
+                    ? {'days': _days.text.trim()}
+                    : null,
         rowsKey: report.rowsKey,
       );
       if (!mounted || load != _loads) return;
@@ -486,7 +488,8 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
                             for (final Json row in _rows)
                               DataRow(cells: [
                                 for (final ReportColumn column in columns)
-                                  DataCell(Text(cellValue(row, column.key))),
+                                  DataCell(Text(cellValue(row, column.key,
+                                  bandsKey: report.bandsKey))),
                               ]),
                           ],
                         ),
@@ -541,7 +544,7 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
     String shown(Json row, ReportColumn column) {
       final dynamic value = row[column.key];
       if (value is bool) return value ? 'Yes' : 'No';
-      return cellValue(row, column.key);
+      return cellValue(row, column.key, bandsKey: report.bandsKey);
     }
 
     final int rowsPerPage = _paged(report)

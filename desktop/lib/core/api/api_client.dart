@@ -4448,6 +4448,20 @@ class ApiClient {
         )['close_check'],
       );
 
+  /// The firm's ageing columns (ACC-6): `bucket_days`, the boundaries, and
+  /// `bands`, each with `from_days`, `to_days` and `label`.
+  Future<Json> ageingSettings() async => _unwrapMap(
+        await request('GET', '/api/v1/finance/ageing-settings'),
+      );
+
+  Future<Json> updateAgeingSettings(List<int> bucketDays) async => _unwrapMap(
+        await request(
+          'PUT',
+          '/api/v1/finance/ageing-settings',
+          body: {'bucket_days': bucketDays},
+        ),
+      );
+
   /// Open or close one period.
   Future<AccountingPeriod> setPeriodStatus(String id, String status) async =>
       AccountingPeriod.fromJson(

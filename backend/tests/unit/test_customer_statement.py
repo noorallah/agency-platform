@@ -13,7 +13,7 @@ The cases that decide whether either can be trusted:
   can reconcile.
 """
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -419,6 +419,75 @@ def test_the_buckets_add_up_to_the_total() -> None:
         "800.00",
     ]
     assert row.buckets[-1].to_days is None
+
+
+def test_the_firm_chooses_its_own_buckets() -> None:
+    """ACC-6: the bands are the firm's, and still add up to the total."""
+    from app.finance.services.ageing_settings import AgeingSettingsService
+
+    books = _Books(_session_factory()())
+    books.invoice("SI-1", "100", on=date(2026, 5, 28), due=date(2026, 5, 28))
+    books.invoice("SI-2", "200", on=date(2026, 4, 25), due=date(2026, 4, 25))
+    books.invoice("SI-3", "400", on=date(2026, 3, 25), due=date(2026, 3, 25))
+    books.invoice("SI-4", "800", on=date(2026, 1, 1), due=date(2026, 1, 1))
+    AgeingSettingsService(books.session).set_bucket_days(
+        books.firm.id, [15, 45, 120, 180], actor_id=books.firm.id
+    )
+
+    row = books.ageing(as_of=date(2026, 6, 1))[0]
+
+    # 4, 37, 68 and 151 days overdue.
+    assert [
+        (bucket.from_days, bucket.to_days, bucket.amount) for bucket in row.buckets
+    ] == [
+        (0, 14, Decimal("100")),
+        (15, 44, Decimal("200")),
+        (45, 119, Decimal("400")),
+        (120, 179, Decimal("800")),
+        (180, None, Decimal("0")),
+    ]
+
+
+def test_ageing_boundaries_must_rise_and_stay_in_range() -> None:
+    """ACC-6: a band nobody can fall into is a typing slip, refused."""
+    from app.finance.services.ageing_settings import AgeingSettingsService
+
+    books = _Books(_session_factory()())
+    service = AgeingSettingsService(books.session)
+    for bad in ([], [30, 30], [60, 30], [0, 30], [30, 60, 90, 120, 150, 180], [4000]):
+        with pytest.raises(ValidationError):
+            service.set_bucket_days(books.firm.id, bad, actor_id=books.firm.id)
+    assert service.bucket_days(books.firm.id) == (30, 60, 90)
+    assert service.set_bucket_days(
+        books.firm.id, [15, 30, 45], actor_id=books.firm.id
+    ) == (15, 30, 45)
+    assert service.bucket_days(books.firm.id) == (15, 30, 45)
+
+
+def test_falling_due_lists_today_and_the_week_ahead() -> None:
+    """ACC-6: what falls due from today, never what is already overdue."""
+    from app.core.utils.dates import utc_now
+    from app.sales_invoice.services.sales_invoice_service import SalesInvoiceService
+
+    books = _Books(_session_factory()())
+    today = utc_now().date()
+    books.invoice("SI-1", "100", on=today - timedelta(days=30), due=today)
+    books.invoice("SI-2", "200", on=today, due=today + timedelta(days=6))
+    books.invoice("SI-3", "400", on=today, due=today + timedelta(days=20))
+    books.invoice("SI-4", "800", on=today, due=today - timedelta(days=1))
+    service = SalesInvoiceService(books.session)
+
+    def listed(days: int) -> list[tuple[str, int]]:
+        return [
+            (row.invoice_number, row.days_until_due)
+            for row in service.overdue_report(firm_scope=books.firm.id, due_within=days)
+        ]
+
+    assert listed(0) == [("SI-1", 0)]
+    assert listed(7) == [("SI-1", 0), ("SI-2", 6)]
+    assert [
+        row.invoice_number for row in service.overdue_report(firm_scope=books.firm.id)
+    ] == ["SI-4"]
 
 
 def test_a_bill_with_no_terms_is_due_when_it_is_raised() -> None:

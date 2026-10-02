@@ -59,7 +59,13 @@ class ReportDefinition {
     this.file,
     this.drill,
     this.days,
+    this.bandsKey,
   });
+
+  /// The row key holding a list of `{label, amount}` bands -- the firm's own
+  /// ageing columns (ACC-6). One numeric column is appended per band, keyed
+  /// `band:<index>`, after the explicit columns.
+  final String? bandsKey;
 
   /// What double-clicking a row opens, when anything does.
   final ReportDrill? drill;
@@ -133,6 +139,20 @@ List<ReportColumn> columnsFor(
   ReportDefinition definition,
   List<Json> rows,
 ) {
+  final String? bandsKey = definition.bandsKey;
+  if (bandsKey != null) {
+    final dynamic bands = rows.isEmpty ? null : rows.first[bandsKey];
+    return [
+      ...definition.columns,
+      if (bands is List)
+        for (int i = 0; i < bands.length; i++)
+          ReportColumn(
+            key: 'band:$i',
+            label: '${(bands[i] as Map)['label']}',
+            numeric: true,
+          ),
+    ];
+  }
   if (definition.columns.isNotEmpty) return definition.columns;
   if (rows.isEmpty) return const [];
   return [
@@ -171,8 +191,20 @@ bool _looksNumeric(dynamic value) {
 }
 
 /// Render one cell, keeping empty distinguishable from zero.
-String cellValue(Json row, String key) {
-  final dynamic value = row[key];
+///
+/// A `band:<i>` key reads the amount of band `i` out of the list under
+/// [bandsKey].
+String cellValue(Json row, String key, {String? bandsKey}) {
+  final dynamic value;
+  if (bandsKey != null && key.startsWith('band:')) {
+    final dynamic bands = row[bandsKey];
+    final int? index = int.tryParse(key.substring(5));
+    value = bands is List && index != null && index < bands.length
+        ? (bands[index] as Map)['amount']
+        : null;
+  } else {
+    value = row[key];
+  }
   if (value == null) return '—';
   return '$value';
 }

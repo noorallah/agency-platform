@@ -576,6 +576,27 @@ def overdue_purchase_invoices(
 
 
 @router.get(
+    "/reports/due",
+    response_model=ApiResponse[list[PurchaseInvoiceOverdueRecord]],
+)
+def purchase_invoices_falling_due(
+    scope: PurchaseInvoiceReportScope,
+    days: Annotated[int, Query(ge=0, le=366)] = 7,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PurchaseInvoiceOverdueRecord]]:
+    """List the bills falling due from today to ``days`` ahead (ACC-6).
+
+    ``days=0`` is what falls due today; the default, 7, is the week ahead.
+    A bill already overdue is on the overdue list, not here.
+    """
+    return ApiResponse(
+        data=PurchaseInvoiceService(db).overdue_report(
+            firm_scope=scope.firm_id, due_within=days
+        )
+    )
+
+
+@router.get(
     "/reports/register", response_model=PaginatedResponse[PurchaseInvoiceRegisterRecord]
 )
 def purchase_invoice_register(
@@ -654,6 +675,17 @@ def vendor_outstanding_placeholder(
     )
 
 
+class VendorAgeingBandRecord(BaseModel):
+    """What one supplier is owed in one band of the firm's ageing (ACC-6)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    from_days: int
+    to_days: int | None
+    label: str
+    amount: Decimal
+
+
 class VendorAgeingRecord(BaseModel):
     """One supplier's unpaid bills by days past due (backlog 55 S7)."""
 
@@ -665,10 +697,8 @@ class VendorAgeingRecord(BaseModel):
     as_of: date
     bills: int
     total_outstanding: Decimal
-    days_0_29: Decimal
-    days_30_59: Decimal
-    days_60_89: Decimal
-    days_90_plus: Decimal
+    #: One per band of the firm's ageing settings, in order (ACC-6).
+    buckets: list[VendorAgeingBandRecord]
     oldest_days: int
 
 
@@ -682,8 +712,8 @@ def vendor_ageing(
 ) -> ApiResponse[list[VendorAgeingRecord]]:
     """Report what each supplier is owed, by days past due, today (55 S7).
 
-    The customer ageing's buckets, over what Record Payment says each bill
-    still owes.
+    The firm's ageing bands, as the customer ageing reads them (ACC-6), over
+    what Record Payment says each bill still owes.
     """
     return ApiResponse(
         data=[
