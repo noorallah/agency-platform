@@ -13,6 +13,7 @@ from app.inventory.models.physical_count import (
     PhysicalCountLine,
     PhysicalCountStatus,
 )
+from app.inventory.models.stock_attachment import StockAttachment
 
 __all__ = [
     "PhysicalCount",
@@ -23,5 +24,6 @@ __all__ = [
     "OpeningStockBatch",
     "OpeningStockLine",
     "ProductValuation",
+    "StockAttachment",
     "StockLedgerEntry",
 ]

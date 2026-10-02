@@ -65,6 +65,7 @@ from app.inventory.schemas import (
 )
 from app.inventory.services import pipeline
 from app.inventory.services.movement_numbering import MovementNumbering
+from app.inventory.services.stock_evidence import StockEvidenceService
 from app.products.models import Product
 from app.uom.models import ConversionRule
 from app.uom.services.uom_service import (
@@ -1706,6 +1707,9 @@ class InventoryService:
                 reason, ControlAccountPurpose.INVENTORY_ADJUSTMENT
             ),
         )
+        StockEvidenceService(self._session).stage_for_movement(
+            transaction, data.attachments, actor_id=actor_id
+        )
         record_audit(
             self._session,
             action="inventory.stock_written_off",
@@ -1951,6 +1955,9 @@ class InventoryService:
                 remarks=data.remarks,
             ),
         )
+        StockEvidenceService(self._session).stage_for_movement(
+            outbound, data.attachments, actor_id=actor_id
+        )
         record_audit(
             self._session,
             action="inventory.stock_transferred",
@@ -2022,6 +2029,9 @@ class InventoryService:
             value_delta=value_delta,
             actor_id=actor_id,
             remarks=data.remarks,
+        )
+        StockEvidenceService(self._session).stage_for_movement(
+            transaction, data.attachments, actor_id=actor_id
         )
         self._session.flush()
         return transaction

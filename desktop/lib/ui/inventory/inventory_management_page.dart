@@ -18,6 +18,8 @@ import 'opening_stock_import_dialog.dart';
 import '../../phase2/document_page.dart' show documentQuantity;
 import '../workspace/desktop_framework.dart';
 import 'stock_action_dialog.dart';
+import 'stock_evidence_dialog.dart';
+import 'stock_evidence_picker.dart';
 
 enum InventorySection {
   inventory,
@@ -871,6 +873,13 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
             StockAction.writeOff),
         stockStep('quarantine', 'Quarantine', Icons.pan_tool_outlined,
             StockAction.quarantine),
+        // Photos and documents kept with the picked movement (STK-9).
+        ToolbarCommand(
+          id: 'evidence',
+          label: 'Evidence',
+          icon: Icons.attach_file,
+          onPressed: _selectedMovement != null ? _openEvidence : null,
+        ),
         ToolbarCommand(
           id: 'post-draft',
           label: 'Post draft',
@@ -1012,6 +1021,13 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
                   : () => _openStockAction(StockAction.quarantine),
               icon: const Icon(Icons.pan_tool_outlined),
               label: const Text('Quarantine'),
+            ),
+          if (widget.section == InventorySection.transactions ||
+              widget.section == InventorySection.stockLedger)
+            OutlinedButton.icon(
+              onPressed: _selectedMovement == null ? null : _openEvidence,
+              icon: const Icon(Icons.attach_file),
+              label: const Text('Evidence'),
             ),
           if (widget.section == InventorySection.transactions && _canAdjust)
             FilledButton.icon(
@@ -1620,6 +1636,30 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
     }
   }
 
+  /// The picked movement on the transactions or ledger list, or null.
+  InventoryTransactionRecord? get _selectedMovement => switch (widget.section) {
+        InventorySection.transactions => _selectedTransaction,
+        InventorySection.stockLedger => _selectedLedger,
+        _ => null,
+      };
+
+  /// The photos and documents kept with the picked movement (STK-9).
+  Future<void> _openEvidence() async {
+    final InventoryTransactionRecord? row = _selectedMovement;
+    if (row == null) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => StockEvidenceDialog(
+        api: widget.api,
+        transactionId: row.id,
+        subtitle: row.referenceNumber.isNotEmpty
+            ? row.referenceNumber
+            : row.transactionType,
+        canEdit: _canAdjust,
+      ),
+    );
+  }
+
   /// Move, condemn or hold back the stock on the selected row.
   Future<void> _openStockAction(StockAction action) async {
     final InventoryRecord? row = _selectedInventory;
@@ -2092,6 +2132,7 @@ class _AdjustmentDraft {
     required this.referenceNumber,
     required this.transactionDate,
     required this.remarks,
+    this.attachments = const [],
   });
 
   final String branchId;
@@ -2103,6 +2144,9 @@ class _AdjustmentDraft {
   final String transactionDate;
   final String remarks;
 
+  /// Photos and documents to keep with the adjustment (STK-9).
+  final List<Json> attachments;
+
   Json toJson() => {
         'branch_id': branchId,
         'warehouse_id': warehouseId,
@@ -2113,6 +2157,7 @@ class _AdjustmentDraft {
         'reference_type': 'ADJUSTMENT',
         'transaction_date': transactionDate,
         if (remarks.trim().isNotEmpty) 'remarks': remarks.trim(),
+        if (attachments.isNotEmpty) 'attachments': attachments,
       };
 }
 
@@ -2160,6 +2205,7 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog>
       text: DateTime.now().toIso8601String().split('T').first);
   final TextEditingController _remarks = TextEditingController();
   List<StorageNodeRecord> _storageNodes = const [];
+  List<Json> _attachments = const [];
   String? _validationError;
 
   List<WarehouseRecord> get _filteredWarehouses => _branchId == null
@@ -2327,6 +2373,8 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog>
                   decoration: const InputDecoration(labelText: 'Remarks'),
                   maxLines: 2,
                 ),
+                const SizedBox(height: 12),
+                StockEvidencePicker(onChanged: (files) => _attachments = files),
               ],
             ),
           ),
@@ -2360,6 +2408,7 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog>
                   referenceNumber: _reference.text.trim(),
                   transactionDate: _date.text.trim(),
                   remarks: _remarks.text.trim(),
+                  attachments: _attachments,
                 ),
                 widget.onSave,
               );
