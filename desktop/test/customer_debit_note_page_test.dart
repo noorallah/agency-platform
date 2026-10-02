@@ -95,7 +95,8 @@ class _CustomerDebitNoteApi extends ApiClient {
   String? printed;
 
   @override
-  Future<List<int>> printCustomerDebitNote(String id) async {
+  Future<List<int>> printCustomerDebitNote(String id,
+      {bool referenceCopy = false}) async {
     printed = id;
     throw ApiException('The printer is offline.', statusCode: 503);
   }

@@ -237,7 +237,8 @@ def _messaging_run_once(args: argparse.Namespace) -> int:
         platform.dispose()
     print(
         f"sent: {report.sent}, failed: {report.failed}, retrying: "
-        f"{report.retried}, reminders queued: {report.reminders}, skipped: "
+        f"{report.retried}, held for an IRN: {report.held}, "
+        f"reminders queued: {report.reminders}, skipped: "
         f"{report.skipped}, statuses: {report.statuses}"
     )
     for error in report.errors:

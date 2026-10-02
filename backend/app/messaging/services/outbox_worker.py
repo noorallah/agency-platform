@@ -14,6 +14,12 @@ person pressing *Resend* is the only way a message goes twice.
 marks the channel *needs attention* at once and the message falls to the next
 channel the event names. One that cannot be reached is retried with back-off;
 after the last attempt it is treated the same way.
+
+**Held for the IRN.** An email attaching a B2B invoice the firm must
+e-invoice waits, still QUEUED and saying why, until the invoice has its IRN
+(77 row 6): the PDF without one is not a valid tax invoice. It is looked at
+again every :data:`IRN_RECHECK` and goes out on the first pass after the
+registration, so approving and registering in either order sends one email.
 """
 
 import threading
@@ -23,7 +29,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.security.secret_box import SecretBoxError
@@ -70,6 +76,9 @@ STALE_SENDING = timedelta(minutes=15)
 #: How often, and for how long after sending, a status is asked for.
 STATUS_EVERY = timedelta(minutes=15)
 STATUS_FOR = timedelta(days=3)
+#: How long an email held for its invoice's IRN waits before it is looked at
+#: again.
+IRN_RECHECK = timedelta(minutes=5)
 
 
 @dataclass(slots=True)
@@ -79,6 +88,7 @@ class PassReport:
     sent: int = 0
     failed: int = 0
     retried: int = 0
+    held: int = 0
     skipped: int = 0
     reminders: int = 0
     statuses: int = 0
@@ -89,6 +99,7 @@ class PassReport:
         self.sent += other.sent
         self.failed += other.failed
         self.retried += other.retried
+        self.held += other.held
         self.skipped += other.skipped
         self.reminders += other.reminders
         self.statuses += other.statuses
@@ -113,16 +124,25 @@ def process_firm(
         return report
     _scan_reminders(session, settings, now.date(), report)
     _recover_interrupted(session, firm_id, now)
+    # Rows waiting -- a retry backing off, an email held for its IRN -- are
+    # left out in the query, not after it: a firm with more of them than a
+    # page would otherwise never reach the rows behind them.
     due = session.scalars(
         select(MessagingOutbox)
         .where(
             MessagingOutbox.firm_id == firm_id,
             MessagingOutbox.status == QUEUED,
             MessagingOutbox.is_deleted.is_(False),
+            or_(
+                MessagingOutbox.next_attempt_at.is_(None),
+                MessagingOutbox.next_attempt_at <= now,
+            ),
         )
         .order_by(MessagingOutbox.created_at, MessagingOutbox.id.asc())
         .limit(BATCH * 4)
     ).all()
+    # Checked again here as well: SQLite compares the stored naive value as
+    # text, so the query alone is not trusted to have judged the time.
     sendable = [
         row
         for row in due
@@ -149,6 +169,13 @@ def _send_one(
         account.health = HEALTH_NEEDS_ATTENTION
         account.last_error = str(error)
         _fail(session, row, str(error), report)
+        return
+    waiting = _waiting_for_irn(session, row)
+    if waiting is not None:
+        row.reason = waiting
+        row.next_attempt_at = now + IRN_RECHECK
+        session.commit()
+        report.held += 1
         return
     try:
         attachments = _attachments(session, row)
@@ -289,6 +316,34 @@ def _fallback(session: Session, failed: MessagingOutbox) -> MessagingOutbox | No
         session.flush()
         return row
     return None
+
+
+def _waiting_for_irn(session: Session, row: MessagingOutbox) -> str | None:
+    """Say why an email attaching an invoice must wait for its IRN, if it must."""
+    if not row.attach_pdf or row.channel != "EMAIL" or row.document_id is None:
+        return None
+    if row.document_type != "SALES_INVOICE":
+        return None
+    invoice = session.get(SalesInvoice, row.document_id)
+    if invoice is None or invoice.firm_id != row.firm_id:
+        return None
+    from app.einvoice.services.issue_gate import missing_irn
+
+    reason = missing_irn(
+        session,
+        firm_scope=row.firm_id,
+        number=invoice.invoice_number,
+        on=invoice.invoice_date,
+        customer_id=invoice.customer_id,
+        status=invoice.status,
+        sales_invoice_id=invoice.id,
+    )
+    if reason is None:
+        return None
+    return (
+        f"Waiting for {invoice.invoice_number}'s IRN: it goes out on the first "
+        "pass after the invoice is registered on the portal."
+    )
 
 
 def _attachments(session: Session, row: MessagingOutbox) -> tuple[Attachment, ...]:

@@ -70,6 +70,14 @@ class ApiException implements Exception {
   final String? code;
   bool get isForbidden => statusCode == HttpStatus.forbidden;
 
+  /// A bill the firm must e-invoice has no IRN yet, so the server will not
+  /// print it as a tax invoice (`details.reason == irn_required`). The caller
+  /// may offer a reference copy instead (GST backlog 77.6).
+  bool get isIrnRequired {
+    final Object? d = details;
+    return d is Map && d['reason'] == 'irn_required';
+  }
+
   /// The refusal names the *account's* state -- locked, inactive, expired --
   /// rather than the credential. A wrong password answers the one message
   /// whatever the cause, so nothing about an address is disclosed; these
@@ -7855,8 +7863,14 @@ class ApiClient {
   ///
   /// Rendered by the backend, so the layout is right in one place and the same
   /// bytes are what an email will attach when that arrives.
-  Future<List<int>> salesInvoicePdf(String id) =>
-      downloadBytes('/api/v1/sales-invoices/$id/print');
+  ///
+  /// [referenceCopy] prints a bill with no IRN yet, banner-marked "not a valid
+  /// tax invoice", instead of being refused.
+  Future<List<int>> salesInvoicePdf(String id, {bool referenceCopy = false}) =>
+      downloadBytes(
+        '/api/v1/sales-invoices/$id/print',
+        query: referenceCopy ? <String, String>{'reference_copy': 'true'} : null,
+      );
 
   /// The challan that travels with the goods.
   Future<List<int>> deliveryChallanPdf(String id) =>
@@ -7872,12 +7886,21 @@ class ApiClient {
 
   /// The credit note raised against an invoice, as the PDF the customer files.
   /// Any status prints; a draft carries a DRAFT banner from the server.
-  Future<List<int>> printCreditNote(String id) =>
-      downloadBytes('/api/v1/credit-notes/$id/print');
+  Future<List<int>> printCreditNote(String id, {bool referenceCopy = false}) =>
+      downloadBytes(
+        '/api/v1/credit-notes/$id/print',
+        query: referenceCopy ? <String, String>{'reference_copy': 'true'} : null,
+      );
 
   /// The debit note raised against an invoice, as the PDF the customer files.
-  Future<List<int>> printCustomerDebitNote(String id) =>
-      downloadBytes('/api/v1/customer-debit-notes/$id/print');
+  Future<List<int>> printCustomerDebitNote(
+    String id, {
+    bool referenceCopy = false,
+  }) =>
+      downloadBytes(
+        '/api/v1/customer-debit-notes/$id/print',
+        query: referenceCopy ? <String, String>{'reference_copy': 'true'} : null,
+      );
 
   /// What is still waiting to be billed.
   ///
@@ -8018,6 +8041,8 @@ class ApiClient {
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {
         String message = 'The download request failed.';
+        Object? details;
+        String? code;
         try {
           final dynamic decoded = jsonDecode(utf8.decode(bytes));
           if (decoded is Map<String, dynamic>) {
@@ -8027,6 +8052,11 @@ class ApiClient {
                   ? error['message']
                   : decoded['message'] ?? decoded['detail'],
             );
+            if (error is Map<String, dynamic>) {
+              details = error['details'];
+              final String errorCode = stringValue(error['code']);
+              code = errorCode.isEmpty ? null : errorCode;
+            }
           }
         } on FormatException {
           // Keep the safe public error when the server did not return JSON.
@@ -8034,6 +8064,8 @@ class ApiClient {
         throw ApiException(
           message.isEmpty ? 'The download request failed.' : message,
           statusCode: response.statusCode,
+          details: details,
+          code: code,
         );
       }
       return bytes;

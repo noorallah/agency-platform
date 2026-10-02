@@ -14,8 +14,9 @@ the title changed and "Against invoice" in the head.
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import date
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from sqlalchemy import select
@@ -78,17 +79,45 @@ class NotePrintService:
         self._session = session
 
     def render(
-        self, kind: str, note_id: UUID, *, firm_scope: UUID
+        self,
+        kind: str,
+        note_id: UUID,
+        *,
+        firm_scope: UUID,
+        reference_copy: bool = False,
     ) -> tuple[bytes, str]:
         """Return the PDF bytes and the filename to offer them under.
 
+        A note against a B2B invoice the firm must e-invoice prints only once
+        it has its own IRN (77 row 6), or as a reference copy marked not valid.
+
         Raises:
             ResourceNotFoundError: When the firm has no such note.
+            BusinessRuleError: When the note needs an IRN it does not have and
+                no reference copy was asked for.
 
         """
+        from app.einvoice.services.issue_gate import (
+            REFERENCE_COPY_BANNER,
+            missing_irn,
+            refuse_without_irn,
+        )
         from app.einvoice.services.note_registration import read_note
 
         note = read_note(self._session, kind, note_id, firm_scope=firm_scope)
+        header = self._header(kind, note_id)
+        id_field = "credit_note_id" if kind == CREDIT_NOTE else "customer_debit_note_id"
+        no_irn = missing_irn(
+            self._session,
+            firm_scope=firm_scope,
+            number=note.number,
+            on=cast(date, header["date"]),
+            customer_id=note.invoice.customer_id,
+            status=note.status,
+            **{id_field: note_id},
+        )
+        if not reference_copy:
+            refuse_without_irn(no_irn)
         title, number_label, date_label, words_label = _WORDING[kind]
         template = replace(
             load_template(
@@ -99,24 +128,19 @@ class NotePrintService:
             ),
             title_text=title,
         )
-        header = self._header(kind, note_id)
         invoice = note.invoice
         party = SalesInvoicePrintService(self._session)
         lines = self._lines(list(note.lines))
         taxable = sum((line.taxable for line in lines), ZERO)
         tax = sum((Decimal(str(line.tax_amount)) for line in note.lines), ZERO)
         document = InvoiceDocument(
-            not_final=_NOT_FINAL.get(note.status),
+            not_final=(
+                REFERENCE_COPY_BANNER
+                if no_irn is not None
+                else _NOT_FINAL.get(note.status)
+            ),
             einvoice=einvoice_stamp(
-                self._session,
-                firm_scope=firm_scope,
-                **{
-                    (
-                        "credit_note_id"
-                        if kind == CREDIT_NOTE
-                        else "customer_debit_note_id"
-                    ): note_id
-                },
+                self._session, firm_scope=firm_scope, **{id_field: note_id}
             ),
             number=note.number,
             date=f"{header['date']:%d %b %Y}",

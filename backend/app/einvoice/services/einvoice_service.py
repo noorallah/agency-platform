@@ -617,19 +617,20 @@ class EInvoiceService:
         """Whether this invoice is one the firm has to register first (77.9).
 
         From the firm's dated *e-invoicing applies* setting, for a buyer with
-        a GSTIN: a consumer's bill is never e-invoiced.
+        a GSTIN: a consumer's bill is never e-invoiced. The same test holds a
+        print or a send back until the IRN exists (77 row 6).
         """
-        from app.tax.services.gst_compliance import GstComplianceService
+        from app.einvoice.services.issue_gate import must_einvoice
 
-        since = (
-            GstComplianceService(self._session)
-            .settings_response(firm_scope)
-            .einvoice_applicable_from
+        return (
+            must_einvoice(
+                self._session,
+                firm_scope=firm_scope,
+                on=invoice.invoice_date,
+                customer_id=invoice.customer_id,
+            )
+            is not None
         )
-        if since is None or invoice.invoice_date < since:
-            return False
-        customer = self._session.get(Customer, invoice.customer_id)
-        return bool((getattr(customer, "gst_number", None) or "").strip())
 
     def _invoice_lines(self, invoice_id: UUID) -> list[SalesInvoiceLine]:
         """Return an invoice's live lines, in order."""

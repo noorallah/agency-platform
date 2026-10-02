@@ -127,8 +127,27 @@ class SalesInvoicePrintService:
         self._session = session
 
     # ------------------------------------------------------------------
-    def render(self, invoice_id: UUID, *, firm_scope: UUID) -> tuple[bytes, str]:
-        """Return the PDF bytes and the filename to offer them under."""
+    def render(
+        self, invoice_id: UUID, *, firm_scope: UUID, reference_copy: bool = False
+    ) -> tuple[bytes, str]:
+        """Return the PDF bytes and the filename to offer them under.
+
+        A B2B invoice the firm must e-invoice prints only once it has its IRN
+        (77 row 6); before then only as a reference copy, under a banner
+        saying it is not a valid tax invoice.
+
+        Raises:
+            ResourceNotFoundError: When the firm has no such invoice.
+            BusinessRuleError: When the invoice needs an IRN it does not have
+                and no reference copy was asked for.
+
+        """
+        from app.einvoice.services.issue_gate import (
+            REFERENCE_COPY_BANNER,
+            missing_irn,
+            refuse_without_irn,
+        )
+
         invoice = self._session.scalar(
             select(SalesInvoice).where(
                 SalesInvoice.id == invoice_id,
@@ -138,9 +157,22 @@ class SalesInvoicePrintService:
         )
         if invoice is None:
             raise ResourceNotFoundError("Sales invoice not found.")
+        no_irn = missing_irn(
+            self._session,
+            firm_scope=firm_scope,
+            number=invoice.invoice_number,
+            on=invoice.invoice_date,
+            customer_id=invoice.customer_id,
+            status=invoice.status,
+            sales_invoice_id=invoice.id,
+        )
+        if not reference_copy:
+            refuse_without_irn(no_irn)
 
         template = self._template(firm_scope)
         document = self._document(invoice, firm_scope=firm_scope)
+        if no_irn is not None:
+            document = replace(document, not_final=REFERENCE_COPY_BANNER)
         if any(line.batch for line in document.lines):
             # The batches the goods left in, with their expiry and printed
             # MRP, as the challan carries them (backlog 79 row 7).

@@ -151,6 +151,14 @@ status fetch (every 15 min for 3 days, where the adapter supports it)
   message is never shown *delivered* on a guess. None of the three providers
   offers one today, so their messages stop at *sent*; the fetch loop is there
   for the next adapter that can say.
+- **Held for the IRN** (§77 row 6, A43). An email attaching a B2B invoice
+  the firm must e-invoice is not a valid tax invoice until the invoice has its
+  IRN, so the worker leaves it QUEUED with the reason ("Waiting for SI-1's
+  IRN") and looks again every 5 minutes; it goes on the first pass after the
+  registration. A person's Send by email is refused at once instead. WhatsApp
+  and SMS are not held -- they name the invoice and attach nothing. Rows
+  waiting (a retry backing off, an email held) are filtered out in the
+  worker's query, so a firm with many cannot crowd the rows behind them.
 - **Every send is on the document's timeline** -- `document_lifecycle_events`
   with action `MESSAGE_SENT`, `MESSAGE_FAILED` or `MESSAGE_SKIPPED`, the channel,
   recipient (`email_recipient` for email), reason and message id in

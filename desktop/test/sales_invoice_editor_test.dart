@@ -83,7 +83,8 @@ class _InvoiceApi extends ApiClient {
   /// a widget test, and the refusal path is the one that must not lose the
   /// bill.
   @override
-  Future<List<int>> salesInvoicePdf(String id) async {
+  Future<List<int>> salesInvoicePdf(String id,
+      {bool referenceCopy = false}) async {
     printed = id;
     throw ApiException('The printer is offline.', statusCode: 503);
   }

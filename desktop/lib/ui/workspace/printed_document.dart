@@ -1,8 +1,9 @@
 import 'dart:typed_data';
 
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 
+import '../../core/api/api_client.dart';
 import '../../core/notifications/notification_service.dart';
 
 /// Send a rendered document to the printer, through the system print dialog.
@@ -36,4 +37,39 @@ Future<void> printDocument(
     printed ? '$documentName sent to the printer.' : 'Printing cancelled.',
     kind: printed ? AppNotificationKind.success : AppNotificationKind.information,
   );
+}
+
+/// Fetch a document's PDF, offering a reference copy when the server refuses
+/// because the bill has no IRN yet (GST backlog 77.6).
+///
+/// Returns the bytes, or null when the person cancelled the offer. Any other
+/// refusal is rethrown for the caller to show as it always did.
+Future<List<int>?> fetchPrintablePdf(
+  BuildContext context,
+  Future<List<int>> Function({bool referenceCopy}) fetch,
+) async {
+  try {
+    return await fetch(referenceCopy: false);
+  } on ApiException catch (error) {
+    if (!error.isIrnRequired || !context.mounted) rethrow;
+    final bool? reference = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text('No IRN yet'),
+        content: Text(error.message),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Print reference copy'),
+          ),
+        ],
+      ),
+    );
+    if (reference != true) return null;
+    return fetch(referenceCopy: true);
+  }
 }

@@ -1271,3 +1271,166 @@ def test_a_debit_note_prints_without_a_registration(
     text = _text_of(pdf)
     assert "DEBIT NOTE" in text and "SDN-1" in text
     assert "E-INVOICE" not in text
+
+
+# -- No print of a B2B document without its IRN (backlog 77 row 6) -------------
+
+
+@pytest.fixture
+def _plain_seller(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Print without reading the firm's address from the platform store."""
+    from app.sales_invoice.services.invoice_pdf import PartyBlock
+    from app.sales_invoice.services.invoice_print_service import (
+        SalesInvoicePrintService,
+    )
+
+    monkeypatch.setattr(
+        SalesInvoicePrintService,
+        "_seller",
+        lambda self, firm_scope: PartyBlock(name="Seller Co", address_lines=[]),
+    )
+
+
+@pytest.mark.usefixtures("_plain_seller")
+def test_an_unregistered_b2b_invoice_is_not_printed() -> None:
+    """Refused by name, with the reason a client can recognise."""
+    from app.core.exceptions import BusinessRuleError
+    from app.sales_invoice.services.invoice_print_service import (
+        SalesInvoicePrintService,
+    )
+
+    books = _Books(_session_factory()())
+    _einvoicing_since(books, date(2020, 1, 1))
+
+    with pytest.raises(BusinessRuleError, match="SI-1 has no IRN yet") as refused:
+        SalesInvoicePrintService(books.session).render(
+            books.invoice.id, firm_scope=books.firm.id
+        )
+    assert refused.value.details == {"reason": "irn_required"}
+
+
+@pytest.mark.usefixtures("_plain_seller")
+def test_a_reference_copy_prints_marked_not_valid() -> None:
+    """The way out: the figures print, under a banner saying what it is not."""
+    from app.sales_invoice.services.invoice_print_service import (
+        SalesInvoicePrintService,
+    )
+    from tests.unit.test_invoice_print import _text_of
+
+    books = _Books(_session_factory()())
+    _einvoicing_since(books, date(2020, 1, 1))
+
+    pdf, _ = SalesInvoicePrintService(books.session).render(
+        books.invoice.id, firm_scope=books.firm.id, reference_copy=True
+    )
+    assert "NOT A VALID TAX INVOICE" in _text_of(pdf)
+
+
+@pytest.mark.usefixtures("_plain_seller")
+def test_a_registered_invoice_prints_with_no_banner() -> None:
+    """Once the IRN exists the original prints, and a reference copy is it."""
+    from app.sales_invoice.services.invoice_print_service import (
+        SalesInvoicePrintService,
+    )
+    from tests.unit.test_invoice_print import _text_of
+
+    books = _Books(_session_factory()())
+    _einvoicing_since(books, date(2020, 1, 1))
+    books.register()
+
+    for copy in (False, True):
+        pdf, _ = SalesInvoicePrintService(books.session).render(
+            books.invoice.id, firm_scope=books.firm.id, reference_copy=copy
+        )
+        text = _text_of(pdf)
+        assert "NOT A VALID" not in text and "E-INVOICE" in text
+
+
+@pytest.mark.usefixtures("_plain_seller")
+@pytest.mark.parametrize(
+    ("buyer_gstin", "since"),
+    [
+        (None, date(2020, 1, 1)),  # a consumer's bill is never e-invoiced
+        (BUYER_SAME_STATE, None),  # the firm does not e-invoice
+        (BUYER_SAME_STATE, WHEN + timedelta(days=1)),  # dated before it had to
+    ],
+)
+def test_a_bill_the_firm_need_not_register_prints_as_before(
+    buyer_gstin: str | None, since: date | None
+) -> None:
+    """Only the documents the portal must see are held."""
+    from app.sales_invoice.services.invoice_print_service import (
+        SalesInvoicePrintService,
+    )
+    from tests.unit.test_invoice_print import _text_of
+
+    books = _Books(_session_factory()(), buyer_gstin=buyer_gstin)
+    if since is not None:
+        _einvoicing_since(books, since)
+
+    pdf, _ = SalesInvoicePrintService(books.session).render(
+        books.invoice.id, firm_scope=books.firm.id
+    )
+    assert "NOT A VALID" not in _text_of(pdf)
+
+
+@pytest.mark.usefixtures("_plain_seller")
+def test_a_draft_or_cancelled_bill_keeps_its_own_banner() -> None:
+    """Neither is issued, so neither is held: each already says what it is."""
+    from app.sales_invoice.services.invoice_print_service import (
+        SalesInvoicePrintService,
+    )
+    from tests.unit.test_invoice_print import _text_of
+
+    books = _Books(_session_factory()())
+    _einvoicing_since(books, date(2020, 1, 1))
+    for status, banner in (("DRAFT", "NOT YET APPROVED"), ("CANCELLED", "CANCELLED")):
+        books.invoice.status = status
+        books.session.commit()
+        pdf, _ = SalesInvoicePrintService(books.session).render(
+            books.invoice.id, firm_scope=books.firm.id
+        )
+        assert banner in _text_of(pdf)
+
+
+@pytest.mark.usefixtures("_plain_seller")
+@pytest.mark.parametrize("kind", ["CREDIT_NOTE", "DEBIT_NOTE"])
+def test_a_note_against_a_b2b_invoice_needs_its_own_irn(kind: str) -> None:
+    """The invoice's IRN is not the note's: each is registered separately."""
+    from app.core.exceptions import BusinessRuleError
+    from app.einvoice.services.note_registration import NoteRegistrationService
+    from app.sales_invoice.services.note_print_service import NotePrintService
+    from tests.unit.test_invoice_print import _text_of
+
+    books = _Books(_session_factory()())
+    _einvoicing_since(books, date(2020, 1, 1))
+    books.register()
+    note = _note(books, kind)
+    printer = NotePrintService(books.session)
+
+    with pytest.raises(BusinessRuleError, match="has no IRN yet"):
+        printer.render(kind, note.id, firm_scope=books.firm.id)  # type: ignore[attr-defined]
+    pdf, _ = printer.render(
+        kind, note.id, firm_scope=books.firm.id, reference_copy=True  # type: ignore[attr-defined]
+    )
+    assert "NOT A VALID TAX INVOICE" in _text_of(pdf)
+
+    NoteRegistrationService(books.session, base=books.service()).register(
+        kind, note.id, firm_scope=books.firm.id, actor_id=books.actor_id  # type: ignore[attr-defined]
+    )
+    books.session.commit()
+    pdf, _ = printer.render(kind, note.id, firm_scope=books.firm.id)  # type: ignore[attr-defined]
+    assert "NOT A VALID" not in _text_of(pdf)
+
+
+def test_the_print_route_offers_the_reference_copy() -> None:
+    """The query parameter reaches the service; the default refuses."""
+    import inspect
+
+    from app.credit_note.api.router import print_note as print_credit_note
+    from app.customer_debit_note.api.router import print_note as print_debit_note
+    from app.sales_invoice.api.router import print_sales_invoice
+
+    for route in (print_sales_invoice, print_credit_note, print_debit_note):
+        parameter = inspect.signature(route).parameters["reference_copy"]
+        assert parameter.default is False

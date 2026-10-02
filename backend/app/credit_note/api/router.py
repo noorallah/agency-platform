@@ -322,14 +322,17 @@ def print_note(
     note_id: UUID,
     scope: CreditNoteViewScope,
     db: Annotated[Session, Depends(get_db)],
+    reference_copy: Annotated[bool, Query()] = False,
 ) -> StreamingResponse:
     """Render the credit note as the PDF the customer is sent (77 row 11).
 
     In the invoice's layout, naming the invoice it corrects, with its IRN and
-    signed QR once it is registered on the portal.
+    signed QR once it is registered on the portal. Refused before that where
+    the firm must e-invoice it (77 row 6), unless ``reference_copy`` asks for
+    a copy marked not valid.
     """
     pdf, filename = NotePrintService(db).render(
-        "CREDIT_NOTE", note_id, firm_scope=scope.firm_id
+        "CREDIT_NOTE", note_id, firm_scope=scope.firm_id, reference_copy=reference_copy
     )
     return StreamingResponse(
         iter([pdf]),

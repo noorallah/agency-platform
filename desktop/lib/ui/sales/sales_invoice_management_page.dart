@@ -621,10 +621,14 @@ class _SalesInvoiceManagementPageState
   Future<void> _printInvoice(Map<String, dynamic> invoice) async {
     final String number = '${invoice['invoice_number'] ?? 'invoice'}';
     try {
-      final List<int> pdf = await widget.api.salesInvoicePdf(
-        invoice['id'] as String,
+      final List<int>? pdf = await fetchPrintablePdf(
+        context,
+        ({bool referenceCopy = false}) => widget.api.salesInvoicePdf(
+          invoice['id'] as String,
+          referenceCopy: referenceCopy,
+        ),
       );
-      if (!mounted) return;
+      if (pdf == null || !mounted) return;
       await printDocument(context, bytes: pdf, documentName: number);
     } on ApiException catch (exception) {
       if (!mounted) return;

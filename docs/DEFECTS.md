@@ -42,8 +42,7 @@ None open (2026-10-02).
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
-
-None open (2026-10-02).
+| D-TAX-2 | Medium | A sales return's credit note cannot be e-invoiced. A completed return is a credit note under CGST s.34 and reaches GSTR-1 as CDNR (D-CMP-2), but `einvoice_registrations` links only to `sales_invoices`, `credit_notes` and `customer_debit_notes`, so a firm that must e-invoice has no way to register it, and its print (`GET /sales-returns/{id}/print`) carries no IRN. The §77 row 6 print gate deliberately leaves it out, since refusing a document that cannot be registered would make it unprintable. Found 2026-10-02 building §77 row 6. | `app/einvoice/models/einvoice.py`; `app/sales_return/services/credit_note_print_service.py` |
 
 ### Stock -- found writing the Stock data trail, 2026-09-18
 

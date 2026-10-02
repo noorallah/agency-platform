@@ -76,10 +76,11 @@ rules about what a firm may skip are in `docs/SALES_CHAIN_RULES.md`.
 | E-way bill without an IRN, on a delivery note, recorded by hand; the firm's limit and a due list | Built 2026-10-02 (§77 rows 9-10): from the invoice where the firm need not e-invoice it, from the challan where no invoice bills it (supply type from the challan reason: sale 1, line sales 10, job work 4, others 8), or raised on the portal and its 12-digit number recorded. `gst_compliance_settings.eway_bill_limit` (₹50,000 unless the firm sets its state's) drives the due list and the prompt |
 | E-invoice: IRN, QR, 24-hour cancellation, e-way bill from the IRN | Built (`app/einvoice`). Each firm chooses its route (A42): **Sandbox** (rehearsal) or **Offline** -- export the portal's bulk-upload JSON, upload it by hand, import the result. Direct NIC API and GSP adapters to follow |
 | E-invoice live through a GSP | **Not built** (§55 M2) |
-| E-invoice for credit and debit notes | **Not built** -- registration links to `sales_invoices` only |
-| Whether a firm must e-invoice, and the 30-day rule | **Recorded, not yet enforced** (#903): *e-invoicing applies from* and *30-day rule from* are dated firm settings (Settings > Tax > GST documents, `TAX_MANAGE_SETTINGS`); nothing yet refuses an unregistered B2B invoice or a late registration |
-| E-way bill for a firm that does not e-invoice | **Still not possible** -- generation needs a registered IRN (A35 decides otherwise; not yet built) |
-| E-way bill for a challan with no invoice (stock transfer, job work) | **Not possible** |
+| E-invoice for a sales return's credit note | **Not built** (D-TAX-2) -- registration links to invoices, credit notes and debit notes, not to `sales_returns` |
+| Whether a firm must e-invoice | **Enforced 2026-10-02** (§77 row 6, A43): past the dated *e-invoicing applies from* setting, a B2B invoice, credit note or debit note prints and is emailed only once it has a live IRN; before that only as a reference copy marked not valid. The automatic *Invoice approved* email waits for the IRN |
+| The 30-day rule | **Recorded, not yet enforced** (#903): *30-day rule from* is a dated firm setting; nothing yet refuses a late registration (§77 row 7) |
+| E-way bill for a firm that does not e-invoice | Built 2026-10-02 (§77 row 9), see above |
+| E-way bill for a challan with no invoice (stock transfer, job work) | Built 2026-10-02 (§77 row 9), see above |
 | Dispatch before the invoice exists | **Judged by a firm policy** (#903): OFF, WARN (the default) or BLOCK, applied to a Sale note (and a van or route sale only if the firm says *route sales need the invoice first*) dispatched by hand with no approved invoice; the warning is recorded on the dispatch and names CGST s.31. A bill that dispatches the note it raised is never judged (`GstComplianceService.dispatch_check`) |
 | *Dispatch and invoice* | **Built** (#903): `POST /api/v1/delivery-notes/{id}/dispatch-and-invoice` raises and approves the invoice in the same transaction as the dispatch |
 | Why a challan went out without an invoice | **Recorded and printed** (#903): every delivery note carries `challan_reason` -- Sale (default), Van or route sale, Supply on approval, Quantity not known, Job work, Other with a note |
@@ -225,7 +226,7 @@ goes live; **P2** for every firm; **P3** completes the picture.
 | 3 | **Challan reason** on the delivery note: sale (invoice follows at once), on approval, job work, stock transfer, quantity not known, other; printed on the challan -- **built 2026-10-02 (#903)** | P1 |
 | 4 | **E-invoice credit notes and debit notes**, not only invoices: a document type on the registration | P1 |
 | 5 | **Debit note to a customer** (§67 row 7) -- **built 2026-10-02** | P1 |
-| 6 | **Refuse to print or send a B2B invoice without an IRN** where e-invoicing applies; a B2C invoice is unaffected | P1 |
+| 6 | **Refuse to print or send a B2B invoice without an IRN** where e-invoicing applies; a B2C invoice is unaffected -- **built 2026-10-02** (A43): credit and debit notes too; a reference copy prints marked not valid; the automatic email waits for the IRN | P1 |
 | 7 | **30-day check:** a list of documents not yet registered with days left; warn near the limit; refuse after it with the portal's reason | P1 |
 | 8 | **Live e-invoice and e-way bill through a GSP** (§55 M2), with duplicate-IRN handling | P1 -- needs a GSP contract |
 | 9 | **E-way bill without an IRN:** from the invoice or the delivery challan, so firms below ₹5 cr and non-sale movements can raise one | P2 |
@@ -235,7 +236,7 @@ goes live; **P2** for every firm; **P3** completes the picture.
 | 13 | **16-character check** on GST document numbering rules | P3 |
 | 14 | **Bill of supply** for exempt goods and composition firms | P3 |
 
-Rows 1 to 3 and 5 are built; 4 and 6 to 14 are not. **Order of work:** 2, 3 and 1 (small, and they settle the flow) → 5 and 4 →
+Rows 1 to 6 and 9 to 11 are built; 7, 8 and 12 to 14 are not. **Order of work:** 2, 3 and 1 (small, and they settle the flow) → 5 and 4 →
 9, 10, 11 → 6, 7 → 8 once a GSP is chosen → 12-14.
 
 ## 5. Decisions
