@@ -67,7 +67,7 @@ rules about what a firm may skip are in `docs/SALES_CHAIN_RULES.md`.
 | Tax invoice, credit note, delivery challan, proforma | Built |
 | Credit note names the invoice and the line it corrects | Built (`credit_notes.sales_invoice_id`, per line) |
 | Debit note **to a supplier** | Built (`app/debit_note`, §55 G8) |
-| Debit note **to a customer** | **Not built** (§67 row 7) |
+| Debit note **to a customer** | Built 2026-10-02 (`app/customer_debit_note`, §77 row 5): names the invoice and lines, taxed at the invoice line's rate, owed on the invoice, GSTR-1 note type D, added to 3B 3.1(a) |
 | Numbering per financial year | Built (`include_financial_year`, `auto_reset`) |
 | 16-character limit on a GST document number | **Not checked** |
 | Transport details on the delivery note (transporter, GSTIN, mode, LR, distance) | Built (§67 row 5) |
@@ -220,7 +220,7 @@ goes live; **P2** for every firm; **P3** completes the picture.
 | 2 | **Invoice before dispatch:** a per-firm policy -- *warn* (default) or *block* -- when a delivery note is dispatched with no invoice and no challan reason | P1 |
 | 3 | **Challan reason** on the delivery note: sale (invoice follows at once), on approval, job work, stock transfer, quantity not known, other; printed on the challan | P1 |
 | 4 | **E-invoice credit notes and debit notes**, not only invoices: a document type on the registration | P1 |
-| 5 | **Debit note to a customer** (§67 row 7) | P1 |
+| 5 | **Debit note to a customer** (§67 row 7) -- **built 2026-10-02** | P1 |
 | 6 | **Refuse to print or send a B2B invoice without an IRN** where e-invoicing applies; a B2C invoice is unaffected | P1 |
 | 7 | **30-day check:** a list of documents not yet registered with days left; warn near the limit; refuse after it with the portal's reason | P1 |
 | 8 | **Live e-invoice and e-way bill through a GSP** (§55 M2), with duplicate-IRN handling | P1 -- needs a GSP contract |

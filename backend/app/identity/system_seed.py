@@ -196,6 +196,14 @@ PERMISSION_GROUPS = {
         # `COMMISSION_PAY` is separate from `COMMISSION_MANAGE`.
         "CREDIT_NOTE_APPROVE",
     ),
+    "customer_debit_note": (
+        "CUSTOMER_DEBIT_NOTE_VIEW",
+        "CUSTOMER_DEBIT_NOTE_MANAGE",
+        # Approving raises what a customer owes **and the output tax the firm
+        # declares**. The twin of `CREDIT_NOTE_APPROVE`, held back from the
+        # role that drafts one for the same reason (backlog 77 row 5).
+        "CUSTOMER_DEBIT_NOTE_APPROVE",
+    ),
     "debit_note": (
         "DEBIT_NOTE_VIEW",
         "DEBIT_NOTE_MANAGE",
@@ -487,6 +495,7 @@ _operational_permissions = _codes(
     "trade_licences",
     "commission",
     "credit_note",
+    "customer_debit_note",
     "debit_note",
     "party_adjustment",
     "proforma",
@@ -597,6 +606,10 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             # declared tax and is not theirs, the same split as commission.
             "CREDIT_NOTE_VIEW",
             "CREDIT_NOTE_MANAGE",
+            # And a debit note, the same split: drafting is the desk's,
+            # approving adds declared tax and is not.
+            "CUSTOMER_DEBIT_NOTE_VIEW",
+            "CUSTOMER_DEBIT_NOTE_MANAGE",
             # A proforma states what an approved order will be charged and
             # posts nothing, so raising one is ordinary sales-desk work.
             "PROFORMA_VIEW",

@@ -623,6 +623,7 @@ class GstReturnService:
 
         credited = ZERO
         credit_igst = credit_cgst = credit_sgst = credit_cess = ZERO
+        debit_igst = debit_cgst = debit_sgst = debit_cess = ZERO
         credits = self._credit_notes(
             firm_scope=firm_scope, from_date=from_date, to_date=to_date
         )
@@ -643,13 +644,44 @@ class GstReturnService:
         # Both halves: 3B is a summary of what is payable, and an unregistered
         # buyer's credit reduces it exactly as a registered one does. Reading
         # only CDNR here is what left the two returns disagreeing.
+        # A debit note adds to 3.1(a) what a credit note takes off it, and is
+        # reported beside the credits rather than netted into them, so the
+        # deduction still reads as what was credited (backlog 77 row 5).
+        debited = ZERO
+        debit_tax = ZERO
         for note in (*credits.registered, *credits.unregistered_large):
+            note_tax = (
+                Decimal(str(note["integrated_tax"]))
+                + Decimal(str(note["central_tax"]))
+                + Decimal(str(note["state_tax"]))
+                + Decimal(str(note["cess"]))
+            )
+            if note.get("document_type") == "DEBIT_NOTE":
+                debited += Decimal(str(note["taxable_value"]))
+                debit_tax += note_tax
+                debit_igst += Decimal(str(note["integrated_tax"]))
+                debit_cgst += Decimal(str(note["central_tax"]))
+                debit_sgst += Decimal(str(note["state_tax"]))
+                debit_cess += Decimal(str(note["cess"]))
+                continue
             credited += Decimal(str(note["taxable_value"]))
             credit_igst += Decimal(str(note["integrated_tax"]))
             credit_cgst += Decimal(str(note["central_tax"]))
             credit_sgst += Decimal(str(note["state_tax"]))
             credit_cess += Decimal(str(note["cess"]))
         for row in credits.unregistered:
+            # Netted into a B2CS row, a debit note is a negative credit -- a
+            # credit's taxable value is never below zero, so the sign says
+            # which it is.
+            if row.taxable < ZERO:
+                debited -= row.taxable
+                debit_tax -= row.buckets.igst + row.buckets.cgst
+                debit_tax -= row.buckets.sgst + row.buckets.cess
+                debit_igst -= row.buckets.igst
+                debit_cgst -= row.buckets.cgst
+                debit_sgst -= row.buckets.sgst
+                debit_cess -= row.buckets.cess
+                continue
             credited += row.taxable
             credit_igst += row.buckets.igst
             credit_cgst += row.buckets.cgst
@@ -661,11 +693,11 @@ class GstReturnService:
             "from_date": from_date.isoformat(),
             "to_date": to_date.isoformat(),
             "outward_taxable_supplies": {
-                "taxable_value": _filed(taxable - credited),
-                "integrated_tax": _filed(buckets.igst - credit_igst),
-                "central_tax": _filed(buckets.cgst - credit_cgst),
-                "state_tax": _filed(buckets.sgst - credit_sgst),
-                "cess": _filed(buckets.cess - credit_cess),
+                "taxable_value": _filed(taxable - credited + debited),
+                "integrated_tax": _filed(buckets.igst - credit_igst + debit_igst),
+                "central_tax": _filed(buckets.cgst - credit_cgst + debit_cgst),
+                "state_tax": _filed(buckets.sgst - credit_sgst + debit_sgst),
+                "cess": _filed(buckets.cess - credit_cess + debit_cess),
             },
             "zero_rated_supplies": {
                 "taxable_value": _filed(zero_rated),
@@ -680,6 +712,11 @@ class GstReturnService:
             "credit_notes_deducted": {
                 "taxable_value": _filed(credited),
                 "tax": _filed(credit_igst + credit_cgst + credit_sgst + credit_cess),
+            },
+            # Debit notes to customers, added (backlog 77 row 5).
+            "debit_notes_added": {
+                "taxable_value": _filed(debited),
+                "tax": _filed(debit_tax),
             },
             **self._input_tax_credit(
                 firm_scope=firm_scope, from_date=from_date, to_date=to_date
@@ -1395,10 +1432,16 @@ class GstReturnService:
             The CDNR and CDNUR rows, and the summary rows to take off B2CS.
 
         """
-        credits = self._issued_credit_notes(
-            firm_scope=firm_scope, from_date=from_date, to_date=to_date
-        ) + self._completed_sales_returns(
-            firm_scope=firm_scope, from_date=from_date, to_date=to_date
+        credits = (
+            self._issued_credit_notes(
+                firm_scope=firm_scope, from_date=from_date, to_date=to_date
+            )
+            + self._completed_sales_returns(
+                firm_scope=firm_scope, from_date=from_date, to_date=to_date
+            )
+            + self._issued_debit_notes(
+                firm_scope=firm_scope, from_date=from_date, to_date=to_date
+            )
         )
         if not credits:
             return _CreditNotes()
@@ -1448,22 +1491,27 @@ class GstReturnService:
             customer = customers.get(credit.customer_id)
             gstin = (getattr(customer, "gst_number", None) or "").strip().upper()
             buckets = credit.buckets
+            # A debit note is carried as a negative credit and stated positive,
+            # with its note type, as the return lists it (backlog 77 row 5).
+            debit = credit.document_type == "DEBIT_NOTE"
+            stated = buckets.negated() if debit else buckets
             row: dict[str, object] = {
                 "note_number": credit.number,
                 "note_date": credit.issued_on.isoformat(),
                 "document_type": credit.document_type,
+                "note_type": "D" if debit else "C",
                 "against_invoice": credit.against_invoice_number,
                 "reason": credit.reason,
                 "rate": float(max(credit.rates, default=ZERO)),
-                "taxable_value": _filed(credit.taxable),
-                **self._bucket_fields(buckets),
+                "taxable_value": _filed(-credit.taxable if debit else credit.taxable),
+                **self._bucket_fields(stated),
             }
             if gstin:
                 answer.registered.append(
                     {"gstin": gstin, "name": getattr(customer, "name", ""), **row}
                 )
                 continue
-            if buckets.igst > ZERO and any(
+            if stated.igst > ZERO and any(
                 invoice_id in large for invoice_id in credit.against_invoice_ids
             ):
                 answer.unregistered_large.append(
@@ -1515,77 +1563,169 @@ class GstReturnService:
         ).all():
             lines_by_note[line.credit_note_id].append(line)
 
-        answer: list[_Credit] = []
-        for note in notes:
-            # The note stores one tax figure per line, not a split. Re-split
-            # it the way the supply it credits was taxed, read off that
-            # invoice rather than off an address -- the same rule the place of
-            # supply uses, and the only one an unregistered buyer can be
-            # judged by at all.
-            interstate = note.sales_invoice_id in crossed_a_border
-            lines = lines_by_note.get(note.id, [])
-            # Each line at its own rate (D-CMP-13): a note crediting a 5% and
-            # an 18% line was declared wholly at whichever came first.
-            parts: list[
-                tuple[UUID | None, UUID | None, Decimal, Decimal, Decimal, Decimal]
-            ] = [
-                (
-                    line.product_id,
-                    line.sales_invoice_line_id,
-                    Decimal(str(line.quantity)),
-                    Decimal(str(line.taxable_amount)),
-                    Decimal(str(line.tax_rate_percent)),
-                    Decimal(str(line.tax_amount)),
-                )
-                for line in lines
-            ] or [
-                (
-                    None,
-                    None,
-                    ZERO,
-                    Decimal(str(note.taxable_amount)),
-                    ZERO,
-                    Decimal(str(note.tax_amount)),
-                )
-            ]
-            # Settled at paise to what the note's journal credited, as an
-            # invoice's lines are (D-CMP-4).
-            settled = settle_to_ledger(
-                [
-                    GstBuckets(
-                        igst=tax if interstate else ZERO,
-                        cgst=ZERO if interstate else tax / 2,
-                        sgst=ZERO if interstate else tax / 2,
-                        rate=rate,
+        return [
+            self._note_as_credit(
+                number=note.credit_note_number,
+                issued_on=note.credit_note_date,
+                customer_id=note.customer_id,
+                reason=note.reason,
+                invoice_id=note.sales_invoice_id,
+                invoice_number=invoice_numbers.get(note.sales_invoice_id, ""),
+                interstate=note.sales_invoice_id in crossed_a_border,
+                lines=[
+                    (
+                        line.product_id,
+                        line.sales_invoice_line_id,
+                        Decimal(str(line.quantity)),
+                        Decimal(str(line.taxable_amount)),
+                        Decimal(str(line.tax_rate_percent)),
+                        Decimal(str(line.tax_amount)),
                     )
-                    for _, _, _, _, rate, tax in parts
-                ]
+                    for line in lines_by_note.get(note.id, [])
+                ],
+                taxable=Decimal(str(note.taxable_amount)),
+                tax=Decimal(str(note.tax_amount)),
+                document_type="CREDIT_NOTE",
             )
-            rates: dict[Decimal, _RateRow] = {}
-            items: list[
-                tuple[UUID | None, UUID | None, Decimal, Decimal, GstBuckets]
-            ] = []
-            for (product_id, credited, quantity, taxable, rate, _), buckets in zip(
-                parts, settled, strict=True
-            ):
-                rates.setdefault(rate, _RateRow(rate=rate)).add(taxable, buckets)
-                items.append((product_id, credited, quantity, taxable, buckets))
-            answer.append(
-                _Credit(
-                    number=note.credit_note_number,
-                    issued_on=note.credit_note_date,
-                    customer_id=note.customer_id,
-                    reason=note.reason,
-                    against_invoice_ids=[note.sales_invoice_id],
-                    against_invoice_number=invoice_numbers.get(
-                        note.sales_invoice_id, ""
-                    ),
-                    rates=rates,
-                    document_type="CREDIT_NOTE",
-                    items=[item for item in items if item[0] is not None],
+            for note in notes
+        ]
+
+    def _issued_debit_notes(
+        self, *, firm_scope: UUID, from_date: date, to_date: date
+    ) -> list[_Credit]:
+        """Return the approved customer debit notes issued in the period.
+
+        Declared beside the credit notes -- CDNR for a registered buyer, CDNUR
+        or the B2CS row otherwise -- with note type D (backlog 77 row 5).
+        Carried as a **negative** credit, so every place that takes a credit
+        off a supply adds a debit to it without a second code path: the B2CS
+        row, the HSN summary and 3B 3.1(a) alike. The CDNR and CDNUR rows
+        state it positive, as the return does; ``document_type`` says which.
+
+        No units: a debit note charges value, so it moves the HSN summary's
+        value and tax and leaves its quantity alone.
+        """
+        # Imported here, as the other optional modules are.
+        from app.customer_debit_note.models import (
+            CustomerDebitNote,
+            CustomerDebitNoteLine,
+            CustomerDebitNoteStatus,
+        )
+
+        notes = list(
+            self._session.scalars(
+                select(CustomerDebitNote)
+                .where(
+                    CustomerDebitNote.firm_id == firm_scope,
+                    CustomerDebitNote.is_deleted.is_(False),
+                    CustomerDebitNote.status == CustomerDebitNoteStatus.APPROVED.value,
+                    CustomerDebitNote.debit_note_date >= from_date,
+                    CustomerDebitNote.debit_note_date <= to_date,
                 )
+                .order_by(CustomerDebitNote.debit_note_date.asc())
+            ).all()
+        )
+        if not notes:
+            return []
+        crossed_a_border = self._interstate_invoices(
+            [note.sales_invoice_id for note in notes]
+        )
+        invoice_numbers = self._invoice_numbers(
+            [note.sales_invoice_id for note in notes]
+        )
+        lines_by_note: dict[UUID, list[CustomerDebitNoteLine]] = defaultdict(list)
+        for line in self._session.scalars(
+            select(CustomerDebitNoteLine)
+            .where(
+                CustomerDebitNoteLine.debit_note_id.in_([note.id for note in notes]),
+                CustomerDebitNoteLine.is_deleted.is_(False),
             )
-        return answer
+            .order_by(CustomerDebitNoteLine.line_number.asc())
+        ).all():
+            lines_by_note[line.debit_note_id].append(line)
+        return [
+            self._note_as_credit(
+                number=note.debit_note_number,
+                issued_on=note.debit_note_date,
+                customer_id=note.customer_id,
+                reason=note.reason,
+                invoice_id=note.sales_invoice_id,
+                invoice_number=invoice_numbers.get(note.sales_invoice_id, ""),
+                interstate=note.sales_invoice_id in crossed_a_border,
+                lines=[
+                    (
+                        line.product_id,
+                        line.sales_invoice_line_id,
+                        ZERO,
+                        -Decimal(str(line.taxable_amount)),
+                        Decimal(str(line.tax_rate_percent)),
+                        -Decimal(str(line.tax_amount)),
+                    )
+                    for line in lines_by_note.get(note.id, [])
+                ],
+                taxable=-Decimal(str(note.taxable_amount)),
+                tax=-Decimal(str(note.tax_amount)),
+                document_type="DEBIT_NOTE",
+            )
+            for note in notes
+        ]
+
+    @staticmethod
+    def _note_as_credit(
+        *,
+        number: str,
+        issued_on: date,
+        customer_id: UUID,
+        reason: str | None,
+        invoice_id: UUID,
+        invoice_number: str,
+        interstate: bool,
+        lines: list[
+            tuple[UUID | None, UUID | None, Decimal, Decimal, Decimal, Decimal]
+        ],
+        taxable: Decimal,
+        tax: Decimal,
+        document_type: str,
+    ) -> _Credit:
+        """Bring one credit or debit note to the shape the return folds.
+
+        The note stores one tax figure per line, not a split. It is re-split
+        the way the supply it corrects was taxed, read off that invoice rather
+        than off an address -- the same rule the place of supply uses, and the
+        only one an unregistered buyer can be judged by at all. Each line at
+        its own rate (D-CMP-13), settled at paise to what the note's journal
+        posted, as an invoice's lines are (D-CMP-4).
+        """
+        parts = lines or [(None, None, ZERO, taxable, ZERO, tax)]
+        settled = settle_to_ledger(
+            [
+                GstBuckets(
+                    igst=line_tax if interstate else ZERO,
+                    cgst=ZERO if interstate else line_tax / 2,
+                    sgst=ZERO if interstate else line_tax / 2,
+                    rate=rate,
+                )
+                for _, _, _, _, rate, line_tax in parts
+            ]
+        )
+        rates: dict[Decimal, _RateRow] = {}
+        items: list[tuple[UUID | None, UUID | None, Decimal, Decimal, GstBuckets]] = []
+        for (product_id, source, quantity, line_taxable, rate, _), buckets in zip(
+            parts, settled, strict=True
+        ):
+            rates.setdefault(rate, _RateRow(rate=rate)).add(line_taxable, buckets)
+            items.append((product_id, source, quantity, line_taxable, buckets))
+        return _Credit(
+            number=number,
+            issued_on=issued_on,
+            customer_id=customer_id,
+            reason=reason,
+            against_invoice_ids=[invoice_id],
+            against_invoice_number=invoice_number,
+            rates=rates,
+            document_type=document_type,
+            items=[item for item in items if item[0] is not None],
+        )
 
     def _completed_sales_returns(
         self, *, firm_scope: UUID, from_date: date, to_date: date

@@ -1506,6 +1506,20 @@ class SalesInvoiceService(TransactionalDocumentService):
         ).all()
         if notes:
             blockers.append("credit note " + ", ".join(sorted(notes)))
+        from app.customer_debit_note.models import (
+            CustomerDebitNote,
+            CustomerDebitNoteStatus,
+        )
+
+        debits = self._session.scalars(
+            select(CustomerDebitNote.debit_note_number).where(
+                CustomerDebitNote.sales_invoice_id == row.id,
+                CustomerDebitNote.status != CustomerDebitNoteStatus.CANCELLED.value,
+                CustomerDebitNote.is_deleted.is_(False),
+            )
+        ).all()
+        if debits:
+            blockers.append("debit note " + ", ".join(sorted(debits)))
         returns = self._session.scalars(
             select(SalesReturn.return_number)
             .join(
@@ -1990,7 +2004,10 @@ class SalesInvoiceService(TransactionalDocumentService):
                     invoice_date=record.invoice_date,
                     due_date=record.due_date,
                     days_overdue=(today - record.due_date).days,
-                    grand_total=record.invoice_total if row is None else row[1],
+                    # The bill as Record Receipt states it -- with any debit
+                    # note raised on it (backlog 77 row 5) -- so the row's
+                    # total less what was settled is what it still owes.
+                    grand_total=record.invoice_total,
                     settled_amount=record.allocated_amount,
                     outstanding_amount=record.outstanding_amount,
                 )

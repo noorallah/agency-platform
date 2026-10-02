@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**231 tables**, of which **16** live only in the platform store.
+**233 tables**, of which **16** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -122,6 +122,13 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `credit_note_lines` | firm store ¹ | One invoice line being credited, in part or in whole. | `credit_notes`, `sales_invoice_lines`, `products` |
 | `credit_notes` | firm store ¹ | One credit against one invoice, with the tax it reverses. | `customers`, `branches`, `sales_invoices`, `journal_entries` |
+
+### `app/customer_debit_note`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `customer_debit_note_lines` | firm store ¹ | One invoice line being charged more. | `customer_debit_notes`, `sales_invoice_lines`, `products` |
+| `customer_debit_notes` | firm store ¹ | One charge against one invoice, with the tax it adds. | `customers`, `branches`, `sales_invoices`, `journal_entries` |
 
 ### `app/customers`
 

@@ -27,6 +27,9 @@ from app.commission.models import payout as _commission_payout  # noqa: F401
 from app.common.audit.models import audit_log  # noqa: F401
 from app.contra.models import contra_voucher  # noqa: F401
 from app.credit_note.models import credit_note as _credit_note  # noqa: F401
+from app.customer_debit_note.models import (  # noqa: F401
+    customer_debit_note as _customer_debit_note,
+)
 from app.customers.models import customer  # noqa: F401
 from app.customers.models import opening_bill as _customer_opening_bill  # noqa: F401
 from app.debit_note.models import debit_note as _debit_note  # noqa: F401

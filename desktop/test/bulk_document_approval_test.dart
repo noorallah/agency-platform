@@ -21,6 +21,7 @@ import 'package:agency_desktop/ui/finance/journal_entries_page.dart';
 import 'package:agency_desktop/ui/purchase_invoices/purchase_invoice_management_page.dart';
 import 'package:agency_desktop/ui/purchase_returns/purchase_return_management_page.dart';
 import 'package:agency_desktop/ui/sales/credit_note_page.dart';
+import 'package:agency_desktop/ui/sales/customer_debit_note_page.dart';
 import 'package:agency_desktop/ui/sales/sales_invoice_management_page.dart';
 import 'package:agency_desktop/ui/sales_returns/sales_return_management_page.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
@@ -217,6 +218,21 @@ final List<_Screen> _screens = <_Screen>[
     build: (api, permissions, dir) => _prefsPage(
       dir,
       (preferences) => CreditNotePage(
+        api: api,
+        preferences: preferences,
+        permissions: permissions,
+        hasActiveFirm: true,
+      ),
+    ),
+  ),
+  _Screen(
+    name: 'customer debit notes',
+    listPath: '/api/v1/customer-debit-notes',
+    bulkPath: '/api/v1/customer-debit-notes/bulk-approve',
+    codes: const ['CUSTOMER_DEBIT_NOTE_VIEW', 'CUSTOMER_DEBIT_NOTE_APPROVE'],
+    build: (api, permissions, dir) => _prefsPage(
+      dir,
+      (preferences) => CustomerDebitNotePage(
         api: api,
         preferences: preferences,
         permissions: permissions,

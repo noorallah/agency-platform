@@ -560,6 +560,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['CREDIT_NOTE_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'customer-debit-notes',
+          label: 'Debit Notes',
+          requiredPermissions: ['CUSTOMER_DEBIT_NOTE_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'einvoice',
           label: 'E-Invoice',
           requiredPermissions: ['EINVOICE_VIEW'],

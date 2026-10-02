@@ -26,6 +26,7 @@ import '../../models/quotation.dart';
 import '../../models/pricing.dart';
 import '../../models/commission.dart';
 import '../../models/credit_note.dart';
+import '../../models/customer_debit_note.dart';
 import '../../models/debit_note.dart';
 import '../../models/party_adjustment.dart';
 import '../../models/contra_voucher.dart';
@@ -4083,6 +4084,9 @@ class ApiClient {
   Future<BulkActionResult> bulkApproveCreditNotes(List<BulkRow> rows) =>
       _bulk('/api/v1/credit-notes/bulk-approve', rows);
 
+  Future<BulkActionResult> bulkApproveCustomerDebitNotes(List<BulkRow> rows) =>
+      _bulk('/api/v1/customer-debit-notes/bulk-approve', rows);
+
   Future<BulkActionResult> bulkApproveSalesReturns(List<BulkRow> rows) =>
       _bulk('/api/v1/sales-returns/bulk-approve', rows);
 
@@ -5587,6 +5591,83 @@ class ApiClient {
       CreditNoteRecord.fromJson(_unwrapMap(await request(
         'POST',
         '/api/v1/credit-notes/$id/cancel',
+        expectedVersion: expectedVersion,
+      )));
+
+  // ---- customer debit notes -------------------------------------------
+
+  Future<PagedResult<CustomerDebitNoteRecord>> customerDebitNotes({
+    int page = 1,
+    int pageSize = 50,
+    String? status,
+    String? search,
+    String? customerId,
+    String? salesInvoiceId,
+    String? debitNoteFrom,
+    String? debitNoteTo,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/customer-debit-notes',
+      query: {
+        'page': '$page',
+        'page_size': '$pageSize',
+        if (status != null && status.isNotEmpty) 'status': status,
+        if (search != null && search.isNotEmpty) 'search': search,
+        if (customerId != null && customerId.isNotEmpty)
+          'customer_id': customerId,
+        if (salesInvoiceId != null && salesInvoiceId.isNotEmpty)
+          'sales_invoice_id': salesInvoiceId,
+        if (debitNoteFrom != null) 'debit_note_from': debitNoteFrom,
+        if (debitNoteTo != null) 'debit_note_to': debitNoteTo,
+      },
+    );
+    final dynamic data = response['data'];
+    return PagedResult<CustomerDebitNoteRecord>(
+      items: data is List
+          ? data
+              .whereType<Map>()
+              .map((item) => CustomerDebitNoteRecord.fromJson(
+                  Map<String, dynamic>.from(item)))
+              .toList()
+          : const [],
+      total: _totalOf(response),
+    );
+  }
+
+  /// Price a customer debit note as raising it would, and save nothing: the
+  /// tax the phase 2 screen shows going on while the amounts are typed.
+  Future<CustomerDebitNoteRecord> previewCustomerDebitNote(Json body) async =>
+      CustomerDebitNoteRecord.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/customer-debit-notes/preview',
+              body: body),
+        ),
+      );
+
+  Future<CustomerDebitNoteRecord> createCustomerDebitNote(Json body) async =>
+      CustomerDebitNoteRecord.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/customer-debit-notes', body: body)),
+      );
+
+  Future<CustomerDebitNoteRecord> approveCustomerDebitNote(
+    String id, {
+    int? expectedVersion,
+  }) async =>
+      CustomerDebitNoteRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/customer-debit-notes/$id/approve',
+        expectedVersion: expectedVersion,
+      )));
+
+  Future<CustomerDebitNoteRecord> cancelCustomerDebitNote(
+    String id, {
+    int? expectedVersion,
+  }) async =>
+      CustomerDebitNoteRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/customer-debit-notes/$id/cancel',
         expectedVersion: expectedVersion,
       )));
 

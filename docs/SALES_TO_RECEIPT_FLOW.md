@@ -494,6 +494,25 @@ return reverses both entries, and the cost entry is reversed **at the movement
 value** so the gap between the average then and now stays in cost of goods sold
 rather than distorting inventory.
 
+## Charging more after the invoice
+
+`POST /api/v1/customer-debit-notes` — `DRAFT → APPROVED`, or `CANCELLED`
+(backlog 77 row 5, OWNER_DECISIONS A40). A price raised after billing, a line
+under-billed or a charge added later is a **debit note against the invoice**,
+never a second invoice. It names the invoice and its lines, moves no stock,
+and charges tax at the rate each line was charged. Approving posts:
+
+```
+Dr  1100 Trade Receivables
+    Cr  4000 Sales Revenue
+    Cr  2200 Output Tax (per head, as the invoice was taxed)
+```
+
+and raises the customer's balance. The extra is owed **on the invoice**: Record
+Receipt offers the invoice at its total plus the note, and the ageing ages it
+from the invoice's due date. Cancelling mirrors the journal, and is refused
+once money received on the invoice has met the extra.
+
 ---
 
 ## What a line is discounted by

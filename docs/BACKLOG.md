@@ -4942,7 +4942,7 @@ the bank (§42.2); one bill for several notes (§58).
 | 4 | **Payment terms on the order** | Only the invoice carries payment terms and due date | The order carries them (from the customer), and the invoice inherits rather than re-reading the customer. |
 | 5 | **Transport details** on the delivery note | Vehicle and driver only | Transporter name and GSTIN, mode, LR / docket number and date, distance -- what the e-way bill needs (§55 M2) -- printed on the challan. |
 | 6 | **Proof of delivery** | Attachments only; a note ends at dispatched / completed | Delivered on (date, time), received by (name), remarks, photo or signature attachment; a note is **Delivered** only with a proof; a list of notes dispatched but not yet proven delivered. |
-| 7 | **Debit note to a customer**: extra charges or a price increase after billing | Nothing (only credit notes) | A debit note against an invoice, mirror of the credit note: raises the receivable, posts revenue and output tax, reported in GSTR-1 as a debit note. |
+| 7 | **Debit note to a customer**: extra charges or a price increase after billing -- **built 2026-10-02** (§77 row 5) | Nothing (only credit notes) | A debit note against an invoice, mirror of the credit note: raises the receivable, posts revenue and output tax, reported in GSTR-1 as a debit note. |
 | 8 | **Discount report** | Nothing summarises what was given away | Discount given by customer, product, salesman and source (typed, price list, promotion, customer, group, bill), per period -- the discount_source already stored on each line makes it a report, not a data change. |
 | 9 | **Collection report** | The receipts list, and commission on collections | Collections by day, by salesman, by mode (cash / bank / UPI), and against what was due in the period. |
 
@@ -5473,6 +5473,7 @@ gaps, pinned with a pointer here, each to build when a firm asks:
 ## 77. GST documents for the sales chain -- HIGH PRIORITY
 
 **Status, 2026-10-02:** rows 1-3 built. Every delivery note carries a reason (Sale, Van or route sale, Supply on approval, Quantity not known, Job work, Other with words), printed on the challan. A sale dispatched or completed by hand before its invoice is judged by the firm's policy in `gst_compliance_settings` -- Off, Warn (default; kept on the dispatch event and audit row) or Block -- and **Dispatch and invoice** dispatches, bills and approves in one transaction. A van or route sale goes on a challan unless the firm switches on "route sales need the invoice first", so either answer from the firm's CA is a setting. The same table holds the dates e-invoicing and the 30-day limit apply from (used by rows 6-7). Settings > Tax > GST documents.
+Row 5 built 2026-10-02 (also §67 row 7): **Sales > Debit Notes** raises a debit note to a customer against an approved invoice -- price increase, short billed, charges added later, or other -- taxed at each invoice line's rate, no cap, approval separate from drafting (`CUSTOMER_DEBIT_NOTE_APPROVE`). It posts Dr receivable, Cr sales and output tax per head, and the extra is owed **on the invoice** (TallyPrime's against-reference, A40): Record Receipt, the ageing and the overdue list show the invoice at its total plus the note. GSTR-1 CDNR/CDNUR note type D; 3B adds it to 3.1(a). Not yet: a printed debit note (credit notes have none either -- with row 11) and e-invoicing it (row 4).
 
 Owner, 2026-10-02: follow the GST rules and redesign the sales flow to market
 standard. The rules, today's state, the redesigned flow and the work are in
@@ -5485,7 +5486,7 @@ OWNER_DECISIONS A35. Summary of the rows (numbered as in that doc's section 4):
 | 2 | Dispatch of a Sale delivery note with no invoice: firm policy warn (default) / block; **Dispatch and invoice** in one action | P1 |
 | 3 | Challan reason on the delivery note, printed | P1 |
 | 4 | E-invoice credit notes and debit notes | P1 |
-| 5 | Debit note to a customer (§67 row 7) | P1 |
+| 5 | Debit note to a customer (§67 row 7) -- **built 2026-10-02** (A40) | P1 |
 | 6 | No print or send of a B2B invoice without an IRN where e-invoicing applies | P1 |
 | 7 | 30-day list and check | P1 |
 | 8 | Live e-invoice and e-way bill through a GSP (§55 M2) -- needs the owner's GSP | P1 |

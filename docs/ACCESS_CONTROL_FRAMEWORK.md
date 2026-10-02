@@ -249,6 +249,7 @@ able to switch the control off.**
 | `SALES_MANAGER` | `SALES_TARGET_MANAGE` | The number they are measured on is the firm's decision |
 | `SALES_MANAGER` | `COMMISSION_MANAGE`, `COMMISSION_PAY` | Whoever states a debt must not move the cash — and would otherwise pay their own team, and on a rule with no salesman, themselves |
 | `SALES_MANAGER` | `CREDIT_NOTE_APPROVE` | Drafting is bookkeeping; approving **reverses tax already declared to the authority** |
+| `SALES_MANAGER` | `CUSTOMER_DEBIT_NOTE_APPROVE` | The same split for a debit note: approving **adds declared tax and raises what the customer owes** |
 | `SALES_MANAGER` | `LOYALTY_MANAGE_SETTINGS` | The conversion rate decides what every customer's credit is worth; and a goodwill adjustment (`POST /loyalty/adjust`) takes this code too, because points given are redeemed against a bill like any others -- a receivable write-off by the role denied approving a credit note (D-CFG-17). `LOYALTY_MANAGE` still spends credit and sweeps lapsed points |
 | `SALES_MANAGER` | `TCS_MANAGE` | The policy decides what every buyer is charged on every receipt |
 | `SALES_MANAGER` | `EINVOICE_MANAGE` | Reading a registration is running a sales desk; filing with the authority is not |

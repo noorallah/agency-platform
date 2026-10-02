@@ -43,6 +43,9 @@ class CustomerReceivableTransactionType(StrEnum):
     ADVANCE_RECEIPT = "ADVANCE_RECEIPT"
     ADVANCE_APPLY = "ADVANCE_APPLY"
     CREDIT_NOTE = "CREDIT_NOTE"
+    #: More charged on an invoice after it was billed (backlog 77 row 5). It
+    #: raises what the customer owes exactly as the invoice did.
+    DEBIT_NOTE = "DEBIT_NOTE"
     REFUND = "REFUND"
     #: Tax collected at source on a receipt. It raises what the buyer owes,
     #: the same shape as an invoice, because the buyer owes it **on top of**

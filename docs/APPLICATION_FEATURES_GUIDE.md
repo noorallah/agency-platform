@@ -274,6 +274,14 @@ back**: a rate agreed after invoicing, a quality allowance, a billing error.
 It always names the invoice it credits and reverses that invoice's GST in
 proportion. (Goods coming back are a *sales return*, not a credit note.)
 
+**Debit Notes.** More charged to a customer on a sale already invoiced: a
+price raised after billing, a line under-billed, a charge added later. It
+names the invoice and its lines and charges GST at the rate each line was
+charged. What it adds is owed **on that invoice** -- Record Receipt shows the
+invoice at its total plus the note, and the ageing ages it from the invoice's
+due date. Drafting and approving are separate permissions; GSTR-1 declares it
+as a debit note (type D) and GSTR-3B adds it to outward supplies.
+
 ## 5.3 Money
 
 **Receipts.** Money received from a customer, by cash, cheque, bank transfer
@@ -769,6 +777,7 @@ What each approved document writes, in plain terms.
 | Receipt recorded | Cash or bank up; customer owes less |
 | Return approved | Stock back at its cost; customer owes less; sales and GST reversed |
 | Credit note approved | Customer owes less; sales and GST reversed (no stock moves) |
+| Debit note approved | Customer owes more on the invoice; sales and GST added (no stock moves) |
 
 **A purchase:**
 

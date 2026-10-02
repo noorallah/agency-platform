@@ -32,6 +32,7 @@ from app.core.tenancy import (
     TenantStorageLifecycleService,
 )
 from app.credit_note.api.router import router as credit_notes_router
+from app.customer_debit_note.api.router import router as customer_debit_notes_router
 from app.customers.api import router as customers_router
 from app.debit_note.api.router import router as debit_notes_router
 from app.delivery_note.api import router as delivery_notes_router
@@ -166,6 +167,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(sales_invoices_router)
     application.include_router(sales_returns_router)
     application.include_router(credit_notes_router)
+    application.include_router(customer_debit_notes_router)
     application.include_router(debit_notes_router)
     application.include_router(party_adjustments_router)
     application.include_router(contra_router)

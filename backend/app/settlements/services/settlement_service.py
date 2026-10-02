@@ -111,6 +111,66 @@ def _among(
 
 
 @whole_past_a_chunk("invoice_ids")
+def debited_against(
+    session: Session,
+    *,
+    firm_id: UUID,
+    invoice_ids: Sequence[UUID] | None,
+    as_of: date | None = None,
+) -> dict[UUID, Decimal]:
+    """Sum what approved debit notes have added to each sales invoice.
+
+    A customer debit note is owed **on the invoice it names** (backlog 77
+    row 5, OWNER_DECISIONS A40), as TallyPrime's against-reference debit note
+    is: a receipt allocated to the invoice settles it and the ageing ages it
+    from the invoice's due date. Each note is rounded to the ledger's two
+    decimals the way its journal and receivable row were -- the taxable value
+    and the tax each, then summed.
+
+    Args:
+        session: The firm's session.
+        firm_id: The owning firm.
+        invoice_ids: The sales invoices to ask about; None asks about every
+            invoice of the firm in one grouped read.
+        as_of: Count only notes dated on or before this day; None counts
+            everything.
+
+    Returns:
+        The debited amount per invoice, for those with any.
+
+    """
+    if invoice_ids is not None and not invoice_ids:
+        return {}
+    # Imported here, as the credit note is in `credited_against`.
+    from app.customer_debit_note.models import (
+        CustomerDebitNote,
+        CustomerDebitNoteStatus,
+    )
+
+    debited: dict[UUID, Decimal] = {}
+    for invoice_id, taxable, tax in session.execute(
+        select(
+            CustomerDebitNote.sales_invoice_id,
+            CustomerDebitNote.taxable_amount,
+            CustomerDebitNote.tax_amount,
+        ).where(
+            CustomerDebitNote.firm_id == firm_id,
+            *_among(CustomerDebitNote.sales_invoice_id, invoice_ids),
+            # Approval is what posts; a draft has not, a cancelled one is gone.
+            CustomerDebitNote.status == CustomerDebitNoteStatus.APPROVED.value,
+            CustomerDebitNote.is_deleted.is_(False),
+            *(() if as_of is None else (CustomerDebitNote.debit_note_date <= as_of,)),
+        )
+    ).all():
+        debited[invoice_id] = (
+            debited.get(invoice_id, ZERO)
+            + quantize_ledger(Decimal(str(taxable)))
+            + quantize_ledger(Decimal(str(tax)))
+        )
+    return debited
+
+
+@whole_past_a_chunk("invoice_ids")
 def credited_against(
     session: Session,
     *,
@@ -202,7 +262,8 @@ def settled_against(
     """Sum everything that has come off each sales invoice.
 
     Money allocated from a posted receipt, points spent on the bill, and the
-    returns and credit notes raised against it (``credited_against``). Each
+    returns and credit notes raised against it (``credited_against``), less
+    what approved debit notes added to it (``debited_against``). Each
     part is rounded to the ledger's two decimals before they are added, which
     is how Record Receipt has always shown them. This is the one answer to
     "what does this bill still owe": Record Receipt's list and the ageing both
@@ -290,6 +351,15 @@ def settled_against(
         as_of=as_of,
     ).items():
         settled[invoice_id] = settled.get(invoice_id, ZERO) + amount
+    # A debit note runs the other way: it added to the bill, so it counts
+    # against what has come off it. Netted here rather than added to every
+    # caller's bill total, so the one derivation stays the one answer -- a
+    # bill with a debit note and nothing paid reads as settled below zero, and
+    # a caller showing "allocated" asks `debited_against` to split the two.
+    for invoice_id, amount in debited_against(
+        session, firm_id=firm_id, invoice_ids=invoice_ids, as_of=as_of
+    ).items():
+        settled[invoice_id] = settled.get(invoice_id, ZERO) - amount
     return settled
 
 
@@ -391,13 +461,14 @@ class SettlementService(TransactionalDocumentService):
         # and returns and credit notes against it (D-SELL-10) -- through the
         # one derivation the ageing reads as well (D-FIN-10).
         settled: dict[UUID, Decimal] = {}
+        debited: dict[UUID, Decimal] = {}
         if is_receipt and rows:
             # Firm-wide, one grouped read per source beats the ids in chunks.
-            settled = settled_against(
-                self._session,
-                firm_id=firm_id,
-                invoice_ids=None if party_id is None else [row.id for row in rows],
-            )
+            asked = None if party_id is None else [row.id for row in rows]
+            settled = settled_against(self._session, firm_id=firm_id, invoice_ids=asked)
+            # Shown as part of the bill rather than as money taken off it
+            # below zero (backlog 77 row 5).
+            debited = debited_against(self._session, firm_id=firm_id, invoice_ids=asked)
         # Goods sent back against a bill's own lines come off that bill (D-BUY-6,
         # decided by the owner on 2026-09-18). A completed return posts Dr
         # payable, so the ledger already owed less while this list still showed
@@ -421,7 +492,9 @@ class SettlementService(TransactionalDocumentService):
                 else quantize_ledger(Decimal(allocated_amount))
                 + taken.get(row.id, ZERO)
             )
-            total = quantize_ledger(row.grand_total)
+            extra = debited.get(row.id, ZERO)
+            total = quantize_ledger(row.grand_total) + extra
+            already += extra
             outstanding = total - already
             if outstanding <= ZERO:
                 continue

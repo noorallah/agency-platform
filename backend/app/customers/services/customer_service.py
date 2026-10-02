@@ -577,6 +577,8 @@ class CustomerService:
             )
         if tx_type in {
             CustomerReceivableTransactionType.INVOICE,
+            # A debit note is more of a bill already raised.
+            CustomerReceivableTransactionType.DEBIT_NOTE,
             # Tax collected at source is owed on top of what was just paid,
             # so it increases the balance exactly as a bill does.
             CustomerReceivableTransactionType.TCS,

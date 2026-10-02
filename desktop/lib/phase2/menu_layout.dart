@@ -177,6 +177,7 @@ abstract final class MenuLayout {
         MenuItemSpec.module(AppModule.salesReturns, 'Sales Returns'),
         MenuItemSpec(AppModule.sales, 'proforma-invoices', 'Proforma'),
         MenuItemSpec(AppModule.sales, 'credit-notes', 'Credit Notes'),
+        MenuItemSpec(AppModule.sales, 'customer-debit-notes', 'Debit Notes'),
       ]),
       MenuGroupSpec('Money', [
         MenuItemSpec(AppModule.accounting, 'receipts', 'Receipts'),
