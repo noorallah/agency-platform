@@ -185,3 +185,116 @@ def test_a_sales_return_carries_only_document_fields() -> None:
     sent = _keys_between(_SALES_RETURN, "warehouse_id", "'lines': [")
     unknown = sent - set(SalesReturnCreate.model_fields)
     assert not unknown, unknown
+
+
+# ---- The phase 2 editors and the sales side (PLT-9, §31.11) -----------------
+#
+# The phase 2 editors are ``part of`` the dialog files above and mostly share
+# their payload builders, which is why reading the dialogs covered them. Two
+# gaps remained: the phase 2 sales return builds its own body, and nothing on
+# the sales side -- quotation, order, both kinds of bill, credit and debit
+# note -- was read at all. These read each body between markers inside its
+# own function, so a key appearing elsewhere in the file cannot stand in.
+
+from app.credit_note.schemas.credit_note import (  # noqa: E402
+    CreditNoteCreate,
+    CreditNoteLineWrite,
+)
+from app.customer_debit_note.schemas.customer_debit_note import (  # noqa: E402
+    CustomerDebitNoteCreate,
+    CustomerDebitNoteLineWrite,
+)
+from app.quotation.schemas.quotation import (  # noqa: E402
+    QuotationCreate,
+    QuotationLineWrite,
+)
+from app.sales_invoice.schemas.sales_invoice import (  # noqa: E402
+    SalesInvoiceCreate,
+    SalesInvoiceLineWrite,
+)
+from app.sales_order.schemas.sales_order import (  # noqa: E402
+    SalesOrderCreate,
+    SalesOrderLineWrite,
+)
+
+_SALES = _UI / "sales"
+_QUOTATION = _UI / "quotations" / "quotation_editor_dialog.dart"
+_ORDER = _SALES / "sales_order_editor_dialog.dart"
+_BILL = _SALES / "sales_invoice_editor_dialog.dart"
+_CREDIT = _SALES / "credit_note_editor_phase2.dart"
+_DEBIT = _SALES / "customer_debit_note_editor_phase2.dart"
+_RETURN_PHASE2 = _UI / "sales_returns" / "sales_return_editor_phase2.dart"
+
+
+def _keys_in(path: Path, function: str, start: str, stop: str) -> set[str]:
+    """Collect the keys between ``start`` and ``stop`` inside ``function``.
+
+    Both markers are searched from the function's own signature onwards, so
+    the region is the body that function builds and nothing earlier.
+    """
+    # The Dart sources are CRLF on Windows checkouts and LF in CI.
+    text = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    body = text.index(function)
+    begin = text.index(start, body)
+    end = text.index(stop, begin + len(start))
+    return set(re.findall(r"'([a-z_]+)':", text[begin + len(start) : end]))
+
+
+def _assert_known(sent: set[str], *schemas: type) -> None:
+    """Fail naming every key no schema declares."""
+    allowed: set[str] = set()
+    for schema in schemas:
+        allowed |= set(schema.model_fields)  # type: ignore[attr-defined]
+    unknown = sent - allowed
+    assert not unknown, unknown
+
+
+def test_a_quotation_carries_only_quotation_fields() -> None:
+    """The phase 2 quotation shares this builder."""
+    head = _keys_in(_QUOTATION, "Json? _buildPayload()", "return <String", "'lines': [")
+    _assert_known(head, QuotationCreate)
+    line = _keys_in(_QUOTATION, "Json? _buildPayload()", "'lines': [", "],\n    };")
+    _assert_known(line, QuotationLineWrite)
+
+
+def test_a_sales_order_carries_only_order_fields() -> None:
+    """The phase 2 order shares this builder."""
+    head = _keys_in(
+        _ORDER, "Json? _buildPayload()", "return <String", "'lines': <Json>["
+    )
+    _assert_known(head, SalesOrderCreate)
+    line = _keys_in(_ORDER, "Json? _buildPayload()", "'lines': <Json>[", "],\n    };")
+    _assert_known(line, SalesOrderLineWrite)
+
+
+def test_both_kinds_of_bill_carry_only_invoice_fields() -> None:
+    """A bill of notes and a bill of products both post SalesInvoiceCreate."""
+    for function in ("Json? _payload()", "Json? _directPayload()"):
+        line = _keys_in(_BILL, function, "lines.add(<String", "});")
+        _assert_known(line, SalesInvoiceLineWrite)
+        head = _keys_in(_BILL, function, "return <String", "'lines': lines")
+        _assert_known(head, SalesInvoiceCreate)
+    received = _keys_in(_BILL, "_receivedFields()", "{", "}\n")
+    _assert_known(received, SalesInvoiceCreate)
+
+
+def test_credit_and_debit_notes_carry_only_their_fields() -> None:
+    """The two phase 2 notes against a bill."""
+    for path, document, line_schema in (
+        (_CREDIT, CreditNoteCreate, CreditNoteLineWrite),
+        (_DEBIT, CustomerDebitNoteCreate, CustomerDebitNoteLineWrite),
+    ):
+        head = _keys_in(path, "Json? _phase2Payload()", "return <String", "'lines': [")
+        _assert_known(head, document)
+        line = _keys_in(path, "Json? _phase2Payload()", "'lines': [", "],\n    };")
+        _assert_known(line, line_schema)
+
+
+def test_the_phase2_sales_return_carries_only_return_fields() -> None:
+    """The phase 2 return builds its own body rather than the dialog's."""
+    head = _keys_in(
+        _RETURN_PHASE2, "Json? _phase2Payload(", "return <String", "'lines': ["
+    )
+    _assert_known(head, SalesReturnCreate)
+    line = _keys_in(_RETURN_PHASE2, "Json? _phase2Payload(", "'lines': [", "],\n    };")
+    _assert_known(line, SalesReturnLineWrite)

@@ -2133,6 +2133,8 @@ product id** (`physical_count_sheet_dialog.dart`), the same class as
 
 ### 31.14 What a saved sales document does not show (2026-09-13, mapping section 9)
 
+**Status, 2026-10-03** (PLT-9): the credit and debit note pickers now name a line by product code and name rather than `Line 1`.
+
 **Seen while writing the section 9 steps**, not yet on screen by the tester.
 
 - *(Closed 2026-09-24, #626: the Discount cell reads "100.00 (10.00%)" and
@@ -2179,6 +2181,8 @@ product id** (`physical_count_sheet_dialog.dart`), the same class as
 
 
 ### 31.15 Left open from mapping sections 10-13 (2026-09-13)
+
+**Status, 2026-10-03** (PLT-9): the price list grid counts distinct products, territory-scoped lists are created on screen, and the payload guard reads the phase 2 editors and the sales side.
 
 Found by mapping the screens and driving the flows for the plan rewrite;
 each is a decision or a small feature rather than a broken behaviour.

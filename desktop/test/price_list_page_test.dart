@@ -21,6 +21,7 @@ import 'package:agency_desktop/models/customer.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/pricing.dart';
 import 'package:agency_desktop/models/product.dart';
+import 'package:agency_desktop/models/sales_territory.dart';
 import 'package:agency_desktop/ui/pricing/price_list_dialog.dart';
 import 'package:agency_desktop/ui/pricing/price_list_page.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
@@ -129,6 +130,34 @@ class _PricingApi extends ApiClient {
   }) async =>
       PagedResult<Product>(
         items: [_product('prd-1', 'P001', 'Rice 25kg')],
+        total: 1,
+      );
+
+  @override
+  Future<PagedResult<SalesTerritory>> territories({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    TerritoryQuery filters = const TerritoryQuery(),
+  }) async =>
+      PagedResult<SalesTerritory>(
+        items: <SalesTerritory>[
+          SalesTerritory.fromJson(<String, dynamic>{
+            'id': 'ter-1',
+            'firm_id': 'firm-1',
+            'hierarchy_level_id': 'lvl-route',
+            'hierarchy_level_name': 'Route',
+            'code': 'RT01',
+            'name': 'North Round',
+            'status': 'ACTIVE',
+            'path': 'North Round',
+            'sort_order': 0,
+            'customer_count': 0,
+            'salesman_count': 0,
+          }),
+        ],
         total: 1,
       );
 
@@ -326,6 +355,56 @@ void main() {
     // user has just taken it off.
     expect(api.savedBody!['customer_id'], isNull);
     expect(api.savedBody!['territory_id'], isNull);
+  });
+
+  testWidgets('a territory-scoped list sends the territory it was given',
+      (tester) async {
+    final _PricingApi api = _PricingApi();
+    await _pumpDialog(tester, api);
+
+    await tester.enterText(find.byType(TextFormField).at(0), 'PLT1');
+    await tester.enterText(find.byType(TextFormField).at(1), 'North round');
+    await tester.tap(find.text('One territory'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('price-list-territory')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('RT01  North Round').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.savedBody!['territory_id'], 'ter-1');
+    expect(api.savedBody!['customer_id'], isNull);
+  });
+
+  testWidgets('a territory scope with no territory chosen is refused',
+      (tester) async {
+    final _PricingApi api = _PricingApi();
+    await _pumpDialog(tester, api);
+    await tester.enterText(find.byType(TextFormField).at(0), 'PLT1');
+    await tester.enterText(find.byType(TextFormField).at(1), 'North round');
+    await tester.tap(find.text('One territory'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.savedBody, isNull);
+    expect(find.text('Choose a territory.'), findsOneWidget);
+  });
+
+  test('the grid counts distinct products, not rate rows', () {
+    final PriceListRecord broken = _list(items: const [
+      PriceListItemRecord(productId: 'a', discountPercent: '5'),
+      PriceListItemRecord(productId: 'a', discountPercent: '8', minQuantity: '50'),
+      PriceListItemRecord(productId: 'a', discountPercent: '10', minQuantity: '200'),
+    ]);
+    expect(broken.productCount, 1);
+    expect(broken.itemsLabel, '1 (3 rates)');
+    final PriceListRecord plain = _list(items: const [
+      PriceListItemRecord(productId: 'a', discountPercent: '5'),
+      PriceListItemRecord(productId: 'b', discountPercent: '5'),
+    ]);
+    expect(plain.itemsLabel, '2');
   });
 
   testWidgets('a rate left blank is refused rather than dropped',

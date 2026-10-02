@@ -7,6 +7,8 @@ import '../../models/customer.dart';
 import '../../models/entities.dart';
 import '../../models/pricing.dart';
 import '../../models/product.dart';
+import '../../models/sales_territory.dart';
+import '../workspace/paged_fetch.dart';
 
 /// Writing one arrangement.
 ///
@@ -51,10 +53,8 @@ class _PriceListDialogState extends State<PriceListDialog> {
   late String? _customerId = widget.existing?.customerId.isEmpty ?? true
       ? null
       : widget.existing!.customerId;
-  // Read from an existing list and carried back unchanged: this screen
-  // does not yet pick a territory, so it must not silently drop one that
-  // was agreed through the API.
-  late final String? _territoryId =
+  // Read from an existing list, and changed by the Territory choice below.
+  late String? _territoryId =
       widget.existing?.territoryId.isEmpty ?? true
           ? null
           : widget.existing!.territoryId;
@@ -69,6 +69,33 @@ class _PriceListDialogState extends State<PriceListDialog> {
 
   bool _saving = false;
   String? _error;
+
+  // Read only once the territory scope is in play, so a list for one shop or
+  // for everybody never pays for the call.
+  List<SalesTerritory> _territories = const <SalesTerritory>[];
+  bool _territoriesLoaded = false;
+  String? _territoryError;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_scope == _Scope.territory) _loadTerritories();
+  }
+
+  Future<void> _loadTerritories() async {
+    if (_territoriesLoaded) return;
+    _territoriesLoaded = true;
+    try {
+      final List<SalesTerritory> all = await fetchAllPages<SalesTerritory>(
+          (page) => widget.api.territories(page: page, pageSize: 100));
+      if (!mounted) return;
+      setState(() => _territories = all);
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      _territoriesLoaded = false;
+      setState(() => _territoryError = error.message);
+    }
+  }
 
   static String _todayIso() => DateTime.now().toIso8601String().split('T').first;
 
@@ -297,8 +324,10 @@ class _PriceListDialogState extends State<PriceListDialog> {
               ButtonSegment(value: _Scope.territory, label: Text('One territory')),
             ],
             selected: {_scope},
-            onSelectionChanged: (choice) =>
-                setState(() => _scope = choice.first),
+            onSelectionChanged: (choice) {
+              setState(() => _scope = choice.first);
+              if (_scope == _Scope.territory) _loadTerritories();
+            },
           ),
           if (_scope == _Scope.customer)
             Padding(
@@ -323,17 +352,54 @@ class _PriceListDialogState extends State<PriceListDialog> {
                 onChanged: (value) => setState(() => _customerId = value),
               ),
             ),
-          if (_scope == _Scope.territory)
-            Padding(
-              padding: const EdgeInsets.only(top: AppSpacing.sm),
-              child: Text(
-                'Territory-scoped lists are set through the API for now; this '
-                'screen agrees them with one customer or with everybody.',
-                style: theme.textTheme.bodySmall,
-              ),
-            ),
+          if (_scope == _Scope.territory) _territoryChoice(theme),
         ],
       );
+
+  Widget _territoryChoice(ThemeData theme) {
+    final PriceListRecord? existing = widget.existing;
+    // A territory agreed earlier but not (yet) in the read list still has to
+    // be a choice, or the dropdown refuses its own initial value.
+    final bool known = _territoryId == null ||
+        _territories.any((SalesTerritory t) => t.id == _territoryId);
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.sm),
+      child: DropdownButtonFormField<String>(
+        key: const ValueKey<String>('price-list-territory'),
+        initialValue: _territoryId,
+        isExpanded: true,
+        decoration: InputDecoration(
+          labelText: 'Territory',
+          helperText: _territoryError ??
+              (_territoriesLoaded && _territories.isEmpty
+                  ? 'No territories set up yet.'
+                  : null),
+        ),
+        items: [
+          if (!known)
+            DropdownMenuItem(
+              value: _territoryId,
+              child: Text(
+                (existing?.territoryName.isNotEmpty ?? false)
+                    ? existing!.territoryName
+                    : 'Current territory',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          for (final SalesTerritory item in _territories)
+            DropdownMenuItem(
+              value: item.id,
+              child: Text('${item.code}  ${item.name}',
+                  overflow: TextOverflow.ellipsis),
+            ),
+        ],
+        validator: (value) => _scope == _Scope.territory && value == null
+            ? 'Choose a territory.'
+            : null,
+        onChanged: (value) => setState(() => _territoryId = value),
+      ),
+    );
+  }
 
   Widget _rateRow(int index) {
     final _RateDraft rate = _rates[index];

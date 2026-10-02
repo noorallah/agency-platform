@@ -224,6 +224,29 @@ Future<void> _pump(
 }
 
 void main() {
+  test('an invoice line with no description is named by code and product', () {
+    ReturnableLine read(Map<String, dynamic> extra) => ReturnableLine.fromJson(
+          <String, dynamic>{
+            'id': 'l-1',
+            'line_number': 1,
+            'product_id': 'p-1',
+            'unit_price': '10',
+            'current_invoice_quantity': '4',
+            ...extra,
+          },
+          quantityKey: 'current_invoice_quantity',
+        );
+
+    expect(
+      read({'product_code': 'P001', 'product_name': 'Rice 25kg'}).label,
+      '1. P001  Rice 25kg  ·  4',
+    );
+    expect(read({'description': 'Loose rice', 'product_name': 'Rice'}).label,
+        '1. Loose rice  ·  4');
+    // Nothing known: "Line N" is the last resort, not the first.
+    expect(read({}).label, '1. Line 1  ·  4');
+  });
+
   group('reading a return', () {
     testWidgets('a draft says nothing has moved yet', (tester) async {
       await _pump(tester, _ReturnApi(rows: [_return()]));

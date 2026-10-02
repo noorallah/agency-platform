@@ -145,7 +145,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | PLT-6 | §56 C | Old login and log records pruned by default -- **built 2026-10-03** (A76) | Nothing | S | Claude alone |
 | PLT-7 | D-PERF-1 | The 38 routes past their time target on WHOLE01 | Nothing | M | Claude alone |
 | PLT-8 | §31.17 rest | One search box on the audit trail spanning who and what -- **built 2026-10-03** (A77) | Nothing | S | Claude alone |
-| PLT-9 | §31 leftovers | Phase 1 leftovers: payload guard on the phase 2 editors, "Line 1" labels, price-list counts | Nothing | S | Claude alone |
+| PLT-9 | §31 leftovers | Phase 1 leftovers: payload guard on the phase 2 editors, "Line 1" labels, price-list counts -- **built 2026-10-03** | Nothing | S | Claude alone |
 | PLT-10 | §3 | The stray `installer/` folder | Nothing | S | Claude alone |
 | PLT-11 | §53 item 4 | Report: parties with no PAN, and PAN that does not match the GSTIN -- **built 2026-10-03** (A53) | Nothing | S | Claude alone |
 | **Messaging and integration** | | | | | |
@@ -760,6 +760,7 @@ otherwise it is built as written.
 - **What it is:** three small loose ends found in manual testing.
 - **What gets built:** (a) `test_desktop_document_payloads_are_accepted.py` reads the old dialogs; point it at the phase 2 editors and add the sales side (quotation, order, invoice, credit note); (b) credit note and debit note pickers show `Line 1` when a line has no description -- show product code and name; (c) the price list grid counts rate rows as products, and territory-scoped lists cannot be created on screen.
 - **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (no decision needed): (a) the phase 2 editors are `part of` their dialog files and share most builders, so the guard already read them; it now also reads the phase 2 sales return's own body and the whole sales side -- quotation, order, both kinds of bill (from notes and by product, and the *received now* fields), credit note and customer debit note -- each between markers inside its own function (`_keys_in`). (b) `ReturnableLine.fromJson` labels a line with no description by product code and name, which fixes every picker built on it; `Line N` only when nothing is known. (c) the price list grid counts distinct products ("1 (3 rates)"), and the editor's *One territory* scope has a territory picker. Tests: the guard (17), `price_list_page_test.dart`, `sales_return_test.dart`.
 
 #### PLT-10. The stray `installer/` folder (§3)
 - **What it is:** an old, unused folder on the development machine.

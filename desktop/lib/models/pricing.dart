@@ -57,6 +57,16 @@ class PriceListRecord {
     return 'Everyone';
   }
 
+  /// How many different products carry a rate. A product with quantity
+  /// breaks has several rows and is still one product.
+  int get productCount => items.map((i) => i.productId).toSet().length;
+
+  /// The grid's count: products, and the rate rows too once breaks make
+  /// them differ ("2 (5 rates)").
+  String get itemsLabel => items.length == productCount
+      ? '$productCount'
+      : '$productCount (${items.length} rates)';
+
   /// How long it stands, read as a person would say it.
   String get windowLabel => effectiveTo.isEmpty
       ? 'from $effectiveFrom'
