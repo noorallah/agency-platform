@@ -400,8 +400,8 @@ def test_approving_reduces_what_the_bill_owes_and_cancelling_restores_it() -> No
     assert line.claimable == Decimal("1000.00")
 
 
-def test_a_claim_past_what_the_bill_still_owes_is_refused() -> None:
-    """A claim on a bill already paid would be a debt nothing tracks."""
+def test_a_claim_past_what_the_bill_was_worth_is_refused() -> None:
+    """Past what it owes is supplier credit (A4); past what it was worth, no."""
     books = _Books()
     books.purchase_return("950")
     note = books.note("50")
@@ -413,12 +413,12 @@ def test_a_claim_past_what_the_bill_still_owes_is_refused() -> None:
     books.session.commit()
     assert books.owed() == Decimal("0")
 
-    # Stand in for a bill paid down to 100: the claim of 118 is past it.
+    # Stand in for a bill worth only 100: the claim of 118 is past it.
     again = _Books()
     again.invoice.grand_total = Decimal("100")
     again.session.commit()
     late = again.note("100")
-    with pytest.raises(ValidationError, match="still owes only"):
+    with pytest.raises(ValidationError, match="only 100.00 left to claim against"):
         DebitNoteService(again.session).approve_note(
             late.id, firm_scope=again.firm.id, actor_id=again.actor_id
         )

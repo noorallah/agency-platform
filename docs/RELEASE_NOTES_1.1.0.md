@@ -102,6 +102,8 @@ screen (1.1.0).
   as near expiry, whether a near-expiry batch or a later batch chosen ahead of
   an earlier one needs a reason at dispatch, and near-expiry stock may be sold
   below the price floor with the batches kept on the approval (decision A2).
+- **Debit note on a paid bill**: the part the bill no longer owes is a
+  supplier credit, to set against the next bill or be paid back (decision A4).
 - **Reorder from sales**: the planning formula behind *Below reorder level*
   (#913, decision A39).
 - **Debit note to a customer**: more charged on an invoice after billing,

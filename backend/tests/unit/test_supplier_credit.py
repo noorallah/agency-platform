@@ -196,7 +196,7 @@ def test_a_credit_is_set_off_only_within_what_both_sides_hold() -> None:
         apply_supplier_credit(
             books.session,
             firm_id=books.firm.id,
-            purchase_return_id=credit.id,
+            source_id=credit.id,
             invoice_id=invoice_id,  # type: ignore[arg-type]
             amount=Decimal(amount),
             actor_id=books.actor_id,
@@ -216,7 +216,7 @@ def test_a_credit_is_set_off_only_within_what_both_sides_hold() -> None:
         apply_supplier_credit(
             books.session,
             firm_id=books.firm.id,
-            purchase_return_id=draft.id,
+            source_id=draft.id,
             invoice_id=second.id,
             amount=Decimal("10"),
             actor_id=books.actor_id,
@@ -238,7 +238,7 @@ def test_a_supplier_holding_a_credit_cannot_be_deleted() -> None:
     apply_supplier_credit(
         books.session,
         firm_id=books.firm.id,
-        purchase_return_id=credit.id,
+        source_id=credit.id,
         invoice_id=bill.id,
         amount=Decimal("236.00"),
         actor_id=books.actor_id,
@@ -257,7 +257,7 @@ def test_withdrawing_an_application_frees_the_credit_and_the_bill() -> None:
     apply_supplier_credit(
         books.session,
         firm_id=books.firm.id,
-        purchase_return_id=credit.id,
+        source_id=credit.id,
         invoice_id=bill.id,
         amount=Decimal("236.00"),
         actor_id=books.actor_id,
@@ -291,7 +291,7 @@ def test_cancelling_the_bill_frees_the_credit_set_against_it() -> None:
     apply_supplier_credit(
         books.session,
         firm_id=books.firm.id,
-        purchase_return_id=credit.id,
+        source_id=credit.id,
         invoice_id=bill.id,
         amount=Decimal("236.00"),
         actor_id=books.actor_id,

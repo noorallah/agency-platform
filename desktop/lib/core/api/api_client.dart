@@ -6959,7 +6959,7 @@ class ApiClient {
   /// the bill credited them when it was approved. This says which bill the
   /// debit belongs to, so the bill owes that much less.
   Future<SupplierCredit> applySupplierCredit({
-    required String returnId,
+    required String sourceId,
     required String invoiceId,
     required String amount,
   }) async =>
@@ -6967,7 +6967,7 @@ class ApiClient {
         _unwrapMap(
           await request(
             'POST',
-            '/api/v1/payments/supplier-credits/$returnId/apply',
+            '/api/v1/payments/supplier-credits/$sourceId/apply',
             body: <String, dynamic>{'invoice_id': invoiceId, 'amount': amount},
           ),
         ),
@@ -6975,11 +6975,11 @@ class ApiClient {
 
   /// What the supplier handed back against a credit whose return came back
   /// as a refund, newest first as the server lists them.
-  Future<List<SupplierRefund>> supplierRefunds(String returnId) async =>
+  Future<List<SupplierRefund>> supplierRefunds(String sourceId) async =>
       _unwrapList(
         await request(
           'GET',
-          '/api/v1/payments/supplier-credits/$returnId/refunds',
+          '/api/v1/payments/supplier-credits/$sourceId/refunds',
         ),
         SupplierRefund.fromJson,
       );
@@ -6987,7 +6987,7 @@ class ApiClient {
   /// Record money received from the supplier against a credit. Posts to the
   /// ledger; only a return whose outcome is REFUND accepts one.
   Future<SupplierRefund> recordSupplierRefund({
-    required String returnId,
+    required String sourceId,
     required String amount,
     required String refundedOn,
     required String method,
@@ -6998,7 +6998,7 @@ class ApiClient {
         _unwrapMap(
           await request(
             'POST',
-            '/api/v1/payments/supplier-credits/$returnId/refunds',
+            '/api/v1/payments/supplier-credits/$sourceId/refunds',
             body: <String, dynamic>{
               'amount': amount,
               'refunded_on': refundedOn,

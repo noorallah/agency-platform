@@ -407,10 +407,13 @@ class DebitNoteService(TransactionalDocumentService):
 
         The bill owing less is not a write -- `outstanding_invoices` reads
         approved notes -- so the journal and the payable list cannot disagree.
+        A claim larger than the bill still owes -- it is already paid, say --
+        leaves the excess as a supplier credit (decision A4), to set against
+        another bill or be paid back.
 
         Raises:
             ValidationError: If it is not a draft, claims nothing, or claims
-                more than the bill still owes.
+                more than the bill was ever worth.
 
         """
         row = self.get_note(note_id, firm_scope=firm_scope)
@@ -420,7 +423,7 @@ class DebitNoteService(TransactionalDocumentService):
         if row.total_amount <= ZERO:
             raise ValidationError("A debit note for nothing cannot be approved.")
         invoice = self._claimable_invoice(row.purchase_invoice_id, firm_id=firm_scope)
-        self._refuse_more_than_owed(row, invoice)
+        self._refuse_more_than_billed(row, invoice)
         before = self._snapshot(row)
         entry = self._posting.post_debit_note_document(
             firm_id=firm_scope,
@@ -489,7 +492,21 @@ class DebitNoteService(TransactionalDocumentService):
             raise ValidationError("This debit note is already cancelled.")
         if not reason.strip():
             raise ValidationError("Say why the debit note is being cancelled.")
+        # Imported here: settlements imports this module's models.
+        from app.settlements.services.supplier_credits import (
+            withdraw_credit_applications,
+        )
+
+        self._refuse_while_refunded(row)
         before = self._snapshot(row)
+        # The credit it left, if any, goes with it, and a bill it was set
+        # against owes that part again (A4).
+        withdraw_credit_applications(
+            self._session,
+            firm_id=firm_scope,
+            actor_id=actor_id,
+            debit_note_id=row.id,
+        )
         if row.journal_entry_id is not None:
             # A mirror is right: every leg is a document amount, worth exactly
             # what it was when it posted -- unlike a stock reversal.
@@ -522,6 +539,29 @@ class DebitNoteService(TransactionalDocumentService):
             after_data=self._snapshot(row),
         )
         return row
+
+    def _refuse_while_refunded(self, row: DebitNote) -> None:
+        """Refuse to cancel while the supplier's money against its credit stands.
+
+        The refund posted cash against the payable this note debited; taking
+        the note away would leave that cash with nothing behind it. Reverse
+        the refund first, as a return asks (A4).
+        """
+        from app.settlements.services.supplier_credits import live_refunds
+
+        standing = [
+            refund
+            for refund in live_refunds(
+                self._session, firm_id=row.firm_id, source_id=row.id
+            )
+            if refund.status == "POSTED"
+        ]
+        if standing:
+            raise ValidationError(
+                f"The supplier paid back {standing[0].amount} against "
+                f"{row.debit_note_number}'s credit. Reverse that refund before "
+                "cancelling the debit note."
+            )
 
     def _record_event(
         self,
@@ -612,14 +652,18 @@ class DebitNoteService(TransactionalDocumentService):
                 f"debit note {clash}."
             )
 
-    def _refuse_more_than_owed(self, row: DebitNote, invoice: PurchaseInvoice) -> None:
-        """Refuse a claim larger than what the bill still owes.
+    def _refuse_more_than_billed(
+        self, row: DebitNote, invoice: PurchaseInvoice
+    ) -> None:
+        """Refuse a claim larger than what is left of the bill to claim against.
 
-        Decided by convention (2026-10-01): a claim past what is owed would
-        leave the supplier owing the firm money that no screen tracks -- the
-        hole D-FIN-19 closed for returns off a receipt. Until a debit note can
-        become a supplier credit, the excess is refused by name. The bill row
-        is locked so two approvals cannot both see the same room.
+        Since decision A4 a claim past what the bill still **owes** is fine:
+        what the bill cannot absorb -- because it is paid -- is a supplier
+        credit, derived like a return's (``app/settlements/services/
+        supplier_credits.py``). What no supplier owes back is more than the
+        bill was worth: its total, less what returns and other approved debit
+        notes already took off it. The bill row is locked so two approvals
+        cannot both see the same room.
         """
         # Imported here: settlements imports this module's models.
         from app.settlements.services.settlement_service import PaymentService
@@ -629,22 +673,18 @@ class DebitNoteService(TransactionalDocumentService):
             .where(PurchaseInvoice.id == invoice.id)
             .with_for_update()
         )
-        owed = next(
-            (
-                record.outstanding_amount
-                for record in PaymentService(self._session).outstanding_invoices(
-                    firm_id=row.firm_id, party_id=row.vendor_id
-                )
-                if record.invoice_id == invoice.id and not record.is_opening_bill
-            ),
-            ZERO,
+        taken = (
+            PaymentService(self._session)
+            ._returned_against(firm_id=row.firm_id, invoice_ids=[invoice.id])
+            .get(invoice.id, ZERO)
         )
+        room = max(quantize_ledger(invoice.grand_total) - quantize_ledger(taken), ZERO)
         claim = quantize_ledger(row.taxable_amount) + quantize_ledger(row.tax_amount)
-        if claim > owed:
+        if claim > room:
             raise ValidationError(
-                f"{invoice.invoice_number} still owes only {owed}, and this "
-                f"debit note claims {claim}. A claim on a bill already paid is "
-                "settled with the supplier, not set against the bill."
+                f"{invoice.invoice_number} has only {room} left to claim against "
+                f"after its returns and debit notes, and this debit note claims "
+                f"{claim}."
             )
 
     def _replace_lines(

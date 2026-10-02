@@ -640,6 +640,9 @@ def _credit_record(credit: SupplierCredit) -> SupplierCreditRecord:
     """Build the response for one supplier credit."""
     return SupplierCreditRecord(
         purchase_return_id=credit.purchase_return_id,
+        debit_note_id=credit.debit_note_id,
+        source_id=credit.source_id,
+        source_type=credit.source_type,
         return_number=credit.return_number,
         return_date=credit.return_date,
         vendor_id=credit.vendor_id,
@@ -696,7 +699,7 @@ def apply_vendor_supplier_credit(
     credit = apply_supplier_credit(
         db,
         firm_id=scope.firm_id,
-        purchase_return_id=return_id,
+        source_id=return_id,
         invoice_id=payload.invoice_id,
         amount=payload.amount,
         actor_id=scope.actor_id,
@@ -720,9 +723,7 @@ def list_supplier_refunds(
     return ApiResponse(
         data=[
             SupplierRefundResponse.model_validate(row)
-            for row in live_refunds(
-                db, firm_id=scope.firm_id, purchase_return_id=return_id
-            )
+            for row in live_refunds(db, firm_id=scope.firm_id, source_id=return_id)
         ]
     )
 
@@ -741,7 +742,7 @@ def record_supplier_refund(
     row = refund_supplier_credit(
         db,
         firm_id=scope.firm_id,
-        purchase_return_id=return_id,
+        source_id=return_id,
         amount=payload.amount,
         refunded_on=payload.refunded_on,
         method=SettlementMethod(payload.method.value),

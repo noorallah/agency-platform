@@ -142,8 +142,7 @@ def test_approving_raises_what_the_customer_owes() -> None:
     assert books.customer.current_outstanding == Decimal("1298.0000")
     row = books.session.scalars(
         select(CustomerReceivableTransaction).where(
-            CustomerReceivableTransaction.id
-            == note.receivable_transaction_id
+            CustomerReceivableTransaction.id == note.receivable_transaction_id
         )
     ).one()
     assert row.transaction_type == "DEBIT_NOTE"
