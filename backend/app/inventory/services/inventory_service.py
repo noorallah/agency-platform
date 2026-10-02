@@ -2645,8 +2645,12 @@ class InventoryService:
         product_id: UUID,
         quantity: Decimal,
         as_of: date | None = None,
+        only_batch: UUID | None = None,
     ) -> ReservationPlan:
         """Choose which batches a sales order holds, earliest expiry first.
+
+        ``only_batch`` is a batch the customer asked for (backlog 79 row 4):
+        only it is held, and what it cannot cover is the back order.
 
         Committing stock at approval is what stops two salespeople promising
         the same box, and until now it committed the *product*: the movement
@@ -2689,6 +2693,8 @@ class InventoryService:
             product_id=product_id,
             column=InventoryRecord.available_quantity,
         )
+        if only_batch is not None:
+            rows = [row for row in rows if row.batch_id == only_batch]
         rows, expired, held_expired = self._without_expired(rows, as_of=as_of)
         outstanding = Decimal(str(quantity))
         allocation: list[tuple[UUID | None, Decimal]] = []

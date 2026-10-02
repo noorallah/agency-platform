@@ -84,6 +84,8 @@ class SalesOrderLineWrite(SalesOrderSchema):
     tax_profile_id: UUID | None = None
     warehouse_id: UUID | None = None
     storage_node_id: UUID | None = None
+    #: The batch the customer asked for; null takes earliest expiry (79.4).
+    pinned_batch_id: UUID | None = None
     remarks: str | None = None
 
 
@@ -249,6 +251,7 @@ class SalesOrderLineResponse(SalesOrderSchema):
     net_amount: Decimal
     warehouse_id: UUID | None
     storage_node_id: UUID | None
+    pinned_batch_id: UUID | None = None
     remarks: str | None
     created_at: datetime
     updated_at: datetime
