@@ -1,5 +1,6 @@
 """Validated contracts for purchase invoices."""
 
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -15,6 +16,22 @@ class PurchaseInvoiceSchema(BaseModel):
     """Apply strict input and ORM response behavior."""
 
     model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+
+def normalize_irn(value: str | None) -> str | None:
+    """Return an IRN in lower case, None for blank; refuse a malformed one.
+
+    An IRN is the SHA-256 hash the portal returns: 64 hexadecimal characters.
+    """
+    if value is None or not str(value).strip():
+        return None
+    token = str(value).strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", token):
+        raise ValueError(
+            "An IRN is 64 letters and digits (0-9, a-f), as printed under the "
+            "QR code on the supplier's e-invoice."
+        )
+    return token
 
 
 class PurchaseInvoiceStatus(StrEnum):
@@ -129,6 +146,9 @@ class PurchaseInvoiceCreate(PurchaseInvoiceSchema):
     invoice_date: date
     supplier_invoice_number: str = Field(min_length=1, max_length=120)
     supplier_invoice_date: date
+    #: The IRN on the supplier's e-invoice (backlog 78 row 5). Absent on an
+    #: edit keeps the one on file; null clears it.
+    supplier_irn: str | None = None
     currency_code: str | None = Field(default=None, max_length=10)
     exchange_rate: Decimal | None = Field(
         default=None, gt=0, max_digits=18, decimal_places=6
@@ -158,6 +178,24 @@ class PurchaseInvoiceCreate(PurchaseInvoiceSchema):
             return None
         token = value.strip().upper()
         return token or None
+
+    @field_validator("supplier_irn", mode="before")
+    @classmethod
+    def _irn(cls, value: str | None) -> str | None:
+        """Check the IRN's shape and store it in lower case."""
+        return normalize_irn(value)
+
+
+class PurchaseInvoiceSupplierIrnWrite(PurchaseInvoiceSchema):
+    """Record or clear the IRN on a bill already approved (backlog 78 row 5)."""
+
+    supplier_irn: str | None
+
+    @field_validator("supplier_irn", mode="before")
+    @classmethod
+    def _irn(cls, value: str | None) -> str | None:
+        """Check the IRN's shape and store it in lower case."""
+        return normalize_irn(value)
 
 
 class PurchaseInvoiceUpdate(PurchaseInvoiceCreate):
@@ -304,6 +342,7 @@ class PurchaseInvoiceResponse(PurchaseInvoiceSchema):
     invoice_date: date
     supplier_invoice_number: str
     supplier_invoice_date: date
+    supplier_irn: str | None = None
     currency_code: str | None
     exchange_rate: Decimal | None
     payment_terms: str | None
@@ -339,6 +378,9 @@ class PurchaseInvoiceResponse(PurchaseInvoiceSchema):
         default_factory=list
     )
     duplicate_warning: str | None = None
+    #: Why the IRN wants a look (backlog 78 row 5): the supplier e-invoices
+    #: and the bill has none, or another bill carries the same one.
+    irn_warning: str | None = None
 
 
 class PurchaseInvoiceListFilters(PurchaseInvoiceSchema):

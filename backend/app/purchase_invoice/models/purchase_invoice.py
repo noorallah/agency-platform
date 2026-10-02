@@ -63,6 +63,9 @@ class PurchaseInvoice(BaseEntity):
     invoice_date: Mapped[date] = mapped_column(Date, nullable=False)
     supplier_invoice_number: Mapped[str] = mapped_column(String(120), nullable=False)
     supplier_invoice_date: Mapped[date] = mapped_column(Date, nullable=False)
+    #: The Invoice Reference Number on the supplier's e-invoice, read off its
+    #: QR code (backlog 78 row 5): 64 hexadecimal characters, stored lower.
+    supplier_irn: Mapped[str | None] = mapped_column(String(64))
     currency_code: Mapped[str | None] = mapped_column(String(10))
     exchange_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
     payment_terms: Mapped[str | None] = mapped_column(String(200))

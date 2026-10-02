@@ -11,6 +11,7 @@ from app.tax.schemas.tax_framework import TaxFrameworkSchema
 DispatchWithoutInvoice = Literal["OFF", "WARN", "BLOCK"]
 ItcClaimBasis = Literal["ALL", "MATCHED_ONLY"]
 Rule37Mode = Literal["OFF", "REPORT", "POST"]
+SupplierIrnCheck = Literal["OFF", "WARN"]
 
 
 class GstComplianceSettingsResponse(TaxFrameworkSchema):
@@ -24,6 +25,8 @@ class GstComplianceSettingsResponse(TaxFrameworkSchema):
     itc_claim_basis: ItcClaimBasis = "ALL"
     #: Rule 37, the 180-day unpaid-bill reversal (78.4).
     rule37_mode: Rule37Mode = "REPORT"
+    #: Whether an e-invoicing supplier's bill without an IRN is warned (78.5).
+    supplier_irn_check: SupplierIrnCheck = "WARN"
     #: How far a bill's tax may differ from 2B and still match, in rupees.
     gstr2b_tolerance: Decimal = Decimal("1.00")
     #: Above this a consignment needs an e-way bill (77 row 10).
@@ -43,6 +46,8 @@ class GstComplianceSettingsWrite(TaxFrameworkSchema):
     itc_claim_basis: ItcClaimBasis | None = None
     #: Absent keeps the firm's own (78.4).
     rule37_mode: Rule37Mode | None = None
+    #: Absent keeps the firm's own (78.5).
+    supplier_irn_check: SupplierIrnCheck | None = None
     gstr2b_tolerance: Decimal | None = Field(
         default=None, ge=0, le=1000, max_digits=18, decimal_places=2
     )

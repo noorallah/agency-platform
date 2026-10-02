@@ -187,6 +187,8 @@ class VendorWrite(VendorSchema):
     udyam_number: str | None = Field(default=None, max_length=30)
     msme_category: Literal["MICRO", "SMALL", "MEDIUM"] | None = None
     msme_written_agreement: bool = False
+    #: The supplier e-invoices, so its bills carry an IRN (backlog 78 row 5).
+    issues_e_invoices: bool = False
 
     @field_validator("udyam_number", mode="before")
     @classmethod
@@ -453,6 +455,7 @@ class VendorResponse(VendorSchema):
     udyam_number: str | None = None
     msme_category: str | None = None
     msme_written_agreement: bool = False
+    issues_e_invoices: bool = False
     license_number: str | None
     registration_number: str | None
     website: str | None

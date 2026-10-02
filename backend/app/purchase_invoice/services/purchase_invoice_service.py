@@ -98,6 +98,7 @@ from app.purchase_invoice.services.msme import (
 from app.sales.services.document_preview import purchase_line_companions
 from app.settlements.schemas import OutstandingInvoiceRecord
 from app.tax.schemas import TaxRuleSimulationRequest
+from app.tax.services.gst_compliance import GstComplianceService
 from app.tax.services.place_of_supply import PURCHASE_INTERSTATE
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
@@ -437,6 +438,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             invoice_date=data.invoice_date,
             supplier_invoice_number=data.supplier_invoice_number.strip(),
             supplier_invoice_date=data.supplier_invoice_date,
+            supplier_irn=data.supplier_irn,
             currency_code=(
                 data.currency_code.strip().upper() if data.currency_code else None
             ),
@@ -535,6 +537,10 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status != PurchaseInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft purchase invoices can be updated.")
+        # Absent keeps the IRN on file: a client that never showed it cannot
+        # clear it. Read before the chain may hand back a rebuilt request.
+        if "supplier_irn" in data.model_fields_set:
+            row.supplier_irn = data.supplier_irn
         self._delete_children(row.id)
         own_receipts = frozenset(receipt.id for receipt in self._raised_receipts(row))
         if any(line.source_document_line_id is None for line in data.lines):
@@ -725,6 +731,41 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+        )
+        self._session.commit()
+        return row
+
+    def set_supplier_irn(
+        self,
+        invoice_id: UUID,
+        irn: str | None,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> PurchaseInvoice:
+        """Record or clear the supplier's IRN on a bill (backlog 78 row 5).
+
+        The IRN moves no money and no stock, so it may be written on an
+        approved bill too -- the QR code is often read after the bill was
+        booked. A cancelled bill is history and keeps what it had.
+        """
+        row = self.get_invoice(invoice_id, firm_scope=firm_scope)
+        if row.status == PurchaseInvoiceStatus.CANCELLED.value:
+            raise ValidationError("A cancelled purchase invoice cannot be changed.")
+        before = row.supplier_irn
+        if before == irn:
+            return row
+        row.supplier_irn = irn
+        row.updated_by = actor_id
+        record_audit(
+            self._session,
+            action="purchase_invoice.supplier_irn_set",
+            entity_type="purchase_invoice",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            before_data={"supplier_irn": before},
+            after_data={"supplier_irn": irn},
         )
         self._session.commit()
         return row
@@ -925,6 +966,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             ids,
         )
         warnings = self._duplicate_warnings(rows)
+        irn_warnings = self._irn_warnings(rows)
         vendors = {
             found[0]: (found[1], found[2])
             for found in self._session.execute(
@@ -943,6 +985,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 notes=notes[row.id],
                 accounting_events=accounting_events[row.id],
                 warning=warnings.get(row.id),
+                irn_warning=irn_warnings.get(row.id),
                 vendor=vendors.get(row.vendor_id),
             )
             for row in rows
@@ -960,6 +1003,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         accounting_events: list[PurchaseInvoiceAccountingEvent],
         warning: str | None,
         vendor: tuple[str, str] | None,
+        irn_warning: str | None = None,
     ) -> PurchaseInvoiceResponse:
         """Build one invoice's response from what the page already read."""
         return PurchaseInvoiceResponse(
@@ -974,6 +1018,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             invoice_date=row.invoice_date,
             supplier_invoice_number=row.supplier_invoice_number,
             supplier_invoice_date=row.supplier_invoice_date,
+            supplier_irn=row.supplier_irn,
             currency_code=row.currency_code,
             exchange_rate=row.exchange_rate,
             payment_terms=row.payment_terms,
@@ -1007,6 +1052,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 self._accounting_event_response(item) for item in accounting_events
             ],
             duplicate_warning=warning,
+            irn_warning=irn_warning,
         )
 
     def timeline(
@@ -2372,6 +2418,82 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             )
             - {row.id}
         }
+
+    def _irn_warnings(self, rows: Sequence[PurchaseInvoice]) -> dict[UUID, str]:
+        """Say which bills' IRNs want a look, for a page in a fixed few reads.
+
+        Backlog 78 row 5: a supplier past the e-invoicing threshold issues no
+        valid B2B tax invoice without an IRN (CGST rule 48(4)), so credit on
+        its bill is at risk. Warned when the firm's check is WARN (the
+        default), the supplier is marked as e-invoicing and the bill carries
+        none. Separately, an IRN names one invoice, so a second bill carrying
+        it is the same bill entered twice -- said whatever the setting.
+        """
+        live = [
+            row for row in rows if row.status != PurchaseInvoiceStatus.CANCELLED.value
+        ]
+        if not live:
+            return {}
+        found: dict[UUID, str] = {}
+        settings = GstComplianceService(self._session)
+        checking = {
+            firm_id
+            for firm_id in {row.firm_id for row in live}
+            if settings.settings_response(firm_id).supplier_irn_check == "WARN"
+        }
+        missing = [
+            row for row in live if row.firm_id in checking and not row.supplier_irn
+        ]
+        if missing:
+            e_invoicing = {
+                vendor_id: name
+                for vendor_id, name in self._session.execute(
+                    select(Vendor.id, Vendor.display_name).where(
+                        Vendor.id.in_({row.vendor_id for row in missing}),
+                        Vendor.issues_e_invoices.is_(True),
+                    )
+                )
+            }
+            for row in missing:
+                if row.vendor_id in e_invoicing:
+                    found[row.id] = (
+                        f"{e_invoicing[row.vendor_id]} e-invoices, and this bill "
+                        "has no IRN: without one it is not a valid tax invoice "
+                        "(CGST rule 48(4)) and its credit is at risk. Record "
+                        "the IRN printed under the bill's QR code."
+                    )
+        irns = {row.supplier_irn for row in live if row.supplier_irn}
+        if irns:
+            holders: dict[tuple[UUID, str], list[tuple[UUID, str]]] = defaultdict(list)
+            for found_id, firm_id, irn, number in self._session.execute(
+                select(
+                    PurchaseInvoice.id,
+                    PurchaseInvoice.firm_id,
+                    PurchaseInvoice.supplier_irn,
+                    PurchaseInvoice.invoice_number,
+                ).where(
+                    PurchaseInvoice.supplier_irn.in_(irns),
+                    PurchaseInvoice.status != PurchaseInvoiceStatus.CANCELLED.value,
+                    PurchaseInvoice.is_deleted.is_(False),
+                )
+            ):
+                holders[(firm_id, irn)].append((found_id, number))
+            for row in live:
+                if not row.supplier_irn:
+                    continue
+                others = sorted(
+                    number
+                    for found_id, number in holders.get(
+                        (row.firm_id, row.supplier_irn), []
+                    )
+                    if found_id != row.id
+                )
+                if others:
+                    found[row.id] = (
+                        f"{', '.join(others)} already carries this IRN: an IRN "
+                        "names one invoice, so this may be the same bill twice."
+                    )
+        return found
 
     def _duplicate_warning(
         self,

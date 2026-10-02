@@ -50,6 +50,7 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceResponse,
     PurchaseInvoiceStatus,
     PurchaseInvoiceSummary,
+    PurchaseInvoiceSupplierIrnWrite,
     PurchaseInvoiceVendorOutstandingRecord,
 )
 from app.purchase_invoice.services import PurchaseInvoiceService
@@ -419,6 +420,26 @@ def update_purchase_invoice(
     service = PurchaseInvoiceService(db)
     row = service.update_invoice(
         invoice_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=service.invoice_response(row))
+
+
+@router.put(
+    "/{invoice_id}/supplier-irn", response_model=ApiResponse[PurchaseInvoiceResponse]
+)
+def set_purchase_invoice_supplier_irn(
+    invoice_id: UUID,
+    data: PurchaseInvoiceSupplierIrnWrite,
+    scope: PurchaseInvoiceUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PurchaseInvoiceResponse]:
+    """Record or clear the supplier's IRN, approved bills included (78.5)."""
+    service = PurchaseInvoiceService(db)
+    row = service.set_supplier_irn(
+        invoice_id,
+        data.supplier_irn,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
     )
     return ApiResponse(data=service.invoice_response(row))
 

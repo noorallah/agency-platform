@@ -150,6 +150,13 @@ COLUMNS: tuple[Column, ...] = (
         "No",
     ),
     Column(
+        "EInvoicing",
+        ("einvoice", "issueseinvoices"),
+        False,
+        "Yes if the supplier e-invoices: its bills carry an IRN.",
+        "No",
+    ),
+    Column(
         "LicenseNumber",
         ("licenceno", "licenseno", "druglicense", "druglicence", "dlno"),
         False,
@@ -282,6 +289,7 @@ _FIELD_HEADINGS: dict[str, str] = {
     "udyam_number": "Udyam",
     "msme_category": "MsmeCategory",
     "msme_written_agreement": "MsmeAgreement",
+    "issues_e_invoices": "EInvoicing",
     "license_number": "LicenseNumber",
     "registration_number": "RegistrationNumber",
     "email": "Email",
@@ -607,6 +615,9 @@ class VendorFileImporter(FileImporter[Vendor]):
         agreement = reader.flag("MsmeAgreement")
         if agreement is not None:
             values["msme_written_agreement"] = agreement
+        e_invoicing = reader.flag("EInvoicing")
+        if e_invoicing is not None:
+            values["issues_e_invoices"] = e_invoicing
         email = reader.email("Email")
         if email:
             values["email"] = email

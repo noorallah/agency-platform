@@ -24,6 +24,7 @@ from app.purchase_invoice.schemas.purchase_invoice import (
     PurchaseInvoiceSourceWrite,
     PurchaseInvoiceStatus,
     PurchaseInvoiceSummary,
+    PurchaseInvoiceSupplierIrnWrite,
     PurchaseInvoiceUpdate,
     PurchaseInvoiceVendorOutstandingRecord,
 )
@@ -52,6 +53,7 @@ __all__ = [
     "PurchaseInvoiceSourceWrite",
     "PurchaseInvoiceStatus",
     "PurchaseInvoiceSummary",
+    "PurchaseInvoiceSupplierIrnWrite",
     "PurchaseInvoiceUpdate",
     "PurchaseInvoiceVendorOutstandingRecord",
 ]
