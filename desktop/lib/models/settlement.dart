@@ -55,6 +55,8 @@ class Settlement {
     required this.journalEntryId,
     required this.reversalReason,
     required this.allocations,
+    this.paymentMode = '',
+    this.instrumentDate = '',
     this.salesOrderNumber = '',
     this.tdsAmount = '0',
     this.tdsSection = '',
@@ -81,6 +83,18 @@ class Settlement {
   final String method;
   final String ledgerAccountName;
   final String instrumentReference;
+
+  /// How the money moved within its method (ACC-3): CASH, CHEQUE, UPI,
+  /// BANK_TRANSFER, CARD, DEMAND_DRAFT or OTHER; empty on a bank settlement
+  /// recorded before the mode was asked for.
+  final String paymentMode;
+
+  /// The cheque's or draft's own date.
+  final String instrumentDate;
+
+  /// The mode in words, or the method where no mode was recorded.
+  String get modeLabel =>
+      paymentModeLabels[paymentMode] ?? method;
   final String narration;
   final String status;
 
@@ -171,6 +185,8 @@ class Settlement {
       method: stringValue(d['method']),
       ledgerAccountName: stringValue(d['ledger_account_name']),
       instrumentReference: stringValue(d['instrument_reference']),
+      paymentMode: stringValue(d['payment_mode']),
+      instrumentDate: stringValue(d['instrument_date']),
       narration: stringValue(d['narration']),
       status: stringValue(d['status']),
       journalEntryId: stringValue(d['journal_entry_id']),
@@ -395,3 +411,15 @@ class PartyOption {
 
   String get label => '$code  $name';
 }
+
+/// How money can move, in the words the screens use (ACC-3). Cash is the
+/// cash method; every other mode goes through a bank.
+const Map<String, String> paymentModeLabels = {
+  'CASH': 'Cash',
+  'CHEQUE': 'Cheque',
+  'UPI': 'UPI',
+  'BANK_TRANSFER': 'Bank transfer',
+  'CARD': 'Card',
+  'DEMAND_DRAFT': 'Demand draft',
+  'OTHER': 'Other',
+};

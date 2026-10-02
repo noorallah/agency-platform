@@ -323,6 +323,43 @@ void main() {
       expect(api.recorded?.containsKey('tds_section'), isFalse);
     });
 
+    testWidgets('a receipt says how the money came, cash or by bank (ACC-3)',
+        (tester) async {
+      final _SettlementApi api = _SettlementApi(rows: [_settlement()]);
+      await openReceipt(tester, api);
+
+      await tester.tap(find.byKey(const ValueKey('settlement-mode')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cheque').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Cheque number'), findsOneWidget);
+      expect(find.text('Cheque date'), findsOneWidget);
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Cheque number'), '004512');
+      await tester.tap(find.text('Record receipt'));
+      await tester.pumpAndSettle();
+
+      expect(api.recorded?['payment_mode'], 'CHEQUE');
+      expect(api.recorded?['method'], 'BANK');
+      expect(api.recorded?['instrument_reference'], '004512');
+    });
+
+    testWidgets('cash is the cash method', (tester) async {
+      final _SettlementApi api = _SettlementApi(rows: [_settlement()]);
+      await openReceipt(tester, api);
+
+      await tester.tap(find.byKey(const ValueKey('settlement-mode')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cash').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Cheque date'), findsNothing);
+      await tester.tap(find.text('Record receipt'));
+      await tester.pumpAndSettle();
+
+      expect(api.recorded?['payment_mode'], 'CASH');
+      expect(api.recorded?['method'], 'CASH');
+    });
+
     testWidgets('a refund offers no TDS', (tester) async {
       final _SettlementApi api = _SettlementApi(rows: [_settlement()]);
       tester.view.physicalSize = const Size(1400, 900);

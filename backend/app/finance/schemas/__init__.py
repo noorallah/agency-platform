@@ -915,6 +915,9 @@ class MoneyBookRecord(BaseModel):
     journal_entry_id: UUID | None
     source_module: str | None
     source_id: UUID | None
+    #: How a receipt's or payment's money moved, and its instrument (ACC-3).
+    mode: str | None = None
+    instrument: str | None = None
 
 
 __all__ = [

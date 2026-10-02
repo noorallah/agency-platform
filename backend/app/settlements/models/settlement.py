@@ -159,6 +159,12 @@ class Settlement(BaseEntity):
         UUIDType(), ForeignKey("sales_orders.id", ondelete="RESTRICT")
     )
     instrument_reference: Mapped[str | None] = mapped_column(String(120))
+    #: How the money moved within its method (backlog ACC-3): CASH, CHEQUE,
+    #: UPI, BANK_TRANSFER, CARD, DEMAND_DRAFT or OTHER. NULL on a bank
+    #: settlement recorded before the mode was asked for.
+    payment_mode: Mapped[str | None] = mapped_column(String(20))
+    #: The cheque's or draft's own date, which is not the day it was recorded.
+    instrument_date: Mapped[date | None] = mapped_column(Date)
     narration: Mapped[str | None] = mapped_column(Text())
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default=SettlementStatus.POSTED.value

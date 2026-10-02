@@ -31,6 +31,35 @@ class SettlementMethodEnum(StrEnum):
     BANK = "BANK"
 
 
+class SettlementModeEnum(StrEnum):
+    """How the money moved within its method (backlog ACC-3).
+
+    CASH is the cash method; every other mode is money through a bank.
+    """
+
+    CASH = "CASH"
+    CHEQUE = "CHEQUE"
+    UPI = "UPI"
+    BANK_TRANSFER = "BANK_TRANSFER"
+    CARD = "CARD"
+    DEMAND_DRAFT = "DEMAND_DRAFT"
+    OTHER = "OTHER"
+
+
+#: The words a screen or a report shows for each mode; ``BANK`` names a bank
+#: settlement recorded before the mode was asked for.
+MODE_LABELS = {
+    "CASH": "Cash",
+    "CHEQUE": "Cheque",
+    "UPI": "UPI",
+    "BANK_TRANSFER": "Bank transfer",
+    "CARD": "Card",
+    "DEMAND_DRAFT": "Demand draft",
+    "OTHER": "Other",
+    "BANK": "Bank (mode not recorded)",
+}
+
+
 class SettlementAllocationWrite(SettlementSchema):
     """Allocate part of a settlement to one invoice."""
 
@@ -58,7 +87,12 @@ class SettlementCreate(SettlementSchema):
     settlement_date: date
     amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
     method: SettlementMethodEnum
+    #: How the money moved (backlog ACC-3). Blank takes CASH for the cash
+    #: method and leaves a bank settlement's mode unrecorded.
+    payment_mode: SettlementModeEnum | None = None
     instrument_reference: str | None = Field(default=None, max_length=120)
+    #: The cheque's or draft's own date.
+    instrument_date: date | None = None
     narration: str | None = Field(default=None, max_length=2000)
     settlement_number: str | None = Field(default=None, max_length=60)
     #: The sales order this money came in against, where it came in against
@@ -93,6 +127,21 @@ class SettlementCreate(SettlementSchema):
     discount_amount: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=2
     )
+
+    @model_validator(mode="after")
+    def _mode_fits_the_method(self) -> "SettlementCreate":
+        """Hold the mode to its method: cash is cash, the rest are a bank's."""
+        if self.payment_mode is None:
+            if self.method == SettlementMethodEnum.CASH:
+                self.payment_mode = SettlementModeEnum.CASH
+            return self
+        cash = self.payment_mode == SettlementModeEnum.CASH
+        if cash != (self.method == SettlementMethodEnum.CASH):
+            raise ValueError(
+                "Cash is received or paid as cash; a cheque, UPI, transfer, "
+                "card or draft goes through a bank. Choose the matching method."
+            )
+        return self
 
     @model_validator(mode="after")
     def _tds_can_be_filed(self) -> "SettlementCreate":
@@ -177,9 +226,11 @@ class SettlementResponse(SettlementSchema):
     discount_amount: Decimal = Decimal("0")
     cash_amount: Decimal | None = None
     method: SettlementMethodEnum
+    payment_mode: SettlementModeEnum | None = None
     ledger_account_id: UUID
     ledger_account_name: str
     instrument_reference: str | None
+    instrument_date: date | None = None
     narration: str | None
     status: str
     journal_entry_id: UUID
@@ -323,6 +374,8 @@ __all__ = [
     "SettlementCreate",
     "SettlementDirectionEnum",
     "SettlementMethodEnum",
+    "SettlementModeEnum",
+    "MODE_LABELS",
     "SettlementResponse",
     "SettlementReverseRequest",
     "SettlementSchema",

@@ -108,6 +108,10 @@ class MoneyBookRow:
     journal_entry_id: UUID | None = None
     source_module: str | None = None
     source_id: UUID | None = None
+    #: How a receipt's or payment's money moved, and its cheque or UTR
+    #: number and date (ACC-3); blank for anything that is not one.
+    mode: str | None = None
+    instrument: str | None = None
 
 
 class BooksRegisterService:
@@ -293,6 +297,10 @@ class BooksRegisterService:
             journal_ids=[row.entry_id for row in postings],
             book_accounts=set(accounts),
         )
+        modes = _settlement_modes(
+            self._session,
+            {row.source_id for row in postings if row.module == "settlements"},
+        )
 
         rows: list[MoneyBookRow] = []
         if start == 0:
@@ -326,6 +334,8 @@ class BooksRegisterService:
                     journal_entry_id=row.entry_id,
                     source_module=row.module,
                     source_id=row.source_id,
+                    mode=modes.get(row.source_id, (None, None))[0],
+                    instrument=modes.get(row.source_id, (None, None))[1],
                 )
             )
         if start <= entries + 1 < end:
@@ -470,3 +480,39 @@ def _contra_accounts(
         more = len(per) - 1
         named[journal_id] = f"{biggest} (+{more} more)" if more else biggest
     return named
+
+
+def _settlement_modes(
+    session: Session, ids: set[UUID]
+) -> dict[UUID, tuple[str, str | None]]:
+    """Name how each receipt or payment on a page moved, in one read (ACC-3).
+
+    Returns ``{settlement id: (mode label, "number dd-mm-yyyy")}``. A bank
+    settlement recorded before the mode was asked for reads *Bank (mode not
+    recorded)*.
+    """
+    if not ids:
+        return {}
+    # Imported here: settlements post through finance, so finance must not
+    # import them at module load.
+    from app.settlements.models import Settlement
+    from app.settlements.schemas import MODE_LABELS
+
+    found: dict[UUID, tuple[str, str | None]] = {}
+    for row_id, mode, method, number, on in session.execute(
+        select(
+            Settlement.id,
+            Settlement.payment_mode,
+            Settlement.method,
+            Settlement.instrument_reference,
+            Settlement.instrument_date,
+        ).where(Settlement.id.in_(ids))
+    ):
+        key = mode or method
+        instrument = " ".join(
+            part
+            for part in (number or "", "" if on is None else f"{on:%d-%m-%Y}")
+            if part
+        )
+        found[row_id] = (MODE_LABELS.get(key, key), instrument or None)
+    return found
