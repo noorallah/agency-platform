@@ -512,7 +512,8 @@ trigger each schema owns its own copy of.
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
 | `vendor_addresses` | firm store ¹ | Represent one vendor address referencing geo masters. | `vendors`, `geo_countries`, `geo_states`, `geo_districts`, `geo_cities`, `geo_postal_codes`, `geo_localities` |
-| `vendor_attachments` | firm store ¹ | Represent one vendor attachment metadata row. | `vendors` |
+| `vendor_attachments` | firm store ¹ | Represent one vendor attachment metadata row. | `vendor_ratings` | firm store ¹ | One person's 1-5 scores and remark for a supplier (BUY-15). | `firms`, `vendors` |
+| `vendors` |
 | `vendor_attribute_values` | firm store ¹ | Store one configurable attribute value for a vendor. | `vendors`, `firms`, `attribute_definitions` |
 | `vendor_bank_accounts` | firm store ¹ | Represent one vendor bank account. | `vendors` |
 | `vendor_categories` | firm store ¹ | Persist a reusable vendor category per firm. | `firms` |

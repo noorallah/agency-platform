@@ -10,6 +10,8 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/geography.dart';
 import '../../models/entities.dart';
+import '../../models/firm_member.dart';
+import '../../models/vendor_rating.dart';
 import '../../models/file_import.dart';
 import '../../models/trade_licence.dart';
 import '../../models/vendor.dart';
@@ -19,6 +21,7 @@ import '../workspace/desktop_framework.dart';
 import '../workspace/opening_bill_import_dialog.dart';
 import '../workspace/reason_prompt.dart';
 import '../workspace/trade_licence_quick_add.dart';
+import 'vendor_ratings_section.dart';
 import '../../phase2/document_page.dart';
 
 part 'vendor_editor_phase2.dart';
@@ -208,6 +211,20 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
                   : null,
               canManageOpeningBills:
                   widget.permissions.hasPermission('VENDOR_UPDATE'),
+              loadRatings: vendor != null &&
+                      (widget.permissions.hasPermission('VENDOR_VIEW') ||
+                          widget.permissions.hasPermission('PURCHASE_VIEW'))
+                  ? () => widget.api.vendorRatings(vendor.id)
+                  : null,
+              onRate: vendor == null
+                  ? null
+                  : (Json body) async {
+                      await widget.api.saveMyVendorRating(vendor.id, body);
+                    },
+              onWithdrawRating: vendor == null
+                  ? null
+                  : () => widget.api.withdrawMyVendorRating(vendor.id),
+              loadMembers: widget.api.firmMembers,
             ),
           )
         : await showDialog<Json>(
@@ -593,6 +610,10 @@ class _VendorEditorDialog extends StatefulWidget {
     this.onAddLicence,
     this.loadOpeningBills,
     this.canManageOpeningBills = false,
+    this.loadRatings,
+    this.onRate,
+    this.onWithdrawRating,
+    this.loadMembers,
     this.onSave,
   });
 
@@ -626,6 +647,14 @@ class _VendorEditorDialog extends StatefulWidget {
   /// Whether the user holds `VENDOR_UPDATE`, so "Add opening bill" and
   /// "Cancel" show.
   final bool canManageOpeningBills;
+
+  /// What people think of this supplier (BUY-15). Null hides the section for
+  /// a user who can read neither `VENDOR_VIEW` nor `PURCHASE_VIEW`; a new
+  /// vendor shows "Save the supplier first" instead. Phase 2 only.
+  final Future<VendorRatings> Function()? loadRatings;
+  final Future<void> Function(Json body)? onRate;
+  final Future<void> Function()? onWithdrawRating;
+  final Future<List<FirmMember>> Function()? loadMembers;
 
   @override
   State<_VendorEditorDialog> createState() => _VendorEditorDialogState();
@@ -746,6 +775,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
       'Custom fields',
       'Licences',
       'Opening bills',
+      'Ratings',
     ])
       section: GlobalKey(),
   };

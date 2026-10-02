@@ -19,7 +19,11 @@ from app.common.file_import import (
     report_response,
 )
 from app.common.pan_report import PanReportRow, vendor_pan_report
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    ResolvedFirmScope,
+    firm_any_permission_scope,
+    firm_permission_scope,
+)
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
@@ -49,6 +53,11 @@ from app.vendors.schemas.opening_bill import (
     VendorOpeningBillResponse,
     VendorOpeningBillWrite,
 )
+from app.vendors.schemas.rating import (
+    VendorRatingResponse,
+    VendorRatingSummary,
+    VendorRatingWrite,
+)
 from app.vendors.schemas.statement import SupplierStatement
 from app.vendors.services import VendorService
 from app.vendors.services.opening_bill_import import VendorOpeningBillFileImporter
@@ -59,6 +68,7 @@ from app.vendors.services.vendor_import import template_csv as vendor_template_c
 from app.vendors.services.vendor_import import (
     template_workbook as vendor_template_workbook,
 )
+from app.vendors.services.vendor_ratings import VendorRatingService
 
 router = APIRouter(
     prefix="/api/v1/vendors",
@@ -92,6 +102,10 @@ class BulkBusinessProfileRequest(BulkIdsRequest):
 
 
 VendorViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("VENDOR_VIEW")]
+#: Whoever reads suppliers or buys from them may say what they think (BUY-15).
+VendorRatingScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("VENDOR_VIEW", "PURCHASE_VIEW")
+]
 VendorCreateScope = Annotated[ResolvedFirmScope, firm_permission_scope("VENDOR_CREATE")]
 VendorUpdateScope = Annotated[ResolvedFirmScope, firm_permission_scope("VENDOR_UPDATE")]
 VendorDeleteScope = Annotated[ResolvedFirmScope, firm_permission_scope("VENDOR_DELETE")]
@@ -799,6 +813,49 @@ def vendor_pan_check(
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required for the PAN report.")
     return ApiResponse(data=vendor_pan_report(db, firm_id=scope.firm_id))
+
+
+@router.get("/{vendor_id}/ratings", response_model=ApiResponse[VendorRatingSummary])
+def vendor_ratings(
+    vendor_id: UUID,
+    scope: VendorRatingScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[VendorRatingSummary]:
+    """Return people's ratings of the supplier and their averages (BUY-15)."""
+    summary = VendorRatingService(db).summary(
+        vendor_id, firm_id=scope.firm_id, reader_id=scope.actor_id
+    )
+    return ApiResponse(data=summary)
+
+
+@router.put(
+    "/{vendor_id}/ratings/mine", response_model=ApiResponse[VendorRatingResponse]
+)
+def rate_vendor(
+    vendor_id: UUID,
+    payload: VendorRatingWrite,
+    scope: VendorRatingScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[VendorRatingResponse]:
+    """Record the caller's rating of the supplier, replacing their earlier one."""
+    row = VendorRatingService(db).rate(
+        vendor_id, payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(
+        data=VendorRatingResponse.model_validate(row), message="Rating saved."
+    )
+
+
+@router.delete("/{vendor_id}/ratings/mine", status_code=status.HTTP_204_NO_CONTENT)
+def withdraw_vendor_rating(
+    vendor_id: UUID,
+    scope: VendorRatingScope,
+    db: Session = Depends(get_db),
+) -> None:
+    """Take back the caller's own rating; it stays on file as history."""
+    VendorRatingService(db).withdraw(
+        vendor_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
 
 
 @router.get("/{vendor_id}", response_model=ApiResponse[VendorResponse])
