@@ -251,3 +251,75 @@ def test_one_draft_per_supplier_carries_every_line_for_it() -> None:
         )
     ).all()
     assert {line.product_id for line in lines} == {shop.product.id, fresh.id}
+
+
+def _second_vendor(shop: _Shop, *, status: str = "ACTIVE") -> Vendor:
+    """Add a supplier nothing was ever billed by."""
+    row = Vendor(
+        firm_id=shop.firm.id,
+        code="VEN-002",
+        name="Vendor VEN-002",
+        display_name="Vendor VEN-002",
+        status=status,
+    )
+    shop.session.add(row)
+    shop.session.commit()
+    return row
+
+
+def test_the_preferred_supplier_wins_over_the_one_last_billed() -> None:
+    """Decision A18: reorder orders from the supplier the product names.
+
+    The last bill's rate was VEN-001's, so it does not travel to VEN-002:
+    the product's purchase price stands in.
+    """
+    shop = _Shop()
+    preferred = _second_vendor(shop)
+    shop.product.preferred_vendor_id = preferred.id
+    shop.product.purchase_price = Decimal("90")
+    shop.session.commit()
+    shop.stock(shop.product, available="2", reorder="5")
+
+    [row] = ReorderService(shop.session).below_reorder(shop.firm.id)
+
+    assert row.supplier_id == preferred.id
+    assert row.supplier_name == "Vendor VEN-002"
+    assert row.unit_price == Decimal("90")
+
+
+def test_a_preferred_supplier_that_has_gone_falls_back_to_the_last_bill() -> None:
+    """An inactive or deleted preferred supplier is passed over, not ordered from."""
+    shop = _Shop()
+    gone = _second_vendor(shop, status="INACTIVE")
+    shop.product.preferred_vendor_id = gone.id
+    shop.session.commit()
+    shop.stock(shop.product, available="2", reorder="5")
+
+    [row] = ReorderService(shop.session).below_reorder(shop.firm.id)
+
+    assert row.supplier_id == shop.vendor.id
+    assert row.unit_price == Decimal("100")
+
+
+def test_a_product_never_billed_orders_from_its_preferred_supplier() -> None:
+    """The case that needed a supplier named by hand now has one."""
+    shop = _Shop()
+    preferred = _second_vendor(shop)
+    fresh = shop.other_product()
+    fresh.preferred_vendor_id = preferred.id
+    shop.session.commit()
+    shop.stock(fresh, available="1", reorder="4", locator="B-1")
+    service = ReorderService(shop.session)
+
+    [row] = service.below_reorder(shop.firm.id)
+    assert row.supplier_id == preferred.id
+
+    service.raise_drafts(
+        shop.firm.id,
+        [ReorderPick(warehouse_id=shop.warehouse.id, product_id=fresh.id)],
+        actor_id=uuid4(),
+    )
+    order = shop.session.scalar(
+        select(PurchaseOrder).where(PurchaseOrder.status == "DRAFT")
+    )
+    assert order is not None and order.vendor_id == preferred.id

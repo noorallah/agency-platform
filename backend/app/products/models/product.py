@@ -193,6 +193,12 @@ class Product(BaseEntity):
         Boolean, nullable=False, default=True, server_default="true"
     )
     purchase_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    #: The supplier this product is normally bought from (decision A18).
+    #: Reorder raises its draft orders with it, and falls back to the one last
+    #: billed where none is set or the one set has gone.
+    preferred_vendor_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("vendors.id", ondelete="RESTRICT"), index=True
+    )
     selling_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     #: The lowest net rate this product may be sold at, per stock unit -- the
     #: unit its moving average cost is kept in. A sale below it (or below

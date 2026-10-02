@@ -11,6 +11,7 @@ import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/product.dart';
+import '../../models/vendor.dart';
 import '../../models/file_import.dart';
 import 'product_import_dialog.dart';
 import '../../models/trade_licence.dart';
@@ -44,6 +45,11 @@ class ProductController extends ChangeNotifier {
   /// dropdown (backlog 54). Empty for a firm with no `TRADE_LICENCE_VIEW`,
   /// same as every other optional catalogue this bootstrap reads.
   List<TradeLicenceTypeRecord> licenceTypes = const [];
+
+  /// The firm's active suppliers, for the "Preferred supplier" picker (A18).
+  /// Null when the list could not be read (no `VENDOR_VIEW`): the picker is
+  /// then disabled and the product's current choice is kept as it was.
+  List<Vendor>? suppliers;
 
   /// The firm's industry defaults, used to pre-fill a new product's units.
   ///
@@ -108,6 +114,15 @@ class ProductController extends ChangeNotifier {
           (await _api.tradeLicenceTypes()).where((type) => type.isActive).toList();
     } on ApiException {
       licenceTypes = const [];
+    }
+    try {
+      suppliers = (await fetchAllPages<Vendor>(
+        (int page) => _api.vendors(page: page),
+      ))
+          .where((vendor) => vendor.status == 'ACTIVE')
+          .toList();
+    } on ApiException {
+      suppliers = null;
     }
     try {
       profileUomDefaults = await _api.firmUomDefaults();
@@ -718,6 +733,9 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         'required_licence_type_id': product.requiredLicenceTypeId.isEmpty
             ? null
             : product.requiredLicenceTypeId,
+        'preferred_vendor_id': product.preferredVendorId.isEmpty
+            ? null
+            : product.preferredVendorId,
         'unit': product.unit.isEmpty ? null : product.unit,
         'brand': product.brand.isEmpty ? null : product.brand,
         'model': product.model.isEmpty ? null : product.model,
@@ -828,6 +846,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         categories: _controller.categories,
         uoms: _controller.uoms,
         licenceTypes: _controller.licenceTypes,
+        suppliers: _controller.suppliers,
         profileUomDefaults: _controller.profileUomDefaults,
         canManageTax: widget.permissions.hasPermission('PRODUCT_TAX_MANAGE'),
         definitions: _controller.attributeDefinitions,
@@ -1675,6 +1694,7 @@ class ProductWorkspaceDialog extends StatefulWidget {
     required this.categories,
     required this.uoms,
     this.licenceTypes = const [],
+    this.suppliers,
     required this.definitions,
     required this.metadata,
     required this.initialTab,
@@ -1697,6 +1717,10 @@ class ProductWorkspaceDialog extends StatefulWidget {
   /// Active trade licence types, for the "Licence needed" dropdown
   /// (backlog 54).
   final List<TradeLicenceTypeRecord> licenceTypes;
+
+  /// Active suppliers for the "Preferred supplier" picker (A18); null when
+  /// the list could not be read, which disables the picker.
+  final List<Vendor>? suppliers;
 
   /// The firm's industry defaults, applied only to a product being created.
   final BusinessProfileUomDefaults? profileUomDefaults;
@@ -1744,6 +1768,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   late String _status;
   late String _categoryId;
   late String _requiredLicenceTypeId;
+  late String _preferredVendorId;
   late String _taxProfileGroupCode;
   late String _itcEligibility;
   late String _baseUomId;
@@ -1837,6 +1862,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     _status = product?.status.isNotEmpty == true ? product!.status : 'ACTIVE';
     _categoryId = product?.categoryId ?? '';
     _requiredLicenceTypeId = product?.requiredLicenceTypeId ?? '';
+    _preferredVendorId = product?.preferredVendorId ?? '';
     _taxProfileGroupCode = product?.taxProfileGroupCode ?? '';
     _itcEligibility = product?.itcEligibility ?? 'ELIGIBLE';
     // A new product starts on the firm's industry defaults; an existing one
@@ -2252,6 +2278,52 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         ],
       );
 
+  /// The supplier reorder orders this product from (A18). A supplier since
+  /// deactivated, or one the user cannot list, stays the product's value
+  /// until somebody changes it -- it is named in the helper rather than
+  /// dropped, and the save sends it back untouched.
+  Widget _preferredSupplierField() {
+    final List<Vendor>? suppliers = widget.suppliers;
+    final bool listed = suppliers != null &&
+        suppliers.any((vendor) => vendor.id == _preferredVendorId);
+    final bool kept = _preferredVendorId.isNotEmpty && !listed;
+    return SizedBox(
+      width: 260,
+      child: DropdownButtonFormField<String>(
+        key: const ValueKey('product-preferred-supplier'),
+        isExpanded: true,
+        initialValue: listed ? _preferredVendorId : null,
+        decoration: InputDecoration(
+          labelText: 'Preferred supplier',
+          helperText: suppliers == null
+              ? (kept
+                  ? 'Set; the supplier list is not available to you'
+                  : 'The supplier list is not available to you')
+              : kept
+                  ? 'Set to a supplier no longer active'
+                  : 'Reorder orders from this supplier',
+        ),
+        items: [
+          const DropdownMenuItem<String>(
+            value: '',
+            child: Text('None'),
+          ),
+          for (final Vendor vendor in suppliers ?? const <Vendor>[])
+            DropdownMenuItem(
+              value: vendor.id,
+              child: Text(
+                vendor.displayName.isEmpty ? vendor.name : vendor.displayName,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        ],
+        onChanged: _readOnly || suppliers == null
+            ? null
+            : (value) => setState(() => _preferredVendorId = value ?? ''),
+      ),
+    );
+  }
+
   Widget _pricingSection() => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2265,6 +2337,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                 runSpacing: 12,
                 children: [
                   _field(_purchasePrice, 'Purchase price'),
+                  _preferredSupplierField(),
                   _field(_sellingPrice, 'Selling price'),
                   _field(_mrp, 'MRP'),
                   _field(
@@ -3008,6 +3081,8 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       'category_id': _categoryId.isEmpty ? null : _categoryId,
       'required_licence_type_id':
           _requiredLicenceTypeId.isEmpty ? null : _requiredLicenceTypeId,
+      'preferred_vendor_id':
+          _preferredVendorId.isEmpty ? null : _preferredVendorId,
       'tax_profile_group_code':
           _taxProfileGroupCode.isEmpty ? null : _taxProfileGroupCode,
       'itc_eligibility': _itcEligibility,

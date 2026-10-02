@@ -25,8 +25,9 @@ window as a daily rate, a reorder point of that times lead plus safety days and
 a target of the point plus the cover days -- see ``ReorderPlanningSettings``.
 A typed level always wins, and a derived suggestion rounds up to whole units.
 
-**The supplier** is the one last billed for the product (there is no
-preferred-supplier field), and the rate that bill's rate when it was billed in
+**The supplier** is the product's preferred supplier (decision A18) where one
+is set and still live and active, else the one last billed for the product.
+The rate is the last bill's rate when that bill was the same supplier's and in
 the stock unit, else the product's purchase price.
 
 Raising orders stages one DRAFT per supplier per warehouse through
@@ -260,7 +261,7 @@ class ReorderService:
                 )
             ).all()
         }
-        suppliers = self._last_supplier(firm_id, products)
+        suppliers = self._suppliers(firm_id, products)
         names: dict[UUID, str] = {
             row_id: name
             for row_id, name in self._session.execute(
@@ -580,6 +581,46 @@ class ReorderService:
                     str(factor or 1)
                 )
         return dict(result)
+
+    def _suppliers(
+        self, firm_id: UUID, products: dict[UUID, Product]
+    ) -> dict[UUID, tuple[UUID, Decimal | None]]:
+        """Return, per product, the supplier to order from and a rate, if any.
+
+        The preferred supplier wins where it is live and active (A18); the
+        last bill's rate goes with it only when that bill was the same
+        supplier's. Otherwise the supplier last billed, as before.
+        """
+        last = self._last_supplier(firm_id, products)
+        wanted = {
+            product.preferred_vendor_id
+            for product in products.values()
+            if product.preferred_vendor_id is not None
+        }
+        usable = (
+            set(
+                self._session.scalars(
+                    select(Vendor.id).where(
+                        Vendor.id.in_(wanted),
+                        Vendor.firm_id == firm_id,
+                        Vendor.is_deleted.is_(False),
+                        Vendor.status == "ACTIVE",
+                    )
+                )
+            )
+            if wanted
+            else set()
+        )
+        chosen: dict[UUID, tuple[UUID, Decimal | None]] = {}
+        for product_id, product in products.items():
+            preferred = product.preferred_vendor_id
+            billed = last.get(product_id)
+            if preferred is not None and preferred in usable:
+                rate = billed[1] if billed and billed[0] == preferred else None
+                chosen[product_id] = (preferred, rate)
+            elif billed is not None:
+                chosen[product_id] = billed
+        return chosen
 
     def _last_supplier(
         self, firm_id: UUID, products: dict[UUID, Product]

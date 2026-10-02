@@ -109,6 +109,8 @@ screen (1.1.0).
   first (decision A7).
 - **Overdue reminders stop after 90 days** past due (a firm setting), so
   switching reminders on does not chase every old bill (decision A12).
+- **Preferred supplier** on a product: *Below reorder level* orders from it,
+  else from the supplier last billed (decision A18).
 - **Reorder from sales**: the planning formula behind *Below reorder level*
   (#913, decision A39).
 - **Debit note to a customer**: more charged on an invoice after billing,

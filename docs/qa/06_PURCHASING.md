@@ -155,6 +155,14 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Preconditions:** an approved supplier bill of 1,180.00 (1,000 + 18% GST), **paid in full**, and a second approved bill of the same supplier for 500.00.
 - **Steps:** Buy → **Debit Notes** → New against the paid bill: 100 on its line, reason *Price difference* → Save → **Approve**. Pay → New payment for the supplier: look at the supplier credits. Set the debit note's credit against the second bill. Then cancel the debit note. Then raise and approve it again, record a supplier **refund** of 50 against its credit, and try to cancel it.
 - **Expect:** approval succeeds (it used to refuse "still owes only 0"). The payment screen lists a credit of **118.00** marked as a debit note; set against the second bill, that bill owes **382.00**. Cancelling the debit note withdraws it -- the second bill owes 500.00 again and the credit is gone. With the refund standing, the cancel is refused ("Reverse that refund…").
+
+### TC-BUY-018 — Reorder orders from the preferred supplier
+
+*Added 2026-10-02 (decision A18).*
+
+- **Preconditions:** two active suppliers, `QA-V1` (who billed the product last, at 100) and `QA-V2` (never billed it); the product below its reorder level; its purchase price 90.
+- **Steps:** Masters → Products → open the product → **Preferred supplier** `QA-V2` → Save. Purchase Orders → "..." → **Below reorder level...**. Then mark `QA-V2` inactive and open the dialog again. Then open the product as a role that cannot see suppliers.
+- **Expect:** with `QA-V2` preferred the row names **QA-V2** at **90.00** (the last bill's 100 was QA-V1's, so it does not carry over); **Raise draft orders** raises a draft to QA-V2. With QA-V2 inactive the row falls back to **QA-V1** at 100. Saving the product with QA-V2 inactive and the supplier untouched still works. Choosing an inactive supplier is refused ("Preferred supplier not found, or not active.").
 ---
 
 ## Screen checks

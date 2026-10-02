@@ -188,6 +188,7 @@ class Product {
     required this.categoryId,
     required this.subCategoryId,
     this.requiredLicenceTypeId = '',
+    this.preferredVendorId = '',
     required this.unit,
     required this.brand,
     required this.model,
@@ -256,6 +257,10 @@ class Product {
   /// The trade licence this product needs, overriding its category's; empty
   /// takes the category's (backlog 54).
   final String requiredLicenceTypeId;
+
+  /// The supplier reorder orders this from; empty falls back to the supplier
+  /// last billed (A18). The server sends the id only, not the name.
+  final String preferredVendorId;
   final String unit;
   final String brand;
   final String model;
@@ -325,6 +330,7 @@ class Product {
         categoryId: stringValue(json['category_id']),
         subCategoryId: stringValue(json['sub_category_id']),
         requiredLicenceTypeId: stringValue(json['required_licence_type_id']),
+        preferredVendorId: stringValue(json['preferred_vendor_id']),
         unit: stringValue(json['unit']),
         brand: stringValue(json['brand']),
         model: stringValue(json['model']),
