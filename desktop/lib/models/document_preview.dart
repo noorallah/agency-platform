@@ -11,6 +11,8 @@ class DocumentPreviewLine {
     required this.lastInvoiceDate,
     this.lastDiscountPercent = '',
     required this.availableQuantity,
+    this.incomingQuantity = '0',
+    this.outgoingQuantity = '0',
   });
 
   final int lineNumber;
@@ -25,6 +27,13 @@ class DocumentPreviewLine {
   final String lastDiscountPercent;
   final String availableQuantity;
 
+  /// On approved purchase orders for that warehouse, not yet received
+  /// (STK-10).
+  final String incomingQuantity;
+
+  /// Promised there on open sales orders, not yet dispatched nor reserved.
+  final String outgoingQuantity;
+
   factory DocumentPreviewLine.fromJson(Map<String, dynamic> json) =>
       DocumentPreviewLine(
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
@@ -36,6 +45,8 @@ class DocumentPreviewLine {
             ? ''
             : '${json['last_discount_percent']}',
         availableQuantity: '${json['available_quantity'] ?? '0'}',
+        incomingQuantity: '${json['incoming_quantity'] ?? '0'}',
+        outgoingQuantity: '${json['outgoing_quantity'] ?? '0'}',
       );
 }
 

@@ -62,6 +62,7 @@ from app.inventory.schemas import (
     StockTransferCreate,
     StockWriteOffCreate,
 )
+from app.inventory.services import pipeline
 from app.inventory.services.movement_numbering import MovementNumbering
 from app.products.models import Product
 from app.uom.models import ConversionRule
@@ -554,21 +555,77 @@ class InventoryService:
             .group_by(Product.id, Product.code, Product.name)
             .order_by(Product.code.asc())
         ).all()
-        return [
-            InventoryLocationSummary(
-                scope_id=row[0],
-                scope_code=row[1],
-                scope_name=row[2],
-                current_quantity=Decimal(row[3] or 0),
-                reserved_quantity=Decimal(row[4] or 0),
-                available_quantity=Decimal(row[5] or 0),
-                blocked_quantity=Decimal(row[6] or 0),
-                damaged_quantity=Decimal(row[7] or 0),
-                quarantine_quantity=Decimal(row[8] or 0),
-                in_transit_quantity=Decimal(row[9] or 0),
+        coming = pipeline.by_product(
+            pipeline.incoming(self._session, firm_id=firm_scope)
+        )
+        going = pipeline.by_product(
+            pipeline.outgoing(self._session, firm_id=firm_scope)
+        )
+        summaries = [
+            self._with_pipeline(
+                InventoryLocationSummary(
+                    scope_id=row[0],
+                    scope_code=row[1],
+                    scope_name=row[2],
+                    current_quantity=Decimal(row[3] or 0),
+                    reserved_quantity=Decimal(row[4] or 0),
+                    available_quantity=Decimal(row[5] or 0),
+                    blocked_quantity=Decimal(row[6] or 0),
+                    damaged_quantity=Decimal(row[7] or 0),
+                    quarantine_quantity=Decimal(row[8] or 0),
+                    in_transit_quantity=Decimal(row[9] or 0),
+                ),
+                coming,
+                going,
             )
             for row in rows
         ]
+        # A product with nothing on the shelf yet but on order, or promised,
+        # still belongs in the list: that is exactly when the figures matter.
+        stocked = {summary.scope_id for summary in summaries}
+        unstocked = (set(coming) | set(going)) - stocked
+        if unstocked:
+            for product_id, code, name in self._session.execute(
+                select(Product.id, Product.code, Product.name).where(
+                    Product.id.in_(list(unstocked)),
+                    Product.firm_id == firm_scope,
+                    Product.is_deleted.is_(False),
+                )
+            ).all():
+                summaries.append(
+                    self._with_pipeline(
+                        InventoryLocationSummary(
+                            scope_id=product_id,
+                            scope_code=code,
+                            scope_name=name,
+                            current_quantity=ZERO,
+                            reserved_quantity=ZERO,
+                            available_quantity=ZERO,
+                            blocked_quantity=ZERO,
+                            damaged_quantity=ZERO,
+                            quarantine_quantity=ZERO,
+                            in_transit_quantity=ZERO,
+                        ),
+                        coming,
+                        going,
+                    )
+                )
+            summaries.sort(key=lambda summary: summary.scope_code)
+        return summaries
+
+    @staticmethod
+    def _with_pipeline(
+        summary: InventoryLocationSummary,
+        coming: dict[UUID, Decimal],
+        going: dict[UUID, Decimal],
+    ) -> InventoryLocationSummary:
+        """Add what is coming in and going out for the summary's scope."""
+        incoming = coming.get(summary.scope_id, ZERO)
+        outgoing = going.get(summary.scope_id, ZERO)
+        summary.incoming_quantity = incoming
+        summary.outgoing_quantity = outgoing
+        summary.projected_quantity = summary.available_quantity + incoming - outgoing
+        return summary
 
     def stock_by_warehouse(self, *, firm_scope: UUID) -> list[InventoryLocationSummary]:
         """Return stock totals per warehouse."""
@@ -594,18 +651,28 @@ class InventoryService:
             .group_by(Warehouse.id, Warehouse.code, Warehouse.name)
             .order_by(Warehouse.code.asc())
         ).all()
+        coming = pipeline.by_warehouse(
+            pipeline.incoming(self._session, firm_id=firm_scope)
+        )
+        going = pipeline.by_warehouse(
+            pipeline.outgoing(self._session, firm_id=firm_scope)
+        )
         return [
-            InventoryLocationSummary(
-                scope_id=row[0],
-                scope_code=row[1],
-                scope_name=row[2],
-                current_quantity=Decimal(row[3] or 0),
-                reserved_quantity=Decimal(row[4] or 0),
-                available_quantity=Decimal(row[5] or 0),
-                blocked_quantity=Decimal(row[6] or 0),
-                damaged_quantity=Decimal(row[7] or 0),
-                quarantine_quantity=Decimal(row[8] or 0),
-                in_transit_quantity=Decimal(row[9] or 0),
+            self._with_pipeline(
+                InventoryLocationSummary(
+                    scope_id=row[0],
+                    scope_code=row[1],
+                    scope_name=row[2],
+                    current_quantity=Decimal(row[3] or 0),
+                    reserved_quantity=Decimal(row[4] or 0),
+                    available_quantity=Decimal(row[5] or 0),
+                    blocked_quantity=Decimal(row[6] or 0),
+                    damaged_quantity=Decimal(row[7] or 0),
+                    quarantine_quantity=Decimal(row[8] or 0),
+                    in_transit_quantity=Decimal(row[9] or 0),
+                ),
+                coming,
+                going,
             )
             for row in rows
         ]

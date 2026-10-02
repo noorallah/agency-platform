@@ -969,6 +969,17 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
         'Available where it ships from',
         companion == null ? '—' : documentQuantity(companion.availableQuantity),
       ),
+      // What open orders on both sides will do to it (STK-10).
+      if (companion != null) ...[
+        DocumentSidePair(
+          'Coming in on purchase orders',
+          documentQuantity(companion.incomingQuantity),
+        ),
+        DocumentSidePair(
+          'Promised on other orders, not yet reserved',
+          documentQuantity(companion.outgoingQuantity),
+        ),
+      ],
       const DocumentSideNote('approving the order reserves it'),
       if (customer != null)
         ...documentCustomerLines(

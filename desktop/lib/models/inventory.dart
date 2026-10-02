@@ -194,6 +194,9 @@ class InventoryLocationSummaryRecord {
     required this.damagedQuantity,
     required this.quarantineQuantity,
     required this.inTransitQuantity,
+    this.incomingQuantity = '0',
+    this.outgoingQuantity = '0',
+    this.projectedQuantity = '0',
   });
 
   final String scopeId;
@@ -207,6 +210,15 @@ class InventoryLocationSummaryRecord {
   final String quarantineQuantity;
   final String inTransitQuantity;
 
+  /// On approved purchase orders, not yet received (STK-10).
+  final String incomingQuantity;
+
+  /// Promised on open sales orders, not yet dispatched nor reserved.
+  final String outgoingQuantity;
+
+  /// Available + incoming - outgoing.
+  final String projectedQuantity;
+
   factory InventoryLocationSummaryRecord.fromJson(Json json) =>
       InventoryLocationSummaryRecord(
         scopeId: stringValue(json['scope_id']),
@@ -219,6 +231,9 @@ class InventoryLocationSummaryRecord {
         damagedQuantity: _numberValue(json['damaged_quantity']),
         quarantineQuantity: _numberValue(json['quarantine_quantity']),
         inTransitQuantity: _numberValue(json['in_transit_quantity']),
+        incomingQuantity: _numberValue(json['incoming_quantity']),
+        outgoingQuantity: _numberValue(json['outgoing_quantity']),
+        projectedQuantity: _numberValue(json['projected_quantity']),
       );
 }
 

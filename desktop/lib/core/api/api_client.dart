@@ -2740,6 +2740,16 @@ class ApiClient {
         .toList();
   }
 
+  /// Stock per product with what is coming in and going out (STK-10).
+  Future<List<InventoryLocationSummaryRecord>> inventoryByProduct() async {
+    final Json response =
+        await request('GET', '/api/v1/inventory/summary/by-product');
+    return ((response['data'] as List?) ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(InventoryLocationSummaryRecord.fromJson)
+        .toList(growable: false);
+  }
+
   Future<List<InventoryLocationSummaryRecord>> inventoryByWarehouse() async {
     final Json response =
         await request('GET', '/api/v1/inventory/summary/by-warehouse');

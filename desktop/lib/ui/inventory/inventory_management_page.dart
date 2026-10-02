@@ -135,6 +135,7 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
   List<InventoryLocationSummaryRecord> _firmSummary = const [];
   List<InventoryLocationSummaryRecord> _branchSummary = const [];
   List<InventoryLocationSummaryRecord> _warehouseSummary = const [];
+  List<InventoryLocationSummaryRecord> _productSummary = const [];
 
   bool get _canCreateOpeningStock =>
       widget.permissions.hasPermission('OPENING_STOCK_CREATE');
@@ -406,12 +407,14 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
             widget.api.inventoryByFirm(),
             widget.api.inventoryByBranch(),
             widget.api.inventoryByWarehouse(),
+            widget.api.inventoryByProduct(),
           ]);
           _summary = results[0] as InventorySummaryRecord;
           _firmSummary = results[1] as List<InventoryLocationSummaryRecord>;
           _branchSummary = results[2] as List<InventoryLocationSummaryRecord>;
           _warehouseSummary =
               results[3] as List<InventoryLocationSummaryRecord>;
+          _productSummary = results[4] as List<InventoryLocationSummaryRecord>;
           _total = _summary?.totalRecords ?? 0;
           break;
         case InventorySection.inventoryImport:
@@ -566,6 +569,9 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
                     const SizedBox(height: 12),
                     _summaryTable('Warehouse stock', _warehouseSummary,
                         scope: 'warehouse'),
+                    const SizedBox(height: 12),
+                    _summaryTable('Product stock', _productSummary,
+                        scope: 'product'),
                   ],
                 ),
               ),
@@ -634,6 +640,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
             const SizedBox(height: 16),
             _summaryTable('Warehouse stock', _warehouseSummary,
                 scope: 'warehouse'),
+            const SizedBox(height: 16),
+            _summaryTable('Product stock', _productSummary, scope: 'product'),
           ],
         ),
       ),
@@ -1895,12 +1903,35 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
                 const Text('No rows available.')
               else
                 DataTable(
-                  columns: const [
-                    DataColumn(label: Text('Code')),
-                    DataColumn(label: Text('Name')),
-                    DataColumn(label: Text('Current')),
-                    DataColumn(label: Text('Available')),
-                    DataColumn(label: Text('Reserved')),
+                  columns: [
+                    const DataColumn(label: Text('Code')),
+                    const DataColumn(label: Text('Name')),
+                    const DataColumn(label: Text('Current')),
+                    const DataColumn(label: Text('Available')),
+                    const DataColumn(label: Text('Reserved')),
+                    // What open orders on both sides will do to it (STK-10).
+                    if (_showsPipeline(scope)) ...const [
+                      DataColumn(
+                        label: Tooltip(
+                          message: 'On approved purchase orders, not yet '
+                              'received',
+                          child: Text('Incoming'),
+                        ),
+                      ),
+                      DataColumn(
+                        label: Tooltip(
+                          message: 'Promised on open sales orders, not yet '
+                              'dispatched or reserved',
+                          child: Text('Outgoing'),
+                        ),
+                      ),
+                      DataColumn(
+                        label: Tooltip(
+                          message: 'Available + incoming - outgoing',
+                          child: Text('Projected'),
+                        ),
+                      ),
+                    ],
                   ],
                   rows: rows
                       .map(
@@ -1915,6 +1946,11 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
                             DataCell(Text(row.currentQuantity)),
                             DataCell(Text(row.availableQuantity)),
                             DataCell(Text(row.reservedQuantity)),
+                            if (_showsPipeline(scope)) ...[
+                              DataCell(Text(row.incomingQuantity)),
+                              DataCell(Text(row.outgoingQuantity)),
+                              DataCell(Text(row.projectedQuantity)),
+                            ],
                           ],
                         ),
                       )
@@ -1924,6 +1960,10 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
           ),
         ),
       );
+
+  /// The summaries the server fills incoming and outgoing on.
+  static bool _showsPipeline(String scope) =>
+      scope == 'warehouse' || scope == 'product';
 
   Future<void> _applySummaryDrillDown({
     required String scope,
@@ -1935,6 +1975,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         _warehouseId = null;
       } else if (scope == 'warehouse') {
         _warehouseId = row.scopeId;
+      } else if (scope == 'product') {
+        _productId = row.scopeId;
       }
       _status = 'ACTIVE';
       _includeDeleted = false;

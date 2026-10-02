@@ -210,6 +210,13 @@ class InventoryLocationSummary(InventorySchema):
     damaged_quantity: Decimal
     quarantine_quantity: Decimal
     in_transit_quantity: Decimal
+    #: Open purchase orders not yet received (STK-10). Filled on the
+    #: per-product and per-warehouse summaries.
+    incoming_quantity: Decimal = Decimal("0")
+    #: Open sales orders not yet dispatched nor reserved (STK-10).
+    outgoing_quantity: Decimal = Decimal("0")
+    #: Available + incoming - outgoing.
+    projected_quantity: Decimal = Decimal("0")
 
 
 class InventoryListFilters(InventorySchema):

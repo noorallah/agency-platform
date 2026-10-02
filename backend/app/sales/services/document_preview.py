@@ -193,6 +193,13 @@ def _with_stock(
             .group_by(InventoryRecord.product_id)
         ).all():
             firm_wide[product_id] = Decimal(str(available))
+    # Imported here: the inventory services read the sales models.
+    from app.inventory.services import pipeline
+
+    coming = pipeline.incoming(session, firm_id=firm_id, product_ids=product_ids)
+    going = pipeline.outgoing(session, firm_id=firm_id, product_ids=product_ids)
+    coming_firm_wide = pipeline.by_product(coming)
+    going_firm_wide = pipeline.by_product(going)
     result: list[DocumentPreviewLine] = []
     for line_number, product_id, warehouse_id in keys:
         previous = last.get(product_id)
@@ -208,6 +215,16 @@ def _with_stock(
                     stock.get((product_id, warehouse_id), Decimal("0"))
                     if warehouse_id
                     else firm_wide.get(product_id, Decimal("0"))
+                ),
+                incoming_quantity=(
+                    coming.get((warehouse_id, product_id), Decimal("0"))
+                    if warehouse_id
+                    else coming_firm_wide.get(product_id, Decimal("0"))
+                ),
+                outgoing_quantity=(
+                    going.get((warehouse_id, product_id), Decimal("0"))
+                    if warehouse_id
+                    else going_firm_wide.get(product_id, Decimal("0"))
                 ),
             )
         )
