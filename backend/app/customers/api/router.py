@@ -60,6 +60,12 @@ from app.customers.schemas.opening_bill import (
     CustomerOpeningBillResponse,
     CustomerOpeningBillWrite,
 )
+from app.customers.schemas.records import (
+    CustomerAttachmentResponse,
+    CustomerAttachmentsWrite,
+    CustomerBankAccountResponse,
+    CustomerBankAccountsWrite,
+)
 from app.customers.services import (
     CreditControlService,
     CustomerGroupService,
@@ -71,6 +77,7 @@ from app.customers.services.customer_import import (
     template_csv,
     template_workbook,
 )
+from app.customers.services.customer_records import CustomerRecordsService
 from app.customers.services.opening_bill_import import CustomerOpeningBillFileImporter
 from app.customers.services.opening_bill_service import CustomerOpeningBillService
 from app.imports.services import columns_for_kind, mapped_content, parse_mapping
@@ -100,6 +107,10 @@ CustomerExportScope = Annotated[
 ]
 CustomerSettingsScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("CUSTOMER_MANAGE_SETTINGS")
+]
+#: Changing where a customer's refunds are paid (MST-4).
+CustomerBankScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("CUSTOMER_MANAGE_BANK_DETAILS")
 ]
 CustomerImportScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("CUSTOMER_IMPORT")
@@ -793,6 +804,101 @@ def update_credit_settings(
         actor_id=scope.actor_id,
     )
     return ApiResponse(data=settings)
+
+
+@router.get(
+    "/{customer_id}/bank-accounts",
+    response_model=ApiResponse[list[CustomerBankAccountResponse]],
+)
+def customer_bank_accounts(
+    customer_id: UUID,
+    scope: CustomerViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[CustomerBankAccountResponse]]:
+    """Return the customer's bank accounts (MST-4).
+
+    Each number is masked to its last four digits unless the caller may
+    change it (``CUSTOMER_MANAGE_BANK_DETAILS``).
+    """
+    rows = CustomerRecordsService(db).bank_accounts(
+        customer_id,
+        firm_id=scope.firm_id,
+        unmasked=scope.principal.has_permission("CUSTOMER_MANAGE_BANK_DETAILS"),
+    )
+    return ApiResponse(data=rows)
+
+
+@router.put(
+    "/{customer_id}/bank-accounts",
+    response_model=ApiResponse[list[CustomerBankAccountResponse]],
+)
+def replace_customer_bank_accounts(
+    customer_id: UUID,
+    payload: CustomerBankAccountsWrite,
+    scope: CustomerBankScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[CustomerBankAccountResponse]]:
+    """Replace the customer's bank accounts with the list sent."""
+    rows = CustomerRecordsService(db).replace_bank_accounts(
+        customer_id,
+        payload.accounts,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(data=rows, message="Bank accounts saved.")
+
+
+@router.get(
+    "/{customer_id}/attachments",
+    response_model=ApiResponse[list[CustomerAttachmentResponse]],
+)
+def customer_attachments(
+    customer_id: UUID,
+    scope: CustomerViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[CustomerAttachmentResponse]]:
+    """Return the files kept on record for the customer (MST-4)."""
+    rows = CustomerRecordsService(db).attachments(customer_id, firm_id=scope.firm_id)
+    return ApiResponse(
+        data=[CustomerAttachmentResponse.model_validate(row) for row in rows]
+    )
+
+
+@router.post(
+    "/{customer_id}/attachments",
+    response_model=ApiResponse[list[CustomerAttachmentResponse]],
+    status_code=status.HTTP_201_CREATED,
+)
+def attach_customer_files(
+    customer_id: UUID,
+    payload: CustomerAttachmentsWrite,
+    scope: CustomerUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[CustomerAttachmentResponse]]:
+    """Keep KYC copies, agreements or licences on record for the customer."""
+    rows = CustomerRecordsService(db).attach(
+        customer_id, payload.files, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(
+        data=[CustomerAttachmentResponse.model_validate(row) for row in rows],
+        message="Files kept.",
+    )
+
+
+@router.delete(
+    "/{customer_id}/attachments/{attachment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def remove_customer_file(
+    customer_id: UUID,
+    attachment_id: UUID,
+    scope: CustomerUpdateScope,
+    db: Session = Depends(get_db),
+) -> None:
+    """Remove one file from the customer's record; the trail keeps it."""
+    CustomerRecordsService(db).remove_attachment(
+        customer_id, attachment_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
 
 
 @router.get("/{customer_id}", response_model=ApiResponse[CustomerResponse])

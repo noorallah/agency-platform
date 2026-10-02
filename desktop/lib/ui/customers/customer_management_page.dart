@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -9,6 +10,7 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/customer.dart';
 import '../../models/customer_opening_bill.dart';
+import '../../models/customer_records.dart';
 import '../../models/entities.dart';
 import '../../models/file_import.dart';
 import '../../models/firm_member.dart';
@@ -23,6 +25,7 @@ import '../workspace/reason_prompt.dart';
 import '../workspace/trade_licence_quick_add.dart';
 import 'credit_settings_dialog.dart';
 import 'customer_group_dialog.dart';
+import 'customer_records_sections.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 
@@ -314,6 +317,39 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
           onCancelOpeningBill: widget.api.cancelCustomerOpeningBill,
           canManageOpeningBills:
               widget.permissions.hasPermission('CUSTOMER_UPDATE'),
+          // Bank accounts and files (MST-4), phase 2 only, existing records
+          // only. The number arrives masked without the bank-details code.
+          loadBankAccounts: phase2 &&
+                  customer != null &&
+                  widget.permissions.hasPermission('CUSTOMER_VIEW')
+              ? () => widget.api.customerBankAccounts(customer.id)
+              : null,
+          onSaveBankAccounts: phase2 &&
+                  customer != null &&
+                  widget.permissions
+                      .hasPermission('CUSTOMER_MANAGE_BANK_DETAILS')
+              ? (accounts) async {
+                  await widget.api
+                      .saveCustomerBankAccounts(customer.id, accounts);
+                }
+              : null,
+          loadFiles: phase2 &&
+                  customer != null &&
+                  widget.permissions.hasPermission('CUSTOMER_VIEW')
+              ? () => widget.api.customerAttachments(customer.id)
+              : null,
+          onAddFiles: phase2 &&
+                  customer != null &&
+                  widget.permissions.hasPermission('CUSTOMER_UPDATE')
+              ? (files) async {
+                  await widget.api.addCustomerAttachments(customer.id, files);
+                }
+              : null,
+          onRemoveFile: phase2 &&
+                  customer != null &&
+                  widget.permissions.hasPermission('CUSTOMER_UPDATE')
+              ? (id) => widget.api.removeCustomerAttachment(customer.id, id)
+              : null,
         );
     final Customer? saved = phase2
         ? await showDocument<Customer>(
@@ -896,6 +932,12 @@ class CustomerWorkspaceDialog extends StatefulWidget {
     this.onCreateOpeningBill,
     this.onCancelOpeningBill,
     this.canManageOpeningBills = false,
+    this.loadBankAccounts,
+    this.onSaveBankAccounts,
+    this.loadFiles,
+    this.onAddFiles,
+    this.onRemoveFile,
+    this.pickFiles,
   });
 
   final CustomerDialogMode mode;
@@ -969,6 +1011,26 @@ class CustomerWorkspaceDialog extends StatefulWidget {
   /// Whether the user holds `CUSTOMER_UPDATE`, so "Add opening bill" and
   /// "Cancel" show.
   final bool canManageOpeningBills;
+
+  /// The customer's bank accounts (MST-4, phase 2 only). Null hides the
+  /// section for an existing record; a new one is told to save first.
+  final Future<List<CustomerBankAccount>> Function()? loadBankAccounts;
+
+  /// Replaces the whole list of bank accounts. Null (no
+  /// `CUSTOMER_MANAGE_BANK_DETAILS`) hides the Edit button.
+  final Future<void> Function(List<Json> accounts)? onSaveBankAccounts;
+
+  /// The files kept with the customer (MST-4, phase 2 only).
+  final Future<List<CustomerAttachment>> Function()? loadFiles;
+
+  /// Keeps files with the customer; null hides Add files.
+  final Future<void> Function(List<Json> files)? onAddFiles;
+
+  /// Takes one file off the customer; null hides Remove.
+  final Future<void> Function(String attachmentId)? onRemoveFile;
+
+  /// Injected by tests; the platform's file chooser otherwise.
+  final Future<List<XFile>> Function()? pickFiles;
 
   @override
   State<CustomerWorkspaceDialog> createState() =>
@@ -1060,6 +1122,8 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
       'Rounds',
       'Licences',
       'Opening bills',
+      'Bank accounts',
+      'Files',
     ])
       section: GlobalKey(),
   };

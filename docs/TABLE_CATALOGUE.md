@@ -137,7 +137,9 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `credit_control_settings` | firm store ¹ | Store one firm's credit-limit policy. | `firms` |
 | `customer_addresses` | firm store ¹ | Represent one reusable customer address. | `customers`, `geo_countries`, `geo_states`, `geo_districts`, `geo_cities`, `geo_postal_codes`, `geo_localities` |
+| `customer_attachments` | firm store ¹ | One file kept on record for a customer (MST-4). | `firms`, `customers` |
 | `customer_attribute_values` | firm store ¹ | Store one configurable attribute value for a customer. | `customers`, `firms`, `attribute_definitions` |
+| `customer_bank_accounts` | firm store ¹ | One bank account a customer is paid into (MST-4). | `firms`, `customers` |
 | `customer_contacts` | firm store ¹ | Represent one customer contact person. | `customers` |
 | `customer_groups` | firm store ¹ | A commercial segment a firm sells to: Retailer, Wholesaler, Institution. | `firms` |
 | `customer_opening_bills` | firm store ¹ | Store one bill a customer owed on the firm's first day here. | `customers`, `journal_entries` |

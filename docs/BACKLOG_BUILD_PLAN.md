@@ -128,7 +128,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | MST-1 | §75 row 1 | Principal (company) and brand masters | Nothing | M | Claude alone |
 | MST-2 | §75 row 7 | New rates from a future date, with rate history | Nothing | M | Claude alone |
 | MST-3 | §75 row 8 | Warn on duplicate parties; merge two into one | Nothing | L | Claude alone |
-| MST-4 | §75 row 9 | Attachments and a bank account on the customer | Nothing | S | Claude alone |
+| MST-4 | §75 row 9 | Attachments and a bank account on the customer -- **built 2026-10-03** (A68) | Nothing | S | Claude alone |
 | MST-5 | §75 row 10 | Customer, supplier and product codes issued automatically -- **built 2026-10-03** (A67) | Nothing | S | Claude alone |
 | MST-6 | §52 | Extra fields on documents, not only on masters | Nothing | L | Claude alone |
 | MST-7 | §17 | Features and modules created at runtime reach every store | Nothing | S | Claude alone |
@@ -670,6 +670,7 @@ otherwise it is built as written.
 - **What it is:** KYC copies, agreements and a bank account on the customer.
 - **What gets built:** copy `vendor_attachments` and `vendor_bank_accounts` (`backend/app/vendors/models/vendor.py`) for customers (migration); tabs on `customer_editor_phase2.dart`; masking per ACC-4. Tests.
 - **Depends on:** nothing. **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A68): `customer_bank_accounts` and `customer_attachments` (migration 0248, all stores; it also seeds `CUSTOMER_MANAGE_BANK_DETAILS`, held by the firm administrator, not the sales manager or accountant). `app/customers/services/customer_records.py`: `GET/PUT /customers/{id}/bank-accounts` (the list replaced whole; numbers masked to the last four unless the caller may change them, and masked in the trail), `GET/POST /customers/{id}/attachments`, `DELETE /customers/{id}/attachments/{attachment_id}` (file references, like STK-9). Desktop: *Bank accounts* and *Files* on the phase 2 customer editor. Tests: `test_customer_records.py`, `customer_records_test.dart`.
 
 #### MST-5. Codes from a series (§75 row 10)
 - **What it is:** customer, supplier and product codes issued automatically, as documents are.
