@@ -696,6 +696,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                   line.productId = value;
                   // Units of the last product are not units of this one.
                   line.serialIds.clear();
+                  line.batchPicks = null;
                   // The product's selling price, where nobody typed one --
                   // not on a bill whose rates include GST: that price is
                   // before tax, and blank takes it as such.
@@ -942,6 +943,44 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     );
   }
 
+  /// The batch picker of a line the bill dispatches itself, the delivery
+  /// note's own panel (backlog 79 row 2). The bill's date is the date the
+  /// stock is judged on; the quantity is taken as stock units.
+  Widget _batchPanel({
+    required String lineId,
+    required String productId,
+    required String warehouseId,
+    required double quantity,
+    required Map<String, double>? picks,
+    required ValueChanged<Map<String, double>> onChanged,
+  }) {
+    final Product? product = _product(productId);
+    final bool comparable = product == null ||
+        product.salesUomId.isEmpty ||
+        product.inventoryUomId.isEmpty ||
+        product.salesUomId == product.inventoryUomId;
+    return BatchPickerPanel(
+      key: ValueKey<String>('sales-invoice-batches-$lineId-$productId'),
+      api: widget.api,
+      lineId: lineId,
+      productId: productId,
+      warehouseId: warehouseId,
+      asOf: _iso(widget.today),
+      quantity: quantity,
+      picks: picks,
+      enabled: !_saving,
+      comparable: comparable,
+      keyPrefix: 'sales-invoice',
+      unreadableNote: 'could not read the batches; they will go earliest '
+          'expiry first when the bill is saved',
+      noWarehouseNote: 'this firm names no default warehouse, so the batches '
+          'go earliest expiry first',
+      mismatchNote: 'The batches do not add up to what this line bills; '
+          'saving will be refused.',
+      onChanged: onChanged,
+    );
+  }
+
   Widget _invoiceSidePanel(BuildContext context) {
     final Customer? customer = _customer;
     final List<Widget> line = <Widget>[];
@@ -1002,6 +1041,15 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
             needed: _SalesInvoiceEditorDialogState._units(draft.quantity.text),
           ),
         ],
+        if (draft.productId != null && _isBatched(draft.productId!))
+          _batchPanel(
+            lineId: 'direct-$index',
+            productId: draft.productId!,
+            warehouseId: _directWarehouse,
+            quantity: double.tryParse(draft.quantity.text.trim()) ?? 0,
+            picks: draft.batchPicks,
+            onChanged: (picks) => _setState(() => draft.batchPicks = picks),
+          ),
       ]);
     } else if (_lineEntries.isNotEmpty) {
       final int index = _current.clamp(0, _lineEntries.length - 1);
@@ -1051,6 +1099,18 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                 _quantities[source.sourceDocumentLineId]?.text ?? ''),
           ),
         ],
+        if (_picksBatches(document, source))
+          _batchPanel(
+            lineId: source.sourceDocumentLineId,
+            productId: source.productId,
+            warehouseId: source.warehouseId.isEmpty
+                ? _directWarehouse
+                : source.warehouseId,
+            quantity: _quantityOf(source),
+            picks: _batchPicks[source.sourceDocumentLineId],
+            onChanged: (picks) => _setState(
+                () => _batchPicks[source.sourceDocumentLineId] = picks),
+          ),
       ]);
     }
     return DocumentSidePanel(children: [

@@ -15,6 +15,7 @@ import '../../models/sales_invoice.dart';
 import '../../models/document_preview.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
+import '../workspace/batch_picker_panel.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/printed_document.dart';
 import 'ship_to_field.dart';
@@ -202,6 +203,12 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   /// Direct lines carry their own on [_DirectLine.serialIds].
   final Map<String, List<String>> _pickedSerials = <String, List<String>>{};
 
+  /// The batches chosen for a document line, by its source line id (backlog
+  /// 79 row 2): only where the bill dispatches its own goods. Absent means
+  /// nobody chose, and nothing is sent.
+  final Map<String, Map<String, double>> _batchPicks =
+      <String, Map<String, double>>{};
+
   /// AVAILABLE serials of each serial-tracked product, keyed by product and
   /// warehouse: what the bill picks from when it ships its own goods.
   final Map<String, List<SerialRecord>> _serialsOnShelf =
@@ -254,16 +261,27 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
               ),
             )
           : const [];
-      final List<Product> products = direct
-          ? await fetchAllPages<Product>(
-              (int page) => widget.api.products(
-                page: page,
-                pageSize: maxApiPageSize,
-                sortBy: 'name',
-                descending: false,
-              ),
-            )
-          : const [];
+      // An edit of a counter bill reads them too: which lines are
+      // batch-tracked decides whether its picker is offered.
+      final bool wantProducts =
+          direct || (widget.invoiceId != null && stages.billsDirectly);
+      List<Product> products = const [];
+      if (wantProducts) {
+        try {
+          products = await fetchAllPages<Product>(
+            (int page) => widget.api.products(
+              page: page,
+              pageSize: maxApiPageSize,
+              sortBy: 'name',
+              descending: false,
+            ),
+          );
+        } on Object {
+          // A bill of products cannot be raised without them; an edit just
+          // goes without the batch picker.
+          if (direct) rethrow;
+        }
+      }
       final String? id = widget.invoiceId;
       final Json? existing =
           id == null ? null : _unwrap(await widget.api.salesInvoice(id));
@@ -403,6 +421,14 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
             if (raw is Map) '${raw['serial_id'] ?? ''}',
         ];
       }
+      // The batches the note line takes, chosen or shipped (backlog 79).
+      final Map<String, double> taken = <String, double>{
+        for (final dynamic raw in (line['batches'] as List?) ?? const [])
+          if (raw is Map)
+            '${raw['batch_id'] ?? ''}':
+                double.tryParse('${raw['quantity'] ?? 0}') ?? 0,
+      };
+      if (taken.isNotEmpty) _batchPicks[lineId] = taken;
       rebuilt.add(BillableLine(
         sourceDocumentLineId: lineId,
         lineNumber: (line['line_number'] as num?)?.toInt() ?? 0,
@@ -571,6 +597,10 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
           'unit_price': line.unitPrice,
           if (_picksSerials(source, line))
             'serial_ids': [...?_pickedSerials[line.sourceDocumentLineId]],
+          if (!_drafting &&
+              _picksBatches(source, line) &&
+              _batchPicks[line.sourceDocumentLineId] != null)
+            'batches': _batchesPayload(_batchPicks[line.sourceDocumentLineId]!),
         });
       }
     }
@@ -625,6 +655,10 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         if (line.discount.text.trim().isNotEmpty)
           'discount_percent': line.discount.text.trim(),
         if (_isSerialised(product)) 'serial_ids': [...line.serialIds],
+        // Only when the person chose or reset: absent leaves the note's own
+        // earliest-expiry-first choice (backlog 79 row 2).
+        if (!_drafting && _isBatched(product) && line.batchPicks != null)
+          'batches': _batchesPayload(line.batchPicks!),
       });
     }
     if (lines.isEmpty) return null;
@@ -740,6 +774,40 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   bool _picksSerials(BillableDocument document, BillableLine line) =>
       line.trackSerial &&
       (document.sourceDocumentType == 'SALES_ORDER' || _editing);
+
+  /// Whether the product is tracked by batch and not by unit: the lines the
+  /// batch picker is offered for.
+  bool _isBatched(String productId) {
+    for (final Product product in _products) {
+      if (product.id == productId) {
+        return product.trackBatch && !product.trackSerial;
+      }
+    }
+    return false;
+  }
+
+  /// Whether a document line is one this bill may name batches for: only a
+  /// draft counter bill editing the note it raised -- the server refuses
+  /// batches on a note somebody else dispatched (backlog 79 row 2).
+  bool _picksBatches(BillableDocument document, BillableLine line) =>
+      _phase2 &&
+      _editing &&
+      _stages.billsDirectly &&
+      document.sourceDocumentType == 'DELIVERY_NOTE' &&
+      _isBatched(line.productId);
+
+  /// The split as the server takes it: stock units, nothing for a batch
+  /// given none, and an empty list for "back to earliest expiry".
+  List<Json> _batchesPayload(Map<String, double> picks) => <Json>[
+        for (final MapEntry<String, double> pick in picks.entries)
+          if (pick.value > 0)
+            <String, dynamic>{
+              'batch_id': pick.key,
+              'quantity': pick.value == pick.value.roundToDouble()
+                  ? pick.value.toStringAsFixed(0)
+                  : '${pick.value}',
+            },
+      ];
 
   /// Where a direct bill's goods leave from, when the firm has said.
   String get _directWarehouse => _stages.defaultWarehouseId ?? '';
@@ -1277,4 +1345,8 @@ class _DirectLine {
   final TextEditingController quantity = TextEditingController();
   final TextEditingController price = TextEditingController();
   final TextEditingController discount = TextEditingController();
+
+  /// The batches chosen for the product (backlog 79 row 2): null while
+  /// nobody has, an empty map once the choice is handed back to the server.
+  Map<String, double>? batchPicks;
 }
