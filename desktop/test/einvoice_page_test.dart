@@ -35,6 +35,7 @@ class _EInvoiceApi extends ApiClient {
     this.bill,
     this.provider = 'SANDBOX',
     this.notes = const [],
+    this.pending,
   })
       : super(
           baseUrl: 'http://localhost:8000',
@@ -50,6 +51,9 @@ class _EInvoiceApi extends ApiClient {
   List<String>? exportedCreditIds;
   List<String>? exportedDebitIds;
   final List<Json> notes;
+
+  /// The body of GET /einvoice/pending; null answers an empty one.
+  final Json? pending;
   String? importedName;
   List<int>? importedBytes;
   final List<String> requested = <String>[];
@@ -76,6 +80,9 @@ class _EInvoiceApi extends ApiClient {
           'available': <String>['SANDBOX', 'OFFLINE'],
         },
       };
+    }
+    if (path == '/api/v1/einvoice/pending') {
+      return <String, dynamic>{'data': pending};
     }
     if (path.contains('/eway-bill')) {
       if (method == 'POST') {
@@ -710,5 +717,88 @@ void main() {
     expect(api.exportedIds, isEmpty);
     expect(api.exportedCreditIds, ['cn-7']);
     expect(api.exportedDebitIds, ['dn-8']);
+  });
+
+  group('the To register list', () {
+    Json item(String id, String number, String state, int? daysLeft,
+            {String type = 'SALES_INVOICE', String? lastDay}) =>
+        <String, dynamic>{
+          'document_type': type,
+          'document_id': id,
+          'number': number,
+          'on': '2026-09-01',
+          'customer_name': 'Vijaya Super Stores',
+          'amount': '1180.00',
+          'registration_status': null,
+          'registration_error': null,
+          'last_day': lastDay ?? '2026-10-01',
+          'days_left': daysLeft,
+          'state': state,
+        };
+
+    Future<void> open(WidgetTester tester, _EInvoiceApi api) async {
+      await _pump(tester, api, phase2: true);
+      await tester.tap(find.byKey(const ValueKey('toolbar-more')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('To register'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('shows each document with its badge', (tester) async {
+      final _EInvoiceApi api = _EInvoiceApi(pending: <String, dynamic>{
+        'thirty_day_rule_applies': true,
+        'due_soon_days': 5,
+        'items': [
+          item('a', 'SI-1', 'LATE', -3),
+          item('b', 'CN-2', 'DUE_SOON', 2, type: 'CREDIT_NOTE'),
+          item('c', 'SI-3', 'OPEN', 20),
+        ],
+      });
+      await open(tester, api);
+      expect(find.text('Late'), findsOneWidget);
+      expect(find.text('2 days left'), findsOneWidget);
+      expect(find.text('Open'), findsOneWidget);
+      expect(find.text('Credit note'), findsOneWidget);
+      expect(find.textContaining('A late document cannot be registered'),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('to-register-not-applicable')),
+          findsNothing);
+
+      // A credit note is registered through its own endpoint.
+      await tester.tap(find.widgetWithText(TextButton, 'Register').first);
+      await tester.pumpAndSettle();
+      expect(api.requested,
+          contains('POST /api/v1/einvoice/credit-notes/b/register'));
+    });
+
+    testWidgets('a sales return is labelled and registered as a credit note',
+        (tester) async {
+      final _EInvoiceApi api = _EInvoiceApi(pending: <String, dynamic>{
+        'thirty_day_rule_applies': true,
+        'due_soon_days': 5,
+        'items': [item('r1', 'SR-1', 'OPEN', 20, type: 'SALES_RETURN')],
+      });
+      await open(tester, api);
+      expect(find.text('Sales return'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(TextButton, 'Register'));
+      await tester.pumpAndSettle();
+      expect(api.requested,
+          contains('POST /api/v1/einvoice/sales-returns/r1/register'));
+    });
+
+    testWidgets('says so where the 30-day limit does not apply',
+        (tester) async {
+      final _EInvoiceApi api = _EInvoiceApi(pending: <String, dynamic>{
+        'thirty_day_rule_applies': false,
+        'due_soon_days': 5,
+        'items': [item('a', 'SI-1', 'OPEN', null, lastDay: '')],
+      });
+      await open(tester, api);
+      expect(find.byKey(const ValueKey('to-register-not-applicable')),
+          findsOneWidget);
+      expect(find.text('Last day'), findsNothing);
+      expect(find.text('SI-1'), findsOneWidget);
+    });
   });
 }

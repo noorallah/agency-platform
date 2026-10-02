@@ -871,8 +871,12 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
   /// Render the credit note and hand it to whatever prints on this machine.
   Future<void> _printCreditNote(SalesReturn row) async {
     try {
-      final List<int> pdf = await widget.api.creditNotePdf(row.id);
-      if (!mounted) return;
+      final List<int>? pdf = await fetchPrintablePdf(
+        context,
+        ({bool referenceCopy = false}) =>
+            widget.api.creditNotePdf(row.id, referenceCopy: referenceCopy),
+      );
+      if (pdf == null || !mounted) return;
       await printDocument(context, bytes: pdf, documentName: row.returnNumber);
     } on ApiException catch (error) {
       if (!mounted) return;

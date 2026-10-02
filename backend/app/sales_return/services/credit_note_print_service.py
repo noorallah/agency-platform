@@ -18,6 +18,7 @@ got back.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import replace
 from decimal import Decimal
 from uuid import UUID
 
@@ -32,6 +33,7 @@ from app.document_framework.services.print_support import (
 )
 from app.products.models import Product
 from app.sales_invoice.services.invoice_pdf import (
+    EInvoiceStamp,
     InvoiceDocument,
     InvoiceLineBlock,
     InvoicePdfRenderer,
@@ -56,6 +58,16 @@ NOT_FINAL: dict[str, str] = {
     "CANCELLED": "CANCELLED - NO CREDIT GIVEN",
 }
 
+#: A return's statuses once its credit note is issued (GSTR-1 reads the same).
+_ISSUED = ("COMPLETED", "CLOSED")
+
+
+def _stamp(session: Session, firm_scope: UUID, return_id: UUID) -> EInvoiceStamp | None:
+    """Return the return's live IRN, as its print carries it (D-TAX-2)."""
+    from app.sales_invoice.services.invoice_print_service import einvoice_stamp
+
+    return einvoice_stamp(session, firm_scope=firm_scope, sales_return_id=return_id)
+
 
 class CreditNotePrintService:
     """Render one sales return as the credit note the customer is sent."""
@@ -64,8 +76,27 @@ class CreditNotePrintService:
         """Keep the tenant session the return lives on."""
         self._session = session
 
-    def render(self, return_id: UUID, *, firm_scope: UUID) -> tuple[bytes, str]:
-        """Return the PDF bytes and the filename to offer them under."""
+    def render(
+        self, return_id: UUID, *, firm_scope: UUID, reference_copy: bool = False
+    ) -> tuple[bytes, str]:
+        """Return the PDF bytes and the filename to offer them under.
+
+        A completed return against a B2B invoice the firm must e-invoice is
+        a credit note the IRP registers, so it prints only once it has its
+        IRN (77 row 6, D-TAX-2), or as a reference copy marked not valid.
+
+        Raises:
+            ResourceNotFoundError: When the firm has no such return.
+            BusinessRuleError: When it needs an IRN it does not have and no
+                reference copy was asked for.
+
+        """
+        from app.einvoice.services.issue_gate import (
+            REFERENCE_COPY_BANNER,
+            missing_irn,
+            refuse_without_irn,
+        )
+
         row = self._session.scalar(
             select(SalesReturn).where(
                 SalesReturn.id == return_id,
@@ -75,12 +106,43 @@ class CreditNotePrintService:
         )
         if row is None:
             raise ResourceNotFoundError("Sales return not found.")
-
-        pdf = InvoicePdfRenderer(self._template(firm_scope)).render(
-            self._document(row, firm_scope=firm_scope)
+        no_irn = (
+            missing_irn(
+                self._session,
+                firm_scope=firm_scope,
+                number=row.return_number,
+                on=row.return_date,
+                customer_id=row.customer_id,
+                status="APPROVED",
+                sales_return_id=row.id,
+            )
+            if row.status in _ISSUED and self._credits_an_invoice(row.id)
+            else None
         )
+        if not reference_copy:
+            refuse_without_irn(no_irn)
+
+        document = self._document(row, firm_scope=firm_scope)
+        if no_irn is not None:
+            document = replace(document, not_final=REFERENCE_COPY_BANNER)
+        pdf = InvoicePdfRenderer(self._template(firm_scope)).render(document)
         safe = row.return_number.replace("/", "-").replace(" ", "-")
         return pdf, f"{safe}.pdf"
+
+    def _credits_an_invoice(self, return_id: UUID) -> bool:
+        """Whether the return gives back goods an invoice billed."""
+        return (
+            self._session.scalar(
+                select(SalesReturnLine.id)
+                .where(
+                    SalesReturnLine.sales_return_id == return_id,
+                    SalesReturnLine.source_document_type == "SALES_INVOICE",
+                    SalesReturnLine.is_deleted.is_(False),
+                )
+                .limit(1)
+            )
+            is not None
+        )
 
     # ------------------------------------------------------------------
     def _template(self, firm_scope: UUID) -> TemplateSettings:
@@ -157,6 +219,7 @@ class CreditNotePrintService:
         return InvoiceDocument(
             # A draft credits nobody yet, and a cancelled one never will.
             not_final=NOT_FINAL.get(row.status),
+            einvoice=_stamp(self._session, firm_scope, row.id),
             number=row.return_number,
             date=row.return_date.strftime("%d %b %Y"),
             due_date=None,

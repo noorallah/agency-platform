@@ -30,9 +30,11 @@ from app.einvoice.services.eway_bills import EWayBillService
 from app.einvoice.services.note_registration import (
     CREDIT_NOTE,
     DEBIT_NOTE,
+    SALES_RETURN,
     NoteRegistrationService,
 )
 from app.einvoice.services.offline import OfflineEInvoiceService
+from app.einvoice.services.reporting_window import DUE_SOON_DAYS, last_day, pending
 from app.einvoice.services.settings import (
     AVAILABLE_PROVIDERS,
     EInvoiceSettingsService,
@@ -63,7 +65,9 @@ class RegistrationResponse(BaseModel):
     #: A credit note or a debit note to a customer (77 row 4), else null.
     credit_note_id: UUID | None = None
     customer_debit_note_id: UUID | None = None
-    #: SALES_INVOICE, CREDIT_NOTE or DEBIT_NOTE.
+    #: A sales return's credit note (D-TAX-2), else null.
+    sales_return_id: UUID | None = None
+    #: SALES_INVOICE, CREDIT_NOTE, DEBIT_NOTE or SALES_RETURN.
     document_type: str = "SALES_INVOICE"
     #: What the grid needs to tell one registration from another: an id
     #: alone left the screen a list of references nobody could match to a
@@ -186,6 +190,8 @@ class OfflineExportRequest(BaseModel):
     #: Notes go with the invoices in one upload (77 row 4).
     credit_note_ids: list[UUID] = Field(default_factory=list, max_length=500)
     debit_note_ids: list[UUID] = Field(default_factory=list, max_length=500)
+    #: A sales return's credit note (D-TAX-2).
+    sales_return_ids: list[UUID] = Field(default_factory=list, max_length=500)
 
 
 class OfflineImportResponse(BaseModel):
@@ -245,6 +251,7 @@ def export_offline(
         actor_id=scope.actor_id,
         credit_note_ids=data.credit_note_ids,
         debit_note_ids=data.debit_note_ids,
+        sales_return_ids=data.sales_return_ids,
     )
     stamp = utc_now().strftime("%Y%m%d-%H%M")
     return Response(
@@ -304,6 +311,35 @@ class EWayBillDueResponse(BaseModel):
     items: list[EWayBillDueItem]
 
 
+class PendingRegistrationItem(BaseModel):
+    """A B2B document the firm must register and has not (77 row 7)."""
+
+    document_type: str
+    document_id: UUID
+    number: str
+    on: date
+    customer_name: str
+    amount: Decimal
+    #: PENDING (exported, awaiting the portal's file), FAILED, CANCELLED, or
+    #: None when nobody has tried.
+    registration_status: str | None
+    registration_error: str | None
+    #: The last day the IRP accepts it; None while the 30-day limit does not
+    #: bind the firm.
+    last_day: date | None
+    days_left: int | None
+    #: OPEN, DUE_SOON (within the warning days of the last day) or LATE.
+    state: str
+
+
+class PendingRegistrationResponse(BaseModel):
+    """Every document still to be registered, oldest first."""
+
+    thirty_day_rule_applies: bool
+    due_soon_days: int
+    items: list[PendingRegistrationItem]
+
+
 class EWayBillRecordRequest(BaseModel):
     """An e-way bill raised by hand on the portal, for one document (A42)."""
 
@@ -344,6 +380,46 @@ def eway_bills_due(
                     value=item.value,
                 )
                 for item in service.due(scope.firm_id)
+            ],
+        )
+    )
+
+
+@router.get("/pending", response_model=ApiResponse[PendingRegistrationResponse])
+def pending_registrations(
+    scope: EInvoiceViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PendingRegistrationResponse]:
+    """List the B2B documents still to be registered, with days left (77.7).
+
+    Invoices, credit notes and debit notes past the firm's e-invoicing date
+    with no live IRN. Where the 30-day limit binds the firm each carries its
+    last day and whether it is due soon or already late.
+    """
+    items = pending(db, scope.firm_id)
+    today = utc_now().date()
+    return ApiResponse(
+        data=PendingRegistrationResponse(
+            thirty_day_rule_applies=last_day(
+                db, firm_scope=scope.firm_id, on=today, today=today
+            )
+            is not None,
+            due_soon_days=DUE_SOON_DAYS,
+            items=[
+                PendingRegistrationItem(
+                    document_type=item.document_type,
+                    document_id=item.document_id,
+                    number=item.number,
+                    on=item.on,
+                    customer_name=item.customer_name,
+                    amount=Decimal(str(item.amount or 0)),
+                    registration_status=item.registration_status,
+                    registration_error=item.registration_error,
+                    last_day=item.last_day,
+                    days_left=item.days_left,
+                    state=item.state,
+                )
+                for item in items
             ],
         )
     )
@@ -626,14 +702,21 @@ def cancel_eway_bill(
 
 # Declared last: the first path segment is a parameter, and FastAPI matches in
 # declaration order, so declared earlier these would answer the invoice routes.
-_NOTE_KINDS = {"credit-notes": CREDIT_NOTE, "debit-notes": DEBIT_NOTE}
+_NOTE_KINDS = {
+    "credit-notes": CREDIT_NOTE,
+    "debit-notes": DEBIT_NOTE,
+    # A sales return's credit note (D-TAX-2).
+    "sales-returns": SALES_RETURN,
+}
 
 
 def _note_kind(segment: str) -> str:
     """Return the note kind a path segment names, or refuse it."""
     kind = _NOTE_KINDS.get(segment)
     if kind is None:
-        raise ResourceNotFoundError("Choose credit-notes or debit-notes.")
+        raise ResourceNotFoundError(
+            "Choose credit-notes, debit-notes or sales-returns."
+        )
     return kind
 
 

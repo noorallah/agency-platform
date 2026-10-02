@@ -441,15 +441,17 @@ def print_sales_return(
     return_id: UUID,
     scope: SalesReturnViewScope,
     db: Annotated[Session, Depends(get_db)],
+    reference_copy: Annotated[bool, Query()] = False,
 ) -> StreamingResponse:
     """Render one sales return as the credit note the customer files.
 
     Viewing is the permission: the document states what the screen already
     shows, and the person who sends it is not necessarily the one who may
-    change it.
+    change it. Refused before its IRN where the firm must e-invoice it
+    (D-TAX-2), unless ``reference_copy`` asks for a copy marked not valid.
     """
     pdf, filename = CreditNotePrintService(db).render(
-        return_id, firm_scope=scope.firm_id
+        return_id, firm_scope=scope.firm_id, reference_copy=reference_copy
     )
     return StreamingResponse(
         iter([pdf]),

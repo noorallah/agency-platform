@@ -13,6 +13,7 @@ class EInvoiceRegistrationRecord {
     this.documentType = 'SALES_INVOICE',
     this.creditNoteId = '',
     this.customerDebitNoteId = '',
+    this.salesReturnId = '',
     this.invoiceNumber = '',
     this.customerName = '',
     required this.mode,
@@ -32,10 +33,13 @@ class EInvoiceRegistrationRecord {
   /// Empty where the row is about a credit or debit note (77 row 4).
   final String salesInvoiceId;
 
-  /// SALES_INVOICE, CREDIT_NOTE or DEBIT_NOTE.
+  /// SALES_INVOICE, CREDIT_NOTE, DEBIT_NOTE or SALES_RETURN.
   final String documentType;
   final String creditNoteId;
   final String customerDebitNoteId;
+
+  /// Set where the row is about a completed sales return (D-TAX-2).
+  final String salesReturnId;
 
   /// How it reaches the portal: SANDBOX or OFFLINE (A42).
   final String provider;
@@ -60,25 +64,31 @@ class EInvoiceRegistrationRecord {
   bool get isInvoice => documentType == 'SALES_INVOICE';
   bool get isCreditNote => documentType == 'CREDIT_NOTE';
   bool get isDebitNote => documentType == 'DEBIT_NOTE';
+  bool get isSalesReturn => documentType == 'SALES_RETURN';
 
   /// The id of whichever document this row is about.
   String get documentId => isCreditNote
       ? creditNoteId
       : isDebitNote
           ? customerDebitNoteId
-          : salesInvoiceId;
+          : isSalesReturn
+              ? salesReturnId
+              : salesInvoiceId;
 
   /// The path segment the note routes use, or null for an invoice.
   String? get noteKind => isCreditNote
       ? 'credit-notes'
       : isDebitNote
           ? 'debit-notes'
-          : null;
+          : isSalesReturn
+              ? 'sales-returns'
+              : null;
 
   /// What kind of document this is, in words for a grid column.
   String get documentLabel => switch (documentType) {
         'CREDIT_NOTE' => 'Credit note',
         'DEBIT_NOTE' => 'Debit note',
+        'SALES_RETURN' => 'Sales return',
         _ => 'Invoice',
       };
 
@@ -101,6 +111,7 @@ class EInvoiceRegistrationRecord {
             : stringValue(json['document_type']),
         creditNoteId: stringValue(json['credit_note_id']),
         customerDebitNoteId: stringValue(json['customer_debit_note_id']),
+        salesReturnId: stringValue(json['sales_return_id']),
         invoiceNumber: stringValue(json['invoice_number']),
         customerName: stringValue(json['customer_name']),
         mode: stringValue(json['mode']),
@@ -282,5 +293,102 @@ class EWayBillDueList {
                 .map((row) => EWayBillDue.fromJson(Map<String, dynamic>.from(row)))
                 .toList()
             : const <EWayBillDue>[],
+      );
+}
+
+/// One approved B2B document the firm must e-invoice that has no IRN yet
+/// (77.7). [state] is OPEN, DUE_SOON or LATE against the 30-day limit.
+class EInvoicePending {
+  const EInvoicePending({
+    required this.documentType,
+    required this.documentId,
+    required this.number,
+    required this.on,
+    required this.customerName,
+    required this.amount,
+    required this.registrationStatus,
+    required this.registrationError,
+    required this.lastDay,
+    required this.daysLeft,
+    required this.state,
+  });
+
+  /// SALES_INVOICE, CREDIT_NOTE, DEBIT_NOTE or SALES_RETURN.
+  final String documentType;
+  final String documentId;
+  final String number;
+  final String on;
+  final String customerName;
+  final String amount;
+
+  /// PENDING, FAILED or CANCELLED; empty when never tried.
+  final String registrationStatus;
+  final String registrationError;
+
+  /// Empty when the 30-day limit does not apply.
+  final String lastDay;
+  final int? daysLeft;
+  final String state;
+
+  bool get isLate => state == 'LATE';
+
+  /// The path segment of a note's register endpoint; null for an invoice.
+  String? get noteKind => switch (documentType) {
+        'CREDIT_NOTE' => 'credit-notes',
+        'DEBIT_NOTE' => 'debit-notes',
+        'SALES_RETURN' => 'sales-returns',
+        _ => null,
+      };
+
+  String get typeLabel => switch (documentType) {
+        'CREDIT_NOTE' => 'Credit note',
+        'DEBIT_NOTE' => 'Debit note',
+        'SALES_RETURN' => 'Sales return',
+        _ => 'Invoice',
+      };
+
+  factory EInvoicePending.fromJson(Json json) => EInvoicePending(
+        documentType: stringValue(json['document_type']),
+        documentId: stringValue(json['document_id']),
+        number: stringValue(json['number']),
+        on: stringValue(json['on']),
+        customerName: stringValue(json['customer_name']),
+        amount: stringValue(json['amount']),
+        registrationStatus: stringValue(json['registration_status']),
+        registrationError: stringValue(json['registration_error']),
+        lastDay: stringValue(json['last_day']),
+        daysLeft: json['days_left'] is num
+            ? (json['days_left'] as num).toInt()
+            : null,
+        state: stringValue(json['state']),
+      );
+}
+
+/// What still has to be registered, and whether the 30-day limit applies.
+class EInvoicePendingList {
+  const EInvoicePendingList({
+    required this.thirtyDayRuleApplies,
+    required this.dueSoonDays,
+    required this.items,
+  });
+
+  final bool thirtyDayRuleApplies;
+  final int dueSoonDays;
+  final List<EInvoicePending> items;
+
+  bool get anyLate => items.any((item) => item.isLate);
+
+  factory EInvoicePendingList.fromJson(Json json) => EInvoicePendingList(
+        thirtyDayRuleApplies: json['thirty_day_rule_applies'] == true,
+        dueSoonDays: json['due_soon_days'] is num
+            ? (json['due_soon_days'] as num).toInt()
+            : 5,
+        items: json['items'] is List
+            ? (json['items'] as List)
+                .whereType<Map>()
+                .map((row) =>
+                    EInvoicePending.fromJson(Map<String, dynamic>.from(row)))
+                .toList()
+            : const <EInvoicePending>[],
       );
 }

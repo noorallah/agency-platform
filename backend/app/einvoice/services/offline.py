@@ -37,11 +37,13 @@ from app.einvoice.models import (
 from app.einvoice.services.note_registration import (
     CREDIT_NOTE,
     DEBIT_NOTE,
+    SALES_RETURN,
     note_column,
     note_payload,
     read_note,
 )
 from app.einvoice.services.payload import EInvoicePayloadBuilder
+from app.einvoice.services.reporting_window import refuse_if_late
 from app.sales_invoice.models import SalesInvoice
 
 #: The keys a portal result names each value under, normalised: the JSON's own
@@ -59,6 +61,9 @@ _KEYS: dict[str, tuple[str, ...]] = {
 
 #: The portal's document type to the kind of record it names (77 row 4).
 _TYPES = {"INV": "SALES_INVOICE", "CRN": "CREDIT_NOTE", "DBN": "DEBIT_NOTE"}
+#: The records a portal type may name: a CRN is a credit note or a sales
+#: return's credit note (D-TAX-2).
+_SAME_TYPE = {"CREDIT_NOTE": {"CREDIT_NOTE", "SALES_RETURN"}}
 
 
 @dataclass
@@ -157,6 +162,7 @@ class OfflineEInvoiceService:
         actor_id: UUID,
         credit_note_ids: list[UUID] | None = None,
         debit_note_ids: list[UUID] | None = None,
+        sales_return_ids: list[UUID] | None = None,
     ) -> list[dict[str, object]]:
         """Return the bulk-upload JSON for these invoices, marking them PENDING.
 
@@ -165,7 +171,7 @@ class OfflineEInvoiceService:
                 already, or was cancelled on the portal.
 
         """
-        if not (invoice_ids or credit_note_ids or debit_note_ids):
+        if not (invoice_ids or credit_note_ids or debit_note_ids or sales_return_ids):
             raise ValidationError("Choose at least one document to export.")
         invoices = list(
             self._session.scalars(
@@ -194,6 +200,12 @@ class OfflineEInvoiceService:
                     f"{invoice.invoice_number} is {row.status.lower()} already "
                     f"({row.irn}); it is not exported again."
                 )
+            refuse_if_late(
+                self._session,
+                firm_scope=firm_scope,
+                number=invoice.invoice_number,
+                on=invoice.invoice_date,
+            )
             payload = self._payloads.build(invoice, firm_id=firm_scope)
             if row is None:
                 row = EInvoiceRegistration(
@@ -215,6 +227,7 @@ class OfflineEInvoiceService:
         for kind, ids in (
             (CREDIT_NOTE, credit_note_ids or []),
             (DEBIT_NOTE, debit_note_ids or []),
+            (SALES_RETURN, sales_return_ids or []),
         ):
             for note_id in ids:
                 payloads.append(
@@ -232,7 +245,11 @@ class OfflineEInvoiceService:
             entity_id=(
                 invoices[0].id
                 if invoices
-                else [*(credit_note_ids or []), *(debit_note_ids or [])][0]
+                else [
+                    *(credit_note_ids or []),
+                    *(debit_note_ids or []),
+                    *(sales_return_ids or []),
+                ][0]
             ),
             actor_id=actor_id,
             firm_id=firm_scope,
@@ -319,6 +336,9 @@ class OfflineEInvoiceService:
                 f"{note.number} is {note.status.lower()}; only an approved note "
                 "is registered."
             )
+        refuse_if_late(
+            self._session, firm_scope=firm_scope, number=note.number, on=note.dated
+        )
         column = note_column(kind)
         row = self._session.scalar(
             select(EInvoiceRegistration).where(
@@ -361,6 +381,7 @@ class OfflineEInvoiceService:
         """
         from app.credit_note.models import CreditNote
         from app.customer_debit_note.models import CustomerDebitNote
+        from app.sales_return.models import SalesReturn
 
         lookups = (
             (
@@ -381,9 +402,16 @@ class OfflineEInvoiceService:
                 CustomerDebitNote.debit_note_number,
                 "customer_debit_note_id",
             ),
+            # A CRN may be a sales return's credit note too (D-TAX-2).
+            (
+                "SALES_RETURN",
+                SalesReturn,
+                SalesReturn.return_number,
+                "sales_return_id",
+            ),
         )
         for name, model, column, key in lookups:
-            if kind is not None and kind != name:
+            if kind is not None and name not in _SAME_TYPE.get(kind, {kind}):
                 continue
             document_id = self._session.scalar(
                 select(model.id).where(

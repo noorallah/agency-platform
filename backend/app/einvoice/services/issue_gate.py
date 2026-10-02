@@ -67,6 +67,7 @@ def has_live_irn(
     sales_invoice_id: UUID | None = None,
     credit_note_id: UUID | None = None,
     customer_debit_note_id: UUID | None = None,
+    sales_return_id: UUID | None = None,
 ) -> bool:
     """Whether one document carries a REGISTERED registration with an IRN."""
     from app.einvoice.models import EInvoiceRegistration
@@ -77,6 +78,7 @@ def has_live_irn(
             (EInvoiceRegistration.sales_invoice_id, sales_invoice_id),
             (EInvoiceRegistration.credit_note_id, credit_note_id),
             (EInvoiceRegistration.customer_debit_note_id, customer_debit_note_id),
+            (EInvoiceRegistration.sales_return_id, sales_return_id),
         )
         if value is not None
     )
@@ -102,6 +104,7 @@ def missing_irn(
     sales_invoice_id: UUID | None = None,
     credit_note_id: UUID | None = None,
     customer_debit_note_id: UUID | None = None,
+    sales_return_id: UUID | None = None,
 ) -> str | None:
     """Say why a document may not go out yet, or None when it may.
 
@@ -115,6 +118,8 @@ def missing_irn(
         sales_invoice_id: The invoice, when the document is one.
         credit_note_id: The credit note, when the document is one.
         customer_debit_note_id: The debit note, when the document is one.
+        sales_return_id: The sales return, when the document is its credit
+            note (D-TAX-2).
 
     """
     if status in _NOT_ISSUED:
@@ -130,6 +135,7 @@ def missing_irn(
         sales_invoice_id=sales_invoice_id,
         credit_note_id=credit_note_id,
         customer_debit_note_id=customer_debit_note_id,
+        sales_return_id=sales_return_id,
     ):
         return None
     return (

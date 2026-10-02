@@ -369,6 +369,7 @@ class EInvoicePayloadBuilder:
         invoice: SalesInvoice,
         lines: list[Any],
         firm_id: UUID,
+        references: tuple[SalesInvoice, ...] = (),
     ) -> dict[str, object]:
         """Return the payload for a credit note (CRN) or debit note (DBN).
 
@@ -488,13 +489,15 @@ class EInvoicePayloadBuilder:
                 "RndOffAmt": 0.0,
                 "TotInvVal": float(total_taxable + tax_total),
             },
-            # The invoice the note corrects, which the portal ties it to.
+            # The invoices the note corrects, which the portal ties it to: a
+            # sales return may cover several (D-TAX-2).
             "RefDtls": {
                 "PrecDocDtls": [
                     {
-                        "InvNo": invoice.invoice_number,
-                        "InvDt": invoice.invoice_date.strftime("%d/%m/%Y"),
+                        "InvNo": each.invoice_number,
+                        "InvDt": each.invoice_date.strftime("%d/%m/%Y"),
                     }
+                    for each in (references or (invoice,))
                 ]
             },
         }

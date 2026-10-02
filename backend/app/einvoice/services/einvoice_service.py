@@ -40,6 +40,7 @@ from app.einvoice.models import (
 from app.einvoice.services.eway_payload import eway_payload
 from app.einvoice.services.payload import EInvoicePayloadBuilder
 from app.einvoice.services.portal import PortalResult, portal_for
+from app.einvoice.services.reporting_window import refuse_if_late
 from app.sales_invoice.models import (
     SalesInvoice,
     SalesInvoiceLine,
@@ -142,6 +143,7 @@ class EInvoiceService:
         """
         from app.credit_note.models import CreditNote
         from app.customer_debit_note.models import CustomerDebitNote
+        from app.sales_return.models import SalesReturn
 
         rows = list(rows)
         found: dict[UUID, tuple[str, str]] = {}
@@ -149,11 +151,13 @@ class EInvoiceService:
             (SalesInvoice, SalesInvoice.invoice_number),
             (CreditNote, CreditNote.credit_note_number),
             (CustomerDebitNote, CustomerDebitNote.debit_note_number),
+            (SalesReturn, SalesReturn.return_number),
         ):
             column = {
                 SalesInvoice: "sales_invoice_id",
                 CreditNote: "credit_note_id",
                 CustomerDebitNote: "customer_debit_note_id",
+                SalesReturn: "sales_return_id",
             }[model]
             ids = {getattr(row, column) for row in rows} - {None}
             if not ids:
@@ -170,14 +174,18 @@ class EInvoiceService:
                 found[document_id] = (label or "", name or "")
         labels: dict[UUID, tuple[str, str, str]] = {}
         for row in rows:
-            kind, document_id = (
-                ("SALES_INVOICE", row.sales_invoice_id)
-                if row.sales_invoice_id
-                else (
-                    ("CREDIT_NOTE", row.credit_note_id)
-                    if row.credit_note_id
-                    else ("DEBIT_NOTE", row.customer_debit_note_id)
-                )
+            kind, document_id = next(
+                (
+                    (name, value)
+                    for name, value in (
+                        ("SALES_INVOICE", row.sales_invoice_id),
+                        ("CREDIT_NOTE", row.credit_note_id),
+                        ("DEBIT_NOTE", row.customer_debit_note_id),
+                        ("SALES_RETURN", row.sales_return_id),
+                    )
+                    if value is not None
+                ),
+                ("SALES_INVOICE", None),
             )
             number, name = found.get(document_id, ("", "")) if document_id else ("", "")
             labels[row.id] = (kind, number, name)
@@ -287,6 +295,12 @@ class EInvoiceService:
                 "document number. Cancel this invoice and raise a new one to "
                 "register the supply again."
             )
+        refuse_if_late(
+            self._session,
+            firm_scope=firm_scope,
+            number=invoice.invoice_number,
+            on=invoice.invoice_date,
+        )
         payload = self._payloads.build(invoice, firm_id=firm_scope)
         row = existing or EInvoiceRegistration(
             firm_id=firm_scope,

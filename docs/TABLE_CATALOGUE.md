@@ -185,7 +185,7 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `einvoice_registrations` | firm store ¹ | One sales invoice, as the Invoice Registration Portal knows it. | `sales_invoices` |
+| `einvoice_registrations` | firm store ¹ | One document -- a sales invoice, credit note, debit note to a customer or sales return -- as the Invoice Registration Portal knows it. | `sales_invoices`, `credit_notes`, `customer_debit_notes`, `sales_returns` |
 | `eway_bills` | firm store ¹ | One consignment's e-way bill, raised against an invoice. | `sales_invoices` |
 
 ### `app/expenses`
