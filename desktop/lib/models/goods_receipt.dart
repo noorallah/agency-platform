@@ -247,6 +247,9 @@ class GoodsReceiptRecord {
     required this.attachments,
     required this.notes,
     required this.duplicateWarning,
+    this.ewayBillNumber = '',
+    this.ewayBillDate = '',
+    this.ewayBillWarning = '',
   });
 
   final String id;
@@ -297,6 +300,15 @@ class GoodsReceiptRecord {
   final List<GoodsReceiptAttachment> attachments;
   final List<GoodsReceiptNote> notes;
   final String duplicateWarning;
+
+  /// The 12-digit e-way bill the supplier raised for the goods; empty when
+  /// none is on file (backlog 78 row 6).
+  final String ewayBillNumber;
+  final String ewayBillDate;
+
+  /// Set when the goods are worth more than the e-way bill limit and no
+  /// number is recorded.
+  final String ewayBillWarning;
 
   factory GoodsReceiptRecord.fromJson(Json json) => GoodsReceiptRecord(
         id: stringValue(json['id']),
@@ -354,6 +366,9 @@ class GoodsReceiptRecord {
                 GoodsReceiptNote.fromJson(Map<String, dynamic>.from(item)))
             .toList(growable: false),
         duplicateWarning: stringValue(json['duplicate_warning']),
+        ewayBillNumber: stringValue(json['eway_bill_number']),
+        ewayBillDate: stringValue(json['eway_bill_date']),
+        ewayBillWarning: stringValue(json['eway_bill_warning']),
       );
 
   DocumentHeaderSnapshot toHeader() => DocumentHeaderSnapshot(
