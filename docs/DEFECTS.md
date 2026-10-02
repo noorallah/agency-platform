@@ -313,6 +313,7 @@ None open (2026-10-01). D-GOLIVE-1 (#870), D-GOLIVE-2 (#884) and D-GOLIVE-3
 | Id | Found | Summary | Severity | Evidence | Where |
 | --- | --- | --- | --- | --- | --- |
 
+None open (2026-10-02). D-TEST-2 and D-UI-2 are under Fixed.
 
 ### Found in manual testing and not yet fixed -- `docs/BACKLOG.md` §31
 
