@@ -27,6 +27,7 @@ GoodsReceiptRecord _receipt() => GoodsReceiptRecord.fromJson({
       'receipt_date': '2026-08-10',
       'status': 'COMPLETED',
       'vendor_id': 'vendor-1',
+      'vendor_name': 'Medico Distributors',
       'branch_id': 'branch-1',
       'lines': [
         {
@@ -361,9 +362,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('No goods receipt chosen'), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('purchase-invoice-receipt')));
+    await tester.tap(
+        find.byKey(const ValueKey('purchase-invoice-receipt-supplier')));
     await tester.pumpAndSettle();
-    await tester.tap(find.textContaining('GRN-2026-000001').last);
+    await tester.tap(find.text('Medico Distributors').last);
     await tester.pumpAndSettle();
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
@@ -432,9 +434,10 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('purchase-invoice-receipt')));
+      await tester.tap(
+        find.byKey(const ValueKey('purchase-invoice-receipt-supplier')));
       await tester.pumpAndSettle();
-      await tester.tap(find.textContaining('GRN-2026-000001').last);
+      await tester.tap(find.text('Medico Distributors').last);
       await tester.pumpAndSettle();
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();

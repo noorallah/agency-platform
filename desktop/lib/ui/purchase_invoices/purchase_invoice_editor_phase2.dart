@@ -272,53 +272,44 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
     switch (_mode) {
       case PurchaseBillMode.receipt:
         final GoodsReceiptRecord? receipt = _receipt;
+        final String? vendorId = _tickVendorId;
         return DocumentField(
-          label: 'Goods receipt being billed (completed only)',
+          label: 'Supplier (only those with receipts to bill)',
           width: 400,
-          below: receipt == null
-              ? null
-              : _quietLine(
-                  context,
-                  [
-                    'received ${_dayOf(receipt.receiptDate)}',
-                    if (receipt.purchaseOrderNumber.isNotEmpty)
-                      'order ${receipt.purchaseOrderNumber}',
-                    if (receipt.invoiceReference.isNotEmpty)
-                      'bill noted on receipt ${receipt.invoiceReference}',
-                  ].join('  ·  '),
-                ),
+          below: _withNoGstNote(
+            context,
+            receipt == null
+                ? null
+                : _quietLine(
+                    context,
+                    [
+                      'received ${_dayOf(receipt.receiptDate)}',
+                      if (receipt.purchaseOrderNumber.isNotEmpty)
+                        'order ${receipt.purchaseOrderNumber}',
+                      if (receipt.invoiceReference.isNotEmpty)
+                        'bill noted on receipt ${receipt.invoiceReference}',
+                    ].join('  ·  '),
+                  ),
+            vendorId == null ? null : _vendor(vendorId),
+          ),
           child: DropdownMenu<String>(
-            key: const ValueKey('purchase-invoice-receipt'),
-            initialSelection: receipt?.id,
+            key: const ValueKey('purchase-invoice-receipt-supplier'),
+            initialSelection: vendorId,
             width: 400,
             enabled: !_saving,
             enableFilter: true,
             requestFocusOnTap: true,
             menuHeight: 320,
+            hintText: 'Choose the supplier first',
             inputDecorationTheme: _pickerTheme(scheme),
             dropdownMenuEntries: [
-              for (final GoodsReceiptRecord item in widget.receipts)
+              for (final GoodsReceiptRecord item in _receiptSuppliers)
                 DropdownMenuEntry<String>(
-                  value: item.id,
-                  label: '${item.grnNumber}  ${_dayOf(item.receiptDate)}',
+                  value: item.vendorId,
+                  label: _receiptSupplierName(item),
                 ),
             ],
-            onSelected: (value) async {
-              for (final GoodsReceiptRecord item in widget.receipts) {
-                if (item.id == value && item.id != _receipt?.id) {
-                  _current = 0;
-                  _preview = null;
-                  // The paper usually carries the number the storeman noted.
-                  if (_supplierInvoiceNumber.trim().isEmpty &&
-                      item.invoiceReference.isNotEmpty) {
-                    _supplierInvoiceNumber = item.invoiceReference;
-                    _supplierNumberEpoch++;
-                  }
-                  await _selectReceipt(item);
-                  _schedulePreview();
-                }
-              }
-            },
+            onSelected: (value) => unawaited(_chooseBillVendor(value)),
           ),
         );
       case PurchaseBillMode.order:
@@ -410,79 +401,128 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
     }
   }
 
-  /// More receipts of the same supplier and branch on the same bill
-  /// (D-BUY-18): chips for those added, a menu for the ones that could be.
-  Widget? _alsoBillField(BuildContext context) {
-    if (_mode != PurchaseBillMode.receipt || _receipt == null) return null;
-    final List<GoodsReceiptRecord> candidates = _alsoBillable;
-    if (candidates.isEmpty && _extraReceipts.isEmpty) return null;
+  /// The suppliers with receipts waiting to be billed, one entry each.
+  List<GoodsReceiptRecord> get _receiptSuppliers {
+    final Map<String, GoodsReceiptRecord> byVendor =
+        <String, GoodsReceiptRecord>{};
+    for (final GoodsReceiptRecord item in widget.receipts) {
+      byVendor.putIfAbsent(item.vendorId, () => item);
+    }
+    final List<GoodsReceiptRecord> rows = byVendor.values.toList()
+      ..sort((a, b) =>
+          _receiptSupplierName(a).compareTo(_receiptSupplierName(b)));
+    return rows;
+  }
+
+  String _receiptSupplierName(GoodsReceiptRecord receipt) {
+    if (receipt.vendorName.isNotEmpty) return receipt.vendorName;
+    return _vendor(receipt.vendorId)?.displayName ?? receipt.vendorId;
+  }
+
+  /// Choose whose receipts are billed: what the bill held goes, and a
+  /// supplier with one receipt waiting has it ticked; with more, the list
+  /// opens.
+  Future<void> _chooseBillVendor(String? value) async {
+    if (value == null || value == _tickVendorId) return;
+    await _setReceipts(const []);
+    if (!mounted) return;
+    _setState(() {
+      _billVendorId = value;
+      _preview = null;
+    });
+    final List<GoodsReceiptRecord> receipts = _vendorReceipts;
+    if (receipts.length == 1) {
+      await _setReceipts(receipts);
+      _schedulePreview();
+    } else if (receipts.length > 1) {
+      await _tickReceipts();
+    }
+  }
+
+  /// Offer the supplier's receipts as a tick list and bill those ticked
+  /// (SEL-1, backlog 58 items 2 and 4).
+  Future<void> _tickReceipts() async {
+    final List<GoodsReceiptRecord> receipts = _vendorReceipts;
+    if (receipts.isEmpty) return;
+    GoodsReceiptRecord byId(String id) =>
+        receipts.firstWhere((item) => item.id == id);
+    final List<String>? picked = await showSourceTickDialog(
+      context,
+      title: 'Goods receipts to bill — ${_receiptSupplierName(receipts.first)}',
+      keyPrefix: 'purchase-invoice',
+      rows: [
+        for (final GoodsReceiptRecord item in receipts)
+          SourceTickRow(
+            id: item.id,
+            number: item.grnNumber,
+            date: _dayOf(item.receiptDate),
+            order: item.purchaseOrderNumber,
+            amount: documentMoney(item.grandTotal),
+          ),
+      ],
+      initial: {
+        if (_receipt != null) _receipt!.id,
+        for (final GoodsReceiptRecord item in _extraReceipts) item.id,
+      },
+      clashFor: (id, ticked) => _receiptClash(
+        byId(id),
+        [for (final String other in ticked) byId(other)],
+      ),
+      numberLabel: 'Goods receipt',
+      amountLabel: 'Received value',
+      confirmNoun: 'receipt',
+    );
+    if (picked == null || !mounted) return;
+    await _setReceipts([for (final String id in picked) byId(id)]);
+    _schedulePreview();
+  }
+
+  /// The receipts on the bill, and the button that opens the tick list.
+  Widget? _receiptsField(BuildContext context) {
+    if (_mode != PurchaseBillMode.receipt || _tickVendorId == null) {
+      return null;
+    }
+    final ThemeData theme = Theme.of(context);
+    final int waiting = _vendorReceipts.length;
+    final List<GoodsReceiptRecord> on = [
+      if (_receipt != null) _receipt!,
+      ..._extraReceipts,
+    ];
     return DocumentField(
-      label: 'Also bill (same supplier and branch)',
+      label: 'Goods receipts on this bill',
       width: 400,
       child: Wrap(
         spacing: 6,
         runSpacing: 4,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          for (final GoodsReceiptRecord item in _extraReceipts)
-            InputChip(
-              key: ValueKey<String>('purchase-invoice-extra-${item.id}'),
+          for (final GoodsReceiptRecord item in on)
+            Chip(
+              key: ValueKey<String>('purchase-invoice-receipt-chip-${item.id}'),
               label: Text(item.grnNumber),
               visualDensity: VisualDensity.compact,
-              onDeleted: _saving
-                  ? null
-                  : () {
-                      _removeReceipt(item.id);
-                      _schedulePreview();
-                    },
             ),
-          if (candidates.isNotEmpty)
-            PopupMenuButton<String>(
-              key: const ValueKey('purchase-invoice-also-bill'),
-              tooltip: 'Add another goods receipt to this bill',
-              enabled: !_saving,
-              onSelected: (value) async {
-                for (final GoodsReceiptRecord item in candidates) {
-                  if (item.id == value) {
-                    await _addReceipt(item);
-                    _schedulePreview();
-                  }
-                }
-              },
-              itemBuilder: (context) => [
-                for (final GoodsReceiptRecord item in candidates)
-                  PopupMenuItem<String>(
-                    key: ValueKey<String>('purchase-invoice-add-${item.id}'),
-                    value: item.id,
-                    child:
-                        Text('${item.grnNumber}  ${_dayOf(item.receiptDate)}'),
-                  ),
-              ],
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.add, size: 16),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Add a receipt',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontSize: 13,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
+          if (on.isEmpty)
+            Text(
+              'None ticked yet',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.error),
             ),
+          TextButton.icon(
+            key: const ValueKey('purchase-invoice-choose-receipts'),
+            onPressed: _saving ? null : () => unawaited(_tickReceipts()),
+            icon: const Icon(Icons.checklist, size: 16),
+            label: Text(waiting == 1
+                ? 'Choose receipts (1 waiting)'
+                : 'Choose receipts ($waiting waiting)'),
+          ),
         ],
       ),
     );
   }
 
   Widget _billHeader(BuildContext context) {
-    final Widget? also = _alsoBillField(context);
+    final Widget? also = _receiptsField(context);
     return DocumentHeader(children: [
       _sourceField(context),
       if (also != null) also,

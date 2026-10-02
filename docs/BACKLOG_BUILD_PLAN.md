@@ -50,7 +50,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | Id | Ref | Item | Needs from owner | Effort | Who |
 | --- | --- | --- | --- | --- | --- |
 | **Selling** | | | | | |
-| SEL-1 | §58 items 2, 4 | Several delivery notes on one bill: pick the customer first, tick the notes, refuse a mix on screen | Nothing | S | Claude alone |
+| SEL-1 | §58 items 2, 4 | Several delivery notes on one bill: pick the customer first, tick the notes, refuse a mix on screen -- **built 2026-10-03** (A54) | Nothing | S | Claude alone |
 | SEL-2 | §60 row 4 | Offer: buy 2, second at 50% off | Nothing | M | Claude alone |
 | SEL-3 | §60 row 5 | Offer: combo price (shampoo + soap for 150) | Nothing | M | Claude alone |
 | SEL-4 | §60 row 6 | Offer: double loyalty points during a festival | Nothing | S | Claude alone |
@@ -276,6 +276,7 @@ otherwise it is built as written.
 - **Needs from the owner:** nothing (section 3).
 - **What gets built:** desktop only. Replace the *Also bill* menu in `desktop/lib/ui/sales/sales_invoice_editor_phase2.dart` (and its twin `purchase_invoice_editor_phase2.dart`) with a customer-first tick list (number, date, order, amount left), refusing notes that differ in branch, salesman, territory or route by name. The server already refuses the same mix. Widget test for both editors.
 - **Depends on:** nothing. **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A54, D-SELL-44): the invoice editor asks for the **customer** first (only those with notes to bill) and opens a tick list of their notes -- number, date, order, left to bill before tax; a customer with one note has it ticked without asking. A note of another branch, salesman, territory or route cannot be ticked beside those already ticked and says which field and which note it clashes with. The supplier bill does the same with the **supplier** and their receipts (branch is the only field a receipt can clash on). One shared dialog, `desktop/lib/phase2/source_tick_dialog.dart`. `GET /sales-invoices/billable` now names each note's branch, order, salesman, territory and route (one read per kind for the page). The server compared each later note only with the first, so a first note naming no salesman let two different salesmen through; it now compares with the first note that names one (D-SELL-44). No migration. Tests: `test_sales_invoice_module.py` (two new), `sales_invoice_several_notes_test.dart`, `purchase_bill_several_receipts_test.dart`.
 
 #### SEL-2. Offer: buy X get Y at a discount (§60 row 4)
 - **What it is:** "buy 2, the second at 50% off".

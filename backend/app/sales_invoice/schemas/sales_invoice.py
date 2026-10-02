@@ -124,6 +124,18 @@ class BillableDocument(SalesInvoiceSchema):
     customer_name: str
     branch_id: UUID | None
     lines: list[BillableLine]
+    #: What a tick list shows beside each note, and what decides whether two
+    #: notes may share one bill (SEL-1): the server refuses a bill whose notes
+    #: name different salesmen, territories or routes, so the screen has to
+    #: know them to refuse the mix before it asks.
+    branch_name: str = ""
+    sales_order_number: str = ""
+    salesman_id: UUID | None = None
+    salesman_name: str = ""
+    territory_id: UUID | None = None
+    territory_name: str = ""
+    route_id: UUID | None = None
+    route_name: str = ""
 
 
 class SalesInvoiceLineWrite(SalesInvoiceSchema):

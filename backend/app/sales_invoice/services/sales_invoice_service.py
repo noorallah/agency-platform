@@ -28,6 +28,8 @@ from app.common.report_names import (
     customer_names,
     customers_matching,
     product_names,
+    salesman_names,
+    territory_names,
 )
 from app.core.database.batch import children_by_parent
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
@@ -3179,6 +3181,13 @@ class SalesInvoiceService(TransactionalDocumentService):
                 raise ValidationError(
                     "All source documents must belong to the same route."
                 )
+            # Compared with the first note that names one, not only the
+            # first note: a first note naming nobody let two different
+            # salesmen through (SEL-1).
+            for field in ("salesman_id", "territory_id", "route_id"):
+                named = _optional_uuid(source.get(field))
+                if header.get(field) is None and named is not None:
+                    header[field] = named
         self._validate_line_sources(
             lines,
             {
@@ -3585,13 +3594,53 @@ class SalesInvoiceService(TransactionalDocumentService):
                     customer_name=self._customer_name(note.customer_id),
                     branch_id=note.branch_id,
                     lines=billable,
+                    sales_order_number=note.sales_order_reference or "",
+                    salesman_id=note.salesman_id,
+                    territory_id=note.territory_id,
+                    route_id=note.route_id,
                 )
             )
 
         documents.extend(
             self._billable_orders(firm_scope=firm_scope, limit=limit, offset=offset)
         )
+        self._name_billable(documents)
         return documents
+
+    def _name_billable(self, documents: list[BillableDocument]) -> None:
+        """Name the branch, salesman, territory and route of every document.
+
+        One read per kind for the whole page rather than per document. A route
+        profile has no name of its own; the territory it extends carries it.
+        """
+        branches = branch_names(self._session, (row.branch_id for row in documents))
+        people = salesman_names(self._session, (row.salesman_id for row in documents))
+        territories = territory_names(
+            self._session, (row.territory_id for row in documents)
+        )
+        route_ids = {row.route_id for row in documents if row.route_id is not None}
+        routes: dict[UUID, str] = {}
+        if route_ids:
+            routes = {
+                profile_id: name
+                for profile_id, name in self._session.execute(
+                    select(TerritoryRouteProfile.id, SalesTerritoryNode.name)
+                    .join(
+                        SalesTerritoryNode,
+                        TerritoryRouteProfile.territory_id == SalesTerritoryNode.id,
+                    )
+                    .where(TerritoryRouteProfile.id.in_(route_ids))
+                ).all()
+            }
+        for row in documents:
+            if row.branch_id is not None:
+                row.branch_name = branches.get(row.branch_id, "")
+            if row.salesman_id is not None:
+                row.salesman_name = people.get(row.salesman_id, "")
+            if row.territory_id is not None:
+                row.territory_name = territories.get(row.territory_id, "")
+            if row.route_id is not None:
+                row.route_name = routes.get(row.route_id, "")
 
     def _billable_orders(
         self, *, firm_scope: UUID, limit: int, offset: int = 0
@@ -3709,6 +3758,10 @@ class SalesInvoiceService(TransactionalDocumentService):
                     customer_name=self._customer_name(order.customer_id),
                     branch_id=order.branch_id,
                     lines=billable,
+                    sales_order_number=order.order_number,
+                    salesman_id=order.salesman_id,
+                    territory_id=order.territory_id,
+                    route_id=order.route_id,
                 )
             )
         return documents

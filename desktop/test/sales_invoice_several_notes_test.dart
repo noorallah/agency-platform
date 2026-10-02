@@ -1,11 +1,12 @@
-// One sales invoice bills several delivery notes (D-SELL-39, 2026-09-30).
+// One sales invoice bills several delivery notes (D-SELL-39, 2026-09-30;
+// SEL-1, 2026-10-03).
 //
 // The server always accepted it -- every invoice line names its own source and
-// the sources are checked against each other -- but the phase 2 editor offered
-// a single "Bill this delivery note" picker, so a customer with three notes in
-// a week was billed three times. These pin the "Also bill" control: only notes
-// of the same customer and branch are offered, both notes' lines go in one
-// payload numbered 1..n, and a draft made of two notes opens with both.
+// the sources are checked against each other. The screen now asks for the
+// customer first and offers that customer's notes as a tick list, refusing on
+// screen a note of another branch, salesman, territory or route and naming
+// the note it clashes with. These pin the tick list, the payload of several
+// notes numbered 1..n, and a draft of two notes opening with both.
 
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/models/entities.dart';
@@ -21,8 +22,13 @@ Json _note(
   String customer = 'cust-1',
   String customerName = 'Anand Agencies',
   String branch = 'branch-1',
+  String salesman = '',
+  String salesmanName = '',
 }) =>
     <String, dynamic>{
+      'sales_order_number': 'SO-$number',
+      'salesman_id': salesman.isEmpty ? null : salesman,
+      'salesman_name': salesmanName,
       'source_document_type': 'DELIVERY_NOTE',
       'source_document_id': id,
       'source_document_number': number,
@@ -169,15 +175,30 @@ Future<void> _pump(
   await tester.pumpAndSettle();
 }
 
-Future<void> _choosePrimary(WidgetTester tester, String number) async {
-  await tester.tap(find.byKey(const ValueKey('sales-invoice-source')));
+Future<void> _chooseCustomer(WidgetTester tester, String name) async {
+  await tester.tap(find.byKey(const ValueKey('sales-invoice-bill-customer')));
   await tester.pumpAndSettle();
-  await tester.tap(find.textContaining(number).last);
+  await tester.tap(find.text(name).last);
   await tester.pumpAndSettle();
 }
 
+Future<void> _tick(WidgetTester tester, String id) async {
+  await tester.tap(find.byKey(ValueKey<String>('sales-invoice-tick-$id')));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _done(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey('sales-invoice-tick-done')));
+  await tester.pumpAndSettle();
+  await tester.pump(const Duration(milliseconds: 400));
+  await tester.pumpAndSettle();
+}
+
+Checkbox _box(WidgetTester tester, String id) => tester
+    .widget<Checkbox>(find.byKey(ValueKey<String>('sales-invoice-tick-$id')));
+
 void main() {
-  testWidgets('a second note of the same customer is added to the bill',
+  testWidgets('the customer comes first, then a tick list of their notes',
       (tester) async {
     final _Api api = _Api(billable: <Json>[
       _note('dn-1', 'DN-000001'),
@@ -187,42 +208,44 @@ void main() {
       _note('dn-4', 'DN-000004', branch: 'branch-2'),
     ]);
     await _pump(tester, api);
-    expect(find.byKey(const ValueKey('sales-invoice-also-bill')), findsNothing);
-
-    await _choosePrimary(tester, 'DN-000001');
-    expect(tester.takeException(), isNull);
     expect(
-        find.byKey(const ValueKey('sales-invoice-also-bill')), findsOneWidget);
+        find.byKey(const ValueKey('sales-invoice-choose-notes')), findsNothing);
 
-    await tester.tap(find.byKey(const ValueKey('sales-invoice-also-bill')));
-    await tester.pumpAndSettle();
-    // Only the note of the same customer and branch is offered: not another
-    // customer's, not another branch's, and not the one already chosen.
+    await _chooseCustomer(tester, 'Anand Agencies');
+    expect(tester.takeException(), isNull);
+    // The list opened by itself: the customer has more than one note. Another
+    // customer's note is not in it.
     expect(
-        find.byKey(const ValueKey('sales-invoice-add-dn-2')), findsOneWidget);
-    expect(find.byKey(const ValueKey('sales-invoice-add-dn-3')), findsNothing);
-    expect(find.byKey(const ValueKey('sales-invoice-add-dn-4')), findsNothing);
-    expect(find.byKey(const ValueKey('sales-invoice-add-dn-1')), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('sales-invoice-add-dn-2')));
-    await tester.pumpAndSettle();
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.pumpAndSettle();
+        find.byKey(const ValueKey('sales-invoice-tick-dn-1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('sales-invoice-tick-dn-3')), findsNothing);
+    expect(find.text('SO-DN-000002'), findsOneWidget);
+    // 4 x 100 + 10 x 20 left on each note.
+    expect(find.textContaining('600.00'), findsNWidgets(3));
+
+    await _tick(tester, 'dn-1');
+    // Another branch's note cannot join, and says why.
+    expect(_box(tester, 'dn-4').onChanged, isNull);
+    expect(
+      find.byKey(const ValueKey('sales-invoice-clash-dn-4')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('on DN-000001'), findsOneWidget);
+    await _tick(tester, 'dn-2');
+    await _done(tester);
     expect(tester.takeException(), isNull);
 
-    // Four rows now, each saying which note it is from.
     for (int i = 0; i < 4; i++) {
       expect(find.byKey(ValueKey<String>('sales-invoice-line-$i')),
           findsOneWidget);
     }
     expect(find.textContaining('DN-000002  ·  dispatched'), findsWidgets);
     expect(
-        find.byKey(const ValueKey('sales-invoice-extra-dn-2')), findsOneWidget);
+        find.byKey(const ValueKey('sales-invoice-note-dn-2')), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
     await tester.pumpAndSettle();
 
     final List<dynamic> lines = api.created!['lines'] as List<dynamic>;
-    expect(lines.length, 4);
     expect(
       [for (final dynamic l in lines) (l as Json)['source_document_id']],
       ['dn-1', 'dn-1', 'dn-2', 'dn-2'],
@@ -237,34 +260,84 @@ void main() {
     );
   });
 
-  testWidgets('an added note comes off again with its lines', (tester) async {
+  testWidgets('a note of another salesman is refused on screen by name',
+      (tester) async {
+    final _Api api = _Api(billable: <Json>[
+      _note('dn-1', 'DN-000001', salesman: 'u-1', salesmanName: 'Asha Rao'),
+      _note('dn-2', 'DN-000002', salesman: 'u-2', salesmanName: 'Ravi Kumar'),
+      _note('dn-5', 'DN-000005'),
+    ]);
+    await _pump(tester, api);
+    await _chooseCustomer(tester, 'Anand Agencies');
+    await _tick(tester, 'dn-1');
+
+    expect(_box(tester, 'dn-2').onChanged, isNull);
+    expect(
+      find.text('Another salesman: Ravi Kumar here, Asha Rao on DN-000001'),
+      findsOneWidget,
+    );
+    // A note naming no salesman may join either.
+    expect(_box(tester, 'dn-5').onChanged, isNotNull);
+    await _tick(tester, 'dn-5');
+    await _done(tester);
+
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+    final List<dynamic> lines = api.created!['lines'] as List<dynamic>;
+    expect(
+      {for (final dynamic l in lines) (l as Json)['source_document_id']},
+      {'dn-1', 'dn-5'},
+    );
+  });
+
+  testWidgets('unticking a note takes its lines off the bill', (tester) async {
     final _Api api = _Api(billable: <Json>[
       _note('dn-1', 'DN-000001'),
       _note('dn-2', 'DN-000002'),
     ]);
     await _pump(tester, api);
-    await _choosePrimary(tester, 'DN-000001');
-    await tester.tap(find.byKey(const ValueKey('sales-invoice-also-bill')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('sales-invoice-add-dn-2')));
-    await tester.pumpAndSettle();
+    await _chooseCustomer(tester, 'Anand Agencies');
+    await _tick(tester, 'dn-1');
+    await _tick(tester, 'dn-2');
+    await _done(tester);
     expect(find.byKey(const ValueKey('sales-invoice-line-3')), findsOneWidget);
 
-    await tester.tap(find.descendant(
-      of: find.byKey(const ValueKey('sales-invoice-extra-dn-2')),
-      matching: find.byType(Icon),
-    ));
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-choose-notes')));
     await tester.pumpAndSettle();
+    // The list reopens with what the bill holds ticked.
+    expect(_box(tester, 'dn-2').value, isTrue);
+    await _tick(tester, 'dn-1');
+    await _done(tester);
     expect(find.byKey(const ValueKey('sales-invoice-line-2')), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
     await tester.pumpAndSettle();
     final List<dynamic> lines = api.created!['lines'] as List<dynamic>;
-    expect(lines.length, 2);
     expect(
       {for (final dynamic l in lines) (l as Json)['source_document_id']},
-      {'dn-1'},
+      {'dn-2'},
     );
+    expect(
+      [for (final dynamic l in lines) (l as Json)['line_number']],
+      [1, 2],
+    );
+  });
+
+  testWidgets("a customer's only note is ticked without asking",
+      (tester) async {
+    final _Api api = _Api(billable: <Json>[
+      _note('dn-1', 'DN-000001'),
+      _note('dn-3', 'DN-000003',
+          customer: 'cust-2', customerName: 'Bharat Traders'),
+    ]);
+    await _pump(tester, api);
+    await _chooseCustomer(tester, 'Bharat Traders');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('sales-invoice-tick-done')), findsNothing);
+    expect(
+        find.byKey(const ValueKey('sales-invoice-note-dn-3')), findsOneWidget);
+    expect(find.byKey(const ValueKey('sales-invoice-line-1')), findsOneWidget);
   });
 
   testWidgets('a draft made of two notes opens with both', (tester) async {
@@ -302,7 +375,10 @@ void main() {
     expect(find.byKey(const ValueKey('sales-invoice-line-0')), findsOneWidget);
     expect(find.byKey(const ValueKey('sales-invoice-line-1')), findsOneWidget);
     expect(
-        find.byKey(const ValueKey('sales-invoice-extra-dn-2')), findsOneWidget);
+        find.byKey(const ValueKey('sales-invoice-note-dn-2')), findsOneWidget);
+    // A draft keeps its notes: changing them is raising another bill.
+    expect(
+        find.byKey(const ValueKey('sales-invoice-choose-notes')), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
     await tester.pumpAndSettle();

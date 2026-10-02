@@ -234,7 +234,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
   }
 
   Customer? get _customer {
-    final String? id = _direct ? _customerId : _document?.customerId;
+    final String? id = _direct ? _customerId : _tickCustomerId;
     for (final Customer item in _customers) {
       if (item.id == id) return item;
     }
@@ -254,77 +254,114 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
           for (final BillableLine line in document.lines) (document, line),
       ];
 
-  /// More notes of the same customer and branch on the same bill (D-SELL-39):
-  /// chips for those added, a menu for the ones that could be.
-  Widget? _alsoBillField(BuildContext context) {
-    if (_direct || _document == null) return null;
-    final List<BillableDocument> candidates = _alsoBillable;
-    if (candidates.isEmpty && _extraDocuments.isEmpty) return null;
+  /// The customers offered: those with notes waiting, and a draft's own.
+  List<BillableDocument> get _billableCustomersWithOwn {
+    final List<BillableDocument> rows = _billableCustomers;
+    final BillableDocument? own = _document;
+    if (own != null && !rows.any((row) => row.customerId == own.customerId)) {
+      return [own, ...rows];
+    }
+    return rows;
+  }
+
+  /// The notes on the bill, and the tick list of the customer's notes
+  /// (SEL-1, backlog 58 items 2 and 4). A draft being edited keeps its notes:
+  /// changing what a bill covers is raising another bill.
+  Widget? _notesField(BuildContext context) {
+    if (_direct || _tickCustomerId == null) return null;
+    final ThemeData theme = Theme.of(context);
+    final int waiting = _customerNotes.length;
     return DocumentField(
-      label: 'Also bill (same customer and branch)',
+      label: 'Delivery notes on this bill',
       width: 420,
       child: Wrap(
         spacing: 6,
         runSpacing: 4,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          for (final BillableDocument item in _extraDocuments)
-            InputChip(
+          for (final BillableDocument item in _documents)
+            Chip(
               key: ValueKey<String>(
-                  'sales-invoice-extra-${item.sourceDocumentId}'),
+                  'sales-invoice-note-${item.sourceDocumentId}'),
               label: Text(item.sourceDocumentNumber),
               visualDensity: VisualDensity.compact,
-              onDeleted: _saving
-                  ? null
-                  : () {
-                      _setState(() => _removeDocument(item.sourceDocumentId));
-                      _schedulePreview();
-                    },
             ),
-          if (candidates.isNotEmpty)
-            PopupMenuButton<String>(
-              key: const ValueKey('sales-invoice-also-bill'),
-              tooltip: 'Add another delivery note to this bill',
-              enabled: !_saving,
-              onSelected: (value) {
-                for (final BillableDocument item in candidates) {
-                  if (item.sourceDocumentId == value) {
-                    _setState(() => _addDocument(item));
-                  }
-                }
-                _schedulePreview();
-              },
-              itemBuilder: (context) => [
-                for (final BillableDocument item in candidates)
-                  PopupMenuItem<String>(
-                    key: ValueKey<String>(
-                        'sales-invoice-add-${item.sourceDocumentId}'),
-                    value: item.sourceDocumentId,
-                    child: Text(
-                        '${item.sourceDocumentNumber}  ·  ${item.documentDate}'),
-                  ),
-              ],
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.add, size: 16),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Add a delivery note',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontSize: 13,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
+          if (_documents.isEmpty)
+            Text(
+              'None ticked yet',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.error),
+            ),
+          if (!_editing)
+            TextButton.icon(
+              key: const ValueKey('sales-invoice-choose-notes'),
+              onPressed: _saving ? null : () => unawaited(_tickNotes()),
+              icon: const Icon(Icons.checklist, size: 16),
+              label: Text(waiting == 1
+                  ? 'Choose notes (1 waiting)'
+                  : 'Choose notes ($waiting waiting)'),
             ),
         ],
       ),
     );
+  }
+
+  /// Offer the customer's notes as a tick list and bill those ticked.
+  Future<void> _tickNotes() async {
+    final List<BillableDocument> notes = _customerNotes;
+    if (notes.isEmpty) return;
+    BillableDocument byId(String id) =>
+        notes.firstWhere((item) => item.sourceDocumentId == id);
+    final List<String>? picked = await showSourceTickDialog(
+      context,
+      title: 'Delivery notes to bill — ${notes.first.customerName}',
+      keyPrefix: 'sales-invoice',
+      rows: [
+        for (final BillableDocument item in notes)
+          SourceTickRow(
+            id: item.sourceDocumentId,
+            number: item.sourceDocumentNumber,
+            date: _shownDate(item.documentDate),
+            order: item.salesOrderNumber,
+            amount: documentMoney(item.valueLeft.toStringAsFixed(2)),
+          ),
+      ],
+      initial: {
+        for (final BillableDocument item in _documents) item.sourceDocumentId,
+      },
+      clashFor: (id, ticked) => _noteClash(
+        byId(id),
+        [for (final String other in ticked) byId(other)],
+      ),
+      numberLabel: 'Delivery note',
+      amountLabel: 'Left to bill (before tax)',
+    );
+    if (picked == null || !mounted) return;
+    _setState(() => _setDocuments([for (final String id in picked) byId(id)]));
+    _schedulePreview();
+  }
+
+  /// Choose whose notes are billed: what the bill held goes, and a customer
+  /// with one note waiting has it ticked; with more, the list opens.
+  Future<void> _chooseBillCustomer(String? value) async {
+    if (value == null || value == _tickCustomerId) return;
+    _setState(() {
+      _setDocuments(const []);
+      _billCustomerId = value;
+      _preview = null;
+    });
+    final List<BillableDocument> notes = _customerNotes;
+    if (notes.length == 1) {
+      _setState(() => _setDocuments(notes));
+      _schedulePreview();
+    } else if (notes.length > 1) {
+      await _tickNotes();
+    }
+  }
+
+  String _shownDate(String iso) {
+    final DateTime? day = DateTime.tryParse(iso);
+    return day == null ? iso : documentDate(day);
   }
 
   Widget _invoiceHeader(BuildContext context) {
@@ -334,7 +371,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
         customer == null ? '' : documentCustomerPlace(customer);
     final Map<String, dynamic>? invoice = _preview?.invoice;
     final String placeOfSupply = stringValue(invoice?['place_of_supply']);
-    final Widget? also = _alsoBillField(context);
+    final Widget? notes = _notesField(context);
     final Widget? inclusive = _rateIncludesTaxField(context);
     return DocumentHeader(children: [
       if (_direct)
@@ -377,50 +414,38 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
         )
       else
         DocumentField(
-          label: 'Bill this delivery note',
+          label: 'Customer (only those with notes to bill)',
           width: 420,
-          below: _document == null
-              ? null
-              : Text(
-                  _document!.customerName,
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(fontSize: 11, fontWeight: FontWeight.w600),
-                ),
-          child: DropdownButtonFormField<String>(
-            key: const ValueKey('sales-invoice-source'),
-            initialValue: _document?.sourceDocumentId,
-            isExpanded: true,
-            isDense: true,
-            decoration: documentBoxDecoration(context,
-                hint: 'Only notes with something left to bill'),
-            items: [
-              for (final BillableDocument item in _pickable)
-                DropdownMenuItem(
-                  value: item.sourceDocumentId,
-                  child: Text(item.label, overflow: TextOverflow.ellipsis),
+          below: customer == null ? null : DocumentCustomerLine(customer),
+          child: DropdownMenu<String>(
+            key: const ValueKey('sales-invoice-bill-customer'),
+            initialSelection: _tickCustomerId,
+            width: 420,
+            enabled: !_editing && !_saving,
+            enableFilter: true,
+            requestFocusOnTap: true,
+            menuHeight: 320,
+            hintText: 'Choose the customer first',
+            inputDecorationTheme: InputDecorationTheme(
+              isDense: true,
+              filled: true,
+              fillColor: scheme.surfaceContainerLowest,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+              constraints: const BoxConstraints(maxHeight: 36),
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(5)),
+            ),
+            dropdownMenuEntries: [
+              for (final BillableDocument item in _billableCustomersWithOwn)
+                DropdownMenuEntry<String>(
+                  value: item.customerId,
+                  label: item.customerName,
                 ),
             ],
-            autovalidateMode: AutovalidateMode.onUserInteraction,
-            validator: (value) =>
-                value == null ? 'Choose a delivery note.' : null,
-            // Fixed while editing: changing which document a draft bills is
-            // raising a different invoice, not correcting this one.
-            onChanged: _editing
-                ? null
-                : (value) {
-                    _setState(() {
-                      final Iterable<BillableDocument> found = _billable
-                          .where((item) => item.sourceDocumentId == value);
-                      if (found.isNotEmpty) _choose(found.first);
-                      _current = 0;
-                    });
-                    _schedulePreview();
-                  },
+            onSelected: (value) => unawaited(_chooseBillCustomer(value)),
           ),
         ),
-      if (also != null) also,
+      if (notes != null) notes,
       // "(as delivered)" is null: the server takes the address from the notes
       // billed. Shown when reopening a draft too, with the saved one chosen.
       if (_shipToAddresses.isNotEmpty)

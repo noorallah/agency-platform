@@ -53,6 +53,7 @@ from app.finance.models import (
 )
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
+from app.identity.models import User
 from app.identity.models import identity as _identity_models  # noqa: F401
 from app.identity.system_seed import SYSTEM_PERMISSION_CODES
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
@@ -3157,3 +3158,112 @@ def test_a_preview_prices_the_invoice_and_saves_nothing(
     assert preview.interstate is False
     # 100 on hand less the 4 that left on the note.
     assert preview.lines[0].available_quantity == Decimal("96.0000")
+
+
+def _another_note(setup: _Billing, quantity: Decimal) -> DeliveryNote:
+    """Dispatch a further note against the setup's already approved order."""
+    notes = DeliveryNoteService(setup.session)
+    note = notes.create_note(
+        DeliveryNoteCreate(
+            sales_order_id=setup.order.id,
+            delivery_date=date(2026, 8, 4),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=setup.order_line.id,
+                    line_number=1,
+                    current_delivery_quantity=quantity,
+                    unit_price=Decimal("100"),
+                    discount_percent=setup.order_line.discount_percent or None,
+                    discount_amount=setup.order_line.discount_amount or None,
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=uuid4(),
+    )
+    notes.approve_note(note.id, firm_scope=setup.firm.id, actor_id=uuid4())
+    notes.dispatch_note(note.id, firm_scope=setup.firm.id, actor_id=uuid4())
+    return note
+
+
+def _seller(session: Session, name: str) -> User:
+    """Add a person who can be named as a note's salesman."""
+    person = User(
+        email=f"{name.lower().replace(' ', '.')}@billing.example.com",
+        full_name=name,
+        password_hash="x",
+        is_active=True,
+    )
+    session.add(person)
+    session.flush()
+    return person
+
+
+def test_a_billable_note_names_its_order_branch_and_salesman() -> None:
+    """A tick list shows what each note is and who sold it (SEL-1).
+
+    The screen refuses two notes of different salesmen, territories or routes
+    before the server is asked, so it has to be told them -- by name, since a
+    refusal that names a UUID tells the user nothing.
+    """
+    setup = _Billing(_session_factory()())
+    note = _dispatched_note(setup)
+    seller = _seller(setup.session, "Asha Rao")
+    note.salesman_id = seller.id
+    setup.session.commit()
+
+    billable = SalesInvoiceService(setup.session).billable_documents(
+        firm_scope=setup.firm.id
+    )
+
+    assert billable[0].sales_order_number == note.sales_order_reference
+    assert billable[0].sales_order_number
+    assert billable[0].branch_name == setup.branch.name
+    assert billable[0].salesman_id == seller.id
+    assert billable[0].salesman_name == "Asha Rao"
+    assert billable[0].territory_id is None
+    assert billable[0].route_name == ""
+
+
+def test_notes_of_two_salesmen_are_refused_whatever_the_first_says() -> None:
+    """A first note with no salesman does not let two different ones through.
+
+    Each later note was compared only with the first, so a first note naming
+    nobody waved through a second naming one salesman and a third naming
+    another -- a bill the tick list refuses on screen.
+    """
+    setup = _Billing(_session_factory()())
+    first = _dispatched_note(setup, quantity=Decimal("1"))
+    second = _another_note(setup, Decimal("1"))
+    third = _another_note(setup, Decimal("1"))
+    second.salesman_id = _seller(setup.session, "Asha Rao").id
+    third.salesman_id = _seller(setup.session, "Ravi Kumar").id
+    setup.session.commit()
+
+    lines: list[SalesInvoiceLineWrite] = []
+    for number, note in enumerate((first, second, third), start=1):
+        dn_line = setup.session.scalar(
+            select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
+        )
+        assert dn_line is not None
+        lines.append(
+            SalesInvoiceLineWrite(
+                source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                source_document_id=note.id,
+                source_document_line_id=dn_line.id,
+                line_number=number,
+                current_invoice_quantity=Decimal("1"),
+            )
+        )
+
+    with pytest.raises(ValidationError, match="same salesman"):
+        SalesInvoiceService(setup.session).create_invoice(
+            SalesInvoiceCreate(
+                customer_id=setup.customer.id,
+                branch_id=setup.branch.id,
+                invoice_date=date(2026, 8, 5),
+                lines=lines,
+            ),
+            firm_id=setup.firm.id,
+            actor_id=uuid4(),
+        )
