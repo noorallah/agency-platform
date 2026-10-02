@@ -232,6 +232,34 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.savedSettings?['rule37_mode'], 'POST');
+    // Not touched, it goes back as the default: warn (backlog 78 row 5).
+    expect(api.savedSettings?['supplier_irn_check'], 'WARN');
+  });
+
+  testWidgets('settings send supplier_irn_check', (tester) async {
+    final _Api api = _Api();
+    tester.view.physicalSize = const Size(800, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: GstDocumentsSettingsDialog(
+          api: api,
+          permissions: _permissions(['TAX_VIEW', 'TAX_MANAGE_SETTINGS']),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('gst-supplier-irn-check')));
+    await tester.tap(find.byKey(const ValueKey('gst-supplier-irn-check')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Off').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('gst-settings-save')));
+    await tester.pumpAndSettle();
+
+    expect(api.savedSettings?['supplier_irn_check'], 'OFF');
   });
 
   testWidgets('GSTR-3B shows the reclaim and the rule 37 part of 4(B)(2)',

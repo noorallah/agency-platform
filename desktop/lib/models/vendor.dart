@@ -300,6 +300,7 @@ class Vendor {
     this.udyamNumber = '',
     this.msmeCategory = '',
     this.msmeWrittenAgreement = false,
+    this.issuesEInvoices = false,
     required this.licenseNumber,
     required this.registrationNumber,
     required this.website,
@@ -375,6 +376,10 @@ class Vendor {
   final String udyamNumber;
   final String msmeCategory;
   final bool msmeWrittenAgreement;
+
+  /// Whether their bills carry an IRN (backlog 78 row 5); a bill from one
+  /// without it is warned about.
+  final bool issuesEInvoices;
   final String gstin;
   final String pan;
   final String licenseNumber;
@@ -421,6 +426,7 @@ class Vendor {
         udyamNumber: stringValue(json['udyam_number']),
         msmeCategory: stringValue(json['msme_category']),
         msmeWrittenAgreement: boolValue(json['msme_written_agreement']),
+        issuesEInvoices: boolValue(json['issues_e_invoices']),
         licenseNumber: stringValue(json['license_number']),
         registrationNumber: stringValue(json['registration_number']),
         website: stringValue(json['website']),

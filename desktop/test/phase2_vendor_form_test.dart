@@ -41,6 +41,7 @@ Json _vendorJson({
       'udyam_number': 'UDYAM-TN-01-1234567',
       'msme_category': 'SMALL',
       'msme_written_agreement': true,
+      'issues_e_invoices': true,
       'addresses': addresses,
       'contacts': contacts,
       'bank_accounts': bankAccounts,
@@ -157,6 +158,8 @@ void main() {
     expect(api.saved?['udyam_number'], 'UDYAM-TN-01-1234567');
     expect(api.saved?['msme_category'], 'SMALL');
     expect(api.saved?['msme_written_agreement'], isTrue);
+    // The e-invoicing flag goes back as it came (backlog 78 row 5).
+    expect(api.saved?['issues_e_invoices'], isTrue);
   });
 
   testWidgets('a blocked supplier shows and keeps why (backlog 69 row 4)',

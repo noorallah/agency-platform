@@ -92,6 +92,9 @@ class _InvoiceApi extends ApiClient {
         'subtotal': gross.toStringAsFixed(2),
         'tax_total': tax.toStringAsFixed(2),
         'grand_total': (gross + tax).toStringAsFixed(2),
+        'irn_warning': data['supplier_invoice_number'] == 'SUP-2'
+            ? 'Supplier One e-invoices, and this bill has no IRN.'
+            : null,
         'duplicate_warning': data['supplier_invoice_number'] == 'SUP-1'
             ? 'A purchase invoice with this supplier invoice number already '
                 'exists.'
@@ -399,6 +402,88 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.sent?['supplier_invoice_number'], 'SUP-1');
     expect(api.sent?['lines'][0]['unit_price'], '24');
+  });
+
+  group("the supplier's IRN (backlog 78 row 5)", () {
+    const String irn =
+        '0123456789abcdef0123456789abcdef0123456789abcdef0123456789ABCDEF';
+
+    Future<void> pumpPhase2(WidgetTester tester, _InvoiceApi api) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Phase2Scope(
+              child: PurchaseInvoiceEditorDialog(
+                api: api,
+                receipts: [_receipt()],
+                products: [
+                  Product.fromJson({
+                    'id': 'prod-1',
+                    'code': 'SKU-1',
+                    'name': 'Amoxicillin 500mg',
+                  }),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('purchase-invoice-receipt')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('GRN-2026-000001').last);
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> type(WidgetTester tester, String key, String text) async {
+      await tester.enterText(find.byKey(ValueKey<String>(key)), text);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a blank IRN is sent as null', (tester) async {
+      final _InvoiceApi api = _InvoiceApi();
+      await pumpPhase2(tester, api);
+      await type(tester, 'purchase-invoice-supplier-number-0', 'SUP-5');
+      await tester.tap(find.byKey(const ValueKey('purchase-invoice-save')));
+      await tester.pumpAndSettle();
+      expect(api.sent!.containsKey('supplier_irn'), isTrue);
+      expect(api.sent!['supplier_irn'], isNull);
+    });
+
+    testWidgets('a typed IRN is sent as typed, trimmed', (tester) async {
+      final _InvoiceApi api = _InvoiceApi();
+      await pumpPhase2(tester, api);
+      await type(tester, 'purchase-invoice-supplier-number-0', 'SUP-5');
+      await type(tester, 'purchase-invoice-supplier-irn', '  $irn ');
+      expect(api.previews.last['supplier_irn'], irn);
+      await tester.tap(find.byKey(const ValueKey('purchase-invoice-save')));
+      await tester.pumpAndSettle();
+      expect(api.sent!['supplier_irn'], irn);
+    });
+
+    testWidgets('half an IRN is refused before it is sent', (tester) async {
+      final _InvoiceApi api = _InvoiceApi();
+      await pumpPhase2(tester, api);
+      await type(tester, 'purchase-invoice-supplier-number-0', 'SUP-5');
+      await type(tester, 'purchase-invoice-supplier-irn', 'abc123');
+      await tester.tap(find.byKey(const ValueKey('purchase-invoice-save')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('64 characters'), findsWidgets);
+      expect(api.sent, isNull);
+    });
+
+    testWidgets("the server's IRN warning is shown", (tester) async {
+      final _InvoiceApi api = _InvoiceApi();
+      await pumpPhase2(tester, api);
+      await type(tester, 'purchase-invoice-supplier-number-0', 'SUP-2');
+      expect(find.textContaining('has no IRN'), findsOneWidget);
+    });
   });
 
   // Backlog §38: a firm that types no receipts bills an order, and one that

@@ -40,6 +40,7 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
   bool _routeSaleNeedsInvoice = false;
   String _itcBasis = 'ALL';
   String _rule37 = 'REPORT';
+  String _supplierIrn = 'WARN';
   final TextEditingController _tolerance =
       TextEditingController(text: '1.00');
   final TextEditingController _ewayLimit =
@@ -90,6 +91,7 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
         _rule37 = const ['OFF', 'REPORT', 'POST'].contains(settings.rule37Mode)
             ? settings.rule37Mode
             : 'REPORT';
+        _supplierIrn = settings.supplierIrnCheck == 'OFF' ? 'OFF' : 'WARN';
         _tolerance.text = settings.gstr2bTolerance;
         _ewayLimit.text = settings.ewayBillLimit;
         _isConfigured = settings.isConfigured;
@@ -114,6 +116,7 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
             isConfigured: true,
             itcClaimBasis: _itcBasis,
             rule37Mode: _rule37,
+            supplierIrnCheck: _supplierIrn,
             gstr2bTolerance: _tolerance.text.trim().isEmpty
                 ? '1.00'
                 : _tolerance.text.trim(),
@@ -348,6 +351,27 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
                       ],
                       onChanged: editable && !saving
                           ? (value) => setState(() => _rule37 = value ?? _rule37)
+                          : null,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    DropdownButtonFormField<String>(
+                      key: const ValueKey('gst-supplier-irn-check'),
+                      isExpanded: true,
+                      initialValue: _supplierIrn,
+                      decoration: const InputDecoration(
+                        labelText: 'Supplier bill without an IRN',
+                        helperText: 'Warn when a supplier marked as '
+                            'e-invoicing sends a bill with no IRN '
+                            '(rule 48(4)).',
+                        helperMaxLines: 2,
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'OFF', child: Text('Off')),
+                        DropdownMenuItem(value: 'WARN', child: Text('Warn')),
+                      ],
+                      onChanged: editable && !saving
+                          ? (value) =>
+                              setState(() => _supplierIrn = value ?? _supplierIrn)
                           : null,
                     ),
                     if (_filing != null) ...[
