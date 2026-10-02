@@ -163,6 +163,16 @@ class _GeographyMasterPageState extends State<GeographyMasterPage> {
     );
   }
 
+  Future<void> _loadPlacesPack() async {
+    if (!_canWrite) return;
+    final bool? loaded = await showDialog<bool>(
+      context: context,
+      builder: (context) => _PlacesPackDialog(api: widget.api),
+    );
+    if (loaded != true || !mounted) return;
+    await _load();
+  }
+
   Future<void> _delete(GeoPlaceRecord row) async {
     if (!_canWrite) return;
     final bool accepted = await showWorkspaceConfirmDialog(
@@ -244,6 +254,15 @@ class _GeographyMasterPageState extends State<GeographyMasterPage> {
         ToolbarAction.refresh => true,
         _ => false,
       },
+      commands: [
+        if (_canWrite)
+          ToolbarCommand(
+            id: 'places-pack',
+            label: 'Load places from India Post...',
+            icon: Icons.cloud_download_outlined,
+            onPressed: _loadPlacesPack,
+          ),
+      ],
       onAction: (action) {
         switch (action) {
           case ToolbarAction.newItem:
@@ -550,6 +569,193 @@ class _GeoEditorDialogState extends State<_GeoEditorDialog>
                 },
           child: const Text('Save'),
         ),
+      ],
+    );
+  }
+}
+
+/// Load the India Post places pack: pick the states, load, read what was added.
+///
+/// The load can take several seconds, so the dialog shows progress and stays
+/// open on a refusal with the server's message. It closes with `true` once a
+/// load has run, so the screen behind refreshes.
+class _PlacesPackDialog extends StatefulWidget {
+  const _PlacesPackDialog({required this.api});
+
+  final ApiClient api;
+
+  @override
+  State<_PlacesPackDialog> createState() => _PlacesPackDialogState();
+}
+
+class _PlacesPackDialogState extends State<_PlacesPackDialog>
+    with SaveInDialog<_PlacesPackDialog> {
+  List<PlacesPackState> _states = const <PlacesPackState>[];
+  final Set<String> _ticked = <String>{};
+  List<PlacesPackResult>? _results;
+  bool _reading = true;
+  String? _readError;
+
+  @override
+  void initState() {
+    super.initState();
+    _read();
+  }
+
+  Future<void> _read() async {
+    try {
+      final List<PlacesPackState> states = await widget.api.placesPack();
+      if (!mounted) return;
+      setState(() {
+        _states = states;
+        _ticked
+          ..clear()
+          ..addAll(
+            states.where((s) => s.available && s.isDefault).map((s) => s.code),
+          );
+        _reading = false;
+      });
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      setState(() {
+        _readError = exception.message;
+        _reading = false;
+      });
+    }
+  }
+
+  Future<void> _load() async {
+    if (saving || _ticked.isEmpty) return;
+    setState(() {
+      saving = true;
+      saveError = null;
+    });
+    try {
+      final List<PlacesPackResult> results = await widget.api.loadPlacesPack(
+        <String>[
+          for (final PlacesPackState s in _states)
+            if (_ticked.contains(s.code)) s.code,
+        ],
+      );
+      if (!mounted) return;
+      setState(() {
+        saving = false;
+        _results = results;
+      });
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      setState(() {
+        saving = false;
+        saveError = exception.message;
+      });
+    }
+  }
+
+  Widget _picker() {
+    if (_reading) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_readError != null) return Text(_readError!);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final PlacesPackState s in _states)
+          CheckboxListTile(
+            key: ValueKey<String>('places-pack-state-${s.code}'),
+            dense: true,
+            controlAffinity: ListTileControlAffinity.leading,
+            value: s.available && _ticked.contains(s.code),
+            onChanged: !s.available || saving
+                ? null
+                : (bool? on) => setState(() {
+                      if (on ?? false) {
+                        _ticked.add(s.code);
+                      } else {
+                        _ticked.remove(s.code);
+                      }
+                    }),
+            title: Text(s.name),
+            subtitle: Text(
+              s.available
+                  ? '${s.postalCodes} PIN codes, ${s.postOffices} post offices'
+                      '${s.districtsHeld > 0 ? ', ${s.districtsHeld} districts already held' : ''}'
+                  : 'not in this store',
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _resultsList() => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final PlacesPackResult r in _results!)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(r.name,
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                  Text(
+                    'Added ${r.districts} districts, ${r.cities} towns, '
+                    '${r.postalCodes} PIN codes, ${r.localities} localities'
+                    '${r.skipped > 0 ? '; ${r.skipped} skipped' : ''}.',
+                  ),
+                  if (r.note.isNotEmpty)
+                    Text(r.note, style: Theme.of(context).textTheme.bodySmall),
+                ],
+              ),
+            ),
+        ],
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final bool done = _results != null;
+    return AlertDialog(
+      title: const Text('Load places from India Post'),
+      content: SizedBox(
+        width: 520,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              saveErrorBanner(),
+              if (saving) ...[
+                const LinearProgressIndicator(
+                  key: ValueKey<String>('places-pack-progress'),
+                ),
+                const SizedBox(height: 8),
+                const Text('Loading places. This can take several seconds...'),
+                const SizedBox(height: 8),
+              ],
+              if (done) _resultsList() else _picker(),
+              const SizedBox(height: 12),
+              Text(
+                'Source: India Post, All India Pincode Directory (data.gov.in, '
+                'Government Open Data Licence - India)',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: saving ? null : () => Navigator.pop(context, done),
+          child: Text(done ? 'Close' : 'Cancel'),
+        ),
+        if (!done)
+          FilledButton(
+            onPressed: saving || _reading || _ticked.isEmpty ? null : _load,
+            child: const Text('Load'),
+          ),
       ],
     );
   }

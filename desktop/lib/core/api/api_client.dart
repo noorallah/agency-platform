@@ -3698,6 +3698,24 @@ class ApiClient {
   Future<void> deleteGeoPlace(GeoLevel level, String id) =>
       request('DELETE', '/api/v1/sales-territories/geo/${level.path}/$id');
 
+  /// The India Post places pack the server ships with, state by state.
+  Future<List<PlacesPackState>> placesPack() async => _unwrapList(
+        await request('GET', '/api/v1/sales-territories/geo/places-pack'),
+        PlacesPackState.fromJson,
+      );
+
+  /// Loads the pack for the named states into this firm's store. Platform
+  /// administrator only; may take several seconds.
+  Future<List<PlacesPackResult>> loadPlacesPack(List<String> states) async =>
+      _unwrapList(
+        await request(
+          'POST',
+          '/api/v1/sales-territories/geo/places-pack/load',
+          body: <String, dynamic>{'states': states},
+        ),
+        PlacesPackResult.fromJson,
+      );
+
   Future<int> bulkTerritoryStatus(Json body) async {
     final Json response = await request(
       'POST',

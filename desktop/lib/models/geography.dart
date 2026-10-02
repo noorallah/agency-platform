@@ -168,3 +168,83 @@ class GeoPlaceRecord {
         },
       };
 }
+
+/// One state in the India Post places pack the server ships with
+/// (`GET /sales-territories/geo/places-pack`).
+class PlacesPackState {
+  const PlacesPackState({
+    required this.code,
+    required this.name,
+    required this.available,
+    required this.postOffices,
+    required this.postalCodes,
+    required this.districts,
+    required this.districtsHeld,
+    required this.isDefault,
+  });
+
+  factory PlacesPackState.fromJson(Map<String, dynamic> json) =>
+      PlacesPackState(
+        code: (json['code'] ?? '').toString(),
+        name: (json['name'] ?? '').toString(),
+        available: json['available'] != false,
+        postOffices: _packInt(json['post_offices']),
+        postalCodes: _packInt(json['postal_codes']),
+        districts: _packInt(json['districts']),
+        districtsHeld: _packInt(json['districts_held']),
+        isDefault: json['default'] == true,
+      );
+
+  final String code;
+  final String name;
+
+  /// False when this store has no such state to hang places under.
+  final bool available;
+  final int postOffices;
+  final int postalCodes;
+  final int districts;
+
+  /// Districts this store already holds for the state.
+  final int districtsHeld;
+
+  /// Pre-ticked in the load dialog.
+  final bool isDefault;
+}
+
+/// What loading the pack did for one state.
+class PlacesPackResult {
+  const PlacesPackResult({
+    required this.code,
+    required this.name,
+    required this.districts,
+    required this.cities,
+    required this.postalCodes,
+    required this.localities,
+    required this.skipped,
+    required this.note,
+  });
+
+  factory PlacesPackResult.fromJson(Map<String, dynamic> json) =>
+      PlacesPackResult(
+        code: (json['code'] ?? '').toString(),
+        name: (json['name'] ?? '').toString(),
+        districts: _packInt(json['districts']),
+        cities: _packInt(json['cities']),
+        postalCodes: _packInt(json['postal_codes']),
+        localities: _packInt(json['localities']),
+        skipped: _packInt(json['skipped']),
+        note: (json['note'] ?? '').toString(),
+      );
+
+  final String code;
+  final String name;
+  final int districts;
+  final int cities;
+  final int postalCodes;
+  final int localities;
+  final int skipped;
+  final String note;
+}
+
+int _packInt(dynamic value) =>
+    value is num ? value.toInt() : int.tryParse('$value') ?? 0;
