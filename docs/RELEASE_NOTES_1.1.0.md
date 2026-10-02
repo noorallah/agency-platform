@@ -100,6 +100,8 @@ screen (1.1.0).
   decision A38).
 - **Choosing batches on a counter bill**: a batch-tracked line opens the same
   picker as the delivery note, and the batch chosen is the one that leaves.
+- **Pin a batch on a sales order** when the customer asks for one: approval
+  holds that batch, and the delivery note starts with it picked.
 - **Minimum shelf life per customer**: a customer may ask for goods with so
   many days left; earliest-expiry dispatch passes over shorter batches, and
   one chosen by hand is refused (or warned, as the firm sets).
