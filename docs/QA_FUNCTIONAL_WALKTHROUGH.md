@@ -105,7 +105,7 @@ Sign in as `platform-admin@agency.local`.
 | W4 | Business profile row: choose **Wholesale** → **Assign** | *Business profile set to Wholesale.* Row reads *Assigned: WHOLESALE* | Not run | |
 | W5 | Books row → **Open the books** | Notice names the year starting 2026-04-01. Row reads 24 accounts, 1 financial year, 12 periods, all 24 control accounts mapped. Verdict becomes **Can post documents** | Not run | |
 | W6 | Press **Open the books** again if still offered, else skip | Nothing is created a second time | Not run | |
-| W7 | Tax row → **Apply GST template** | *GST set up: 8 tax profiles and 9 rules.* Geography turns done as well, with 1 country | Not run | |
+| W7 | Tax row → **Apply GST template** | *GST set up: 10 tax profiles and 13 rules.* Geography turns done as well, with 1 country | Not run | |
 | W8 | Branches and warehouses → **Create head office and main warehouse** | *Created branch HO and warehouse MAIN.* Row reads 1 branch, 1 warehouse | Not run | |
 | W9 | Admin → **Users** → **+ New**: your name, an email such as `admin@qa01.test`, a password, **Job template** *Firm Administrator*, firm QA01. Save | Created. People on the Set up panel now counts 1 member | Not run | |
 | W10 | **Set up** again | **Finished. Every step is done.** No buttons left | Not run | |

@@ -468,7 +468,8 @@ rules, and until then the only thing that built a working GST setup was
 (`POST /api/v1/firms/{id}/apply-tax-template`, `app/tax/services/gst_template.py`)
 gives it the Indian GST system, CGST/SGST/IGST/CESS, the 0, 5, 12 and 18
 percent slabs as local and interstate profiles plus exempt, the nine rules,
-and the country if the store has none -- a starting point, edited afterwards
+the reverse-charge services -- GTA 5% and legal services 18%, with four rules
+created switched off (decision A29) -- and the country if the store has none -- a starting point, edited afterwards
 on the tax screens, and the script now applies the same one. And **the
 business profile is set from the panel**, from the firm's own catalogue, so
 a brand-new firm no longer needs an established one open first.
