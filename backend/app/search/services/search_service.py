@@ -842,7 +842,12 @@ class SearchService:
                 column = getattr(model, field, None)
                 if column is None:
                     continue
-                search_conditions.append(cast(column, String).ilike(f"%{query}%"))
+                # A text column is matched as itself, so the trigram index on
+                # it (PLT-3) can answer; only other types are cast.
+                searchable = (
+                    column if isinstance(column.type, String) else cast(column, String)
+                )
+                search_conditions.append(searchable.ilike(f"%{query}%"))
             if definition.match_through is not None:
                 related, key, related_fields = definition.match_through
                 search_conditions.append(
