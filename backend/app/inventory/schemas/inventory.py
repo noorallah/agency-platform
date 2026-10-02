@@ -464,6 +464,12 @@ class WriteOffReason(StrEnum):
     DAMAGE = "DAMAGE"
     EXPIRY = "EXPIRY"
     LOSS = "LOSS"
+    #: Issued, not lost (STK-3): taken for the firm's own use, given to staff,
+    #: or put on display or out as a sample. Each is booked to its own expense
+    #: rather than to the inventory adjustment account.
+    INTERNAL_USE = "INTERNAL_USE"
+    STAFF = "STAFF"
+    DISPLAY = "DISPLAY"
 
 
 class StockWriteOffCreate(InventorySchema):

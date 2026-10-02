@@ -155,4 +155,50 @@ void main() {
     expect(sent!['quantity'], '5');
     expect(result, isNotNull);
   });
+
+  // STK-3: stock issued rather than lost is written off with its own reason,
+  // which the server books to its own expense.
+  testWidgets('stock given to staff is written off as STAFF', (tester) async {
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    Map<String, dynamic>? sent;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => showDialog<Object>(
+              context: context,
+              builder: (context) => Dialog(
+                child: StockActionDialog(
+                  action: StockAction.writeOff,
+                  productLabel: 'Detergent Powder 1kg',
+                  warehouseLabel: 'North Warehouse',
+                  sourceWarehouseId: 'wh-north',
+                  available: 12,
+                  quarantined: 0,
+                  warehouses: const [],
+                  onSave: (Map<String, dynamic> values) async => sent = values,
+                ),
+              ),
+            ),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Quantity'), '2');
+    await tester.tap(find.text('Damage'));
+    await tester.pumpAndSettle();
+    expect(find.text('Internal use'), findsWidgets);
+    expect(find.text('Display / sample / demo'), findsWidgets);
+    await tester.tap(find.text('Given to staff').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Write off'));
+    await tester.pumpAndSettle();
+
+    expect(sent?['reason'], 'STAFF');
+  });
 }
