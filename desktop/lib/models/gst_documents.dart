@@ -59,6 +59,7 @@ class GstComplianceSettings {
     this.itcClaimBasis = 'ALL',
     this.gstr2bTolerance = '1.00',
     this.ewayBillLimit = '50000',
+    this.rule37Mode = 'REPORT',
   });
 
   /// ISO dates (`2026-04-01`), or null when not set.
@@ -81,6 +82,10 @@ class GstComplianceSettings {
   /// Above this a consignment needs an e-way bill (backlog 77 row 10).
   final String ewayBillLimit;
 
+  /// OFF, REPORT or POST: what happens to credit on bills unpaid 180 days
+  /// (backlog 78 row 4).
+  final String rule37Mode;
+
   factory GstComplianceSettings.fromJson(Json json) {
     String? date(dynamic value) {
       final String text = stringValue(value);
@@ -102,10 +107,13 @@ class GstComplianceSettings {
       ewayBillLimit: stringValue(json['eway_bill_limit']).isEmpty
           ? '50000'
           : stringValue(json['eway_bill_limit']),
+      rule37Mode: stringValue(json['rule37_mode']).isEmpty
+          ? 'REPORT'
+          : stringValue(json['rule37_mode']),
     );
   }
 
-  /// Exactly the seven keys the server declares; it refuses any other.
+  /// Exactly the eight keys the server declares; it refuses any other.
   Json toJson() => <String, dynamic>{
         'einvoice_applicable_from': einvoiceApplicableFrom,
         'thirty_day_rule_from': thirtyDayRuleFrom,
@@ -114,5 +122,6 @@ class GstComplianceSettings {
         'itc_claim_basis': itcClaimBasis,
         'gstr2b_tolerance': gstr2bTolerance,
         'eway_bill_limit': ewayBillLimit,
+        'rule37_mode': rule37Mode,
       };
 }

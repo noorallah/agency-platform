@@ -291,6 +291,7 @@ abstract final class MenuLayout {
       MenuGroupSpec('Tax filing', [
         MenuItemSpec(AppModule.sales, 'gst-returns', 'GST Returns'),
         MenuItemSpec(AppModule.sales, 'gstr2b', 'GSTR-2B Reconciliation'),
+        MenuItemSpec(AppModule.sales, 'rule37', 'Rule 37 (180 days)'),
         MenuItemSpec(AppModule.sales, 'gst-payment', 'GST Payment'),
         MenuItemSpec(AppModule.sales, 'einvoice', 'E-Invoice'),
         MenuItemSpec(AppModule.sales, 'tcs', 'TCS'),

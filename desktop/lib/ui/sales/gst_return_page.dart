@@ -517,7 +517,9 @@ class _GstReturnPageState extends State<GstReturnPage> {
       ('itc_reverse_charge', '4(A)(3) Reverse charge'),
       ('itc_reversed_blocked', '4(B)(1) ITC reversed — blocked (s.17(5))'),
       ('itc_reversed', '4(B)(2) ITC reversed — returns and others'),
+      ('itc_reversed_rule37', 'of which rule 37'),
       ('net_itc', '4(C) Net ITC available'),
+      ('itc_reclaimed', '4(D)(1) Reclaimed (rule 37)'),
       ('itc_ineligible', '4(D)(2) Ineligible ITC'),
     ];
     final List<List<String>> rows = [];
