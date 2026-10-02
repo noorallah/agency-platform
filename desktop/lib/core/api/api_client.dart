@@ -1545,6 +1545,54 @@ class ApiClient {
         },
       );
 
+  /// Every bank account's saved cheque layout (ACC-12).
+  Future<List<ChequeLayout>> chequeLayouts() async => _unwrapList(
+        await request('GET', '/api/v1/payments/cheque-layouts'),
+        ChequeLayout.fromJson,
+      );
+
+  /// One bank account's layout: zeros and A/c Payee on when never saved.
+  Future<ChequeLayout> chequeLayout(String ledgerAccountId) async =>
+      ChequeLayout.fromJson(
+        await request(
+          'GET',
+          '/api/v1/payments/cheque-layouts/$ledgerAccountId',
+        ),
+      );
+
+  /// Saves how far the bank's leaf prints off the standard positions.
+  Future<ChequeLayout> saveChequeLayout(
+    String ledgerAccountId, {
+    required String offsetXMm,
+    required String offsetYMm,
+    required bool printAcPayee,
+  }) async =>
+      ChequeLayout.fromJson(
+        await request(
+          'PUT',
+          '/api/v1/payments/cheque-layouts/$ledgerAccountId',
+          body: <String, dynamic>{
+            'offset_x_mm': offsetXMm,
+            'offset_y_mm': offsetYMm,
+            'print_ac_payee': printAcPayee,
+          },
+        ),
+      );
+
+  /// A sample cheque drawn with the saved offsets, to line the leaf up.
+  Future<List<int>> chequeTestPdf(String ledgerAccountId) =>
+      downloadBytes('/api/v1/payments/cheque-layouts/$ledgerAccountId/test');
+
+  /// A bank payment on the bank's cheque leaf; a blank [payee] prints the
+  /// supplier's legal name.
+  Future<List<int>> paymentChequePdf(String paymentId, {String? payee}) =>
+      downloadBytes(
+        '/api/v1/payments/$paymentId/cheque',
+        query: {
+          if (payee != null && payee.trim().isNotEmpty) 'payee': payee.trim(),
+        },
+      );
+
   /// Records a share made by hand: on the bill's timeline, or in the
   /// customer's trail for a statement sent as a reminder.
   Future<void> recordHandShare(

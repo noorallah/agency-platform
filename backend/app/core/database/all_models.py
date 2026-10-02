@@ -70,7 +70,7 @@ from app.sales_invoice.models import sales_invoice  # noqa: F401
 from app.sales_order.models import sales_order  # noqa: F401
 from app.sales_return.models import sales_return  # noqa: F401
 from app.sales_targets.models import sales_target  # noqa: F401
-from app.settlements.models import settlement  # noqa: F401
+from app.settlements.models import cheque_layout, settlement  # noqa: F401
 from app.tax.models import tax_framework  # noqa: F401
 from app.tcs.models import tcs  # noqa: F401
 from app.trade_licences.models import trade_licence  # noqa: F401

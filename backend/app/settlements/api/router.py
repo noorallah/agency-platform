@@ -11,6 +11,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
@@ -40,12 +41,14 @@ from app.settlements.schemas import (
     SupplierRefundResponse,
     SupplierRefundReverse,
 )
+from app.settlements.schemas.cheque import ChequeLayoutResponse, ChequeLayoutUpdate
 from app.settlements.services import (
     PaymentService,
     ReceiptService,
     RefundService,
     SettlementService,
 )
+from app.settlements.services.cheque_print import ChequeService
 from app.settlements.services.collection_report import CollectionReportService
 from app.settlements.services.supplier_credits import (
     SupplierCredit,
@@ -604,6 +607,74 @@ def list_payments(
 
 
 @payments_router.get(
+    "/cheque-layouts", response_model=ApiResponse[list[ChequeLayoutResponse]]
+)
+def list_cheque_layouts(
+    scope: PaymentViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[ChequeLayoutResponse]]:
+    """Return the cheque layout saved for each bank account (ACC-12)."""
+    rows = ChequeService(db).layouts(firm_id=scope.firm_id)
+    return ApiResponse(data=[ChequeLayoutResponse.model_validate(r) for r in rows])
+
+
+@payments_router.get(
+    "/cheque-layouts/{ledger_account_id}",
+    response_model=ApiResponse[ChequeLayoutResponse],
+)
+def get_cheque_layout(
+    ledger_account_id: UUID,
+    scope: PaymentViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[ChequeLayoutResponse]:
+    """Return one bank account's layout; one never saved reads as zero."""
+    row = ChequeService(db).layout_for(ledger_account_id, firm_id=scope.firm_id)
+    return ApiResponse(data=ChequeLayoutResponse.model_validate(row))
+
+
+@payments_router.put(
+    "/cheque-layouts/{ledger_account_id}",
+    response_model=ApiResponse[ChequeLayoutResponse],
+)
+def save_cheque_layout(
+    ledger_account_id: UUID,
+    payload: ChequeLayoutUpdate,
+    scope: PaymentCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[ChequeLayoutResponse]:
+    """Store how far this bank's cheques print off the standard positions."""
+    row = ChequeService(db).save_layout(
+        ledger_account_id,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        offset_x_mm=payload.offset_x_mm,
+        offset_y_mm=payload.offset_y_mm,
+        print_ac_payee=payload.print_ac_payee,
+    )
+    return ApiResponse(
+        data=ChequeLayoutResponse.model_validate(row),
+        message="Cheque layout saved.",
+    )
+
+
+@payments_router.get(
+    "/cheque-layouts/{ledger_account_id}/test", response_class=StreamingResponse
+)
+def cheque_test_print(
+    ledger_account_id: UUID,
+    scope: PaymentCreateScope,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Draw a sample cheque with the account's offsets, to line the leaf up."""
+    pdf = ChequeService(db).test_print(ledger_account_id, firm_id=scope.firm_id)
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="cheque-test.pdf"'},
+    )
+
+
+@payments_router.get(
     "/outstanding", response_model=ApiResponse[list[OutstandingInvoiceRecord]]
 )
 def vendor_outstanding_invoices(
@@ -781,6 +852,28 @@ def reverse_vendor_supplier_refund(
     return ApiResponse(
         data=SupplierRefundResponse.model_validate(row),
         message="Supplier refund reversed.",
+    )
+
+
+@payments_router.get("/{payment_id}/cheque", response_class=StreamingResponse)
+def payment_cheque(
+    payment_id: UUID,
+    scope: PaymentCreateScope,
+    payee: Annotated[str | None, Query(max_length=120)] = None,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Print a bank payment onto the bank's cheque leaf (ACC-12).
+
+    Writing a cheque is paying, so it needs the right to record a payment,
+    not only to read one. ``payee`` names someone other than the supplier.
+    """
+    pdf, filename = ChequeService(db).payment_cheque(
+        payment_id, firm_id=scope.firm_id, payee=payee
+    )
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
 
 

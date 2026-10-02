@@ -4399,7 +4399,7 @@ strike it with the reason).
 | G10 | Expiry and breakage claims to the principal | Medium | Extends §42.7 scheme claims |
 | S7 | Stock ageing, slow-moving and dead stock; vendor ageing | Medium, small | Not in the report catalogue |
 | S8 | Barcode label printing -- **built 2026-10-03** (STK-16, A65): A4 65/24-up sheets and 50 x 25 mm roll, from the product list and a goods receipt | Medium, small | After M10 |
-| S11 | Cheque printing | Low-Medium, small | |
+| S11 | Cheque printing -- **built 2026-10-03** (ACC-12, A66): CTS-2010 leaf, per-bank offsets with a test print | Low-Medium, small | |
 | S12 | Approvals and notifications (the bell) | Medium | UI_PHASE_2_DESIGN §9 item 15 |
 | G11 | GSTR-9; composition-scheme firms and parties | Low-Medium | |
 | G12 | Returnable containers (crates, cans, cylinders) | Low, by trade | Beverage, dairy, gas |

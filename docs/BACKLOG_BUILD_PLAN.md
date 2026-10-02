@@ -114,7 +114,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | ACC-9 | §74 row 5 | Cash flow statement | Nothing | M | Claude alone |
 | ACC-10 | §74 row 7 | Scanned bill or letter attached to a journal, receipt or payment | Nothing | M | Claude alone |
 | ACC-11 | §75 row 4 | A customer who is also a supplier, as one party | Nothing | M | Claude alone |
-| ACC-12 | §55 S11 | Cheque printing | Nothing (a cheque leaf to align) | S | Claude alone |
+| ACC-12 | §55 S11 | Cheque printing -- **built 2026-10-03** (A66) | Nothing (a cheque leaf to align) | S | Claude alone |
 | **GST** | | | | | |
 | GST-1 | §77 row 12 | Warn on a credit note after 30 November -- **built 2026-10-02** (A46) | Nothing | S | Claude alone |
 | GST-2 | §77 row 13 | GST document numbers kept to 16 characters -- **built 2026-10-02** (A47) | Nothing | S | Claude alone |
@@ -602,6 +602,7 @@ otherwise it is built as written.
 - **What it is:** print the payee, amount and words on a cheque leaf.
 - **What gets built:** a cheque PDF on the CTS-2010 layout with per-bank X / Y offsets stored on the firm's bank account; *Print cheque* on a bank payment. No migration beyond the offsets.
 - **Needs from the firm, to test:** a cheque leaf. **Depends on:** ACC-4. **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A66), without waiting for ACC-4: the offsets live in `cheque_layouts`, one per bank ledger account (migration 0247, all stores). `app/settlements/services/cheque_print.py` draws the CTS-2010 leaf -- date boxes, payee, amount in words on two lines, `**12,34,567.00/-`, A/c Payee crossing -- moved by the account's offsets. `GET /payments/{id}/cheque` (PAYMENT_CREATE; `payee` overrides the supplier's legal name) prints what left the bank, on the cheque's own date, and refuses cash, non-cheque modes and reversed payments; `/payments/cheque-layouts` lists, reads, saves (audited) and test-prints the layouts. Desktop: *Print cheque* and *Cheque layout* on the payments screen. Tests: `test_cheque_printing.py`, `cheque_print_test.dart`. To test with a firm: one leaf of each bank's cheque book, printed with *Test print* and aligned.
 
 ### GST
 

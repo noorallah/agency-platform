@@ -49,6 +49,11 @@ ContraViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("JOURNAL_VI
 ContraReportScope = Annotated[
     ResolvedFirmScope, firm_any_permission_scope("JOURNAL_VIEW", "REPORT_VIEW")
 ]
+#: The cash and bank accounts are also what a payment is made from and what
+#: a cheque layout is kept for (ACC-12), so whoever pays may list them.
+MoneyAccountsScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("JOURNAL_VIEW", "PAYMENT_VIEW")
+]
 ContraPostScope = Annotated[ResolvedFirmScope, firm_permission_scope("JOURNAL_POST")]
 ContraCancelScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("JOURNAL_REVERSE")
@@ -123,7 +128,7 @@ def record_contra_voucher(
 
 @router.get("/money-accounts", response_model=ApiResponse[list[MoneyAccountRecord]])
 def contra_money_accounts(
-    scope: ContraViewScope,
+    scope: MoneyAccountsScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[MoneyAccountRecord]]:
     """Return the cash and bank accounts money can be moved between."""
