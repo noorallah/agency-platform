@@ -911,6 +911,17 @@ class GstReturnService:
             if rest > ZERO:
                 unplaced += rest
                 unplaced_count += 1
+        # Rule 37 (backlog 78 row 4): credit on a bill unpaid 180 days is
+        # reversed in 4(B)(2) in the period it is posted; credit claimed back
+        # when the bill is paid goes in 4(A)(5) and is also shown in 4(D)(1)
+        # (CBIC circular 170/02/2022).
+        from app.gst_returns.services.rule37 import Rule37Service
+
+        rule37_reversed, reclaimed = Rule37Service(self._session).movements_between(
+            firm_id=firm_scope, from_date=from_date, to_date=to_date
+        )
+        reversed_ = reversed_.plus(rule37_reversed)
+        claimed = claimed.plus(reclaimed)
 
         return {
             # 3.1(d): inward supplies on which the firm pays the tax itself.
@@ -950,6 +961,21 @@ class GstReturnService:
                 "central_tax": _filed(awaiting.cgst),
                 "state_tax": _filed(awaiting.sgst),
                 "cess": _filed(awaiting.cess),
+            },
+            # 4(D)(1): credit reversed earlier under rule 37 and claimed back
+            # this period -- already inside 4(A)(5), shown here as well.
+            "itc_reclaimed": {
+                "integrated_tax": _filed(reclaimed.igst),
+                "central_tax": _filed(reclaimed.cgst),
+                "state_tax": _filed(reclaimed.sgst),
+                "cess": _filed(reclaimed.cess),
+            },
+            # Of 4(B)(2), the part reversed under rule 37.
+            "itc_reversed_rule37": {
+                "integrated_tax": _filed(rule37_reversed.igst),
+                "central_tax": _filed(rule37_reversed.cgst),
+                "state_tax": _filed(rule37_reversed.sgst),
+                "cess": _filed(rule37_reversed.cess),
             },
             # 4(D)(2): ineligible credit, never claimed in 4(A).
             "itc_ineligible": {

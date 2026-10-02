@@ -179,3 +179,49 @@ class Gstr2bMatchRequest(GstSchema):
     """Match a 2B row to a bill by hand; null undoes a hand match."""
 
     purchase_invoice_id: UUID | None
+
+
+class Rule37Heads(GstSchema):
+    """Tax by GST head."""
+
+    igst: Decimal
+    cgst: Decimal
+    sgst: Decimal
+    cess: Decimal
+
+
+class Rule37RowResponse(GstSchema):
+    """One bill with credit to reverse or reclaim under rule 37 (78.4)."""
+
+    purchase_invoice_id: UUID
+    invoice_number: str
+    supplier_invoice_number: str | None
+    vendor_name: str
+    bill_date: date
+    days: int
+    bill_total: Decimal
+    outstanding: Decimal
+    #: The credit the bill claimed in 4(A)(5).
+    credit: Rule37Heads
+    #: What stands reversed on it now.
+    reversed: Rule37Heads
+    #: REVERSE or RECLAIM.
+    action: str
+    #: How much to move, by head, always positive.
+    amount: Rule37Heads
+
+
+class Rule37Response(GstSchema):
+    """The rule 37 list as of a day, with the firm's choice."""
+
+    as_of: date
+    #: OFF, REPORT or POST (Settings > Tax > GST Documents).
+    mode: str
+    rows: list[Rule37RowResponse]
+
+
+class Rule37Post(GstSchema):
+    """Post what is due as of a day; every bill listed, or only these."""
+
+    as_of: date
+    purchase_invoice_ids: list[UUID] | None = Field(default=None, max_length=1000)

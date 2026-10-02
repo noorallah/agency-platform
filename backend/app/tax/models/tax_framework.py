@@ -366,6 +366,12 @@ class GstComplianceSettings(BaseEntity):
     itc_claim_basis: Mapped[str] = mapped_column(
         String(15), nullable=False, default="ALL", server_default="ALL"
     )
+    #: OFF, REPORT or POST: rule 37, credit on a bill unpaid 180 days after
+    #: its date (backlog 78 row 4). REPORT lists what to reverse and reclaim;
+    #: POST also lets the firm post it from the list.
+    rule37_mode: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="REPORT", server_default="REPORT"
+    )
     #: A consignment worth more than this needs an e-way bill (backlog 77
     #: row 10, A35): the screen prompts for one, and the due list names it.
     #: Each firm sets its state's limit; ₹50,000 is the national one.

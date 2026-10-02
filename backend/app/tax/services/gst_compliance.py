@@ -76,6 +76,7 @@ class GstComplianceService:
                 dispatch_without_invoice=DEFAULT_DISPATCH_WITHOUT_INVOICE,
                 route_sale_needs_invoice=False,
                 itc_claim_basis="ALL",
+                rule37_mode="REPORT",
                 gstr2b_tolerance=Decimal("1.00"),
                 eway_bill_limit=DEFAULT_EWAY_BILL_LIMIT,
                 is_configured=False,
@@ -86,6 +87,7 @@ class GstComplianceService:
             dispatch_without_invoice=stored.dispatch_without_invoice,
             route_sale_needs_invoice=stored.route_sale_needs_invoice,
             itc_claim_basis=stored.itc_claim_basis or "ALL",
+            rule37_mode=stored.rule37_mode or "REPORT",
             gstr2b_tolerance=Decimal(str(stored.gstr2b_tolerance)),
             eway_bill_limit=Decimal(str(stored.eway_bill_limit)),
             is_configured=True,
@@ -108,6 +110,8 @@ class GstComplianceService:
         row.route_sale_needs_invoice = data.route_sale_needs_invoice
         if data.itc_claim_basis is not None:
             row.itc_claim_basis = data.itc_claim_basis
+        if data.rule37_mode is not None:
+            row.rule37_mode = data.rule37_mode
         if data.gstr2b_tolerance is not None:
             row.gstr2b_tolerance = data.gstr2b_tolerance
         if data.eway_bill_limit is not None:
@@ -149,6 +153,7 @@ class GstComplianceService:
             "route_sale_needs_invoice": row.route_sale_needs_invoice,
             "eway_bill_limit": str(row.eway_bill_limit),
             "itc_claim_basis": row.itc_claim_basis,
+            "rule37_mode": row.rule37_mode,
             "gstr2b_tolerance": str(row.gstr2b_tolerance),
         }
 
