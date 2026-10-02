@@ -38,6 +38,7 @@ class _BatchSaleSettingsDialogState extends State<BatchSaleSettingsDialog>
   final TextEditingController _days = TextEditingController(text: '30');
   String _nearExpiryPolicy = 'WARN';
   String _fefoSkipPolicy = 'RECORD';
+  String _shelfLifePolicy = 'BLOCK';
   bool _belowFloor = true;
   bool _isConfigured = false;
   bool _loading = true;
@@ -73,6 +74,8 @@ class _BatchSaleSettingsDialogState extends State<BatchSaleSettingsDialog>
         _fefoSkipPolicy = _fefoPolicies.contains(settings.fefoSkipPolicy)
             ? settings.fefoSkipPolicy
             : 'RECORD';
+        _shelfLifePolicy =
+            settings.shelfLifePolicy == 'WARN' ? 'WARN' : 'BLOCK';
         _belowFloor = settings.nearExpiryBelowFloor;
         _isConfigured = settings.isConfigured;
         _loading = false;
@@ -100,6 +103,7 @@ class _BatchSaleSettingsDialogState extends State<BatchSaleSettingsDialog>
           nearExpiryPolicy: _nearExpiryPolicy,
           fefoSkipPolicy: _fefoSkipPolicy,
           nearExpiryBelowFloor: _belowFloor,
+          shelfLifePolicy: _shelfLifePolicy,
           isConfigured: true,
         ),
       );
@@ -211,6 +215,24 @@ class _BatchSaleSettingsDialogState extends State<BatchSaleSettingsDialog>
                       onChanged: editable && !saving
                           ? (value) => setState(
                               () => _fefoSkipPolicy = value ?? _fefoSkipPolicy)
+                          : null,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    DropdownButtonFormField<String>(
+                      key: const ValueKey('batch-rules-shelf-life'),
+                      isExpanded: true,
+                      initialValue: _shelfLifePolicy,
+                      decoration: const InputDecoration(
+                        labelText:
+                            "Batch short of the customer's minimum shelf life",
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'BLOCK', child: Text('Block')),
+                        DropdownMenuItem(value: 'WARN', child: Text('Warn')),
+                      ],
+                      onChanged: editable && !saving
+                          ? (value) => setState(
+                              () => _shelfLifePolicy = value ?? _shelfLifePolicy)
                           : null,
                     ),
                     const SizedBox(height: AppSpacing.md),

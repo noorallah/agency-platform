@@ -42,6 +42,26 @@ Future<BatchDispatchOutcome> confirmBatchDispatch(
   }
   final String text = check.message ??
       check.findings.map((finding) => finding.message).join('\n');
+  if (check.wouldBlock) {
+    // Refused whatever reason is given, so there is nothing to confirm.
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.block_outlined),
+        title: const Text('Batch rules'),
+        content: SizedBox(width: 420, child: Text(text)),
+        actions: [
+          FilledButton(
+            key: const ValueKey('batch-check-ok'),
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+    return BatchDispatchOutcome.cancelResult;
+  }
   if (check.needsReason) {
     final String? reason = await askForReason(
       context,

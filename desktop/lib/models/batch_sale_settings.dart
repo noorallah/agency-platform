@@ -9,6 +9,7 @@ class BatchSaleSettings {
     this.nearExpiryPolicy = 'WARN',
     this.fefoSkipPolicy = 'RECORD',
     this.nearExpiryBelowFloor = true,
+    this.shelfLifePolicy = 'BLOCK',
     this.isConfigured = false,
   });
 
@@ -25,6 +26,10 @@ class BatchSaleSettings {
   /// Whether a near-expiry batch may be sold below the price floor.
   final bool nearExpiryBelowFloor;
 
+  /// BLOCK or WARN: what dispatching a batch short of the customer's minimum
+  /// shelf life does.
+  final String shelfLifePolicy;
+
   /// False while the firm is still on the platform default.
   final bool isConfigured;
 
@@ -37,15 +42,19 @@ class BatchSaleSettings {
           json['near_expiry_below_floor'],
           fallback: true,
         ),
+        shelfLifePolicy: stringValue(json['shelf_life_policy']) == 'WARN'
+            ? 'WARN'
+            : 'BLOCK',
         isConfigured: boolValue(json['is_configured']),
       );
 
-  /// Exactly the four keys the server declares; it refuses any other.
+  /// Exactly the five keys the server declares; it refuses any other.
   Json toJson() => <String, dynamic>{
         'near_expiry_days': nearExpiryDays,
         'near_expiry_policy': nearExpiryPolicy,
         'fefo_skip_policy': fefoSkipPolicy,
         'near_expiry_below_floor': nearExpiryBelowFloor,
+        'shelf_life_policy': shelfLifePolicy,
       };
 }
 
@@ -59,7 +68,7 @@ class DispatchBatchFinding {
 
   final String lineNumber;
 
-  /// NEAR_EXPIRY or FEFO_SKIP.
+  /// NEAR_EXPIRY, FEFO_SKIP or SHORT_SHELF_LIFE.
   final String kind;
   final String message;
 
@@ -76,6 +85,7 @@ class DispatchBatchCheck {
   const DispatchBatchCheck({
     this.findings = const [],
     this.needsReason = false,
+    this.wouldBlock = false,
     this.message,
   });
 
@@ -83,6 +93,9 @@ class DispatchBatchCheck {
 
   /// True when a finding's rule is REASON: the dispatch needs `batch_reason`.
   final bool needsReason;
+
+  /// True when the dispatch will be refused whatever reason is given.
+  final bool wouldBlock;
   final String? message;
 
   factory DispatchBatchCheck.fromJson(Json json) {
@@ -94,6 +107,7 @@ class DispatchBatchCheck {
               DispatchBatchFinding.fromJson(Map<String, dynamic>.from(item)))
           .toList(),
       needsReason: boolValue(json['needs_reason']),
+      wouldBlock: boolValue(json['would_block']),
       message: text.isEmpty ? null : text,
     );
   }

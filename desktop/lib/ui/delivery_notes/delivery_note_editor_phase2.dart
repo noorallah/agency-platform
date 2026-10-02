@@ -668,6 +668,7 @@ extension _Phase2DeliveryNoteEditor on _DeliveryNoteEditorDialogState {
         api: widget.api,
         lineId: line.salesOrderLineId,
         salesOrderLineId: line.salesOrderLineId,
+        customerId: stringValue(_order?['customer_id']),
         productId: line.productId,
         warehouseId: line.warehouseId,
         asOf: _deliveryDate,

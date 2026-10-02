@@ -33,6 +33,7 @@ class BatchPickerPanel extends StatefulWidget {
     required this.onChanged,
     required this.enabled,
     this.salesOrderLineId,
+    this.customerId,
     this.comparable = true,
     this.keyPrefix = 'delivery-note',
     this.unreadableNote = 'could not read the batches; they will go earliest '
@@ -55,6 +56,10 @@ class BatchPickerPanel extends StatefulWidget {
   /// What the line ships, in stock units.
   final double quantity;
   final String? salesOrderLineId;
+
+  /// The customer the goods go to, so a batch too short for their minimum
+  /// shelf life is flagged. Null when the caller does not know one.
+  final String? customerId;
   final Map<String, double>? picks;
   final ValueChanged<Map<String, double>> onChanged;
   final bool enabled;
@@ -103,6 +108,7 @@ class _BatchPickerPanelState extends State<BatchPickerPanel> {
         widget.warehouseId,
         widget.asOf,
         _trimmed(widget.quantity),
+        widget.customerId ?? '',
       ].join('|');
 
   void _watch() {
@@ -126,6 +132,7 @@ class _BatchPickerPanelState extends State<BatchPickerPanel> {
         asOf: DateTime.tryParse(widget.asOf) == null ? null : widget.asOf,
         quantity: widget.quantity > 0 ? widget.quantity : null,
         salesOrderLineId: widget.salesOrderLineId,
+        customerId: widget.customerId,
       );
       if (!mounted || _asked != key) return;
       setState(() {
@@ -250,6 +257,14 @@ class _BatchPickerPanelState extends State<BatchPickerPanel> {
                             overflow: TextOverflow.ellipsis,
                             style: quiet,
                           ),
+                          if (batch.shortForCustomer && !batch.expired)
+                            const Padding(
+                              padding: EdgeInsets.only(top: 2),
+                              child: StatusBadge(
+                                label: 'Too short for customer',
+                                tone: StatusBadgeTone.warning,
+                              ),
+                            ),
                           if (batch.expired || batch.nearExpiry)
                             Padding(
                               padding: const EdgeInsets.only(top: 2),

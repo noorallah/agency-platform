@@ -43,6 +43,7 @@ BatchAvailabilityRecord _batch(
   required double fefo,
   bool expired = false,
   bool near = false,
+  bool shortForCustomer = false,
 }) =>
     BatchAvailabilityRecord.fromJson(<String, dynamic>{
       'batch_id': id,
@@ -55,6 +56,7 @@ BatchAvailabilityRecord _batch(
       'available_to_line': '20',
       'expired': expired,
       'near_expiry': near,
+      'short_for_customer': shortForCustomer,
       'fefo': fefo.toString(),
     });
 
@@ -78,6 +80,7 @@ class _NoteApi extends ApiClient {
     String? asOf,
     num? quantity,
     String? salesOrderLineId,
+    String? customerId,
   }) async {
     asked = {
       'product_id': productId,
@@ -85,10 +88,13 @@ class _NoteApi extends ApiClient {
       'as_of': asOf,
       'quantity': quantity,
       'sales_order_line_id': salesOrderLineId,
+      'customer_id': customerId,
     };
     return [
       _batch('old', expiry: '2026-12-01', days: 20, fefo: 6, near: true),
       _batch('new', expiry: '2027-06-01', days: 200, fefo: 4),
+      _batch('short', expiry: '2026-11-01', days: 30, fefo: 0,
+          shortForCustomer: true),
       _batch('gone', expiry: '2026-01-01', days: -90, fefo: 0, expired: true),
     ];
   }
@@ -198,6 +204,17 @@ void main() {
     expect(api.asked!['sales_order_line_id'], 'so-line-1');
     expect(api.asked!['quantity'], 10);
     expect(api.asked!['warehouse_id'], 'wh-1');
+    expect(api.asked!['customer_id'], 'c1');
+    // Flagged, never pre-filled.
+    expect(find.text('Too short for customer'), findsOneWidget);
+    expect(
+        tester
+            .widget<TextField>(find.descendant(
+                of: find.byKey(const ValueKey<String>('batch-pick-so-line-1-short')),
+                matching: find.byType(TextField)))
+            .controller!
+            .text,
+        '0');
 
     TextField box(String id) => tester.widget<TextField>(find.descendant(
         of: find.byKey(ValueKey<String>('batch-pick-so-line-1-$id')),
