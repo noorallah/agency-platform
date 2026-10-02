@@ -136,3 +136,11 @@ One standard check for every screen in this area. Run it once per screen as the 
 - **Preconditions:** an approved supplier bill of 400 + 18% local GST (CGST 36, SGST 36) dated more than 180 days ago, nothing paid; Settings > Tax > GST Documents, *180-day unpaid bills* on **Report and post**.
 - **Steps:** GST > Rule 37, as of today. **Post reversals and reclaims.** Open the trial balance and GSTR-3B for this month. Pay the bill in full. Back to Rule 37, post again; GSTR-3B for that month.
 - **Expect:** the bill is listed to REVERSE CGST 36 and SGST 36. After posting the list is empty, input tax is down 72 and *Input Tax Not Claimable* up 72, and 3B shows 72 in 4(B)(2), "of which rule 37" 72. After payment the bill is listed to RECLAIM 72; once posted the books are back, and that month's 3B shows the 72 in 4(A)(5) and in 4(D)(1). With the setting on **Report only**, the list shows but posting is refused with the reason.
+
+### TC-COMP-014 — The supplier's IRN on a bill
+
+*Added 2026-10-02 (backlog 78 row 5).*
+
+- **Preconditions:** a supplier with a GSTIN; Settings > Tax > GST Documents, *Supplier bill without an IRN* on **Warn** (the default).
+- **Steps:** Open the supplier, tick **Supplier e-invoices**, save. Enter a bill from it with no IRN and save. Type `IRN-123` in the IRN box. Then type a 64-character IRN (e.g. 64 `a`s) and save. Approve it; **Record IRN** on the approved bill, clear it, record it again. Enter a second bill from the same supplier carrying the same IRN. Set the setting to **Off** and reopen a bill with no IRN.
+- **Expect:** the first save shows the warning that the supplier e-invoices and the bill has no IRN (rule 48(4)); `IRN-123` is refused as not 64 letters and digits; with the IRN the warning goes. On the approved bill the IRN can be recorded and cleared, and the audit trail shows each change. The second bill warns that the first bill already carries this IRN. With the setting Off the missing-IRN warning is not shown (the duplicate warning still is).

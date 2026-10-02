@@ -282,7 +282,7 @@ other apps". Checked against the code on that date; to confirm with the CA.
 | Supplier GST treatment (regular / composition / unregistered / overseas / SEZ) | **Built 2026-10-02** (§78 row 2, A37) | Yes | Yes | Yes (registration type) |
 | GSTR-2B matching | **Built 2026-10-02** (§78 row 3) | Yes | Yes (purchase reconciliation) | Yes |
 | 180-day reversal | **Built 2026-10-02** (§78 row 4; Off / Report / Report and post, reclaim on payment) | Not verified | Not verified | Not verified |
-| Supplier IRN on the bill | **No** | Not verified | Not verified | Not verified |
+| Supplier IRN on the bill | **Built 2026-10-02** (§78 row 5; supplier flag, warn Off / Warn) | Not verified | Not verified | Not verified |
 | E-way bill number on the receipt | **No** (vehicle only) | Yes (on bills) | Yes (purchase receipt) | Yes |
 
 "Not verified" means no source was read for it on this date, not that the
