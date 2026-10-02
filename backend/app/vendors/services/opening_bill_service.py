@@ -74,6 +74,13 @@ def opening_bill_payments(
         bill_ids=list(bill_ids),
     ).items():
         paid[bill_id] = paid.get(bill_id, ZERO) + amount
+    # And a return's or debit note's credit set against it (BUY-17).
+    from app.settlements.services.supplier_credits import credit_applied_against
+
+    for bill_id, amount in credit_applied_against(
+        session, firm_id=firm_id, invoice_ids=list(bill_ids), opening=True
+    ).items():
+        paid[bill_id] = paid.get(bill_id, ZERO) + amount
     return paid
 
 
@@ -245,22 +252,40 @@ class VendorOpeningBillService:
 
         Refused while any payment is applied to it: the payment would be left
         clearing a debt that no longer exists. Reverse the payment first, and
-        it goes back to being money on account.
+        it goes back to being money on account. Supplier credit set against it
+        does not hold it up: that is withdrawn and free to set against another
+        bill, as cancelling a purchase bill does (BUY-17).
         """
         # Imported here: the settlement models import the vendor models.
         from app.finance.services.journal_engine import JournalEntryEngine
+        from app.settlements.services.supplier_credits import (
+            credit_applied_against,
+            withdraw_credit_applications,
+        )
 
         row = self.get(bill_id, firm_id=firm_id)
         if row.status == VendorOpeningBillStatus.CANCELLED.value:
             raise ValidationError(f"{row.bill_number} is already cancelled.")
-        paid = opening_bill_payments(
-            self._session, firm_id=firm_id, bill_ids=[row.id]
+        credit = credit_applied_against(
+            self._session, firm_id=firm_id, invoice_ids=[row.id], opening=True
         ).get(row.id, ZERO)
+        paid = (
+            opening_bill_payments(
+                self._session, firm_id=firm_id, bill_ids=[row.id]
+            ).get(row.id, ZERO)
+            - credit
+        )
         if paid > ZERO:
             raise ValidationError(
                 f"{paid} has been paid against {row.bill_number}. Reverse "
                 "those payments before cancelling it."
             )
+        withdraw_credit_applications(
+            self._session,
+            firm_id=firm_id,
+            actor_id=actor_id,
+            vendor_opening_bill_id=row.id,
+        )
         mirror = JournalEntryEngine(self._session).reverse_entry(
             row.journal_entry_id,
             firm_id=firm_id,

@@ -174,8 +174,14 @@ reference.
   anything is written; then each bill goes through the service's own
   `_stage`, so the journal, the balance and every refusal are the form's.
   `app/common/opening_bill_import.py` is the one importer, a subclass per side.
-- **Not yet:** a supplier credit -- a purchase return's or a debit note's --
-  cannot be set against an opening bill (refused by name).
+- **Supplier credit clears one too** (BUY-17, A52, 2026-10-03): a purchase
+  return's or debit note's credit is set against an opening bill exactly as
+  against a purchase bill -- `supplier_credit_applications.vendor_opening_bill_id`
+  (migration 0239), exactly one of it and `purchase_invoice_id`. Nothing posts;
+  `opening_bill_payments` counts it, so Record Payment, the opening bill list
+  and the delete guard agree. Cancelling the opening bill withdraws the credit
+  rather than refusing, as cancelling a purchase bill does; money paid still
+  refuses it.
 
 ## A customer's opening balance is one figure or bills, never both
 

@@ -283,6 +283,10 @@ class SupplierCreditApplication(BaseEntity):
     nothing: the return already debited payables and the bill already credited
     them, and this row only says which bill the debit belongs to. A row is
     withdrawn (soft-deleted) when either the return or the bill is cancelled.
+
+    The bill is a purchase invoice or, since BUY-17, an opening bill brought
+    over from the old software: exactly one of ``purchase_invoice_id`` and
+    ``vendor_opening_bill_id`` is set.
     """
 
     __tablename__ = "supplier_credit_applications"
@@ -292,12 +296,21 @@ class SupplierCreditApplication(BaseEntity):
             "(purchase_return_id IS NULL) <> (debit_note_id IS NULL)",
             name="CK_supplier_credit_applications_one_source",
         ),
+        CheckConstraint(
+            "(purchase_invoice_id IS NULL) <> (vendor_opening_bill_id IS NULL)",
+            name="CK_supplier_credit_applications_one_bill",
+        ),
         Index(
             "IX_supplier_credit_applications_return", "firm_id", "purchase_return_id"
         ),
         Index("IX_supplier_credit_applications_debit_note", "firm_id", "debit_note_id"),
         Index(
             "IX_supplier_credit_applications_invoice", "firm_id", "purchase_invoice_id"
+        ),
+        Index(
+            "IX_supplier_credit_applications_opening_bill",
+            "firm_id",
+            "vendor_opening_bill_id",
         ),
         Index("IX_supplier_credit_applications_vendor", "firm_id", "vendor_id"),
     )
@@ -314,10 +327,12 @@ class SupplierCreditApplication(BaseEntity):
     debit_note_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("debit_notes.id", ondelete="RESTRICT")
     )
-    purchase_invoice_id: Mapped[UUID] = mapped_column(
-        UUIDType(),
-        ForeignKey("purchase_invoices.id", ondelete="RESTRICT"),
-        nullable=False,
+    #: The bill it clears: a purchase invoice, or (BUY-17) an opening bill.
+    purchase_invoice_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("purchase_invoices.id", ondelete="RESTRICT")
+    )
+    vendor_opening_bill_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("vendor_opening_bills.id", ondelete="RESTRICT")
     )
     applied_on: Mapped[date] = mapped_column(Date, nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)

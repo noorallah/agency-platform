@@ -82,7 +82,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | BUY-14 | §69 row 9 | Purchase budget by branch, category and month | Nothing | M | Claude alone |
 | BUY-15 | §69 row 10 | Users rate suppliers (opinion, kept apart) | Nothing | S | Claude alone |
 | BUY-16 | §42.12 | Landed cost: freight and loading added to the stock's cost | Nothing | L | Claude alone |
-| BUY-17 | §36 | Supplier credit from a return set against an opening bill | Nothing | S | Claude alone |
+| BUY-17 | §36 | Supplier credit from a return set against an opening bill -- **built 2026-10-03** (A52) | Nothing | S | Claude alone |
 | **Stock** | | | | | |
 | STK-1 | §70 row 1 | A stock transfer as a document: dispatch, in transit, receive | Nothing | L | Claude alone |
 | STK-2 | §70 row 2 | A GSTIN per branch, and transfers between GSTINs as tax invoices | Nothing | L | Claude alone |
@@ -434,6 +434,7 @@ otherwise it is built as written.
 - **What it is:** a return's credit can be set against a bill brought over from the old software.
 - **What gets built:** `backend/app/settlements/services/supplier_credits.py` accepts a vendor opening bill as a target beside purchase invoices; the opening bill's derived outstanding includes it; the apply dialog lists opening bills. Tests. Migration only if the allocation table needs the opening-bill reference.
 - **Depends on:** nothing. **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A52): `supplier_credit_applications.vendor_opening_bill_id` (migration 0239; `purchase_invoice_id` nullable, a check holds exactly one); `apply_supplier_credit` takes an opening bill instead of refusing it; `opening_bill_payments` counts the credit, so Record Payment, the opening bill list and the vendor delete guard follow; cancelling an opening bill withdraws the credit set against it. The desktop apply dialog already listed opening bills ("(opening)"), so it needed no change. Tests in `test_supplier_credit_opening_bill.py`.
 
 ### Stock
 

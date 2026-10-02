@@ -2973,8 +2973,9 @@ good enough that onboarding is a day's work rather than a project.
   read it as trading). Entered on the vendor form's *Opening bills* section;
   `POST /vendors/opening-bills/import` takes a batch by supplier code, all or
   nothing; the file import (template, check, post) is
-  `POST /vendors/opening-bills/import-file` (D-GOLIVE-1, 2026-10-01). Still open: supplier credit from a
-  return cannot be set against an opening bill yet.
+  `POST /vendors/opening-bills/import-file` (D-GOLIVE-1, 2026-10-01). Supplier credit from a return or a
+  debit note is set against an opening bill like any bill -- **built
+  2026-10-03** (BUY-17, A52, migration 0239).
 - **Customers had only a single-figure opening balance.** Every receipt
   against it was money on account with nothing to clear, and the ageing could
   not say how old any of it was. **Built 2026-09-30 as customer opening bills**
