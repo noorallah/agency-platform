@@ -50,6 +50,7 @@ import '../../models/uom_packaging.dart';
 import '../../models/inventory.dart';
 import '../../models/vendor.dart';
 import '../../models/vendor_opening_bill.dart';
+import '../../models/vendor_rating.dart';
 import '../../models/report.dart';
 import '../../models/trade_licence.dart';
 import '../preferences/desktop_preferences_service.dart';
@@ -1923,6 +1924,27 @@ class ApiClient {
   Future<Vendor> restoreVendor(String id) async => Vendor.fromJson(_unwrapMap(
         await request('POST', '/api/v1/vendors/$id/restore'),
       ));
+
+  /// What people think of a supplier (BUY-15): averages, every rating and
+  /// the caller's own.
+  Future<VendorRatings> vendorRatings(String vendorId) async =>
+      VendorRatings.fromJson(_unwrapMap(
+        await request('GET', '/api/v1/vendors/$vendorId/ratings'),
+      ));
+
+  /// Save the caller's rating of a supplier, replacing an earlier one.
+  Future<VendorRating> saveMyVendorRating(String vendorId, Json body) async =>
+      VendorRating.fromJson(_unwrapMap(
+        await request(
+          'PUT',
+          '/api/v1/vendors/$vendorId/ratings/mine',
+          body: body,
+        ),
+      ));
+
+  /// Withdraw the caller's rating of a supplier.
+  Future<void> withdrawMyVendorRating(String vendorId) =>
+      request('DELETE', '/api/v1/vendors/$vendorId/ratings/mine');
 
   /// What this supplier was owed on the firm's first day here.
   Future<List<VendorOpeningBill>> vendorOpeningBills(String vendorId) async =>

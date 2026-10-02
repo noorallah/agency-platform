@@ -80,7 +80,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | BUY-12 | §68 row 11 | Supplier performance: on time, short, rejected, price trend | Nothing | M | Claude alone |
 | BUY-13 | §69 row 8 | Volume rebates from suppliers | Nothing | M | Claude alone |
 | BUY-14 | §69 row 9 | Purchase budget by branch, category and month | Nothing | M | Claude alone |
-| BUY-15 | §69 row 10 | Users rate suppliers (opinion, kept apart) | Nothing | S | Claude alone |
+| BUY-15 | §69 row 10 | Users rate suppliers (opinion, kept apart) -- **built 2026-10-03** (A74) | Nothing | S | Claude alone |
 | BUY-16 | §42.12 | Landed cost: freight and loading added to the stock's cost | Nothing | L | Claude alone |
 | BUY-17 | §36 | Supplier credit from a return set against an opening bill -- **built 2026-10-03** (A52) | Nothing | S | Claude alone |
 | **Stock** | | | | | |
@@ -429,6 +429,7 @@ otherwise it is built as written.
 - **What it is:** users score suppliers, kept apart from the computed figures.
 - **What gets built:** a rating table (user, supplier, five criteria, remark, date); averages on the vendor editor (`vendor_editor_phase2.dart`). Migration yes. Tests.
 - **Depends on:** nothing. **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A74): `vendor_ratings` (migration 0249, all stores; one live row per person per supplier by a partial key, earlier ratings kept as history, each criterion checked 1-5). `app/vendors/services/vendor_ratings.py`: `GET /vendors/{id}/ratings` (averages, overall, every rating, the reader's own), `PUT` and `DELETE /vendors/{id}/ratings/mine`, for `VENDOR_VIEW` or `PURCHASE_VIEW`; each save audited with the earlier scores. Desktop: *Ratings* on the phase 2 supplier editor. Tests: `test_vendor_ratings.py`, `vendor_ratings_test.dart`.
 
 #### BUY-16. Landed cost (§42.12)
 - **What it is:** freight, loading or clearing paid to a third party is added to the goods' cost, so margins are right.
