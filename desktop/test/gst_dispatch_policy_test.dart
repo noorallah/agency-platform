@@ -60,6 +60,8 @@ class _GstApi extends ApiClient {
   /// Every call the screens made, as `METHOD path`.
   final List<String> calls = <String>[];
   Json? savedSettings;
+  String filingProvider = 'SANDBOX';
+  String? savedProvider;
   Json? createdNote;
 
   @override
@@ -86,6 +88,18 @@ class _GstApi extends ApiClient {
       return {
         'message': 'Dispatched and invoiced as INV-0007.',
         'data': {'id': 'inv-1'},
+      };
+    }
+    if (path == '/api/v1/einvoice/settings') {
+      if (method == 'PUT') {
+        savedProvider = body?['provider'] as String?;
+        filingProvider = savedProvider ?? filingProvider;
+      }
+      return {
+        'data': {
+          'provider': filingProvider,
+          'available': ['SANDBOX', 'OFFLINE'],
+        },
       };
     }
     if (path.endsWith('/gst-compliance-settings')) {
@@ -456,6 +470,27 @@ void main() {
         'itc_claim_basis': 'ALL',
         'gstr2b_tolerance': '1.00',
       });
+    });
+
+    testWidgets('the e-invoice filing choice saves through its own call',
+        (tester) async {
+      final _GstApi api = _GstApi();
+      await _pumpSettings(tester, api, ['TAX_VIEW', 'TAX_MANAGE_SETTINGS']);
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('einvoice-filing-provider')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('einvoice-filing-provider')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.text('Offline: upload on the e-invoice portal').last,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('gst-settings-save')));
+      await tester.pumpAndSettle();
+
+      expect(api.savedProvider, 'OFFLINE');
+      expect(api.savedSettings?.containsKey('provider'), isFalse);
     });
 
     testWidgets('a value the screen does not know reads as the server default',

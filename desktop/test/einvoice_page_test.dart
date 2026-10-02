@@ -6,12 +6,14 @@
 // reference everywhere it is shown.
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/sales/einvoice_page.dart';
 import 'package:agency_desktop/phase2/phase2_scope.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -28,7 +30,11 @@ PermissionService _permissions({
       }));
 
 class _EInvoiceApi extends ApiClient {
-  _EInvoiceApi({this.registrations = const [], this.bill})
+  _EInvoiceApi({
+    this.registrations = const [],
+    this.bill,
+    this.provider = 'SANDBOX',
+  })
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -38,6 +44,10 @@ class _EInvoiceApi extends ApiClient {
 
   final List<Json> registrations;
   final Json? bill;
+  final String provider;
+  List<String>? exportedIds;
+  String? importedName;
+  List<int>? importedBytes;
   final List<String> requested = <String>[];
   Json? sentBody;
 
@@ -55,6 +65,14 @@ class _EInvoiceApi extends ApiClient {
     int? expectedVersion,
   }) async {
     requested.add('$method $path');
+    if (path == '/api/v1/einvoice/settings') {
+      return <String, dynamic>{
+        'data': <String, dynamic>{
+          'provider': provider,
+          'available': <String>['SANDBOX', 'OFFLINE'],
+        },
+      };
+    }
     if (path.contains('/eway-bill')) {
       if (method == 'POST') {
         final String? refusal = refuseEwayBill;
@@ -91,6 +109,44 @@ class _EInvoiceApi extends ApiClient {
     }
     return <String, dynamic>{'data': const <Json>[]};
   }
+
+  @override
+  Future<List<int>> downloadBytes(
+    String path, {
+    Map<String, String>? query,
+    String method = 'GET',
+    Json? body,
+    bool retrying = false,
+  }) async {
+    requested.add('$method $path');
+    exportedIds = List<String>.from(body?['invoice_ids'] as List);
+    return utf8.encode('[]');
+  }
+
+  @override
+  Future<Json> multipartRequest(
+    String method,
+    String path, {
+    required Map<String, String> fields,
+    String? fileField,
+    String? fileName,
+    List<int>? fileBytes,
+    String? fileContentType,
+    bool authenticated = true,
+    bool retrying = false,
+  }) async {
+    requested.add('$method $path');
+    importedName = fileName;
+    importedBytes = fileBytes;
+    return <String, dynamic>{
+      'data': <String, dynamic>{
+        'registered': <String>['SI-1', 'SI-2'],
+        'failed': <String>['SI-3'],
+        'unmatched': <String>['SI-X'],
+        'already': <String>[],
+      },
+    };
+  }
 }
 
 Json _sandboxRegistration() => <String, dynamic>{
@@ -115,6 +171,8 @@ Future<void> _pump(
   _EInvoiceApi api, {
   PermissionService? permissions,
   bool phase2 = false,
+  Future<XFile?> Function()? pickResultFile,
+  Future<String?> Function(String, List<int>)? saveExportFile,
 }) async {
   tester.view.physicalSize = const Size(1700, 1200);
   tester.view.devicePixelRatio = 1;
@@ -127,6 +185,8 @@ Future<void> _pump(
         api: api,
         permissions: permissions ?? _permissions(),
         hasActiveFirm: true,
+        pickResultFile: pickResultFile,
+        saveExportFile: saveExportFile,
       ),
     ),
   ));
@@ -484,5 +544,83 @@ void main() {
         reason: 'Enter sent the reason, and the prompt closed without the '
             'controller being used after disposal');
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('each registration says how it reaches the portal',
+      (tester) async {
+    final _EInvoiceApi api = _EInvoiceApi(registrations: <Json>[
+      <String, dynamic>{..._sandboxRegistration(), 'provider': 'OFFLINE'},
+    ]);
+    await _pump(tester, api);
+    expect(find.text('Filing'), findsOneWidget);
+    expect(find.text('Offline'), findsOneWidget);
+  });
+
+  testWidgets('a sandbox firm is not offered the offline steps',
+      (tester) async {
+    await _pump(tester, _EInvoiceApi());
+    expect(find.text('Export for portal'), findsNothing);
+    expect(find.text('Import portal result'), findsNothing);
+  });
+
+  testWidgets('offline: export sends the chosen invoices and saves the file',
+      (tester) async {
+    final _EInvoiceApi api = _EInvoiceApi(provider: 'OFFLINE');
+    String? savedName;
+    List<int>? savedBytes;
+    await _pump(
+      tester,
+      api,
+      saveExportFile: (name, bytes) async {
+        savedName = name;
+        savedBytes = bytes;
+        return 'C:/out/$name';
+      },
+    );
+
+    await tester.tap(find.text('Export for portal'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(CheckboxListTile));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Export 1'));
+    await tester.pumpAndSettle();
+
+    expect(api.exportedIds, ['inv-9']);
+    expect(savedName, startsWith('einvoice-'));
+    expect(savedName, endsWith('.json'));
+    expect(utf8.decode(savedBytes!), '[]');
+  });
+
+  testWidgets('offline: importing the portal result shows the counts',
+      (tester) async {
+    final _EInvoiceApi api = _EInvoiceApi(provider: 'OFFLINE');
+    final Directory dir = Directory.systemTemp.createTempSync('einvoice');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final File result = File('${dir.path}/result.json')
+      ..writeAsStringSync('[]');
+    await _pump(
+      tester,
+      api,
+      pickResultFile: () async => XFile(result.path),
+    );
+
+    await tester.tap(find.text('Import portal result'));
+    // Reading the chosen file is real I/O outside the fake clock: wait for
+    // the condition itself rather than a fixed delay (D-TEST-2).
+    final Stopwatch elapsed = Stopwatch()..start();
+    while (api.importedName == null &&
+        elapsed.elapsed < const Duration(seconds: 20)) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+
+    expect(api.importedName, 'result.json');
+    expect(find.textContaining('2 registered, 1 refused, 1 not matched'),
+        findsOneWidget);
+    expect(find.textContaining('Not matched: SI-X'), findsOneWidget);
+    expect(find.textContaining('Refused: SI-3'), findsOneWidget);
   });
 }

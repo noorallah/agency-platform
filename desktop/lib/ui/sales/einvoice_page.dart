@@ -6,6 +6,9 @@
 // showed the reference alone would be handing somebody a document to present
 // at a check post.
 
+import 'dart:io';
+
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -25,11 +28,21 @@ class EInvoicePage extends StatefulWidget {
     required this.api,
     required this.permissions,
     required this.hasActiveFirm,
+    this.pickResultFile,
+    this.saveExportFile,
   });
 
   final ApiClient api;
   final PermissionService permissions;
   final bool hasActiveFirm;
+
+  /// Choose the portal's result file. Tests inject one, because a widget
+  /// test cannot open a native dialog.
+  final Future<XFile?> Function()? pickResultFile;
+
+  /// Write the export for the portal; returns where, or null on a cancel.
+  final Future<String?> Function(String suggestedName, List<int> bytes)?
+      saveExportFile;
 
   @override
   State<EInvoicePage> createState() => _EInvoicePageState();
@@ -48,6 +61,10 @@ class _EInvoicePageState extends State<EInvoicePage> {
     return null;
   }
   bool _loading = true;
+  // How this firm's e-invoices reach the portal (A42); null where unknown.
+  EInvoiceSettings? _filing;
+
+  bool get _isOffline => _filing?.isOffline ?? false;
 
   bool get _mayView => widget.permissions.hasPermission('EINVOICE_VIEW');
 
@@ -67,6 +84,11 @@ class _EInvoicePageState extends State<EInvoicePage> {
       _error = null;
     });
     try {
+      try {
+        _filing = await widget.api.einvoiceSettings();
+      } on ApiException {
+        _filing = null;
+      }
       final List<EInvoiceRegistrationRecord> rows =
           await fetchAllPages<EInvoiceRegistrationRecord>(
         (page) => widget.api.einvoiceRegistrations(page: page),
@@ -206,6 +228,100 @@ class _EInvoicePageState extends State<EInvoicePage> {
     }
   }
 
+  /// Offline filing, step one: choose approved invoices and save the JSON the
+  /// portal's bulk upload takes. Each chosen invoice becomes a registration
+  /// waiting for its IRN.
+  Future<void> _exportForPortal() async {
+    final List<Json> invoices = await _registerable();
+    if (!mounted) return;
+    if (invoices.isEmpty) {
+      NotificationService.show(
+        context,
+        'Every approved invoice is already registered.',
+        kind: AppNotificationKind.information,
+      );
+      return;
+    }
+    final List<String>? ids = await showDialog<List<String>>(
+      context: context,
+      builder: (context) => _ExportInvoicesDialog(invoices: invoices),
+    );
+    if (ids == null || ids.isEmpty) return;
+    try {
+      final List<int> bytes = await widget.api.exportOfflineEinvoices(ids);
+      final String stamp = DateTime.now()
+          .toIso8601String()
+          .substring(0, 16)
+          .replaceAll(RegExp(r'[-:]'), '')
+          .replaceAll('T', '-');
+      final String? path = await (widget.saveExportFile ?? _saveToDisk)(
+        'einvoice-$stamp.json',
+        bytes,
+      );
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        path == null
+            ? 'Export cancelled. The invoices now wait for the portal, but no '
+                'file was saved.'
+            : 'Saved to $path. Upload it on the e-invoice portal, then use '
+                '"Import portal result".',
+        kind: path == null
+            ? AppNotificationKind.warning
+            : AppNotificationKind.success,
+      );
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(context, error.message,
+          kind: AppNotificationKind.error);
+    }
+  }
+
+  Future<String?> _saveToDisk(String suggestedName, List<int> bytes) async {
+    final FileSaveLocation? location = await getSaveLocation(
+      suggestedName: suggestedName,
+      acceptedTypeGroups: const [
+        XTypeGroup(label: 'JSON', extensions: ['json']),
+      ],
+    );
+    if (location == null) return null;
+    await File(location.path).writeAsBytes(bytes, flush: true);
+    return location.path;
+  }
+
+  /// Offline filing, step two: the portal's result file, matched to the
+  /// waiting registrations by invoice number.
+  Future<void> _importPortalResult() async {
+    final XFile? file = await (widget.pickResultFile ??
+        () => openFile(acceptedTypeGroups: const [
+              XTypeGroup(
+                label: 'Portal result',
+                extensions: ['json', 'csv', 'xlsx'],
+              ),
+            ]))();
+    if (file == null) return;
+    try {
+      final OfflineEInvoiceImport result =
+          await widget.api.importOfflineEinvoiceResult(
+        // Only the last segment: some platforms give a path here.
+        fileName: file.name.split(RegExp(r'[/\\]')).last,
+        bytes: await file.readAsBytes(),
+      );
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (context) => _ImportResultDialog(result: result),
+      );
+      if (!mounted) return;
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(context, error.message,
+          kind: AppNotificationKind.error);
+    }
+  }
+
   Future<void> _cancelRegistration(EInvoiceRegistrationRecord row) async {
     final String? reason = await _askReason(
       title: 'Withdraw registration',
@@ -294,6 +410,20 @@ class _EInvoicePageState extends State<EInvoicePage> {
               onAction: (action) =>
                   action == ToolbarAction.newItem ? _register() : _load(),
               commands: [
+                if (_mayManage && _isOffline) ...[
+                  ToolbarCommand(
+                    id: 'export-portal',
+                    label: 'Export for portal',
+                    icon: Icons.upload_file_outlined,
+                    onPressed: _loading ? null : _exportForPortal,
+                  ),
+                  ToolbarCommand(
+                    id: 'import-portal',
+                    label: 'Import portal result',
+                    icon: Icons.download_outlined,
+                    onPressed: _loading ? null : _importPortalResult,
+                  ),
+                ],
                 if (_mayManage) ...[
                   ToolbarCommand(
                     id: 'raise-bill',
@@ -354,6 +484,18 @@ class _EInvoicePageState extends State<EInvoicePage> {
           // With five columns the row's buttons sit past the right edge of a
           // laptop screen, and the owner could not find "Raise e-way bill"
           // at all (plan item 12.6, 2026-09-13).
+          if (_mayManage && _isOffline) ...[
+            OutlinedButton.icon(
+              onPressed: _loading ? null : _exportForPortal,
+              icon: const Icon(Icons.upload_file_outlined),
+              label: const Text('Export for portal'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _loading ? null : _importPortalResult,
+              icon: const Icon(Icons.download_outlined),
+              label: const Text('Import portal result'),
+            ),
+          ],
           if (_mayManage) ...[
             OutlinedButton.icon(
               onPressed: _selectedRow != null && _mayRaiseBill(_selectedRow!)
@@ -434,6 +576,7 @@ class _EInvoicePageState extends State<EInvoicePage> {
         columns: const [
           GridColumn(key: 'invoice', label: 'Invoice'),
           GridColumn(key: 'customer', label: 'Customer', priority: 1),
+          GridColumn(key: 'filing', label: 'Filing', priority: 1),
           GridColumn(key: 'reference', label: 'Reference'),
           GridColumn(key: 'eway', label: 'E-way bill'),
         ],
@@ -441,6 +584,7 @@ class _EInvoicePageState extends State<EInvoicePage> {
         cells: (row) => [
           row.invoiceNumber.isEmpty ? '—' : row.invoiceNumber,
           row.customerName.isEmpty ? '—' : row.customerName,
+          _providerLabel(row.provider),
           row.isRegistered
               ? row.referenceLabel
               : '${statusInWords(row.status)}'
@@ -461,6 +605,7 @@ class _EInvoicePageState extends State<EInvoicePage> {
       columns: const [
         GridColumn(key: 'invoice', label: 'Invoice'),
         GridColumn(key: 'customer', label: 'Customer'),
+        GridColumn(key: 'filing', label: 'Filing'),
         GridColumn(key: 'reference', label: 'Reference'),
         GridColumn(key: 'eway', label: 'E-way bill'),
         GridColumn(key: 'actions', label: ''),
@@ -469,6 +614,7 @@ class _EInvoicePageState extends State<EInvoicePage> {
       cells: (row) => [
         row.invoiceNumber.isEmpty ? '—' : row.invoiceNumber,
         row.customerName.isEmpty ? '—' : row.customerName,
+        _providerLabel(row.provider),
         // Mode and reference together, always. A reference shown alone is one
         // somebody eventually presents at a check post.
         row.isRegistered
@@ -483,11 +629,11 @@ class _EInvoicePageState extends State<EInvoicePage> {
       // row's actions off the right of a 1366 screen; the cell truncates and
       // the whole value is in its tooltip.
       cellBuilder: (columnIndex, value, row) => switch (columnIndex) {
-        4 => _actions(row),
-        1 || 2 => Tooltip(
+        5 => _actions(row),
+        1 || 3 => Tooltip(
             message: value,
             child: SizedBox(
-              width: columnIndex == 2 ? 200 : 160,
+              width: columnIndex == 3 ? 200 : 160,
               child: Text(value, overflow: TextOverflow.ellipsis),
             ),
           ),
@@ -495,6 +641,13 @@ class _EInvoicePageState extends State<EInvoicePage> {
       },
     );
   }
+
+  static String _providerLabel(String provider) => switch (provider) {
+        'SANDBOX' => 'Sandbox',
+        'OFFLINE' => 'Offline',
+        '' => '—',
+        _ => provider,
+      };
 
   /// A registered invoice may carry a bill unless one already stands. A
   /// withdrawn or refused bill does not stand -- the service raises a fresh
@@ -796,6 +949,119 @@ class _RegisterInvoiceDialogState extends State<_RegisterInvoiceDialog> {
           FilledButton(
             onPressed: () => Navigator.of(context).pop(_invoiceId),
             child: const Text('Register'),
+          ),
+        ],
+      );
+}
+
+/// Choose the approved invoices to put in the portal's upload file.
+class _ExportInvoicesDialog extends StatefulWidget {
+  const _ExportInvoicesDialog({required this.invoices});
+
+  final List<Json> invoices;
+
+  @override
+  State<_ExportInvoicesDialog> createState() => _ExportInvoicesDialogState();
+}
+
+class _ExportInvoicesDialogState extends State<_ExportInvoicesDialog> {
+  final Set<String> _chosen = <String>{};
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Export for the portal'),
+        content: SizedBox(
+          width: 460,
+          height: 360,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Each chosen invoice waits for its IRN until you import the '
+                "portal's result.",
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Expanded(
+                child: ListView(
+                  children: [
+                    for (final Json invoice in widget.invoices)
+                      CheckboxListTile(
+                        dense: true,
+                        value: _chosen.contains('${invoice['id']}'),
+                        onChanged: (on) => setState(() => on == true
+                            ? _chosen.add('${invoice['id']}')
+                            : _chosen.remove('${invoice['id']}')),
+                        title: Text(
+                          '${invoice['invoice_number']} — '
+                          '${invoice['customer_name'] ?? ''} — '
+                          '${invoice['grand_total']}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: _chosen.isEmpty
+                ? null
+                : () => Navigator.of(context).pop(_chosen.toList()),
+            child: Text('Export ${_chosen.length}'),
+          ),
+        ],
+      );
+}
+
+/// What importing the portal's result did, with the numbers that need a look.
+class _ImportResultDialog extends StatelessWidget {
+  const _ImportResultDialog({required this.result});
+
+  final OfflineEInvoiceImport result;
+
+  Widget _line(BuildContext context, String label, List<String> numbers) {
+    if (numbers.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.sm),
+      child: Text(
+        '$label: ${numbers.join(', ')}',
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Portal result imported'),
+        content: SizedBox(
+          width: 460,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('${result.registered.length} registered, '
+                    '${result.failed.length} refused, '
+                    '${result.unmatched.length} not matched, '
+                    '${result.already.length} already registered.'),
+                _line(context, 'Refused', result.failed),
+                _line(context, 'Not matched', result.unmatched),
+                _line(context, 'Already registered', result.already),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
           ),
         ],
       );

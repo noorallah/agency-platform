@@ -21,10 +21,14 @@ class EInvoiceRegistrationRecord {
     this.errorMessage = '',
     this.attempts = 0,
     this.cancellationReason = '',
+    this.provider = '',
   });
 
   final String id;
   final String salesInvoiceId;
+
+  /// How it reaches the portal: SANDBOX or OFFLINE (A42).
+  final String provider;
 
   /// What the row is about, so a reference can be matched to a bill.
   final String invoiceNumber;
@@ -68,7 +72,52 @@ class EInvoiceRegistrationRecord {
         errorMessage: stringValue(json['error_message']),
         attempts: (json['attempts'] as num?)?.toInt() ?? 0,
         cancellationReason: stringValue(json['cancellation_reason']),
+        provider: stringValue(json['provider']),
       );
+}
+
+/// How a firm's e-invoices reach the portal, and what the server offers.
+class EInvoiceSettings {
+  const EInvoiceSettings({required this.provider, required this.available});
+
+  final String provider;
+  final List<String> available;
+
+  bool get isOffline => provider == 'OFFLINE';
+
+  factory EInvoiceSettings.fromJson(Json json) => EInvoiceSettings(
+        provider: stringValue(json['provider']),
+        available: json['available'] is List
+            ? (json['available'] as List).map((e) => '$e').toList()
+            : const <String>[],
+      );
+}
+
+/// What importing the portal's result file did.
+class OfflineEInvoiceImport {
+  const OfflineEInvoiceImport({
+    this.registered = const [],
+    this.failed = const [],
+    this.unmatched = const [],
+    this.already = const [],
+  });
+
+  final List<String> registered;
+  final List<String> failed;
+  final List<String> unmatched;
+  final List<String> already;
+
+  factory OfflineEInvoiceImport.fromJson(Json json) {
+    List<String> list(String key) => json[key] is List
+        ? (json[key] as List).map((e) => '$e').toList()
+        : const <String>[];
+    return OfflineEInvoiceImport(
+      registered: list('registered'),
+      failed: list('failed'),
+      unmatched: list('unmatched'),
+      already: list('already'),
+    );
+  }
 }
 
 /// What the authority knows about one consignment.
