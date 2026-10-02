@@ -209,6 +209,14 @@ promotion, or the customer's standing rate).
 - **Preconditions:** a batch-tracked product with an earlier and a later in-date batch, 10 each, and one expired batch with stock.
 - **Steps:** Sales Orders → New: 5 of the product, **Batch** = the later batch → Save → Approve. Stock → by batch. Delivery Notes → New off the order → look at the batch picker → Approve → Dispatch. Then an order for 12 pinning the later batch → Approve. Then an order pinning the expired batch → Approve.
 - **Expect:** approval holds 5 of the **later** batch and nothing of the earlier. The note opens with 5 on the later batch, and dispatch ships it (audit trail: **delivery_note.fefo_skipped**). The order for 12 holds 10 of the later batch and leaves 2 as a back order -- the earlier batch stays free. Pinning the expired batch is refused at approval naming it.
+
+### TC-SELL-026 — A batch's own MRP
+
+*Added 2026-10-02 (backlog 79 row 7, A41).*
+
+- **Preconditions:** a batch-tracked product; the delivery note stage off (counter bills).
+- **Steps:** Goods Receipt for the product: batch `B1`, **MRP** 120, **Selling price** 95; a second line batch `B2`, MRP 100. Complete it. Settings → Stock → Batch Rules: tick *Take a line's rate from its batch's selling price*. Counter bill: the product, 4, choose `B1` → look at the rate → Save → Approve → **Print**. Then a counter bill of 4 from `B2` at rate **110** (no tax) → Approve.
+- **Expect:** the batch screen shows B1 at MRP 120 / 95 and B2 at 100. The picker lists each batch's MRP. Choosing B1 fills the rate **95**. The printed bill has an **MRP** column, 120 on the B1 row. The B2 bill at 110 is refused: "charges 110.00 a unit with tax, above the MRP of 100.00 printed on the batch it ships".
 ---
 
 ## Screen checks

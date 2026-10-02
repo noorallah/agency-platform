@@ -308,6 +308,8 @@ class BatchSerialService:
             best_before_date=data.best_before_date,
             status=data.status,
             shelf_life_days=data.shelf_life_days,
+            mrp=data.mrp,
+            selling_price=data.selling_price,
             remarks=data.remarks,
             created_by=actor_id,
             updated_by=actor_id,
@@ -343,6 +345,8 @@ class BatchSerialService:
         warehouse_id: UUID | None = None,
         vendor_id: UUID | None = None,
         expiry_date: date | None = None,
+        mrp: Decimal | None = None,
+        selling_price: Decimal | None = None,
     ) -> BatchRecord:
         """Return the batch a receipt named, creating it if it is new.
 
@@ -360,7 +364,10 @@ class BatchSerialService:
         Only the fields the receipt actually knows are set on creation. An
         expiry date is recorded when the receipt carries one and is left alone
         on an existing batch, which is the manufacturer's fact and not this
-        delivery's to change.
+        delivery's to change. The MRP and selling price printed on the
+        delivery (backlog 79 row 7) are set when the batch is new, and filled
+        on an existing batch only where it has none -- a later delivery of the
+        same batch carries the same print.
         """
         number = batch_number.strip()
         if not number:
@@ -374,6 +381,10 @@ class BatchSerialService:
             )
         )
         if existing is not None:
+            if existing.mrp is None and mrp is not None:
+                existing.mrp = mrp
+            if existing.selling_price is None and selling_price is not None:
+                existing.selling_price = selling_price
             return existing
         self._assert_batch_features(
             firm_scope,
@@ -387,6 +398,8 @@ class BatchSerialService:
             vendor_id=vendor_id,
             batch_number=number,
             expiry_date=expiry_date,
+            mrp=mrp,
+            selling_price=selling_price,
             status=BatchStatus.AVAILABLE.value,
             created_by=actor_id,
             updated_by=actor_id,
@@ -767,6 +780,8 @@ class BatchSerialService:
                     ),
                     fefo=fefo,
                     short_for_customer=short,
+                    mrp=batch.mrp,
+                    selling_price=batch.selling_price,
                 )
             )
         return result

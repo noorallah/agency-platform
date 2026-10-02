@@ -240,6 +240,10 @@ class GoodsReceiptLine(BaseEntity):
     )
     expiry_date: Mapped[date | None] = mapped_column(Date)
     manufacturing_date: Mapped[date | None] = mapped_column(Date)
+    #: The MRP and selling price printed on this delivery's batch, per stock
+    #: unit (backlog 79 row 7): handed to the batch it creates or names.
+    mrp: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    selling_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     inventory_transaction_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("inventory_transactions.id", ondelete="SET NULL")
     )

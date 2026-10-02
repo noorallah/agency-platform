@@ -16,6 +16,7 @@ from uuid import UUID
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.batch_serial.models import BatchRecord
 from app.batch_serial.schemas import PickedSerial
 from app.batch_serial.services.serial_trail_service import SerialTrailService
 from app.business.gating import assert_feature_fields
@@ -1134,6 +1135,9 @@ class SalesInvoiceService(TransactionalDocumentService):
         # proposal, and it used to ship the stock and post cost of goods sold
         # the moment it was typed (D-SELL-13, driven 2026-09-19).
         self._ship_on_approval(row, to_ship, firm_scope=firm_scope, actor_id=actor_id)
+        # Once every line knows its batches: none may charge above the MRP
+        # printed on them (backlog 79 row 7).
+        self._refuse_above_batch_mrp(row)
         before = row.status
         row.status = SalesInvoiceStatus.APPROVED.value
         row.approved_at = utc_now()
@@ -1325,6 +1329,70 @@ class SalesInvoiceService(TransactionalDocumentService):
         product = self._session.get(Product, product_id)
         code = (product.hsn_sac or "").strip() if product is not None else ""
         return code or None
+
+    def _refuse_above_batch_mrp(self, row: SalesInvoice) -> None:
+        """Refuse a line that charges more than the MRP of its batch (79 row 7).
+
+        The MRP is printed per batch and includes tax, so a line is judged on
+        what each charged stock unit costs the customer -- after its discounts,
+        with its tax, freight left out -- against the lowest MRP among the
+        batches it ships, the product's standing in for a batch with none.
+        Only lines whose batches are known; the Legal Metrology rule is that
+        nobody pays more than the pack says.
+
+        Raises:
+            ValidationError: Naming the line, the rate and the MRP.
+
+        """
+        lines = [
+            line
+            for line in self._session.scalars(
+                select(SalesInvoiceLine).where(
+                    SalesInvoiceLine.sales_invoice_id == row.id,
+                    SalesInvoiceLine.is_deleted.is_(False),
+                    SalesInvoiceLine.source_document_type
+                    == SalesInvoiceSourceType.DELIVERY_NOTE.value,
+                )
+            ).all()
+        ]
+        picks = DeliveryNoteService(self._session).batch_picks(
+            [line.source_document_line_id for line in lines]
+        )
+        batch_ids = {pick.batch_id for found in picks.values() for pick in found}
+        if not batch_ids:
+            return
+        mrps = {
+            batch.id: batch.mrp
+            for batch in self._session.scalars(
+                select(BatchRecord).where(BatchRecord.id.in_(batch_ids))
+            )
+        }
+        for line in sorted(lines, key=lambda item: item.line_number):
+            found = picks.get(line.source_document_line_id, [])
+            if not found:
+                continue
+            product = self._session.get(Product, line.product_id)
+            fallback = getattr(product, "mrp", None)
+            ceilings = [
+                Decimal(str(mrp))
+                for mrp in (mrps.get(pick.batch_id) or fallback for pick in found)
+                if mrp is not None and Decimal(str(mrp)) > ZERO
+            ]
+            charged = Decimal(str(line.current_invoice_quantity or 0)) * Decimal(
+                str(line.conversion_factor or 1)
+            )
+            if not ceilings or charged <= ZERO:
+                continue
+            paid = Decimal(str(line.net_amount)) - Decimal(
+                str(line.freight_amount or 0)
+            )
+            rate = (paid / charged).quantize(Decimal("0.01"))
+            ceiling = min(ceilings)
+            if rate > ceiling:
+                raise ValidationError(
+                    f"Line {line.line_number}: charges {rate} a unit with tax, "
+                    f"above the MRP of {ceiling} printed on the batch it ships."
+                )
 
     def _notes_raised_by(self, row: SalesInvoice) -> frozenset[UUID]:
         """Return the ids of the delivery notes this bill raised for itself."""

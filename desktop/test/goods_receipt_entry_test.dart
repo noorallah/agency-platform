@@ -249,4 +249,43 @@ void main() {
     expect(line['batch_number'], 'B-2026-07');
     expect(line['warehouse_id'], 'wh-1');
   });
+
+  testWidgets('the MRP and selling price of a batched line are sent', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1600, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _ReceiptApi api = _ReceiptApi();
+    await _openEditor(tester, api, phase2: true);
+    await tester.tap(find.byKey(const ValueKey('goods-receipt-order')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('PO-2026-000001').last);
+    await tester.pumpAndSettle();
+
+    // No batch yet, so nothing to put a price on.
+    expect(
+      find.byKey(const ValueKey<String>('goods-receipt-mrp-po-1-0')),
+      findsNothing,
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('goods-receipt-batch-po-1-0')),
+      'B-1',
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('goods-receipt-mrp-po-1-0')),
+      '120',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('goods-receipt-selling-price-po-1-0')),
+      '95.50',
+    );
+    await tester.tap(find.byKey(const ValueKey('goods-receipt-save')));
+    await tester.pumpAndSettle();
+
+    final Json line = (api.sent!['lines'] as List<dynamic>).single as Json;
+    expect(line['mrp'], '120');
+    expect(line['selling_price'], '95.50');
+  });
 }

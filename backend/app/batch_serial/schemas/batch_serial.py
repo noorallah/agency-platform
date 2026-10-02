@@ -74,6 +74,11 @@ class BatchCreate(BatchSchema):
     best_before_date: date | None = None
     status: BatchStatus = BatchStatus.AVAILABLE
     shelf_life_days: int | None = Field(default=None, ge=1)
+    #: Per stock unit: MRP with tax, selling price before it (79 row 7).
+    mrp: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=2)
+    selling_price: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=2
+    )
     remarks: str | None = None
 
 
@@ -93,6 +98,11 @@ class BatchUpdate(BatchSchema):
     best_before_date: date | None = None
     status: BatchStatus | None = None
     shelf_life_days: int | None = Field(default=None, ge=1)
+    #: Per stock unit: MRP with tax, selling price before it (79 row 7).
+    mrp: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=2)
+    selling_price: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=2
+    )
     remarks: str | None = None
 
 
@@ -132,6 +142,8 @@ class BatchResponse(BatchSchema):
     damaged_quantity: Decimal = Decimal("0")
     quarantine_quantity: Decimal = Decimal("0")
     shelf_life_days: int | None
+    mrp: Decimal | None = None
+    selling_price: Decimal | None = None
     remarks: str | None
     is_deleted: bool
     #: Optimistic-concurrency counter, echoed back as ``If-Match``.
@@ -195,6 +207,11 @@ class BatchAvailability(BatchSchema):
     #: Expires before the customer's minimum shelf life asks the goods to
     #: last (backlog 79 row 6): never pre-filled.
     short_for_customer: bool = False
+    #: The batch's own MRP and rate, per stock unit, where it carries them
+    #: (backlog 79 row 7): shown in the picker, and the rate a line takes
+    #: where the firm prices from the batch.
+    mrp: Decimal | None = None
+    selling_price: Decimal | None = None
 
 
 NearExpiryPolicy = Literal["WARN", "REASON"]
@@ -211,6 +228,9 @@ class BatchSaleSettingsWrite(BatchSchema):
     near_expiry_below_floor: bool
     #: A hand-chosen batch short of the customer's minimum shelf life.
     shelf_life_policy: ShelfLifePolicy = "BLOCK"
+    #: A line whose batch is chosen takes the batch's selling price as its
+    #: rate, before the price list (backlog 79 row 7). Off by default.
+    price_from_batch: bool = False
 
 
 class BatchSaleSettingsResponse(BatchSaleSettingsWrite):

@@ -1346,6 +1346,8 @@ class GoodsReceiptService(TransactionalDocumentService):
                 batch_number=line.batch_number,
                 expiry_date=line.expiry_date,
                 manufacturing_date=line.manufacturing_date,
+                mrp=line.mrp,
+                selling_price=line.selling_price,
                 remarks=line.remarks,
                 created_by=actor_id,
                 updated_by=actor_id,
@@ -1486,6 +1488,8 @@ class GoodsReceiptService(TransactionalDocumentService):
                         warehouse_id=line.warehouse_id,
                         vendor_id=receipt.vendor_id,
                         expiry_date=line.expiry_date,
+                        mrp=line.mrp,
+                        selling_price=line.selling_price,
                     )
                     .id
                 )

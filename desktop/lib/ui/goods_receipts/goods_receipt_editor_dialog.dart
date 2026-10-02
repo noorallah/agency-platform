@@ -47,6 +47,8 @@ class GoodsReceiptDraftLine {
     this.batchNumber = '',
     this.expiryDate = '',
     this.manufacturingDate = '',
+    this.mrp = '',
+    this.sellingPrice = '',
     this.remarks = '',
   });
 
@@ -71,6 +73,12 @@ class GoodsReceiptDraftLine {
   String batchNumber;
   String expiryDate;
   String manufacturingDate;
+
+  /// Per stock unit, tax included; goes on the batch the receipt creates.
+  String mrp;
+
+  /// Per stock unit, before tax.
+  String sellingPrice;
   String remarks;
 
   /// What is still outstanding on the order line, never below zero.
@@ -98,6 +106,11 @@ class GoodsReceiptDraftLine {
         if (expiryDate.trim().isNotEmpty) 'expiry_date': expiryDate.trim(),
         if (manufacturingDate.trim().isNotEmpty)
           'manufacturing_date': manufacturingDate.trim(),
+        // Only a line with a batch has one to put them on.
+        if (batchNumber.trim().isNotEmpty && mrp.trim().isNotEmpty)
+          'mrp': mrp.trim(),
+        if (batchNumber.trim().isNotEmpty && sellingPrice.trim().isNotEmpty)
+          'selling_price': sellingPrice.trim(),
         if (remarks.trim().isNotEmpty) 'remarks': remarks.trim(),
       };
 }
@@ -298,6 +311,8 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
       draft.batchNumber = line.batchNumber;
       draft.expiryDate = line.expiryDate;
       draft.manufacturingDate = line.manufacturingDate;
+      draft.mrp = line.mrp;
+      draft.sellingPrice = line.sellingPrice;
       draft.remarks = line.remarks;
     }
     return drafts;

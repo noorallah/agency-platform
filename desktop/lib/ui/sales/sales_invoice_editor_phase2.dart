@@ -704,7 +704,10 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                     final Product? chosen = _product(value);
                     final double price =
                         double.tryParse(chosen?.sellingPrice ?? '') ?? 0;
-                    if (price > 0) line.price.text = chosen!.sellingPrice;
+                    if (price > 0) {
+                      line.price.text = chosen!.sellingPrice;
+                      line.autoPrice = chosen.sellingPrice;
+                    }
                   }
                   _current = index;
                 });
@@ -953,6 +956,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     required double quantity,
     required Map<String, double>? picks,
     required ValueChanged<Map<String, double>> onChanged,
+    ValueChanged<double?>? onBatchPrice,
   }) {
     final Product? product = _product(productId);
     final bool comparable = product == null ||
@@ -971,6 +975,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
       picks: picks,
       enabled: !_saving,
       comparable: comparable,
+      onBatchPrice: onBatchPrice,
       keyPrefix: 'sales-invoice',
       unreadableNote: 'could not read the batches; they will go earliest '
           'expiry first when the bill is saved',
@@ -980,6 +985,22 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
           'saving will be refused.',
       onChanged: onChanged,
     );
+  }
+
+  /// Backlog 79 row 7: a counter line shipping from one batch takes that
+  /// batch's selling price as its rate, when the firm asks for it and the
+  /// person has not typed a rate of their own. The price is before tax, so a
+  /// bill whose rates include GST is left alone.
+  void _takeBatchPrice(_DirectLine line, double? price) {
+    if (!_priceFromBatch || price == null || price <= 0) return;
+    if (_rateIncludesTax || !line.priceUntyped) return;
+    final String text = price.toStringAsFixed(2);
+    if (line.price.text == text) return;
+    _setState(() {
+      line.price.text = text;
+      line.autoPrice = text;
+    });
+    _schedulePreview();
   }
 
   Widget _invoiceSidePanel(BuildContext context) {
@@ -1050,6 +1071,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
             quantity: double.tryParse(draft.quantity.text.trim()) ?? 0,
             picks: draft.batchPicks,
             onChanged: (picks) => _setState(() => draft.batchPicks = picks),
+            onBatchPrice: (price) => _takeBatchPrice(draft, price),
           ),
       ]);
     } else if (_lineEntries.isNotEmpty) {

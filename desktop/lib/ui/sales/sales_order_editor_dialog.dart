@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/concurrency.dart';
 import '../../core/design/design_tokens.dart';
+import '../../models/batch_sale_settings.dart';
 import '../../models/batch_serial.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
@@ -291,6 +292,20 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     super.initState();
     _orderDate = widget.today;
     _load();
+    _readBatchRules();
+  }
+
+  /// Backlog 79 row 7: the firm takes a line's rate from the selling price of
+  /// the batch pinned on it. Read once on opening; unreadable means off.
+  bool _priceFromBatch = false;
+
+  Future<void> _readBatchRules() async {
+    try {
+      final BatchSaleSettings rules = await widget.api.batchSaleSettings();
+      if (mounted) _priceFromBatch = rules.priceFromBatch;
+    } on Object {
+      // Off: a rate the person types is never second-guessed.
+    }
   }
 
   @override

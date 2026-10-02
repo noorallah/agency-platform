@@ -7,6 +7,7 @@ import '../../core/api/api_client.dart';
 import '../../core/api/concurrency.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
+import '../../models/batch_sale_settings.dart';
 import '../../models/batch_serial.dart';
 import '../../models/entities.dart';
 import '../../models/customer.dart';
@@ -79,6 +80,10 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   /// Phase 2, backlog 64 row 4: whether the rates typed on this bill include
   /// GST. A new bill starts from the firm's setting; a draft keeps its own.
   bool _rateIncludesTax = false;
+
+  /// Backlog 79 row 7: the firm takes a counter line's rate from its batch's
+  /// selling price. Read once on opening; unreadable means off.
+  bool _priceFromBatch = false;
 
   /// The rate as typed, GST included, of each line of a draft that was
   /// typed so, by source line: what the Rate column shows back.
@@ -218,6 +223,16 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   void initState() {
     super.initState();
     _load();
+    _readBatchRules();
+  }
+
+  Future<void> _readBatchRules() async {
+    try {
+      final BatchSaleSettings rules = await widget.api.batchSaleSettings();
+      if (mounted) _priceFromBatch = rules.priceFromBatch;
+    } on Object {
+      // Off: a rate the person types is never second-guessed.
+    }
   }
 
   @override
@@ -1349,4 +1364,17 @@ class _DirectLine {
   /// The batches chosen for the product (backlog 79 row 2): null while
   /// nobody has, an empty map once the choice is handed back to the server.
   Map<String, double>? batchPicks;
+
+  /// The rate this line was last given without the person typing it -- the
+  /// product's own price, or its batch's selling price. A rate still equal to
+  /// it may be replaced; anything else was typed and is left alone.
+  String? autoPrice;
+
+  /// Whether the rate box holds nothing the person typed.
+  bool get priceUntyped {
+    final String text = price.text.trim();
+    return text.isEmpty ||
+        (double.tryParse(text) ?? 0) == 0 ||
+        text == autoPrice;
+  }
 }

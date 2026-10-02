@@ -540,6 +540,7 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
         GridColumn(key: 'quantity', label: 'Qty'),
         GridColumn(key: 'available', label: 'Available'),
         GridColumn(key: 'expiry', label: 'Expiry Date'),
+        GridColumn(key: 'mrp', label: 'MRP'),
         GridColumn(key: 'warehouse', label: 'Warehouse'),
       ],
       id: (b) => b.id,
@@ -553,6 +554,7 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
         b.quantity,
         b.availableQuantity,
         b.expiryDate.isNotEmpty ? b.expiryDate : '—',
+        b.mrp.isNotEmpty ? b.mrp : '—',
         b.warehouseName.isNotEmpty ? b.warehouseName : '—',
       ],
       onSelect: (b) => setState(() => _selectedBatch = b),
@@ -715,6 +717,9 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
                 DetailLine('Quantity', batch.quantity),
                 DetailLine('Available', batch.availableQuantity),
                 DetailLine('Reserved', batch.reservedQuantity),
+                if (batch.mrp.isNotEmpty) DetailLine('MRP', batch.mrp),
+                if (batch.sellingPrice.isNotEmpty)
+                  DetailLine('Selling price', batch.sellingPrice),
                 if (batch.expiryDate.isNotEmpty)
                   DetailLine('Expiry', batch.expiryDate),
                 if (batch.manufacturingDate.isNotEmpty)
@@ -1155,6 +1160,8 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
   final _supplierBatch = TextEditingController();
   final _expiryDate = TextEditingController();
   final _manufacturingDate = TextEditingController();
+  final _mrp = TextEditingController();
+  final _sellingPrice = TextEditingController();
   final _remarks = TextEditingController();
   String _status = 'AVAILABLE';
   bool _saving = false;
@@ -1168,6 +1175,8 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
       _supplierBatch.text = b.supplierBatch;
       _expiryDate.text = b.expiryDate;
       _manufacturingDate.text = b.manufacturingDate;
+      _mrp.text = b.mrp;
+      _sellingPrice.text = b.sellingPrice;
       _remarks.text = b.remarks;
       _status = b.status;
     }
@@ -1179,8 +1188,19 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
     _supplierBatch.dispose();
     _expiryDate.dispose();
     _manufacturingDate.dispose();
+    _mrp.dispose();
+    _sellingPrice.dispose();
     _remarks.dispose();
     super.dispose();
+  }
+
+  /// Optional amount: blank is nothing, and on an edit clears a figure the
+  /// batch had.
+  String? _amountError(String? v) {
+    final String text = v?.trim() ?? '';
+    if (text.isEmpty) return null;
+    final double? n = double.tryParse(text);
+    return n == null || n < 0 ? 'Enter an amount' : null;
   }
 
   Future<void> _save() async {
@@ -1198,6 +1218,14 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
         if (_manufacturingDate.text.isNotEmpty)
           'manufacturing_date': _manufacturingDate.text.trim(),
         'status': _status,
+        if (_mrp.text.trim().isNotEmpty)
+          'mrp': _mrp.text.trim()
+        else if (widget.existing?.mrp.isNotEmpty ?? false)
+          'mrp': null,
+        if (_sellingPrice.text.trim().isNotEmpty)
+          'selling_price': _sellingPrice.text.trim()
+        else if (widget.existing?.sellingPrice.isNotEmpty ?? false)
+          'selling_price': null,
         if (_remarks.text.isNotEmpty) 'remarks': _remarks.text.trim(),
       };
       if (widget.existing != null) {
@@ -1278,6 +1306,28 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
                     controller: _expiryDate,
                     decoration: const InputDecoration(
                         labelText: 'Expiry Date (YYYY-MM-DD)'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    key: const ValueKey('batch-form-mrp'),
+                    controller: _mrp,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'MRP',
+                      helperText: 'Per stock unit, tax included.',
+                    ),
+                    validator: _amountError,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    key: const ValueKey('batch-form-selling-price'),
+                    controller: _sellingPrice,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Selling price',
+                      helperText: 'Per stock unit, before tax.',
+                    ),
+                    validator: _amountError,
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(

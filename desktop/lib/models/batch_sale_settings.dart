@@ -10,6 +10,7 @@ class BatchSaleSettings {
     this.fefoSkipPolicy = 'RECORD',
     this.nearExpiryBelowFloor = true,
     this.shelfLifePolicy = 'BLOCK',
+    this.priceFromBatch = false,
     this.isConfigured = false,
   });
 
@@ -30,6 +31,9 @@ class BatchSaleSettings {
   /// shelf life does.
   final String shelfLifePolicy;
 
+  /// Whether a line's rate is taken from its batch's selling price.
+  final bool priceFromBatch;
+
   /// False while the firm is still on the platform default.
   final bool isConfigured;
 
@@ -45,16 +49,18 @@ class BatchSaleSettings {
         shelfLifePolicy: stringValue(json['shelf_life_policy']) == 'WARN'
             ? 'WARN'
             : 'BLOCK',
+        priceFromBatch: boolValue(json['price_from_batch']),
         isConfigured: boolValue(json['is_configured']),
       );
 
-  /// Exactly the five keys the server declares; it refuses any other.
+  /// Exactly the six keys the server declares; it refuses any other.
   Json toJson() => <String, dynamic>{
         'near_expiry_days': nearExpiryDays,
         'near_expiry_policy': nearExpiryPolicy,
         'fefo_skip_policy': fefoSkipPolicy,
         'near_expiry_below_floor': nearExpiryBelowFloor,
         'shelf_life_policy': shelfLifePolicy,
+        'price_from_batch': priceFromBatch,
       };
 }
 

@@ -160,6 +160,8 @@ class InvoiceLineBlock:
     free_quantity: Decimal = ZERO
     batch: str | None = None
     expiry: str | None = None
+    #: The MRP printed on the batch, per stock unit (backlog 79 row 7).
+    mrp: Decimal | None = None
     #: (code, percentage, amount) as recorded on the line.
     taxes: tuple[tuple[str, Decimal, Decimal], ...] = ()
     #: The rate as typed, GST included, on a bill whose rates include GST
@@ -237,6 +239,8 @@ class TemplateSettings:
     show_discount_column: bool = True
     show_batch_column: bool = False
     show_expiry_column: bool = False
+    #: Turned on by a document whose batches carry an MRP (79 row 7).
+    show_mrp_column: bool = False
     copy_labels: tuple[str, ...] = ()
     page_size: str = "A4"
     margin_mm: Decimal = Decimal("12")
@@ -486,6 +490,8 @@ class InvoicePdfRenderer:
             columns.append("Batch")
         if self._template.show_expiry_column:
             columns.append("Expiry")
+        if self._template.show_mrp_column:
+            columns.append("MRP")
         if self._template.show_discount_column:
             columns.append("Disc.")
         columns.append("Taxable")
@@ -533,6 +539,8 @@ class InvoicePdfRenderer:
                 cells.append(line.batch or "")
             if self._template.show_expiry_column:
                 cells.append(line.expiry or "")
+            if self._template.show_mrp_column:
+                cells.append("" if line.mrp is None else _money(line.mrp))
             if self._template.show_discount_column:
                 cells.append(_money(line.discount))
             cells.append(_money(line.taxable))
@@ -567,6 +575,7 @@ class InvoicePdfRenderer:
         INCLUSIVE_RATE: 0.070,
         "Batch": 0.064,
         "Expiry": 0.062,
+        "MRP": 0.06,
         "Disc.": 0.060,
         "Taxable": 0.080,
         "Amount": 0.085,
