@@ -5552,5 +5552,8 @@ Tally has a batch allocation sub-screen; ERPNext auto-picks by expiry with a
 
 **Status, 2026-10-02:** rows 1, 3 and 5 built, row 2 on the delivery note
 (availability API, checked picks, FEFO skip audited, challan one row per
-batch; `docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`). Open: row 2 on the counter
-bill, rows 4, 6 and 7.
+batch; `docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`). Row 6 built the same day
+except minimum shelf life per customer: `batch_sale_settings` -- near-expiry
+window, near-expiry and FEFO-skip reasons judged at dispatch, and decision A2,
+near-expiry stock exempt from the price floor. Open: row 2 on the counter
+bill, row 4, row 6's minimum shelf life, row 7.

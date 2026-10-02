@@ -405,9 +405,41 @@ Since 2026-10-02 a person may override that per delivery line:
 - **A choice that is not the FEFO split** is audited as
   `delivery_note.fefo_skipped`, with both splits.
 
+### The firm's batch rules (backlog 79 row 6, decision A2)
+
+`batch_sale_settings` (migration 0217), one row per firm; a firm with no row
+shares the defaults. `GET/PUT /api/v1/batch-serial/sale-settings` -- reading
+is open to whoever may use the picker, writing needs `SALES_MANAGE_SETTINGS`,
+beside the price floor, because these rules constrain who may sell what.
+`BatchSalePolicyService` (`app/batch_serial/services/batch_sale_policy.py`)
+is the one implementation.
+
+| Rule | Default | What it does |
+| --- | --- | --- |
+| `near_expiry_days` | 30 | A batch expiring within this many days of the document's date is near expiry. The availability endpoint uses it when `near_expiry_days` is not passed |
+| `near_expiry_policy` | `WARN` | WARN records a near-expiry batch leaving (`delivery_note.near_expiry_dispatched`, and `batch_warnings` on the DISPATCHED event). REASON refuses a dispatch by hand until `batch_reason` is given, naming the line and batch |
+| `fefo_skip_policy` | `RECORD` | RECORD audits a skip as before. REASON refuses it without `batch_reason`, which `delivery_note.fefo_skipped` then keeps beside both splits |
+| `near_expiry_below_floor` | on | A2: a line drawn **wholly** from near-expiry batches may be sold below its price floor. The finding is still made and kept as `price_near_expiry` on the APPROVED event with the batches named; it neither warns nor blocks |
+
+**Judged where a person dispatches**: `POST /delivery-notes/{id}/dispatch`
+and `/dispatch-and-invoice` take `batch_reason` as a query parameter (the
+licence override's shape), and completing an approved note is judged too. A
+bill shipping the notes it raised for itself (a counter bill, the sales chain)
+records near-expiry batches but is never refused -- the counter has no picker
+yet. `GET /delivery-notes/{id}/batch-check` predicts what dispatch will meet
+-- the chosen split, or the FEFO pre-fill -- so the screen asks for the reason
+first; dispatch stays the authority.
+
+**Which batches a line takes, for the floor**: on a bill from a dispatched
+note, the batches the note recorded (`delivery_note_line_batches`); otherwise
+the earliest-expiry split of the line's warehouse on the document's date,
+counting a note line's own order hold as its own. A sales order is judged
+before it reserves, so its split is what reservation is about to take. Cost
+stays one moving average per product; only the floor's bite changes.
+
 Still open (backlog 79): batch picks on the counter bill, *pin batch* on the
-sales order line, firm settings for the near-expiry window and reasons, price
-from the batch (a batch carries no MRP yet).
+sales order line, minimum shelf life per customer, price from the batch (a
+batch carries no MRP yet).
 
 ---
 

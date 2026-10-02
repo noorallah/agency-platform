@@ -433,6 +433,14 @@ names a minimum price but **never the cost**, because whoever sells may not
 be allowed to see it. `GET .../{id}/price-check` answers the same question
 before approving.
 
+**Near-expiry stock is exempt (decision A2, 2026-10-02).** A line drawn wholly
+from batches inside the firm's near-expiry window may be sold below its floor
+unless the firm turned that off (`batch_sale_settings.near_expiry_below_floor`).
+The finding is still made, with `exemption` naming the batches, and kept on the
+APPROVED event as `price_near_expiry`; it never warns or blocks. A line partly
+from a fresh batch is judged as usual. Which batches a line takes is in
+`BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`, "The firm's batch rules".
+
 ## A typed discount above the approver's limit waits for somebody allowed more
 
 BACKLOG 64 row 3 (`app/sales_order/services/discount_limit.py`). Only a
