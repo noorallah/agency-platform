@@ -10,6 +10,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/settlement.dart';
 import '../../models/settlement_direction.dart';
+import '../workspace/cheque_print_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import 'record_settlement_dialog.dart';
 import 'supplier_credit_refunds.dart';
@@ -365,6 +366,27 @@ class _SettlementsPageState extends State<SettlementsPage> {
                   ? () => unawaited(_reverse(selected))
                   : null,
             ),
+            // A bank payment written as a cheque (ACC-12); the layout is set
+            // up now and then and is about no row, so it sits behind "...".
+            if (widget.direction == SettlementDirection.payment) ...[
+              ToolbarCommand(
+                id: 'print-cheque',
+                label: 'Print cheque',
+                icon: Icons.local_atm_outlined,
+                onPressed:
+                    selected != null && _canCreate && canPrintCheque(selected)
+                        ? () => unawaited(_printCheque(selected))
+                        : null,
+              ),
+              if (_canCreate)
+                ToolbarCommand(
+                  id: 'cheque-layout',
+                  label: 'Cheque layout',
+                  icon: Icons.straighten,
+                  menuOnly: true,
+                  onPressed: () => unawaited(_chequeLayout()),
+                ),
+            ],
           ],
         ),
         selectionBar: true,
@@ -434,6 +456,26 @@ class _SettlementsPageState extends State<SettlementsPage> {
           message: _loading ? 'Loading...' : null,
         ),
       ),
+    );
+  }
+
+  Future<void> _printCheque(Settlement row) async {
+    await showDialog<Object>(
+      context: context,
+      builder: (_) => ChequePrintDialog(
+        api: widget.api,
+        paymentId: row.id,
+        number: row.settlementNumber,
+        partyName: row.partyName,
+        amount: row.cashAmount,
+      ),
+    );
+  }
+
+  Future<void> _chequeLayout() async {
+    await showDialog<Object>(
+      context: context,
+      builder: (_) => ChequeLayoutDialog(api: widget.api),
     );
   }
 

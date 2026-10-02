@@ -423,3 +423,35 @@ const Map<String, String> paymentModeLabels = {
   'DEMAND_DRAFT': 'Demand draft',
   'OTHER': 'Other',
 };
+
+/// How far one bank's cheque leaf prints off the standard positions (ACC-12).
+/// Offsets are millimetres, one decimal; negative moves left or up.
+class ChequeLayout {
+  const ChequeLayout({
+    required this.ledgerAccountId,
+    this.offsetXMm = '0.0',
+    this.offsetYMm = '0.0',
+    this.printAcPayee = true,
+    this.version = 0,
+  });
+
+  final String ledgerAccountId;
+  final String offsetXMm;
+  final String offsetYMm;
+  final bool printAcPayee;
+  final int version;
+
+  factory ChequeLayout.fromJson(Json json) {
+    final Json d =
+        json.containsKey('data') ? Map<String, dynamic>.from(json['data'] as Map) : json;
+    String mm(dynamic value) =>
+        stringValue(value).isEmpty ? '0.0' : stringValue(value);
+    return ChequeLayout(
+      ledgerAccountId: stringValue(d['ledger_account_id']),
+      offsetXMm: mm(d['offset_x_mm']),
+      offsetYMm: mm(d['offset_y_mm']),
+      printAcPayee: d['print_ac_payee'] != false,
+      version: d['version'] is int ? d['version'] as int : 0,
+    );
+  }
+}
