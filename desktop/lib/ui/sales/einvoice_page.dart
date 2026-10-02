@@ -432,6 +432,21 @@ class _EInvoicePageState extends State<EInvoicePage> {
     await _load();
   }
 
+  /// Documents still to register, each with its last day; registering one
+  /// goes through the same call as the "Register" button above.
+  Future<void> _showToRegister() async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => _ToRegisterDialog(
+        api: widget.api,
+        mayManage: _mayManage,
+        register: _registerOne,
+      ),
+    );
+    if (!mounted) return;
+    await _load();
+  }
+
   Future<void> _cancelEwayBill(EInvoiceRegistrationRecord row) async {
     final String? reason = await _askReason(
       title: 'Withdraw e-way bill',
@@ -503,6 +518,13 @@ class _EInvoicePageState extends State<EInvoicePage> {
                     onPressed: _loading ? null : _importPortalResult,
                   ),
                 ],
+                ToolbarCommand(
+                  id: 'to-register',
+                  label: 'To register',
+                  icon: Icons.pending_actions_outlined,
+                  menuOnly: true,
+                  onPressed: _loading ? null : _showToRegister,
+                ),
                 ToolbarCommand(
                   id: 'eway-bills-due',
                   label: 'E-way bills due',
@@ -1129,6 +1151,230 @@ class _EWayBillsDueDialogState extends State<_EWayBillsDueDialog> {
                                             )
                                           : null,
                                     ),
+                                ],
+                              ),
+                      ),
+                    ],
+                  ),
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Approved B2B documents with no IRN yet, oldest first, with the last day
+/// the 30-day rule leaves each (backlog 77 row 7).
+class _ToRegisterDialog extends StatefulWidget {
+  const _ToRegisterDialog({
+    required this.api,
+    required this.mayManage,
+    required this.register,
+  });
+
+  final ApiClient api;
+  final bool mayManage;
+  final Future<void> Function(String documentId, {String? noteKind}) register;
+
+  @override
+  State<_ToRegisterDialog> createState() => _ToRegisterDialogState();
+}
+
+class _ToRegisterDialogState extends State<_ToRegisterDialog> {
+  EInvoicePendingList? _pending;
+  String? _error;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final EInvoicePendingList pending =
+          await widget.api.pendingEInvoiceRegistrations();
+      if (!mounted) return;
+      setState(() {
+        _pending = pending;
+        _loading = false;
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error.message;
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _register(EInvoicePending item) async {
+    await widget.register(item.documentId, noteKind: item.noteKind);
+    if (!mounted) return;
+    await _load();
+  }
+
+  String _amount(String value) {
+    final double? parsed = double.tryParse(value);
+    return parsed == null ? value : '₹${indianAmount(parsed, full: true)}';
+  }
+
+  Widget _badge(EInvoicePending item) {
+    final Widget badge = switch (item.state) {
+      'LATE' =>
+        const StatusBadge(label: 'Late', tone: StatusBadgeTone.danger),
+      'DUE_SOON' => StatusBadge(
+          label: item.daysLeft == 1
+              ? '1 day left'
+              : '${item.daysLeft ?? 0} days left',
+          tone: StatusBadgeTone.warning,
+        ),
+      _ => const StatusBadge(label: 'Open'),
+    };
+    if (item.registrationStatus == 'FAILED' &&
+        item.registrationError.isNotEmpty) {
+      return Tooltip(message: item.registrationError, child: badge);
+    }
+    return badge;
+  }
+
+  Widget _cell(Widget child, int flex) =>
+      Expanded(flex: flex, child: Align(alignment: Alignment.centerLeft, child: child));
+
+  Widget _text(String value, {TextStyle? style}) =>
+      Text(value, overflow: TextOverflow.ellipsis, style: style);
+
+  Widget _row({
+    required List<Widget> cells,
+    Widget? trailing,
+    Key? key,
+  }) =>
+      Padding(
+        key: key,
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+        child: Row(
+          children: [
+            ...cells,
+            SizedBox(width: 96, child: trailing),
+          ],
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final EInvoicePendingList? pending = _pending;
+    final bool rule = pending?.thirtyDayRuleApplies ?? false;
+    final TextStyle? head =
+        theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600);
+    return AlertDialog(
+      title: const Text('To register'),
+      content: SizedBox(
+        width: 900,
+        height: 420,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+                ? Text(_error!, style: TextStyle(color: theme.colorScheme.error))
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (!rule)
+                        Text(
+                          'The 30-day limit does not apply to this firm '
+                          '(Settings > Tax > GST Documents).',
+                          key: const ValueKey('to-register-not-applicable'),
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      if (pending?.anyLate ?? false)
+                        Padding(
+                          padding: const EdgeInsets.only(top: AppSpacing.xs),
+                          child: Text(
+                            'A late document cannot be registered: cancel it '
+                            "and raise it again under today's date.",
+                            key: const ValueKey('to-register-late-note'),
+                            style: theme.textTheme.bodySmall
+                                ?.copyWith(color: theme.colorScheme.error),
+                          ),
+                        ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Expanded(
+                        child: (pending?.items.isEmpty ?? true)
+                            ? const Center(
+                                child: Text('Nothing is waiting to be registered.'),
+                              )
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  _row(cells: [
+                                    _cell(Text('Document', style: head), 2),
+                                    _cell(Text('Number', style: head), 2),
+                                    _cell(Text('Date', style: head), 2),
+                                    _cell(Text('Customer', style: head), 3),
+                                    _cell(Text('Amount', style: head), 2),
+                                    if (rule)
+                                      _cell(Text('Last day', style: head), 2),
+                                    if (rule)
+                                      _cell(Text('Days left', style: head), 1),
+                                    _cell(Text('Status', style: head), 2),
+                                  ]),
+                                  const Divider(height: 1),
+                                  Expanded(
+                                    child: ListView(
+                                      children: [
+                                        for (final EInvoicePending item
+                                            in pending!.items)
+                                          _row(
+                                            key: ValueKey(
+                                              'to-register-${item.documentId}',
+                                            ),
+                                            cells: [
+                                              _cell(_text(item.typeLabel), 2),
+                                              _cell(_text(item.number), 2),
+                                              _cell(_text(item.on), 2),
+                                              _cell(_text(item.customerName), 3),
+                                              _cell(
+                                                _text(_amount(item.amount)),
+                                                2,
+                                              ),
+                                              if (rule)
+                                                _cell(
+                                                  _text(item.lastDay.isEmpty
+                                                      ? '—'
+                                                      : item.lastDay),
+                                                  2,
+                                                ),
+                                              if (rule)
+                                                _cell(
+                                                  _text(item.daysLeft == null
+                                                      ? '—'
+                                                      : '${item.daysLeft}'),
+                                                  1,
+                                                ),
+                                              _cell(_badge(item), 2),
+                                            ],
+                                            trailing: widget.mayManage &&
+                                                    !(rule && item.isLate)
+                                                ? TextButton(
+                                                    onPressed: () =>
+                                                        _register(item),
+                                                    child:
+                                                        const Text('Register'),
+                                                  )
+                                                : null,
+                                          ),
+                                      ],
+                                    ),
+                                  ),
                                 ],
                               ),
                       ),

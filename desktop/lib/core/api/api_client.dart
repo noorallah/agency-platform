@@ -5189,6 +5189,7 @@ class ApiClient {
     List<String> invoiceIds, {
     List<String> creditNoteIds = const [],
     List<String> debitNoteIds = const [],
+    List<String> salesReturnIds = const [],
   }) =>
       downloadBytes(
         '/api/v1/einvoice/offline/export',
@@ -5197,6 +5198,7 @@ class ApiClient {
           'invoice_ids': invoiceIds,
           if (creditNoteIds.isNotEmpty) 'credit_note_ids': creditNoteIds,
           if (debitNoteIds.isNotEmpty) 'debit_note_ids': debitNoteIds,
+          if (salesReturnIds.isNotEmpty) 'sales_return_ids': salesReturnIds,
         },
       );
 
@@ -5335,6 +5337,21 @@ class ApiClient {
     return data is Map
         ? EWayBillDueList.fromJson(Map<String, dynamic>.from(data))
         : const EWayBillDueList(limit: '', items: <EWayBillDue>[]);
+  }
+
+  /// Approved B2B documents with no IRN yet, oldest first, each with its
+  /// last day under the 30-day rule (77 row 7).
+  Future<EInvoicePendingList> pendingEInvoiceRegistrations() async {
+    final Json response =
+        await request('GET', '/api/v1/einvoice/pending');
+    final dynamic data = response['data'];
+    return data is Map
+        ? EInvoicePendingList.fromJson(Map<String, dynamic>.from(data))
+        : const EInvoicePendingList(
+            thirtyDayRuleApplies: false,
+            dueSoonDays: 5,
+            items: <EInvoicePending>[],
+          );
   }
 
   // ---- tax collected at source ----------------------------------------
@@ -7881,8 +7898,11 @@ class ApiClient {
       downloadBytes('/api/v1/quotations/$id/print');
 
   /// The credit note a customer files.
-  Future<List<int>> creditNotePdf(String id) =>
-      downloadBytes('/api/v1/sales-returns/$id/print');
+  Future<List<int>> creditNotePdf(String id, {bool referenceCopy = false}) =>
+      downloadBytes(
+        '/api/v1/sales-returns/$id/print',
+        query: referenceCopy ? <String, String>{'reference_copy': 'true'} : null,
+      );
 
   /// The credit note raised against an invoice, as the PDF the customer files.
   /// Any status prints; a draft carries a DRAFT banner from the server.

@@ -77,6 +77,7 @@ def einvoice_stamp(
     sales_invoice_id: UUID | None = None,
     credit_note_id: UUID | None = None,
     customer_debit_note_id: UUID | None = None,
+    sales_return_id: UUID | None = None,
 ) -> EInvoiceStamp | None:
     """Return the live registration of one document, as its print carries it.
 
@@ -91,6 +92,7 @@ def einvoice_stamp(
             (EInvoiceRegistration.sales_invoice_id, sales_invoice_id),
             (EInvoiceRegistration.credit_note_id, credit_note_id),
             (EInvoiceRegistration.customer_debit_note_id, customer_debit_note_id),
+            (EInvoiceRegistration.sales_return_id, sales_return_id),
         )
         if value is not None
     )

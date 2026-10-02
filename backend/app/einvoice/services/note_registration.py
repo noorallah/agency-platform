@@ -6,9 +6,17 @@ corrects. The rules are the invoice's -- registered once, withdrawn within 24
 hours and never reused, a refusal recorded on the row -- and the route is the
 firm's (A42): through the sandbox now, or exported for the portal's bulk
 upload with the invoices.
+
+A completed sales return is a credit note too (CGST s.34; GSTR-1 reports it
+as one, D-CMP-2), so since D-TAX-2 it registers as a CRN like any other --
+provided it returns goods an invoice billed. A return of goods only ever
+delivered credits no tax invoice, and there is nothing for the portal to tie
+it to.
 """
 
 from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import select
@@ -23,13 +31,40 @@ from app.einvoice.models import EInvoiceRegistration, RegistrationStatus
 from app.einvoice.services.einvoice_service import EInvoiceService
 from app.einvoice.services.payload import EInvoicePayloadBuilder
 from app.einvoice.services.portal import portal_for
+from app.einvoice.services.reporting_window import refuse_if_late
 from app.sales_invoice.models import SalesInvoice
 
 CREDIT_NOTE = "CREDIT_NOTE"
 DEBIT_NOTE = "DEBIT_NOTE"
+#: A sales return's credit note (D-TAX-2).
+SALES_RETURN = "SALES_RETURN"
 
 #: The portal's document type for each kind of note.
-_PORTAL_TYPE = {CREDIT_NOTE: "CRN", DEBIT_NOTE: "DBN"}
+_PORTAL_TYPE = {CREDIT_NOTE: "CRN", DEBIT_NOTE: "DBN", SALES_RETURN: "CRN"}
+
+#: The registration column that names each kind.
+NOTE_COLUMNS = {
+    CREDIT_NOTE: "credit_note_id",
+    DEBIT_NOTE: "customer_debit_note_id",
+    SALES_RETURN: "sales_return_id",
+}
+
+#: A return's statuses once it has credited the customer: its credit note is
+#: issued, as an approved note's is (GSTR-1 reads the same two).
+_ISSUED_RETURN = ("COMPLETED", "CLOSED")
+
+
+@dataclass(frozen=True)
+class ReturnLine:
+    """A sales return line, in the shape the note payload reads."""
+
+    sales_invoice_line_id: UUID | None
+    product_id: UUID
+    description: str | None
+    quantity: Decimal
+    taxable_amount: Decimal
+    tax_amount: Decimal
+
 
 _CANCELLATION_WINDOW_HOURS = 24
 
@@ -44,7 +79,11 @@ class NoteDocument:
     on: str
     status: str
     invoice: SalesInvoice
-    lines: list[CreditNoteLine] | list[CustomerDebitNoteLine]
+    lines: list[CreditNoteLine] | list[CustomerDebitNoteLine] | list[ReturnLine]
+    #: The note's own date, which the 30-day limit counts from (77 row 7).
+    dated: date
+    #: Every invoice the note credits; a return may cover several.
+    invoices: tuple[SalesInvoice, ...] = ()
 
 
 def read_note(
@@ -96,6 +135,8 @@ def read_note(
             debit.debit_note_date,
             debit.status,
         )
+    elif kind == SALES_RETURN:
+        return _read_return(session, note_id, firm_scope=firm_scope)
     else:
         raise ResourceNotFoundError(f"There is no {kind} to register.")
     invoice = session.get(SalesInvoice, invoice_id)
@@ -106,9 +147,93 @@ def read_note(
         id=note_id,
         number=number,
         on=on.strftime("%d/%m/%Y"),
+        dated=on,
         status=status,
         invoice=invoice,
         lines=lines,
+    )
+
+
+def _read_return(
+    session: Session, return_id: UUID, *, firm_scope: UUID
+) -> NoteDocument:
+    """Read a sales return as the credit note it issues (D-TAX-2).
+
+    Its parties come from the first invoice it returns goods from, and it
+    refers to every one. Only the lines returning billed goods are credited
+    against an invoice; the rest credit no tax invoice and are left out.
+
+    Raises:
+        ResourceNotFoundError: When the firm has no such return.
+        ValidationError: When it returns nothing an invoice billed.
+
+    """
+    from app.sales_return.models import SalesReturn, SalesReturnLine
+
+    found = session.get(SalesReturn, return_id)
+    if found is None or found.firm_id != firm_scope or found.is_deleted:
+        raise ResourceNotFoundError("Sales return not found.")
+    rows = list(
+        session.scalars(
+            select(SalesReturnLine)
+            .where(
+                SalesReturnLine.sales_return_id == found.id,
+                SalesReturnLine.is_deleted.is_(False),
+                SalesReturnLine.source_document_type == "SALES_INVOICE",
+            )
+            .order_by(SalesReturnLine.line_number.asc())
+        )
+    )
+    invoice_ids = list(dict.fromkeys(row.source_document_id for row in rows))
+    invoices = {
+        row.id: row
+        for row in session.scalars(
+            select(SalesInvoice).where(
+                SalesInvoice.id.in_(invoice_ids or [None]),
+                SalesInvoice.firm_id == firm_scope,
+            )
+        )
+    }
+    ordered = tuple(invoices[key] for key in invoice_ids if key in invoices)
+    if not ordered:
+        raise ValidationError(
+            f"{found.return_number} returns goods no invoice billed, so it "
+            "credits no tax invoice and is not registered."
+        )
+    lines = [
+        ReturnLine(
+            sales_invoice_line_id=row.source_document_line_id,
+            product_id=row.product_id,
+            description=row.description,
+            quantity=Decimal(str(row.current_return_quantity)),
+            # What the line credited before tax, as GSTR-1 reads it.
+            taxable_amount=Decimal(str(row.net_amount)) - Decimal(str(row.tax_amount)),
+            tax_amount=Decimal(str(row.tax_amount)),
+        )
+        for row in rows
+        if row.source_document_id in invoices
+    ]
+    return NoteDocument(
+        kind=SALES_RETURN,
+        id=found.id,
+        number=found.return_number,
+        on=found.return_date.strftime("%d/%m/%Y"),
+        # A completed return has issued its credit note, which is what an
+        # approved note is to the checks that read this. A return approved
+        # but not yet completed has credited nobody, and must not read as one.
+        status=(
+            "APPROVED"
+            if found.status in _ISSUED_RETURN
+            else (
+                found.status
+                if found.status in ("DRAFT", "CANCELLED")
+                else "NOT COMPLETED"
+            )
+        ),
+        invoice=ordered[0],
+        lines=lines,
+        dated=found.return_date,
+        invoices=ordered,
     )
 
 
@@ -123,12 +248,13 @@ def note_payload(
         invoice=note.invoice,
         lines=list(note.lines),
         firm_id=firm_id,
+        references=note.invoices or (note.invoice,),
     )
 
 
 def note_column(kind: str) -> str:
     """Return the registration column that names this kind of note."""
-    return "credit_note_id" if kind == CREDIT_NOTE else "customer_debit_note_id"
+    return NOTE_COLUMNS[kind]
 
 
 class NoteRegistrationService:
@@ -178,6 +304,12 @@ class NoteRegistrationService:
                 f"{note.number} is {existing.status.lower()} already "
                 f"({existing.irn}); a cancelled IRN is not reused."
             )
+        refuse_if_late(
+            self._session,
+            firm_scope=firm_scope,
+            number=note.number,
+            on=note.dated,
+        )
         payload = note_payload(self._session, note, firm_id=firm_scope)
         row = existing or EInvoiceRegistration(
             firm_id=firm_scope, created_by=actor_id, **{note_column(kind): note_id}

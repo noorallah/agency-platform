@@ -130,6 +130,26 @@ class _ReturnApi extends ApiClient {
   final List<String> actions = [];
   String? cancelReason;
 
+  /// When set, the plain print is refused as the server refuses a return
+  /// with no IRN; [referenceCopies] records each print asked for.
+  bool irnRequired = false;
+  final List<bool> referenceCopies = <bool>[];
+
+  @override
+  Future<List<int>> creditNotePdf(String id,
+      {bool referenceCopy = false}) async {
+    referenceCopies.add(referenceCopy);
+    if (irnRequired && !referenceCopy) {
+      throw const ApiException(
+        'SR-1 has no IRN yet. Register it first.',
+        statusCode: 422,
+        code: 'business_rule_violation',
+        details: <String, dynamic>{'reason': 'irn_required'},
+      );
+    }
+    throw ApiException('The printer is offline.', statusCode: 503);
+  }
+
   @override
   Future<PagedResult<SalesReturn>> salesReturns({
     int page = 1,
@@ -528,6 +548,25 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('selection-approve')));
       await tester.pumpAndSettle();
       expect(api.actions, ['approve']);
+    });
+
+    testWidgets('no IRN: the refusal offers a reference copy, asked for '
+        'with referenceCopy true', (tester) async {
+      final _ReturnApi api = _ReturnApi(rows: [_return(status: 'COMPLETED')])
+        ..irnRequired = true;
+      await _pump(tester, api);
+      await tester.tap(find.text('SR-2026-2027-000001  ·  2026-08-14'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Print credit note'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('SR-1 has no IRN yet. Register it first.'),
+          findsOneWidget);
+      expect(api.referenceCopies, <bool>[false]);
+
+      await tester.tap(find.text('Print reference copy'));
+      await tester.pumpAndSettle();
+      expect(api.referenceCopies, <bool>[false, true]);
     });
 
     testWidgets('double-clicking a return reads it', (tester) async {

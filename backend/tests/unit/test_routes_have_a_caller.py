@@ -227,10 +227,18 @@ def _call_patterns() -> tuple[re.Pattern[str], ...]:
         flat = _INTERPOLATION.sub("${x}", text)
         literals |= {match.group(1) for match in _PATH_LITERAL.finditer(flat)}
     prefixes = {path[len("/api/v1/") :] for _, path in _served()}
+    # A model names a route's segment to describe data, never to call it:
+    # `'sales-returns'` as an e-invoice note kind once made every
+    # `/sales-returns/<helper path>` look reachable.
+    callers = [
+        source.read_text(encoding="utf-8")
+        for source in sorted(_DESKTOP.rglob("*.dart"))
+        if "models" not in source.relative_to(_DESKTOP).parts
+    ]
     resources = sorted(
         {
             literal
-            for text in sources
+            for text in callers
             for literal in _RESOURCE_LITERAL.findall(text)
             if any(p == literal or p.startswith(literal + "/") for p in prefixes)
         }
