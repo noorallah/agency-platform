@@ -73,6 +73,9 @@ class DocumentTypeSpec:
     include_branch_code: bool = False
     include_company_code: bool = False
     sequence_padding: int = 6
+    #: False for a series that is not about a year -- a master's code (MST-5)
+    #: carries no financial year and never starts again at one.
+    yearly: bool = True
     rule_code: str = field(default="")
     rule_name: str = field(default="")
 
@@ -347,11 +350,11 @@ class TransactionalDocumentService:
                     prefix=spec.prefix,
                     suffix=None,
                     separator="-",
-                    include_financial_year=True,
+                    include_financial_year=spec.yearly,
                     short_financial_year=gst,
                     include_branch_code=spec.include_branch_code and not gst,
                     include_company_code=spec.include_company_code and not gst,
-                    auto_reset=True,
+                    auto_reset=spec.yearly,
                     manual_allowed=False,
                     sequence_padding=spec.sequence_padding,
                     next_sequence=1,

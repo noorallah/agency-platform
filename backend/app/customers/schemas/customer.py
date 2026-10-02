@@ -261,6 +261,11 @@ class CustomerWrite(CustomerSchema):
 class CustomerCreate(CustomerWrite):
     """Create a customer and its initial child records."""
 
+    #: Blank takes the next code from the firm's series (MST-5).
+    code: str | None = Field(  # type: ignore[assignment]
+        default=None, min_length=2, max_length=50, pattern=r"^[A-Z0-9_-]+$"
+    )
+
 
 class CustomerUpdate(CustomerWrite):
     """Completely replace editable customer data and child records."""

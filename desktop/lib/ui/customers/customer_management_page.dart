@@ -1308,7 +1308,10 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   }
 
   Json _payload() => {
-        'code': _fields['code']!.text.trim().toUpperCase(),
+        // Blank on a new customer: the server issues the next code.
+        if (widget.mode != CustomerDialogMode.create ||
+            _fields['code']!.text.trim().isNotEmpty)
+          'code': _fields['code']!.text.trim().toUpperCase(),
         'customer_type': _customerType,
         'name': _fields['name']!.text.trim(),
         'display_name': _fields['display_name']!.text.trim(),
@@ -1431,7 +1434,14 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         child: _tabPage([
           if (_error != null && !_flat) _errorBanner(),
           _responsiveFields([
-            _text('code', 'Customer code', required: true),
+            _text(
+              'code',
+              'Customer code',
+              required: widget.mode != CustomerDialogMode.create,
+              helper: widget.mode == CustomerDialogMode.create
+                  ? 'Blank: issued on save'
+                  : null,
+            ),
             _text('name', 'Customer name', required: true),
             _text('display_name', 'Display name'),
             _dropdown(

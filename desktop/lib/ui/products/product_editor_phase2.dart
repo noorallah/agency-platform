@@ -250,7 +250,7 @@ extension _Phase2ProductForm on _ProductWorkspaceDialogState {
         DocumentSidePair('Last changed', _day(product.updatedAt)),
       ] else
         const DocumentSideNote(
-          'a code and a name are all it needs to be saved; units, prices and '
+          'a name is all it needs to be saved; units, prices and '
           'tax can be added now or later',
         ),
     ]);

@@ -219,6 +219,11 @@ class ProductWrite(ProductSchema):
 class ProductCreate(ProductWrite):
     """Create a product core record and all dynamic extensions."""
 
+    #: Blank takes the next code from the firm's series (MST-5).
+    code: str | None = Field(  # type: ignore[assignment]
+        default=None, min_length=2, max_length=50, pattern=r"^[A-Z0-9_-]+$"
+    )
+
 
 class ProductUpdate(ProductWrite):
     """Replace all editable product fields and dynamic values."""

@@ -2214,7 +2214,14 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         spacing: 16,
         runSpacing: 12,
         children: [
-          _field(_code, 'Product code', required: true),
+          _field(
+            _code,
+            'Product code',
+            required: widget.mode != ProductDialogMode.create,
+            helper: widget.mode == ProductDialogMode.create
+                ? 'Blank: issued on save'
+                : null,
+          ),
           _field(_name, 'Product name', required: true, width: 360),
           _field(_shortName, 'Short name'),
           _dropdown(
@@ -3104,7 +3111,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
 
   List<String> _validate() {
     final List<String> issues = <String>[];
-    if (_code.text.trim().isEmpty) {
+    if (widget.mode != ProductDialogMode.create && _code.text.trim().isEmpty) {
       issues.add('Product code is required.');
     }
     if (_name.text.trim().isEmpty) {
@@ -3162,7 +3169,10 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         )
         .toList();
     return {
-      'code': _code.text.trim(),
+      // Blank on a new product: the server issues the next code.
+      if (widget.mode != ProductDialogMode.create ||
+          _code.text.trim().isNotEmpty)
+        'code': _code.text.trim(),
       'name': _name.text.trim(),
       'short_name':
           _shortName.text.trim().isEmpty ? null : _shortName.text.trim(),

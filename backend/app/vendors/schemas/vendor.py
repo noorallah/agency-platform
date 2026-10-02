@@ -299,6 +299,11 @@ class VendorWrite(VendorSchema):
 class VendorCreate(VendorWrite):
     """Create one vendor and nested records."""
 
+    #: Blank takes the next code from the firm's series (MST-5).
+    code: str | None = Field(  # type: ignore[assignment]
+        default=None, min_length=2, max_length=50, pattern=r"^[A-Z0-9_-]+$"
+    )
+
 
 class VendorUpdate(VendorWrite):
     """Replace editable vendor data and nested records."""

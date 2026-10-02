@@ -267,7 +267,7 @@ extension _Phase2CustomerForm on _CustomerWorkspaceDialogState {
       return const DocumentSidePanel(children: [
         DocumentSideHeading('New customer'),
         DocumentSideNote(
-          'a code and a name are all it needs to be saved; the rest can be '
+          'a name is all it needs to be saved; the rest can be '
           'added now or later',
         ),
         DocumentSideNote(

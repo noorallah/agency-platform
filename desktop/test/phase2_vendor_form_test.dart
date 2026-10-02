@@ -92,6 +92,12 @@ class _VendorApi extends ApiClient {
       };
 
   @override
+  Future<Vendor> createVendor(Json data) async {
+    saved = data;
+    return Vendor.fromJson(_vendorJson());
+  }
+
+  @override
   Future<Vendor> updateVendor(
     String id,
     Json data, {
@@ -196,5 +202,35 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.saved?['status'], 'BLOCKED');
     expect(api.saved?['blocked_reason'], 'Quality complaints');
+  });
+
+  testWidgets('a new vendor with a blank code is saved without one (MST-5)',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _VendorApi api = _VendorApi();
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => Phase2Scope(child: child!),
+      home: Scaffold(
+        body: VendorManagementPage(
+          api: api,
+          permissions: _permissions(),
+          hasActiveFirm: true,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New vendor'));
+    await tester.pumpAndSettle();
+    expect(find.text('Blank: issued on save'), findsOneWidget);
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Vendor Name'),
+      'Supplier Two',
+    );
+    await tester.tap(find.byKey(const ValueKey('vendor-save')));
+    await tester.pumpAndSettle();
+    expect(api.saved, isNotNull);
+    expect(api.saved!.containsKey('code'), isFalse);
   });
 }

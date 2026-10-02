@@ -129,7 +129,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | MST-2 | §75 row 7 | New rates from a future date, with rate history | Nothing | M | Claude alone |
 | MST-3 | §75 row 8 | Warn on duplicate parties; merge two into one | Nothing | L | Claude alone |
 | MST-4 | §75 row 9 | Attachments and a bank account on the customer | Nothing | S | Claude alone |
-| MST-5 | §75 row 10 | Customer, supplier and product codes issued automatically | Nothing | S | Claude alone |
+| MST-5 | §75 row 10 | Customer, supplier and product codes issued automatically -- **built 2026-10-03** (A67) | Nothing | S | Claude alone |
 | MST-6 | §52 | Extra fields on documents, not only on masters | Nothing | L | Claude alone |
 | MST-7 | §17 | Features and modules created at runtime reach every store | Nothing | S | Claude alone |
 | MST-8 | §16 | A firm configures its own custom fields | Nothing | M | Claude alone |
@@ -675,6 +675,7 @@ otherwise it is built as written.
 - **What it is:** customer, supplier and product codes issued automatically, as documents are.
 - **What gets built:** series for the three masters through the document framework, as `movement_numbering.py` did for stock movements; a blank code means "issue one"; typing still allowed. The phase 2 editors show "issued on save". Tests.
 - **Depends on:** nothing. **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A67): `app/common/master_code_series.py` (`MASTER_SERIES`, `MasterCodeNumbering`) gives each master a series -- `CUS`, `SUP`, `PRD`, five digits -- with `DocumentTypeSpec(yearly=False)`, new in the framework, so it carries no financial year and never resets. `CustomerCreate`, `VendorCreate` and `ProductCreate` take a blank code and each service's create stage issues one; a typed code stands and the counter steps over it. No migration (the series is set up on first use). Desktop: the phase 2 editors say *Blank: issued on save* on a new record. Tests: `test_master_code_series.py`.
 
 #### MST-6. Extra fields on documents (§52)
 - **What it is:** a firm adds its own fields (site name, buyer's PO) to orders, notes and invoices without a new release.

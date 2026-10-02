@@ -15,6 +15,7 @@ from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit, record_change, row_state
 from app.common.display_names import display_name_after_edit
+from app.common.master_code_series import MasterCodeNumbering
 from app.common.master_codes import assert_codes_free
 from app.common.master_references import (
     MasterReferences,
@@ -950,6 +951,12 @@ class VendorService:
         self, data: VendorCreate, *, firm_id: UUID, actor_id: UUID
     ) -> Vendor:
         """Stage one vendor and its audit event without committing."""
+        if data.code is None:
+            # A blank code takes the next from the firm's series (MST-5).
+            issued = MasterCodeNumbering(self._session, "VENDOR").code(
+                None, code_column=Vendor.code, firm_id=firm_id, actor_id=actor_id
+            )
+            data = data.model_copy(update={"code": issued})
         data = self._with_settled_identity(data, current=None)
         self._assert_unique(firm_id, data)
         self._assert_drug_license_allowed(firm_id, data)
@@ -1075,7 +1082,8 @@ class VendorService:
         if (
             self._repository.duplicate_id(
                 firm_id,
-                code=data.code,
+                # A create's blank code is issued before this is asked.
+                code=data.code or "",
                 gstin=data.gstin,
                 excluding_id=excluding_id,
             )

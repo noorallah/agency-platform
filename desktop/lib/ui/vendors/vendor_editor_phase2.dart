@@ -277,7 +277,7 @@ extension _Phase2VendorForm on _VendorEditorDialogState {
         DocumentSidePair('Last changed', _day(vendor.updatedAt)),
       ] else
         const DocumentSideNote(
-          'a code and a name are all it needs to be saved; the rest can be '
+          'a name is all it needs to be saved; the rest can be '
           'added now or later',
         ),
     ]);
