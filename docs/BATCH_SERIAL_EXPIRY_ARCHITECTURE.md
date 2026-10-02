@@ -51,6 +51,8 @@ Future: Purchase · Sales · Manufacturing · Returns · Warranty
 | expiry_date | DATE | Required for medical/food |
 | best_before_date | DATE | |
 | shelf_life_days | INTEGER | |
+| mrp | NUMERIC | The MRP printed on the batch, tax included, per stock unit; from the goods receipt line (A41, migration 0225) |
+| selling_price | NUMERIC | The batch's own rate before tax, per stock unit; used when `price_from_batch` is on (A41) |
 | status | ENUM | available, reserved, blocked, quarantine, expired, damaged, recalled, returned, destroyed |
 | remarks | TEXT | |
 | created_by / updated_by | UUID | Audit |
@@ -147,6 +149,8 @@ Base: `/api/v1/batch-serial`
 | PUT | /batches/{id} | Update batch |
 | DELETE | /batches/{id} | Soft delete batch |
 | GET | /batches/summary | Expiry/status summary |
+| GET | /batches/availability | What a sale line can take from each batch, with expiry and days left (79 row 1) |
+| GET / PUT | /sale-settings | The firm's batch rules, `batch_sale_settings` (79 row 6) |
 
 ### Lot Endpoints
 

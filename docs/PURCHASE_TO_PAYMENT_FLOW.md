@@ -1,6 +1,6 @@
 # Purchase to payment: stock, and the money
 
-Updated 2026-10-02: the order's quantity picture and billing status (A33); reverse charge taken off by a return or debit note; what a firm configures (table below); input credit per bill line and where blocked tax posts; the supplier's GST type; GSTR-2B import and matching; a purchase return's outcome (credit, replacement, refund); a return off a paid bill; reorder planning from sales (backlog 69 row 12).
+Updated 2026-10-02: the order's quantity picture and billing status (A33); reverse charge taken off by a return or debit note; what a firm configures (table below); input credit per bill line and where blocked tax posts; the supplier's GST type; GSTR-2B import and matching; a purchase return's outcome (credit, replacement, refund); a return off a paid bill; reorder planning from sales (backlog 69 row 12). Brought up to #947 the same night: a debit note's excess as supplier credit (A4); the preferred supplier (A18); rule 37; the supplier's IRN on the bill; the e-way bill on the goods receipt; a batch's MRP from the receipt (§78 rows 4-6, A41).
 
 How a purchase becomes stock on the shelf and money out of the bank, which
 document does each part, and where every rupee is recorded.
@@ -59,11 +59,11 @@ worked.
 | Default branch and warehouse (same row) | Same screen | `default_branch_id`, `default_warehouse_id`: null falls back to the firm's default branch and warehouse | Where a raised-for-you receipt puts the goods; receiving refuses a line with no warehouse |
 | Reorder planning (`reorder_planning_settings`) | Settings > Buying > Purchase Settings > Reorder planning; `GET/PUT /api/v1/purchases/reorder-planning` (decision A39) | `basis` LEVELS (default) or SALES; `sales_window_days` 90, `lead_time_days` 7, `safety_days` 7, `cover_days` 30 | What *Below reorder level* lists and suggests before step 1: on SALES, every product with no typed level is reordered at average daily sales x (lead + safety) and ordered up to that plus the cover, in whole units, less what is on order; a typed level still wins (`PURCHASE_FRAMEWORK.md`) |
 | Approval Limits (`role_purchase_approval_limits`) | Settings > Buying > Approval Limits; `GET/PUT /api/v1/purchases/approval-limits` (decision A30) | One `max_order_amount` per role code, compared with the order's grand total, tax included. A role with no row has no limit of its own; a person's limit is the largest of their roles' limits; somebody with none, or a platform administrator, is not limited | Step 2. An order above the approver's limit is refused at approval, naming the amount needed, and stays submitted for somebody allowed more. The approval that clears it records both figures |
-| GST Documents (`gst_compliance_settings`) | Settings > Tax > GST Documents; `GET/PUT /api/v1/tax-framework/gst-compliance-settings` | `itc_claim_basis` `ALL` (default) or `MATCHED_ONLY`; `gstr2b_tolerance` 1.00 (rupees); `rule37_mode` OFF, REPORT (default) or POST; `supplier_irn_check` OFF or WARN (default) | See "GST on the purchase" below. `supplier_irn_check` warns on a bill from a supplier marked *Supplier e-invoices* that carries no IRN (§78 row 5). The same row carries the selling-side fields, described in `SALES_TO_RECEIPT_FLOW.md` |
+| GST Documents (`gst_compliance_settings`) | Settings > Tax > GST Documents; `GET/PUT /api/v1/tax-framework/gst-compliance-settings` | `itc_claim_basis` `ALL` (default) or `MATCHED_ONLY`; `gstr2b_tolerance` 1.00 (rupees); `rule37_mode` OFF, REPORT (default) or POST; `supplier_irn_check` OFF or WARN (default); `eway_bill_limit` 50,000 | See "GST on the purchase" below. `supplier_irn_check` warns on a bill from a supplier marked *Supplier e-invoices* that carries no IRN (§78 row 5); `eway_bill_limit` is the receipt value above which a receipt with no e-way bill is warned about (§78 row 6). The same row carries the selling-side fields, described in `SALES_TO_RECEIPT_FLOW.md` |
 | Trade licences (`trade_licence_settings`) | `app/trade_licences`; `GET/PUT /api/v1/trade-licences/settings` | `purchase_enforcement` OFF or `WARN` (default). Never BLOCK | A purchase order or goods receipt for a licensed product, with the firm holding no valid licence, warns. It never refuses: the goods are already on the dock |
 | Party adjustments (`party_adjustment_settings`) | `GET/PUT /api/v1/party-adjustments/settings` | A rounding limit (10.00 unless set) and an approval threshold (1,000.00 unless set); see `app/party_adjustments` | Step 7: how much a payment may round off, and when a write-back needs a second person holding `PARTY_ADJUSTMENT_APPROVE` |
 | Numbering Series | Settings > Firm > Numbering Series; `/api/v1/document-framework/numbering-rules` | Per document type; see `app/document_framework` for the fields | The number on every document above |
-| Messaging (`messaging_settings`) | Settings > Firm > Messaging; `GET/PUT /api/v1/messaging/settings` | `is_enabled` off: a firm with no row queues and records nothing. `due_soon_days` 3; `overdue_every_days` 7 | Payment due and overdue reminders. `MESSAGING_FRAMEWORK.md` |
+| Messaging (`messaging_settings`) | Settings > Firm > Messaging; `GET/PUT /api/v1/messaging/settings` | `is_enabled` off: a firm with no row queues and records nothing. `due_soon_days` 3; `overdue_every_days` 7; `overdue_stop_after_days` 90 (A12) | Payment due and overdue reminders. `MESSAGING_FRAMEWORK.md` |
 | Control accounts | Per firm, `ControlAccountPurpose` | `INELIGIBLE_INPUT_TAX` is *Input Tax Not Claimable*, 5450, an expense account | Where tax the firm may not claim posts. A firm without it mapped is refused the bill, not posted wrong |
 
 ### On the supplier, the product and the tax rules
@@ -71,6 +71,8 @@ worked.
 | Setting | Where | Choices / default | What it changes in the chain |
 | --- | --- | --- | --- |
 | GST registration type | Supplier, `gst_registration_type` (`app/vendors/gst_registration.py`) | REGULAR, COMPOSITION, UNREGISTERED, OVERSEAS, SEZ. Null: a GSTIN reads as REGULAR, none as UNREGISTERED | A **declared** Composition, Unregistered or Overseas supplier charges no GST: the bill's lines carry none and no credit is claimed (A37). A null type never drops tax, even with no GSTIN on file. A *Reverse charge* rule still applies. Reaches the tax engine as `vendor_type` |
+| Supplier e-invoices | Supplier, `issues_e_invoices` (form; import column `EInvoicing`) | Off | Step 5: the bill from such a supplier is warned about until it records the supplier's IRN, under `supplier_irn_check` |
+| Preferred supplier | Product, `preferred_vendor_id` (A18) | Null | Before step 1: *Below reorder level* drafts the order to this supplier, else to the one last billed |
 | Payment terms | Supplier, `payment_terms_days` | Default 0 | A bill's due date defaults from it when nobody typed one (`app/purchase_invoice/services/msme.py`) |
 | MSME fields | Supplier, `udyam_number`, `msme_category`, `msme_written_agreement` | Category MICRO, SMALL or MEDIUM | A micro or small supplier must be paid within 45 days (15 where nothing was agreed in writing); the bill carries the date (MSMED Act s.15, Income Tax s.43B(h)). MEDIUM is recorded and outside the rule |
 | Status BLOCKED | Supplier, `status` and `blocked_reason` | `blocked_reason` is required with BLOCKED and cleared otherwise | Step 1: no new purchase order can be raised to a blocked supplier, and the refusal repeats the reason |
@@ -100,6 +102,14 @@ Still nothing. A draft receipt is a note of what the lorry brought.
 
 **Only an approved order can be received against** — `APPROVED`,
 `PARTIALLY_RECEIVED` or `RECEIVED`. A draft or cancelled order is refused.
+
+The receipt records the **e-way bill** the goods came on, `eway_bill_number`
+(12 digits) and `eway_bill_date` -- typed here, or once the receipt is completed
+with `PUT /api/v1/goods-receipts/{id}/eway-bill`, audited. A receipt whose total
+is above the firm's `eway_bill_limit` with no number carries `eway_bill_warning`;
+for an unregistered supplier the warning says the e-way bill is the buyer's to
+raise (rule 138). Warned, never refused (§78 row 6). A batch-tracked line may
+carry the batch's `mrp` and `selling_price`, which the batch keeps (A41).
 
 ### 4. Complete the receipt — **stock arrives**
 
@@ -134,7 +144,13 @@ the warehouse filled up.
 
 `POST /api/v1/purchase-invoices`, sourced from the goods receipt
 
-A draft invoice posts nothing.
+A draft invoice posts nothing. The bill records the **supplier's IRN**,
+`supplier_irn` (64 hexadecimal characters, read off the QR code, stored lower
+case); on an approved bill, `PUT /api/v1/purchase-invoices/{id}/supplier-irn`,
+audited. `irn_warning` on the response says when the supplier e-invoices and
+the bill has none (`supplier_irn_check`, CGST rule 48(4)), and, whatever the
+setting, when another bill already carries the same IRN. Warned, never refused:
+the firm still owes the money (§78 row 5).
 
 ### 6. Approve the invoice — **the payable appears**
 
@@ -343,6 +359,22 @@ matched (the `in_books_only` list, counted as `IN_BOOKS_ONLY`).
 bill and lists what 2B lacks. `MATCHED_ONLY` claims only bills matched to 2B;
 the credit on the rest is held in `itc_awaiting_2b` and claimed in the month it
 appears.
+
+### Rule 37: a bill unpaid 180 days
+
+`GET /api/v1/gst-returns/rule37`, behind **Accounts > Tax filing > Rule 37 (180
+days)**, lists every bill dated (the supplier's date, else ours) more than 180
+days ago with credit
+claimed and money still owed -- what it owes read from the payments service, so
+payments, returns and debit notes all count -- and the credit to reverse in
+proportion to the unpaid share, less what already stands reversed; a bill paid
+since shows its reclaim. Under `rule37_mode` the firm chooses OFF, REPORT
+(default: listed, nothing posted) or POST, under which
+`POST /api/v1/gst-returns/rule37/post` posts. Posting moves the credit to
+*Input Tax Not Claimable* (5450) and a reclaim moves it back, one journal per bill,
+recorded in `itc_reversals` (`LEDGER_POSTING_RULES.md`). GSTR-3B reports the
+reversals in 4(B)(2) and reclaims in 4(A)(5) and 4(D)(1). Interest under s.50
+is not computed.
 
 ---
 

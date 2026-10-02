@@ -13,7 +13,10 @@ GST documents, input credit and GSTR-2B added 2026-10-02; choosing batches
 on a delivery note and reordering from sales added the same night; the tax
 calendar on Home, *Rate includes GST* on orders and quotations, the purchase
 order quantity picture, reverse-charge returns and debit notes to customers
-brought in the same day.
+brought in the same day; the rest of the batch work, column mapping on
+imports, e-invoicing (route, notes, print gate, 30-day limit), e-way bills
+without an IRN, rule 37, supplier IRNs and India Post places brought up to
+#947 the same night.
 
 ## Contents
 
@@ -167,7 +170,11 @@ suppliers, the customers' and suppliers' unpaid bills, the opening trial
 balance and opening stock -- ticks each as it fills, and names the screen for
 the rest. Each comes **from a file**: a template made from the firm's own
 records, *Check file* to list every problem by row and column, and an import
-that posts all of it or none. `docs/GO_LIVE_GUIDE.md` walks it for the
+that posts all of it or none. A file from another program (Tally, Marg, Busy,
+Excel) need not be retyped into the template: the import shows the file's own
+headings beside the template column each is read as, guessed by name; change
+any of them, leave a column *Not imported*, and *Save mapping as...* to pick
+it from *Saved mappings* next time. `docs/GO_LIVE_GUIDE.md` walks it for the
 firm's accountant.
 
 **Document numbers need no setup.** Each kind of document starts its own
@@ -261,7 +268,24 @@ across batches; expired batches are shown but cannot be chosen, and those near
 expiry are marked. *Use earliest expiry* puts it back. If the chosen quantities
 do not add up to the line, the panel says so and dispatch is refused. Passing
 over an earlier batch is kept in the audit trail, and the challan prints one
-row per batch with its expiry.
+row per batch with its expiry and MRP. A **counter bill** opens the same
+picker for a batch-tracked line, and the batches chosen there are the ones the
+bill's delivery note takes out.
+
+When a customer asks for a particular batch, the sales order line can **pin**
+it (*Pinned batch*): approval reserves that batch, and the delivery note starts
+with it picked. A customer can carry a **minimum shelf life** (*Minimum shelf
+life (days)* on the customer): earliest-expiry allocation passes over batches
+with fewer days left, the picker marks them *Too short for customer*, and one
+chosen by hand is refused or warned, as the firm sets. **Batch Rules**
+(*Settings → Stock*) say how many days count as near expiry (30), whether
+taking a near-expiry batch or passing over an earlier one needs a reason at
+dispatch, and that near-expiry stock may be sold below the price floor.
+
+Each batch keeps the **MRP** printed on it (and a selling price), taken from
+the goods receipt. No bill may charge more, tax included, than the lowest MRP
+of the batches a line ships; a firm may switch on *Price from batch* so the
+chosen batch's selling price fills the rate.
 
 Every delivery note says **why the goods go out**: *Sale* (the default),
 *Van or route sale*, *Supply on approval*, *Quantity not known*, *Job work* or
@@ -283,7 +307,9 @@ spread across the lines so the tax is right.
 
 **Sales Returns.** Goods coming back against an invoice. Approving puts the
 stock back into the warehouse (or into a damaged or quarantine bucket) and
-reduces what the customer owes, with the tax reversed.
+reduces what the customer owes, with the tax reversed. For a firm that
+e-invoices, a completed return of billed goods is registered on the portal as
+a credit note naming each invoice it returns goods from (see 8.3).
 
 **Proforma.** A statement, in advance, of what an approved order will be
 billed: for a customer who needs a document to arrange payment or credit
@@ -294,6 +320,8 @@ and it has its own number series, separate from tax invoices.
 back**: a rate agreed after invoicing, a quality allowance, a billing error.
 It always names the invoice it credits and reverses that invoice's GST in
 proportion. (Goods coming back are a *sales return*, not a credit note.)
+Credit notes and debit notes print in the invoice's layout, with *Against
+invoice* and the reason in the head.
 
 **Debit Notes.** More charged to a customer on a sale already invoiced: a
 price raised after billing, a line under-billed, a charge added later. It
@@ -445,7 +473,11 @@ overwrites how far receiving got.
 **Goods Receipts.** Record what actually arrived against an order: the
 quantity accepted, damaged and rejected, into which warehouse, with the batch
 number and expiry date or serial numbers where the product is tracked.
-Completing the receipt puts the accepted stock in and values it.
+Completing the receipt puts the accepted stock in and values it. The receipt
+records the **e-way bill** the goods came on (*E-way bill no.* and date, or
+*Record e-way bill* once it is completed); a receipt worth more than the
+firm's e-way bill limit without one is warned about -- for an unregistered
+supplier, as the buyer's to raise.
 
 **Purchase Invoices.** The supplier's bill, matched to the receipt. Approving
 books the amount owed with a due date, and the input GST the firm can claim.
@@ -456,6 +488,12 @@ section 17(5)) or *Ineligible*. It comes from the line, else from the
 product's own setting, else from a tax rule. Tax that cannot be claimed is
 booked to **Input Tax Not Claimable** (account 5450) as a cost, never as
 input credit, and GSTR-3B shows it as the law asks.
+
+A supplier marked **Supplier e-invoices** must put an IRN on its bills. The
+bill records the **supplier's IRN** from the QR code (*Record IRN* works on an
+approved bill too), and warns when that supplier's bill has none (a firm may
+switch the warning off) or when another bill already carries the same IRN.
+It warns and never refuses: the firm still owes the money.
 
 What a **supplier** is under GST is set on the supplier: *Regular*,
 *Composition*, *Unregistered*, *Overseas* or *SEZ*. A supplier marked
@@ -473,6 +511,11 @@ paid becomes a supplier credit for what the bill can no longer absorb. A
 return or debit note off a bill charged under **reverse charge** takes the
 matching share of that reverse charge (and the input credit it raised) off
 too, so the firm does not go on paying tax on goods it no longer holds.
+
+**Debit Notes** to a supplier claim money back on a bill. A claim larger than
+what the bill still owes -- the bill is already paid -- is not refused: the
+excess becomes a **supplier credit**, set against the next bill or refunded,
+as a return off a paid bill does.
 
 ## 6.3 Money and insight
 
@@ -492,8 +535,9 @@ different rate from its receipt, with both rates and the difference.
 
 **Below reorder level** (*Reports → Operational*, and *Purchase Orders → "..."
 → Below reorder level...* to raise draft orders, one per supplier). What is
-short in each warehouse, what is already on order, who last supplied it and
-how much to order. Under *Settings → Buying → Purchase Settings → Reorder
+short in each warehouse, what is already on order, who supplies it and
+how much to order -- the product's **preferred supplier** where one is set,
+else the supplier last billed. Under *Settings → Buying → Purchase Settings → Reorder
 planning* a firm chooses **typed levels** (order up to the reorder and maximum
 levels on each product) or **from sales**: each product's average daily sales
 over the last 90 days sets its level -- reorder when stock falls to 14 days'
@@ -627,10 +671,40 @@ list of bills the suppliers have not filed. The firm chooses in *GST
 Documents* whether GSTR-3B claims every bill (the default, listing what 2B
 lacks) or only matched ones.
 
-**E-Invoice.** Registers an invoice with the government portal and records
-the IRN it returns, and raises the e-way bill for the goods. *In 1.1.0 only
-the portal's sandbox (test) connection exists*; every reference it returns is
-marked as a sandbox one and can never be mistaken for a real filing.
+**Rule 37 (180 days).** Bills dated more than 180 days ago with input
+credit claimed and money still unpaid, with the credit to reverse in
+proportion to the unpaid share; a bill paid since shows the credit to reclaim.
+Under *GST Documents* the firm chooses *Off*, *Report* (the default) or
+*Report and post*, which posts each reversal and reclaim against Input Tax Not
+Claimable; GSTR-3B reports both.
+
+**E-Invoice.** Registers an invoice, a credit note, a debit note to a
+customer or a sales return with the government portal and records the IRN,
+acknowledgement and signed QR it returns, which then print on the document.
+Each firm chooses its **route** in *GST Documents*: the portal's **sandbox**
+(a rehearsal: every reference it returns is marked as a sandbox one and can
+never be mistaken for a real filing) or **offline** -- *Export for portal*
+writes the portal's bulk-upload file, the firm uploads it on the e-invoice
+portal, and *Import portal result* records each IRN. A direct or GSP
+connection is not in 1.1.0.
+
+Once the firm's *e-invoicing applies from* date has passed, an approved B2B
+invoice, credit note or debit note **cannot be printed or emailed until it has
+its IRN** -- without one it is not a valid invoice. The refusal offers *Print
+reference copy*, which prints the figures under "NO IRN YET - NOT A VALID TAX
+INVOICE"; the automatic *Invoice approved* email waits until the IRN arrives.
+A consumer's bill is never held. From the firm's *30-day rule from* date, a
+document more than 30 days old is refused at registration, naming its last
+day. *... → To register* lists every B2B document still without an IRN, with
+its last day, days left, *due soon* within 5 days or *Late*, and a *Register*
+button.
+
+**E-way bills** come from the invoice (with or without an IRN), from a
+delivery note that no invoice bills (job work, supply on approval, van sales),
+or are recorded by hand after raising them on the portal. *... → E-way bills
+due* lists consignments worth more than the firm's limit (₹50,000 unless it
+sets its state's) that have none, and a prompt offers one after dispatch or
+approval.
 
 **TCS.** Tax collected at source under section 206C(1H), charged on the
 **money received** from a buyer beyond the yearly threshold, not on the bill.
@@ -670,14 +744,18 @@ changes to it.
 
 **Customers.** Name, code, GSTIN, PAN, contacts, billing and shipping
 addresses, payment terms, credit limit, standing discount, price list,
-salesman and territory, opening balance, and any extra fields the business
+salesman and territory, opening balance, minimum shelf life, and any extra
+fields the business
 profile adds (a pharmacy's drug licence number, for example). Customers can be
 exported, duplicated, edited in bulk, and restored after deletion. A customer with documents against them cannot be
-deleted.
+deleted. One company may be several customers (a branch per state, say), so a
+GSTIN or PAN may repeat; saving one another customer already holds names that
+customer and asks first.
 
 **Vendors.** The supplier's side of the same: name, code, GSTIN, PAN,
 contacts, addresses, bank account for payments, category and type, payment
-terms. Same export, bulk and restore actions.
+terms, GST type, and whether the supplier e-invoices. Same export, bulk and
+restore actions.
 
 **Configuration:** *Customer Groups* (segments with a group discount),
 *Vendor Categories*, *Vendor Types*.
@@ -685,7 +763,8 @@ terms. Same export, bulk and restore actions.
 ## 9.2 Items
 
 **Products.** Code, name, category, HSN code and tax group, units (buying,
-stock and selling), prices, reorder level, barcode, and, where the profile
+stock and selling), prices, preferred supplier, reorder level, barcode, and,
+where the profile
 switches them on, batch, expiry, serial number and warranty tracking, plus
 any extra fields the profile adds. Products can be imported from a file
 (checked before anything is saved) and exported.
@@ -707,7 +786,9 @@ any extra fields the profile adds. Products can be imported from a file
 - **Configuration:** *Storage Areas* (zones, racks and bins inside a
   warehouse), *Branch Types*, *Warehouse Types*, and **Places** (countries,
   states, districts, cities, PIN codes and localities, shared by every
-  address in the firm).
+  address in the firm). Every firm starts with the southern states' places
+  already loaded from India Post's PIN directory; the platform administrator
+  loads other states with *Load places from India Post...*.
 
 ---
 
@@ -761,7 +842,9 @@ time is required, and a person whose access is removed is signed out at once.
 
 - **Audit Logs**: who changed what, and when: every create, edit, approval,
   cancellation and sign-in, with the old and new values. The trail cannot be
-  edited or deleted, by anybody.
+  edited or deleted, by anybody. The firm administrator may give *Firm Audit
+  Log View* to any role of the firm (an accountant, say): it reads that firm's
+  trail and nothing else.
 - **Diagnostics**: the server's health, versions and recent errors, for
   support.
 - **Platform Dashboard**: counts of firms, users and roles across the
@@ -781,11 +864,11 @@ to restore one.
 
 | Group | Screens | What they set |
 | --- | --- | --- |
-| Firm | Firm Settings, Financial Years, Numbering Series, My Branch and Warehouse | The firm's details; its years and accounting periods (open and close); the number pattern of each kind of document; the branch and warehouse **each person's** new orders, quotations and purchase orders open with; **Messaging** (email, WhatsApp, SMS: off until the firm switches it on with its own accounts) |
+| Firm | Firm Settings, Financial Years, Numbering Series, My Branch and Warehouse | The firm's details; its years and accounting periods (open and close); the number pattern of each kind of document; the branch and warehouse **each person's** new orders, quotations and purchase orders open with; **Messaging** (email, WhatsApp, SMS: off until the firm switches it on with its own accounts; overdue reminders stop 90 days past due unless the firm sets another window) |
 | Selling | Sales Stages, Credit Control, Price Floor, Discount Limits, Loyalty Scheme, TCS Settings | Which stages of a sale the firm's people type, and whether *Rate includes GST* starts on; the credit warning and whether it blocks; the lowest price and each role's discount limit; points; tax collected at source |
 | Buying | Purchase Settings, Approval Limits | Purchasing defaults and approval, and the **reorder planning** choice (typed levels or from sales) |
-| Stock | Inventory Settings | The firm's stock defaults (the near-expiry window, 30 days, is not yet a setting) |
-| Tax | Tax Configuration, Tax Rules, Rule Simulator, Execution Log, Tax Settings | Tax systems, components and rates; the rules that choose the tax for a line (by product tax group, category, place of supply, customer type); trying a rule before relying on it; what each calculation decided; **GST Documents**: the dispatch-before-invoice policy, whether route sales need the invoice first, the dates e-invoicing and the 30-day limit start, whether GSTR-3B claims every bill or only those matched to GSTR-2B, the 2B tolerance, the rule 37 mode, and whether a bill from an e-invoicing supplier with no IRN is warned about (read with *Tax view*, changed with the tax-settings permission) |
+| Stock | Inventory Settings, Batch Rules | The firm's stock defaults; **Batch Rules**: the near-expiry window (30 days), whether a near-expiry batch or one passing over an earlier batch needs a reason, the minimum-shelf-life policy (block or warn), near-expiry stock below the price floor, and *Price from batch* |
+| Tax | Tax Configuration, Tax Rules, Rule Simulator, Execution Log, Tax Settings | Tax systems, components and rates; the rules that choose the tax for a line (by product tax group, category, place of supply, customer type); trying a rule before relying on it; what each calculation decided; **GST Documents**: the dispatch-before-invoice policy, whether route sales need the invoice first, the dates e-invoicing and the 30-day limit start, the e-invoice route (sandbox or offline) and the e-way bill limit, whether GSTR-3B claims every bill or only those matched to GSTR-2B, the 2B tolerance, the rule 37 mode, and whether a bill from an e-invoicing supplier with no IRN is warned about (read with *Tax view*, changed with the tax-settings permission) |
 | Business profile | Feature Management, Module Configuration, Attribute Definitions, Mandatory Attributes, Profile Assignment, Industry Templates | What each industry switches on, which extra fields exist and which are mandatory for which product category, and which profile each firm has |
 
 **How tax is chosen.** Tax is not a rate stored on a product. The product
@@ -863,6 +946,7 @@ Known and planned:
 - Gross profit shown above net profit on the Profit & Loss.
 - Sending documents by WhatsApp or email.
 - Bank reconciliation.
-- A live connection to the e-invoice portal (the sandbox exists).
+- A live connection to the e-invoice portal (the sandbox and the offline
+  upload exist).
 - A signed installer (Windows warns when it is run).
 - Licensing.

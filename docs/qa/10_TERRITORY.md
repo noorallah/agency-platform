@@ -54,6 +54,14 @@ for a tester with a REST client such as Postman; skip them otherwise.
 - **Steps:** Sales Orders → **New Order** for `QA-C4` (Anand, on S1, covered by Asha): ships from MAIN, **Salesman Bala**, one line `QA-P` qty 1 → Create draft. Then Asha → Create draft. Then Salesman blank → Create draft → reopen.
 - **Expect:** Bala is refused in the editor's banner: "The selected salesperson is not assigned to this territory." — nothing saved. Asha saves. Blank saves and, reopened, the salesman is **Asha**, supplied by the customer's route.
 
+### TC-TERR-006 — Loading places from India Post (B6)
+
+*Added 2026-10-02 (decision B6).*
+
+- **Preconditions:** signed in as the platform administrator with a firm selected. Since migration `20261002_0231` every firm store already holds the seven southern states' places: first open a customer address on a fresh install and type PIN **600001** (Chennai) -- it must fill without any loading. Then delete nothing and continue.
+- **Steps:** open the geography screen → **Load places from India Post...**. Look at which states are ticked. Untick all but **Lakshadweep** and **Load**. Then open a customer address and type PIN **682554**. Run the load again for Lakshadweep.
+- **Expect:** the seven southern states are ticked by default, each showing its PIN codes and post offices; the source line names India Post and data.gov.in. The Lakshadweep load reports 1 district, 9 towns, 9 PIN codes and 10 localities. PIN 682554 offers town **Chetlat**, district **Lakshadweep District**, state Lakshadweep, and localities Bithra and Chetlat. The second load adds nothing and the counts stay the same.
+
 ## Screen checks
 
 One standard check for every screen in this area. Run it once per screen as the firm administrator, then confirm the access line with a role that lacks the code. Where a detailed case above already covers an action, the check only asks that the screen behaves consistently with it.
@@ -77,11 +85,3 @@ One standard check for every screen in this area. Run it once per screen as the 
 | Installed version | |
 | Cases passed / failed / blocked | |
 | Worst problem found | |
-
-### TC-TER-B6 — Loading places from India Post
-
-*Added 2026-10-02 (decision B6).*
-
-- **Preconditions:** signed in as the platform administrator with a firm selected. Since migration `20261002_0231` every firm store already holds the seven southern states' places: first open a customer address on a fresh install and type PIN **600001** (Chennai) -- it must fill without any loading. Then delete nothing and continue.
-- **Steps:** open the geography screen → **Load places from India Post...**. Look at which states are ticked. Untick all but **Lakshadweep** and **Load**. Then open a customer address and type PIN **682554**. Run the load again for Lakshadweep.
-- **Expect:** the seven southern states are ticked by default, each showing its PIN codes and post offices; the source line names India Post and data.gov.in. The Lakshadweep load reports 1 district, 9 towns, 9 PIN codes and 10 localities. PIN 682554 offers town **Chetlat**, district **Lakshadweep District**, state Lakshadweep, and localities Bithra and Chetlat. The second load adds nothing and the counts stay the same.

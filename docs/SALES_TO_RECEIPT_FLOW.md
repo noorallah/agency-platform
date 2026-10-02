@@ -1,6 +1,6 @@
 # Sale to receipt: stock, and the money
 
-Updated 2026-10-02: what a firm configures (table below); the delivery note's challan reason; the dispatch-before-invoice check; Dispatch and invoice; choosing batches on the delivery note (backlog 79).
+Updated 2026-10-02: what a firm configures (table below); the delivery note's challan reason; the dispatch-before-invoice check; Dispatch and invoice; choosing batches on the delivery note (backlog 79). Brought up to #947 the same night: batches on the counter bill, a pinned batch, minimum shelf life and batch MRP; e-invoice registration (route, notes, sales returns, the 30-day limit), the no-IRN print and email gate, e-way bills without an IRN.
 
 How an offer becomes goods off the shelf and money in the bank, which document
 does each part, and where every rupee is recorded.
@@ -65,14 +65,15 @@ nobody switches on.
 | Rate includes tax (same row) | Same screen | `rate_includes_tax`: off by default | Only the default for a new counter bill; each bill carries its own switch |
 | Credit Control (`credit_control_settings`) | Settings > Selling > Credit Control; `GET/PUT /api/v1/customers/credit-settings` | `enforcement` OFF / `WARN` (default) / BLOCK; `warn_at_percent` 80; `block_at_percent` 100 (ignored unless BLOCK). A customer's `credit_limit` of zero means unset | Steps 3 and 7: assessed when an order is approved and again when an invoice is. Writing it needs `CUSTOMER_MANAGE_SETTINGS` |
 | Price Floor (`price_floor_settings`) | Settings > Selling > Price Floor; `GET/PUT /api/v1/sales-orders/price-floor-settings` | `enforcement` OFF / `WARN` (default) / BLOCK; `include_cost` on by default | Judged when an order or a bill is approved: a line below the product's `minimum_selling_price`, and below cost if `include_cost`. A person holding `SALES_PRICE_OVERRIDE` may go below it |
-| Batch Rules (`batch_sale_settings`) | Settings > Stock > Batch Rules; `GET/PUT /api/v1/batch-serial/sale-settings` | `near_expiry_days` 30; `near_expiry_policy` `WARN` / REASON; `fefo_skip_policy` `RECORD` / REASON; `near_expiry_below_floor` on | Step 5: a near-expiry batch or a later batch chosen ahead of an earlier one is recorded at dispatch, or needs a reason. A line wholly from near-expiry batches may be sold below the price floor (A2). Writing it needs `SALES_MANAGE_SETTINGS` |
+| Batch Rules (`batch_sale_settings`) | Settings > Stock > Batch Rules; `GET/PUT /api/v1/batch-serial/sale-settings` | `near_expiry_days` 30; `near_expiry_policy` `WARN` / REASON; `fefo_skip_policy` `RECORD` / REASON; `near_expiry_below_floor` on; `shelf_life_policy` `BLOCK` / WARN; `price_from_batch` off | Step 5: a near-expiry batch or a later batch chosen ahead of an earlier one is recorded at dispatch, or needs a reason; a batch shorter than the customer's minimum shelf life chosen by hand is refused or warned. A line wholly from near-expiry batches may be sold below the price floor (A2). `price_from_batch` lets a chosen batch's own selling price fill the line's rate (A41). Writing it needs `SALES_MANAGE_SETTINGS` |
 | Discount Limits (`role_discount_limits`) | Settings > Selling > Discount Limits; `GET/PUT /api/v1/sales-orders/discount-limits` | One `max_discount_percent` (0-100) per role code. The list is replaced whole; a role left out has no limit | At approval, a **typed** discount above the approver's largest limit is refused, naming the limit needed. A price list's, a promotion's or the customer's standing rate is never limited |
 | Loyalty Scheme (`loyalty_settings`) | Settings > Selling > Loyalty Scheme; `GET/PUT /api/v1/loyalty/settings` | `is_enabled` off by default; `points_per_amount` 1 per hundred billed; `amount_per_point` 1; `minimum_redemption_points` 0; `expiry_months` null = never expire | Points are earned on the invoice and may settle a later bill |
 | TCS Settings (`tcs_settings`) | Settings > Selling > TCS Settings; `GET/PUT /api/v1/tcs/settings` | `is_enabled` off by default; `threshold_amount` 5,000,000; `rate_percent` 0.1; `rate_without_pan_percent` 1; `preceding_year_turnover` 0; `seller_turnover_threshold` 100,000,000 | Tax collected at source on the **receipt** (step 8), once the buyer's year passes the threshold |
 | Trade licences (`trade_licence_settings`) | `app/trade_licences`; `GET/PUT /api/v1/trade-licences/settings` | `sale_enforcement` OFF / `WARN` (default) / BLOCK for orders, delivery notes and invoices | A sale of a licensed product to a buyer with no valid licence warns or is refused. The buying side never blocks |
-| GST Documents (`gst_compliance_settings`) | Settings > Tax > GST Documents; `GET/PUT /api/v1/tax-framework/gst-compliance-settings` | `dispatch_without_invoice` OFF / `WARN` (default) / BLOCK; `route_sale_needs_invoice` off; `einvoice_applicable_from` and `thirty_day_rule_from`: null = does not apply | Step 5, the dispatch-before-invoice check. The two dates say from when the firm must e-invoice and from when the 30-day reporting limit applies; the platform never guesses them. `GST_DOCUMENT_COMPLIANCE.md` is the reference |
+| GST Documents (`gst_compliance_settings`) | Settings > Tax > GST Documents; `GET/PUT /api/v1/tax-framework/gst-compliance-settings` | `dispatch_without_invoice` OFF / `WARN` (default) / BLOCK; `route_sale_needs_invoice` off; `einvoice_applicable_from` and `thirty_day_rule_from`: null = does not apply; `eway_bill_limit` 50,000 | Step 5, the dispatch-before-invoice check. The two dates say from when the firm must e-invoice -- from then a B2B invoice, credit or debit note is not printed or emailed without its IRN (A43) -- and from when a document more than 30 days old is refused at registration (A44); the platform never guesses them. The limit is the value above which a consignment is listed as needing an e-way bill. `GST_DOCUMENT_COMPLIANCE.md` is the reference |
+| E-invoice route (`einvoice_settings`) | Settings > Tax > GST Documents; `GET/PUT /api/v1/einvoice/settings` | `provider` `SANDBOX` (default, nothing filed) / OFFLINE | Step 7a: whether registering goes to the sandbox, or into the portal's bulk-upload file (`POST /api/v1/einvoice/offline/export`, then `/offline/import` of the portal's result). A route not built cannot be chosen (A42) |
 | Numbering Series | Settings > Firm > Numbering Series; `/api/v1/document-framework/numbering-rules` | Per document type; see `app/document_framework` for the fields | The number on every document above |
-| Messaging (`messaging_settings`) | Settings > Firm > Messaging; `GET/PUT /api/v1/messaging/settings` | `is_enabled` off: a firm with no row queues, skips and records nothing. `due_soon_days` 3; `overdue_every_days` 7. Each channel has the firm's own account | Messages about the bill and its reminders. `MESSAGING_FRAMEWORK.md` |
+| Messaging (`messaging_settings`) | Settings > Firm > Messaging; `GET/PUT /api/v1/messaging/settings` | `is_enabled` off: a firm with no row queues, skips and records nothing. `due_soon_days` 3; `overdue_every_days` 7; `overdue_stop_after_days` 90 (A12). Each channel has the firm's own account | Messages about the bill and its reminders. `MESSAGING_FRAMEWORK.md` |
 | Print templates (`document_print_templates`) | Beside the Print button; changing needs `PLATFORM_SETTINGS` | See "Sending the bill" below | What the printed bill carries around its fixed statutory spine |
 
 ### On the customer and the product
@@ -87,7 +88,11 @@ does.
 | Standing discount | Customer, `default_discount_percent` | 0 | The third answer in "What a line is discounted by" |
 | Customer group, price list | Customer group and price lists | See `PRICING_AND_PROMOTIONS.md` | A group's rate and a price list's price rank beside the standing rate in the same order |
 | Tax group | Product, `tax_profile_group_code` | Null | Part of the context tax rules match on; rules attach to the transaction, never the product |
-| Minimum selling price, MRP | Product, `minimum_selling_price`, `mrp` | Both null | The floor the Price Floor check reads |
+| Minimum selling price, MRP | Product, `minimum_selling_price`, `mrp` | Both null | The floor the Price Floor check reads; the product's MRP stands in for a batch with none of its own |
+| Batch MRP and selling price | Batch, `mrp`, `selling_price`, captured on the goods receipt line (A41) | Null | No bill may charge more, tax included, than the lowest MRP of the batches a line ships; the challan and invoice print each batch with its MRP |
+| Minimum shelf life | Customer, `minimum_shelf_life_days` | Null = none (1 to 3,650) | Steps 3 and 5: allocation passes over a batch with fewer days left on the document's date; one chosen by hand is judged by `shelf_life_policy` |
+| Pinned batch | Sales order line, `pinned_batch_id` | Null | Step 3 reserves that batch rather than the earliest expiry; step 4 starts the note's line with it picked |
+| GSTIN and PAN | Customer, `gst_number`, `pan_number` | -- | May repeat across customers (one company, a branch per state, A7); saving one already held warns and names the other customer |
 
 ---
 
@@ -129,7 +134,9 @@ Two things happen, in this order, and the order matters:
    order; under `BLOCK` it raises *before* anything is reserved. Credit is
    committed here because approving is the promise — invoicing only bills it.
    Exposure is `current_outstanding - unapplied_advance + this document`.
-2. **Stock is reserved.** `reserved_quantity` per line.
+2. **Stock is reserved.** `reserved_quantity` per line, batch by batch,
+   earliest expiry first -- passing over batches shorter than the customer's
+   minimum shelf life -- or the batch a line has **pinned** (backlog 79 row 4).
 
 A reservation is **a hold, not a movement**. On-hand is unchanged; available
 falls by the reserved amount. In the trace, 907 on hand stayed 907 while
@@ -177,7 +184,9 @@ This is the first step that moves anything.
   release lets the chosen batches go first, and a choice that is not the
   earliest-expiry split is audited as `delivery_note.fefo_skipped`. Either way
   the line's batches record what left, and the challan prints one row per
-  batch with its expiry. Counter bills still draw earliest expiry first.
+  batch with its expiry and MRP. A **counter bill** opens the same picker
+  (`BatchPickerPanel`); its picks go to the delivery note the bill raises, so
+  they are what leaves (79 row 2).
 - **Inventory falls** by the delivered quantity.
 - **The ledger gets the cost of the sale:**
 
@@ -264,6 +273,30 @@ Two things about the amounts:
 - Tax comes from `TaxRuleService.simulate` per line. Tax that is *included in
   the price* and tax under *reverse charge* are reported separately and are
   **not** added to the document total.
+
+### 7a. Register the invoice -- **where the firm e-invoices**
+
+`POST /api/v1/einvoice/invoices/{id}/register` (credit notes, debit notes and
+sales returns: `/api/v1/einvoice/{credit-notes|debit-notes|sales-returns}/{id}/register`)
+
+Past the firm's `einvoice_applicable_from`, an approved invoice to a buyer with
+a GSTIN must be reported to the IRP, which returns the IRN, acknowledgement and
+signed QR. Until it is, **the invoice is not printed or emailed**
+(`app/einvoice/services/issue_gate.py`, A43): `/print` refuses with
+`details.reason = irn_required`, `?reference_copy=true` prints it under "NO IRN
+YET - NOT A VALID TAX INVOICE", and the automatic *Invoice approved* email
+waits in the outbox until the IRN exists. From `thirty_day_rule_from`, a
+document more than 30 days old is refused, naming its last day
+(`reporting_window.py`, A44); `GET /api/v1/einvoice/pending` lists every B2B
+document still without an IRN with its days left. The route -- sandbox or the
+offline upload -- is the firm's (`einvoice_settings.provider`). Nothing here
+posts to the ledger.
+
+The **e-way bill** for goods worth more than `eway_bill_limit` comes from the
+invoice (`/einvoice/invoices/{id}/eway-bill`, with or without an IRN), from a
+delivery note no invoice bills (`/einvoice/delivery-notes/{id}/eway-bill`), or
+is recorded by hand (`/einvoice/eway-bills/record`); `/einvoice/eway-bills/due`
+lists what still needs one.
 
 ### 8. Record the receipt — **money arrives**
 
@@ -495,6 +528,11 @@ return reverses both entries, and the cost entry is reversed **at the movement
 value** so the gap between the average then and now stays in cost of goods sold
 rather than distorting inventory.
 
+For a firm that e-invoices, a **completed return of billed goods is registered
+as a credit note** (CRN) naming every invoice it returns goods from, prints with
+its IRN, and falls under the same print gate (D-TAX-2, A45). A return of goods
+only ever delivered credits no tax invoice and is not registered.
+
 ## Charging more after the invoice
 
 `POST /api/v1/customer-debit-notes` — `DRAFT → APPROVED`, or `CANCELLED`
@@ -512,7 +550,10 @@ Dr  1100 Trade Receivables
 and raises the customer's balance. The extra is owed **on the invoice**: Record
 Receipt offers the invoice at its total plus the note, and the ageing ages it
 from the invoice's due date. Cancelling mirrors the journal, and is refused
-once money received on the invoice has met the extra.
+once money received on the invoice has met the extra. Credit notes and debit
+notes print (`/credit-notes/{id}/print`, `/customer-debit-notes/{id}/print`)
+and are registered on the IRP as CRN and DBN where the firm e-invoices (step
+7a).
 
 ---
 

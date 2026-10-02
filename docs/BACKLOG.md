@@ -5489,7 +5489,7 @@ gaps, pinned with a pointer here, each to build when a firm asks:
 **Status, 2026-10-02 (later):** rows 9 and 10 built -- an e-way bill without an IRN from the invoice where the firm need not e-invoice it, or from a delivery note no invoice bills (supply type from the challan reason), one recorded by hand after raising it on the portal (A42), and the firm's limit (`gst_compliance_settings.eway_bill_limit`, ₹50,000) with a due list and a prompt after dispatch or approval (migration 0228). E-invoicing itself may go through the portal by hand (A42, #936).
 
 **Status, 2026-10-02:** rows 1-3 built. Every delivery note carries a reason (Sale, Van or route sale, Supply on approval, Quantity not known, Job work, Other with words), printed on the challan. A sale dispatched or completed by hand before its invoice is judged by the firm's policy in `gst_compliance_settings` -- Off, Warn (default; kept on the dispatch event and audit row) or Block -- and **Dispatch and invoice** dispatches, bills and approves in one transaction. A van or route sale goes on a challan unless the firm switches on "route sales need the invoice first", so either answer from the firm's CA is a setting. The same table holds the dates e-invoicing and the 30-day limit apply from (used by rows 6-7). Settings > Tax > GST documents.
-Row 5 built 2026-10-02 (also §67 row 7): **Sales > Debit Notes** raises a debit note to a customer against an approved invoice -- price increase, short billed, charges added later, or other -- taxed at each invoice line's rate, no cap, approval separate from drafting (`CUSTOMER_DEBIT_NOTE_APPROVE`). It posts Dr receivable, Cr sales and output tax per head, and the extra is owed **on the invoice** (TallyPrime's against-reference, A40): Record Receipt, the ageing and the overdue list show the invoice at its total plus the note. GSTR-1 CDNR/CDNUR note type D; 3B adds it to 3.1(a). Not yet: a printed debit note (credit notes have none either -- with row 11) and e-invoicing it (row 4).
+Row 5 built 2026-10-02 (also §67 row 7): **Sales > Debit Notes** raises a debit note to a customer against an approved invoice -- price increase, short billed, charges added later, or other -- taxed at each invoice line's rate, no cap, approval separate from drafting (`CUSTOMER_DEBIT_NOTE_APPROVE`). It posts Dr receivable, Cr sales and output tax per head, and the extra is owed **on the invoice** (TallyPrime's against-reference, A40): Record Receipt, the ageing and the overdue list show the invoice at its total plus the note. GSTR-1 CDNR/CDNUR note type D; 3B adds it to 3.1(a). The printed debit note and its e-invoicing, open when this row was built, came with rows 11 and 4 the same day.
 
 Owner, 2026-10-02: follow the GST rules and redesign the sales flow to market
 standard. The rules, today's state, the redesigned flow and the work are in
@@ -5498,17 +5498,17 @@ OWNER_DECISIONS A35. Summary of the rows (numbered as in that doc's section 4):
 
 | # | Item | Pri |
 | --- | --- | --- |
-| 1 | Firm GST settings: e-invoicing applies, 30-day rule applies, each dated | P1 |
-| 2 | Dispatch of a Sale delivery note with no invoice: firm policy warn (default) / block; **Dispatch and invoice** in one action | P1 |
-| 3 | Challan reason on the delivery note, printed | P1 |
-| 4 | E-invoice credit notes and debit notes | P1 |
+| 1 | Firm GST settings: e-invoicing applies, 30-day rule applies, each dated -- **built 2026-10-02** (#903) | P1 |
+| 2 | Dispatch of a Sale delivery note with no invoice: firm policy warn (default) / block; **Dispatch and invoice** in one action -- **built 2026-10-02** (#903) | P1 |
+| 3 | Challan reason on the delivery note, printed -- **built 2026-10-02** (#903) | P1 |
+| 4 | E-invoice credit notes and debit notes -- **built 2026-10-02** (#938; sales returns #946) | P1 |
 | 5 | Debit note to a customer (§67 row 7) -- **built 2026-10-02** (A40) | P1 |
 | 6 | No print or send of a B2B invoice without an IRN where e-invoicing applies -- **built 2026-10-02** (A43) | P1 |
 | 7 | 30-day list and check -- **built 2026-10-02** (A44) | P1 |
-| 8 | Live e-invoice and e-way bill through a GSP (§55 M2) -- needs the owner's GSP | P1 |
-| 9 | E-way bill without an IRN, from the invoice or (only when there is none) the delivery note | P2 |
-| 10 | E-way bill prompt above the firm's limit (default ₹50,000) | P2 |
-| 11 | IRN, acknowledgement and QR on the invoice, credit and debit note prints | P2 |
+| 8 | Live e-invoice and e-way bill through a GSP (§55 M2) -- a per-firm route (A42); offline upload built (#936), Direct NIC and a GSP adapter not | P1 |
+| 9 | E-way bill without an IRN, from the invoice or (only when there is none) the delivery note -- **built 2026-10-02** (#937) | P2 |
+| 10 | E-way bill prompt above the firm's limit (default ₹50,000) -- **built 2026-10-02** (#937) | P2 |
+| 11 | IRN, acknowledgement and QR on the invoice, credit and debit note prints -- **built 2026-10-02** (#939) | P2 |
 | 12 | Credit note after 30 November warns | P3 |
 | 13 | 16-character check on GST document numbering | P3 |
 | 14 | Bill of supply | P3 |
@@ -5531,12 +5531,12 @@ decisions OWNER_DECISIONS A36. Rows, numbered as there:
 
 | # | Item | Pri |
 | --- | --- | --- |
-| 1 | Credit eligibility per bill line (eligible / blocked 17(5) / ineligible), defaulting from product, expense account and tax rule; blocked tax goes to cost (fixes D-TAX-1) | P1 |
-| 2 | Supplier GST treatment: regular, composition, unregistered, overseas, SEZ | P1 |
-| 3 | GSTR-2B import and matching (§42.5); 3B claims all bills or only matched, per firm | P1 |
-| 4 | 180-day unpaid-bill reversal and reclaim (rule 37) | P2 |
-| 5 | Supplier's IRN on the bill; warn when an e-invoicing supplier's bill has none | P2 |
-| 6 | E-way bill number on the goods receipt above the firm's limit | P2 |
+| 1 | Credit eligibility per bill line (eligible / blocked 17(5) / ineligible), defaulting from product, expense account and tax rule; blocked tax goes to cost (fixes D-TAX-1) -- **built 2026-10-02** (#905) | P1 |
+| 2 | Supplier GST treatment: regular, composition, unregistered, overseas, SEZ -- **built 2026-10-02** (#906) | P1 |
+| 3 | GSTR-2B import and matching (§42.5); 3B claims all bills or only matched, per firm -- **built 2026-10-02** (#909) | P1 |
+| 4 | 180-day unpaid-bill reversal and reclaim (rule 37) -- **built 2026-10-02** (#941) | P2 |
+| 5 | Supplier's IRN on the bill; warn when an e-invoicing supplier's bill has none -- **built 2026-10-02** (#943) | P2 |
+| 6 | E-way bill number on the goods receipt above the firm's limit -- **built 2026-10-02** (#944) | P2 |
 | 7 | Warn on a bill entered after its credit's last date (30 November) | P3 |
 | 8 | Import bill of entry (§68) | P3 |
 | 9 | Common credit reversal for a firm with exempt sales (rules 42/43) | P3 |

@@ -365,6 +365,28 @@ head.
   rate each invoice line was charged, never by re-running the rules, so a
   profile edited since the sale cannot change what the sale was taxed at. It is
   declared in GSTR-1 with note type D and added to 3B 3.1(a).
+- **Rule 37** (backlog 78 row 4, `app/gst_returns/services/rule37.py`):
+  credit on a bill unpaid 180 days after its date is reversed in proportion to
+  the unpaid share and reclaimed as it is paid, under `rule37_mode` OFF /
+  REPORT (default) / POST. 3B shows reversals in 4(B)(2)
+  (`itc_reversed_rule37`) and reclaims in 4(A)(5) and 4(D)(1)
+  (`itc_reclaimed`). Postings in `docs/LEDGER_POSTING_RULES.md`.
+- **The supplier's IRN and the inward e-way bill** (78 rows 5-6) are recorded
+  and warned about, never refused: `purchase_invoices.supplier_irn` under
+  `supplier_irn_check`, and `goods_receipts.eway_bill_number` above
+  `eway_bill_limit`.
+
+### E-invoicing and e-way bills (backlog 77)
+
+None of this touches the rule engine: the IRP is told what the document was
+already charged. `app/einvoice` registers invoices, credit notes, customer
+debit notes and sales returns (A45) on the firm's route
+(`einvoice_settings.provider`: SANDBOX or OFFLINE, A42); `issue_gate.py`
+refuses to print or email a B2B document without a live IRN once
+`einvoice_applicable_from` has passed (A43); `reporting_window.py` refuses one
+more than 30 days old from `thirty_day_rule_from` and lists what is pending
+(A44); e-way bills come from the invoice, a challan or by hand above
+`eway_bill_limit`. `docs/GST_DOCUMENT_COMPLIANCE.md` is the reference.
 
 ### Returns still to file (63.4)
 

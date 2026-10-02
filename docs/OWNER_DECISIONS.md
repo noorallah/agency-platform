@@ -10,7 +10,7 @@ a question only the owner, a go-live firm or its CA can answer.
 The owner went through every row on 2026-10-02. Most were confirmed as built.
 The ones that change the product, in the order they will be built:
 
-1. §79 rest (A38, A2): batch settings, near-expiry exemption from the floor, counter-bill picks, pinning, minimum shelf life -- **settings and A2 built (#922)**, counter-bill picks (#931), minimum shelf life (#932), pinning (#933), batch MRP (this PR, A41) -- §79 complete
+1. §79 rest (A38, A2): batch settings, near-expiry exemption from the floor, counter-bill picks, pinning, minimum shelf life -- **settings and A2 built (#922)**, counter-bill picks (#931), minimum shelf life (#932), pinning (#933), batch MRP (#934, A41) -- §79 complete
 2. A4 supplier debit note excess to supplier credit -- **built (#923)**
 3. A7/B5 PAN may repeat across customers, with a warning -- **built (#924)**
 4. A12 reminder window (firm setting, 90 days) -- **built (#925)**
@@ -20,9 +20,13 @@ The ones that change the product, in the order they will be built:
 8. A29 ready-made reverse-charge rules in the GST template -- **built (#928)**
 9. B1 firm administrator reads own audit trail -- **built (#929)**
 10. B2 refuse a custom field's type change once it holds values (check what is built) -- **already built**
-11. B3 field mapping on file imports -- **built**
-12. B6 India Post PIN directory -- **done**
-13. B8 drop TCS 27EQ from the backlog -- **done**
+11. B3 field mapping on file imports -- **built (#935)**
+12. B6 India Post PIN directory -- **done (#940; southern states loaded in every store, #942)**
+13. B8 drop TCS 27EQ from the backlog -- **done (#930)**
+
+The list is complete. GST §77 and §78 were built alongside it on the same day
+(A42-A45, #936-#946): §77 rows 1-7 and 9-11 and §78 rows 1-6 are done; §77
+row 8 (Direct NIC / GSP) and rows 12-14, and §78 rows 7-9, remain.
 
 For the CA, in the hand-over: A5, A8, A9, A20, A31. Waiting on the owner: A13
 (messaging accounts), B9 and B11 (parked), B10 (spare PC, icon). The GSP is now a per-firm choice (A42).
