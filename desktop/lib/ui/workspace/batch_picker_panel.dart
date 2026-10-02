@@ -35,6 +35,7 @@ class BatchPickerPanel extends StatefulWidget {
     this.salesOrderLineId,
     this.customerId,
     this.comparable = true,
+    this.onBatchPrice,
     this.keyPrefix = 'delivery-note',
     this.unreadableNote = 'could not read the batches; they will go earliest '
         'expiry first when the note is dispatched',
@@ -67,6 +68,11 @@ class BatchPickerPanel extends StatefulWidget {
   /// False when the line is in another unit than stock, so the editor cannot
   /// say whether the split adds up.
   final bool comparable;
+
+  /// Told the selling price of the one batch the line ships from, once the
+  /// batches are read and whenever the split changes: null when it ships
+  /// from several, or its batch carries no price (backlog 79 row 7).
+  final ValueChanged<double?>? onBatchPrice;
   final String keyPrefix;
   final String unreadableNote;
   final String noWarehouseNote;
@@ -139,6 +145,7 @@ class _BatchPickerPanelState extends State<BatchPickerPanel> {
         _rows = rows;
         _failed = false;
       });
+      _reportPrice(rows, widget.picks);
     } on Object {
       // The picker is a courtesy: without it the server still goes earliest
       // expiry first at dispatch.
@@ -163,6 +170,25 @@ class _BatchPickerPanelState extends State<BatchPickerPanel> {
     return batch.fefo;
   }
 
+  /// The selling price of the single batch the split takes from, if any.
+  void _reportPrice(
+    List<BatchAvailabilityRecord> batches,
+    Map<String, double>? picks,
+  ) {
+    final ValueChanged<double?>? report = widget.onBatchPrice;
+    if (report == null) return;
+    final List<BatchAvailabilityRecord> taking = [
+      for (final BatchAvailabilityRecord batch in batches)
+        if (!batch.expired &&
+            ((picks != null && picks.isNotEmpty)
+                    ? picks[batch.batchId] ?? 0
+                    : batch.fefo) >
+                0)
+          batch,
+    ];
+    report(taking.length == 1 ? taking.single.sellingPrice : null);
+  }
+
   void _pick(
     List<BatchAvailabilityRecord> batches,
     BatchAvailabilityRecord edited,
@@ -176,6 +202,7 @@ class _BatchPickerPanelState extends State<BatchPickerPanel> {
     };
     next[edited.batchId] = _number(text);
     widget.onChanged(next);
+    _reportPrice(batches, next);
   }
 
   @override
@@ -253,6 +280,10 @@ class _BatchPickerPanelState extends State<BatchPickerPanel> {
                               if (batch.daysToExpiry != null && !batch.expired)
                                 '${batch.daysToExpiry}d left',
                               'can take ${_trimmed(batch.availableToLine)}',
+                              if (batch.mrp != null)
+                                'MRP ${batch.mrp!.toStringAsFixed(2)}',
+                              if (batch.sellingPrice != null)
+                                'price ${batch.sellingPrice!.toStringAsFixed(2)}',
                             ].join(' · '),
                             overflow: TextOverflow.ellipsis,
                             style: quiet,
@@ -330,6 +361,7 @@ class _BatchPickerPanelState extends State<BatchPickerPanel> {
                       : () {
                           setState(() => _epoch++);
                           widget.onChanged(<String, double>{});
+                          _reportPrice(batches, null);
                         },
                   child: const Text('Use earliest expiry'),
                 ),

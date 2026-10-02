@@ -38,7 +38,15 @@ class BatchRecord {
     required this.createdAt,
     required this.updatedAt,
     this.version = 0,
+    this.mrp = '',
+    this.sellingPrice = '',
   });
+
+  /// Per stock unit, tax included; empty when none is recorded.
+  final String mrp;
+
+  /// Per stock unit, before tax; empty when none is recorded.
+  final String sellingPrice;
 
   final String id;
   final String firmId;
@@ -108,6 +116,8 @@ class BatchRecord {
       createdAt: stringValue(d['created_at']),
       updatedAt: stringValue(d['updated_at']),
   version: (d['version'] as num?)?.toInt() ?? 0,
+      mrp: stringValue(d['mrp']),
+      sellingPrice: stringValue(d['selling_price']),
     );
   }
 }
@@ -314,7 +324,15 @@ class BatchAvailabilityRecord {
     required this.nearExpiry,
     required this.fefo,
     this.shortForCustomer = false,
+    this.mrp,
+    this.sellingPrice,
   });
+
+  /// Per stock unit, tax included; null when the batch has none.
+  final double? mrp;
+
+  /// Per stock unit, before tax; null when the batch has none.
+  final double? sellingPrice;
 
   final String batchId;
   final String batchNumber;
@@ -353,6 +371,9 @@ class BatchAvailabilityRecord {
         nearExpiry: json['near_expiry'] == true,
         fefo: _num(json['fefo']),
         shortForCustomer: json['short_for_customer'] == true,
+        mrp: json['mrp'] == null ? null : _num(json['mrp']),
+        sellingPrice:
+            json['selling_price'] == null ? null : _num(json['selling_price']),
       );
 }
 

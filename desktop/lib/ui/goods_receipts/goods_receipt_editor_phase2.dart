@@ -522,6 +522,35 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
                 : () => _setState(() => line.manufacturingDate = ''),
           ),
         ),
+      if (line.batchNumber.trim().isNotEmpty) ...[
+        DocumentField(
+          label: 'MRP per unit, tax included',
+          width: 258,
+          child: TextFormField(
+            key: ValueKey<String>('goods-receipt-mrp-${_order?.id}-$index'),
+            initialValue: line.mrp.isEmpty ? '' : documentQuantity(line.mrp),
+            readOnly: _saving,
+            keyboardType: TextInputType.number,
+            decoration: documentBoxDecoration(context, hint: 'optional'),
+            onChanged: (value) => line.mrp = value,
+          ),
+        ),
+        DocumentField(
+          label: 'Selling price per unit, before tax',
+          width: 258,
+          child: TextFormField(
+            key: ValueKey<String>(
+                'goods-receipt-selling-price-${_order?.id}-$index'),
+            initialValue: line.sellingPrice.isEmpty
+                ? ''
+                : documentQuantity(line.sellingPrice),
+            readOnly: _saving,
+            keyboardType: TextInputType.number,
+            decoration: documentBoxDecoration(context, hint: 'optional'),
+            onChanged: (value) => line.sellingPrice = value,
+          ),
+        ),
+      ],
       DocumentField(
         label: 'Line remarks',
         width: 258,

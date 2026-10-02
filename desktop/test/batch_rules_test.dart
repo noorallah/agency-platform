@@ -1,6 +1,6 @@
 // Backlog 79 row 6, desktop half: the firm's batch rules.
 //
-// These pin: the Batch rules dialog loads, saves exactly the five keys the
+// These pin: the Batch rules dialog loads, saves exactly the six keys the
 // server declares and is read-only without SALES_MANAGE_SETTINGS; dispatching
 // asks the batch check first and sends the reason as `batch_reason` when a
 // rule needs one; cancelling dispatches nothing; and a price-floor finding
@@ -217,7 +217,7 @@ Future<void> _pumpSettings(
 
 void main() {
   group('the Batch rules dialog', () {
-    testWidgets('loads, and saves exactly the five keys', (tester) async {
+    testWidgets('loads, and saves exactly the six keys', (tester) async {
       final _BatchApi api = _BatchApi();
       await _pumpSettings(tester, api, ['SALES_VIEW', 'SALES_MANAGE_SETTINGS']);
       expect(tester.takeException(), isNull);
@@ -229,6 +229,11 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('batch-rules-below-floor')));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('batch-rules-price-from-batch')),
+      );
+      await tester.tap(find.byKey(const ValueKey('batch-rules-price-from-batch')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('batch-rules-save')));
       await tester.pumpAndSettle();
 
@@ -238,6 +243,7 @@ void main() {
         'fefo_skip_policy': 'RECORD',
         'near_expiry_below_floor': false,
         'shelf_life_policy': 'BLOCK',
+        'price_from_batch': true,
       });
     });
 

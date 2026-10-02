@@ -40,6 +40,7 @@ class _BatchSaleSettingsDialogState extends State<BatchSaleSettingsDialog>
   String _fefoSkipPolicy = 'RECORD';
   String _shelfLifePolicy = 'BLOCK';
   bool _belowFloor = true;
+  bool _priceFromBatch = false;
   bool _isConfigured = false;
   bool _loading = true;
   String? _loadError;
@@ -77,6 +78,7 @@ class _BatchSaleSettingsDialogState extends State<BatchSaleSettingsDialog>
         _shelfLifePolicy =
             settings.shelfLifePolicy == 'WARN' ? 'WARN' : 'BLOCK';
         _belowFloor = settings.nearExpiryBelowFloor;
+        _priceFromBatch = settings.priceFromBatch;
         _isConfigured = settings.isConfigured;
         _loading = false;
       });
@@ -104,6 +106,7 @@ class _BatchSaleSettingsDialogState extends State<BatchSaleSettingsDialog>
           fefoSkipPolicy: _fefoSkipPolicy,
           nearExpiryBelowFloor: _belowFloor,
           shelfLifePolicy: _shelfLifePolicy,
+          priceFromBatch: _priceFromBatch,
           isConfigured: true,
         ),
       );
@@ -246,6 +249,19 @@ class _BatchSaleSettingsDialogState extends State<BatchSaleSettingsDialog>
                       value: _belowFloor,
                       onChanged: editable && !saving
                           ? (value) => setState(() => _belowFloor = value ?? true)
+                          : null,
+                    ),
+                    CheckboxListTile(
+                      key: const ValueKey('batch-rules-price-from-batch'),
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: const Text(
+                        "Take a line's rate from its batch's selling price",
+                      ),
+                      value: _priceFromBatch,
+                      onChanged: editable && !saving
+                          ? (value) =>
+                              setState(() => _priceFromBatch = value ?? false)
                           : null,
                     ),
                   ],

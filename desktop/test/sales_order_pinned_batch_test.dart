@@ -55,7 +55,7 @@ Json _draft({String? pinned}) => <String, dynamic>{
     };
 
 class _OrderApi extends ApiClient {
-  _OrderApi({this.existing})
+  _OrderApi({this.existing, this.priceFromBatch = false})
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -64,6 +64,7 @@ class _OrderApi extends ApiClient {
         );
 
   final Json? existing;
+  final bool priceFromBatch;
   Json? created;
   Json? updated;
   Map<String, String>? availabilityQuery;
@@ -112,6 +113,11 @@ class _OrderApi extends ApiClient {
         },
       ]);
     }
+    if (path == '/api/v1/batch-serial/sale-settings') {
+      return <String, dynamic>{
+        'data': <String, dynamic>{'price_from_batch': priceFromBatch},
+      };
+    }
     if (path == '/api/v1/branches') {
       return _paged(<Json>[
         <String, dynamic>{
@@ -141,7 +147,11 @@ class _OrderApi extends ApiClient {
         'data': <Json>[
           _batch('b-old', 'B-OLD', '2026-09-30', '40', expired: true),
           _batch('b-a', 'B-A', '2027-03-31', '25'),
-          _batch('b-b', 'B-B', '2027-06-30', '10'),
+          <String, dynamic>{
+            ..._batch('b-b', 'B-B', '2027-06-30', '10'),
+            'mrp': '120',
+            'selling_price': '88.50',
+          },
         ],
       };
     }
@@ -272,6 +282,35 @@ void main() {
       await _save(tester);
       final List<dynamic> lines = api.updated!['lines'] as List<dynamic>;
       expect((lines.first as Json)['pinned_batch_id'], 'b-gone');
+    });
+  });
+
+  group('price from batch (backlog 79 row 7)', () {
+    Future<void> pinB(WidgetTester tester) async {
+      await tester.tap(find.byKey(_batchKey));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('B-B').last);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the pinned batch price becomes the rate', (tester) async {
+      final _OrderApi api = _OrderApi(priceFromBatch: true);
+      await _open(tester, api);
+      await _pickCustomer(tester);
+      await pinB(tester);
+      await _save(tester);
+      final List<dynamic> lines = api.created!['lines'] as List<dynamic>;
+      expect(num.parse('${(lines.first as Json)['unit_price']}'), 88.5);
+    });
+
+    testWidgets('with the rule off the product price stays', (tester) async {
+      final _OrderApi api = _OrderApi();
+      await _open(tester, api);
+      await _pickCustomer(tester);
+      await pinB(tester);
+      await _save(tester);
+      final List<dynamic> lines = api.created!['lines'] as List<dynamic>;
+      expect(num.parse('${(lines.first as Json)['unit_price']}'), 100);
     });
   });
 }

@@ -37,7 +37,15 @@ class GoodsReceiptLine {
     required this.remarks,
     required this.createdAt,
     required this.updatedAt,
+    this.mrp = '',
+    this.sellingPrice = '',
   });
+
+  /// Per stock unit, tax included; empty when none was recorded.
+  final String mrp;
+
+  /// Per stock unit, before tax; empty when none was recorded.
+  final String sellingPrice;
 
   final String id;
   final int lineNumber;
@@ -111,6 +119,8 @@ class GoodsReceiptLine {
         remarks: stringValue(json['remarks']),
         createdAt: stringValue(json['created_at']),
         updatedAt: stringValue(json['updated_at']),
+        mrp: stringValue(json['mrp']),
+        sellingPrice: stringValue(json['selling_price']),
       );
 
   Json toJson() => {

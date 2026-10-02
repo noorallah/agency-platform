@@ -661,10 +661,25 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
               onChanged: _locked
                   ? null
                   : (String? value) {
+                      final double? price = rows
+                          .where((batch) => batch.batchId == value)
+                          .firstOrNull
+                          ?.sellingPrice;
                       _setState(() {
                         line.pinnedBatchId = value;
                         _current = index;
+                        // The pinned batch's own price, where the firm asks
+                        // for it and nobody typed a rate. Before tax, so not
+                        // on an order whose rates include GST.
+                        if (_priceFromBatch &&
+                            !_rateIncludesTax &&
+                            !line.priceEdited &&
+                            price != null &&
+                            price > 0) {
+                          line.unitPrice.text = price.toStringAsFixed(2);
+                        }
                       });
+                      if (_priceFromBatch) _schedulePreview();
                     },
             ),
           ),

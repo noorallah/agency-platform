@@ -16,6 +16,8 @@ BatchAvailabilityRecord _batch(
   required String expiry,
   required int days,
   required double fefo,
+  String? mrp,
+  String? sellingPrice,
 }) =>
     BatchAvailabilityRecord.fromJson(<String, dynamic>{
       'batch_id': id,
@@ -29,10 +31,16 @@ BatchAvailabilityRecord _batch(
       'expired': false,
       'near_expiry': false,
       'fefo': fefo.toString(),
+      'mrp': mrp,
+      'selling_price': sellingPrice,
     });
 
 class _CounterApi extends ApiClient {
-  _CounterApi({this.existing, this.defaultWarehouse = 'wh-main'})
+  _CounterApi({
+    this.existing,
+    this.defaultWarehouse = 'wh-main',
+    this.priceFromBatch = false,
+  })
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -42,6 +50,7 @@ class _CounterApi extends ApiClient {
 
   final Json? existing;
   final String? defaultWarehouse;
+  final bool priceFromBatch;
   Json? created;
   Json? updated;
   final List<Json> previews = <Json>[];
@@ -64,6 +73,17 @@ class _CounterApi extends ApiClient {
       'quantity': quantity,
       'customer_id': customerId,
     };
+    if (priceFromBatch) {
+      // One batch takes the whole quantity, and carries a price.
+      return [
+        _batch('old',
+            expiry: '2026-12-01',
+            days: 20,
+            fefo: 10,
+            mrp: '120',
+            sellingPrice: '95.5'),
+      ];
+    }
     return [
       _batch('old', expiry: '2026-12-01', days: 20, fefo: 6),
       _batch('new', expiry: '2027-06-01', days: 200, fefo: 4),
@@ -89,6 +109,11 @@ class _CounterApi extends ApiClient {
           if (defaultWarehouse != null) 'default_warehouse_id': defaultWarehouse,
           'is_configured': true,
         },
+      };
+    }
+    if (path.endsWith('/batch-serial/sale-settings')) {
+      return <String, dynamic>{
+        'data': <String, dynamic>{'price_from_batch': priceFromBatch},
       };
     }
     if (path.contains('billable')) return <String, dynamic>{'data': <Json>[]};
@@ -185,7 +210,7 @@ Future<void> _pump(
   await tester.pumpAndSettle();
 }
 
-Future<void> _fillCounterBill(WidgetTester tester) async {
+Future<void> _fillCounterBill(WidgetTester tester, {String? rate = '40'}) async {
   await tester.tap(find.byKey(const ValueKey('sales-invoice-customer')));
   await tester.pumpAndSettle();
   await tester.tap(find.textContaining('Walk-in Customer').last);
@@ -200,7 +225,7 @@ Future<void> _fillCounterBill(WidgetTester tester) async {
     matching: find.byType(EditableText),
   );
   await tester.enterText(cells.at(1), '10');
-  await tester.enterText(cells.at(2), '40');
+  if (rate != null) await tester.enterText(cells.at(2), rate);
   await tester.pump(const Duration(milliseconds: 400));
   await tester.pumpAndSettle();
 }
@@ -351,5 +376,55 @@ void main() {
     expect(batches.map((b) => b['batch_id']), <String>['old', 'new']);
     expect(num.parse('${batches[0]['quantity']}'), 3);
     expect(num.parse('${batches[1]['quantity']}'), 7);
+  });
+
+  group('price from batch (backlog 79 row 7)', () {
+    testWidgets('the picker shows each batch MRP and price',
+        (tester) async {
+      final _CounterApi api = _CounterApi(priceFromBatch: true);
+      await _pump(tester, api);
+      await _fillCounterBill(tester, rate: null);
+
+      expect(find.textContaining('MRP 120.00'), findsOneWidget);
+      expect(find.textContaining('price 95.50'), findsOneWidget);
+    });
+
+    testWidgets('a single batch with a price sets the rate when none typed',
+        (tester) async {
+      final _CounterApi api = _CounterApi(priceFromBatch: true);
+      await _pump(tester, api);
+      await _fillCounterBill(tester, rate: null);
+
+      await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+      await tester.pumpAndSettle();
+      final Map<String, dynamic> line = Map<String, dynamic>.from(
+          (api.created!['lines'] as List).single as Map);
+      expect(num.parse('${line['unit_price']}'), 95.5);
+    });
+
+    testWidgets('a rate the person typed is left alone', (tester) async {
+      final _CounterApi api = _CounterApi(priceFromBatch: true);
+      await _pump(tester, api);
+      await _fillCounterBill(tester);
+
+      await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+      await tester.pumpAndSettle();
+      final Map<String, dynamic> line = Map<String, dynamic>.from(
+          (api.created!['lines'] as List).single as Map);
+      expect(num.parse('${line['unit_price']}'), 40);
+    });
+
+    testWidgets('with the rule off the batch price is not used',
+        (tester) async {
+      final _CounterApi api = _CounterApi();
+      await _pump(tester, api);
+      await _fillCounterBill(tester, rate: null);
+      // Two batches there, and the rule is off: no rate was set.
+      await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+      await tester.pumpAndSettle();
+      final Map<String, dynamic> line = Map<String, dynamic>.from(
+          (api.created!['lines'] as List).single as Map);
+      expect(num.tryParse('${line['unit_price']}') ?? 0, 0);
+    });
   });
 }
