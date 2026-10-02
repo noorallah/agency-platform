@@ -139,7 +139,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | **Platform** | | | | | |
 | PLT-1 | §56 A | Bulk reject, and approval in several levels | Nothing | L | Claude alone |
 | PLT-2 | §55 S12 | Notifications: the bell | Nothing | M | Claude alone |
-| PLT-3 | §56 C | Fast global search (trigram indexes) | Nothing | S | Claude alone |
+| PLT-3 | §56 C | Fast global search (trigram indexes) -- **built 2026-10-03** (A75) | Nothing | S | Claude alone |
 | PLT-4 | §56 C | GSTR-1, GSTR-3B and outstanding reports under 3 seconds | Nothing | M | Claude alone |
 | PLT-5 | §56 C | Back-dated entries carried forward in one statement | Nothing | M | Claude alone |
 | PLT-6 | §56 C | Old login and log records pruned by default | Nothing | S | Claude alone |
@@ -727,6 +727,7 @@ otherwise it is built as written.
 - **What it is:** the Ctrl+K search answering under a second on a large firm.
 - **What gets built:** a migration enabling `pg_trgm` and GIN trigram indexes on the searched name and number columns (PostgreSQL only, skipped on SQLite), applied to every store; re-time with `scripts/time_routes.py`. Integration test that the index is used.
 - **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A75): migration 0250 (all stores) installs `pg_trgm` in `public` and builds `IX_<table>_<column>_trgm` on 17 columns across 11 tables (`SEARCHED` in the migration); the search no longer casts text columns (`search_service.py`). EXPLAIN on PERF01 (109,566 invoices) shows a bitmap index scan for `invoice_number ILIKE '%0815%'`. Tests: `test_trigram_search_columns.py` (every named column exists), `tests/integration/test_trigram_search.py` (the planner uses the index). `time_routes.py` was not re-run; it needs the backend serving PERF01.
 
 #### PLT-4. GSTR-1 / 3B and outstanding under 3 s (§56 C)
 - **What it is:** the month's returns and the receivables reports open in under 3 seconds on a big firm.

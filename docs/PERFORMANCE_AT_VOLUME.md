@@ -290,3 +290,13 @@ line of the window into Python (reconciliation, GSTR-1 and 3B, the invoice
 summary, overdue and customer outstanding, ageing, the by-X families over a
 year), the opening-stock list (three batches, fifteen thousand lines), global
 search, and two page summaries.
+
+## Search (PLT-3, 2026-10-03)
+
+The Ctrl+K search matches `ILIKE '%text%'`, which a B-tree index cannot
+answer. Migration 0250 adds GIN trigram indexes (`pg_trgm`, operator class
+`public.gin_trgm_ops`) on the most-searched names, codes and numbers; the
+search compares text columns without a cast so the planner can use them.
+A column added to a search definition later wants its own index in a
+migration, and a name in the migration's `SEARCHED` that does not exist is
+caught by `test_trigram_search_columns.py`.
