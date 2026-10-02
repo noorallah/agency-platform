@@ -400,7 +400,10 @@ def test_a_write_off_closes_the_bill_and_books_the_expense() -> None:
         from_date=date(2026, 4, 1),
         to_date=date(2026, 4, 30),
     )
-    assert [line.transaction_type for line in statement.lines][-1] == "WRITE_OFF"
+    # On the statement, not necessarily last: the bill and the write-off share
+    # a date, and SQLite stamps both in the same second, so their order is
+    # the ids'. PostgreSQL stamps them apart; the balance is what matters.
+    assert "WRITE_OFF" in [line.transaction_type for line in statement.lines]
     assert statement.closing_balance == Decimal("0.00")
     assert (
         CustomerStatementService(books.session).ageing(firm_scope=books.firm.id) == []
