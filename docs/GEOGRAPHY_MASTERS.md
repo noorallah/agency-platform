@@ -63,6 +63,13 @@ compiled build (`--include-package-data=app.sales`).
   is. Loading twice adds nothing twice. A PIN that crosses a district or state
   border **within one load** gets the other side's offices as localities of
   the PIN already created.
+- **The southern states come with the build** (owner, 2026-10-02). Migration
+  `20261002_0231` runs the same loader (`initialise_store`) on every firm
+  store as it is migrated -- the installer's `migrate-all`, an upgrade, and a
+  new firm's provisioning -- so nobody has to press the button for the first
+  market. The platform store is skipped. Other states, or a newer pack, stay
+  on the screen. On PostgreSQL it adds about nine seconds to each store's
+  first migration past that revision.
 - **Per store.** All seven southern states are 129 districts, 6,802 PIN codes
   and 43,475 localities, about three seconds.
 

@@ -105,7 +105,7 @@ screen (1.1.0).
   post both from the list, and GSTR-3B reports them (§78 row 4).
 - **Places from India Post.** Districts, towns, PIN codes and localities
   load by state from India Post's directory, shipped with the installer; the
-  southern states are ticked by default (B6).
+  southern states are already loaded in every firm, with no setup step (B6).
 - **The IRN and signed QR print** on a registered invoice, credit note
   and debit note; credit and debit notes to customers can now be printed
   (§77 row 11).
