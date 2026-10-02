@@ -417,6 +417,24 @@ class PromotionCouponWrite(PromotionSchema):
         return self
 
 
+class CouponBatchRequest(PromotionSchema):
+    """Mint a campaign's single-use codes against one offer (SEL-5)."""
+
+    count: int = Field(ge=1, le=5000)
+    #: Letters and digits printed before each code, such as DIWALI26.
+    prefix: str = Field(default="", max_length=12)
+    description: str | None = Field(default=None, max_length=200)
+    effective_from: date | None = None
+    effective_to: date | None = None
+
+
+class CouponBatchResponse(PromotionSchema):
+    """The codes a batch minted, sorted."""
+
+    count: int
+    codes: list[str]
+
+
 class PromotionCouponResponse(PromotionSchema):
     """Expose one stored coupon, and how much of it is left."""
 

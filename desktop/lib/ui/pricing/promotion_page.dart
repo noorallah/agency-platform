@@ -10,6 +10,7 @@ import '../../models/entities.dart';
 import '../../models/pricing.dart';
 import '../../core/dialogs/app_dialogs.dart';
 import '../workspace/desktop_framework.dart';
+import 'coupon_batch_dialog.dart';
 import 'coupon_dialog.dart';
 import 'promotion_dialog.dart';
 import 'promotion_try_dialog.dart';
@@ -30,11 +31,15 @@ class PromotionPage extends StatefulWidget {
     required this.api,
     required this.permissions,
     required this.hasActiveFirm,
+    this.saveBytesOverride,
   });
 
   final ApiClient api;
   final PermissionService permissions;
   final bool hasActiveFirm;
+
+  /// Tests inject one, because a widget test cannot open a save panel.
+  final SaveBytesOverride? saveBytesOverride;
 
   @override
   State<PromotionPage> createState() => _PromotionPageState();
@@ -149,6 +154,80 @@ class _PromotionPageState extends State<PromotionPage> {
       ),
     );
     if (saved ?? false) unawaited(_load());
+  }
+
+  Future<List<PromotionRecord>?> _readOffers() async {
+    try {
+      return await fetchAllPages<PromotionRecord>(
+        (page) => widget.api.promotions(page: page),
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return null;
+      NotificationService.show(context, error.message,
+          kind: AppNotificationKind.error);
+      return null;
+    }
+  }
+
+  /// Mint a batch of single-use codes for an offer (SEL-5).
+  Future<void> _generateCodes() async {
+    final List<PromotionRecord>? offers = await _readOffers();
+    if (offers == null || !mounted) return;
+    if (offers.isEmpty) {
+      NotificationService.show(
+        context,
+        'Create an offer first. A coupon is a way of reaching one, not an '
+        'offer in itself.',
+        kind: AppNotificationKind.information,
+      );
+      return;
+    }
+    final bool? generated = await showDialog<bool>(
+      context: context,
+      builder: (_) => CouponBatchDialog(
+        api: widget.api,
+        promotions: offers,
+        initialPromotionId: _selectedCoupon?.promotionId ?? _selected?.id,
+        saveBytesOverride: widget.saveBytesOverride,
+      ),
+    );
+    if (generated ?? false) {
+      setState(() {
+        _showingCoupons = true;
+        _page = 1;
+      });
+      unawaited(_load(requestedPage: 1));
+    }
+  }
+
+  /// Save an offer's codes as a CSV: the selected coupon's or offer's, or one
+  /// the user picks.
+  Future<void> _exportCodes() async {
+    final List<PromotionRecord>? offers = await _readOffers();
+    if (offers == null || !mounted) return;
+    final String? wanted = _selectedCoupon?.promotionId ?? _selected?.id;
+    PromotionRecord? offer =
+        offers.where((row) => row.id == wanted).firstOrNull;
+    offer ??= await showDialog<PromotionRecord>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('Export the codes of which offer?'),
+        children: [
+          for (final PromotionRecord row in offers)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(dialogContext, row),
+              child: Text('${row.code} — ${row.name}'),
+            ),
+        ],
+      ),
+    );
+    if (offer == null || !mounted) return;
+    await saveCouponCodesCsv(
+      context,
+      widget.api,
+      offer,
+      saveBytesOverride: widget.saveBytesOverride,
+    );
   }
 
   /// Retire a coupon without forgetting what it already gave away.
@@ -338,6 +417,24 @@ class _PromotionPageState extends State<PromotionPage> {
             context: context,
             builder: (_) => PromotionTryDialog(api: widget.api),
           )),
+        ),
+        // Bulk single-use codes (SEL-5): about an offer, not the picked row.
+        if (_mayManage)
+          ToolbarCommand(
+            id: 'generate-codes',
+            label: 'Generate codes',
+            icon: Icons.confirmation_number_outlined,
+            tooltip: 'Mint many single-use codes for an offer',
+            menuOnly: true,
+            onPressed: () => unawaited(_generateCodes()),
+          ),
+        ToolbarCommand(
+          id: 'export-codes',
+          label: 'Export codes',
+          icon: Icons.download_outlined,
+          tooltip: 'Save the codes of an offer as a CSV file',
+          menuOnly: true,
+          onPressed: () => unawaited(_exportCodes()),
         ),
       ],
       actions: [

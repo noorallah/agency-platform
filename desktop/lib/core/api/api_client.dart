@@ -5355,6 +5355,37 @@ class ApiClient {
   Future<void> deletePromotionCoupon(String id) =>
       request('DELETE', '/api/v1/promotions/coupons/$id');
 
+  /// Mint [count] single-use codes for one offer (SEL-5); returns the codes.
+  /// Blank [prefix], [description] and dates are left out.
+  Future<List<String>> generateCoupons(
+    String promotionId, {
+    required int count,
+    String prefix = '',
+    String description = '',
+    String effectiveFrom = '',
+    String effectiveTo = '',
+  }) async {
+    final Json data = _unwrapMap(
+      await request(
+        'POST',
+        '/api/v1/promotions/$promotionId/coupons/generate',
+        body: <String, dynamic>{
+          'count': count,
+          'prefix': prefix,
+          if (description.isNotEmpty) 'description': description,
+          if (effectiveFrom.isNotEmpty) 'effective_from': effectiveFrom,
+          if (effectiveTo.isNotEmpty) 'effective_to': effectiveTo,
+        },
+      ),
+    );
+    final Object? codes = data['codes'];
+    return codes is List ? codes.map((code) => '$code').toList() : <String>[];
+  }
+
+  /// Every code of one offer, as a CSV file.
+  Future<List<int>> exportCouponsCsv(String promotionId) =>
+      downloadBytes('/api/v1/promotions/$promotionId/coupons/export');
+
   /// What a document would earn, and why each offer did or did not apply.
   /// Saves and claims nothing.
   Future<PromotionTryResult> simulatePromotions(Json body) async =>
