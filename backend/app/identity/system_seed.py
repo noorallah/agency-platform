@@ -81,6 +81,9 @@ PERMISSION_GROUPS = {
         "CUSTOMER_IMPORT",
         "CUSTOMER_EXPORT",
         "CUSTOMER_MANAGE_SETTINGS",
+        # Changing where a customer's refunds are paid (MST-4), a duty of its
+        # own like the supplier twin.
+        "CUSTOMER_MANAGE_BANK_DETAILS",
     ),
     "vendor": (
         "VENDOR_CREATE",
@@ -581,6 +584,9 @@ _SEEDED_ROLE_PERMISSION_CODES = {
         - frozenset(
             {
                 "CUSTOMER_MANAGE_SETTINGS",
+                # Where a refund is paid is a payment instruction, not sales
+                # work -- the classic redirection fraud (MST-4).
+                "CUSTOMER_MANAGE_BANK_DETAILS",
                 "SALES_MANAGE_SETTINGS",
                 "SALES_PRICE_OVERRIDE",
             }

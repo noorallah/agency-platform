@@ -18,6 +18,8 @@ extension _Phase2CustomerForm on _CustomerWorkspaceDialogState {
     'Rounds',
     'Licences',
     'Opening bills',
+    'Bank accounts',
+    'Files',
   ];
 
   Widget _phase2Page(BuildContext context) {
@@ -116,6 +118,11 @@ extension _Phase2CustomerForm on _CustomerWorkspaceDialogState {
         'Custom fields' => _customFields != null,
         'Licences' => widget.loadLicences != null,
         'Opening bills' => widget.loadOpeningBills != null,
+        // A new customer is told to save first; an existing one sees them
+        // only when the caller supplied a loader.
+        'Bank accounts' =>
+          widget.loadBankAccounts != null || widget.customer == null,
+        'Files' => widget.loadFiles != null || widget.customer == null,
         _ => true,
       };
 
@@ -256,6 +263,36 @@ extension _Phase2CustomerForm on _CustomerWorkspaceDialogState {
                     'bill',
               ),
               _openingBillsTab(),
+            ],
+            if (widget.loadBankAccounts != null || widget.customer == null) ...[
+              _heading(
+                context,
+                'Bank accounts',
+                note: 'where they pay from and where refunds go',
+              ),
+              if (widget.loadBankAccounts == null)
+                const CustomerRecordsAfterSave(what: 'Bank accounts')
+              else
+                CustomerBankAccountsSection(
+                  load: widget.loadBankAccounts!,
+                  onSave: widget.onSaveBankAccounts,
+                ),
+            ],
+            if (widget.loadFiles != null || widget.customer == null) ...[
+              _heading(
+                context,
+                'Files',
+                note: 'agreements, licences and photos kept with the customer',
+              ),
+              if (widget.loadFiles == null)
+                const CustomerRecordsAfterSave(what: 'Files')
+              else
+                CustomerFilesSection(
+                  load: widget.loadFiles!,
+                  onAdd: widget.onAddFiles,
+                  onRemove: widget.onRemoveFile,
+                  pickFiles: widget.pickFiles,
+                ),
             ],
           ],
         ),

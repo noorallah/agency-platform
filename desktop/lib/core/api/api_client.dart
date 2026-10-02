@@ -16,6 +16,7 @@ import '../../models/batch_serial.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
 import '../../models/customer_opening_bill.dart';
+import '../../models/customer_records.dart';
 import '../../models/backup.dart';
 import '../../models/diagnostics.dart';
 import '../../models/document_framework.dart';
@@ -1165,6 +1166,64 @@ class ApiClient {
       Customer.fromJson(_unwrapMap(
         await request('POST', '/api/v1/customers/$id/restore'),
       ));
+
+  /// The bank accounts held against a customer (MST-4). The number comes
+  /// masked unless the caller may manage bank details.
+  Future<List<CustomerBankAccount>> customerBankAccounts(
+    String customerId,
+  ) async =>
+      _unwrapList(
+        await request('GET', '/api/v1/customers/$customerId/bank-accounts'),
+        CustomerBankAccount.fromJson,
+      );
+
+  /// Replace the customer's whole list of bank accounts; empty clears it.
+  Future<List<CustomerBankAccount>> saveCustomerBankAccounts(
+    String customerId,
+    List<Json> accounts,
+  ) async =>
+      _unwrapList(
+        await request(
+          'PUT',
+          '/api/v1/customers/$customerId/bank-accounts',
+          body: {'accounts': accounts},
+        ),
+        CustomerBankAccount.fromJson,
+      );
+
+  /// The files kept with a customer (MST-4).
+  Future<List<CustomerAttachment>> customerAttachments(
+    String customerId,
+  ) async =>
+      _unwrapList(
+        await request('GET', '/api/v1/customers/$customerId/attachments'),
+        CustomerAttachment.fromJson,
+      );
+
+  /// Keep files with a customer, referenced by path.
+  Future<List<CustomerAttachment>> addCustomerAttachments(
+    String customerId,
+    List<Json> files,
+  ) async =>
+      _unwrapList(
+        await request(
+          'POST',
+          '/api/v1/customers/$customerId/attachments',
+          body: {'files': files},
+        ),
+        CustomerAttachment.fromJson,
+      );
+
+  /// Take one file off a customer.
+  Future<void> removeCustomerAttachment(
+    String customerId,
+    String attachmentId,
+  ) async {
+    await request(
+      'DELETE',
+      '/api/v1/customers/$customerId/attachments/$attachmentId',
+    );
+  }
 
   /// What this customer owed the firm on its first day here, bill by bill.
   Future<List<CustomerOpeningBill>> customerOpeningBills(
