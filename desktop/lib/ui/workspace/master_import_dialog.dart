@@ -8,6 +8,7 @@ import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/file_import.dart';
 import 'desktop_framework.dart';
+import 'import_mapping_panel.dart';
 
 /// How bytes are written to disk. Tests inject one, because a widget test
 /// cannot open a native save dialog.
@@ -44,6 +45,8 @@ class MasterImportDialog extends StatefulWidget {
     required this.downloadTemplate,
     required this.checkFile,
     required this.canUpdate,
+    this.mappingApi,
+    this.mappingKind,
     this.offersUpdate = true,
     this.extraFields,
     this.pickFileOverride,
@@ -66,10 +69,17 @@ class MasterImportDialog extends StatefulWidget {
     required List<int> bytes,
     required bool updateExisting,
     required bool apply,
+    Map<String, String?>? mapping,
   }) checkFile;
 
   /// Whether the user may update existing records.
   final bool canUpdate;
+
+  /// Where the mapping step (B3) reads a file's headings and saved mappings,
+  /// and the import's kind there. Without both the step is not offered and the
+  /// file is read as before.
+  final ApiClient? mappingApi;
+  final String? mappingKind;
 
   /// Whether "update existing" means anything for this import at all. Opening
   /// stock is posted once, so it has nothing to update and hides the option.
@@ -100,6 +110,15 @@ class _MasterImportDialogState extends State<MasterImportDialog> {
   String? _error;
   String? _notice;
 
+  /// The mapping step's answer: what to send (null reads the file as before),
+  /// whether it is unusable, and whether the preview is still on its way.
+  Map<String, String?>? _mapping;
+  bool _mappingBlocked = false;
+  bool _mappingLoading = false;
+  int _fileSerial = 0;
+
+  bool get _mapped => widget.mappingApi != null && widget.mappingKind != null;
+
   /// The last check, and the checkbox value it was made with.
   FileImportReport? _report;
   bool _checkedWithUpdate = false;
@@ -110,6 +129,8 @@ class _MasterImportDialogState extends State<MasterImportDialog> {
   bool get _canImport =>
       !_busy &&
       _bytes != null &&
+      !_mappingLoading &&
+      !_mappingBlocked &&
       _report != null &&
       _report!.isClean &&
       _report!.rows > 0 &&
@@ -118,6 +139,21 @@ class _MasterImportDialogState extends State<MasterImportDialog> {
   void _extraChanged() {
     if (!mounted) return;
     setState(() {
+      _report = null;
+      _notice = null;
+    });
+  }
+
+  void _mappingChanged({
+    required Map<String, String?>? mapping,
+    required bool blocked,
+    required bool loading,
+  }) {
+    if (!mounted) return;
+    setState(() {
+      _mapping = mapping;
+      _mappingBlocked = blocked;
+      _mappingLoading = loading;
       _report = null;
       _notice = null;
     });
@@ -166,6 +202,10 @@ class _MasterImportDialogState extends State<MasterImportDialog> {
     setState(() {
       _fileName = picked.name;
       _bytes = bytes;
+      _fileSerial++;
+      _mapping = null;
+      _mappingBlocked = false;
+      _mappingLoading = _mapped;
       _report = null;
       _error = null;
       _notice = null;
@@ -188,6 +228,7 @@ class _MasterImportDialogState extends State<MasterImportDialog> {
         bytes: bytes,
         updateExisting: update,
         apply: apply,
+        mapping: _mapping,
       );
       if (!mounted) return;
       if (apply && report.imported) {
@@ -276,6 +317,17 @@ class _MasterImportDialogState extends State<MasterImportDialog> {
                     ),
                 ],
               ),
+              if (_mapped && _bytes != null) ...[
+                const SizedBox(height: AppSpacing.md),
+                ImportMappingPanel(
+                  key: ValueKey<int>(_fileSerial),
+                  api: widget.mappingApi!,
+                  kind: widget.mappingKind!,
+                  fileName: _fileName!,
+                  bytes: _bytes!,
+                  onChanged: _mappingChanged,
+                ),
+              ],
               if (widget.extraFields != null) ...[
                 const SizedBox(height: AppSpacing.md),
                 widget.extraFields!(context, _extraChanged),
@@ -306,8 +358,12 @@ class _MasterImportDialogState extends State<MasterImportDialog> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: FilledButton.tonalIcon(
-                  onPressed:
-                      _busy || _bytes == null ? null : () => _run(apply: false),
+                  onPressed: _busy ||
+                          _bytes == null ||
+                          _mappingLoading ||
+                          _mappingBlocked
+                      ? null
+                      : () => _run(apply: false),
                   icon: const Icon(Icons.rule_folder_outlined),
                   label: const Text('Check file'),
                 ),

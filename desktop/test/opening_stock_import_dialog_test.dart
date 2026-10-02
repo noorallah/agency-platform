@@ -41,11 +41,20 @@ class _Api extends ApiClient {
   }
 
   @override
+  Future<ImportPreview> importPreview({
+    required String kind,
+    required String fileName,
+    required List<int> bytes,
+  }) async =>
+      throw const ApiException('no preview');
+
+  @override
   Future<FileImportReport> checkOpeningStockImportFile({
     required String fileName,
     required List<int> bytes,
     required String postingDate,
     required bool apply,
+    Map<String, String?>? mapping,
   }) async {
     calls.add(_Call(apply, postingDate));
     return apply ? (applyReport ?? checkReport) : checkReport;

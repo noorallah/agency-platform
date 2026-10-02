@@ -27,6 +27,8 @@ class ProductImportDialog extends StatelessWidget {
         noun: 'products',
         fileStem: 'product',
         downloadTemplate: (format) => api.productImportTemplate(format: format),
+        mappingApi: api,
+        mappingKind: 'products',
         checkFile: api.checkProductImportFile,
         canUpdate: permissions.hasPermission('PRODUCT_UPDATE'),
         pickFileOverride: pickFileOverride,

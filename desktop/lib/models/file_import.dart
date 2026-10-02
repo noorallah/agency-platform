@@ -73,3 +73,89 @@ class FileImportReport {
 
   bool get isClean => issues.isEmpty;
 }
+
+/// One column of an import's template, as the mapping step lists it.
+class ImportColumn {
+  const ImportColumn({
+    required this.heading,
+    required this.required,
+    required this.takes,
+    required this.example,
+  });
+
+  factory ImportColumn.fromJson(Json json) => ImportColumn(
+        heading: stringValue(json['heading']),
+        required: json['required'] == true,
+        takes: stringValue(json['takes']),
+        example: stringValue(json['example']),
+      );
+
+  final String heading;
+  final bool required;
+  final String takes;
+  final String example;
+}
+
+Map<String, String?> _mappingOf(dynamic value) => value is Map
+    ? <String, String?>{
+        for (final MapEntry<dynamic, dynamic> entry in value.entries)
+          entry.key.toString(): entry.value?.toString(),
+      }
+    : <String, String?>{};
+
+/// What a file holds and how the server would read it today (B3).
+class ImportPreview {
+  const ImportPreview({
+    required this.fileHeadings,
+    required this.columns,
+    required this.suggested,
+    required this.sampleRows,
+  });
+
+  factory ImportPreview.fromJson(Json json) => ImportPreview(
+        fileHeadings: stringList(json['file_headings']),
+        columns: json['columns'] is List
+            ? (json['columns'] as List)
+                .whereType<Map>()
+                .map((item) =>
+                    ImportColumn.fromJson(Map<String, dynamic>.from(item)))
+                .toList()
+            : const [],
+        suggested: _mappingOf(json['suggested']),
+        sampleRows: json['sample_rows'] is List
+            ? (json['sample_rows'] as List)
+                .whereType<List>()
+                .map((row) => row.map((cell) => cell?.toString() ?? '').toList())
+                .toList()
+            : const [],
+      );
+
+  final List<String> fileHeadings;
+  final List<ImportColumn> columns;
+
+  /// File heading to template column, or null where it would be left out.
+  final Map<String, String?> suggested;
+  final List<List<String>> sampleRows;
+}
+
+/// A mapping saved under a name for one kind of import.
+class ImportMapping {
+  const ImportMapping({
+    required this.id,
+    required this.kind,
+    required this.name,
+    required this.mapping,
+  });
+
+  factory ImportMapping.fromJson(Json json) => ImportMapping(
+        id: stringValue(json['id']),
+        kind: stringValue(json['kind']),
+        name: stringValue(json['name']),
+        mapping: _mappingOf(json['mapping']),
+      );
+
+  final String id;
+  final String kind;
+  final String name;
+  final Map<String, String?> mapping;
+}

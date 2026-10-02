@@ -265,6 +265,8 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
         fileStem: 'supplier',
         downloadTemplate: (format) =>
             widget.api.vendorImportTemplate(format: format),
+        mappingApi: widget.api,
+        mappingKind: 'vendors',
         checkFile: widget.api.checkVendorImportFile,
         canUpdate: _canEdit,
       ),
