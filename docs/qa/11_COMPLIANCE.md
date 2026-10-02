@@ -75,6 +75,14 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Steps:** as the prepared **Firm admin**, Home → **Tax calendar**. On a GSTR-1 row choose to record it as filed, with a date. Then withdraw it.
 - **Expect:** one row per return per finished month (GSTR-1 due the 11th, GSTR-3B the 20th; a TCS deposit row only for a month that collected tax at source), each reading "due in N days", "N days late" or "Filed <day> <month>". Marking GSTR-1 filed turns its row to "Filed" and nothing else moves; withdrawing it puts it back. GSTR-3B turns to "Paid" once a GST payment is recorded for the month. A TCS row has no record button.
 
+
+### TC-COMP-009 — Filing e-invoices offline (no GSP)
+
+*Added 2026-10-02 (decision A42).*
+
+- **Preconditions:** a GST-registered firm with two approved B2B invoices to registered buyers, not yet registered.
+- **Steps:** Settings → Tax → **GST Documents** → *E-invoice filing* → **Offline** → Save. Sell → E-Invoice → **Export for portal** → tick both → save the JSON file. Open it. Then **Import portal result** with a JSON file shaped like the portal's answer (for each invoice: `DocDtls.No` the invoice number, `Irn`, `AckNo`, `AckDt`, `SignedQRCode`; give the second invoice no `Irn` and an `ErrorDetails` text). Then try **Register** on a third approved invoice.
+- **Expect:** the export holds one object per invoice in the portal's schema (`Version`, `TranDtls`, `DocDtls`, `SellerDtls`, `BuyerDtls`, `ItemList`, `ValDtls`), and both invoices show **PENDING**, mode **LIVE**, route **OFFLINE**. After the import the first is **REGISTERED** with that IRN and acknowledgement, the second **FAILED** with the error text, and the message counts 1 registered, 1 refused. Register on the third comes back refused with directions to export it instead.
 ---
 
 ## Screen checks

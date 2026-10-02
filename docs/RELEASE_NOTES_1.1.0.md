@@ -100,6 +100,10 @@ screen (1.1.0).
   decision A38).
 - **Choosing batches on a counter bill**: a batch-tracked line opens the same
   picker as the delivery note, and the batch chosen is the one that leaves.
+- **E-invoice without a GSP**: a firm may file offline -- export its invoices
+  as the e-invoice portal's bulk-upload JSON, upload it there, and import the
+  result to record each IRN, acknowledgement and QR (decision A42; Settings >
+  Tax > GST Documents).
 - **Map any file's columns on import**: products, customers, suppliers,
   opening bills and opening stock show the file's headings with the template
   column each is read as; change them, and save the mapping for the next

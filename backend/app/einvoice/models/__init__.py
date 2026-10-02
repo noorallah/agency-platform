@@ -1,7 +1,9 @@
 """E-invoice and e-way bill models."""
 
 from app.einvoice.models.einvoice import (
+    EInvoiceProvider,
     EInvoiceRegistration,
+    EInvoiceSettings,
     EWayBill,
     EWayBillStatus,
     RegistrationMode,
@@ -10,7 +12,9 @@ from app.einvoice.models.einvoice import (
 )
 
 __all__ = [
+    "EInvoiceProvider",
     "EInvoiceRegistration",
+    "EInvoiceSettings",
     "EWayBill",
     "EWayBillStatus",
     "RegistrationMode",

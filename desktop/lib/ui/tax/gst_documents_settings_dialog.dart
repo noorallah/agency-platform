@@ -4,6 +4,7 @@ import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
+import '../../models/einvoice.dart';
 import '../../models/gst_documents.dart';
 import '../workspace/save_in_dialog.dart';
 
@@ -41,6 +42,10 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
   final TextEditingController _tolerance =
       TextEditingController(text: '1.00');
   bool _isConfigured = false;
+  // How e-invoices reach the portal (A42). Null where the server did not say,
+  // which hides the choice rather than guessing one.
+  EInvoiceSettings? _filing;
+  String _provider = 'SANDBOX';
   bool _loading = true;
   String? _loadError;
 
@@ -59,6 +64,12 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
   }
 
   Future<void> _load() async {
+    try {
+      _filing = await widget.api.einvoiceSettings();
+      _provider = _filing!.provider;
+    } on ApiException {
+      _filing = null;
+    }
     try {
       final GstComplianceSettings settings =
           await widget.api.gstComplianceSettings();
@@ -99,6 +110,10 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
                 : _tolerance.text.trim(),
           ),
         );
+        final EInvoiceSettings? filing = _filing;
+        if (filing != null && _provider != filing.provider) {
+          _filing = await widget.api.updateEinvoiceSettings(_provider);
+        }
         if (mounted) {
           NotificationService.show(
             context,
@@ -115,6 +130,12 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
         'WARN' => 'The person is told the sale has no invoice yet and may '
             'dispatch anyway, or dispatch and invoice in one step.',
         _ => 'Dispatching a sale before its invoice is not checked.',
+      };
+
+  static String _providerLabel(String code) => switch (code) {
+        'SANDBOX' => 'Sandbox (rehearsal, nothing filed)',
+        'OFFLINE' => 'Offline: upload on the e-invoice portal',
+        _ => code,
       };
 
   Future<void> _pickDate(String? current, ValueChanged<String?> onPicked) async {
@@ -291,6 +312,30 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
                               setState(() => _itcBasis = value ?? _itcBasis)
                           : null,
                     ),
+                    if (_filing != null) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      DropdownButtonFormField<String>(
+                        key: const ValueKey('einvoice-filing-provider'),
+                        isExpanded: true,
+                        initialValue: _filing!.available.contains(_provider)
+                            ? _provider
+                            : null,
+                        decoration: const InputDecoration(
+                          labelText: 'E-invoice filing',
+                        ),
+                        items: [
+                          for (final String code in _filing!.available)
+                            DropdownMenuItem(
+                              value: code,
+                              child: Text(_providerLabel(code)),
+                            ),
+                        ],
+                        onChanged: editable && !saving
+                            ? (value) =>
+                                setState(() => _provider = value ?? _provider)
+                            : null,
+                      ),
+                    ],
                     const SizedBox(height: AppSpacing.md),
                     TextField(
                       key: const ValueKey('gst-2b-tolerance'),

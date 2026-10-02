@@ -5122,6 +5122,50 @@ class ApiClient {
         await request('POST', '/api/v1/einvoice/invoices/$invoiceId/register'),
       ));
 
+  /// How this firm's e-invoices reach the portal (A42): the chosen provider
+  /// and the ones the server offers.
+  Future<EInvoiceSettings> einvoiceSettings() async => EInvoiceSettings.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/einvoice/settings')),
+      );
+
+  Future<EInvoiceSettings> updateEinvoiceSettings(String provider) async =>
+      EInvoiceSettings.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/einvoice/settings',
+        body: <String, dynamic>{'provider': provider},
+      )));
+
+  /// The portal's bulk-upload JSON for [invoiceIds]; each invoice becomes a
+  /// registration waiting for its IRN.
+  Future<List<int>> exportOfflineEinvoices(List<String> invoiceIds) =>
+      downloadBytes(
+        '/api/v1/einvoice/offline/export',
+        method: 'POST',
+        body: <String, dynamic>{'invoice_ids': invoiceIds},
+      );
+
+  /// Post the portal's result file (.json, .csv or .xlsx).
+  Future<OfflineEInvoiceImport> importOfflineEinvoiceResult({
+    required String fileName,
+    required List<int> bytes,
+  }) async {
+    final String lower = fileName.toLowerCase();
+    final Json response = await multipartRequest(
+      'POST',
+      '/api/v1/einvoice/offline/import',
+      fields: const <String, String>{},
+      fileField: 'file',
+      fileName: fileName,
+      fileBytes: bytes,
+      fileContentType: lower.endsWith('.xlsx')
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : lower.endsWith('.json')
+              ? 'application/json'
+              : 'text/csv',
+    );
+    return OfflineEInvoiceImport.fromJson(_unwrapMap(response));
+  }
+
   Future<EInvoiceRegistrationRecord> cancelEInvoice(
     String invoiceId, {
     required String reason,
@@ -7776,14 +7820,20 @@ class ApiClient {
   Future<List<int>> downloadBytes(
     String path, {
     Map<String, String>? query,
+    String method = 'GET',
+    Json? body,
     bool retrying = false,
   }) async {
     final Uri uri = _uri(path, query);
     onRequest?.call();
     try {
       final HttpClientRequest httpRequest =
-          await _httpClient.openUrl('GET', uri);
+          await _httpClient.openUrl(method, uri);
       httpRequest.followRedirects = false;
+      if (body != null) {
+        httpRequest.headers.contentType = ContentType.json;
+        httpRequest.write(jsonEncode(body));
+      }
       final String? token = accessToken();
       if (token?.isNotEmpty == true) {
         httpRequest.headers.set(
@@ -7804,7 +7854,8 @@ class ApiClient {
       if (response.statusCode == HttpStatus.unauthorized &&
           !retrying &&
           await refreshAccessToken()) {
-        return downloadBytes(path, query: query, retrying: true);
+        return downloadBytes(path,
+            query: query, method: method, body: body, retrying: true);
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {
         String message = 'The download request failed.';

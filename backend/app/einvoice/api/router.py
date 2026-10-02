@@ -5,12 +5,14 @@ in declaration order and nine endpoints in eight routers were unreachable
 until 2026-08-22 for exactly that reason.
 """
 
+import json
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
@@ -20,8 +22,14 @@ from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.core.utils.dates import utc_now
 from app.einvoice.models import EInvoiceRegistration, EWayBill
 from app.einvoice.services import EInvoiceService
+from app.einvoice.services.offline import OfflineEInvoiceService
+from app.einvoice.services.settings import (
+    AVAILABLE_PROVIDERS,
+    EInvoiceSettingsService,
+)
 
 router = APIRouter(
     prefix="/api/v1/einvoice",
@@ -53,6 +61,8 @@ class RegistrationResponse(BaseModel):
     #: SANDBOX or LIVE. Never absent, so a rehearsal can never be read as a
     #: filing.
     mode: str
+    #: The route it took (A42): SANDBOX, OFFLINE, NIC_DIRECT or GSP.
+    provider: str | None = None
     status: str
     irn: str | None
     acknowledgement_number: str | None
@@ -130,6 +140,131 @@ class EWayBillRequest(BaseModel):
     vehicle_number: str | None = Field(default=None, max_length=20)
 
 
+#: Choosing how the firm files is a tax setting, held by whoever holds the
+#: firm's other GST settings.
+EInvoiceSettingsScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("TAX_MANAGE_SETTINGS")
+]
+
+
+class EInvoiceSettingsResponse(BaseModel):
+    """The firm's e-invoice route, and the routes it may choose (A42)."""
+
+    provider: str
+    available: list[str]
+
+
+class EInvoiceSettingsWrite(BaseModel):
+    """Change the firm's e-invoice route."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str = Field(min_length=1, max_length=20)
+
+
+class OfflineExportRequest(BaseModel):
+    """The approved invoices to export for the portal's bulk upload."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    invoice_ids: list[UUID] = Field(min_length=1, max_length=500)
+
+
+class OfflineImportResponse(BaseModel):
+    """What importing the portal's result did, by invoice number."""
+
+    registered: list[str]
+    failed: list[str]
+    unmatched: list[str]
+    already: list[str]
+
+
+@router.get("/settings", response_model=ApiResponse[EInvoiceSettingsResponse])
+def get_einvoice_settings(
+    scope: EInvoiceViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[EInvoiceSettingsResponse]:
+    """Report how the firm registers e-invoices (decision A42)."""
+    return ApiResponse(
+        data=EInvoiceSettingsResponse(
+            provider=EInvoiceSettingsService(db).provider(scope.firm_id),
+            available=list(AVAILABLE_PROVIDERS),
+        )
+    )
+
+
+@router.put("/settings", response_model=ApiResponse[EInvoiceSettingsResponse])
+def update_einvoice_settings(
+    data: EInvoiceSettingsWrite,
+    scope: EInvoiceSettingsScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[EInvoiceSettingsResponse]:
+    """Change how the firm registers e-invoices."""
+    provider = EInvoiceSettingsService(db).update(
+        scope.firm_id, data.provider, actor_id=scope.actor_id
+    )
+    return ApiResponse(
+        data=EInvoiceSettingsResponse(
+            provider=provider, available=list(AVAILABLE_PROVIDERS)
+        )
+    )
+
+
+@router.post("/offline/export")
+def export_offline(
+    data: OfflineExportRequest,
+    scope: EInvoiceManageScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Export approved invoices as the portal's bulk-upload JSON (A42).
+
+    Each becomes a registration waiting for its IRN; upload the file on the
+    e-invoice portal and import the result it gives back.
+    """
+    payloads = OfflineEInvoiceService(db).export(
+        data.invoice_ids, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    stamp = utc_now().strftime("%Y%m%d-%H%M")
+    return Response(
+        content=json.dumps(payloads, indent=2, default=str),
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="einvoice-{stamp}.json"'
+        },
+    )
+
+
+@router.post("/offline/import", response_model=ApiResponse[OfflineImportResponse])
+async def import_offline(
+    scope: EInvoiceManageScope,
+    file: Annotated[UploadFile, File()],
+    db: Session = Depends(get_db),
+) -> ApiResponse[OfflineImportResponse]:
+    """Import the portal's result file: IRN, acknowledgement and QR per invoice."""
+    name = (file.filename or "").lower()
+    file_format = (
+        "json" if name.endswith(".json") else "csv" if name.endswith(".csv") else "xlsx"
+    )
+    report = OfflineEInvoiceService(db).import_result(
+        await file.read(),
+        file_format,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(
+        data=OfflineImportResponse(
+            registered=report.registered,
+            failed=report.failed,
+            unmatched=report.unmatched,
+            already=report.already,
+        ),
+        message=(
+            f"{len(report.registered)} registered, {len(report.failed)} refused, "
+            f"{len(report.unmatched)} not matched."
+        ),
+    )
+
+
 @router.get("/registrations", response_model=PaginatedResponse[RegistrationResponse])
 def list_registrations(
     scope: EInvoiceViewScope,
@@ -189,7 +324,7 @@ def register_invoice(
     db: Session = Depends(get_db),
 ) -> ApiResponse[RegistrationResponse]:
     """Register one approved invoice with the portal."""
-    service = EInvoiceService(db)
+    service = EInvoiceService.for_firm(db, scope.firm_id)
     row = service.register(
         invoice_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
@@ -215,7 +350,7 @@ def cancel_registration(
     db: Session = Depends(get_db),
 ) -> ApiResponse[RegistrationResponse]:
     """Withdraw a registration, inside the window the authority allows."""
-    service = EInvoiceService(db)
+    service = EInvoiceService.for_firm(db, scope.firm_id)
     row = service.cancel(
         invoice_id,
         reason=payload.reason,
@@ -259,7 +394,7 @@ def generate_eway_bill(
     db: Session = Depends(get_db),
 ) -> ApiResponse[EWayBillResponse]:
     """Raise an e-way bill for the goods a registered invoice covers."""
-    service = EInvoiceService(db)
+    service = EInvoiceService.for_firm(db, scope.firm_id)
     row = service.generate_eway_bill(
         invoice_id,
         distance_km=payload.distance_km,
@@ -293,7 +428,7 @@ def cancel_eway_bill(
     db: Session = Depends(get_db),
 ) -> ApiResponse[EWayBillResponse]:
     """Withdraw an e-way bill."""
-    service = EInvoiceService(db)
+    service = EInvoiceService.for_firm(db, scope.firm_id)
     row = service.cancel_eway_bill(
         invoice_id,
         reason=payload.reason,

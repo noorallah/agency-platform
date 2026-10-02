@@ -169,6 +169,60 @@ class SandboxPortal:
         return PortalResult(ok=True, reference=reference)
 
 
+class OfflinePortal:
+    """The firm files by hand on the portal (decision A42).
+
+    Nothing here talks to the authority. Registering is an export the firm
+    uploads (``EInvoiceService.export_offline``) and an import of what the
+    portal answered (``import_offline``), so registering through this port is
+    refused with directions. A cancellation is made on the portal within its
+    24 hours and recorded here, which is all this port accepts.
+    """
+
+    _DIRECTIONS = (
+        "This firm registers e-invoices offline: export the invoices for the "
+        "portal's bulk upload, upload them on the e-invoice portal, and import "
+        "the result file it gives back."
+    )
+
+    def register_invoice(self, payload: dict[str, object]) -> PortalResult:
+        """Refuse: an offline invoice is exported, not sent."""
+        return PortalResult(
+            ok=False, error_code="OFFLINE", error_message=self._DIRECTIONS
+        )
+
+    def cancel_invoice(self, reference: str, *, reason: str) -> PortalResult:
+        """Record a cancellation the firm made on the portal itself."""
+        if not reason.strip():
+            return PortalResult(
+                ok=False,
+                error_code="2189",
+                error_message="A cancellation needs a reason.",
+            )
+        return PortalResult(ok=True, reference=reference)
+
+    def generate_eway_bill(self, payload: dict[str, object]) -> PortalResult:
+        """Refuse: raise the e-way bill on its own portal."""
+        return PortalResult(
+            ok=False,
+            error_code="OFFLINE",
+            error_message=(
+                "This firm files offline: raise the e-way bill on the e-way "
+                "bill portal."
+            ),
+        )
+
+    def cancel_eway_bill(self, reference: str, *, reason: str) -> PortalResult:
+        """Record a cancellation made on the e-way bill portal."""
+        if not reason.strip():
+            return PortalResult(
+                ok=False,
+                error_code="102",
+                error_message="A cancellation needs a reason.",
+            )
+        return PortalResult(ok=True, reference=reference)
+
+
 def portal_for(mode: str) -> InvoiceRegistrationPortal:
     """Return the portal a firm in this mode talks to.
 
@@ -179,6 +233,8 @@ def portal_for(mode: str) -> InvoiceRegistrationPortal:
     """
     if mode == "SANDBOX":
         return SandboxPortal()
+    if mode == "OFFLINE":
+        return OfflinePortal()
     raise NotImplementedError(
         "Live registration needs this firm's GSP credentials, which are not "
         "configured. Nothing has been sent. Keep the firm in SANDBOX until "
