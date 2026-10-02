@@ -144,3 +144,11 @@ One standard check for every screen in this area. Run it once per screen as the 
 - **Preconditions:** a supplier with a GSTIN; Settings > Tax > GST Documents, *Supplier bill without an IRN* on **Warn** (the default).
 - **Steps:** Open the supplier, tick **Supplier e-invoices**, save. Enter a bill from it with no IRN and save. Type `IRN-123` in the IRN box. Then type a 64-character IRN (e.g. 64 `a`s) and save. Approve it; **Record IRN** on the approved bill, clear it, record it again. Enter a second bill from the same supplier carrying the same IRN. Set the setting to **Off** and reopen a bill with no IRN.
 - **Expect:** the first save shows the warning that the supplier e-invoices and the bill has no IRN (rule 48(4)); `IRN-123` is refused as not 64 letters and digits; with the IRN the warning goes. On the approved bill the IRN can be recorded and cleared, and the audit trail shows each change. The second bill warns that the first bill already carries this IRN. With the setting Off the missing-IRN warning is not shown (the duplicate warning still is).
+
+### TC-COMP-015 — The e-way bill on a goods receipt
+
+*Added 2026-10-02 (backlog 78 row 6).*
+
+- **Preconditions:** Settings > Tax > GST Documents, e-way bill limit **50,000**; an approved purchase order worth more than 50,000 from a supplier with a GSTIN, and a second from a supplier with none.
+- **Steps:** Receive the first order with no e-way bill number and save. Type `EWB-1` in the e-way bill box. Type `3312 3456 7890` and a date, and save. Complete the receipt; **Record e-way bill**, clear it, record it again. Receive the second order with no number.
+- **Expect:** the first save warns that goods worth more than 50,000 need an e-way bill and none is recorded (rule 138), asking for the supplier's number; `EWB-1` is refused as not 12 digits; with the number the warning goes and it is stored as `331234567890`. On the completed receipt the number can be recorded and cleared, and the audit trail shows each change. The unregistered supplier's receipt warns that the e-way bill is yours to raise. A receipt under 50,000 shows no warning.

@@ -507,9 +507,10 @@ It is now a **supplier credit**, the payable twin of a customer's advance:
 ### Still open
 
 Checked against `GST_DOCUMENT_COMPLIANCE.md` section 6.2 on 2026-10-02 (rule
-37 and the supplier's IRN were built the same day, §78 rows 4 and 5):
+37, the supplier's IRN and the e-way bill on the receipt were built the same day,
+§78 rows 4-6):
 
-- **The e-way bill number** is not on the goods receipt (the vehicle is).
+- Nothing: rows 4-6 of section 6.3 were all built on 2026-10-02.
 
 ### Not a gap: a payment needs no invoice
 
