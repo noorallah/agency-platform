@@ -37,9 +37,14 @@ from app.einvoice.models import (
     RegistrationStatus,
     TransportMode,
 )
+from app.einvoice.services.eway_payload import eway_payload
 from app.einvoice.services.payload import EInvoicePayloadBuilder
 from app.einvoice.services.portal import PortalResult, portal_for
-from app.sales_invoice.models import SalesInvoice, SalesInvoiceSource
+from app.sales_invoice.models import (
+    SalesInvoice,
+    SalesInvoiceLine,
+    SalesInvoiceSource,
+)
 
 #: How long the authority allows a registration to be withdrawn. Judged in UTC
 #: like every other clock here -- reading the server's local time would make
@@ -78,6 +83,16 @@ class EInvoiceService:
             else RegistrationMode.LIVE.value
         )
         self._payloads = EInvoicePayloadBuilder(session)
+
+    @property
+    def mode(self) -> str:
+        """SANDBOX or LIVE: whether this service's registrations are filings."""
+        return self._mode
+
+    @property
+    def provider(self) -> str:
+        """The route this service's documents take (A42)."""
+        return self._provider
 
     @classmethod
     def for_firm(cls, session: Session, firm_id: UUID) -> "EInvoiceService":
@@ -353,9 +368,11 @@ class EInvoiceService:
     ) -> EWayBill:
         """Raise an e-way bill for the goods an invoice covers.
 
-        The invoice must be registered first. An e-way bill quotes the IRN, so
-        raising one against an unregistered invoice would put a reference on
-        the road that the authority cannot match to a supply.
+        A registered invoice raises it from its IRN. One the firm must
+        e-invoice but has not registered is refused: a bill on the road that
+        the authority cannot match to a supply is worse than none. One the
+        firm need not e-invoice -- a consumer, or a firm below the threshold --
+        raises it from the invoice itself (backlog 77 row 9).
 
         Args:
             invoice_id: The registered invoice.
@@ -380,10 +397,11 @@ class EInvoiceService:
         """
         invoice = self._invoice(invoice_id, firm_scope=firm_scope)
         registration = self.registration_for(invoice_id, firm_scope=firm_scope)
-        if (
-            registration is None
-            or registration.status != RegistrationStatus.REGISTERED.value
-        ):
+        registered = (
+            registration is not None
+            and registration.status == RegistrationStatus.REGISTERED.value
+        )
+        if not registered and self._must_einvoice(invoice, firm_scope=firm_scope):
             raise ValidationError(
                 "Register the invoice before raising its e-way bill: the bill "
                 "quotes the IRN, and one without it cannot be matched to a "
@@ -417,8 +435,24 @@ class EInvoiceService:
             raise ValidationError(
                 "Goods moving by road need a vehicle number on the e-way bill."
             )
-        payload: dict[str, object] = {
-            "Irn": registration.irn,
+        payload: dict[str, object] = (
+            {"Irn": registration.irn}
+            if registered and registration is not None
+            else eway_payload(
+                self._session,
+                firm_id=firm_scope,
+                customer_id=invoice.customer_id,
+                doc_type="INV",
+                number=invoice.invoice_number,
+                on=invoice.invoice_date.strftime("%d/%m/%Y"),
+                reason="SALE",
+                reason_note=None,
+                lines=self._invoice_lines(invoice.id),
+                quantity_of="current_invoice_quantity",
+                total_value=invoice.grand_total,
+            )
+        )
+        payload |= {
             "TransDistance": float(distance_km),
             "TransMode": mode,
             "TransId": (transporter_id or "").strip() or None,
@@ -431,13 +465,19 @@ class EInvoiceService:
             payload["TransDocNo"] = carried.lr_number
             if carried.lr_date is not None:
                 payload["TransDocDt"] = carried.lr_date.strftime("%d/%m/%Y")
+        route_mode = registration.mode if registered and registration else self._mode
+        route = (
+            (registration.provider or registration.mode)
+            if registered and registration
+            else self._provider
+        )
         row = existing or EWayBill(
             firm_id=firm_scope,
             sales_invoice_id=invoice.id,
-            mode=registration.mode,
+            mode=route_mode,
             created_by=actor_id,
         )
-        row.mode = registration.mode
+        row.mode = route_mode
         row.distance_km = distance_km
         row.transport_mode = mode
         row.transporter_id = payload["TransId"]  # type: ignore[assignment]
@@ -445,9 +485,7 @@ class EInvoiceService:
         row.vehicle_number = payload["VehNo"]  # type: ignore[assignment]
         row.request_payload = payload
         row.updated_by = actor_id
-        result = portal_for(
-            registration.provider or registration.mode
-        ).generate_eway_bill(payload)
+        result = portal_for(route).generate_eway_bill(payload)
         if result.ok:
             row.status = EWayBillStatus.GENERATED.value
             row.eway_bill_number = result.reference
@@ -523,6 +561,37 @@ class EInvoiceService:
         return row
 
     # ---- helpers -------------------------------------------------------
+
+    def _must_einvoice(self, invoice: SalesInvoice, *, firm_scope: UUID) -> bool:
+        """Whether this invoice is one the firm has to register first (77.9).
+
+        From the firm's dated *e-invoicing applies* setting, for a buyer with
+        a GSTIN: a consumer's bill is never e-invoiced.
+        """
+        from app.tax.services.gst_compliance import GstComplianceService
+
+        since = (
+            GstComplianceService(self._session)
+            .settings_response(firm_scope)
+            .einvoice_applicable_from
+        )
+        if since is None or invoice.invoice_date < since:
+            return False
+        customer = self._session.get(Customer, invoice.customer_id)
+        return bool((getattr(customer, "gst_number", None) or "").strip())
+
+    def _invoice_lines(self, invoice_id: UUID) -> list[SalesInvoiceLine]:
+        """Return an invoice's live lines, in order."""
+        return list(
+            self._session.scalars(
+                select(SalesInvoiceLine)
+                .where(
+                    SalesInvoiceLine.sales_invoice_id == invoice_id,
+                    SalesInvoiceLine.is_deleted.is_(False),
+                )
+                .order_by(SalesInvoiceLine.line_number.asc())
+            )
+        )
 
     def _carrying_note(self, invoice_id: UUID) -> DeliveryNote | None:
         """Return the delivery note whose transport an e-way bill reads.

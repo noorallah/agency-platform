@@ -58,6 +58,7 @@ class GstComplianceSettings {
     this.isConfigured = false,
     this.itcClaimBasis = 'ALL',
     this.gstr2bTolerance = '1.00',
+    this.ewayBillLimit = '50000',
   });
 
   /// ISO dates (`2026-04-01`), or null when not set.
@@ -77,6 +78,9 @@ class GstComplianceSettings {
   /// Rupees a bill may differ from 2B and still count as matched.
   final String gstr2bTolerance;
 
+  /// Above this a consignment needs an e-way bill (backlog 77 row 10).
+  final String ewayBillLimit;
+
   factory GstComplianceSettings.fromJson(Json json) {
     String? date(dynamic value) {
       final String text = stringValue(value);
@@ -95,10 +99,13 @@ class GstComplianceSettings {
       gstr2bTolerance: stringValue(json['gstr2b_tolerance']).isEmpty
           ? '1.00'
           : stringValue(json['gstr2b_tolerance']),
+      ewayBillLimit: stringValue(json['eway_bill_limit']).isEmpty
+          ? '50000'
+          : stringValue(json['eway_bill_limit']),
     );
   }
 
-  /// Exactly the six keys the server declares; it refuses any other.
+  /// Exactly the seven keys the server declares; it refuses any other.
   Json toJson() => <String, dynamic>{
         'einvoice_applicable_from': einvoiceApplicableFrom,
         'thirty_day_rule_from': thirtyDayRuleFrom,
@@ -106,5 +113,6 @@ class GstComplianceSettings {
         'route_sale_needs_invoice': routeSaleNeedsInvoice,
         'itc_claim_basis': itcClaimBasis,
         'gstr2b_tolerance': gstr2bTolerance,
+        'eway_bill_limit': ewayBillLimit,
       };
 }

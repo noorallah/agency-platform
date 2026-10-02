@@ -100,6 +100,11 @@ screen (1.1.0).
   decision A38).
 - **Choosing batches on a counter bill**: a batch-tracked line opens the same
   picker as the delivery note, and the batch chosen is the one that leaves.
+- **E-way bills for every consignment**: from the invoice without an IRN
+  where the firm need not e-invoice, from a delivery note no invoice bills
+  (job work, approval, van sales), or recorded by hand after raising it on
+  the portal; a list of consignments above the firm's limit (₹50,000 by
+  default) that still need one, and a prompt after dispatch.
 - **E-invoice without a GSP**: a firm may file offline -- export its invoices
   as the e-invoice portal's bulk-upload JSON, upload it there, and import the
   result to record each IRN, acknowledgement and QR (decision A42; Settings >

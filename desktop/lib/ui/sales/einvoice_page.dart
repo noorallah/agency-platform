@@ -18,8 +18,10 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/einvoice.dart';
 import '../../models/entities.dart';
+import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
+import 'eway_bill_actions.dart';
 
 /// List what has been registered, and act on one invoice at a time.
 class EInvoicePage extends StatefulWidget {
@@ -353,6 +355,21 @@ class _EInvoicePageState extends State<EInvoicePage> {
     await _load();
   }
 
+  /// The consignments above the firm's limit with no e-way bill, from where
+  /// each can be raised or recorded. Reloads afterwards: a bill raised here
+  /// shows against its invoice's row.
+  Future<void> _showEwayBillsDue() async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => _EWayBillsDueDialog(
+        api: widget.api,
+        mayManage: _mayManage,
+      ),
+    );
+    if (!mounted) return;
+    await _load();
+  }
+
   Future<void> _cancelEwayBill(EInvoiceRegistrationRecord row) async {
     final String? reason = await _askReason(
       title: 'Withdraw e-way bill',
@@ -424,6 +441,14 @@ class _EInvoicePageState extends State<EInvoicePage> {
                     onPressed: _loading ? null : _importPortalResult,
                   ),
                 ],
+                ToolbarCommand(
+                  id: 'eway-bills-due',
+                  label: 'E-way bills due',
+                  icon: Icons.local_shipping_outlined,
+                  // About the firm's books, not the selected row: behind "...".
+                  menuOnly: true,
+                  onPressed: _loading ? null : _showEwayBillsDue,
+                ),
                 if (_mayManage) ...[
                   ToolbarCommand(
                     id: 'raise-bill',
@@ -883,6 +908,167 @@ class _EWayBillDialogState extends State<EWayBillDialog>
   }
 }
 
+
+/// The consignments of the last 30 days above the firm's e-way bill limit
+/// that have none (backlog 77 row 10), each with the two ways to put that
+/// right: raise the bill here, or record one raised on the portal.
+class _EWayBillsDueDialog extends StatefulWidget {
+  const _EWayBillsDueDialog({required this.api, required this.mayManage});
+
+  final ApiClient api;
+  final bool mayManage;
+
+  @override
+  State<_EWayBillsDueDialog> createState() => _EWayBillsDueDialogState();
+}
+
+class _EWayBillsDueDialogState extends State<_EWayBillsDueDialog> {
+  EWayBillDueList? _due;
+  String? _error;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final EWayBillDueList due = await widget.api.ewayBillsDue();
+      if (!mounted) return;
+      setState(() {
+        _due = due;
+        _loading = false;
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error.message;
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _step(
+    Future<bool> Function(
+      BuildContext,
+      ApiClient, {
+      String? invoiceId,
+      String? noteId,
+    }) step,
+    EWayBillDue item,
+    String done,
+  ) async {
+    final bool ok = await step(
+      context,
+      widget.api,
+      invoiceId: item.isNote ? null : item.documentId,
+      noteId: item.isNote ? item.documentId : null,
+    );
+    if (!ok || !mounted) return;
+    NotificationService.show(context, done, kind: AppNotificationKind.success);
+    await _load();
+  }
+
+  String _amount(String value) {
+    final double? parsed = double.tryParse(value);
+    return parsed == null ? value : '₹${indianAmount(parsed, full: true)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final EWayBillDueList? due = _due;
+    return AlertDialog(
+      title: const Text('E-way bills due'),
+      content: SizedBox(
+        width: 640,
+        height: 380,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+                ? Text(_error!, style: TextStyle(color: theme.colorScheme.error))
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Consignments of the last 30 days worth more than '
+                        '${_amount(due?.limit ?? '')} with no e-way bill.',
+                        key: const ValueKey('eway-due-limit'),
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Expanded(
+                        child: (due?.items.isEmpty ?? true)
+                            ? const Center(
+                                child: Text(
+                                  'Nothing is waiting for an e-way bill.',
+                                ),
+                              )
+                            : ListView(
+                                children: [
+                                  for (final EWayBillDue item in due!.items)
+                                    ListTile(
+                                      key: ValueKey(
+                                        'eway-due-${item.documentId}',
+                                      ),
+                                      dense: true,
+                                      contentPadding: EdgeInsets.zero,
+                                      title: Text(
+                                        '${item.number}  ·  ${item.typeLabel}',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      subtitle: Text(
+                                        '${item.on}  ·  ${_amount(item.value)}',
+                                      ),
+                                      trailing: widget.mayManage
+                                          ? Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                TextButton(
+                                                  onPressed: () => _step(
+                                                    raiseEwayBillFor,
+                                                    item,
+                                                    'E-way bill raised.',
+                                                  ),
+                                                  child: const Text(
+                                                    'Raise e-way bill',
+                                                  ),
+                                                ),
+                                                TextButton(
+                                                  onPressed: () => _step(
+                                                    recordEwayBillFor,
+                                                    item,
+                                                    'E-way bill recorded.',
+                                                  ),
+                                                  child: const Text(
+                                                    'Record e-way bill...',
+                                                  ),
+                                                ),
+                                              ],
+                                            )
+                                          : null,
+                                    ),
+                                ],
+                              ),
+                      ),
+                    ],
+                  ),
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    );
+  }
+}
 
 /// Choose the invoice to register.
 ///

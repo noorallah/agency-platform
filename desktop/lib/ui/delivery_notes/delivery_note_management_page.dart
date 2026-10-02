@@ -28,6 +28,7 @@ import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
 import '../workspace/printed_document.dart';
 import '../workspace/print_settings_dialog.dart';
+import '../sales/eway_bill_actions.dart';
 import 'batch_dispatch_check.dart';
 import 'delivery_note_editor_dialog.dart';
 import 'delivery_proof_dialog.dart';
@@ -125,6 +126,10 @@ class _DeliveryNoteManagementPageState
   Json _summary = const {};
   List<_DeliveryNoteRecord> _notes = const [];
   _DeliveryNoteRecord? _selected;
+
+  /// Reads the firm's e-way bill limit once, for the prompt after a dispatch
+  /// (backlog 77 row 10).
+  late final EwayBillNudge _ewayNudge = EwayBillNudge(widget.api);
 
   /// The rows ticked for a bulk approve or cancel (backlog 56 A).
   Set<String> _ticked = <String>{};
@@ -647,6 +652,14 @@ class _DeliveryNoteManagementPageState
                       ? () => unawaited(_recordProof(_selected!))
                       : null,
                 ),
+                ToolbarCommand(
+                  id: 'eway-bill',
+                  label: 'E-way bill',
+                  icon: Icons.local_shipping_outlined,
+                  onPressed: _canEwayBill(_selected)
+                      ? () => unawaited(_ewayBill(_selected!))
+                      : null,
+                ),
                 for (final (DocumentToolbarAction action, String suffix)
                     in const [
                   (DocumentToolbarAction.approve, '/approve'),
@@ -716,6 +729,25 @@ class _DeliveryNoteManagementPageState
                 _actionButton(DocumentToolbarAction.close, '/close'),
               ],
       );
+
+  /// An e-way bill belongs to goods that are leaving or have left, so a draft
+  /// or a cancelled note is not offered one.
+  bool _canEwayBill(_DeliveryNoteRecord? note) =>
+      note != null &&
+      const ['APPROVED', 'DISPATCHED', 'COMPLETED']
+          .contains(note.status.toUpperCase()) &&
+      widget.permissions.hasPermission('EINVOICE_VIEW');
+
+  Future<void> _ewayBill(_DeliveryNoteRecord note) async {
+    final bool changed = await showNoteEwayBill(
+      context,
+      widget.api,
+      noteId: note.id,
+      noteNumber: note.deliveryNoteNumber,
+      mayManage: widget.permissions.hasPermission('EINVOICE_MANAGE'),
+    );
+    if (changed && mounted) await _load();
+  }
 
   /// Whether proof of delivery can be recorded against [note]: only goods
   /// that left, by someone who may change a note.
@@ -939,6 +971,15 @@ class _DeliveryNoteManagementPageState
         query: query.isEmpty ? null : query,
       );
       await _load();
+      // The goods have left: say so if they are worth an e-way bill. After the
+      // reload, and never awaited -- the prompt is a snack bar, not a gate.
+      if (suffix == '/dispatch' && mounted) {
+        unawaited(_ewayNudge.offer(
+          context,
+          noteId: selected.id,
+          grandTotal: selected.grandTotal,
+        ));
+      }
     } on ApiException catch (error) {
       if (!mounted) return;
       NotificationService.show(

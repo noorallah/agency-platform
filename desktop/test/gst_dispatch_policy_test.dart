@@ -5,7 +5,7 @@
 // with Other); dispatching asks the server's dispatch check first, offers
 // three choices under WARN and no "Dispatch anyway" under BLOCK; "Dispatch and
 // invoice" calls its own route; and the GST documents settings load and PUT
-// exactly the six keys the server declares.
+// exactly the seven keys the server declares.
 
 import 'dart:convert';
 import 'dart:io';
@@ -436,7 +436,7 @@ void main() {
   });
 
   group('the GST documents settings', () {
-    testWidgets('load, and save exactly the four keys', (tester) async {
+    testWidgets('load, and save exactly the seven keys', (tester) async {
       final _GstApi api = _GstApi();
       await _pumpSettings(tester, api, ['TAX_VIEW', 'TAX_MANAGE_SETTINGS']);
       expect(tester.takeException(), isNull);
@@ -459,6 +459,14 @@ void main() {
         find.byKey(const ValueKey('gst-route-sale-needs-invoice')),
       );
       await tester.pumpAndSettle();
+      // The e-way bill limit loads as the server's default and is editable.
+      await tester.ensureVisible(find.byKey(const ValueKey('gst-eway-limit')));
+      await tester.pumpAndSettle();
+      expect(find.text('50000'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const ValueKey('gst-eway-limit')),
+        '75000',
+      );
       await tester.tap(find.byKey(const ValueKey('gst-settings-save')));
       await tester.pumpAndSettle();
 
@@ -469,6 +477,7 @@ void main() {
         'route_sale_needs_invoice': true,
         'itc_claim_basis': 'ALL',
         'gstr2b_tolerance': '1.00',
+        'eway_bill_limit': '75000',
       });
     });
 

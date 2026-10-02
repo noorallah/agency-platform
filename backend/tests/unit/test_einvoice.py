@@ -377,9 +377,27 @@ def test_a_registration_older_than_the_window_cannot_be_withdrawn() -> None:
         )
 
 
+def _einvoicing_since(books: "_Books", since: date) -> None:
+    """Say the firm must e-invoice from ``since`` (GST Documents settings)."""
+    from app.tax.schemas.gst_compliance import GstComplianceSettingsWrite
+    from app.tax.services.gst_compliance import GstComplianceService
+
+    GstComplianceService(books.session).update_settings(
+        GstComplianceSettingsWrite(
+            einvoice_applicable_from=since,
+            thirty_day_rule_from=None,
+            dispatch_without_invoice="WARN",
+            route_sale_needs_invoice=False,
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+
+
 def test_an_eway_bill_needs_the_invoice_registered_first() -> None:
-    """The bill quotes the IRN; one without it matches no supply."""
+    """For a firm that must e-invoice: the bill quotes the IRN (77 row 9)."""
     books = _Books(_session_factory()())
+    _einvoicing_since(books, date(2020, 1, 1))
 
     with pytest.raises(ValidationError, match="Register the invoice"):
         books.service().generate_eway_bill(
@@ -904,3 +922,105 @@ def test_a_registered_invoice_is_not_exported_again() -> None:
         OfflineEInvoiceService(books.session).export(
             [books.invoice.id], firm_scope=books.firm.id, actor_id=books.actor_id
         )
+
+
+# -- E-way bills beyond the registered invoice (backlog 77 rows 9 and 10) ------
+
+
+def test_a_firm_that_need_not_einvoice_raises_the_bill_from_the_invoice() -> None:
+    """No IRN: the payload carries the document, the parties and the goods."""
+    books = _Books(_session_factory()())
+
+    bill = books.service().generate_eway_bill(
+        books.invoice.id,
+        distance_km=Decimal("120"),
+        transport_mode="ROAD",
+        transporter_id=None,
+        transporter_name=None,
+        vehicle_number="MH12AB1234",
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+    )
+
+    assert bill.status == "GENERATED"
+    payload = bill.request_payload or {}
+    assert "Irn" not in payload
+    assert payload["docType"] == "INV"
+    assert payload["docNo"] == books.invoice.invoice_number
+    assert payload["subSupplyType"] == "1"
+    assert payload["totInvValue"] == 1180.0
+
+
+def test_a_bill_recorded_by_hand_needs_twelve_digits_and_stands_once() -> None:
+    """Raised on the portal, its number typed here (A42)."""
+    from app.einvoice.services.eway_bills import EWayBillService
+
+    books = _Books(_session_factory()())
+    service = EWayBillService(books.session, mode="LIVE", provider="OFFLINE")
+    kwargs: dict[str, object] = {
+        "invoice_id": books.invoice.id,
+        "note_id": None,
+        "valid_until": None,
+        "distance_km": None,
+        "vehicle_number": "mh12ab1234",
+        "firm_scope": books.firm.id,
+        "actor_id": books.actor_id,
+    }
+
+    with pytest.raises(ValidationError, match="twelve digits"):
+        service.record(eway_bill_number="12345", **kwargs)  # type: ignore[arg-type]
+    row = service.record(eway_bill_number="3510 1234 5678", **kwargs)  # type: ignore[arg-type]
+    books.session.commit()
+    assert (row.eway_bill_number, row.entered_by_hand, row.mode) == (
+        "351012345678",
+        True,
+        "LIVE",
+    )
+    assert row.vehicle_number == "MH12AB1234"
+    with pytest.raises(ConflictError, match="already has e-way bill"):
+        service.record(eway_bill_number="351012345679", **kwargs)  # type: ignore[arg-type]
+
+
+def test_a_consignment_above_the_limit_is_due_until_it_has_a_bill() -> None:
+    """The firm's limit (A35); recording a bill takes it off the list."""
+    from app.einvoice.services.eway_bills import EWayBillService
+    from app.tax.schemas.gst_compliance import GstComplianceSettingsWrite
+    from app.tax.services.gst_compliance import GstComplianceService
+
+    books = _Books(_session_factory()())
+    from app.core.utils.dates import utc_now
+
+    books.invoice.invoice_date = utc_now().date()
+    books.session.commit()
+    service = EWayBillService(books.session, mode="LIVE", provider="OFFLINE")
+    assert service.limit(books.firm.id) == Decimal("50000")
+    assert service.due(books.firm.id) == [], "1,180 is under the national limit"
+
+    GstComplianceService(books.session).update_settings(
+        GstComplianceSettingsWrite(
+            einvoice_applicable_from=None,
+            thirty_day_rule_from=None,
+            dispatch_without_invoice="WARN",
+            route_sale_needs_invoice=False,
+            eway_bill_limit=Decimal("1000"),
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    [due] = service.due(books.firm.id)
+    assert (due.document_type, due.number) == (
+        "SALES_INVOICE",
+        books.invoice.invoice_number,
+    )
+
+    service.record(
+        invoice_id=books.invoice.id,
+        note_id=None,
+        eway_bill_number="351012345678",
+        valid_until=None,
+        distance_km=None,
+        vehicle_number=None,
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    assert service.due(books.firm.id) == []

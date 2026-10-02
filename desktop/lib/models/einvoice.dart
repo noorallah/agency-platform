@@ -127,6 +127,8 @@ class EWayBillRecord {
     required this.salesInvoiceId,
     required this.mode,
     required this.status,
+    this.deliveryNoteId = '',
+    this.enteredByHand = false,
     this.ewayBillNumber = '',
     this.validUntil = '',
     this.distanceKm = '0',
@@ -139,7 +141,13 @@ class EWayBillRecord {
   });
 
   final String id;
+
+  /// Empty where the bill rides on a delivery note no invoice bills.
   final String salesInvoiceId;
+  final String deliveryNoteId;
+
+  /// Raised on the portal by hand and only recorded here (A42).
+  final bool enteredByHand;
   final String mode;
   final String status;
   final String ewayBillNumber;
@@ -160,7 +168,11 @@ class EWayBillRecord {
 
   String get referenceLabel {
     if (!isGenerated) return status;
-    final String suffix = isSandbox ? '  (sandbox — nothing filed)' : '';
+    final String suffix = enteredByHand
+        ? '  (recorded by hand)'
+        : isSandbox
+            ? '  (sandbox — nothing filed)'
+            : '';
     return validUntil.isEmpty
         ? '$ewayBillNumber$suffix'
         : '$ewayBillNumber  ·  valid to $validUntil$suffix';
@@ -169,6 +181,8 @@ class EWayBillRecord {
   factory EWayBillRecord.fromJson(Json json) => EWayBillRecord(
         id: stringValue(json['id']),
         salesInvoiceId: stringValue(json['sales_invoice_id']),
+        deliveryNoteId: stringValue(json['delivery_note_id']),
+        enteredByHand: boolValue(json['entered_by_hand']),
         mode: stringValue(json['mode']),
         status: stringValue(json['status']),
         ewayBillNumber: stringValue(json['eway_bill_number']),
@@ -180,5 +194,53 @@ class EWayBillRecord {
         vehicleNumber: stringValue(json['vehicle_number']),
         errorCode: stringValue(json['error_code']),
         errorMessage: stringValue(json['error_message']),
+      );
+}
+
+/// One consignment above the firm's e-way bill limit that has none (77.10).
+class EWayBillDue {
+  const EWayBillDue({
+    required this.documentType,
+    required this.documentId,
+    required this.number,
+    required this.on,
+    required this.value,
+  });
+
+  /// SALES_INVOICE or DELIVERY_NOTE.
+  final String documentType;
+  final String documentId;
+  final String number;
+  final String on;
+  final String value;
+
+  bool get isNote => documentType == 'DELIVERY_NOTE';
+
+  String get typeLabel => isNote ? 'Delivery note' : 'Sales invoice';
+
+  factory EWayBillDue.fromJson(Json json) => EWayBillDue(
+        documentType: stringValue(json['document_type']),
+        documentId: stringValue(json['document_id']),
+        number: stringValue(json['number']),
+        on: stringValue(json['on']),
+        value: stringValue(json['value']),
+      );
+}
+
+/// The firm's limit, and what is above it without an e-way bill.
+class EWayBillDueList {
+  const EWayBillDueList({required this.limit, required this.items});
+
+  final String limit;
+  final List<EWayBillDue> items;
+
+  factory EWayBillDueList.fromJson(Json json) => EWayBillDueList(
+        limit: stringValue(json['limit']),
+        items: json['items'] is List
+            ? (json['items'] as List)
+                .whereType<Map>()
+                .map((row) => EWayBillDue.fromJson(Map<String, dynamic>.from(row)))
+                .toList()
+            : const <EWayBillDue>[],
       );
 }

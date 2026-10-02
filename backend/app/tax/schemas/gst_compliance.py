@@ -23,6 +23,8 @@ class GstComplianceSettingsResponse(TaxFrameworkSchema):
     itc_claim_basis: ItcClaimBasis = "ALL"
     #: How far a bill's tax may differ from 2B and still match, in rupees.
     gstr2b_tolerance: Decimal = Decimal("1.00")
+    #: Above this a consignment needs an e-way bill (77 row 10).
+    eway_bill_limit: Decimal = Decimal("50000")
     is_configured: bool
 
 
@@ -38,6 +40,10 @@ class GstComplianceSettingsWrite(TaxFrameworkSchema):
     itc_claim_basis: ItcClaimBasis | None = None
     gstr2b_tolerance: Decimal | None = Field(
         default=None, ge=0, le=1000, max_digits=18, decimal_places=2
+    )
+    #: Absent keeps the firm's own, as the two above.
+    eway_bill_limit: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=2
     )
 
     @model_validator(mode="after")

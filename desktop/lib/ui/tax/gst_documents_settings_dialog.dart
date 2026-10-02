@@ -41,6 +41,8 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
   String _itcBasis = 'ALL';
   final TextEditingController _tolerance =
       TextEditingController(text: '1.00');
+  final TextEditingController _ewayLimit =
+      TextEditingController(text: '50000');
   bool _isConfigured = false;
   // How e-invoices reach the portal (A42). Null where the server did not say,
   // which hides the choice rather than guessing one.
@@ -60,6 +62,7 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
   @override
   void dispose() {
     _tolerance.dispose();
+    _ewayLimit.dispose();
     super.dispose();
   }
 
@@ -84,6 +87,7 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
         _itcBasis =
             settings.itcClaimBasis == 'MATCHED_ONLY' ? 'MATCHED_ONLY' : 'ALL';
         _tolerance.text = settings.gstr2bTolerance;
+        _ewayLimit.text = settings.ewayBillLimit;
         _isConfigured = settings.isConfigured;
         _loading = false;
       });
@@ -108,6 +112,9 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
             gstr2bTolerance: _tolerance.text.trim().isEmpty
                 ? '1.00'
                 : _tolerance.text.trim(),
+            ewayBillLimit: _ewayLimit.text.trim().isEmpty
+                ? '50000'
+                : _ewayLimit.text.trim(),
           ),
         );
         final EInvoiceSettings? filing = _filing;
@@ -347,6 +354,21 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
                         labelText: 'Matching tolerance (₹)',
                         helperText: 'How far a bill may differ from GSTR-2B '
                             'and still count as matched.',
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    TextField(
+                      key: const ValueKey('gst-eway-limit'),
+                      controller: _ewayLimit,
+                      enabled: editable && !saving,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(
+                        labelText: 'E-way bill needed above (₹)',
+                        helperText: 'A consignment worth more than this needs '
+                            'an e-way bill. The law says ₹50,000; some states '
+                            'set their own.',
+                        helperMaxLines: 2,
                       ),
                     ),
                   ],
