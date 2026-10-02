@@ -322,3 +322,41 @@ List<Json> _objects(dynamic value) => value is List
         .map((item) => Map<String, dynamic>.from(item))
         .toList()
     : const [];
+
+/// Whom to share a bill with on WhatsApp by hand, and what to say (MSG-1).
+class HandShare {
+  const HandShare({
+    required this.documentId,
+    required this.documentNumber,
+    required this.text,
+    required this.fileName,
+    this.phone,
+    this.whatsappNumber,
+  });
+
+  final String documentId;
+  final String documentNumber;
+
+  /// The message, typed into WhatsApp for the person to check and send.
+  final String text;
+
+  /// What to call the saved PDF.
+  final String fileName;
+
+  /// The number as the customer record holds it, for the screen and the
+  /// timeline.
+  final String? phone;
+
+  /// Digits with the country code, as `wa.me` wants it; null lets WhatsApp
+  /// ask whom to send to.
+  final String? whatsappNumber;
+
+  factory HandShare.fromJson(Json json) => HandShare(
+        documentId: stringValue(json['document_id']),
+        documentNumber: stringValue(json['document_number']),
+        text: stringValue(json['text']),
+        fileName: stringValue(json['file_name']),
+        phone: json['phone'] as String?,
+        whatsappNumber: json['whatsapp_number'] as String?,
+      );
+}
