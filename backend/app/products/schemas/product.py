@@ -23,6 +23,18 @@ class ProductType(StrEnum):
     DIGITAL_PRODUCT = "DIGITAL_PRODUCT"
 
 
+class IssueRule(StrEnum):
+    """Which batch a product leaves from (STK-11, §70 row 15)."""
+
+    #: Earliest expiry first -- the default, and what a product with no rule
+    #: follows.
+    FEFO = "FEFO"
+    #: First received first, whatever the expiry.
+    FIFO = "FIFO"
+    #: A person chooses the batch on the line; nothing is drawn silently.
+    PICK = "PICK"
+
+
 class ProductStatus(StrEnum):
     """Supported product lifecycle statuses."""
 
@@ -164,6 +176,8 @@ class ProductWrite(ProductSchema):
     #: Days from manufacture to expiry (STK-18): a receipt typed with only a
     #: manufacturing date gets its expiry from it.
     shelf_life_days: int | None = Field(default=None, ge=1, le=3650)
+    #: Which batch the goods leave from (STK-11). None is earliest expiry.
+    issue_rule: IssueRule | None = None
     remarks: str | None = None
     track_batch: bool = False
     track_lot: bool = False
@@ -291,6 +305,7 @@ class ProductResponse(ProductSchema):
     status: ProductStatus
     not_for_sale: bool = False
     shelf_life_days: int | None = None
+    issue_rule: IssueRule | None = None
     remarks: str | None
     track_batch: bool
     track_lot: bool

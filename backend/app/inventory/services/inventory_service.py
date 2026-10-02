@@ -2862,15 +2862,33 @@ class InventoryService:
         product_id: UUID,
         column: InstrumentedAttribute[Decimal],
     ) -> list[InventoryRecord]:
-        """Return this product's stock rows, the batch nearest expiry first.
+        """Return this product's stock rows in the order its goods leave.
+
+        The product's issue rule decides (STK-11): earliest expiry first by
+        default, or first received first for FIFO. A PICK product ranks by
+        expiry too -- a hold is not a choice of batch, and dispatch refuses
+        to choose for it (``allocate_for_dispatch``). Reservation, release and
+        dispatch all rank here, so the three agree on the same batch.
 
         Expiry is ranked explicitly rather than left to the backend's NULL
         ordering -- PostgreSQL sorts NULLs first in ASC and SQLite last, so a
         batch with no expiry date would be picked first on one and last on the
         other. A batch without an expiry is not urgent, so it goes last, and
         ties break on the batch id to keep two runs of the same allocation
-        identical.
+        identical. Under FIFO the untracked row goes last for the same reason.
         """
+        if self.issue_rule(product_id) == "FIFO":
+            ranking: tuple[Any, ...] = (
+                case((InventoryRecord.batch_id.is_(None), 1), else_=0).asc(),
+                BatchRecord.created_at.asc(),
+                InventoryRecord.batch_id.asc(),
+            )
+        else:
+            ranking = (
+                case((BatchRecord.expiry_date.is_(None), 1), else_=0).asc(),
+                BatchRecord.expiry_date.asc(),
+                InventoryRecord.batch_id.asc(),
+            )
         return list(
             self._session.scalars(
                 select(InventoryRecord)
@@ -2883,13 +2901,16 @@ class InventoryService:
                     InventoryRecord.is_deleted.is_(False),
                     column > ZERO,
                 )
-                .order_by(
-                    case((BatchRecord.expiry_date.is_(None), 1), else_=0).asc(),
-                    BatchRecord.expiry_date.asc(),
-                    InventoryRecord.batch_id.asc(),
-                )
+                .order_by(*ranking)
             ).all()
         )
+
+    def issue_rule(self, product_id: UUID) -> str:
+        """Return the product's issue rule: FEFO unless it names another."""
+        rule = self._session.scalar(
+            select(Product.issue_rule).where(Product.id == product_id)
+        )
+        return rule or "FEFO"
 
     def _expired_batches(
         self, batch_ids: set[UUID], *, as_of: date
@@ -2980,6 +3001,17 @@ class InventoryService:
         product = self._session.get(Product, product_id)
         if product is not None and product.require_batch_on_issue:
             rows = [row for row in rows if row.batch_id is not None]
+        # A product whose batch a person chooses is never drawn silently
+        # (STK-11): where it is held in batches, the line has to name them.
+        if (
+            product is not None
+            and product.issue_rule == "PICK"
+            and any(row.batch_id is not None for row in rows)
+        ):
+            raise ValidationError(
+                f"{product.code} ({product.name}) is issued by choosing the "
+                "batch: pick the batches on the line before dispatching it."
+            )
         rows, expired, held_expired = self._without_expired(rows, as_of=as_of)
         short: dict[UUID, tuple[str, date]] = {}
         if keep_until is not None:

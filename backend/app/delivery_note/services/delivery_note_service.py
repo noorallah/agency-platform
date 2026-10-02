@@ -2258,6 +2258,10 @@ class DeliveryNoteService(TransactionalDocumentService):
         """
         if line.warehouse_id is None:
             return False
+        # A product whose batch is always chosen by hand has no automatic
+        # order to have skipped (STK-11).
+        if self._inventory.issue_rule(line.product_id) == "PICK":
+            return False
         try:
             fefo = self._inventory.allocate_for_dispatch(
                 firm_scope=row.firm_id,
