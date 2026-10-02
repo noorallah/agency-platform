@@ -29,6 +29,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -46,6 +47,22 @@ class RegistrationMode(StrEnum):
 
     SANDBOX = "SANDBOX"
     LIVE = "LIVE"
+
+
+class EInvoiceProvider(StrEnum):
+    """How a firm's documents reach the Invoice Registration Portal (A42).
+
+    The provider decides the transport; the mode on each row still says
+    whether a filing happened. SANDBOX rehearses (mode SANDBOX). OFFLINE is a
+    real filing made by hand: the firm uploads the exported JSON on the
+    portal and imports the result, so its rows are mode LIVE. NIC_DIRECT and
+    GSP are the live API routes, added provider by provider.
+    """
+
+    SANDBOX = "SANDBOX"
+    OFFLINE = "OFFLINE"
+    NIC_DIRECT = "NIC_DIRECT"
+    GSP = "GSP"
 
 
 class RegistrationStatus(StrEnum):
@@ -85,6 +102,9 @@ class EInvoiceRegistration(BaseEntity):
         nullable=False,
     )
     mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    #: The route it took (``EInvoiceProvider``); null on rows from before A42,
+    #: which were all the sandbox.
+    provider: Mapped[str | None] = mapped_column(String(20))
     status: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
@@ -183,3 +203,32 @@ class EWayBill(BaseEntity):
     cancelled_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     cancellation_reason: Mapped[str | None] = mapped_column(String(200))
     request_payload: Mapped[dict[str, object] | None] = mapped_column(JSON)
+
+
+class EInvoiceSettings(BaseEntity):
+    """How one firm registers its e-invoices (decision A42).
+
+    One row per firm; a firm with none rehearses in the sandbox, so nothing is
+    ever filed by default. The live API providers keep their credentials with
+    the provider they belong to, encrypted, when they are built.
+    """
+
+    __tablename__ = "einvoice_settings"
+    __table_args__ = (
+        Index(
+            "UQ_einvoice_settings_firm_active",
+            "firm_id",
+            unique=True,
+            postgresql_where=text("NOT is_deleted"),
+            sqlite_where=text("NOT is_deleted"),
+        ),
+    )
+
+    #: No foreign key: `firms` lives only in the platform schema.
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default=EInvoiceProvider.SANDBOX.value,
+        server_default=EInvoiceProvider.SANDBOX.value,
+    )

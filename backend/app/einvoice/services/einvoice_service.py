@@ -29,6 +29,7 @@ from app.core.utils.dates import as_utc, utc_now
 from app.customers.models import Customer
 from app.delivery_note.models import DeliveryNote
 from app.einvoice.models import (
+    EInvoiceProvider,
     EInvoiceRegistration,
     EWayBill,
     EWayBillStatus,
@@ -49,16 +50,42 @@ _CANCELLATION_WINDOW_HOURS = 24
 class EInvoiceService:
     """Register invoices and raise e-way bills through whichever portal."""
 
-    def __init__(self, session: Session, *, mode: str | None = None) -> None:
-        """Bind the service, and the mode its registrations are made in.
+    def __init__(
+        self,
+        session: Session,
+        *,
+        mode: str | None = None,
+        provider: str | None = None,
+    ) -> None:
+        """Bind the service, and the route its registrations take.
 
-        The mode defaults to SANDBOX rather than to a firm setting, because a
+        Both default to the sandbox rather than to a firm setting, because a
         default that could resolve to LIVE is a default that files a return by
-        accident.
+        accident; ``for_firm`` reads the firm's own choice (A42). The mode
+        follows the provider: only the sandbox rehearses.
         """
         self._session = session
-        self._mode = mode or RegistrationMode.SANDBOX.value
+        # A LIVE mode named with no provider keeps refusing, as it always
+        # has, rather than quietly rehearsing: ``portal_for("LIVE")`` raises.
+        self._provider = provider or (
+            mode
+            if mode is not None and mode != RegistrationMode.SANDBOX.value
+            else EInvoiceProvider.SANDBOX.value
+        )
+        self._mode = mode or (
+            RegistrationMode.SANDBOX.value
+            if self._provider == EInvoiceProvider.SANDBOX.value
+            else RegistrationMode.LIVE.value
+        )
         self._payloads = EInvoicePayloadBuilder(session)
+
+    @classmethod
+    def for_firm(cls, session: Session, firm_id: UUID) -> "EInvoiceService":
+        """Return the service on the provider the firm chose (decision A42)."""
+        from app.einvoice.services.settings import EInvoiceSettingsService
+
+        provider = EInvoiceSettingsService(session).provider(firm_id)
+        return cls(session, provider=provider)
 
     # ---- reads ---------------------------------------------------------
 
@@ -199,16 +226,18 @@ class EInvoiceService:
             firm_id=firm_scope,
             sales_invoice_id=invoice.id,
             mode=self._mode,
+            provider=self._provider,
             created_by=actor_id,
         )
         # A retry after a refusal keeps the row and the count: no IRN was
         # issued, so there is nothing to keep as history. Two rows for one
         # invoice would break the promise that a supply has one reference.
         row.mode = self._mode
+        row.provider = self._provider
         row.request_payload = payload
         row.attempts = int(row.attempts or 0) + 1
         row.updated_by = actor_id
-        result = portal_for(self._mode).register_invoice(payload)
+        result = portal_for(self._provider).register_invoice(payload)
         self._apply(row, result)
         if existing is None:
             self._session.add(row)
@@ -285,7 +314,9 @@ class EInvoiceService:
                     f"{_CANCELLATION_WINDOW_HOURS} hours. Raise a credit note "
                     "instead, which is how a supply is corrected afterwards."
                 )
-        result = portal_for(row.mode).cancel_invoice(row.irn or "", reason=reason)
+        result = portal_for(row.provider or row.mode).cancel_invoice(
+            row.irn or "", reason=reason
+        )
         if not result.ok:
             raise ValidationError(
                 result.error_message or "The portal refused the cancellation."
@@ -414,7 +445,9 @@ class EInvoiceService:
         row.vehicle_number = payload["VehNo"]  # type: ignore[assignment]
         row.request_payload = payload
         row.updated_by = actor_id
-        result = portal_for(registration.mode).generate_eway_bill(payload)
+        result = portal_for(
+            registration.provider or registration.mode
+        ).generate_eway_bill(payload)
         if result.ok:
             row.status = EWayBillStatus.GENERATED.value
             row.eway_bill_number = result.reference
@@ -466,9 +499,9 @@ class EInvoiceService:
             raise ValidationError("This invoice has no live e-way bill.")
         if not reason.strip():
             raise ValidationError("Say why the e-way bill is being withdrawn.")
-        result = portal_for(row.mode).cancel_eway_bill(
-            row.eway_bill_number or "", reason=reason
-        )
+        result = portal_for(
+            self._provider if row.mode == self._mode else row.mode
+        ).cancel_eway_bill(row.eway_bill_number or "", reason=reason)
         if not result.ok:
             raise ValidationError(
                 result.error_message or "The portal refused the cancellation."

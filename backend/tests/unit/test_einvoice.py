@@ -770,3 +770,137 @@ def test_the_supply_type_and_place_come_from_the_document() -> None:
         bonded.invoice, firm_id=bonded.firm.id
     )
     assert lut["TranDtls"]["SupTyp"] == "EXPWOP"
+
+
+# -- How the firm files: the provider (decision A42) ---------------------------
+
+
+def test_a_firm_that_never_chose_rehearses_in_the_sandbox() -> None:
+    """The default files nothing."""
+    from app.einvoice.services.settings import EInvoiceSettingsService
+
+    books = _Books(_session_factory()())
+
+    assert EInvoiceSettingsService(books.session).provider(books.firm.id) == "SANDBOX"
+    service = EInvoiceService.for_firm(books.session, books.firm.id)
+    row = service.register(
+        books.invoice.id, firm_scope=books.firm.id, actor_id=books.actor_id
+    )
+    assert (row.mode, row.provider) == ("SANDBOX", "SANDBOX")
+
+
+def test_a_route_not_built_yet_cannot_be_chosen() -> None:
+    """NIC_DIRECT and GSP join the list as their adapters are built."""
+    from app.einvoice.services.settings import EInvoiceSettingsService
+
+    books = _Books(_session_factory()())
+
+    with pytest.raises(ValidationError, match="not available yet"):
+        EInvoiceSettingsService(books.session).update(
+            books.firm.id, "GSP", actor_id=books.actor_id
+        )
+
+
+def test_an_offline_firm_is_told_how_rather_than_registered() -> None:
+    """Registering through the offline route gives directions, not an IRN."""
+    from app.einvoice.services.settings import EInvoiceSettingsService
+
+    books = _Books(_session_factory()())
+    EInvoiceSettingsService(books.session).update(
+        books.firm.id, "OFFLINE", actor_id=books.actor_id
+    )
+
+    row = EInvoiceService.for_firm(books.session, books.firm.id).register(
+        books.invoice.id, firm_scope=books.firm.id, actor_id=books.actor_id
+    )
+
+    assert row.status == RegistrationStatus.FAILED.value
+    assert row.mode == RegistrationMode.LIVE.value
+    assert "export the invoices" in (row.error_message or "")
+
+
+def test_offline_export_then_import_registers_the_invoice() -> None:
+    """Export marks it waiting; the portal's answer, matched by number, files it."""
+    import json as _json
+
+    from app.einvoice.services.offline import OfflineEInvoiceService
+
+    books = _Books(_session_factory()())
+    offline = OfflineEInvoiceService(books.session)
+
+    [payload] = offline.export(
+        [books.invoice.id], firm_scope=books.firm.id, actor_id=books.actor_id
+    )
+    assert payload["DocDtls"]["No"] == books.invoice.invoice_number  # type: ignore[index]
+    waiting = EInvoiceService(books.session).registration_for(
+        books.invoice.id, firm_scope=books.firm.id
+    )
+    assert waiting is not None
+    assert (waiting.status, waiting.mode, waiting.provider) == (
+        "PENDING",
+        "LIVE",
+        "OFFLINE",
+    )
+
+    result = _json.dumps(
+        [
+            {
+                "DocDtls": {"No": books.invoice.invoice_number},
+                "Irn": "a" * 64,
+                "AckNo": "112210000012345",
+                "AckDt": "2026-08-04 10:15:00",
+                "SignedQRCode": "eyJ.qr.sig",
+            },
+            {"DocDtls": {"No": "NOT-OURS"}, "Irn": "b" * 64},
+        ]
+    ).encode()
+    report = offline.import_result(
+        result, "json", firm_scope=books.firm.id, actor_id=books.actor_id
+    )
+
+    assert report.registered == [books.invoice.invoice_number]
+    assert report.unmatched == ["NOT-OURS"]
+    books.session.refresh(waiting)
+    assert waiting.status == "REGISTERED"
+    assert waiting.irn == "a" * 64
+    assert waiting.acknowledgement_number == "112210000012345"
+    assert waiting.signed_qr_code == "eyJ.qr.sig"
+
+
+def test_the_portals_refusal_in_a_spreadsheet_is_recorded() -> None:
+    """A row with no IRN and an error keeps the portal's words."""
+    from app.einvoice.services.offline import OfflineEInvoiceService
+
+    books = _Books(_session_factory()())
+    offline = OfflineEInvoiceService(books.session)
+    offline.export(
+        [books.invoice.id], firm_scope=books.firm.id, actor_id=books.actor_id
+    )
+    sheet = (
+        "Doc No,IRN,Ack No,Error Details\n"
+        f"{books.invoice.invoice_number},,,2150: Duplicate IRN\n"
+    ).encode()
+
+    report = offline.import_result(
+        sheet, "csv", firm_scope=books.firm.id, actor_id=books.actor_id
+    )
+
+    assert report.failed == [books.invoice.invoice_number]
+    row = EInvoiceService(books.session).registration_for(
+        books.invoice.id, firm_scope=books.firm.id
+    )
+    assert row is not None and row.status == "FAILED"
+    assert row.error_message == "2150: Duplicate IRN"
+
+
+def test_a_registered_invoice_is_not_exported_again() -> None:
+    """One invoice, one registration, whichever route it took."""
+    from app.einvoice.services.offline import OfflineEInvoiceService
+
+    books = _Books(_session_factory()())
+    books.register()
+
+    with pytest.raises(ValidationError, match="registered already"):
+        OfflineEInvoiceService(books.session).export(
+            [books.invoice.id], firm_scope=books.firm.id, actor_id=books.actor_id
+        )
