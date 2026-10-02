@@ -20,6 +20,9 @@ import '../workspace/desktop_framework.dart';
 /// Otherwise the first document of April repeats a number issued in March.
 /// The server refuses that combination; this form says so while it is being
 /// chosen rather than leaving the refusal to explain it afterwards.
+/// The longest number a GST document may carry (CGST rule 46(b), GST-2).
+const int gstNumberLimit = 16;
+
 class NumberingSeriesEditor extends StatefulWidget {
   const NumberingSeriesEditor({
     super.key,
@@ -49,6 +52,7 @@ class _NumberingSeriesEditorState extends State<NumberingSeriesEditor> {
 
   String? _documentTypeId;
   late bool _includeFinancialYear;
+  late bool _shortFinancialYear;
   late bool _includeBranchCode;
   late bool _includeCompanyCode;
   late bool _autoReset;
@@ -81,6 +85,8 @@ class _NumberingSeriesEditorState extends State<NumberingSeriesEditor> {
     _documentTypeId = rule?.documentTypeId ??
         (widget.documentTypes.isEmpty ? null : widget.documentTypes.first.id);
     _includeFinancialYear = rule?.includeFinancialYear ?? true;
+    // Short for a new series: it is what keeps a GST number inside 16.
+    _shortFinancialYear = rule?.shortFinancialYear ?? true;
     _includeBranchCode = rule?.includeBranchCode ?? false;
     _includeCompanyCode = rule?.includeCompanyCode ?? false;
     // Both default to on for a new series, which is the shape every seeded
@@ -116,7 +122,7 @@ class _NumberingSeriesEditorState extends State<NumberingSeriesEditor> {
       if (_prefix.text.isNotEmpty) _prefix.text,
       if (_includeCompanyCode) 'FIRM',
       if (_includeBranchCode) 'BR',
-      if (_includeFinancialYear) '2026-2027',
+      if (_includeFinancialYear) _shortFinancialYear ? '26-27' : '2026-2027',
       '0' * (padding < 1 ? 6 : padding),
       if (_suffix.text.isNotEmpty) _suffix.text,
     ];
@@ -132,6 +138,7 @@ class _NumberingSeriesEditorState extends State<NumberingSeriesEditor> {
         'suffix': _suffix.text.trim(),
         'separator': _separator.text.isEmpty ? '-' : _separator.text,
         'include_financial_year': _includeFinancialYear,
+        'short_financial_year': _shortFinancialYear,
         'include_branch_code': _includeBranchCode,
         'include_company_code': _includeCompanyCode,
         'auto_reset': _autoReset,
@@ -254,10 +261,26 @@ class _NumberingSeriesEditorState extends State<NumberingSeriesEditor> {
                     Text(_sketch, style: theme.textTheme.titleMedium),
                     const SizedBox(height: AppSpacing.xs),
                     Text(
-                      'A sketch. The real next number comes from the server, '
-                      'which knows the year, the branch and the counter.',
+                      '${_sketch.length} characters. A sketch: the real next '
+                      'number comes from the server, which knows the year, '
+                      'the branch and the counter.',
                       style: theme.textTheme.bodySmall,
                     ),
+                    // GST-2: rule 46(b) caps a GST document's number at 16.
+                    if (_sketch.length > gstNumberLimit)
+                      Padding(
+                        padding: const EdgeInsets.only(top: AppSpacing.xs),
+                        child: Text(
+                          'Longer than $gstNumberLimit characters: refused '
+                          'for a GST document (invoice, credit or debit '
+                          'note, return, challan) under CGST rule 46(b). '
+                          'Print the year as 26-27, shorten the prefix or '
+                          'use fewer digits.',
+                          key: const ValueKey('numbering-too-long'),
+                          style: theme.textTheme.bodySmall
+                              ?.copyWith(color: theme.colorScheme.error),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -273,6 +296,17 @@ class _NumberingSeriesEditorState extends State<NumberingSeriesEditor> {
                 'years can never share one.',
               ),
             ),
+            if (_includeFinancialYear)
+              SwitchListTile(
+                value: _shortFinancialYear,
+                onChanged: (bool value) =>
+                    setState(() => _shortFinancialYear = value),
+                title: const Text('Print the year as 26-27'),
+                subtitle: const Text(
+                  'Shorter than 2026-2027, which keeps an invoice number '
+                  'inside the 16 characters GST allows.',
+                ),
+              ),
             SwitchListTile(
               value: _autoReset,
               onChanged: (bool value) => setState(() => _autoReset = value),

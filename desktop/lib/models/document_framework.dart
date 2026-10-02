@@ -228,6 +228,7 @@ class NumberingRule {
     required this.suffix,
     required this.separator,
     required this.includeFinancialYear,
+    this.shortFinancialYear = false,
     required this.includeBranchCode,
     required this.includeCompanyCode,
     required this.sequencePadding,
@@ -246,6 +247,9 @@ class NumberingRule {
   final String suffix;
   final String separator;
   final bool includeFinancialYear;
+
+  /// The year prints as 26-27 rather than 2026-2027 (GST-2).
+  final bool shortFinancialYear;
   final bool includeBranchCode;
   final bool includeCompanyCode;
   final int sequencePadding;
@@ -264,7 +268,8 @@ class NumberingRule {
       if (prefix.isNotEmpty) prefix,
       if (includeCompanyCode) 'company',
       if (includeBranchCode) 'branch',
-      if (includeFinancialYear) 'financial year',
+      if (includeFinancialYear)
+        shortFinancialYear ? 'year (26-27)' : 'financial year',
       '#' * (sequencePadding == 0 ? 6 : sequencePadding),
       if (suffix.isNotEmpty) suffix,
     ];
@@ -280,6 +285,7 @@ class NumberingRule {
         suffix: stringValue(json['suffix']),
         separator: stringValue(json['separator']),
         includeFinancialYear: boolValue(json['include_financial_year']),
+        shortFinancialYear: boolValue(json['short_financial_year']),
         includeBranchCode: boolValue(json['include_branch_code']),
         includeCompanyCode: boolValue(json['include_company_code']),
         sequencePadding: (json['sequence_padding'] as num?)?.toInt() ?? 0,

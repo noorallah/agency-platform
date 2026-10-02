@@ -129,6 +129,8 @@ class _NumberingRuleFields(DocumentFrameworkSchema):
     suffix: str | None = Field(default=None, max_length=40)
     separator: str = Field(default="-", min_length=1, max_length=10)
     include_financial_year: bool = False
+    #: Print the year as ``26-27`` (GST-2).
+    short_financial_year: bool = False
     include_branch_code: bool = False
     include_company_code: bool = False
     auto_reset: bool = True
@@ -174,6 +176,7 @@ class DocumentNumberingRuleResponse(DocumentFrameworkSchema):
     suffix: str | None
     separator: str
     include_financial_year: bool
+    short_financial_year: bool
     include_branch_code: bool
     include_company_code: bool
     auto_reset: bool

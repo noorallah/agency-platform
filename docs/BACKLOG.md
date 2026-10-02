@@ -5515,7 +5515,7 @@ OWNER_DECISIONS A35. Summary of the rows (numbered as in that doc's section 4):
 | 10 | E-way bill prompt above the firm's limit (default ₹50,000) -- **built 2026-10-02** (#937) | P2 |
 | 11 | IRN, acknowledgement and QR on the invoice, credit and debit note prints -- **built 2026-10-02** (#939) | P2 |
 | 12 | Credit note after 30 November warns -- **built 2026-10-02** (GST-1, A46) | P3 |
-| 13 | 16-character check on GST document numbering | P3 |
+| 13 | 16-character check on GST document numbering -- **built 2026-10-02** (GST-2, A47) | P3 |
 | 14 | Bill of supply | P3 |
 
 **Order:** 3 + 2 + 1 → 5 → 4 → 9, 10, 11 → 6, 7 → 8 once a GSP is chosen → 12-14.

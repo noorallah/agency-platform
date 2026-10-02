@@ -107,6 +107,12 @@ class DocumentNumberingRule(BaseEntity):
     include_financial_year: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # Print the year as ``26-27`` rather than ``2026-2027``, which is what
+    # keeps a GST number inside 16 characters (rule 46(b), GST-2). The
+    # counter is keyed on the full label either way.
+    short_financial_year: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     include_branch_code: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
