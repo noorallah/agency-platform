@@ -472,6 +472,37 @@ class WriteOffReason(StrEnum):
     DISPLAY = "DISPLAY"
 
 
+class StockAttachmentWrite(InventorySchema):
+    """Carry one photo or document into a stock request (STK-9).
+
+    Like a delivery note's attachments, the file stays where it is and the row
+    records where that is.
+    """
+
+    file_name: str = Field(min_length=1, max_length=260)
+    mime_type: str | None = Field(default=None, max_length=120)
+    file_path: str = Field(min_length=1, max_length=1024)
+    caption: str | None = Field(default=None, max_length=200)
+
+
+class StockAttachmentResponse(InventorySchema):
+    """Return one file kept with a movement or a count sheet."""
+
+    id: UUID
+    inventory_transaction_id: UUID | None
+    physical_count_id: UUID | None
+    file_name: str
+    mime_type: str | None
+    file_path: str
+    caption: str | None
+    created_at: datetime
+    created_by: UUID | None
+
+
+#: How many files one request may carry; a photo set, not an archive.
+MAX_STOCK_ATTACHMENTS = 10
+
+
 class StockWriteOffCreate(InventorySchema):
     """Take stock off the books, and say why."""
 
@@ -488,6 +519,10 @@ class StockWriteOffCreate(InventorySchema):
     reference_number: str | None = Field(default=None, min_length=2, max_length=80)
     transaction_date: date
     remarks: str | None = None
+    #: Photos or documents backing it, kept with the movement (STK-9).
+    attachments: list[StockAttachmentWrite] = Field(
+        default_factory=list, max_length=MAX_STOCK_ATTACHMENTS
+    )
 
 
 class QuarantineAction(StrEnum):
@@ -546,6 +581,10 @@ class StockTransferCreate(InventorySchema):
     reference_number: str | None = Field(default=None, min_length=2, max_length=80)
     transaction_date: date
     remarks: str | None = None
+    #: Photos or documents backing it, kept with the movement (STK-9).
+    attachments: list[StockAttachmentWrite] = Field(
+        default_factory=list, max_length=MAX_STOCK_ATTACHMENTS
+    )
 
     @model_validator(mode="after")
     def _somewhere_else(self) -> "StockTransferCreate":
@@ -578,6 +617,10 @@ class InventoryAdjustmentCreate(InventorySchema):
     reference_type: str = Field(default="ADJUSTMENT", min_length=2, max_length=40)
     transaction_date: date
     remarks: str | None = None
+    #: Photos or documents backing it, kept with the movement (STK-9).
+    attachments: list[StockAttachmentWrite] = Field(
+        default_factory=list, max_length=MAX_STOCK_ATTACHMENTS
+    )
 
     @model_validator(mode="after")
     def validate_quantity(self) -> "InventoryAdjustmentCreate":

@@ -237,6 +237,43 @@ class InventoryLocationSummaryRecord {
       );
 }
 
+/// A photo or document kept with a stock movement or a count sheet (STK-9).
+class StockAttachmentRecord {
+  const StockAttachmentRecord({
+    required this.id,
+    required this.fileName,
+    required this.filePath,
+    required this.createdAt,
+    this.inventoryTransactionId,
+    this.physicalCountId,
+    this.mimeType,
+    this.caption,
+    this.createdBy,
+  });
+
+  factory StockAttachmentRecord.fromJson(Json json) => StockAttachmentRecord(
+        id: stringValue(json['id']),
+        inventoryTransactionId: json['inventory_transaction_id']?.toString(),
+        physicalCountId: json['physical_count_id']?.toString(),
+        fileName: stringValue(json['file_name']),
+        mimeType: json['mime_type']?.toString(),
+        filePath: stringValue(json['file_path']),
+        caption: json['caption']?.toString(),
+        createdAt: stringValue(json['created_at']),
+        createdBy: json['created_by']?.toString(),
+      );
+
+  final String id;
+  final String? inventoryTransactionId;
+  final String? physicalCountId;
+  final String fileName;
+  final String? mimeType;
+  final String filePath;
+  final String? caption;
+  final String createdAt;
+  final String? createdBy;
+}
+
 class InventoryTransactionRecord {
   const InventoryTransactionRecord({
     required this.id,

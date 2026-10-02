@@ -9,6 +9,7 @@ import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
 import '../../models/physical_count.dart';
 import '../workspace/desktop_framework.dart';
+import 'stock_evidence_dialog.dart';
 
 /// Open a sheet over a warehouse.
 ///
@@ -291,6 +292,17 @@ class _PhysicalCountSheetDialogState extends State<PhysicalCountSheetDialog> {
     }
   }
 
+  /// Photos and documents kept with the sheet (STK-9), at any status.
+  Future<void> _openEvidence() => showDialog<void>(
+        context: context,
+        builder: (context) => StockEvidenceDialog(
+          api: widget.api,
+          countId: _sheet.id,
+          subtitle: _sheet.countNumber,
+          canEdit: widget.canCount,
+        ),
+      );
+
   Future<void> _confirmPost() async {
     final int uncounted = _sheet.lines.length - _countedSoFar();
     final bool? go = await showDialog<bool>(
@@ -385,11 +397,25 @@ class _PhysicalCountSheetDialogState extends State<PhysicalCountSheetDialog> {
                 ],
               ),
             ),
-          Text(
-            'Expected is what the system held when the sheet was drawn up. The '
-            'difference is measured again when it is posted, because stock '
-            'moves while a warehouse is being counted.',
-            style: Theme.of(context).textTheme.bodySmall,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  'Expected is what the system held when the sheet was drawn '
+                  'up. The difference is measured again when it is posted, '
+                  'because stock moves while a warehouse is being counted.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              TextButton.icon(
+                key: const ValueKey<String>('count-evidence'),
+                onPressed: () => unawaited(_openEvidence()),
+                icon: const Icon(Icons.attach_file, size: 18),
+                label: const Text('Evidence'),
+              ),
+            ],
           ),
           const SizedBox(height: AppSpacing.md),
           Expanded(child: _table(context, editable)),

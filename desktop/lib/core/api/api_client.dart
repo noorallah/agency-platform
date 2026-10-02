@@ -3027,6 +3027,55 @@ class ApiClient {
         ),
       );
 
+  // Photos and documents kept with a movement or a count sheet (STK-9).
+
+  Future<List<StockAttachmentRecord>> listMovementAttachments(
+    String transactionId,
+  ) async =>
+      _unwrapList(
+        await request(
+            'GET', '/api/v1/inventory/transactions/$transactionId/attachments'),
+        StockAttachmentRecord.fromJson,
+      );
+
+  Future<List<StockAttachmentRecord>> attachToMovement(
+    String transactionId,
+    List<Json> files,
+  ) async =>
+      _unwrapList(
+        await request(
+          'POST',
+          '/api/v1/inventory/transactions/$transactionId/attachments',
+          body: {'attachments': files},
+        ),
+        StockAttachmentRecord.fromJson,
+      );
+
+  Future<List<StockAttachmentRecord>> listCountAttachments(
+    String countId,
+  ) async =>
+      _unwrapList(
+        await request('GET', '/api/v1/inventory/counts/$countId/attachments'),
+        StockAttachmentRecord.fromJson,
+      );
+
+  Future<List<StockAttachmentRecord>> attachToCount(
+    String countId,
+    List<Json> files,
+  ) async =>
+      _unwrapList(
+        await request(
+          'POST',
+          '/api/v1/inventory/counts/$countId/attachments',
+          body: {'attachments': files},
+        ),
+        StockAttachmentRecord.fromJson,
+      );
+
+  Future<void> removeStockAttachment(String id) async {
+    await request('DELETE', '/api/v1/inventory/attachments/$id');
+  }
+
   /// The rows of one report.
   ///
   /// Every report endpoint answers with flat rows in the standard envelope, so

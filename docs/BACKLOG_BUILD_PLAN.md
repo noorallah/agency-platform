@@ -92,7 +92,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | STK-6 | §70 row 8 | Planned and blind stock counts, with variance approval | Nothing | M | Claude alone |
 | STK-7 | §70 row 11 | Adjustment reasons as a list the firm keeps | Nothing | M | Claude alone |
 | STK-8 | §70 row 12 | Large adjustments and write-offs need approval | Nothing | M | Claude alone |
-| STK-9 | §70 row 13 | Photos and documents on adjustments, write-offs, counts | Nothing | S | Claude alone |
+| STK-9 | §70 row 13 | Photos and documents on adjustments, write-offs, counts -- **built 2026-10-03** (A64) | Nothing | S | Claude alone |
 | STK-10 | §70 row 14 | Incoming and outgoing beside available stock -- **built 2026-10-03** (A60) | Nothing | S | Claude alone |
 | STK-11 | §70 row 15 | Issue rule per product: earliest expiry, first in, or pick by hand -- **built 2026-10-03** (A63) | Nothing | S | Claude alone |
 | STK-12 | §70 row 16 | Reservations that lapse after N days | Nothing | M | Claude alone |
@@ -484,6 +484,7 @@ otherwise it is built as written.
 - **What it is:** photos and documents attached to adjustments, write-offs, counts and transfers.
 - **What gets built:** an attachments table for stock movements and counts in the shape of `delivery_note_attachments`; upload in the stock dialogs. Migration yes. Tests.
 - **Depends on:** nothing. **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A64): `stock_attachments` (migration 0246, all stores) keeps a file reference -- name, type, path, caption, like `delivery_note_attachments` -- against **either** a movement or a count sheet (a check constraint holds it to one). Adjustments, write-offs and transfers take `attachments` in their create body, written in the same transaction; a transfer's files sit on its outbound leg and are read from either. `GET`/`POST /inventory/transactions/{id}/attachments`, `GET`/`POST /inventory/counts/{id}/attachments` (a posted sheet still takes them) and `DELETE /inventory/attachments/{id}` (soft, audited). Gated on the ATTACHMENTS feature like every other attachment. `app/inventory/services/stock_evidence.py`. Desktop: a file picker in the adjustment, transfer and write-off dialogs, and an *Evidence* viewer for a movement and a count sheet. Tests: `test_stock_evidence.py`, `stock_evidence_test.dart`.
 
 #### STK-10. Incoming and outgoing on availability (§70 row 14)
 - **What it is:** beside available, how much is on order from suppliers and promised to customers.

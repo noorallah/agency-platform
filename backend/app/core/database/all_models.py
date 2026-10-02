@@ -52,6 +52,7 @@ from app.imports.models import import_mapping  # noqa: F401
 from app.inventory.models import (
     inventory,  # noqa: F401
     physical_count,  # noqa: F401
+    stock_attachment,  # noqa: F401
 )
 from app.loyalty.models import loyalty  # noqa: F401
 from app.messaging.models import messaging as _messaging  # noqa: F401

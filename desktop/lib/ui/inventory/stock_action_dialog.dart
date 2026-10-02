@@ -1,8 +1,10 @@
+import 'package:file_selector/file_selector.dart' show XFile;
 import 'package:flutter/material.dart';
 
 import '../../core/design/design_tokens.dart';
 import '../../models/entities.dart';
 import '../workspace/desktop_framework.dart';
+import 'stock_evidence_picker.dart';
 
 /// What is being done to the stock on a selected row.
 enum StockAction {
@@ -83,7 +85,11 @@ class StockActionDialog extends StatefulWidget {
     required this.quarantined,
     required this.warehouses,
     this.onSave,
+    this.pickFiles,
   });
+
+  /// Injected by tests; the platform's file chooser otherwise.
+  final Future<List<XFile>> Function()? pickFiles;
 
   /// Carries the action out; throws [ApiException] on a refusal, which the
   /// dialog shows without closing. Null closes with the draft at once.
@@ -115,6 +121,7 @@ class _StockActionDialogState extends State<StockActionDialog>
   bool _releasing = false;
   DateTime _when = DateTime.now();
   String? _error;
+  List<Json> _attachments = const [];
 
   @override
   void dispose() {
@@ -159,6 +166,9 @@ class _StockActionDialogState extends State<StockActionDialog>
       if (widget.action == StockAction.writeOff) 'reason': _reason,
       if (widget.action == StockAction.quarantine)
         'action': _releasing ? 'RELEASE' : 'HOLD',
+      // Photos and documents (STK-9); a hold or release takes none.
+      if (widget.action != StockAction.quarantine && _attachments.isNotEmpty)
+        'attachments': _attachments,
     }, widget.onSave);
   }
 
@@ -226,6 +236,13 @@ class _StockActionDialogState extends State<StockActionDialog>
                 decoration: const InputDecoration(labelText: 'Remarks'),
               ),
               const SizedBox(height: AppSpacing.md),
+              if (widget.action != StockAction.quarantine) ...[
+                StockEvidencePicker(
+                  pickFiles: widget.pickFiles,
+                  onChanged: (files) => _attachments = files,
+                ),
+                const SizedBox(height: AppSpacing.md),
+              ],
               Text(_footnote(), style: Theme.of(context).textTheme.bodySmall),
             ],
           ),

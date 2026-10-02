@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**237 tables**, of which **16** live only in the platform store.
+**240 tables**, of which **16** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -201,8 +201,7 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `account_groups` | firm store ¹ | Group ledger accounts for classification and report rollups. | `firms` |
 | `accounting_periods` | firm store ¹ | Represent one posting period inside a financial year. | `firms`, `financial_years` |
-| `ageing_settings` | firm store ¹ | The ageing bands a firm reads its receivables and payables in (ACC-6). | -- |
-| `period_close_settings` | firm store ¹ | A firm's policy on closing a month with work left in it: WARN or BLOCK (ACC-5). | -- |
+| `ageing_settings` | firm store ¹ | The ageing bands a firm reads what it is owed and owes in (ACC-6). |  |
 | `cost_centers` | firm store ¹ | Represent a cost centre used to attribute expenditure. | `firms` |
 | `customer_ledgers` | firm store ¹ | Hold derived receivable totals for one customer and period. | `firms`, `customers`, `accounting_periods` |
 | `financial_years` | firm store ¹ | Represent one fiscal year owned by a firm. | `firms` |
@@ -213,6 +212,7 @@ trigger each schema owns its own copy of.
 | `journal_types` | firm store ¹ | Classify journals such as sales, purchase, or general. | `firms` |
 | `ledger_accounts` | firm store ¹ | Represent one general-ledger account in the chart of accounts. | `firms`, `account_groups` |
 | `ledger_balances` | firm store ¹ | Hold the derived balance of one ledger account for one period. | `firms`, `ledger_accounts`, `accounting_periods` |
+| `period_close_settings` | firm store ¹ | What a firm does when a month it closes still has work in it (ACC-5). |  |
 | `profit_centers` | firm store ¹ | Represent a profit centre used to attribute revenue. | `firms` |
 | `vendor_ledgers` | firm store ¹ | Hold derived payable totals for one vendor and period. | `firms`, `vendors`, `accounting_periods` |
 | `voucher_types` | firm store ¹ | Classify vouchers such as invoice, receipt, or payment. | `firms` |
@@ -278,6 +278,7 @@ trigger each schema owns its own copy of.
 | `physical_count_lines` | firm store ¹ | Store one stock row's count on one sheet. | `firms`, `physical_counts` |
 | `physical_counts` | firm store ¹ | Store one count sheet for one warehouse. | `firms` |
 | `product_valuations` | firm store ¹ | Track the moving weighted-average cost of a product for a firm. | `firms`, `products` |
+| `stock_attachments` | firm store ¹ | Store one file backing a movement or a count sheet -- never both. | `firms`, `inventory_transactions`, `physical_counts` |
 | `stock_ledger_entries` | firm store ¹ | Persist one immutable stock-ledger row per inventory transaction. | `inventory_transactions`, `inventories`, `batches`, `firms`, `branches`, `warehouses`, `warehouse_storage_nodes`, `products`, `business_profiles`, `uoms` |
 
 ### `app/loyalty`
@@ -453,7 +454,7 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `settlement_allocations` | firm store ¹ | Store how much of one settlement cleared one invoice. | `firms`, `settlements`, `sales_invoices`, `purchase_invoices`, `vendor_opening_bills`, `customer_opening_bills` |
 | `settlements` | firm store ¹ | Store one receipt from a customer or payment to a vendor. | `firms`, `customers`, `vendors`, `ledger_accounts`, `sales_orders`, `journal_entries` |
-| `supplier_credit_applications` | firm store ¹ | Store how much of one purchase return's supplier credit cleared one bill. | `vendors`, `purchase_returns`, `debit_notes`, `purchase_invoices` |
+| `supplier_credit_applications` | firm store ¹ | Store how much of one purchase return's supplier credit cleared one bill. | `vendors`, `purchase_returns`, `debit_notes`, `purchase_invoices`, `vendor_opening_bills` |
 | `supplier_credit_refunds` | firm store ¹ | Money a supplier paid back against one return's credit (69 row 7). | `vendors`, `purchase_returns`, `debit_notes`, `ledger_accounts`, `journal_entries` |
 
 ### `app/tax`

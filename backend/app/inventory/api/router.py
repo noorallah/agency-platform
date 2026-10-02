@@ -16,7 +16,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -42,6 +42,7 @@ from app.core.utils.dates import utc_now
 from app.imports.services import columns_for_kind, mapped_content, parse_mapping
 from app.inventory.models import InventoryTransaction, PhysicalCount
 from app.inventory.schemas import (
+    MAX_STOCK_ATTACHMENTS,
     InventoryAdjustmentCreate,
     InventoryCreate,
     InventoryListFilters,
@@ -54,6 +55,8 @@ from app.inventory.schemas import (
     PhysicalCountLineResponse,
     PhysicalCountResponse,
     PhysicalCountUpdate,
+    StockAttachmentResponse,
+    StockAttachmentWrite,
     StockLedgerListFilters,
     StockQuarantineCreate,
     StockTransferCreate,
@@ -77,6 +80,7 @@ from app.inventory.services.opening_stock_import import (
     template_workbook as opening_stock_template_workbook,
 )
 from app.inventory.services.stock_ageing import StockAgeingService
+from app.inventory.services.stock_evidence import StockEvidenceService
 from app.inventory.services.stock_valuation import (
     StockStatementService,
     StockValuationService,
@@ -1138,6 +1142,107 @@ def cancel_physical_count(
     db.commit()
     db.refresh(row)
     return ApiResponse(data=_count_response(service, row))
+
+
+class StockAttachmentsWrite(BaseModel):
+    """The files a request keeps with a movement or a count sheet (STK-9)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    attachments: list[StockAttachmentWrite] = Field(
+        min_length=1, max_length=MAX_STOCK_ATTACHMENTS
+    )
+
+
+@router.get(
+    "/transactions/{transaction_id}/attachments",
+    response_model=ApiResponse[list[StockAttachmentResponse]],
+)
+def list_movement_attachments(
+    transaction_id: UUID,
+    scope: InventoryTransactionViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[StockAttachmentResponse]]:
+    """List the photos and documents backing a movement.
+
+    A transfer's two legs show the same files, whichever is asked about.
+    """
+    service = StockEvidenceService(db)
+    rows = service.for_movement(transaction_id, firm_id=scope.firm_id)
+    return ApiResponse(data=[service.response(row) for row in rows])
+
+
+@router.post(
+    "/transactions/{transaction_id}/attachments",
+    response_model=ApiResponse[list[StockAttachmentResponse]],
+    status_code=status.HTTP_201_CREATED,
+)
+def attach_to_movement(
+    transaction_id: UUID,
+    data: StockAttachmentsWrite,
+    scope: InventoryAdjustScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[StockAttachmentResponse]]:
+    """Keep photos or documents with a movement already posted."""
+    service = StockEvidenceService(db)
+    rows = service.attach_to_movement(
+        transaction_id,
+        data.attachments,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(
+        data=[service.response(row) for row in rows], message="Files attached."
+    )
+
+
+@router.get(
+    "/counts/{count_id}/attachments",
+    response_model=ApiResponse[list[StockAttachmentResponse]],
+)
+def list_count_attachments(
+    count_id: UUID,
+    scope: InventoryViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[StockAttachmentResponse]]:
+    """List the photos and documents kept with a count sheet."""
+    service = StockEvidenceService(db)
+    rows = service.for_count(count_id, firm_id=scope.firm_id)
+    return ApiResponse(data=[service.response(row) for row in rows])
+
+
+@router.post(
+    "/counts/{count_id}/attachments",
+    response_model=ApiResponse[list[StockAttachmentResponse]],
+    status_code=status.HTTP_201_CREATED,
+)
+def attach_to_count(
+    count_id: UUID,
+    data: StockAttachmentsWrite,
+    scope: InventoryAdjustScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[StockAttachmentResponse]]:
+    """Keep photos or documents with a count sheet, draft or posted."""
+    service = StockEvidenceService(db)
+    rows = service.attach_to_count(
+        count_id, data.attachments, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(
+        data=[service.response(row) for row in rows], message="Files attached."
+    )
+
+
+@router.delete("/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_stock_attachment(
+    attachment_id: UUID,
+    scope: InventoryAdjustScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Take a file off its movement or count sheet; the trail keeps that it was."""
+    StockEvidenceService(db).remove(
+        attachment_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/export")

@@ -1,6 +1,7 @@
 """Inventory API contracts."""
 
 from app.inventory.schemas.inventory import (
+    MAX_STOCK_ATTACHMENTS,
     REVERSAL_SUFFIX,
     BatchStockTotals,
     InventoryAdjustmentCreate,
@@ -26,6 +27,8 @@ from app.inventory.schemas.inventory import (
     PhysicalCountResponse,
     PhysicalCountUpdate,
     QuarantineAction,
+    StockAttachmentResponse,
+    StockAttachmentWrite,
     StockLedgerListFilters,
     StockLedgerResponse,
     StockQuarantineCreate,
@@ -35,6 +38,7 @@ from app.inventory.schemas.inventory import (
 )
 
 __all__ = [
+    "MAX_STOCK_ATTACHMENTS",
     "REVERSAL_SUFFIX",
     "BatchStockTotals",
     "InventoryAdjustmentCreate",
@@ -44,6 +48,8 @@ __all__ = [
     "PhysicalCountResponse",
     "PhysicalCountUpdate",
     "QuarantineAction",
+    "StockAttachmentResponse",
+    "StockAttachmentWrite",
     "StockQuarantineCreate",
     "StockTransferCreate",
     "StockWriteOffCreate",
