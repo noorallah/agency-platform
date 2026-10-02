@@ -16,6 +16,8 @@ import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
+import '../../models/credit_note.dart';
+import '../../models/customer_debit_note.dart';
 import '../../models/einvoice.dart';
 import '../../models/entities.dart';
 import '../../phase2/indian_format.dart';
@@ -151,12 +153,12 @@ class _EInvoicePageState extends State<EInvoicePage> {
   /// view -- and because that toolbar already carries eight controls, which
   /// is what pushed the deposits panel off the sales-order toolbar in #195.
   Future<void> _register() async {
-    final List<Json> invoices = await _registerable();
+    final List<Json> invoices = await _registerableInvoices();
     if (!mounted) return;
     if (invoices.isEmpty) {
       NotificationService.show(
         context,
-        'Every approved invoice is already registered.',
+        'Every approved invoice and note is already registered.',
         kind: AppNotificationKind.information,
       );
       return;
@@ -175,10 +177,11 @@ class _EInvoicePageState extends State<EInvoicePage> {
   /// portal said and returns the row FAILED. Reporting that as a success
   /// because no exception was thrown would tell somebody their invoice is
   /// filed when it is not.
-  Future<void> _registerOne(String invoiceId) async {
+  Future<void> _registerOne(String invoiceId, {String? noteKind}) async {
     try {
-      final EInvoiceRegistrationRecord row =
-          await widget.api.registerEInvoice(invoiceId);
+      final EInvoiceRegistrationRecord row = noteKind == null
+          ? await widget.api.registerEInvoice(invoiceId)
+          : await widget.api.registerEInvoiceNote(noteKind, invoiceId);
       if (!mounted) return;
       NotificationService.show(
         context,
@@ -205,6 +208,11 @@ class _EInvoicePageState extends State<EInvoicePage> {
   /// attempt FAILED is offered again, because the service keeps the row and
   /// counts the attempt rather than treating a refusal as final.
   Future<List<Json>> _registerable() async {
+    final List<Json> invoices = await _registerableInvoices();
+    return [...invoices, ...await _registerableNotes()];
+  }
+
+  Future<List<Json>> _registerableInvoices() async {
     // Only a refusal can be sent again. A registered invoice already has its
     // IRN, and a withdrawn one can never have another under the same number
     // (D-CMP-6) -- the server refuses it, so it is not offered.
@@ -230,6 +238,48 @@ class _EInvoicePageState extends State<EInvoicePage> {
     }
   }
 
+  /// Approved credit and customer debit notes not yet registered, shaped like
+  /// the invoices beside them: an id, a label and the kind of note (77 row 4).
+  Future<List<Json>> _registerableNotes() async {
+    final Set<String> credited = <String>{
+      for (final EInvoiceRegistrationRecord row in _rows)
+        if (!row.isFailed && row.isCreditNote) row.creditNoteId,
+    };
+    final Set<String> debited = <String>{
+      for (final EInvoiceRegistrationRecord row in _rows)
+        if (!row.isFailed && row.isDebitNote) row.customerDebitNoteId,
+    };
+    final List<Json> notes = <Json>[];
+    try {
+      final PagedResult<CreditNoteRecord> credits =
+          await widget.api.creditNotes(status: 'APPROVED', pageSize: 100);
+      for (final CreditNoteRecord note in credits.items) {
+        if (!note.isApproved || credited.contains(note.id)) continue;
+        notes.add(<String, dynamic>{
+          'id': note.id,
+          '_kind': 'credit',
+          'label': 'Credit note ${note.creditNoteNumber} — '
+              '${note.customerName} — ${note.totalAmount}',
+        });
+      }
+      final PagedResult<CustomerDebitNoteRecord> debits = await widget.api
+          .customerDebitNotes(status: 'APPROVED', pageSize: 100);
+      for (final CustomerDebitNoteRecord note in debits.items) {
+        if (!note.isApproved || debited.contains(note.id)) continue;
+        notes.add(<String, dynamic>{
+          'id': note.id,
+          '_kind': 'debit',
+          'label': 'Debit note ${note.debitNoteNumber} — '
+              '${note.customerName} — ${note.totalAmount}',
+        });
+      }
+    } on ApiException {
+      // The invoices are still offered; a refusal to list notes is not a
+      // reason to hold them back.
+    }
+    return notes;
+  }
+
   /// Offline filing, step one: choose approved invoices and save the JSON the
   /// portal's bulk upload takes. Each chosen invoice becomes a registration
   /// waiting for its IRN.
@@ -250,7 +300,17 @@ class _EInvoicePageState extends State<EInvoicePage> {
     );
     if (ids == null || ids.isEmpty) return;
     try {
-      final List<int> bytes = await widget.api.exportOfflineEinvoices(ids);
+      final Set<String> chosen = ids.toSet();
+      List<String> of(String? kind) => <String>[
+        for (final Json row in invoices)
+          if (row['_kind'] == kind && chosen.contains('${row['id']}'))
+            '${row['id']}',
+      ];
+      final List<int> bytes = await widget.api.exportOfflineEinvoices(
+        of(null),
+        creditNoteIds: of('credit'),
+        debitNoteIds: of('debit'),
+      );
       final String stamp = DateTime.now()
           .toIso8601String()
           .substring(0, 16)
@@ -331,8 +391,10 @@ class _EInvoicePageState extends State<EInvoicePage> {
     );
     if (reason == null) return;
     await _run(
-      () => widget.api
-          .cancelEInvoice(row.salesInvoiceId, reason: reason)
+      () => (row.noteKind == null
+              ? widget.api.cancelEInvoice(row.salesInvoiceId, reason: reason)
+              : widget.api.cancelEInvoiceNote(row.noteKind!, row.documentId,
+                  reason: reason))
           .then((_) {}),
       'Registration withdrawn.',
     );
@@ -482,7 +544,8 @@ class _EInvoicePageState extends State<EInvoicePage> {
                     label: 'Try again',
                     icon: Icons.replay,
                     onPressed: chosen != null && chosen.isFailed
-                        ? () => _registerOne(chosen.salesInvoiceId)
+                        ? () => _registerOne(chosen.documentId,
+                            noteKind: chosen.noteKind)
                         : null,
                   ),
                 ],
@@ -600,6 +663,7 @@ class _EInvoicePageState extends State<EInvoicePage> {
         selectedId: _selectedId,
         columns: const [
           GridColumn(key: 'invoice', label: 'Invoice'),
+          GridColumn(key: 'type', label: 'Type', priority: 1),
           GridColumn(key: 'customer', label: 'Customer', priority: 1),
           GridColumn(key: 'filing', label: 'Filing', priority: 1),
           GridColumn(key: 'reference', label: 'Reference'),
@@ -608,6 +672,7 @@ class _EInvoicePageState extends State<EInvoicePage> {
         id: (row) => row.id,
         cells: (row) => [
           row.invoiceNumber.isEmpty ? '—' : row.invoiceNumber,
+          row.documentLabel,
           row.customerName.isEmpty ? '—' : row.customerName,
           _providerLabel(row.provider),
           row.isRegistered
@@ -637,7 +702,13 @@ class _EInvoicePageState extends State<EInvoicePage> {
       ],
       id: (row) => row.id,
       cells: (row) => [
-        row.invoiceNumber.isEmpty ? '—' : row.invoiceNumber,
+        // The old layout has no room for a column of its own: a note says so
+        // beside its number.
+        row.invoiceNumber.isEmpty
+            ? '—'
+            : row.isInvoice
+                ? row.invoiceNumber
+                : '${row.invoiceNumber} (${row.documentLabel})',
         row.customerName.isEmpty ? '—' : row.customerName,
         _providerLabel(row.provider),
         // Mode and reference together, always. A reference shown alone is one
@@ -680,7 +751,10 @@ class _EInvoicePageState extends State<EInvoicePage> {
   /// (D-CMP-13).
   bool _mayRaiseBill(EInvoiceRegistrationRecord row) {
     final EWayBillRecord? bill = _bills[row.salesInvoiceId];
-    return row.isRegistered && (bill == null || !bill.isGenerated);
+    // An e-way bill rides on goods, so only an invoice carries one here.
+    return row.isInvoice &&
+        row.isRegistered &&
+        (bill == null || !bill.isGenerated);
   }
 
   Widget _actions(EInvoiceRegistrationRecord row) {
@@ -714,7 +788,8 @@ class _EInvoicePageState extends State<EInvoicePage> {
         // (D-CMP-6), so a withdrawn row offers nothing to press.
         if (row.isFailed)
           TextButton(
-            onPressed: () => _registerOne(row.salesInvoiceId),
+            onPressed: () =>
+                _registerOne(row.documentId, noteKind: row.noteKind),
             child: const Text('Try again'),
           ),
       ],
@@ -1179,7 +1254,8 @@ class _ExportInvoicesDialogState extends State<_ExportInvoicesDialog> {
                             ? _chosen.add('${invoice['id']}')
                             : _chosen.remove('${invoice['id']}')),
                         title: Text(
-                          '${invoice['invoice_number']} — '
+                          invoice['label'] as String? ??
+                              '${invoice['invoice_number']} — '
                           '${invoice['customer_name'] ?? ''} — '
                           '${invoice['grand_total']}',
                           overflow: TextOverflow.ellipsis,

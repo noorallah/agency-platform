@@ -34,6 +34,7 @@ class _EInvoiceApi extends ApiClient {
     this.registrations = const [],
     this.bill,
     this.provider = 'SANDBOX',
+    this.notes = const [],
   })
       : super(
           baseUrl: 'http://localhost:8000',
@@ -46,6 +47,9 @@ class _EInvoiceApi extends ApiClient {
   final Json? bill;
   final String provider;
   List<String>? exportedIds;
+  List<String>? exportedCreditIds;
+  List<String>? exportedDebitIds;
+  final List<Json> notes;
   String? importedName;
   List<int>? importedBytes;
   final List<String> requested = <String>[];
@@ -94,6 +98,15 @@ class _EInvoiceApi extends ApiClient {
       if (method == 'POST') sentBody = body;
       return <String, dynamic>{'data': registrations.firstOrNull};
     }
+    if (path == '/api/v1/credit-notes' || path == '/api/v1/customer-debit-notes') {
+      final String kind = path.contains('credit') ? 'CREDIT' : 'DEBIT';
+      return <String, dynamic>{
+        'data': [
+          for (final Json n in notes)
+            if (n['kind'] == kind) n,
+        ],
+      };
+    }
     if (path == '/api/v1/sales-invoices') {
       return <String, dynamic>{
         'data': <Json>[
@@ -120,6 +133,12 @@ class _EInvoiceApi extends ApiClient {
   }) async {
     requested.add('$method $path');
     exportedIds = List<String>.from(body?['invoice_ids'] as List);
+    exportedCreditIds = body?['credit_note_ids'] == null
+        ? null
+        : List<String>.from(body!['credit_note_ids'] as List);
+    exportedDebitIds = body?['debit_note_ids'] == null
+        ? null
+        : List<String>.from(body!['debit_note_ids'] as List);
     return utf8.encode('[]');
   }
 
@@ -622,5 +641,74 @@ void main() {
         findsOneWidget);
     expect(find.textContaining('Not matched: SI-X'), findsOneWidget);
     expect(find.textContaining('Refused: SI-3'), findsOneWidget);
+  });
+
+  testWidgets('a note registration shows its type and withdraws by note',
+      (tester) async {
+    final _EInvoiceApi api = _EInvoiceApi(registrations: <Json>[
+      <String, dynamic>{
+        ..._sandboxRegistration(),
+        'sales_invoice_id': null,
+        'document_type': 'CREDIT_NOTE',
+        'credit_note_id': 'cn-1',
+        'invoice_number': 'CN-2026-000001',
+      },
+    ]);
+    await _pump(tester, api, phase2: true);
+
+    expect(find.text('Credit note'), findsOneWidget);
+    expect(find.text('CN-2026-000001'), findsOneWidget);
+    await tester.tap(find.text('CN-2026-000001').first);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('selection-withdraw')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Wrong amount');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    expect(api.requested,
+        contains('POST /api/v1/einvoice/credit-notes/cn-1/cancel'));
+  });
+
+  testWidgets('offline: approved notes are offered and sent in their own fields',
+      (tester) async {
+    final _EInvoiceApi api = _EInvoiceApi(provider: 'OFFLINE', notes: <Json>[
+      <String, dynamic>{
+        'kind': 'CREDIT',
+        'id': 'cn-7',
+        'credit_note_number': 'CN-7',
+        'customer_name': 'Vijaya',
+        'total_amount': '100.00',
+        'status': 'APPROVED',
+      },
+      <String, dynamic>{
+        'kind': 'DEBIT',
+        'id': 'dn-8',
+        'debit_note_number': 'DN-8',
+        'customer_name': 'Vijaya',
+        'total_amount': '50.00',
+        'status': 'APPROVED',
+      },
+    ]);
+    await _pump(
+      tester,
+      api,
+      saveExportFile: (name, bytes) async => 'C:/out/$name',
+    );
+
+    await tester.tap(find.text('Export for portal'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Credit note CN-7'), findsOneWidget);
+    expect(find.textContaining('Debit note DN-8'), findsOneWidget);
+    await tester.tap(find.textContaining('Credit note CN-7'));
+    await tester.tap(find.textContaining('Debit note DN-8'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Export 2'));
+    await tester.pumpAndSettle();
+
+    expect(api.exportedIds, isEmpty);
+    expect(api.exportedCreditIds, ['cn-7']);
+    expect(api.exportedDebitIds, ['dn-8']);
   });
 }

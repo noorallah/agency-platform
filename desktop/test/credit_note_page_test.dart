@@ -92,6 +92,11 @@ class _CreditNoteApi extends ApiClient {
   final List<String> requested = <String>[];
   int? sentVersion;
 
+  /// What the e-invoice registration read answers, and what a Register
+  /// does: refuse with [refuseRegister] when set.
+  Json? registration;
+  String? refuseRegister;
+
   /// What was asked to be priced, and what was raised.
   final List<Json> previews = <Json>[];
   Json? raised;
@@ -125,6 +130,21 @@ class _CreditNoteApi extends ApiClient {
     int? expectedVersion,
   }) async {
     requested.add('$method $path');
+    if (path.startsWith('/api/v1/einvoice/')) {
+      if (path.endsWith('/register')) {
+        final String? refusal = refuseRegister;
+        if (refusal != null) throw ApiException(refusal, statusCode: 422);
+        registration = <String, dynamic>{
+          'id': 'reg-1',
+          'document_type': 'CREDIT_NOTE',
+          'mode': 'SANDBOX',
+          'status': 'REGISTERED',
+          'irn': 'SBXNOTE1',
+          'acknowledgement_number': 'ACK99',
+        };
+      }
+      return <String, dynamic>{'data': registration};
+    }
     if (method == 'POST' && path == '/api/v1/credit-notes/preview') {
       previews.add(body!);
       final List<dynamic> lines = body['lines'] as List<dynamic>;
@@ -470,6 +490,122 @@ void main() {
 
       expect(find.byType(AlertDialog), findsOneWidget);
       expect(find.textContaining('Against SI-2026-0009'), findsOneWidget);
+    });
+  });
+
+  group('e-invoice (77 row 4)', () {
+    Future<_CreditNoteApi> open(
+      WidgetTester tester, {
+      String status = 'APPROVED',
+      List<String> perms = const [
+        'CREDIT_NOTE_VIEW',
+        'CREDIT_NOTE_MANAGE',
+        'CREDIT_NOTE_APPROVE',
+        'EINVOICE_VIEW',
+        'EINVOICE_MANAGE',
+      ],
+      Json? registration,
+      String? refuseRegister,
+    }) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final _CreditNoteApi api = _CreditNoteApi(
+        notes: <Json>[
+          <String, dynamic>{..._note(), 'status': status},
+        ],
+      )
+        ..registration = registration
+        ..refuseRegister = refuseRegister;
+      await tester.pumpWidget(MaterialApp(
+        builder: (context, child) => Phase2Scope(child: child!),
+        home: Scaffold(
+          body: CreditNotePage(
+            api: api,
+            preferences: _preferences(),
+            permissions: _permissions(perms: perms),
+            hasActiveFirm: true,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('CN-2026-0001').first);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+      return api;
+    }
+
+    testWidgets('an approved note registers and shows its IRN', (tester) async {
+      final _CreditNoteApi api = await open(tester);
+      await tester.tap(find.byKey(const ValueKey('selection-einvoice')));
+      await tester.pumpAndSettle();
+      expect(find.text('This note has not been e-invoiced.'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('note-einvoice-register')));
+      await tester.pumpAndSettle();
+      expect(api.requested,
+          contains('POST /api/v1/einvoice/credit-notes/cn-1/register'));
+      expect(find.textContaining('SBXNOTE1'), findsOneWidget);
+      expect(find.textContaining('ACK99'), findsOneWidget);
+      expect(find.textContaining('Sandbox'), findsWidgets);
+    });
+
+    testWidgets('a refusal keeps the dialog open with what the server said',
+        (tester) async {
+      await open(tester, refuseRegister: 'Buyer GSTIN is missing.');
+      await tester.tap(find.byKey(const ValueKey('selection-einvoice')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('note-einvoice-register')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Buyer GSTIN is missing.'), findsOneWidget);
+      expect(find.byType(AlertDialog), findsOneWidget);
+    });
+
+    testWidgets('a registered note shows its IRN and can be withdrawn',
+        (tester) async {
+      final _CreditNoteApi api = await open(tester, registration: <String, dynamic>{
+        'id': 'reg-1',
+        'document_type': 'CREDIT_NOTE',
+        'mode': 'SANDBOX',
+        'status': 'REGISTERED',
+        'irn': 'SBXNOTE1',
+        'acknowledgement_number': 'ACK99',
+      });
+      await tester.tap(find.byKey(const ValueKey('selection-einvoice')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('SBXNOTE1'), findsOneWidget);
+      expect(find.byKey(const ValueKey('note-einvoice-register')), findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey('note-einvoice-withdraw')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.descendant(
+              of: find.byType(AlertDialog), matching: find.byType(TextField)),
+          'Wrong amount');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      expect(api.requested,
+          contains('POST /api/v1/einvoice/credit-notes/cn-1/cancel'));
+    });
+
+    testWidgets('a draft note is not offered an e-invoice', (tester) async {
+      await open(tester, status: 'DRAFT');
+      expect(find.byKey(const ValueKey('selection-einvoice')), findsNothing);
+    });
+
+    testWidgets('without EINVOICE_VIEW there is no e-invoice action',
+        (tester) async {
+      await open(tester, perms: const ['CREDIT_NOTE_VIEW', 'CREDIT_NOTE_APPROVE']);
+      expect(find.byKey(const ValueKey('selection-einvoice')), findsNothing);
+    });
+
+    testWidgets('EINVOICE_VIEW alone reads but cannot register',
+        (tester) async {
+      await open(tester, perms: const ['CREDIT_NOTE_VIEW', 'EINVOICE_VIEW']);
+      await tester.tap(find.byKey(const ValueKey('selection-einvoice')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('note-einvoice-register')), findsNothing);
     });
   });
 }
