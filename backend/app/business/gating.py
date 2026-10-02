@@ -240,6 +240,18 @@ def _is_populated(value: object) -> bool:
     return True
 
 
+def feature_enabled(session: Session, firm_id: UUID | None, feature: str) -> bool:
+    """Return whether a firm's profile enables a feature.
+
+    True where the firm has no resolvable profile, as ``assert_feature_fields``
+    reads it: a configuration gap is not a decision. For a service that
+    *fills* an optional field rather than refusing one -- writing a value the
+    gate would then refuse is the thing to avoid.
+    """
+    capabilities = resolve_capabilities(session, firm_id)
+    return capabilities.profile_code is None or capabilities.has_feature(feature)
+
+
 def assert_feature_fields(
     session: Session,
     firm_id: UUID | None,

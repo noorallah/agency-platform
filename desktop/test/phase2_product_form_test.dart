@@ -128,4 +128,42 @@ void main() {
     expect(sent?['not_for_sale'], isTrue);
     expect(sent?['status'], 'DISCONTINUED');
   });
+
+  // STK-18: the shelf life a receipt fills each batch's expiry from.
+  testWidgets('a shelf life typed in days is saved as a number',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    Json? sent;
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => Phase2Scope(child: child!),
+      home: Scaffold(
+        body: ProductWorkspaceDialog(
+          mode: ProductDialogMode.edit,
+          product: _product,
+          categories: const [],
+          uoms: const [],
+          definitions: const [],
+          metadata: _metadata,
+          initialTab: 'general',
+          onMetadataForCategory: (_) async => _metadata,
+          onSave: (payload) async {
+            sent = payload;
+            return _product;
+          },
+          onTabChanged: (_) {},
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    final Finder field = find.widgetWithText(TextField, 'Shelf life (days)');
+    await tester.ensureVisible(field);
+    await tester.enterText(field, '180');
+    await tester.tap(find.byKey(const ValueKey('product-save')));
+    await tester.pumpAndSettle();
+
+    expect(sent?['shelf_life_days'], 180);
+  });
 }

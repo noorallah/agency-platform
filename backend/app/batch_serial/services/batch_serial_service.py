@@ -30,7 +30,7 @@ from app.batch_serial.schemas.batch_serial import (
     SerialUpdate,
 )
 from app.branches.models import Branch, Warehouse
-from app.business.gating import assert_feature_fields
+from app.business.gating import assert_feature_fields, feature_enabled
 from app.common.audit.services import record_audit
 from app.core.concurrency import assert_version
 from app.core.exceptions import (
@@ -89,6 +89,18 @@ def _snapshot(entity_type: str, record: object) -> dict[str, object]:
         value = getattr(record, name, None)
         values[name] = None if value is None else str(value)
     return values
+
+
+def expiry_from_shelf_life(
+    manufactured: date | None, shelf_life_days: int | None
+) -> date | None:
+    """Return the expiry a manufacturing date and a shelf life make (STK-18).
+
+    None where either is missing: an expiry is filled, never guessed.
+    """
+    if manufactured is None or not shelf_life_days:
+        return None
+    return manufactured + timedelta(days=shelf_life_days)
 
 
 class BatchSerialService:
@@ -347,6 +359,8 @@ class BatchSerialService:
         expiry_date: date | None = None,
         mrp: Decimal | None = None,
         selling_price: Decimal | None = None,
+        manufacturing_date: date | None = None,
+        shelf_life_days: int | None = None,
     ) -> BatchRecord:
         """Return the batch a receipt named, creating it if it is new.
 
@@ -398,6 +412,20 @@ class BatchSerialService:
             vendor_id=vendor_id,
             batch_number=number,
             expiry_date=expiry_date,
+            # As typed off the carton, with the product's shelf life that
+            # filled the expiry where only this date was given (STK-18) --
+            # each kept only where the firm's profile has the feature, since a
+            # receipt never refused them and must not start to.
+            manufacturing_date=(
+                manufacturing_date
+                if feature_enabled(self._session, firm_scope, "MANUFACTURING_DATE")
+                else None
+            ),
+            shelf_life_days=(
+                shelf_life_days
+                if feature_enabled(self._session, firm_scope, "SHELF_LIFE")
+                else None
+            ),
             mrp=mrp,
             selling_price=selling_price,
             status=BatchStatus.AVAILABLE.value,

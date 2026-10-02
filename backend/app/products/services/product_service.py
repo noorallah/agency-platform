@@ -1415,6 +1415,7 @@ class ProductService:
             ("BARCODE", {"barcode": data.barcode}),
             ("QR_CODE", {"qr_code": data.qr_code}),
             ("WARRANTY", {"track_warranty": data.track_warranty}),
+            ("SHELF_LIFE", {"shelf_life_days": data.shelf_life_days}),
         ):
             assert_feature_fields(
                 self._session, firm_id, feature=feature, values=fields
@@ -1815,6 +1816,7 @@ class ProductService:
             "mrp": product.mrp,
             "status": product.status,
             "not_for_sale": product.not_for_sale,
+            "shelf_life_days": product.shelf_life_days,
             "remarks": product.remarks,
             "track_batch": product.track_batch,
             "track_lot": product.track_lot,

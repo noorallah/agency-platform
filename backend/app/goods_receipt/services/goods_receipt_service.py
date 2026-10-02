@@ -14,8 +14,9 @@ from sqlalchemy import ColumnElement, Select, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.batch_serial.services import BatchSerialService
+from app.batch_serial.services.batch_serial_service import expiry_from_shelf_life
 from app.branches.models import Warehouse, WarehouseStorageNode
-from app.business.gating import assert_feature_fields
+from app.business.gating import assert_feature_fields, feature_enabled
 from app.common.audit.services import record_audit
 from app.common.report_names import (
     branch_names,
@@ -1426,6 +1427,23 @@ class GoodsReceiptService(TransactionalDocumentService):
                 taxable=line_subtotal,
             )
             net_amount = self._q(line_subtotal + tax_amount)
+            # Only the manufacturing date typed: the product's shelf life
+            # fills the expiry (STK-18). A typed expiry always stands.
+            expiry_date = line.expiry_date
+            if (
+                expiry_date is None
+                and line.manufacturing_date is not None
+                # Never fill what the firm's profile would then refuse.
+                and feature_enabled(self._session, firm_id, "EXPIRY_TRACKING")
+            ):
+                shelf_life = self._session.scalar(
+                    select(Product.shelf_life_days).where(
+                        Product.id == purchase_line.product_id
+                    )
+                )
+                expiry_date = expiry_from_shelf_life(
+                    line.manufacturing_date, shelf_life
+                )
             row = GoodsReceiptLine(
                 goods_receipt_id=receipt.id,
                 firm_id=firm_id,
@@ -1458,7 +1476,7 @@ class GoodsReceiptService(TransactionalDocumentService):
                 warehouse_id=line.warehouse_id or receipt.warehouse_id,
                 storage_node_id=line.storage_node_id,
                 batch_number=line.batch_number,
-                expiry_date=line.expiry_date,
+                expiry_date=expiry_date,
                 manufacturing_date=line.manufacturing_date,
                 mrp=line.mrp,
                 selling_price=line.selling_price,
@@ -1604,6 +1622,10 @@ class GoodsReceiptService(TransactionalDocumentService):
                         expiry_date=line.expiry_date,
                         mrp=line.mrp,
                         selling_price=line.selling_price,
+                        manufacturing_date=line.manufacturing_date,
+                        shelf_life_days=(
+                            product.shelf_life_days if product is not None else None
+                        ),
                     )
                     .id
                 )
