@@ -286,7 +286,7 @@ class _PriceListPageState extends State<PriceListPage> {
         row.name,
         row.scopeLabel,
         row.windowLabel,
-        '${row.items.length}',
+        row.itemsLabel,
         row.status,
       ],
       onSelect: (row) => setState(() => _selected = row),

@@ -323,6 +323,16 @@ class ReturnableLine {
   /// documents leave it null, so reading it alone left both the credit-note
   /// and sales-return pickers offering "Line 1" and nothing else -- a choice
   /// nobody can make. `product_name` is what the server now sends beside it.
+  /// "CODE  Name" from what the server sends beside a line, either part
+  /// alone when only one is known, and empty when neither is -- the pickers
+  /// then fall back to "Line N".
+  static String _productLabel(Json json) {
+    final String code = stringValue(json['product_code']);
+    final String name = stringValue(json['product_name']);
+    if (code.isEmpty) return name;
+    return name.isEmpty ? code : '$code  $name';
+  }
+
   factory ReturnableLine.fromJson(Json json, {required String quantityKey}) =>
       ReturnableLine(
         id: stringValue(json['id']),
@@ -330,7 +340,7 @@ class ReturnableLine {
         productId: stringValue(json['product_id']),
         description: stringValue(json['description']).isNotEmpty
             ? stringValue(json['description'])
-            : stringValue(json['product_name']),
+            : _productLabel(json),
         quantity: stringValue(json[quantityKey]),
         unitPrice: stringValue(json['unit_price']),
       );
