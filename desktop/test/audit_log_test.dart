@@ -32,6 +32,8 @@ class _AuditApi extends ApiClient {
 
   final List<AuditLogEntry> rows;
   String? requestedAction;
+  String? requestedSearch;
+  final List<String?> searches = [];
 
   @override
   Future<PagedResult<AuditLogEntry>> auditLogs({
@@ -41,8 +43,11 @@ class _AuditApi extends ApiClient {
     String? entityType,
     String? dateFrom,
     String? dateTo,
+    String? search,
   }) async {
     requestedAction = action;
+    requestedSearch = search;
+    searches.add(search);
     return PagedResult<AuditLogEntry>(items: rows, total: rows.length);
   }
 }
@@ -175,6 +180,23 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(api.requestedAction, 'settlement.receipt.reversed');
+    });
+
+    testWidgets('one box searches actions, records and people', (tester) async {
+      final _AuditApi api = _AuditApi(rows: [_entry()]);
+      await _pump(tester, api);
+      final Finder box =
+          find.widgetWithText(TextField, 'Search actions, records or people');
+
+      await tester.enterText(box, 'ravi');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      expect(api.requestedSearch, 'ravi');
+
+      await tester.enterText(box, '');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      expect(api.requestedSearch, isEmpty);
     });
 
     testWidgets('the firm code alone reads the firm trail (B1)',

@@ -144,7 +144,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | PLT-5 | §56 C | Back-dated entries carried forward in one statement | Nothing | M | Claude alone |
 | PLT-6 | §56 C | Old login and log records pruned by default -- **built 2026-10-03** (A76) | Nothing | S | Claude alone |
 | PLT-7 | D-PERF-1 | The 38 routes past their time target on WHOLE01 | Nothing | M | Claude alone |
-| PLT-8 | §31.17 rest | One search box on the audit trail spanning who and what | Nothing | S | Claude alone |
+| PLT-8 | §31.17 rest | One search box on the audit trail spanning who and what -- **built 2026-10-03** (A77) | Nothing | S | Claude alone |
 | PLT-9 | §31 leftovers | Phase 1 leftovers: payload guard on the phase 2 editors, "Line 1" labels, price-list counts | Nothing | S | Claude alone |
 | PLT-10 | §3 | The stray `installer/` folder | Nothing | S | Claude alone |
 | PLT-11 | §53 item 4 | Report: parties with no PAN, and PAN that does not match the GSTIN -- **built 2026-10-03** (A53) | Nothing | S | Claude alone |
@@ -754,6 +754,7 @@ otherwise it is built as written.
 - **What it is:** type part of a name or action and find the entries.
 - **What gets built:** a `search` filter in `backend/app/common/audit/services/reader.py` across action, entity type, actor name and email (partial matching on action and entity is already built, #622); one box on `audit_log_page.dart`. Tests.
 - **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A77): `GET /audit-logs?search=` -- the router reads the people whose name or email holds the text from the platform store (`_people_matching`, at most 500) and `AuditLogFilters.search` / `search_people` OR action, record type, actor and (for `user` rows) subject in `reader.py`, on both stores of a firm's merged trail. Desktop: one search box on the audit trail screen. Tests: `test_audit_search.py`, the audit page test.
 
 #### PLT-9. Phase 1 leftovers (§31.11, §31.14, §31.15)
 - **What it is:** three small loose ends found in manual testing.

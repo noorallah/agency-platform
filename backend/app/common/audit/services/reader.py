@@ -10,7 +10,7 @@ from datetime import UTC, datetime, time
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, Select, func, select
+from sqlalchemy import ColumnElement, Select, and_, func, or_, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.common.audit.models import AuditLog
@@ -163,6 +163,22 @@ class AuditLogReader:
             statement = statement.where(
                 _contains(AuditLog.entity_type, filters.entity_type)
             )
+        if filters.search:
+            either: list[ColumnElement[bool]] = [
+                _contains(AuditLog.action, filters.search),
+                _contains(AuditLog.entity_type, filters.search),
+            ]
+            if filters.search_people:
+                # Who did it, or -- for a row about a person -- who it was done
+                # to: "ravi" finds Ravi's edits and the day Ravi was hired.
+                either.append(AuditLog.actor_id.in_(filters.search_people))
+                either.append(
+                    and_(
+                        AuditLog.entity_type == "user",
+                        AuditLog.entity_id.in_(filters.search_people),
+                    )
+                )
+            statement = statement.where(or_(*either))
         if filters.entity_id is not None:
             statement = statement.where(AuditLog.entity_id == filters.entity_id)
         if filters.actor_id is not None:

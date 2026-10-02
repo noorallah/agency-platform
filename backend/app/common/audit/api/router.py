@@ -21,7 +21,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.models import AuditLog
@@ -150,6 +150,36 @@ def _named(rows: Sequence[AuditLog], platform_db: Session) -> list[AuditLogRespo
     return responses
 
 
+#: The most people one search names; a box matching more than this is too
+#: broad to be about a person, and the action and record matches still apply.
+_MAX_PEOPLE = 500
+
+
+def _people_matching(search: str | None, platform_db: Session) -> list[UUID]:
+    """Return the users whose name or email holds ``search`` (PLT-8).
+
+    Read on the platform session, the only store with ``users``, the way
+    ``_named`` reads them.
+    """
+    text = (search or "").strip()
+    if not text:
+        return []
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"%{escaped}%"
+    return list(
+        platform_db.scalars(
+            select(User.id)
+            .where(
+                or_(
+                    User.full_name.ilike(pattern, escape="\\"),
+                    User.email.ilike(pattern, escape="\\"),
+                )
+            )
+            .limit(_MAX_PEOPLE)
+        )
+    )
+
+
 @router.get("", response_model=PaginatedResponse[AuditLogResponse])
 def list_audit_logs(
     scope: Annotated[AuditScope, Depends(audit_scope)],
@@ -161,6 +191,7 @@ def list_audit_logs(
     actor_id: UUID | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
+    search: Annotated[str | None, Query(max_length=100)] = None,
     sort_direction: Annotated[Literal["asc", "desc"], Query()] = "desc",
     db: Session = Depends(get_db),
     platform_db: Session = Depends(get_platform_db),
@@ -174,6 +205,8 @@ def list_audit_logs(
         actor_id=actor_id,
         date_from=date_from,
         date_to=date_to,
+        search=(search or "").strip() or None,
+        search_people=_people_matching(search, platform_db),
     )
     reader = AuditLogReader(db)
     if scope.firm_id is None:
