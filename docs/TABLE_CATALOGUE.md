@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**209 tables**, of which **16** live only in the platform store.
+**231 tables**, of which **16** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -76,6 +76,7 @@ trigger each schema owns its own copy of.
 | `branch_attribute_values` | firm store ¹ | Store one configurable attribute value for a branch. | `branches`, `firms`, `attribute_definitions` |
 | `branch_types` | firm store ¹ | Persist reusable branch type masters per firm. | `firms` |
 | `branches` | firm store ¹ | Represent one physical operational branch owned by a firm. | `firms`, `business_profiles`, `branch_types`, `users`, `geo_countries`, `geo_states`, `geo_districts`, `geo_cities`, `geo_postal_codes`, `geo_localities` |
+| `user_work_defaults` | firm store ¹ | One person's usual branch and warehouse in one firm. | `branches`, `warehouses` |
 | `warehouse_attribute_values` | firm store ¹ | Store one configurable attribute value for a warehouse. | `warehouses`, `firms`, `attribute_definitions` |
 | `warehouse_storage_nodes` | firm store ¹ | Represent storage hierarchy nodes (area/rack/shelf/bin/receiving). | `warehouses` |
 | `warehouse_types` | firm store ¹ | Persist reusable warehouse type masters per firm. | `firms` |
@@ -109,6 +110,12 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `audit_logs` | firm store | Record a mutation without coupling auditing to a business domain. |  |
 
+### `app/contra`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `contra_vouchers` | firm store ¹ | One movement of money between two of the firm's own accounts. | `ledger_accounts`, `journal_entries` |
+
 ### `app/credit_note`
 
 | Table | Store | Holds | Points at |
@@ -129,11 +136,19 @@ trigger each schema owns its own copy of.
 | `customer_receivable_transactions` | firm store ¹ | Represent one immutable receivable movement for a customer. | `firms`, `customers`, `journal_entries` |
 | `customers` | firm store ¹ | Represent one customer master owned by a firm. | `firms`, `customer_groups` |
 
+### `app/debit_note`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `debit_note_lines` | firm store ¹ | One bill line being claimed against, in part or in whole. | `debit_notes`, `purchase_invoice_lines`, `products` |
+| `debit_notes` | firm store ¹ | One claim against one supplier bill, with the input tax it reverses. | `vendors`, `branches`, `purchase_invoices`, `journal_entries` |
+
 ### `app/delivery_note`
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
 | `delivery_note_attachments` | firm store ¹ | Store delivery note attachments. | `delivery_notes`, `firms` |
+| `delivery_note_line_batches` | firm store ¹ | Which batches one delivery line takes, as a person chose them (79). | `delivery_note_lines`, `batches` |
 | `delivery_note_lines` | firm store ¹ | Store one delivery note line. | `delivery_notes`, `firms`, `sales_order_lines`, `products`, `uoms`, `packaging_types`, `tax_profiles`, `warehouses`, `warehouse_storage_nodes`, `batches` |
 | `delivery_note_notes` | firm store ¹ | Store delivery note notes. | `delivery_notes`, `firms` |
 | `delivery_notes` | firm store ¹ | Store one delivery note header. | `firms`, `sales_orders`, `customers`, `branches`, `warehouses`, `business_profiles`, `users`, `territory_route_profiles`, `sales_territories` |
@@ -207,6 +222,15 @@ trigger each schema owns its own copy of.
 | `goods_receipt_notes` | firm store ¹ | Store goods receipt notes. | `goods_receipts`, `firms` |
 | `goods_receipts` | firm store ¹ | Store one goods receipt note header. | `firms`, `purchase_orders`, `vendors`, `branches`, `warehouses`, `users` |
 
+### `app/gst_returns`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `gst_payments` | firm store ¹ | A month's GST liability, the credit set off, the cash paid by challan. | `ledger_accounts`, `journal_entries` |
+| `gst_return_filings` | firm store ¹ | One return, for one month, filed on the portal. |  |
+| `gstr2b_documents` | firm store ¹ | One supplier document in a month's GSTR-2B, and what it matched. | `gstr2b_imports` |
+| `gstr2b_imports` | firm store ¹ | One month's GSTR-2B, imported once; a re-import replaces it. |  |
+
 ### `app/identity`
 
 | Table | Store | Holds | Points at |
@@ -249,10 +273,18 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `messaging_channel_configs` | firm store ¹ | One firm's account with one provider, for one channel; secrets sealed under `AGENCY_MESSAGING_KEY`. |  |
-| `messaging_event_configs` | firm store ¹ | Whether one event goes out on one channel, and with which template; ordered by `priority` as the fallback chain. |  |
+| `messaging_channel_configs` | firm store ¹ | One firm's account with one provider, for one channel. |  |
+| `messaging_event_configs` | firm store ¹ | Whether one event goes out on one channel, and with which template. |  |
 | `messaging_outbox` | firm store ¹ | One message: asked for, queued, sent, failed or skipped. |  |
 | `messaging_settings` | firm store ¹ | One firm's master switch and reminder schedule. |  |
+
+### `app/party_adjustments`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `party_adjustment_allocations` | firm store ¹ | How much of one adjustment came off one bill. | `party_adjustments`, `sales_invoices`, `purchase_invoices`, `customer_opening_bills`, `vendor_opening_bills` |
+| `party_adjustment_settings` | firm store ¹ | A firm's limits on adjusting balances. A firm with no row has defaults. |  |
+| `party_adjustments` | firm store ¹ | One balance moved without money: write-off, write-back or set-off. | `customers`, `vendors`, `journal_entries` |
 
 ### `app/pricing`
 
@@ -299,6 +331,8 @@ trigger each schema owns its own copy of.
 | `purchase_order_lines` | firm store ¹ | Store one purchase order line item. | `purchase_orders`, `firms`, `products`, `uoms`, `tax_profiles`, `warehouses`, `warehouse_storage_nodes` |
 | `purchase_orders` | firm store ¹ | Store one enterprise purchase order header. | `firms`, `branches`, `warehouses`, `vendors`, `users`, `tax_profiles` |
 | `purchase_workflow_settings` | firm store ¹ | Store which buying stages one firm fills in by hand. | `firms`, `branches`, `warehouses` |
+| `reorder_planning_settings` | firm store ¹ | How one firm decides what to reorder (backlog 69 row 12, decision A39). |  |
+| `role_purchase_approval_limits` | firm store ¹ | The largest purchase order one role may approve, in one firm. |  |
 
 ### `app/purchase_invoice`
 
@@ -370,6 +404,8 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
+| `price_floor_settings` | firm store ¹ | One firm's policy on selling below cost or below a minimum price. |  |
+| `role_discount_limits` | firm store ¹ | The largest discount one role may give on its own, in one firm. |  |
 | `sales_order_attachments` | firm store ¹ | Store sales order attachments. | `sales_orders`, `firms` |
 | `sales_order_lines` | firm store ¹ | Store one sales order line. | `sales_orders`, `firms`, `products`, `uoms`, `packaging_types`, `tax_profiles`, `warehouses`, `warehouse_storage_nodes` |
 | `sales_order_notes` | firm store ¹ | Store sales order notes. | `sales_orders`, `firms` |
@@ -400,11 +436,13 @@ trigger each schema owns its own copy of.
 | `settlement_allocations` | firm store ¹ | Store how much of one settlement cleared one invoice. | `firms`, `settlements`, `sales_invoices`, `purchase_invoices`, `vendor_opening_bills`, `customer_opening_bills` |
 | `settlements` | firm store ¹ | Store one receipt from a customer or payment to a vendor. | `firms`, `customers`, `vendors`, `ledger_accounts`, `sales_orders`, `journal_entries` |
 | `supplier_credit_applications` | firm store ¹ | Store how much of one purchase return's supplier credit cleared one bill. | `vendors`, `purchase_returns`, `purchase_invoices` |
+| `supplier_credit_refunds` | firm store ¹ | Money a supplier paid back against one return's credit (69 row 7). | `vendors`, `purchase_returns`, `ledger_accounts`, `journal_entries` |
 
 ### `app/tax`
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
+| `gst_compliance_settings` | firm store ¹ | One firm's GST document policy (backlog 77 rows 1-2, decision A35). |  |
 | `tax_components` | firm store ¹ | Store one configurable tax component for a tax system. | `firms`, `tax_systems` |
 | `tax_country_mappings` | firm store ¹ | Store default tax system mapping per country and profile context. | `firms`, `geo_countries`, `business_profiles`, `tax_systems` |
 | `tax_migration_mappings` | firm store ¹ | Store migration mapping from legacy tax definitions. | `firms`, `tax_profiles` |

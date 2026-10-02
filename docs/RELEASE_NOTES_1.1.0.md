@@ -30,6 +30,11 @@ Each row names the screen. Do them on a copy of a firm, or on the demo firm.
 | 14 | **Offers** | Masters > Promotions | *Up to* on a percentage ("20% off, up to 500"); *... > Try offers* shows what an offer does on any date and why each offer did or did not apply; Settings > Selling > Sales Stages > *When several offers match*: Best offer only |
 | 15 | **Received now on the bill** | Sell > Sales Invoices > New | *Received now*, Cash or Bank and a reference; more than the bill warns and is refused; on Approve a receipt appears under Sell > Receipts and the bill shows as paid (or part paid) |
 | 16 | **Go-live guide** | `GO_LIVE_GUIDE.pdf` beside Setup.exe | Read it as the firm's accountant would |
+| 17 | **Choosing batches** | Sell > Delivery Notes > New, a batch-tracked product | Every batch with expiry and days left, earliest expiry filled in; take a later one or split; expired cannot be chosen; the challan prints a row per batch (`docs/qa/08_SELLING.md` TC-SELL-019) |
+| 18 | **Reorder from sales** | Settings > Buying > Purchase Settings > Reorder planning; Reports > Operational > Below reorder level | *From sales*: products with no typed level are listed from their average daily sales, with Basis and Avg/day; a typed level still wins (`docs/qa/06_PURCHASING.md` TC-BUY-015) |
+
+The other changes of 2026-10-02 have their own cases: TC-BUY-009 to 014 and
+TC-SELL-018.
 
 **On every failure**: a screenshot, the newest file in
 `C:\ProgramData\Agency Platform\logs\server`, and the version on the sign-in
@@ -75,11 +80,33 @@ screen (1.1.0).
   over, TDS, approving many, closing a month and the year, licence checks,
   the monthly calendar.
 
+### Added after the first 1.1.0 build (2026-10-02)
+- **GST on the sales chain**: why each delivery note goes out (challan
+  reason), dispatch before the invoice warned or blocked, *Dispatch and
+  invoice* in one step, the firm's GST document settings (#903, decision A35).
+- **GST on purchases**: input credit per bill line, blocked credit posted as
+  an expense (#905, D-TAX-1); a supplier's GST type (#906); **GSTR-2B**
+  import and matching (#909); a return off a reverse-charge bill takes its tax
+  off (#897).
+- **Returns to suppliers**: what a return comes back as -- credit,
+  replacement or refund -- and supplier refunds (#900); a return off a paid
+  bill leaves a supplier credit (#901, D-BUY-20).
+- **Purchase orders**: one quantity picture per line -- received, accepted,
+  returned, invoiced, pending (#899).
+- **Rate includes GST** on the sales order and the quotation (#896); the
+  **tax calendar** on Home (#898).
+- **Choosing batches** on a delivery note, printed one row per batch (#911,
+  decision A38).
+- **Reorder from sales**: the planning formula behind *Below reorder level*
+  (#913, decision A39).
+
 ## Upgrading
 
 Setup backs up the database, then migrates every firm's store to the new
-schema (revisions `20261001_0175` to `20261001_0179`: TDS columns, GST
-payments, user work defaults, the offer mode, received now on the bill). Nothing existing changes how
+schema (revisions `20261001_0175` to `20261002_0215`: from TDS columns, GST
+payments, user work defaults, the offer mode and received now on the bill to
+the 2026-10-02 additions above -- GST settings, input credit, GSTR-2B, return
+outcomes, batch picks and reorder planning). Nothing existing changes how
 it prices or posts: TDS is blank unless entered, offers still combine unless
 a firm chooses Best offer only, and a cap applies only where one is set, and a bill with nothing received
 now settles exactly as before.
