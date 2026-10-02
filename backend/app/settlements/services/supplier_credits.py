@@ -30,6 +30,14 @@ one list, newest first, so a bill that cannot absorb them all turns the newest
 into credit whichever kind it is. A credit is named by its **source id** -- the
 return's id or the debit note's -- and an application or refund row carries
 exactly one of the two.
+
+**An opening bill is a second target (BUY-17, decision A52).** A supplier's
+bill brought over from the old software is owed in payables exactly as a
+purchase bill is, so a credit is set against it the same way: the row names
+the opening bill instead of a purchase invoice, posts nothing, and the opening
+bill's derived outstanding counts it (`opening_bill_payments`). Returns and
+debit notes are only ever raised against purchase bills, so the spill-over and
+draw-back arithmetic below never meets an opening bill.
 """
 
 from collections.abc import Sequence
@@ -53,6 +61,8 @@ from app.settlements.models import (
     SupplierCreditApplication,
     SupplierCreditRefund,
 )
+from app.vendors.models import VendorOpeningBill
+from app.vendors.services.opening_bill_service import opening_bill_label
 
 #: The return states whose posting stands: completing debits payables, a
 #: cancelled return has taken that back, and a draft has not posted.
@@ -223,11 +233,20 @@ def _all_credits(
     applied: dict[UUID, Decimal] = {}
     applied_to: dict[UUID, list[str]] = {}
     source = _source_column()
-    for source_id, amount, number in session.execute(
-        select(source, SupplierCreditApplication.amount, PurchaseInvoice.invoice_number)
-        .join(
+    for source_id, amount, number, opening in session.execute(
+        select(
+            source,
+            SupplierCreditApplication.amount,
+            PurchaseInvoice.invoice_number,
+            VendorOpeningBill,
+        )
+        .outerjoin(
             PurchaseInvoice,
             PurchaseInvoice.id == SupplierCreditApplication.purchase_invoice_id,
+        )
+        .outerjoin(
+            VendorOpeningBill,
+            VendorOpeningBill.id == SupplierCreditApplication.vendor_opening_bill_id,
         )
         .where(
             SupplierCreditApplication.firm_id == firm_id,
@@ -239,7 +258,9 @@ def _all_credits(
         applied[source_id] = applied.get(source_id, ZERO) + quantize_ledger(
             Decimal(str(amount))
         )
-        applied_to.setdefault(source_id, []).append(number)
+        applied_to.setdefault(source_id, []).append(
+            opening_bill_label(opening) if opening is not None else number
+        )
     refunded: dict[UUID, Decimal] = {}
     refund_source = func.coalesce(
         SupplierCreditRefund.purchase_return_id, SupplierCreditRefund.debit_note_id
@@ -491,25 +512,36 @@ def drawn_back_onto_bills(
 
 @over_chunks("invoice_ids")
 def credit_applied_against(
-    session: Session, *, firm_id: UUID, invoice_ids: Sequence[UUID]
+    session: Session,
+    *,
+    firm_id: UUID,
+    invoice_ids: Sequence[UUID],
+    opening: bool = False,
 ) -> dict[UUID, Decimal]:
-    """Sum the supplier credit set against each bill."""
+    """Sum the supplier credit set against each bill.
+
+    ``opening`` reads the ids as opening bills rather than purchase bills
+    (BUY-17).
+    """
     if not invoice_ids:
         return {}
+    column = (
+        SupplierCreditApplication.vendor_opening_bill_id
+        if opening
+        else SupplierCreditApplication.purchase_invoice_id
+    )
     return {
         invoice_id: quantize_ledger(Decimal(str(total)))
         for invoice_id, total in session.execute(
-            select(
-                SupplierCreditApplication.purchase_invoice_id,
-                func.coalesce(func.sum(SupplierCreditApplication.amount), 0),
-            )
+            select(column, func.coalesce(func.sum(SupplierCreditApplication.amount), 0))
             .where(
                 SupplierCreditApplication.firm_id == firm_id,
-                SupplierCreditApplication.purchase_invoice_id.in_(invoice_ids),
+                column.in_(invoice_ids),
                 SupplierCreditApplication.is_deleted.is_(False),
             )
-            .group_by(SupplierCreditApplication.purchase_invoice_id)
+            .group_by(column)
         ).all()
+        if invoice_id is not None
     }
 
 
@@ -521,14 +553,15 @@ def withdraw_credit_applications(
     purchase_return_id: UUID | None = None,
     purchase_invoice_id: UUID | None = None,
     debit_note_id: UUID | None = None,
+    vendor_opening_bill_id: UUID | None = None,
 ) -> int:
     """Withdraw the credit set against a bill, when its source or bill goes.
 
     Cancelling the return or the debit note takes its payables debit back, so
     the credit it gave is gone and the bill owes that part again. Cancelling
-    the bill takes its payable back, so the credit set against it is free
-    again. Nothing posts: each document's own cancellation already reversed
-    its journal.
+    the bill -- a purchase bill or an opening bill -- takes its payable back,
+    so the credit set against it is free again. Nothing posts: each document's
+    own cancellation already reversed its journal.
 
     Returns:
         How many applications were withdrawn.
@@ -550,6 +583,10 @@ def withdraw_credit_applications(
         statement = statement.where(
             SupplierCreditApplication.purchase_invoice_id == purchase_invoice_id
         )
+    if vendor_opening_bill_id is not None:
+        statement = statement.where(
+            SupplierCreditApplication.vendor_opening_bill_id == vendor_opening_bill_id
+        )
     rows = session.scalars(statement).all()
     now = utc_now()
     for row in rows:
@@ -569,7 +606,14 @@ def withdraw_credit_applications(
                     str(row.purchase_return_id) if row.purchase_return_id else None
                 ),
                 "debit_note_id": str(row.debit_note_id) if row.debit_note_id else None,
-                "purchase_invoice_id": str(row.purchase_invoice_id),
+                "purchase_invoice_id": (
+                    str(row.purchase_invoice_id) if row.purchase_invoice_id else None
+                ),
+                "vendor_opening_bill_id": (
+                    str(row.vendor_opening_bill_id)
+                    if row.vendor_opening_bill_id
+                    else None
+                ),
                 "amount": str(row.amount),
             },
         )
@@ -662,7 +706,8 @@ def apply_supplier_credit(
     """Set part of a supplier credit against one of the vendor's bills.
 
     ``source_id`` is the purchase return or debit note that gave the credit,
-    locked for the check.
+    locked for the check. ``invoice_id`` is a purchase bill or, since BUY-17,
+    an opening bill -- whichever Record Payment offers for the supplier.
 
     Raises:
         ResourceNotFoundError: If the firm has no such return or debit note.
@@ -701,15 +746,6 @@ def apply_supplier_credit(
             "That bill is not this supplier's, is not approved, or is already "
             "settled in full."
         )
-    if bill.is_opening_bill:
-        # The application names a purchase invoice, and an opening bill is not
-        # one. Setting a return's credit against day-one debt is a real need
-        # but a separate change; until then it is refused by name rather than
-        # failing on the foreign key.
-        raise ValidationError(
-            f"{bill.invoice_number} is an opening bill; supplier credit is set "
-            "against purchase bills only."
-        )
     if asked > bill.outstanding_amount:
         raise ValidationError(
             f"{bill.invoice_number} owes only {bill.outstanding_amount}."
@@ -717,7 +753,8 @@ def apply_supplier_credit(
     application = SupplierCreditApplication(
         firm_id=firm_id,
         vendor_id=source.vendor_id,
-        purchase_invoice_id=invoice_id,
+        purchase_invoice_id=None if bill.is_opening_bill else invoice_id,
+        vendor_opening_bill_id=invoice_id if bill.is_opening_bill else None,
         applied_on=utc_now().date(),
         amount=asked,
         created_by=actor_id,
