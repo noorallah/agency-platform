@@ -845,3 +845,14 @@ beside `credit_notes_deducted`.
 
 `app/finance/` was rewritten on 2026-08-09 and is live at `/api/v1/finance` (migration `20260809_0042`). It uses the seeded `accounting` / `financial_year` permission codes rather than a `FINANCE_*` namespace. The prior `accounting_event_consumer.py`, which guessed accounts by name, was removed — see git history if you want its posting rules.
 **Automatic GL posting is built, and this line said for months that it was not.** It claimed the feature needed "a per-firm control-account mapping design" -- which is exactly what `firm_control_accounts` is, and it carries 32 purposes per firm as of 2026-10-01 -- count them with `len(ControlAccountPurpose)` rather than trusting this number (`ACCOUNTS_RECEIVABLE`, `INVENTORY`, `OUTPUT_TAX`, `INPUT_TAX_IGST`, `PURCHASE_PRICE_VARIANCE`, `LOYALTY_PAYABLE`, `COMMISSION_PAYABLE`, `TCS_PAYABLE` and the rest). **Eleven modules post through `DocumentPostingService`**: `delivery_note`, `sales_invoice`, `sales_return`, `credit_note`, `goods_receipt`, `purchase_invoice`, `purchase_return`, `settlements`, `loyalty`, `tcs` and `commission`. WHOLE01 alone holds 337 journal entries, and `verify_sample_data.py` fails the run if any approved invoice has not posted. A stale line like this is worse than no line: it talks the next reader out of checking, and it survived precisely because nobody re-derived it. Correct one when you find it rather than working around it.
+
+## Rule 37 reversals and reclaims (backlog 78 row 4, 2026-10-02)
+
+A bill unpaid 180 days after its date has the credit on its unpaid share
+reversed: **Dr Input Tax Not Claimable (5450), Cr input tax per head**; when it
+is paid the reclaim posts the mirror. Each is its own journal, referenced
+`R37-<bill number>-<n>` with `source_module = "rule37"`, and each is a row in
+`itc_reversals`. What stands reversed on a bill is the sum of those rows, never
+a column; what the bill owes comes from `PaymentService.outstanding_invoices`.
+Only eligible, recoverable, non-reverse-charge credit is ever reversed -- the
+credit 4(A)(5) claimed.

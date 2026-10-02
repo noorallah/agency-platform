@@ -100,6 +100,9 @@ screen (1.1.0).
   decision A38).
 - **Choosing batches on a counter bill**: a batch-tracked line opens the same
   picker as the delivery note, and the batch chosen is the one that leaves.
+- **Rule 37, the 180-day rule.** Bills unpaid 180 days after their date
+  are listed with the credit to reverse, and reclaimed when paid; a firm can
+  post both from the list, and GSTR-3B reports them (§78 row 4).
 - **Places from India Post.** Districts, towns, PIN codes and localities
   load by state from India Post's directory, shipped with the installer; the
   southern states are ticked by default (B6).
