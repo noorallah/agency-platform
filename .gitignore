@@ -57,6 +57,5 @@ Thumbs.db
 # Release build output: staged payload and the installer itself.
 /dist/
 
-# Installer and root-level test artifacts
-/installer/
+# Root-level test artifacts
 /tests/
