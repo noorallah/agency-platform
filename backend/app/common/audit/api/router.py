@@ -8,6 +8,9 @@ session that ``get_db`` resolves is already the correct trail to read:
 * no ``X-Firm-ID`` and platform authority -> the platform trail
 * ``X-Firm-ID`` plus an active membership -> that firm's trail
 
+``AUDIT_LOG_VIEW`` reads either; ``FIRM_AUDIT_LOG_VIEW`` (decision B1) reads a
+firm's trail only, so a firm administrator can grant it to their own roles.
+
 There is deliberately no cross-firm view. Reading every firm's history means
 iterating firm stores, which no single query can do.
 """
@@ -30,7 +33,7 @@ from app.core.exceptions import AuthorizationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import PaginatedResponse
-from app.core.security.authorization import Principal, require_permission
+from app.core.security.authorization import Principal, require_any_permission
 from app.firms.models import Firm
 from app.identity.models import User, UserFirm
 
@@ -51,11 +54,17 @@ class AuditScope:
 
 
 def audit_scope(
-    principal: Annotated[Principal, Depends(require_permission("AUDIT_LOG_VIEW"))],
+    principal: Annotated[
+        Principal,
+        Depends(require_any_permission("AUDIT_LOG_VIEW", "FIRM_AUDIT_LOG_VIEW")),
+    ],
     platform_db: Annotated[Session, Depends(get_platform_db)],
     x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
 ) -> AuditScope:
     """Resolve which audit trail the caller may read."""
+    if x_firm_id is None and not principal.has_permission("AUDIT_LOG_VIEW"):
+        # FIRM_AUDIT_LOG_VIEW reads a firm's trail and nothing else (B1).
+        raise AuthorizationError("Choose a firm to read its audit trail.")
     if x_firm_id is None:
         # The platform trail records user, role, and firm administration --
         # which is what a `PLATFORM` operator does, so either reach may read

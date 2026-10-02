@@ -50,7 +50,9 @@ class _AuditLogPageState extends State<AuditLogPage> {
   bool _loading = false;
   String? _error;
 
-  bool get _canView => widget.permissions.hasPermission('AUDIT_LOG_VIEW');
+  bool get _canView =>
+      widget.permissions.hasPermission('AUDIT_LOG_VIEW') ||
+      widget.permissions.hasPermission('FIRM_AUDIT_LOG_VIEW');
 
   @override
   void initState() {
