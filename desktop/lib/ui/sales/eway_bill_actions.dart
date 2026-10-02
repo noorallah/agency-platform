@@ -15,6 +15,7 @@ import '../../core/notifications/notification_service.dart';
 import '../../models/einvoice.dart';
 import '../../models/entities.dart';
 import '../../phase2/indian_format.dart';
+import '../workspace/reason_prompt.dart';
 import '../workspace/save_in_dialog.dart';
 import 'einvoice_page.dart' show EWayBillDialog;
 
@@ -424,6 +425,26 @@ class _NoteEwayBillDialogState extends State<_NoteEwayBillDialog> {
     if (mounted) await _load();
   }
 
+  /// Withdraw the note's live bill, with the reason the portal requires.
+  /// A refusal -- past the window, say -- stays in the dialog.
+  Future<void> _withdraw() async {
+    final String? reason = await askForReason(
+      context,
+      title: 'Withdraw e-way bill',
+      explanation: 'The portal allows a bill to be cancelled within 24 hours '
+          'of generation, and asks why.',
+      confirmLabel: 'Withdraw',
+    );
+    if (reason == null) return;
+    try {
+      await widget.api.cancelDeliveryNoteEwayBill(widget.noteId, reason: reason);
+      _changed = true;
+      if (mounted) await _load();
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -454,6 +475,12 @@ class _NoteEwayBillDialogState extends State<_NoteEwayBillDialog> {
           onPressed: () => Navigator.of(context).pop(_changed),
           child: const Text('Close'),
         ),
+        if (widget.mayManage && !_loading && live)
+          OutlinedButton(
+            key: const ValueKey('note-eway-withdraw'),
+            onPressed: _withdraw,
+            child: const Text('Withdraw...'),
+          ),
         if (widget.mayManage && !_loading && _error == null && !live) ...[
           OutlinedButton(
             key: const ValueKey('note-eway-record'),

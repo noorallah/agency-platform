@@ -120,3 +120,11 @@ One standard check for every screen in this area. Run it once per screen as the 
 | Installed version | |
 | Cases passed / failed / blocked | |
 | Worst problem found | |
+
+### TC-COMP-012 — The IRN and QR on the printed documents
+
+*Added 2026-10-02 (backlog 77 row 11).*
+
+- **Preconditions:** TC-COMP-011 done: a registered invoice, a registered credit note and a registered debit note; plus one approved invoice never registered.
+- **Steps:** Print each of the four. Withdraw the invoice's registration (inside 24 hours) and print it again.
+- **Expect:** the three registered documents carry an **E-INVOICE** box under the title with the IRN, Ack No. and Ack Date and a QR code; scanning the QR returns the signed text. The credit note is titled **CREDIT NOTE**, names "Against invoice" with the invoice number and date and the reason, and splits its tax into CGST and SGST as the invoice did. The unregistered invoice and the withdrawn one print with no box.

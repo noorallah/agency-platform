@@ -71,6 +71,7 @@ rules about what a firm may skip are in `docs/SALES_CHAIN_RULES.md`.
 | Numbering per financial year | Built (`include_financial_year`, `auto_reset`) |
 | 16-character limit on a GST document number | **Not checked** |
 | Transport details on the delivery note (transporter, GSTIN, mode, LR, distance) | Built (§67 row 5) |
+| IRN, acknowledgement and signed QR on the printed invoice, credit note and debit note (rule 48(4)) | Built 2026-10-02 (§77 row 11); only a REGISTERED registration prints; notes printable since the same change |
 | E-invoice of credit and debit notes | Built 2026-10-02 (§77 row 4): CRN and DBN, referring to the invoice (`RefDtls.PrecDocDtls`), on the firm's route -- sandbox, or the offline bulk upload with the invoices |
 | E-way bill without an IRN, on a delivery note, recorded by hand; the firm's limit and a due list | Built 2026-10-02 (§77 rows 9-10): from the invoice where the firm need not e-invoice it, from the challan where no invoice bills it (supply type from the challan reason: sale 1, line sales 10, job work 4, others 8), or raised on the portal and its 12-digit number recorded. `gst_compliance_settings.eway_bill_limit` (₹50,000 unless the firm sets its state's) drives the due list and the prompt |
 | E-invoice: IRN, QR, 24-hour cancellation, e-way bill from the IRN | Built (`app/einvoice`). Each firm chooses its route (A42): **Sandbox** (rehearsal) or **Offline** -- export the portal's bulk-upload JSON, upload it by hand, import the result. Direct NIC API and GSP adapters to follow |

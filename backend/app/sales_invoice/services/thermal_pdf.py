@@ -189,6 +189,18 @@ class ThermalReceiptRenderer:
         story.append(self._rule(width))
         story.append(Paragraph(document.number_label, self._small))
         story.append(self._pair(width, document.number, document.date, split=0.68))
+        if document.einvoice is not None:
+            # The roll has no room for the signed QR; the IRN and the
+            # acknowledgement still print (77 row 11).
+            story.append(Paragraph(f"IRN {document.einvoice.irn}", self._small))
+            if document.einvoice.acknowledgement_number:
+                story.append(
+                    Paragraph(
+                        f"Ack {document.einvoice.acknowledgement_number}"
+                        f" {document.einvoice.acknowledged_on or ''}",
+                        self._small,
+                    )
+                )
         buyer = document.buyer
         if buyer.name:
             story.append(Paragraph(f"To: {buyer.name}", self._text))

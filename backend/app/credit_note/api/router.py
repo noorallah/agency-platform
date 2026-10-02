@@ -10,6 +10,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.common.scope import (
@@ -38,6 +39,7 @@ from app.document_framework.schemas.bulk_actions import (
     BulkApproveRequest,
 )
 from app.document_framework.services.bulk_actions import run_each
+from app.sales_invoice.services.note_print_service import NotePrintService
 
 router = APIRouter(
     prefix="/api/v1/credit-notes",
@@ -308,4 +310,29 @@ def cancel_credit_note(
     set_etag(response, row)
     return ApiResponse(
         data=service.note_response(row), message="Credit note cancelled."
+    )
+
+
+@router.get(
+    "/{note_id}/print",
+    response_class=StreamingResponse,
+    status_code=status.HTTP_200_OK,
+)
+def print_note(
+    note_id: UUID,
+    scope: CreditNoteViewScope,
+    db: Annotated[Session, Depends(get_db)],
+) -> StreamingResponse:
+    """Render the credit note as the PDF the customer is sent (77 row 11).
+
+    In the invoice's layout, naming the invoice it corrects, with its IRN and
+    signed QR once it is registered on the portal.
+    """
+    pdf, filename = NotePrintService(db).render(
+        "CREDIT_NOTE", note_id, firm_scope=scope.firm_id
+    )
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )

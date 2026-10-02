@@ -70,6 +70,11 @@ class _Api extends ApiClient {
   @override
   Future<List<ImportMapping>> importMappings(String kind) async => saved;
 
+  final List<String> deleted = <String>[];
+
+  @override
+  Future<void> deleteImportMapping(String id) async => deleted.add(id);
+
   @override
   Future<ImportMapping> saveImportMapping(
     String kind,
@@ -250,6 +255,36 @@ void main() {
     expect(_value(tester, 'Item Name'), 'name');
     expect(_value(tester, 'Item Code'), 'code');
     expect(_checkEnabled(tester), isTrue);
+  });
+
+  testWidgets('a saved mapping once applied can be deleted', (tester) async {
+    final _Api api = _Api(saved: const [
+      ImportMapping(
+        id: 'm1',
+        kind: 'products',
+        name: 'Tally items',
+        mapping: {'Item Name': 'name'},
+      ),
+    ]);
+    await _open(tester, api);
+    expect(
+      find.byKey(const ValueKey<String>('import-mapping-delete')),
+      findsNothing,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('import-mapping-saved')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Tally items').last);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('import-mapping-delete')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(api.deleted, ['m1']);
+    expect(find.text('Deleted "Tally items".'), findsOneWidget);
+    expect(_value(tester, 'Item Name'), 'name');
   });
 
   testWidgets('Save mapping as posts the name and the current mapping',

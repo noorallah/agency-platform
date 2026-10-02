@@ -22,6 +22,7 @@ import '../../models/entities.dart';
 import '../../models/sales_return.dart';
 import '../workspace/bulk_action.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/printed_document.dart';
 import 'note_einvoice_dialog.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
@@ -209,6 +210,26 @@ class _CustomerDebitNotePageState extends State<CustomerDebitNotePage> {
     if (changed && mounted) await _load();
   }
 
+  /// Render the note on the server and hand it to the machine's printer.
+  Future<void> _print(CustomerDebitNoteRecord note) async {
+    try {
+      final List<int> pdf = await widget.api.printCustomerDebitNote(note.id);
+      if (!mounted) return;
+      await printDocument(
+        context,
+        bytes: pdf,
+        documentName: note.debitNoteNumber,
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
   Future<void> _act(
     CustomerDebitNoteRecord note,
     Future<CustomerDebitNoteRecord> Function() action,
@@ -359,6 +380,14 @@ class _CustomerDebitNotePageState extends State<CustomerDebitNotePage> {
       commands: _bulkMode
           ? _bulkCommands()
           : [
+        // Any status prints: a draft carries a DRAFT banner from the server.
+        ToolbarCommand(
+          id: 'print',
+          label: 'Print',
+          icon: Icons.print_outlined,
+          onPressed:
+              selected == null ? null : () => unawaited(_print(selected)),
+        ),
         ToolbarCommand(
           id: 'approve',
           label: 'Approve',

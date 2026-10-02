@@ -1162,3 +1162,112 @@ def test_offline_notes_go_out_with_the_invoices_and_come_back_by_type() -> None:
         books.invoice.id, firm_scope=books.firm.id
     )
     assert invoice_row is not None and invoice_row.status == "PENDING"
+
+
+# -- The IRN and signed QR on the printed document (backlog 77 row 11) ---------
+
+
+def test_a_registered_invoice_prints_its_irn_and_qr() -> None:
+    """The bill carries the IRN and acknowledgement; an unregistered one does not."""
+    from app.sales_invoice.services.invoice_print_service import (
+        SalesInvoicePrintService,
+    )
+
+    books = _Books(_session_factory()())
+    printer = SalesInvoicePrintService(books.session)
+    assert printer._document(books.invoice, firm_scope=books.firm.id).einvoice is None
+
+    row = books.register()
+    books.session.commit()
+
+    stamp = printer._document(books.invoice, firm_scope=books.firm.id).einvoice
+    assert stamp is not None
+    assert stamp.irn == row.irn  # type: ignore[attr-defined]
+    assert stamp.acknowledgement_number == row.acknowledgement_number  # type: ignore[attr-defined]
+    assert stamp.signed_qr
+
+
+def test_a_withdrawn_registration_is_not_printed() -> None:
+    """A cancelled IRN is not one the bill may claim."""
+    from app.sales_invoice.services.invoice_print_service import einvoice_stamp
+
+    books = _Books(_session_factory()())
+    books.register()
+    books.service().cancel(
+        books.invoice.id,
+        reason="Wrong buyer",
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+
+    assert (
+        einvoice_stamp(
+            books.session, firm_scope=books.firm.id, sales_invoice_id=books.invoice.id
+        )
+        is None
+    )
+
+
+def test_a_registered_credit_note_prints_against_its_invoice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Title, the invoice it corrects, the tax heads and the IRN all print."""
+    from app.einvoice.services.note_registration import NoteRegistrationService
+    from app.sales_invoice.services.invoice_pdf import PartyBlock
+    from app.sales_invoice.services.invoice_print_service import (
+        SalesInvoicePrintService,
+    )
+    from app.sales_invoice.services.note_print_service import NotePrintService
+    from tests.unit.test_invoice_print import _text_of
+
+    monkeypatch.setattr(
+        SalesInvoicePrintService,
+        "_seller",
+        lambda self, firm_scope: PartyBlock(name="Seller Co", address_lines=[]),
+    )
+    books = _Books(_session_factory()())
+    note = _note(books, "CREDIT_NOTE")
+    row = NoteRegistrationService(books.session, base=books.service()).register(
+        "CREDIT_NOTE", note.id, firm_scope=books.firm.id, actor_id=books.actor_id  # type: ignore[attr-defined]
+    )
+    books.session.commit()
+
+    pdf, filename = NotePrintService(books.session).render(
+        "CREDIT_NOTE", note.id, firm_scope=books.firm.id  # type: ignore[attr-defined]
+    )
+
+    text = _text_of(pdf)
+    assert filename == "CN-1.pdf"
+    assert "CREDIT NOTE" in text
+    assert "Against invoice" in text and "SI-1" in text
+    assert "E-INVOICE" in text and str(row.irn)[:20] in text
+    assert "CGST" in text and "18.00" in text
+
+
+def test_a_debit_note_prints_without_a_registration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A note never registered prints with no e-invoice block."""
+    from app.sales_invoice.services.invoice_pdf import PartyBlock
+    from app.sales_invoice.services.invoice_print_service import (
+        SalesInvoicePrintService,
+    )
+    from app.sales_invoice.services.note_print_service import NotePrintService
+    from tests.unit.test_invoice_print import _text_of
+
+    monkeypatch.setattr(
+        SalesInvoicePrintService,
+        "_seller",
+        lambda self, firm_scope: PartyBlock(name="Seller Co", address_lines=[]),
+    )
+    books = _Books(_session_factory()())
+    note = _note(books, "DEBIT_NOTE")
+
+    pdf, _ = NotePrintService(books.session).render(
+        "DEBIT_NOTE", note.id, firm_scope=books.firm.id  # type: ignore[attr-defined]
+    )
+
+    text = _text_of(pdf)
+    assert "DEBIT NOTE" in text and "SDN-1" in text
+    assert "E-INVOICE" not in text

@@ -100,6 +100,9 @@ screen (1.1.0).
   decision A38).
 - **Choosing batches on a counter bill**: a batch-tracked line opens the same
   picker as the delivery note, and the batch chosen is the one that leaves.
+- **The IRN and signed QR print** on a registered invoice, credit note
+  and debit note; credit and debit notes to customers can now be printed
+  (§77 row 11).
 - **Credit and debit notes are e-invoiced** like invoices, through the
   sandbox or the offline portal upload (§77 row 4).
 - **E-way bills for every consignment**: from the invoice without an IRN

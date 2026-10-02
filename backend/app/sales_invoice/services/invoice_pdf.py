@@ -21,6 +21,8 @@ from decimal import Decimal
 from io import BytesIO
 from xml.sax.saxutils import escape
 
+from reportlab.graphics.barcode.qr import QrCodeWidget
+from reportlab.graphics.shapes import Drawing
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.pagesizes import A4, A5
@@ -171,6 +173,21 @@ class InvoiceLineBlock:
 
 
 @dataclass(frozen=True, slots=True)
+class EInvoiceStamp:
+    """What the portal returned, as the printed document must carry it.
+
+    Rule 48(4): a registered invoice -- and a registered credit or debit
+    note -- carries its IRN and the signed QR the portal issued. Tally, Zoho
+    and Marg print both in the head with the acknowledgement number and date.
+    """
+
+    irn: str
+    acknowledgement_number: str | None
+    acknowledged_on: str | None
+    signed_qr: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class InvoiceDocument:
     """Everything the renderer needs, already resolved."""
 
@@ -217,6 +234,9 @@ class InvoiceDocument:
     #: looked like one could be handed to a customer before it was approved
     #: and posted. None for a document that stands.
     not_final: str | None = None
+    #: The registration the portal issued, printed under the banner (77 row
+    #: 11). None for a document that is not registered.
+    einvoice: EInvoiceStamp | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -362,6 +382,10 @@ class InvoicePdfRenderer:
         story: list[object] = [
             self._title_bar(width, copy_label, document.not_final),
             Spacer(1, 4),
+        ]
+        if document.einvoice is not None:
+            story.extend([self._einvoice_block(document.einvoice, width), Spacer(1, 2)])
+        story += [
             self._parties(document, width),
             Spacer(1, 2),
             self._addresses(document, width),
@@ -399,6 +423,52 @@ class InvoicePdfRenderer:
                 ]
             )
         )
+        return table
+
+    def _einvoice_block(self, stamp: EInvoiceStamp, width: float) -> Table:
+        """Draw the IRN and acknowledgement beside the signed QR (77 row 11)."""
+        facts = [Paragraph("E-INVOICE", self._label)]
+        facts.append(Paragraph(f"<b>IRN</b> {escape(stamp.irn)}", self._small))
+        if stamp.acknowledgement_number:
+            facts.append(
+                Paragraph(
+                    f"<b>Ack No.</b> {escape(stamp.acknowledgement_number)}",
+                    self._small,
+                )
+            )
+        if stamp.acknowledged_on:
+            facts.append(
+                Paragraph(
+                    f"<b>Ack Date</b> {escape(stamp.acknowledged_on)}", self._small
+                )
+            )
+        side = 26 * mm
+        code: object = ""
+        if stamp.signed_qr:
+            widget = QrCodeWidget(stamp.signed_qr, barLevel="M")
+            left, bottom, right, top = widget.getBounds()
+            # Scaled by the drawing: the widget itself takes no transform.
+            drawing = Drawing(
+                side,
+                side,
+                transform=[
+                    side / (right - left),
+                    0,
+                    0,
+                    side / (top - bottom),
+                    0,
+                    0,
+                ],
+            )
+            drawing.add(widget)
+            code = drawing
+        table = Table(
+            [[facts, code]],
+            colWidths=[width - side - 8, side + 8],
+        )
+        style = self._boxed()
+        style.add("VALIGN", (0, 0), (-1, -1), "MIDDLE")
+        table.setStyle(style)
         return table
 
     def _party_paragraphs(self, party: PartyBlock) -> list[Paragraph]:
