@@ -155,6 +155,7 @@ def batch_availability(
     quantity: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
     sales_order_line_id: UUID | None = None,
     near_expiry_days: Annotated[int | None, Query(ge=0, le=3650)] = None,
+    customer_id: UUID | None = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[BatchAvailability]]:
     """List a product's batches in a warehouse with what each can give (79).
@@ -162,21 +163,25 @@ def batch_availability(
     ``as_of`` is the document's date (today if absent), so expiry is judged as
     dispatch will judge it; ``quantity`` asks for the earliest-expiry split to
     pre-fill; ``sales_order_line_id`` counts that line's own hold as its own.
-    ``near_expiry_days`` defaults to the firm's own window (79 row 6).
+    ``near_expiry_days`` defaults to the firm's own window (79 row 6), and
+    ``customer_id`` flags the batches too short-dated for that customer.
     """
+    on = as_of or utc_now().date()
+    policy = BatchSalePolicyService(db)
     rows = BatchSerialService(db).batch_availability(
         firm_scope=scope.firm_id,
         product_id=product_id,
         warehouse_id=warehouse_id,
         storage_node_id=storage_node_id,
-        as_of=as_of or utc_now().date(),
+        as_of=on,
         quantity=quantity,
         sales_order_line_id=sales_order_line_id,
         near_expiry_days=(
             near_expiry_days
             if near_expiry_days is not None
-            else BatchSalePolicyService(db).near_expiry_days(scope.firm_id)
+            else policy.near_expiry_days(scope.firm_id)
         ),
+        keep_until=policy.keep_until(customer_id, on=on),
     )
     return ApiResponse(data=rows)
 

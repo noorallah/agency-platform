@@ -192,10 +192,14 @@ class BatchAvailability(BatchSchema):
     expired: bool
     near_expiry: bool
     fefo: Decimal = Decimal("0")
+    #: Expires before the customer's minimum shelf life asks the goods to
+    #: last (backlog 79 row 6): never pre-filled.
+    short_for_customer: bool = False
 
 
 NearExpiryPolicy = Literal["WARN", "REASON"]
 FefoSkipPolicy = Literal["RECORD", "REASON"]
+ShelfLifePolicy = Literal["WARN", "BLOCK"]
 
 
 class BatchSaleSettingsWrite(BatchSchema):
@@ -205,6 +209,8 @@ class BatchSaleSettingsWrite(BatchSchema):
     near_expiry_policy: NearExpiryPolicy
     fefo_skip_policy: FefoSkipPolicy
     near_expiry_below_floor: bool
+    #: A hand-chosen batch short of the customer's minimum shelf life.
+    shelf_life_policy: ShelfLifePolicy = "BLOCK"
 
 
 class BatchSaleSettingsResponse(BatchSaleSettingsWrite):
@@ -217,8 +223,8 @@ class DispatchBatchFinding(BatchSchema):
     """One line of a delivery note whose batches a rule has something to say on."""
 
     line_number: int
-    #: NEAR_EXPIRY or FEFO_SKIP.
-    kind: Literal["NEAR_EXPIRY", "FEFO_SKIP"]
+    #: NEAR_EXPIRY, FEFO_SKIP or SHORT_SHELF_LIFE.
+    kind: Literal["NEAR_EXPIRY", "FEFO_SKIP", "SHORT_SHELF_LIFE"]
     message: str
 
 
@@ -229,6 +235,9 @@ class DispatchBatchCheck(BatchSchema):
     #: True when a finding's rule is REASON: dispatch needs ``batch_reason``.
     needs_reason: bool
     message: str | None
+    #: True when dispatch will be refused whatever reason is given: a batch
+    #: short of the customer's minimum shelf life under BLOCK.
+    would_block: bool = False
 
 
 # ── Lot schemas ──────────────────────────────────────────────────────────────

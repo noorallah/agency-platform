@@ -39,6 +39,7 @@ DEFAULT_NEAR_EXPIRY_DAYS = 30
 DEFAULT_NEAR_EXPIRY_POLICY = "WARN"
 DEFAULT_FEFO_SKIP_POLICY = "RECORD"
 DEFAULT_NEAR_EXPIRY_BELOW_FLOOR = True
+DEFAULT_SHELF_LIFE_POLICY = "BLOCK"
 
 _ZERO = Decimal("0")
 
@@ -85,6 +86,7 @@ class BatchSalePolicyService:
                 near_expiry_policy=DEFAULT_NEAR_EXPIRY_POLICY,
                 fefo_skip_policy=DEFAULT_FEFO_SKIP_POLICY,
                 near_expiry_below_floor=DEFAULT_NEAR_EXPIRY_BELOW_FLOOR,
+                shelf_life_policy=DEFAULT_SHELF_LIFE_POLICY,
                 is_configured=False,
             )
         return BatchSaleSettingsResponse(
@@ -92,6 +94,7 @@ class BatchSalePolicyService:
             near_expiry_policy=stored.near_expiry_policy,
             fefo_skip_policy=stored.fefo_skip_policy,
             near_expiry_below_floor=stored.near_expiry_below_floor,
+            shelf_life_policy=stored.shelf_life_policy,
             is_configured=True,
         )
 
@@ -110,6 +113,7 @@ class BatchSalePolicyService:
         row.near_expiry_policy = data.near_expiry_policy
         row.fefo_skip_policy = data.fefo_skip_policy
         row.near_expiry_below_floor = data.near_expiry_below_floor
+        row.shelf_life_policy = data.shelf_life_policy
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -137,6 +141,7 @@ class BatchSalePolicyService:
             "near_expiry_policy": row.near_expiry_policy,
             "fefo_skip_policy": row.fefo_skip_policy,
             "near_expiry_below_floor": row.near_expiry_below_floor,
+            "shelf_life_policy": row.shelf_life_policy,
         }
 
     def near_expiry_days(self, firm_id: UUID) -> int:
@@ -172,6 +177,40 @@ class BatchSalePolicyService:
                     BatchRecord.expiry_date > as_of,
                     BatchRecord.expiry_date <= as_of + timedelta(days=window),
                     BatchRecord.status != "EXPIRED",
+                )
+                .order_by(BatchRecord.expiry_date.asc(), BatchRecord.id.asc())
+            )
+        )
+
+    def keep_until(self, customer_id: UUID | None, *, on: date) -> date | None:
+        """Return the date a customer's goods must last to, or None (79 row 6).
+
+        Read from the customer's minimum shelf life on the document's date.
+        """
+        if customer_id is None:
+            return None
+        # Imported here: customers is a large module batch_serial need not load.
+        from app.customers.models import Customer
+
+        days = self._session.scalar(
+            select(Customer.minimum_shelf_life_days).where(Customer.id == customer_id)
+        )
+        return on + timedelta(days=int(days)) if days else None
+
+    def short_of(
+        self, batch_ids: Sequence[UUID | None], *, keep_until: date
+    ) -> list[BatchRecord]:
+        """Return the named batches that expire before ``keep_until``."""
+        wanted = [batch_id for batch_id in batch_ids if batch_id is not None]
+        if not wanted:
+            return []
+        return list(
+            self._session.scalars(
+                select(BatchRecord)
+                .where(
+                    BatchRecord.id.in_(wanted),
+                    BatchRecord.expiry_date.is_not(None),
+                    BatchRecord.expiry_date < keep_until,
                 )
                 .order_by(BatchRecord.expiry_date.asc(), BatchRecord.id.asc())
             )

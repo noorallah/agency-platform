@@ -293,3 +293,9 @@ class BatchSaleSettings(BaseEntity):
     near_expiry_below_floor: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+    #: A batch chosen by hand with less shelf life left than the customer
+    #: asks for: BLOCK refuses the dispatch, WARN records it. Earliest-expiry
+    #: allocation passes over such a batch whatever this says.
+    shelf_life_policy: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="BLOCK", server_default="BLOCK"
+    )
