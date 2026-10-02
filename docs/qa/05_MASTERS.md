@@ -143,6 +143,14 @@ warehouse rename its capability flags.
 - **Preconditions:** a customer `QA-HO` with GSTIN `29AAACP1234C1Z5`.
 - **Steps:** Masters → Customers → **New**: code `QA-KA2`, GSTIN `29AAACP1234C1Z5` → Save; on the question, **Cancel**; then Save again → **Save anyway**. New again: code `QA-TN`, GSTIN `33AAACP1234C1Z9` → Save → Save anyway. Then New with code `QA-HO` again.
 - **Expect:** the first save asks "Same GSTIN or PAN on another customer", naming **QA-HO** for both the GSTIN and the PAN; Cancel keeps everything typed and saves nothing; Save anyway saves. `QA-TN` is asked about the PAN only, and its PAN box holds `AAACP1234C` (filled from the GSTIN, no longer left blank). A second `QA-HO` is refused: "Customer code QA-HO already exists in this firm."
+
+### TC-MAST-010 — Mapping another software's export on import
+
+*Added 2026-10-02 (decision B3).*
+
+- **Preconditions:** a CSV with the headings `Account No`, `Ledger Name`, `GSTIN/UIN`, `Remarks` and two customer rows (as a Tally ledger export might be).
+- **Steps:** Masters → Customers → "..." → **Import** → choose the file. Look at the mapping table. Leave `Account No` as *Not imported* and press **Check**. Then map `Account No` → **Code**, `Remarks` → *Not imported* → **Save mapping as...** "Tally ledgers" → **Check** → **Import**. Close, open Import again with the same file, choose *Saved mappings* → "Tally ledgers".
+- **Expect:** the table shows each heading with sample values; `Ledger Name` is already mapped to **Name** and `GSTIN/UIN` to **GSTIN**; `Account No` starts *Not imported*. With Code unmapped, Check is held back with a warning that the required **Code** column is not mapped. Mapped, the check is clean and the import creates both customers. The saved mapping fills the table the same way on the second open.
 ---
 
 ## Screen checks

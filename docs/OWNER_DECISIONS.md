@@ -20,7 +20,7 @@ The ones that change the product, in the order they will be built:
 8. A29 ready-made reverse-charge rules in the GST template -- **built (#928)**
 9. B1 firm administrator reads own audit trail -- **built (#929)**
 10. B2 refuse a custom field's type change once it holds values (check what is built) -- **already built**
-11. B3 field mapping on file imports
+11. B3 field mapping on file imports -- **built**
 12. B6 India Post PIN directory
 13. B8 drop TCS 27EQ from the backlog -- **done**
 
@@ -78,7 +78,7 @@ For the CA, in the hand-over: A5, A8, A9, A20, A31. Waiting on the owner: A13
 | --- | --- | --- |
 | B1 | Firm audit trail (Also open, after §33) | Should a firm administrator read their own firm's audit trail? Today only the platform tier can. Recommended: split a firm-scoped `FIRM_AUDIT_LOG_VIEW` -- **Answered 2026-10-02:** **Yes:** a firm-scoped `FIRM_AUDIT_LOG_VIEW` for the firm administrator, own firm only. **Built 2026-10-02** (`20261002_0222`); the administrator could already read it since 2026-09-06 -- what is new is that they can grant it. |
 | B2 | §16 custom fields | May a firm administrator change their own business profile once trading? Refuse or convert a custom field's type change (recommended: refuse) -- **Answered 2026-10-02:** Changing a trading firm's business profile is a platform-administrator action; a custom field's type cannot change once it holds values. **Already built**: assigning a firm's business profile is a platform-administrator route (`PUT /business/firms/{id}/profile-assignment`, `require_platform_admin`), and a field's type change is refused once a value is stored (`framework_service.py`, `test_attribute_lifecycle_guards.py`). |
-| B3 | §36 onboarding | Which tools are firms coming from, and real export files from them (Tally XML import is built only against real files) -- **Answered 2026-10-02:** **One common import with field mapping**, so a file from any software (Tally, Marg, Busy, Excel) is mapped onto our templates rather than a reader per product. |
+| B3 | §36 onboarding | Which tools are firms coming from, and real export files from them (Tally XML import is built only against real files) -- **Answered 2026-10-02:** **One common import with field mapping**, so a file from any software (Tally, Marg, Busy, Excel) is mapped onto our templates rather than a reader per product. **Built 2026-10-02**: preview, suggested mapping, saved mappings per firm and import (`app/imports`, migration 0226), on all six file imports. |
 | B4 | §70 rows 9-10 | FIFO costing as a firm option? A *warn* rather than *refuse* policy for negative stock at the counter? -- **Answered 2026-10-02:** Weighted average only; negative stock at the counter stays refused. |
 | B5 | §75 row 3 | One GSTIN or PAN on several customer accounts (branches of one company) -- allow? (Goes with A7) -- **Answered 2026-10-02:** Allowed with a warning (A7). |
 | B6 | §41 | Districts / cities / PIN codes: which source, its licence, and may the server download it -- **Answered 2026-10-02:** India Post's All-India PIN directory (data.gov.in, open licence), shipped with the installer. |
