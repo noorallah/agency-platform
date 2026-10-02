@@ -1109,14 +1109,18 @@ abstract final class ModuleCatalog {
       requiredPermissions: [
         'SETTINGS_VIEW',
         'AUDIT_LOG_VIEW',
+        'FIRM_AUDIT_LOG_VIEW',
         'DIAGNOSTICS_VIEW'
       ],
       requiresAnyPermission: true,
       tabs: [
+        // FIRM_AUDIT_LOG_VIEW reads the selected firm's trail only (B1); the
+        // server refuses it the platform trail.
         ModuleTabDefinition(
           id: 'audit-logs',
           label: 'Audit Logs',
-          requiredPermissions: ['AUDIT_LOG_VIEW'],
+          requiredPermissions: ['AUDIT_LOG_VIEW', 'FIRM_AUDIT_LOG_VIEW'],
+          requiresAnyPermission: true,
           requiresFirm: false,
         ),
         // Its own permission: the audit trail and the crash log answer to

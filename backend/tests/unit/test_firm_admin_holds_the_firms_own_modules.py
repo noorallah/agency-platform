@@ -102,6 +102,9 @@ def test_a_firm_manager_holds_the_same_less_the_administration() -> None:
         "SETTINGS_VIEW",
         "SETTINGS_UPDATE",
         "AUDIT_LOG_VIEW",
+        # Who did what in the firm is the administrator's to read, and to
+        # grant to whoever else should (B1).
+        "FIRM_AUDIT_LOG_VIEW",
     }
 
 

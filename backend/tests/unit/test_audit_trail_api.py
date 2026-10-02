@@ -148,6 +148,42 @@ def test_audit_scope_requires_membership_for_a_firm_trail() -> None:
     assert scope.firm_id == firm.id
 
 
+def test_the_firm_code_reads_a_members_own_firm_and_nothing_else() -> None:
+    """Decision B1: the firm code reads a member's own trail and no other.
+
+    ``FIRM_AUDIT_LOG_VIEW`` is grantable by a firm administrator; it never
+    reads another firm's trail or the platform's.
+    """
+    factory = _session_factory()
+    session = factory()
+    firm = _firm(session, "ONE")
+    other = _firm(session, "TWO")
+    user_id = uuid4()
+    session.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
+    session.commit()
+    accountant = _principal(user_id, {"FIRM_AUDIT_LOG_VIEW"})
+
+    assert audit_scope(accountant, session, firm.id).firm_id == firm.id
+    with pytest.raises(AuthorizationError, match="not authorized"):
+        audit_scope(accountant, session, other.id)
+    with pytest.raises(AuthorizationError, match="Choose a firm"):
+        audit_scope(accountant, session, None)
+
+
+def test_the_firm_code_is_seeded_grantable_and_held_by_the_firm_admin() -> None:
+    """A firm administrator holds it and may grant it; a viewer does not get it."""
+    from app.identity.system_seed import (
+        PLATFORM_PERMISSION_CODES,
+        ROLE_PERMISSION_CODES,
+        SYSTEM_PERMISSION_CODES,
+    )
+
+    assert "FIRM_AUDIT_LOG_VIEW" in SYSTEM_PERMISSION_CODES
+    assert "FIRM_AUDIT_LOG_VIEW" not in PLATFORM_PERMISSION_CODES
+    assert "FIRM_AUDIT_LOG_VIEW" in ROLE_PERMISSION_CODES["FIRM_ADMIN"]
+    assert "FIRM_AUDIT_LOG_VIEW" not in ROLE_PERMISSION_CODES["VIEWER"]
+
+
 def test_firm_trail_excludes_other_firms_and_platform_events() -> None:
     """A firm-scoped read never returns another firm's or platform events."""
     factory = _session_factory()

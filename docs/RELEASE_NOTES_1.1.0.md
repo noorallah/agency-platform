@@ -117,6 +117,9 @@ screen (1.1.0).
 - **Reverse charge, ready-made**: the GST template carries GTA (5%) and legal
   services (18%) under reverse charge, switched off until a firm turns them
   on; applying the template again gives an existing firm the same (A29).
+- **A firm's audit trail can be given to its own people**: the firm
+  administrator may grant *Firm Audit Log View* to any role, which reads that
+  firm's trail and nothing else (decision B1).
 - **Reorder from sales**: the planning formula behind *Below reorder level*
   (#913, decision A39).
 - **Debit note to a customer**: more charged on an invoice after billing,

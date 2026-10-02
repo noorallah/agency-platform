@@ -373,6 +373,10 @@ PERMISSION_GROUPS = {
         # numbering series and print templates.
         "DOCUMENT_SEND",
     ),
+    # A firm's own audit trail (decision B1, 2026-10-02): readable with a firm
+    # selected and nowhere else, so a firm administrator may grant it to their
+    # own roles -- which `AUDIT_LOG_VIEW`, a platform code, they cannot.
+    "firm_audit": ("FIRM_AUDIT_LOG_VIEW",),
     "system_administration": (
         "AUDIT_LOG_VIEW",
         "DIAGNOSTICS_VIEW",
@@ -536,7 +540,8 @@ _SEEDED_ROLE_PERMISSION_CODES = {
     # operational telemetry for whoever maintains the product, kept in one
     # place rather than per firm, and `firm_id` on them is data rather than
     # routing.
-    | frozenset({"SETTINGS_VIEW", "SETTINGS_UPDATE", "AUDIT_LOG_VIEW"}),
+    | frozenset({"SETTINGS_VIEW", "SETTINGS_UPDATE", "AUDIT_LOG_VIEW"})
+    | _codes("firm_audit"),
     "FIRM_MANAGER": _operational_permissions
     - _firm_administration
     - frozenset({"LICENSE_MANAGE"}),
@@ -680,6 +685,8 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             "ROLE_VIEW",
             "PERMISSION_VIEW",
             "AUDIT_LOG_VIEW",
+            # Who did what is not a read-only screen for everybody (B1).
+            "FIRM_AUDIT_LOG_VIEW",
             "SETTINGS_VIEW",
         }
     ),

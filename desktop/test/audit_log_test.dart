@@ -177,6 +177,14 @@ void main() {
       expect(api.requestedAction, 'settlement.receipt.reversed');
     });
 
+    testWidgets('the firm code alone reads the firm trail (B1)',
+        (tester) async {
+      await _pump(tester, _AuditApi(rows: [_entry()]),
+          perms: const ['FIRM_AUDIT_LOG_VIEW']);
+      expect(find.textContaining('do not have permission'), findsNothing);
+      expect(find.text('credit_limit'), findsOneWidget);
+    });
+
     testWidgets('without AUDIT_LOG_VIEW there is nothing to show',
         (tester) async {
       await _pump(tester, _AuditApi(), perms: const ['SETTINGS_VIEW']);
