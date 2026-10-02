@@ -15,9 +15,14 @@ Migration `20260731_0009_customer_management` creates:
 | `customer_contacts` | Multiple customer contact persons |
 
 Every table uses the shared UUID, timestamp, actor, version, and lifecycle
-columns. `customers.firm_id` references `firms.id`. Customer code, GST number,
-and PAN number are unique within a firm. Addresses and contacts are owned by a
-customer and are reconciled as part of the customer transaction.
+columns. `customers.firm_id` references `firms.id`. The customer code is
+unique among a firm's live customers. The GST number and PAN may repeat
+(decision A7, migration 0219): one company is often several accounts -- a
+branch per state shares its PAN, a head office and its outlets may share a
+GSTIN -- so a save that repeats one succeeds and its response `message` names
+the other accounts, and `GET /api/v1/customers/identity-check` lets the form
+ask before it saves. Addresses and contacts are owned by a customer and are
+reconciled as part of the customer transaction.
 
 `credit_limit` and `opening_balance` use `NUMERIC(18,2)`.
 `payment_terms_days` is a non-negative integer. Customer types are

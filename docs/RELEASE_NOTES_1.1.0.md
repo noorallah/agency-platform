@@ -104,6 +104,9 @@ screen (1.1.0).
   below the price floor with the batches kept on the approval (decision A2).
 - **Debit note on a paid bill**: the part the bill no longer owes is a
   supplier credit, to set against the next bill or be paid back (decision A4).
+- **One company, several customer accounts**: a GSTIN or PAN may repeat
+  across customers; saving one already on another account names it and asks
+  first (decision A7).
 - **Reorder from sales**: the planning formula behind *Below reorder level*
   (#913, decision A39).
 - **Debit note to a customer**: more charged on an invoice after billing,

@@ -5403,7 +5403,7 @@ change) -> 1 -> 2 -> 9 -> 12 -> 13 -> 3, 4 -> 10, 11 -> 14 -> 15, 16 -> 7 ->
 
 ## 75. Masters and configuration against a full ERP checklist
 
-**Status, 2026-10-02:** row 2 built -- a customer's GST registration type (Regular, Composition, Unregistered, SEZ with/without payment, Deemed export, Overseas), stamped on each bill: SEZ is IGST wherever it is, GSTR-1 marks SEWP/SEWOP/DE and files exports in EXP, 3B reports zero-rated supplies in 3.1(b), the e-invoice supply type follows.
+**Status, 2026-10-02:** row 3 decided and built (A7/B5): a GSTIN or PAN may repeat across customers, warned by name before and after the save; the code stays unique (migration 0219). Row 2 built -- a customer's GST registration type (Regular, Composition, Unregistered, SEZ with/without payment, Deemed export, Overseas), stamped on each bill: SEZ is IGST wherever it is, GSTR-1 marks SEWP/SEWOP/DE and files exports in EXP, 3B reports zero-rated supplies in 3.1(b), the e-invoice supply type follows.
 
 Owner, 2026-09-28: after Money (§74), review the masters -- customers,
 suppliers, products, branches and warehouses -- and the configuration they

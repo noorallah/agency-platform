@@ -507,10 +507,11 @@ one implementation:
   a tax row it adds. A PAN or TAN stored before the check existed is left
   alone by an edit that resends it unchanged, and checked the next time
   somebody changes it, so old data never blocks a change of phone number.
-- **A customer's PAN is unique in the firm, and one company holds a GSTIN per
-  state**, so a PAN *filled* from the GSTIN is left blank when another live
-  customer already holds it, rather than refusing the second branch for a PAN
-  nobody typed. A typed PAN still meets the uniqueness check.
+- **A customer's PAN and GSTIN may repeat** (decision A7, 2026-10-02): one
+  company holds a GSTIN per state and is often several accounts, so a PAN
+  filled from the GSTIN is always kept, and a save that repeats either is
+  warned about by name rather than refused. Until A7 the PAN was unique and a
+  filled one was left blank for the second branch.
 
 ## A month's GST is settled in one journal
 
