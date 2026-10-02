@@ -125,6 +125,14 @@ class BusinessFeatureResponse(BusinessFrameworkSchema):
     updated_at: datetime
 
 
+class BusinessFeatureWriteResponse(BusinessFeatureResponse):
+    """A saved feature, and how far it reached across the stores (MST-7)."""
+
+    stores: list[ProfileStoreOutcome] = Field(default_factory=list)
+    #: Set when a store did not take it: the summary of which and why.
+    warning: str | None = None
+
+
 class BusinessModuleCreate(BusinessFrameworkSchema):
     """Payload for creating a module definition."""
 
@@ -159,6 +167,14 @@ class BusinessModuleResponse(BusinessFrameworkSchema):
     version: int
     created_at: datetime
     updated_at: datetime
+
+
+class BusinessModuleWriteResponse(BusinessModuleResponse):
+    """A saved module, and how far it reached across the stores (MST-7)."""
+
+    stores: list[ProfileStoreOutcome] = Field(default_factory=list)
+    #: Set when a store did not take it: the summary of which and why.
+    warning: str | None = None
 
 
 class AttributeDefinitionCreate(BusinessFrameworkSchema):

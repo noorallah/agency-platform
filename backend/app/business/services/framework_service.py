@@ -2,6 +2,7 @@
 
 # ruff: noqa: D102, D107
 
+from collections.abc import Callable
 from datetime import datetime
 from typing import cast
 from uuid import UUID
@@ -245,6 +246,118 @@ class BusinessProfileFrameworkService:
             self._session,
             action="business_profile.updated",
             entity_type="business_profile",
+            row=row,
+            actor_id=actor_id,
+            before=before,
+        )
+        self._session.commit()
+        return "updated"
+
+    #: The columns a feature carries from one store to the next (MST-7).
+    MIRRORED_FEATURE_FIELDS = (
+        "code",
+        "name",
+        "description",
+        "category",
+        "default_enabled",
+        "is_active",
+        "is_implemented",
+    )
+    #: The columns a module carries from one store to the next (MST-7).
+    MIRRORED_MODULE_FIELDS = (
+        "code",
+        "name",
+        "description",
+        "ui_route",
+        "default_enabled",
+        "is_active",
+    )
+
+    def mirror_feature(self, source: BusinessFeature, actor_id: UUID) -> str:
+        """Make this store's copy of a feature match ``source``, by id (MST-7).
+
+        The same reasoning and outcomes as :meth:`mirror_profile`: a feature
+        made at runtime is copied under **the same id**, so a profile that
+        enables it means the same feature in every store.
+        """
+        return self._mirror_catalogue_row(
+            BusinessFeature,
+            source,
+            self.MIRRORED_FEATURE_FIELDS,
+            entity="business_feature",
+            delete=self.delete_feature,
+            actor_id=actor_id,
+        )
+
+    def mirror_module(self, source: BusinessModule, actor_id: UUID) -> str:
+        """Make this store's copy of a module match ``source``, by id (MST-7)."""
+        return self._mirror_catalogue_row(
+            BusinessModule,
+            source,
+            self.MIRRORED_MODULE_FIELDS,
+            entity="business_module",
+            delete=self.delete_module,
+            actor_id=actor_id,
+        )
+
+    def _mirror_catalogue_row(
+        self,
+        model: type[BusinessFeature] | type[BusinessModule],
+        source: BusinessFeature | BusinessModule,
+        fields: tuple[str, ...],
+        *,
+        entity: str,
+        delete: Callable[[UUID, UUID], None],
+        actor_id: UUID,
+    ) -> str:
+        """Create, update or delete this store's copy of one catalogue row.
+
+        Returns ``created``, ``updated``, ``deleted`` or ``unchanged``.
+
+        Raises:
+            ConflictError: If this store holds a different live row under the
+                same code, which is reported rather than overwritten.
+
+        """
+        row = self._session.get(model, source.id)
+        if source.is_deleted:
+            if row is None or row.is_deleted:
+                return "unchanged"
+            delete(row.id, actor_id)
+            return "deleted"
+        self._assert_unique(model, source.code, current_id=source.id)
+        values = {name: getattr(source, name) for name in fields}
+        if row is None:
+            created = model(
+                id=source.id, **values, created_by=actor_id, updated_by=actor_id
+            )
+            self._session.add(created)
+            self._session.flush()
+            record_change(
+                self._session,
+                action=f"{entity}.created",
+                entity_type=entity,
+                row=created,
+                actor_id=actor_id,
+            )
+            self._session.commit()
+            return "created"
+        if not row.is_deleted and all(
+            getattr(row, name) == value for name, value in values.items()
+        ):
+            self._session.commit()
+            return "unchanged"
+        before = row_state(row)
+        for name, value in values.items():
+            setattr(row, name, value)
+        row.is_deleted = False
+        row.deleted_at = None
+        row.deleted_by = None
+        row.updated_by = actor_id
+        record_change(
+            self._session,
+            action=f"{entity}.updated",
+            entity_type=entity,
             row=row,
             actor_id=actor_id,
             before=before,

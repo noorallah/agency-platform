@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session
 from app.business.models import (
     AttributeDefinition,
     AttributeEntityType,
+    BusinessFeature,
+    BusinessModule,
     BusinessProfile,
     CategoryAttributeRule,
 )
@@ -27,9 +29,11 @@ from app.business.schemas import (
     BusinessFeatureCreate,
     BusinessFeatureResponse,
     BusinessFeatureUpdate,
+    BusinessFeatureWriteResponse,
     BusinessModuleCreate,
     BusinessModuleResponse,
     BusinessModuleUpdate,
+    BusinessModuleWriteResponse,
     BusinessProfileConfigurationResponse,
     BusinessProfileCreate,
     BusinessProfileResponse,
@@ -48,6 +52,8 @@ from app.business.services import AttributeService, BusinessProfileFrameworkServ
 from app.business.services.profile_replication import (
     other_profile_stores,
     replicate,
+    replicate_feature,
+    replicate_module,
     replicate_profile,
 )
 from app.business.services.profile_replication import (
@@ -243,16 +249,20 @@ def list_features(
 
 @router.post(
     "/features",
-    response_model=ApiResponse[BusinessFeatureResponse],
+    response_model=ApiResponse[BusinessFeatureWriteResponse],
     status_code=status.HTTP_201_CREATED,
 )
 def create_feature(
     data: BusinessFeatureCreate,
     principal: PlatformPrincipal,
+    request: Request,
     db: Session = Depends(get_db),
-) -> ApiResponse[BusinessFeatureResponse]:
-    row = _service(db).create_feature(data, _actor_id(principal))
-    return ApiResponse(data=BusinessFeatureResponse.model_validate(row))
+    platform_db: Session = Depends(get_platform_db),
+) -> ApiResponse[BusinessFeatureWriteResponse]:
+    """Create a feature here, then in every other store under the same id (MST-7)."""
+    actor_id = _actor_id(principal)
+    row = _service(db).create_feature(data, actor_id)
+    return _replicated_feature(row, request, platform_db, actor_id)
 
 
 @router.put(
@@ -263,24 +273,62 @@ def update_feature(
     data: BusinessFeatureUpdate,
     principal: PlatformPrincipal,
     response: Response,
+    request: Request,
     db: Session = Depends(get_db),
+    platform_db: Session = Depends(get_platform_db),
     expected_version: ExpectedVersion = None,
-) -> ApiResponse[BusinessFeatureResponse]:
-    row = _service(db).update_feature(
-        feature_id, data, _actor_id(principal), expected_version
-    )
+) -> ApiResponse[BusinessFeatureWriteResponse]:
+    """Change a feature here, then in every other store (MST-7)."""
+    actor_id = _actor_id(principal)
+    row = _service(db).update_feature(feature_id, data, actor_id, expected_version)
     set_etag(response, row)
-    return ApiResponse(data=BusinessFeatureResponse.model_validate(row))
+    return _replicated_feature(row, request, platform_db, actor_id)
 
 
-@router.delete("/features/{feature_id}", status_code=status.HTTP_204_NO_CONTENT)
+def _replicated_feature(
+    row: BusinessFeature, request: Request, platform_db: Session, actor_id: UUID
+) -> ApiResponse[BusinessFeatureWriteResponse]:
+    """Carry a saved feature to every other store and report each (MST-7)."""
+    outcomes = replicate_feature(
+        row, other_profile_stores(request, platform_db), actor_id
+    )
+    body = BusinessFeatureResponse.model_validate(row).model_dump()
+    message = replication_summary(outcomes)
+    failed = any(item.status == "FAILED" for item in outcomes)
+    return ApiResponse(
+        data=BusinessFeatureWriteResponse(
+            **body, stores=outcomes, warning=message if failed else None
+        ),
+        message=message,
+    )
+
+
+@router.delete(
+    "/features/{feature_id}", response_model=ApiResponse[list[ProfileStoreOutcome]]
+)
 def delete_feature(
     feature_id: UUID,
     principal: PlatformPrincipal,
+    request: Request,
     db: Session = Depends(get_db),
-) -> Response:
-    _service(db).delete_feature(feature_id, _actor_id(principal))
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    platform_db: Session = Depends(get_platform_db),
+) -> ApiResponse[list[ProfileStoreOutcome]]:
+    """Delete a feature here, then in every other store (MST-7).
+
+    A store where a profile still enables it refuses, as this store would,
+    and is reported by name rather than skipped.
+    """
+    actor_id = _actor_id(principal)
+    _service(db).delete_feature(feature_id, actor_id)
+    row = db.get(BusinessFeature, feature_id)
+    outcomes = (
+        []
+        if row is None
+        else replicate_feature(
+            row, other_profile_stores(request, platform_db), actor_id
+        )
+    )
+    return ApiResponse(data=outcomes, message=replication_summary(outcomes))
 
 
 @router.get("/modules", response_model=PaginatedResponse[BusinessModuleResponse])
@@ -305,16 +353,20 @@ def list_modules(
 
 @router.post(
     "/modules",
-    response_model=ApiResponse[BusinessModuleResponse],
+    response_model=ApiResponse[BusinessModuleWriteResponse],
     status_code=status.HTTP_201_CREATED,
 )
 def create_module(
     data: BusinessModuleCreate,
     principal: PlatformPrincipal,
+    request: Request,
     db: Session = Depends(get_db),
-) -> ApiResponse[BusinessModuleResponse]:
-    row = _service(db).create_module(data, _actor_id(principal))
-    return ApiResponse(data=BusinessModuleResponse.model_validate(row))
+    platform_db: Session = Depends(get_platform_db),
+) -> ApiResponse[BusinessModuleWriteResponse]:
+    """Create a module here, then in every other store under the same id (MST-7)."""
+    actor_id = _actor_id(principal)
+    row = _service(db).create_module(data, actor_id)
+    return _replicated_module(row, request, platform_db, actor_id)
 
 
 @router.put("/modules/{module_id}", response_model=ApiResponse[BusinessModuleResponse])
@@ -323,24 +375,56 @@ def update_module(
     data: BusinessModuleUpdate,
     principal: PlatformPrincipal,
     response: Response,
+    request: Request,
     db: Session = Depends(get_db),
+    platform_db: Session = Depends(get_platform_db),
     expected_version: ExpectedVersion = None,
-) -> ApiResponse[BusinessModuleResponse]:
-    row = _service(db).update_module(
-        module_id, data, _actor_id(principal), expected_version
-    )
+) -> ApiResponse[BusinessModuleWriteResponse]:
+    """Change a module here, then in every other store (MST-7)."""
+    actor_id = _actor_id(principal)
+    row = _service(db).update_module(module_id, data, actor_id, expected_version)
     set_etag(response, row)
-    return ApiResponse(data=BusinessModuleResponse.model_validate(row))
+    return _replicated_module(row, request, platform_db, actor_id)
 
 
-@router.delete("/modules/{module_id}", status_code=status.HTTP_204_NO_CONTENT)
+def _replicated_module(
+    row: BusinessModule, request: Request, platform_db: Session, actor_id: UUID
+) -> ApiResponse[BusinessModuleWriteResponse]:
+    """Carry a saved module to every other store and report each (MST-7)."""
+    outcomes = replicate_module(
+        row, other_profile_stores(request, platform_db), actor_id
+    )
+    body = BusinessModuleResponse.model_validate(row).model_dump()
+    message = replication_summary(outcomes)
+    failed = any(item.status == "FAILED" for item in outcomes)
+    return ApiResponse(
+        data=BusinessModuleWriteResponse(
+            **body, stores=outcomes, warning=message if failed else None
+        ),
+        message=message,
+    )
+
+
+@router.delete(
+    "/modules/{module_id}", response_model=ApiResponse[list[ProfileStoreOutcome]]
+)
 def delete_module(
     module_id: UUID,
     principal: PlatformPrincipal,
+    request: Request,
     db: Session = Depends(get_db),
-) -> Response:
-    _service(db).delete_module(module_id, _actor_id(principal))
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    platform_db: Session = Depends(get_platform_db),
+) -> ApiResponse[list[ProfileStoreOutcome]]:
+    """Delete a module here, then in every other store (MST-7)."""
+    actor_id = _actor_id(principal)
+    _service(db).delete_module(module_id, actor_id)
+    row = db.get(BusinessModule, module_id)
+    outcomes = (
+        []
+        if row is None
+        else replicate_module(row, other_profile_stores(request, platform_db), actor_id)
+    )
+    return ApiResponse(data=outcomes, message=replication_summary(outcomes))
 
 
 @router.get(

@@ -31,7 +31,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.business.models import BusinessProfile
+from app.business.models import BusinessFeature, BusinessModule, BusinessProfile
 from app.business.schemas import ProfileStoreOutcome
 from app.business.services.framework_service import BusinessProfileFrameworkService
 from app.core.exceptions import ApplicationError
@@ -59,6 +59,20 @@ def replicate_profile(
         stores,
         lambda service: service.mirror_profile(source, actor_id),
     )
+
+
+def replicate_feature(
+    source: BusinessFeature, stores: list[ProfileStore], actor_id: UUID
+) -> list[ProfileStoreOutcome]:
+    """Write a feature into each store and say what happened (MST-7)."""
+    return replicate(stores, lambda service: service.mirror_feature(source, actor_id))
+
+
+def replicate_module(
+    source: BusinessModule, stores: list[ProfileStore], actor_id: UUID
+) -> list[ProfileStoreOutcome]:
+    """Write a module into each store and say what happened (MST-7)."""
+    return replicate(stores, lambda service: service.mirror_module(source, actor_id))
 
 
 def replicate(
