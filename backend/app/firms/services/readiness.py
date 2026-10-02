@@ -646,11 +646,13 @@ class FirmReadinessService:
         Only Indian GST exists today: one system, four components, the 0, 5,
         12 and 18 percent slabs as local and interstate profiles plus exempt,
         and the nine rules that make interstate (both ways), export, exempt
-        and purchase behave. The country is created in the store if it has none. It is a
-        starting point, edited afterwards on the tax screens.
+        and purchase behave, plus the reverse-charge services and their four
+        rules, switched off (A29). The country is created in the store if it
+        has none. It is a starting point, edited afterwards on the tax screens.
 
-        Idempotent: a firm that already holds a tax system gets nothing, and
-        nothing is recorded, so the same action is the repair.
+        Idempotent: a firm that already holds a tax system gets nothing but
+        the reverse-charge set where it lacks it, and nothing is recorded when
+        nothing was added, so the same action is the repair.
 
         Raises:
             BusinessRuleError: If the template is unknown or the store does

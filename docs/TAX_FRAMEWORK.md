@@ -293,6 +293,16 @@ first two; the **split** changes, and the split is what the GST return needs.
   `20260919_0148` copies each firm's live `INTERSTATE_GST_n` into its purchase
   twin where the firm has none -- never overwriting, and skipping a sales rule
   somebody has rewritten.
+- **Reverse charge, ready-made and switched off (decision A29, 2026-10-02).**
+  The template adds two service profiles, `RCM_GTA_5` (GTA, CGST 2.5 + SGST
+  2.5) and `RCM_LEGAL_18` (legal services, CGST 9 + SGST 9), and four rules,
+  `RCM_GTA_5_INTERSTATE` / `_LOCAL` and `RCM_LEGAL_18_INTERSTATE` / `_LOCAL`,
+  created **INACTIVE**. The interstate one (priority 2) applies the IGST twin;
+  both mark the document reverse charge with its input credit allowed, ahead of
+  every interstate and input-credit rule. A firm that buys freight from a GTA
+  or pays an advocate assigns the profile to that item and activates the
+  rules. Applying the template to a firm that already has GST adds only this
+  set, by code, and never brings back a rule or profile the firm deleted.
 - **`country_id` and `business_profile_id` are derived, not sent.** No document
   supplies either. A country-scoped rule never fired on an invoice, and a
   profile-scoped one fired on five document types but not on goods receipts or

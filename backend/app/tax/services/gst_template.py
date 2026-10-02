@@ -18,7 +18,19 @@ country India is created in the store if the store has none, because a tax
 system belongs to a country and a new dedicated store has no geography at all.
 
 Idempotent: a firm that already holds a GST system gets nothing, which is what
-lets the same action be the repair.
+lets the same action be the repair -- except the **reverse-charge set** (A29),
+which is added by code to any firm whose GST system lacks it, so a firm set up
+before it gets it from the same button.
+
+**Reverse charge, ready-made and switched off (decision A29).** Two service
+profiles -- *GTA under reverse charge* (5%) and *Legal services under reverse
+charge* (18%) -- and four rules, a local and an interstate one for each, that
+mark an inward document as reverse charge with its input credit allowed. The
+rules are created **INACTIVE**: whether a firm buys from a goods transport
+agency or an advocate, and at which rate the GTA charges, is the firm's to say,
+so it assigns the profile to its freight or legal-fees item and activates the
+rules. They outrank the interstate and input-credit rules, because evaluation
+stops at the first match.
 """
 
 from __future__ import annotations
@@ -31,7 +43,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.sales.models.territory import GeoCountry
-from app.tax.models import TaxComponent, TaxProfile, TaxSystem
+from app.tax.models import TaxComponent, TaxProfile, TaxRule, TaxSystem
 from app.tax.schemas import (
     TaxComponentWrite,
     TaxCountryMappingWrite,
@@ -92,6 +104,23 @@ _PROFILES: tuple[tuple[str, str, list[tuple[str, Decimal]]], ...] = (
     ("EXEMPT", "Exempt", []),
 )
 
+#: Service profiles bought under reverse charge (A29): (code, name, local
+#: rows, the interstate twin's code).
+_RCM_PROFILES: tuple[tuple[str, str, list[tuple[str, Decimal]], str], ...] = (
+    (
+        "RCM_GTA_5",
+        "GTA under reverse charge 5%",
+        [("CGST", Decimal("2.5")), ("SGST", Decimal("2.5"))],
+        "GST_5_INTERSTATE",
+    ),
+    (
+        "RCM_LEGAL_18",
+        "Legal services under reverse charge 18%",
+        [("CGST", Decimal("9")), ("SGST", Decimal("9"))],
+        "GST_18_INTERSTATE",
+    ),
+)
+
 
 def firm_has_tax_system(session: Session, firm_id: UUID) -> bool:
     """Whether the firm already holds any live tax system."""
@@ -123,6 +152,16 @@ def apply_india_gst_template(
     """
     created = {"countries": 0, "systems": 0, "components": 0, "profiles": 0, "rules": 0}
     if firm_has_tax_system(session, firm_id):
+        # Only the reverse-charge set, where it is missing (A29).
+        framework = TaxFrameworkService(session)
+        rules = TaxRuleService(session)
+        with framework.staged(), rules.staged():
+            profiles_added, rules_added = _ensure_reverse_charge(
+                session, framework, rules, firm_id=firm_id, actor_id=actor_id
+            )
+            session.flush()
+        created["profiles"] += profiles_added
+        created["rules"] += rules_added
         return created
 
     framework = TaxFrameworkService(session)
@@ -255,7 +294,206 @@ def apply_india_gst_template(
 
         created["rules"] = _create_rules(rules, firm_id, actor_id, country_id, profiles)
         session.flush()
+        profiles_added, rules_added = _ensure_reverse_charge(
+            session, framework, rules, firm_id=firm_id, actor_id=actor_id
+        )
+        created["profiles"] += profiles_added
+        created["rules"] += rules_added
+        session.flush()
     return created
+
+
+def _ensure_reverse_charge(
+    session: Session,
+    framework: TaxFrameworkService,
+    rules: TaxRuleService,
+    *,
+    firm_id: UUID,
+    actor_id: UUID,
+) -> tuple[int, int]:
+    """Add the reverse-charge profiles and inactive rules a firm lacks (A29).
+
+    Looked up by code, so it adds only what is missing and never touches a
+    profile or rule the firm has since edited. Nothing where the firm has no
+    template GST system to hang them on.
+
+    Returns:
+        How many profiles and rules were created.
+
+    """
+    system = session.scalar(
+        select(TaxSystem).where(
+            TaxSystem.firm_id == firm_id,
+            TaxSystem.code == "GST",
+            TaxSystem.is_deleted.is_(False),
+        )
+    )
+    if system is None:
+        return 0, 0
+    components = {
+        row.code: row
+        for row in session.scalars(
+            select(TaxComponent).where(
+                TaxComponent.tax_system_id == system.id,
+                TaxComponent.is_deleted.is_(False),
+            )
+        )
+    }
+    if not {"CGST", "SGST"} <= set(components):
+        return 0, 0
+
+    def profile(code: str) -> TaxProfile | None:
+        """Return the firm's live profile with this code, its newest version."""
+        return session.scalar(
+            select(TaxProfile)
+            .where(
+                TaxProfile.firm_id == firm_id,
+                TaxProfile.tax_system_id == system.id,
+                TaxProfile.code == code,
+                TaxProfile.is_deleted.is_(False),
+            )
+            .order_by(TaxProfile.created_at.desc())
+        )
+
+    profiles_added = rules_added = 0
+    for order, (code, name, rows, interstate_code) in enumerate(
+        _RCM_PROFILES, start=len(_PROFILES) + 1
+    ):
+        local = profile(code)
+        if local is None and session.scalar(
+            select(TaxProfile.id).where(
+                TaxProfile.firm_id == firm_id,
+                TaxProfile.code == code,
+                TaxProfile.is_deleted.is_(True),
+            )
+        ):
+            # The firm deleted it: it decided against buying this way.
+            continue
+        if local is None:
+            local = framework.create_profile(
+                TaxProfileWrite(
+                    tax_system_id=system.id,
+                    business_profile_id=None,
+                    code=code,
+                    name=name,
+                    label=name,
+                    description=(
+                        f"{name}: assign it to the service bought this way, "
+                        "and activate its rules. From the platform template."
+                    ),
+                    status=TaxStatus.ACTIVE,
+                    display_order=order,
+                    is_historical=False,
+                    effective_from=_GST_EFFECTIVE_FROM,
+                    effective_to=None,
+                    components=[
+                        TaxProfileComponentInput(
+                            tax_component_id=components[component].id,
+                            label=component,
+                            short_label=component,
+                            calculation_order=index,
+                            percentage=percentage,
+                            included_in_price=False,
+                            recoverable=True,
+                        )
+                        for index, (component, percentage) in enumerate(rows, start=1)
+                    ],
+                ),
+                firm_id=firm_id,
+                actor_id=actor_id,
+            )
+            profiles_added += 1
+        interstate = profile(interstate_code)
+        group = _group_code(local)
+        for suffix, priority, transaction, twin in (
+            ("INTERSTATE", 2, PURCHASE_INTERSTATE, interstate),
+            ("LOCAL", 3, None, None),
+        ):
+            rule_code = f"{code}_{suffix}"
+            exists = session.scalar(
+                # Deleted ones count: a firm that removed the rule decided
+                # against it, and its code is still taken.
+                select(TaxRule.id).where(
+                    TaxRule.firm_id == firm_id,
+                    TaxRule.code == rule_code,
+                )
+            )
+            if exists is not None or (suffix == "INTERSTATE" and twin is None):
+                continue
+            actions: list[TaxRuleActionWrite] = []
+            if twin is not None:
+                actions.append(
+                    TaxRuleActionWrite(
+                        sequence=1,
+                        action_type=TaxRuleActionType.APPLY_TAX_PROFILE,
+                        target_tax_profile_id=twin.id,
+                    )
+                )
+            actions += [
+                TaxRuleActionWrite(
+                    sequence=len(actions) + 1,
+                    action_type=TaxRuleActionType.REVERSE_CHARGE,
+                ),
+                TaxRuleActionWrite(
+                    sequence=len(actions) + 2,
+                    action_type=TaxRuleActionType.INPUT_CREDIT_ALLOWED,
+                ),
+            ]
+            conditions = [
+                TaxRuleConditionWrite(
+                    sequence=1,
+                    field_key="transaction_type",
+                    operator=(
+                        TaxRuleConditionOperator.EQUALS
+                        if transaction
+                        else TaxRuleConditionOperator.IN
+                    ),
+                    value_text=transaction,
+                    value_number=None,
+                    value_date=None,
+                    value_boolean=None,
+                    value_json=(
+                        None if transaction else {"values": list(INWARD_DOCUMENT_TYPES)}
+                    ),
+                ),
+                TaxRuleConditionWrite(
+                    sequence=2,
+                    field_key="tax_profile_group_code",
+                    operator=TaxRuleConditionOperator.EQUALS,
+                    value_text=group,
+                    value_number=None,
+                    value_date=None,
+                    value_boolean=None,
+                    value_json=None,
+                ),
+            ]
+            where = "interstate" if twin is not None else "local"
+            rules.create_rule(
+                TaxRuleWrite(
+                    country_id=system.country_id,
+                    business_profile_id=None,
+                    tax_profile_id=None,
+                    code=rule_code,
+                    name=f"{name}, {where} purchase",
+                    description=(
+                        f"{name}, {where} purchase: the buyer pays the tax. "
+                        "Inactive until the firm switches it on; from the "
+                        "platform template."
+                    ),
+                    # After EXPORT_ZERO (1), ahead of every interstate and
+                    # input-credit rule: the first match is the only one.
+                    priority=priority,
+                    status=TaxStatus.INACTIVE,
+                    effective_from=_GST_EFFECTIVE_FROM,
+                    effective_to=None,
+                    conditions=conditions,
+                    actions=actions,
+                ),
+                firm_id=firm_id,
+                actor_id=actor_id,
+            )
+            rules_added += 1
+    return profiles_added, rules_added
 
 
 def _interstate_rule(

@@ -1386,7 +1386,8 @@ def test_a_template_refused_part_way_writes_nothing(
     )
     session.commit()
     assert created["systems"] == 1
-    assert created["rules"] == 9
+    # Nine live rules, and the four reverse-charge ones switched off (A29).
+    assert created["rules"] == 13
 
 
 def _audit_actions(session: Session) -> Counter[str]:
@@ -1948,6 +1949,99 @@ def test_the_gst_template_charges_igst_on_a_purchase_from_another_state() -> Non
     assert priced.input_credit_allowed is True
 
 
+def _activate(session: Session, *codes: str) -> None:
+    """Switch template rules on, as a firm would on the Tax Rules screen."""
+    for rule in session.scalars(select(TaxRule).where(TaxRule.code.in_(codes))):
+        rule.status = TaxStatus.ACTIVE.value
+    session.commit()
+
+
+def test_the_reverse_charge_rules_arrive_switched_off() -> None:
+    """A29: ready-made, but a firm decides it buys these services this way."""
+    session = _session_factory()()
+    firm, vendor_id, _ = _template_firm_buying_from_karnataka(session)
+    gta = session.scalar(select(TaxProfile).where(TaxProfile.code == "RCM_GTA_5"))
+    assert gta is not None
+
+    statuses = {
+        rule.code: rule.status
+        for rule in session.scalars(select(TaxRule).where(TaxRule.code.like("RCM_%")))
+    }
+    assert statuses == {
+        "RCM_GTA_5_INTERSTATE": "INACTIVE",
+        "RCM_GTA_5_LOCAL": "INACTIVE",
+        "RCM_LEGAL_18_INTERSTATE": "INACTIVE",
+        "RCM_LEGAL_18_LOCAL": "INACTIVE",
+    }
+    # Off, freight from another state is charged as ordinary 5% GST would be
+    # -- the reverse charge is not assumed.
+    assert _price_purchase(session, firm, vendor_id, gta.id).reverse_charge is False
+
+
+def test_switched_on_gta_freight_is_reverse_charge_with_its_credit() -> None:
+    """Interstate: IGST 5% owed by the firm, the credit allowed."""
+    session = _session_factory()()
+    firm, vendor_id, _ = _template_firm_buying_from_karnataka(session)
+    gta = session.scalar(select(TaxProfile).where(TaxProfile.code == "RCM_GTA_5"))
+    assert gta is not None
+    _activate(session, "RCM_GTA_5_INTERSTATE", "RCM_GTA_5_LOCAL")
+
+    priced = _price_purchase(session, firm, vendor_id, gta.id)
+
+    assert priced.reverse_charge is True
+    assert priced.input_credit_allowed is True
+    assert priced.reverse_charge_tax_amount == Decimal("50.0000")
+
+
+def test_switched_on_legal_fees_from_this_state_are_reverse_charge() -> None:
+    """Local: CGST and SGST at 9% each, owed by the firm."""
+    session = _session_factory()()
+    firm, vendor_id = _inward_setup(
+        session, firm_gstin="33AABCU9603R1ZM", vendor_gstin="33AAACR5055K1Z5"
+    )
+    gst_template.apply_india_gst_template(session, firm_id=firm.id, actor_id=uuid4())
+    session.commit()
+    legal = session.scalar(select(TaxProfile).where(TaxProfile.code == "RCM_LEGAL_18"))
+    assert legal is not None
+    _activate(session, "RCM_LEGAL_18_LOCAL")
+
+    priced = _price_purchase(session, firm, vendor_id, legal.id)
+
+    assert priced.reverse_charge is True
+    assert priced.reverse_charge_tax_amount == Decimal("180.0000")
+
+
+def test_a_firm_templated_before_gets_the_reverse_charge_set_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pressing the template again adds what is missing, by code, once."""
+    session = _session_factory()()
+    firm, _vendor_id = _inward_setup(
+        session, firm_gstin="33AABCU9603R1ZM", vendor_gstin="29AAACR5055K1Z5"
+    )
+    # A firm templated before A29 got no reverse-charge set at all.
+    monkeypatch.setattr(
+        gst_template, "_ensure_reverse_charge", lambda *_a, **_k: (0, 0)
+    )
+    gst_template.apply_india_gst_template(session, firm_id=firm.id, actor_id=uuid4())
+    session.commit()
+    monkeypatch.undo()
+    assert (
+        session.scalars(select(TaxRule).where(TaxRule.code.like("RCM_%"))).all() == []
+    )
+
+    again = gst_template.apply_india_gst_template(
+        session, firm_id=firm.id, actor_id=uuid4()
+    )
+    session.commit()
+    assert (again["systems"], again["profiles"], again["rules"]) == (0, 2, 4)
+
+    third = gst_template.apply_india_gst_template(
+        session, firm_id=firm.id, actor_id=uuid4()
+    )
+    assert third["rules"] == 0
+
+
 def _inward_migration() -> ModuleType:
     """Load ``20260919_0148`` by path; the versions directory is no package."""
     path = (
@@ -2039,8 +2133,9 @@ def test_the_template_matches_on_the_group_and_survives_a_rate_change() -> None:
         ).all()
     )
     assert keys["tax_profile_id"] == 0
-    # Six interstate rules and the exempt rule name a group each.
-    assert keys["tax_profile_group_code"] == 7
+    # Six interstate rules, the exempt rule and the four reverse-charge rules
+    # (A29) name a group each.
+    assert keys["tax_profile_group_code"] == 11
     named = set(
         session.scalars(
             select(TaxRuleCondition.value_text).where(
@@ -2054,6 +2149,8 @@ def test_the_template_matches_on_the_group_and_survives_a_rate_change() -> None:
         "GST_12_LOCAL",
         "GST_18_LOCAL",
         "EXEMPT",
+        "RCM_GTA_5",
+        "RCM_LEGAL_18",
     }
 
 

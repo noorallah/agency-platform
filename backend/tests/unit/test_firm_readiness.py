@@ -417,8 +417,8 @@ class TestTaxTemplate:
             "countries": 1,
             "systems": 1,
             "components": 4,
-            "profiles": 8,
-            "rules": 9,
+            "profiles": 10,
+            "rules": 13,
         }
         assert session.scalar(select(GeoCountry).where(GeoCountry.code == "IN"))
         assert (
@@ -439,18 +439,19 @@ class TestTaxTemplate:
             )
         }
         assert {"GST_18_LOCAL", "GST_18_INTERSTATE", "EXEMPT", "GST_0"} <= profiles
-        assert len(profiles) == 8
+        # The slabs and exempt, and the two reverse-charge services (A29).
+        assert len(profiles) == 10
         assert (
             len(
                 session.scalars(select(TaxRule).where(TaxRule.firm_id == firm.id)).all()
             )
-            == 9
+            == 13
         )
 
         # Readiness now reports tax and geography done.
         readiness = service.readiness(firm, session)
         assert _step(readiness, "tax").status is ReadinessStatus.DONE
-        assert "8 profiles, 9 rules" in _step(readiness, "tax").detail
+        assert "10 profiles, 13 rules" in _step(readiness, "tax").detail
         assert _step(readiness, "geography").status is ReadinessStatus.DONE
 
     def test_is_idempotent_and_records_only_the_first(self) -> None:
@@ -468,7 +469,7 @@ class TestTaxTemplate:
         assert len(rows) == 1
         assert rows[0].after_data is not None
         assert rows[0].after_data["template"] == "IN_GST"
-        assert rows[0].after_data["profiles"] == 8
+        assert rows[0].after_data["profiles"] == 10
 
     def test_reuses_a_country_the_store_already_has(self) -> None:
         from app.sales.models import GeoCountry

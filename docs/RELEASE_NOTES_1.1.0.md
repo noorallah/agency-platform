@@ -114,6 +114,9 @@ screen (1.1.0).
 - **Cash-in-Hand and Bank Accounts groups** for a new firm's chart, so a
   contra voucher offers only money accounts (decision A22; existing firms
   unchanged).
+- **Reverse charge, ready-made**: the GST template carries GTA (5%) and legal
+  services (18%) under reverse charge, switched off until a firm turns them
+  on; applying the template again gives an existing firm the same (A29).
 - **Reorder from sales**: the planning formula behind *Below reorder level*
   (#913, decision A39).
 - **Debit note to a customer**: more charged on an invoice after billing,

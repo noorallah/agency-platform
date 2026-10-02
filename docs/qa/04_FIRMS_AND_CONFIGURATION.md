@@ -126,7 +126,7 @@ step and does four of them.
   2. **(HTTP)** `POST /api/v1/firms/{id}/apply-tax-template` again; then once more with `{"template": "US"}`.
   3. Open this firm → Administration → Configuration → **Tax Configuration**.
 - **Expect**
-  - Step 1: "GST set up: 8 tax profiles and 9 rules." Tax re-reads as "1 tax system, 8 profiles, 9 rules", and **Geography flips to done** ("1 country in the store") — the template adds India to a store that has no country.
+  - Step 1: "GST set up: 10 tax profiles and 13 rules." Tax re-reads as "1 tax system, 10 profiles, 13 rules", and **Geography flips to done** ("1 country in the store") — the template adds India to a store that has no country.
   - Step 2: "The firm already has a tax system; nothing was created.", `already_configured: true`. With `US`: **422**, only `IN_GST` exists. One `firm.tax_template_applied` audit row, not two.
   - Step 3: the system, four components and eight profiles, editable.
 ### TC-FIRM-010 — Assigning the business profile from the panel
