@@ -100,7 +100,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | STK-14 | §70 row 18 | Stock alerts and the inventory dashboard | Nothing | M | Claude alone |
 | STK-15 | §42.13 | Kits and combo packs | Nothing | L | Claude alone |
 | STK-16 | §55 S8 | Barcode label printing | Nothing (label size and printer to test) | S | Claude alone |
-| STK-17 | §75 row 5 | Discontinued products, and products never for sale | Nothing | S | Claude alone |
+| STK-17 | §75 row 5 | Discontinued products, and products never for sale -- **built 2026-10-03** (A58) | Nothing | S | Claude alone |
 | STK-18 | §75 row 6 | Shelf life on the product fills a batch's expiry | Nothing | S | Claude alone |
 | **Accounts** | | | | | |
 | ACC-1 | §42.2 | Bank reconciliation from the bank's statement file | Nothing (a sample statement helps) | L | Claude alone |
@@ -523,6 +523,7 @@ otherwise it is built as written.
 - **What it is:** a discontinued product is no longer bought but still sold until gone; packing material is never sold.
 - **What gets built:** `DISCONTINUED` in `ProductStatus` (`backend/app/products/schemas/product.py`) refused on purchase orders; a *not for sale* flag refused on sales documents (migration). Product editor. Tests.
 - **Depends on:** nothing. **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A58): `DISCONTINUED` sells (`SELLING_STATUSES` in `app/products/services/trading_status.py`) and is refused on a purchase order by name; reorder planning now lists only ACTIVE products, so it is not suggested. `products.not_for_sale` (migration 0241, all stores) refuses the product on every new sales line -- quotation, sales order and the bare bill the chain turns into one -- whatever its status; it is still bought. Product editor: the status lists carry DISCONTINUED and a *Not for sale* switch sits beside *Allow negative stock*. Tests: `test_product_discontinued.py`, `phase2_product_form_test.dart`.
 
 #### STK-18. Shelf life on the product (§75 row 6)
 - **What it is:** a product's shelf life fills each batch's expiry from its manufacturing date.

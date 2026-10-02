@@ -1814,6 +1814,7 @@ class ProductService:
             "minimum_selling_price": product.minimum_selling_price,
             "mrp": product.mrp,
             "status": product.status,
+            "not_for_sale": product.not_for_sale,
             "remarks": product.remarks,
             "track_batch": product.track_batch,
             "track_lot": product.track_lot,

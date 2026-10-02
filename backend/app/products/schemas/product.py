@@ -30,6 +30,10 @@ class ProductStatus(StrEnum):
     ACTIVE = "ACTIVE"
     INACTIVE = "INACTIVE"
     ARCHIVED = "ARCHIVED"
+    #: No longer bought, still sold until the stock is gone (STK-17): refused
+    #: on a purchase order and left out of reorder suggestions, sold as an
+    #: ACTIVE product is.
+    DISCONTINUED = "DISCONTINUED"
 
 
 #: Whether tax paid on a purchase may be claimed as input credit (backlog 78
@@ -154,6 +158,9 @@ class ProductWrite(ProductSchema):
     minimum_selling_price: Decimal | None = Field(default=None, ge=0, max_digits=18)
     mrp: Decimal | None = Field(default=None, ge=0, max_digits=18)
     status: ProductStatus = ProductStatus.ACTIVE
+    #: Bought and stocked but never sold -- packing material, consumables
+    #: (STK-17). Refused on every new sales line.
+    not_for_sale: bool = False
     remarks: str | None = None
     track_batch: bool = False
     track_lot: bool = False
@@ -279,6 +286,7 @@ class ProductResponse(ProductSchema):
     minimum_selling_price: Decimal | None = None
     mrp: Decimal | None
     status: ProductStatus
+    not_for_sale: bool = False
     remarks: str | None
     track_batch: bool
     track_lot: bool
