@@ -104,8 +104,8 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   DateTime _date = DateTime.now();
   List<OutstandingInvoice> _invoices = const [];
 
-  /// What the chosen supplier owes the firm from returns, not yet set
-  /// against a bill. Said before the money goes, because paying a bill
+  /// What the chosen supplier owes the firm from returns and debit notes,
+  /// not yet set against a bill. Said before the money goes, because paying a bill
   /// in full while a credit stands pays the supplier twice (D-FIN-19).
   List<SupplierCredit> _credits = const [];
   bool _busy = false;
@@ -414,8 +414,8 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
                   Text(
                     'This supplier owes the firm '
                     '${_credits.fold<double>(0, (sum, c) => sum + c.available).toStringAsFixed(2)} '
-                    'from returns '
-                    '(${_credits.map((c) => c.returnNumber).join(', ')}). '
+                    'in supplier credit '
+                    '(${_credits.map((c) => c.label).join(', ')}). '
                     'Set it against a bill with Supplier credits on the '
                     'Payments screen first, and pay only what is left.',
                     style: Theme.of(context).textTheme.bodyMedium,

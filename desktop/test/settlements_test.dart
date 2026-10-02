@@ -918,8 +918,8 @@ void main() {
       await _chooseParty(tester, 'Fixture Supplier');
 
       expect(
-        find.textContaining('owes the firm 236.00 from returns '
-            '(PR-2026-2027-000009)'),
+        find.textContaining('owes the firm 236.00 in supplier credit '
+            '(Return PR-2026-2027-000009)'),
         findsOneWidget,
       );
     });
