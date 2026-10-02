@@ -135,6 +135,9 @@ class CreditNoteResponse(CreditNoteSchema):
     journal_entry_id: UUID | None
     version: int
     lines: list[CreditNoteLineResponse]
+    # Set when the note is dated past 30 November after the year of the
+    # invoice it credits, so it can no longer reduce tax (s.34(2), GST-1).
+    time_limit_warning: str | None = None
 
 
 __all__ = [

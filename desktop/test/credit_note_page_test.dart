@@ -82,6 +82,9 @@ class _CreditNoteApi extends ApiClient {
 
   final List<Json> notes;
 
+  /// What approving answers with, when a test needs more than [_note].
+  Json? approved;
+
   /// What the two unfiltered document lists answer. Null means "the default
   /// set" -- an approved invoice, a cancelled one, an approved invoice with
   /// no lines, and a delivery note -- which is what the picker has to sort
@@ -204,7 +207,9 @@ class _CreditNoteApi extends ApiClient {
     if (path.contains('/credit-notes')) {
       if (path.endsWith('/approve') || path.endsWith('/cancel')) {
         sentVersion = expectedVersion;
-        return <String, dynamic>{'data': _note()};
+        return <String, dynamic>{
+          'data': path.endsWith('/approve') ? approved ?? _note() : _note(),
+        };
       }
       return <String, dynamic>{
         'data': notes,
@@ -301,6 +306,23 @@ void main() {
 
     expect(api.requested, contains('POST /api/v1/credit-notes/cn-1/approve'));
     expect(api.sentVersion, 4);
+  });
+
+  testWidgets('a note past 30 November says so on approval (GST-1)',
+      (tester) async {
+    final _CreditNoteApi api = _CreditNoteApi(notes: <Json>[_note()])
+      ..approved = <String, dynamic>{
+        ..._note(),
+        'status': 'APPROVED',
+        'time_limit_warning': 'Past 30 Nov 2025 (CGST s.34(2)).',
+      };
+    await _pump(tester, api);
+
+    await tester.tap(find.text('Approve'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Past 30 Nov 2025 (CGST s.34(2)).'),
+        findsOneWidget);
   });
 
   testWidgets('without CREDIT_NOTE_APPROVE nothing can be approved',

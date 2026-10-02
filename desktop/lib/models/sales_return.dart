@@ -137,6 +137,7 @@ class SalesReturn {
     required this.cancelReason,
     required this.remarks,
     required this.lines,
+    this.timeLimitWarning = '',
   });
 
   final String id;
@@ -169,6 +170,10 @@ class SalesReturn {
   final String cancelReason;
   final String remarks;
   final List<SalesReturnLine> lines;
+
+  /// Set when the return is dated past 30 November after the year of an
+  /// invoice it credits, so it can no longer reduce tax (s.34(2), GST-1).
+  final String timeLimitWarning;
 
   bool get isDraft => status == 'DRAFT';
   bool get isApproved => status == 'APPROVED';
@@ -207,6 +212,7 @@ class SalesReturn {
           for (final dynamic line in json['lines'] is List ? json['lines'] : const [])
             if (line is Map) SalesReturnLine.fromJson(Map<String, dynamic>.from(line)),
         ],
+        timeLimitWarning: stringValue(json['time_limit_warning']),
       );
 }
 

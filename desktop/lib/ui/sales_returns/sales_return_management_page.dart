@@ -186,10 +186,18 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
           await widget.api.salesReturnAction(row.id, action, reason: reason);
       if (!mounted) return;
       setState(() => _selected = updated);
+      // Past 30 November the credit no longer reduces tax (GST-1): said when
+      // it is approved and when it is completed, before the credit posts.
+      final String late =
+          action == 'approve' || action == 'complete'
+              ? updated.timeLimitWarning
+              : '';
       NotificationService.show(
         context,
-        _outcome(action, updated),
-        kind: AppNotificationKind.success,
+        '${_outcome(action, updated)}${late.isEmpty ? '' : ' $late'}',
+        kind: late.isEmpty
+            ? AppNotificationKind.success
+            : AppNotificationKind.warning,
       );
       await _load();
     } on ApiException catch (exception) {

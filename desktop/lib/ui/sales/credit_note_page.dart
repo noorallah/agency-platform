@@ -241,12 +241,17 @@ class _CreditNotePageState extends State<CreditNotePage> {
     String done,
   ) async {
     try {
-      await action();
+      final CreditNoteRecord saved = await action();
       if (!mounted) return;
+      // Past 30 November the note no longer reduces tax (GST-1): said on
+      // the approval itself, which is when it matters.
+      final String late = saved.timeLimitWarning;
       NotificationService.show(
         context,
-        '${note.creditNoteNumber} — $done',
-        kind: AppNotificationKind.success,
+        '${note.creditNoteNumber} — $done${late.isEmpty ? '' : ' $late'}',
+        kind: late.isEmpty
+            ? AppNotificationKind.success
+            : AppNotificationKind.warning,
       );
       await _load();
     } on ApiException catch (error) {
