@@ -5559,4 +5559,5 @@ near-expiry stock exempt from the price floor. Row 2 on the counter bill built
 the same day (picks handed to the note the bill raises), and row 6's minimum
 shelf life per customer (allocation passes over a short batch; a hand-picked
 one is blocked or warned, migration 0223). Row 4, pinning a batch on the order,
-built the same day (migration 0224). Open: row 7.
+built the same day (migration 0224), and row 7, the batch's own MRP and
+selling price (decision A41, migration 0225). §79 is complete.

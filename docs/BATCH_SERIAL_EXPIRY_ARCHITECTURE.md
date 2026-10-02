@@ -478,7 +478,28 @@ the order starts with the pinned batch picked, so dispatch ships it -- and the
 audit trail records it as a FEFO skip where it was not the earliest, which is
 the record wanted. The person may still change the pick on the note.
 
-Still open (backlog 79): price from the batch (a batch carries no MRP yet).
+### A batch's own MRP (backlog 79 row 7, decision A41)
+
+The manufacturer prints a different MRP on each batch, so it lives on the batch
+(`batches.mrp`, tax included, and `selling_price`, before tax, both per stock
+unit; migration 0225), as Marg and Busy keep it. The goods receipt line carries
+them (`goods_receipt_lines.mrp` / `.selling_price`) to the batch it creates,
+and fills an existing batch only where it has none -- the print on a batch does
+not change. The batch screen edits them, and the picker shows them.
+
+**No bill charges above it.** At a bill's approval, once its own notes have
+shipped, each line billing a delivery note is judged per charged stock unit --
+net of discounts, with tax, freight left out -- against the lowest MRP among
+the batches its note line takes, the product's MRP standing in for a batch with
+none; above it is refused naming the line, the rate and the MRP. The challan
+and the tax invoice print one row per batch with its expiry and **MRP**.
+
+**Price from batch** (`batch_sale_settings.price_from_batch`, off): where a
+line's batch is chosen, the screen fills its rate from the batch's selling
+price, ahead of the price list. The server takes the rate it is sent, as for
+any rate.
+
+§79 is complete.
 
 ---
 
