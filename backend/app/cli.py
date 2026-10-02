@@ -246,6 +246,40 @@ def _messaging_run_once(args: argparse.Namespace) -> int:
     return 1 if report.errors else 0
 
 
+def _quick_check(args: argparse.Namespace) -> int:
+    """Check this installation end to end, read only, and write an HTML page.
+
+    The owner's sanity check (2026-10-02): the server answers, a person signs
+    in, every store is at the newest migration, and every list and report a
+    firm's screens open comes back, for every firm the person can open. Exit
+    code 1 when anything failed.
+    """
+    import getpass
+    import os
+    from pathlib import Path
+
+    from app.diagnostics.quick_check import run_quick_check, summary, write_html
+
+    password = args.password or os.environ.get("AGENCY_QUICK_CHECK_PASSWORD")
+    if not password:
+        password = getpass.getpass(f"Password for {args.email}: ")
+    report = run_quick_check(
+        base_url=args.base_url,
+        email=args.email,
+        password=password,
+        firm_codes=args.firm or None,
+        check_stores=not args.no_stores,
+        timeout=args.timeout,
+        # Flushed per line: a run takes minutes, and a silent console reads
+        # as a hung one.
+        say=lambda line: print(line, flush=True),
+    )
+    print(summary(report))
+    target = Path(args.report or f"quick-check-{report.started:%Y%m%d-%H%M}.html")
+    print(f"Report: {write_html(report, target).resolve()}")
+    return 1 if report.failed else 0
+
+
 def _where(args: argparse.Namespace) -> int:
     """Print what this copy is and where it thinks its files are."""
     settings = Settings()
@@ -339,6 +373,35 @@ def build_parser() -> argparse.ArgumentParser:
         "check", help="Import the whole application; the build's start-up proof."
     )
     check.set_defaults(handler=_check)
+
+    quick = subcommands.add_parser(
+        "quick-check",
+        help=(
+            "Check the running server end to end, read only: sign-in, stores, "
+            "and every list and report of every firm."
+        ),
+    )
+    quick.add_argument("--base-url", default="http://127.0.0.1:8000")
+    quick.add_argument("--email", required=True, help="Who to sign in as.")
+    quick.add_argument(
+        "--password",
+        default=None,
+        help="Asked for if not given (or set AGENCY_QUICK_CHECK_PASSWORD).",
+    )
+    quick.add_argument(
+        "--firm",
+        action="append",
+        default=[],
+        help="A firm code to check; repeat for several. Every firm if omitted.",
+    )
+    quick.add_argument(
+        "--no-stores",
+        action="store_true",
+        help="Skip the store migration check (when run away from the server).",
+    )
+    quick.add_argument("--timeout", type=float, default=60.0)
+    quick.add_argument("--report", default=None, help="Where to write the HTML.")
+    quick.set_defaults(handler=_quick_check)
 
     messaging = subcommands.add_parser(
         "messaging-run-once",

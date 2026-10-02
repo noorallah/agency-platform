@@ -42,7 +42,7 @@ from datetime import timedelta
 from decimal import ROUND_CEILING, Decimal
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.branches.models import Warehouse
@@ -187,7 +187,10 @@ class ReorderService:
             select(
                 InventoryRecord.warehouse_id,
                 InventoryRecord.product_id,
-                func.max(InventoryRecord.branch_id),
+                # As text: PostgreSQL has no max(uuid), and SQLite -- the
+                # unit suite -- does not mind, so only a running server saw
+                # the report fail (found by the quick check, 2026-10-02).
+                func.max(cast(InventoryRecord.branch_id, String(36))),
                 available,
                 level,
                 func.max(InventoryRecord.maximum_level),
@@ -208,7 +211,8 @@ class ReorderService:
         )
         stock: list[_Level] = []
         for found in self._session.execute(statement).all():
-            warehouse, product_id, branch, held_raw, typed, maximum = found
+            warehouse, product_id, branch_text, held_raw, typed, maximum = found
+            branch = UUID(str(branch_text))
             held = Decimal(str(held_raw))
             if typed is not None:
                 if held <= Decimal(str(typed)):

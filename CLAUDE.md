@@ -125,7 +125,7 @@ binary both call. `scripts/` does not reach a customer — a released build is
 compiled and has no interpreter to hand a `.py` to — so **anything an installed
 copy has to do belongs in `app/` and is exposed as a subcommand of
 `app/cli.py`** (`serve`, `create-database`, `migrate-all`, `firm-count`,
-`purge-retention`, `messaging-run-once`, `backup`, `where`, `--version`). With no firm registered, `migrate-all`
+`purge-retention`, `messaging-run-once`, `backup`, `where`, `quick-check` -- the read-only sanity check of a running server, `docs/qa/SANITY_CHECK.md` -- `--version`). With no firm registered, `migrate-all`
 migrates and prunes the platform store alone; `firm_shared` is built with the
 first SHARED firm (`docs/TENANCY_AND_STORES.md`). `tests/unit/test_cli_entry_point.py` fails the build when
 a shipped `.ps1` reaches for `-m alembic`, `-m uvicorn` or a script by path
@@ -225,7 +225,7 @@ Prefer extending these over adding module-specific machinery. Each has a referen
 - **Pricing, promotions and loyalty** — `docs/PRICING_AND_PROMOTIONS.md`. One resolver, `app/core/utils/pricing.py`, which every sales and purchase document calls.
 - **Importing from a file** (`app/common/file_import.py`) -- products, customers, suppliers, opening bills, opening trial balance and opening stock all run on it: a template generated from the firm's own records, a **check** that names every problem by row and column and writes nothing, and an **apply** that is all or nothing in one transaction through the module's `stage_*` methods. A new import copies `app/vendors/services/vendor_import.py`; never a sixth hand-rolled `csv.DictReader`. A file in another program's layout is mapped onto the template by `app/imports` (decision B3): a new import joins `IMPORT_KINDS` there and lets `remap_headings` relabel the file, rather than reading foreign headings itself.
 - **Acting on many documents** (`run_each` in `app/document_framework/services/bulk_actions.py`) -- bulk approve and cancel are **per row, not all-or-nothing**: each row goes through the single action's service method and commits on its own, a refusal is rolled back and reported with the service's message, and a `version` that moved since the list was read refuses that row. That is the opposite of an import, deliberately.
-- **Ledger posting** (`app/finance`, live at `/api/v1/finance`, migration `20260809_0042`) — `docs/LEDGER_POSTING_RULES.md`. Eleven modules post through `DocumentPostingService`, and `firm_control_accounts` carries 24 purposes per firm. It uses the seeded `accounting` / `financial_year` permission codes rather than a `FINANCE_*` namespace.
+- **Ledger posting** (`app/finance`, live at `/api/v1/finance`, migration `20260809_0042`) — `docs/LEDGER_POSTING_RULES.md`. Eleven modules post through `DocumentPostingService`, and `firm_control_accounts` carries 40 purposes per firm (2026-10-02; count with `len(ControlAccountPurpose)`). It uses the seeded `accounting` / `financial_year` permission codes rather than a `FINANCE_*` namespace.
 
 ### Style enforced by tooling
 

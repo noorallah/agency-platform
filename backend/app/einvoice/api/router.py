@@ -392,9 +392,10 @@ def pending_registrations(
 ) -> ApiResponse[PendingRegistrationResponse]:
     """List the B2B documents still to be registered, with days left (77.7).
 
-    Invoices, credit notes and debit notes past the firm's e-invoicing date
-    with no live IRN. Where the 30-day limit binds the firm each carries its
-    last day and whether it is due soon or already late.
+    Invoices, credit notes, debit notes and completed sales returns of billed
+    goods (D-TAX-2) past the firm's e-invoicing date with no live IRN. Where
+    the 30-day limit binds the firm each carries its last day and whether it
+    is due soon or already late.
     """
     items = pending(db, scope.firm_id)
     today = utc_now().date()
