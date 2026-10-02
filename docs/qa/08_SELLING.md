@@ -193,6 +193,14 @@ promotion, or the customer's standing rate).
 - **Preconditions:** a firm with the delivery note stage **off** (Settings → Selling → Sales Stages). A batch-tracked product with two in-date batches, an earlier and a later expiry, 10 each, in the default warehouse.
 - **Steps:** Sell → **Counter bill** (New sales invoice): the product, quantity 4. Open the line's batches: note the pre-fill. Put 4 on the **later** batch → Save → reopen the draft and look at the batches → change to 1 earlier + 3 later → Save → **Approve**. Then a second bill of 4 with the batches untouched → Approve.
 - **Expect:** the picker lists both batches with expiry and days left, the earlier one pre-filled with 4. The saved draft shows 4 on the later batch. After approval, stock of the earlier batch is down by 1 and the later by 3 (Stock → by batch), and Settings → Audit trail shows **delivery_note.fefo_skipped**. The untouched bill draws 4 from the earlier batch, as before.
+
+### TC-SELL-024 — A customer's minimum shelf life
+
+*Added 2026-10-02 (backlog 79 row 6).*
+
+- **Preconditions:** a firm whose business profile has expiry tracking. A batch-tracked product with a batch expiring in about 4 months and one in about 9 months, 10 each. A customer with **Minimum shelf life** 180 days (Masters → Customers → edit). An approved sales order of 8 for that customer.
+- **Steps:** (a) Delivery Notes → New off the order, batches untouched → Save → Approve → **Dispatch**. (b) A second order and note: open the batch picker. (c) Put 8 on the 4-month batch → Save → Approve → Dispatch. (d) Settings → Stock → **Batch Rules**: *short of the customer's minimum shelf life* → **Warn** → Save, and dispatch (c) again.
+- **Expect:** (a) ships the **9-month** batch -- the 4-month one is passed over without anybody choosing. (b) the 4-month batch carries **Too short for customer** and the pre-fill is on the 9-month one. (c) Dispatch is refused with a message naming the batch and the customer's minimum; no reason prompt is offered. (d) it dispatches, and Settings → Audit trail shows **delivery_note.short_shelf_life_dispatched**.
 ---
 
 ## Screen checks

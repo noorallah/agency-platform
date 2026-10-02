@@ -10,7 +10,7 @@ a question only the owner, a go-live firm or its CA can answer.
 The owner went through every row on 2026-10-02. Most were confirmed as built.
 The ones that change the product, in the order they will be built:
 
-1. §79 rest (A38, A2): batch settings, near-expiry exemption from the floor, counter-bill picks, pinning, minimum shelf life -- **settings and A2 built (#922)**; counter-bill picks, pinning and minimum shelf life open
+1. §79 rest (A38, A2): batch settings, near-expiry exemption from the floor, counter-bill picks, pinning, minimum shelf life -- **settings and A2 built (#922)**, counter-bill picks (#931), minimum shelf life (this PR); pinning open
 2. A4 supplier debit note excess to supplier credit -- **built (#923)**
 3. A7/B5 PAN may repeat across customers, with a warning -- **built (#924)**
 4. A12 reminder window (firm setting, 90 days) -- **built (#925)**
