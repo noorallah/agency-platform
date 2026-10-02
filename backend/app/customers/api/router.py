@@ -72,6 +72,7 @@ from app.customers.services.customer_import import (
 )
 from app.customers.services.opening_bill_import import CustomerOpeningBillFileImporter
 from app.customers.services.opening_bill_service import CustomerOpeningBillService
+from app.imports.services import columns_for_kind, mapped_content, parse_mapping
 
 router = APIRouter(
     prefix="/api/v1/customers",
@@ -449,6 +450,7 @@ async def import_customer_opening_bill_file(
     db: Session = Depends(get_db),
     posting_date: Annotated[str | None, Form()] = None,
     apply: Annotated[bool, Form()] = False,
+    mapping: Annotated[str | None, Form()] = None,
 ) -> ApiResponse[ImportReportResponse]:
     """Check a CSV or XLSX file of opening bills, and with ``apply`` post it.
 
@@ -458,6 +460,13 @@ async def import_customer_opening_bill_file(
     """
     firm_id = _firm(scope)
     file_format = file_format_of(file.filename)
+    # A file mapped on the import screen is read as mapped (decision B3).
+    content, file_format = mapped_content(
+        await file.read(),
+        file_format,
+        parse_mapping(mapping),
+        columns_for_kind(db, "customer-opening-bills"),
+    )
     if posting_date:
         try:
             on = date.fromisoformat(posting_date)
@@ -466,7 +475,7 @@ async def import_customer_opening_bill_file(
     else:
         on = utc_now().date()
     report = CustomerOpeningBillFileImporter(db).run(
-        await file.read(),
+        content,
         file_format=file_format,
         firm_id=firm_id,
         actor_id=scope.actor_id,
@@ -567,6 +576,7 @@ async def import_customer_file(
     db: Session = Depends(get_db),
     existing: Annotated[Literal["refuse", "update"], Form()] = "refuse",
     apply: Annotated[bool, Form()] = False,
+    mapping: Annotated[str | None, Form()] = None,
 ) -> ApiResponse[ImportReportResponse]:
     """Check a CSV or XLSX customer file, and with ``apply`` import it whole.
 
@@ -577,6 +587,13 @@ async def import_customer_file(
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required when importing customers.")
     file_format = file_format_of(file.filename)
+    # A file mapped on the import screen is read as mapped (decision B3).
+    content, file_format = mapped_content(
+        await file.read(),
+        file_format,
+        parse_mapping(mapping),
+        columns_for_kind(db, "customers"),
+    )
     if existing == "update" and not scope.principal.has_permission("CUSTOMER_UPDATE"):
         raise AuthorizationError(
             "Updating existing customers from a file needs the right to edit "
@@ -587,7 +604,7 @@ async def import_customer_file(
         CustomerService(db),
         may_manage_settings=scope.principal.has_permission("CUSTOMER_MANAGE_SETTINGS"),
     ).run(
-        await file.read(),
+        content,
         file_format=file_format,
         firm_id=scope.firm_id,
         actor_id=scope.actor_id,

@@ -100,6 +100,10 @@ screen (1.1.0).
   decision A38).
 - **Choosing batches on a counter bill**: a batch-tracked line opens the same
   picker as the delivery note, and the batch chosen is the one that leaves.
+- **Map any file's columns on import**: products, customers, suppliers,
+  opening bills and opening stock show the file's headings with the template
+  column each is read as; change them, and save the mapping for the next
+  export from Tally, Marg, Busy or Excel (decision B3).
 - **Batch MRP**: each batch keeps the MRP printed on it (and a selling
   price), taken from the goods receipt; no bill may charge more, and the
   challan and the invoice print each batch with its MRP. A firm may take a

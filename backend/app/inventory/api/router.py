@@ -39,6 +39,7 @@ from app.core.pagination import PaginationParams
 from app.core.pagination.reports import ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.core.utils.dates import utc_now
+from app.imports.services import columns_for_kind, mapped_content, parse_mapping
 from app.inventory.models import InventoryTransaction, PhysicalCount
 from app.inventory.schemas import (
     InventoryAdjustmentCreate,
@@ -721,6 +722,7 @@ async def import_opening_stock_file(
     db: Session = Depends(get_db),
     posting_date: Annotated[str | None, Form()] = None,
     apply: Annotated[bool, Form()] = False,
+    mapping: Annotated[str | None, Form()] = None,
 ) -> ApiResponse[ImportReportResponse]:
     """Check a CSV or XLSX stock count, and with ``apply`` create and post it.
 
@@ -730,6 +732,13 @@ async def import_opening_stock_file(
     ``imported: false``.
     """
     file_format = file_format_of(file.filename)
+    # A file mapped on the import screen is read as mapped (decision B3).
+    content, file_format = mapped_content(
+        await file.read(),
+        file_format,
+        parse_mapping(mapping),
+        columns_for_kind(db, "opening-stock"),
+    )
     if posting_date:
         try:
             on = date.fromisoformat(posting_date)
@@ -738,7 +747,7 @@ async def import_opening_stock_file(
     else:
         on = utc_now().date()
     report = OpeningStockFileImporter(db).run(
-        await file.read(),
+        content,
         file_format=file_format,
         firm_id=scope.firm_id,
         actor_id=scope.actor_id,

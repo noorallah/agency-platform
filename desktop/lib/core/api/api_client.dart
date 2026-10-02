@@ -2782,6 +2782,7 @@ class ApiClient {
     required List<int> bytes,
     required String postingDate,
     required bool apply,
+    Map<String, String?>? mapping,
   }) async {
     final Json response = await multipartRequest(
       'POST',
@@ -2789,6 +2790,7 @@ class ApiClient {
       fields: {
         'posting_date': postingDate,
         'apply': apply ? 'true' : 'false',
+        if (mapping != null) 'mapping': jsonEncode(mapping),
       },
       fileField: 'file',
       fileName: fileName,
@@ -2799,6 +2801,51 @@ class ApiClient {
     );
     return FileImportReport.fromJson(_unwrapMap(response));
   }
+
+  /// What an import file holds and how it would be read, before any check
+  /// (B3). [kind] is `products`, `customers`, `vendors`,
+  /// `customer-opening-bills`, `vendor-opening-bills` or `opening-stock`.
+  /// Writes nothing.
+  Future<ImportPreview> importPreview({
+    required String kind,
+    required String fileName,
+    required List<int> bytes,
+  }) async {
+    final Json response = await multipartRequest(
+      'POST',
+      '/api/v1/imports/$kind/preview',
+      fields: const <String, String>{},
+      fileField: 'file',
+      fileName: fileName,
+      fileBytes: bytes,
+      fileContentType: fileName.toLowerCase().endsWith('.xlsx')
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'text/csv',
+    );
+    return ImportPreview.fromJson(_unwrapMap(response));
+  }
+
+  /// The mappings saved for one kind of import.
+  Future<List<ImportMapping>> importMappings(String kind) async =>
+      _unwrapList(
+        await request('GET', '/api/v1/imports/$kind/mappings'),
+        ImportMapping.fromJson,
+      );
+
+  /// Save a mapping under [name]; one of the same name is replaced.
+  Future<ImportMapping> saveImportMapping(
+    String kind,
+    String name,
+    Map<String, String?> mapping,
+  ) async =>
+      ImportMapping.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/imports/$kind/mappings',
+        body: {'name': name, 'mapping': mapping},
+      )));
+
+  Future<void> deleteImportMapping(String id) =>
+      request('DELETE', '/api/v1/imports/mappings/$id');
 
   /// The blank opening-bills import file for one side of the books --
   /// `customers` or `vendors` -- as bytes: xlsx (with notes and the firm's
@@ -2823,6 +2870,7 @@ class ApiClient {
     required List<int> bytes,
     required String postingDate,
     required bool apply,
+    Map<String, String?>? mapping,
   }) async {
     final Json response = await multipartRequest(
       'POST',
@@ -2832,6 +2880,7 @@ class ApiClient {
       fields: {
         'posting_date': postingDate,
         'apply': apply ? 'true' : 'false',
+        if (mapping != null) 'mapping': jsonEncode(mapping),
       },
       fileField: 'file',
       fileName: fileName,
@@ -3142,6 +3191,7 @@ class ApiClient {
     required List<int> bytes,
     required bool updateExisting,
     required bool apply,
+    Map<String, String?>? mapping,
   }) async {
     final Json response = await multipartRequest(
       'POST',
@@ -3149,6 +3199,7 @@ class ApiClient {
       fields: {
         'existing': updateExisting ? 'update' : 'refuse',
         'apply': apply ? 'true' : 'false',
+        if (mapping != null) 'mapping': jsonEncode(mapping),
       },
       fileField: 'file',
       fileName: fileName,
@@ -3173,6 +3224,7 @@ class ApiClient {
     required List<int> bytes,
     required bool updateExisting,
     required bool apply,
+    Map<String, String?>? mapping,
   }) async {
     final Json response = await multipartRequest(
       'POST',
@@ -3180,6 +3232,7 @@ class ApiClient {
       fields: {
         'existing': updateExisting ? 'update' : 'refuse',
         'apply': apply ? 'true' : 'false',
+        if (mapping != null) 'mapping': jsonEncode(mapping),
       },
       fileField: 'file',
       fileName: fileName,
@@ -3204,6 +3257,7 @@ class ApiClient {
     required List<int> bytes,
     required bool updateExisting,
     required bool apply,
+    Map<String, String?>? mapping,
   }) async {
     final Json response = await multipartRequest(
       'POST',
@@ -3211,6 +3265,7 @@ class ApiClient {
       fields: {
         'existing': updateExisting ? 'update' : 'refuse',
         'apply': apply ? 'true' : 'false',
+        if (mapping != null) 'mapping': jsonEncode(mapping),
       },
       fileField: 'file',
       fileName: fileName,

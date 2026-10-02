@@ -98,6 +98,7 @@ class _OpeningBillImportDialogState extends State<OpeningBillImportDialog> {
           required List<int> bytes,
           required bool updateExisting,
           required bool apply,
+          Map<String, String?>? mapping,
         }) =>
             widget.api.checkOpeningBillImportFile(
           widget.side,
@@ -105,7 +106,12 @@ class _OpeningBillImportDialogState extends State<OpeningBillImportDialog> {
           bytes: bytes,
           postingDate: _postingDate.text.trim(),
           apply: apply,
+          mapping: mapping,
         ),
+        mappingApi: widget.api,
+        mappingKind: _suppliers
+            ? 'vendor-opening-bills'
+            : 'customer-opening-bills',
         canUpdate: false,
         offersUpdate: false,
         extraFields: _fields,

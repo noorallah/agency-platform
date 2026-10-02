@@ -32,12 +32,18 @@ Every import works the same way:
 
 1. **Download the template.** It names the firm's own codes on its Lists
    sheet, and its example row imports as it comes.
-2. **Fill it**, or paste your old software's export into it. Common
+2. **Fill it**, or use your old software's export as it is. Common
    headings ("Customer Code", "Invoice No", "Pending Amount") are
    understood.
-3. **Check file.** Every problem is listed by row and column, and nothing is
+3. **Map the columns** (decision B3). After choosing the file, each of its
+   headings is shown with a few of its values and the template column it
+   will be read as -- picked for you where the name is one we know. Change
+   any of them, or mark one *Not imported*; required columns are starred.
+   **Save mapping as...** keeps it under a name ("Tally ledgers"), so the
+   next export from the same software maps itself from *Saved mappings*.
+4. **Check file.** Every problem is listed by row and column, and nothing is
    written. Fix them all and check again.
-4. **Import.** The whole file goes in, or none of it.
+5. **Import.** The whole file goes in, or none of it.
 
 **One cutover date for everything.** The opening bills, the trial balance and
 the opening stock all post on the day the books here start. Choose it once

@@ -47,6 +47,7 @@ from app.gst_returns.models import (
     gstr2b,  # noqa: F401
 )
 from app.identity.models import identity  # noqa: F401
+from app.imports.models import import_mapping  # noqa: F401
 from app.inventory.models import (
     inventory,  # noqa: F401
     physical_count,  # noqa: F401

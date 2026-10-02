@@ -32,6 +32,7 @@ from app.core.exceptions import AuthorizationError, ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.imports.services import columns_for_kind, mapped_content, parse_mapping
 from app.products.models import Product
 from app.products.schemas import (
     BulkProductRequest,
@@ -272,6 +273,7 @@ async def import_product_file(
     db: Session = Depends(get_db),
     existing: Annotated[Literal["refuse", "update"], Form()] = "refuse",
     apply: Annotated[bool, Form()] = False,
+    mapping: Annotated[str | None, Form()] = None,
 ) -> ApiResponse[ImportReportResponse]:
     """Check a CSV or XLSX product file, and with ``apply`` import it whole.
 
@@ -281,6 +283,13 @@ async def import_product_file(
     can list the problems for the file to be fixed and sent again.
     """
     file_format = file_format_of(file.filename)
+    # A file mapped on the import screen is read as mapped (decision B3).
+    content, file_format = mapped_content(
+        await file.read(),
+        file_format,
+        parse_mapping(mapping),
+        columns_for_kind(db, "products"),
+    )
     if existing == "update" and not scope.principal.has_permission("PRODUCT_UPDATE"):
         raise AuthorizationError(
             "Updating existing products from a file needs the right to edit "
@@ -289,7 +298,7 @@ async def import_product_file(
     report = ProductService(
         db, withheld_duties=_withheld_duties(scope)
     ).check_product_file(
-        await file.read(),
+        content,
         file_format,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,

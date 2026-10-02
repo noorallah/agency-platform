@@ -91,13 +91,17 @@ class _OpeningStockImportDialogState extends State<OpeningStockImportDialog> {
           required List<int> bytes,
           required bool updateExisting,
           required bool apply,
+          Map<String, String?>? mapping,
         }) =>
             widget.api.checkOpeningStockImportFile(
           fileName: fileName,
           bytes: bytes,
           postingDate: _postingDate.text.trim(),
           apply: apply,
+          mapping: mapping,
         ),
+        mappingApi: widget.api,
+        mappingKind: 'opening-stock',
         canUpdate: false,
         offersUpdate: false,
         extraFields: _fields,

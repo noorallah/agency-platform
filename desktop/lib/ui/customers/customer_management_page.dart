@@ -409,6 +409,8 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
         fileStem: 'customer',
         downloadTemplate: (format) =>
             widget.api.customerImportTemplate(format: format),
+        mappingApi: widget.api,
+        mappingKind: 'customers',
         checkFile: widget.api.checkCustomerImportFile,
         canUpdate: _canEdit,
       ),
