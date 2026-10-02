@@ -184,7 +184,7 @@ class PlacesPackService:
             )
         return result
 
-    def load(self, codes: list[str], *, actor_id: UUID) -> PlacesLoad:
+    def load(self, codes: list[str], *, actor_id: UUID | None) -> PlacesLoad:
         """Load the chosen states, skipping what the store already holds.
 
         Raises:
@@ -225,17 +225,14 @@ class PlacesPackService:
                 self._load_state(state, pack[code], actor_id=actor_id)
             )
         self._session.flush()
+        if not any(item.code in states for item in outcome.states):
+            return outcome
         record_audit(
             self._session,
             action="sales_territory.geo.places_loaded",
             entity_type="geo_state",
             entity_id=next(
-                (
-                    states[item.code].id
-                    for item in outcome.states
-                    if item.code in states
-                ),
-                actor_id,
+                states[item.code].id for item in outcome.states if item.code in states
             ),
             actor_id=actor_id,
             after_data={
@@ -271,7 +268,7 @@ class PlacesPackService:
         return {row.code.upper(): row for row in self._session.scalars(statement)}
 
     def _load_state(
-        self, state: GeoState, offices: list[_Office], *, actor_id: UUID
+        self, state: GeoState, offices: list[_Office], *, actor_id: UUID | None
     ) -> StateLoad:
         """Add one state's districts, towns, PIN codes and localities."""
         report = StateLoad(code=state.code, name=state.name)
@@ -405,7 +402,7 @@ class PlacesPackService:
         offices: list[_Office],
         seen: set[str],
         into: list[dict[str, object]],
-        audit: dict[str, UUID],
+        audit: dict[str, UUID | None],
     ) -> None:
         """Add each office under a PIN as a locality, once by name."""
         for entry in sorted(offices, key=lambda item: item.office):
@@ -422,3 +419,21 @@ class PlacesPackService:
                     **audit,
                 }
             )
+
+
+def initialise_store(session: Session) -> PlacesLoad | None:
+    """Load the default states into a store that has the places masters.
+
+    Owner, 2026-10-02: the southern states come with the build -- every firm
+    store is given them when it is migrated (install, ``migrate-all``, a new
+    firm's provisioning), with nobody pressing the button. Called by
+    migration ``20261002_0231``. Skip-not-merge, so a store that already
+    holds them, or deleted some on purpose, is left as it is. Returns None
+    where the store has no states to load into.
+    """
+    service = PlacesPackService(session)
+    held = service._states()
+    wanted = [code for code in DEFAULT_STATES if code in held]
+    if not wanted or not _pack():
+        return None
+    return service.load(wanted, actor_id=None)

@@ -223,3 +223,30 @@ def test_a_pin_across_a_border_keeps_both_sides_offices() -> None:
     assert puducherry.skipped == 0
     assert puducherry.localities == 95
     assert puducherry.postal_codes < 33
+
+
+def test_a_new_store_is_given_the_southern_states() -> None:
+    """What migration 20261002_0231 runs on every firm store (owner, B6)."""
+    from app.sales.services.places_pack import initialise_store
+
+    session = _session()
+
+    outcome = initialise_store(session)
+    session.commit()
+
+    assert outcome is not None
+    # This store holds LD, PY, KA and TN of the seven; the rest are skipped.
+    assert [item.code for item in outcome.states] == ["KA", "TN", "PY", "LD"]
+    assert _count(session, GeoPostalCode) > 3000
+    # The audit row names no actor: nobody pressed anything.
+    assert (
+        session.scalars(
+            select(AuditLog.actor_id).where(
+                AuditLog.action == "sales_territory.geo.places_loaded"
+            )
+        ).one()
+        is None
+    )
+    again = initialise_store(session)
+    assert again is not None
+    assert sum(item.localities for item in again.states) == 0
