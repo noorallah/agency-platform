@@ -1509,6 +1509,42 @@ class ApiClient {
   Future<List<int>> customerStatementPdf(String customerId) =>
       downloadBytes('/api/v1/customers/$customerId/statement/print');
 
+  /// Barcode labels for chosen products (STK-16): [items] are
+  /// `{product_id, copies}`; [skip] is how many labels of a part-used sheet
+  /// are already gone.
+  Future<List<int>> productLabelsPdf({
+    required List<Map<String, Object?>> items,
+    String layout = 'A4_65',
+    int skip = 0,
+    bool showPrice = true,
+  }) =>
+      downloadBytes(
+        '/api/v1/products/labels',
+        method: 'POST',
+        body: <String, dynamic>{
+          'items': items,
+          'layout': layout,
+          'skip': skip,
+          'show_price': showPrice,
+        },
+      );
+
+  /// One label for every piece a goods receipt brought in (STK-16).
+  Future<List<int>> goodsReceiptLabelsPdf(
+    String receiptId, {
+    String layout = 'A4_65',
+    int skip = 0,
+    bool showPrice = true,
+  }) =>
+      downloadBytes(
+        '/api/v1/goods-receipts/$receiptId/labels',
+        query: {
+          'layout': layout,
+          'skip': '$skip',
+          'show_price': '$showPrice',
+        },
+      );
+
   /// Records a share made by hand: on the bill's timeline, or in the
   /// customer's trail for a statement sent as a reminder.
   Future<void> recordHandShare(

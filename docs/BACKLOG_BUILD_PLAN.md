@@ -99,7 +99,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | STK-13 | §70 row 17 | Returned goods held until checked -- **built 2026-10-03** (A62) | Nothing | S | Claude alone |
 | STK-14 | §70 row 18 | Stock alerts and the inventory dashboard | Nothing | M | Claude alone |
 | STK-15 | §42.13 | Kits and combo packs | Nothing | L | Claude alone |
-| STK-16 | §55 S8 | Barcode label printing | Nothing (label size and printer to test) | S | Claude alone |
+| STK-16 | §55 S8 | Barcode label printing -- **built 2026-10-03** (A65) | Nothing (label size and printer to test) | S | Claude alone |
 | STK-17 | §75 row 5 | Discontinued products, and products never for sale -- **built 2026-10-03** (A58) | Nothing | S | Claude alone |
 | STK-18 | §75 row 6 | Shelf life on the product fills a batch's expiry -- **built 2026-10-03** (A59) | Nothing | S | Claude alone |
 | **Accounts** | | | | | |
@@ -523,6 +523,7 @@ otherwise it is built as written.
 - **What it is:** print price and barcode labels for products or a received batch.
 - **What gets built:** a label PDF service (Code 128, name, MRP, price, batch and expiry if tracked) for A4 label sheets and 50 x 25 mm thermal rolls; *Print labels* on the product list and the goods receipt. No migration.
 - **Needs from the firm, to test:** its label size or printer. **Depends on:** nothing. **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A65): `app/products/services/barcode_labels.py` draws Code 128 labels (name, barcode, MRP, our price, batch and expiry) on A4 65-up and 24-up sheets or a 50 x 25 mm roll, with `skip` for a partly used sheet. `POST /products/labels` labels picked products with copies each; `GET /goods-receipts/{id}/labels` labels every piece a receipt stocked at the delivery's MRP and price, and refuses a cancelled one. The barcode falls back to the product code; a value Code 128 cannot encode is refused by product name. No migration. Desktop: *Print labels* on the product and goods receipt selection bars opens `LabelPrintDialog` (stock, used positions, price switch, copies). Tests: `test_barcode_labels.py`, `label_print_dialog_test.dart`. To test with a firm: its sheet make or roll size, and the thermal printer's driver set to 50 x 25 mm.
 
 #### STK-17. Discontinued and not-for-sale products (§75 row 5)
 - **What it is:** a discontinued product is no longer bought but still sold until gone; packing material is never sold.
