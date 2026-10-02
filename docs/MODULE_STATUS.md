@@ -44,7 +44,7 @@ no seeded row satisfies.
 | --- | ---: | ---: | --- | --- |
 | Quotations `app/quotation` | 17 | 2 | Built | Offer, accept, convert. Expiry derives from `valid_until`, never a stored status. |
 | Sales orders `app/sales_order` | 22 | 6 | Built | Status follows its deliveries. A hold is a flag, not a status, so part-shipped progress survives it. |
-| Delivery notes `app/delivery_note` | 20 | 6 | Built | Moves stock and cost of goods sold. Inherits the order line's price rather than re-reading the masters. |
+| Delivery notes `app/delivery_note` | 20 | 6 | Built | Moves stock and cost of goods sold. Inherits the order line's price rather than re-reading the masters. Batches can be chosen per line since 2026-10-02 (backlog 79); the challan prints one row per batch. |
 | Sales invoices `app/sales_invoice` | 23 | 8 | Built | Prints a real GST invoice with the CGST/SGST split and an HSN summary, the offers given and what was saved. Money taken at the counter is entered on the bill and becomes a receipt on approval. Sales Analysis: any one or two dimensions, with drill-down (2026-10-01). |
 | Sales returns `app/sales_return` | 18 | 4 | Built | Reverses stock, cost and the customer balance by the deltas the original row stored. |
 | Credit notes `app/credit_note` | 9 | 3 | Built | Names the invoice **line**, so the tax reversed is the tax charged. Approval is a separate permission. |
@@ -62,7 +62,7 @@ no seeded row satisfies.
 
 | Module | Routes | Reports | State | Notes |
 | --- | ---: | ---: | --- | --- |
-| Purchase orders `app/purchase` | 21 | 6 | Built | Approval cannot be skipped; status follows the receipts. Reports added 2026-09-04. |
+| Purchase orders `app/purchase` | 21 | 6 | Built | Approval cannot be skipped; status follows the receipts. Reports added 2026-09-04. Reorder from typed levels or from sales since 2026-10-02 (backlog 69 row 12). |
 | Goods receipts `app/goods_receipt` | 16 | 5 | Built | Posts stock and the ledger. A cancellation values the reversal from the **movement**, not the document. |
 | Purchase invoices `app/purchase_invoice` | 22 | 8 | Built | Approval clears the accrual, after which the receipt can no longer be cancelled. Purchase price variance and Purchase Analysis (2026-10-01). |
 | Purchase returns `app/purchase_return` | 18 | 6 | Built | Damaged and expired reports have rows only since 2026-09-04 — no seeded line carried the flags before. |
@@ -73,7 +73,7 @@ no seeded row satisfies.
 | Module | Routes | Reports | State | Notes |
 | --- | ---: | ---: | --- | --- |
 | Inventory `app/inventory` | 29 | 0 | Built | Summaries by firm, branch, warehouse and product; ledger, counts, transfers, write-offs. |
-| Batches and serials `app/batch_serial` | 17 | 0 | **Partial** | Batch and expiry are exercised by two demo firms. **No firm serialises**, so that half runs on tests alone. |
+| Batches and serials `app/batch_serial` | 17 | 0 | **Partial** | Batch and expiry are exercised by two demo firms. **No firm serialises**, so that half runs on tests alone. Batch availability for the delivery-note picker added 2026-10-02 (route count above predates it). |
 | Products `app/products` | 17 | 0 | Built | Custom fields live in typed columns, so a list can filter and index on them. |
 | Units and packaging `app/uom` | 29 | 0 | **Partial** | Conversions drive all seven document types. Packaging levels and barcode lookup have a screen and no seeded rows. |
 | Branches and warehouses `app/branches` | 35 | 0 | Built | Imports stage and commit once, so a clash cannot half-apply a file. |

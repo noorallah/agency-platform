@@ -9,7 +9,8 @@ step, use the *QA functional walkthrough*; to install it, the *Installation
 guide*.
 
 Written 2026-09-27 for release 1.0.2; brought up to 1.1.0 on 2026-10-01;
-GST documents, input credit and GSTR-2B added 2026-10-02.
+GST documents, input credit and GSTR-2B added 2026-10-02; choosing batches
+on a delivery note and reordering from sales added the same night.
 
 ## Contents
 
@@ -231,6 +232,16 @@ here: see 5.5.
 (and batch or serial, where the product is tracked). Dispatching takes the
 stock out. A delivery can be part of an order.
 
+**Choosing batches.** For a batch-tracked product the side panel lists every
+batch in the warehouse -- expiry, days left and how much this line can take --
+already filled in earliest expiry first, so saving as it stands ships what it
+always did. Type other quantities to take a later batch or split the line
+across batches; expired batches are shown but cannot be chosen, and those near
+expiry are marked. *Use earliest expiry* puts it back. If the chosen quantities
+do not add up to the line, the panel says so and dispatch is refused. Passing
+over an earlier batch is kept in the audit trail, and the challan prints one
+row per batch with its expiry.
+
 Every delivery note says **why the goods go out**: *Sale* (the default),
 *Van or route sale*, *Supply on approval*, *Quantity not known*, *Job work* or
 *Other* (with words). The reason prints on the challan. GST wants a sale's tax
@@ -440,6 +451,17 @@ and period.
 **Purchase price variance** (*Reports → Financial*). A bill line charged at a
 different rate from its receipt, with both rates and the difference.
 
+**Below reorder level** (*Reports → Operational*, and *Purchase Orders → "..."
+→ Below reorder level...* to raise draft orders, one per supplier). What is
+short in each warehouse, what is already on order, who last supplied it and
+how much to order. Under *Settings → Buying → Purchase Settings → Reorder
+planning* a firm chooses **typed levels** (order up to the reorder and maximum
+levels on each product) or **from sales**: each product's average daily sales
+over the last 90 days sets its level -- reorder when stock falls to 14 days'
+worth (7 days' lead time plus 7 safety), order up to 30 days more, in whole
+units. A level typed on a product still wins. The report shows which basis each
+row used and the daily average.
+
 Every buying list names the **supplier** in a column and on the bar, and is
 searched by supplier name.
 
@@ -491,7 +513,8 @@ And two documents:
 Used when the firm's business profile switches them on:
 
 - **Batches** and **Lots**: stock held by batch, with manufacturing and
-  expiry dates; deliveries pick the batch (earliest expiry first).
+  expiry dates; deliveries pick the batch earliest expiry first, or the
+  batches chosen on the delivery note.
 - **Serial Numbers**: each unit held by its serial number, from receipt to
   sale, with warranty where it applies.
 - **Expiry Monitor**: batches that have expired or expire soon, and their

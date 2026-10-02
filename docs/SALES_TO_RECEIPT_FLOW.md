@@ -1,6 +1,6 @@
 # Sale to receipt: stock, and the money
 
-Updated 2026-10-02: what a firm configures (table below); the delivery note's challan reason; the dispatch-before-invoice check; Dispatch and invoice.
+Updated 2026-10-02: what a firm configures (table below); the delivery note's challan reason; the dispatch-before-invoice check; Dispatch and invoice; choosing batches on the delivery note (backlog 79).
 
 How an offer becomes goods off the shelf and money in the bank, which document
 does each part, and where every rupee is recorded.
@@ -166,6 +166,17 @@ This is the first step that moves anything.
 - **The order's reservation is released** for the delivered quantity, batch by
   batch, ranked by earliest expiry — so the batch freed is the one the issue
   then draws from.
+- **Which batches leave** (backlog 79, decision A38). With nobody choosing,
+  earliest expiry first among batches in date on the note's date. The phase 2
+  note's side panel lists every batch of the line's product in its warehouse
+  (`GET /api/v1/batch-serial/batches/availability`: expiry, days left, what
+  this line can take) pre-filled with that split; a person may change or split
+  it, and the line carries `batches`. Dispatch then draws exactly those, after
+  checking they add up to the line and none is expired on the note's date; the
+  release lets the chosen batches go first, and a choice that is not the
+  earliest-expiry split is audited as `delivery_note.fefo_skipped`. Either way
+  the line's batches record what left, and the challan prints one row per
+  batch with its expiry. Counter bills still draw earliest expiry first.
 - **Inventory falls** by the delivered quantity.
 - **The ledger gets the cost of the sale:**
 
