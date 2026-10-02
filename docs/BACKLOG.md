@@ -5472,6 +5472,8 @@ gaps, pinned with a pointer here, each to build when a firm asks:
 
 ## 77. GST documents for the sales chain -- HIGH PRIORITY
 
+**Status, 2026-10-02 (evening):** row 11 built -- a registered invoice, credit note or debit note prints its IRN, acknowledgement number and date and the signed QR in a box under the banner (the thermal roll prints the IRN and acknowledgement without the QR); a refused or withdrawn registration prints nothing. Credit notes and debit notes to customers are printable for the first time (`GET /credit-notes/{id}/print`, `GET /customer-debit-notes/{id}/print`), in the invoice's layout with "Against invoice" and the reason in the head and each line's tax split into the invoice line's heads.
+
 **Status, 2026-10-02 (later still):** row 4 built -- credit notes and customer debit notes are registered on the portal as CRN and DBN, each carrying the invoice's parties and place of supply, its own lines and values, tax split into heads as the invoice line was charged, and `RefDtls` naming the invoice; through the sandbox or exported offline with the invoices (migration 0229).
 
 **Status, 2026-10-02 (later):** rows 9 and 10 built -- an e-way bill without an IRN from the invoice where the firm need not e-invoice it, or from a delivery note no invoice bills (supply type from the challan reason), one recorded by hand after raising it on the portal (A42), and the firm's limit (`gst_compliance_settings.eway_bill_limit`, ₹50,000) with a due list and a prompt after dispatch or approval (migration 0228). E-invoicing itself may go through the portal by hand (A42, #936).
