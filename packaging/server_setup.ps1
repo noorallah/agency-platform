@@ -779,6 +779,28 @@ function Invoke-DailyBackup {
     Remove-Item -LiteralPath $old.FullName -Recurse -Force -ErrorAction SilentlyContinue
     Write-Log "  removed the old backup $($old.Name)"
   }
+  Invoke-Retention
+}
+
+function Invoke-Retention {
+  <#
+    Prune old login records, refresh tokens, password history and tax-rule
+    logs (PLT-6), after the backup so what goes is still in tonight's copy.
+    The server decides whether it is switched off (AGENCY_RETENTION_AUTO_PURGE
+    in config\.env); a failure here is logged and never fails the backup.
+  #>
+  if (-not (Test-Path -LiteralPath $AgencyServer)) {
+    Write-Log "  warning: $AgencyServer is missing, so nothing was pruned"
+    return
+  }
+  try {
+    Write-Log 'Retention: pruning old records'
+    $code = Invoke-Native -File $AgencyServer -WorkingDirectory $Backend `
+      -Arguments @('purge-retention', '--yes', '--scheduled')
+    if ($code -ne 0) { Write-Log "  warning: retention exited with $code" }
+  } catch {
+    Write-Log "  warning: retention could not run: $($_.Exception.Message)"
+  }
 }
 
 function Register-DailyBackup {

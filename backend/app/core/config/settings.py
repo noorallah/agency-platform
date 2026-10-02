@@ -188,6 +188,10 @@ class Settings(BaseSettings):
     #: The folder holding `pg_dump` and `pg_restore`. Unset, the server looks
     #: beside itself (`<install>/pgsql/bin`), then on PATH.
     backup_pg_bin: Path | None = None
+    #: Whether the nightly task prunes old login records, refresh tokens,
+    #: password history and tax-rule logs after its backup (PLT-6). On by
+    #: default; a platform that must keep them longer sets it false.
+    retention_auto_purge: bool = True
 
     model_config = SettingsConfigDict(
         case_sensitive=False,

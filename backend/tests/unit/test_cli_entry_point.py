@@ -34,6 +34,8 @@ _CALLERS = [
     # The installer refuses a fresh install onto a database that holds firms.
     ["firm-count"],
     ["purge-retention", "--dry-run"],
+    # The nightly task in server_setup.ps1 (PLT-6).
+    ["purge-retention", "--yes", "--scheduled"],
     ["serve", "--host", "0.0.0.0", "--port", "8000"],
     # The Windows service definition server_setup.ps1 writes for WinSW.
     ["serve", "--host", "127.0.0.1", "--port", "8000"],
