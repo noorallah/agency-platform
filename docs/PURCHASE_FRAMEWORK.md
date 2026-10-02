@@ -481,11 +481,14 @@ reorder level*) lists each warehouse and product whose available stock is at or
 below its reorder level (`minimum_level` where none is set; the stock rows of
 one warehouse added up, the highest level on any of them taken). It shows what
 is **on order** -- open orders for that warehouse, drafts included, less what
-their completed receipts took in -- the supplier **last billed** for the product
-(there is no preferred-supplier field) and a **suggested** quantity: up to
-`maximum_level` less available and on order, or the shortfall to the reorder
-level where no maximum is set, never negative. The rate is that bill's when it
-was billed in the stock unit, else the product's purchase price.
+their completed receipts took in -- the product's **preferred supplier**
+(`products.preferred_vendor_id`, decision A18, migration 0221) where one is set
+and still live and active, else the supplier **last billed** for it -- and a
+**suggested** quantity: up to `maximum_level` less available and on order, or
+the shortfall to the reorder level where no maximum is set, never negative. The
+rate is the last bill's when that bill was the same supplier's and in the stock
+unit, else the product's purchase price. A product never billed but with a
+preferred supplier can be ordered straight away.
 
 `POST /api/v1/purchases/reorder-drafts` (Purchase Orders > "..." > *Below
 reorder level...*, tick rows, **Raise draft orders**) stages one DRAFT per
