@@ -183,6 +183,19 @@ class ManualSendRequest(MessagingSchema):
     message: str | None = Field(default=None, max_length=4000)
 
 
+SharedDocument = Literal["SALES_INVOICE", "CUSTOMER_STATEMENT"]
+
+
+class ReminderRequest(MessagingSchema):
+    """Email a customer their statement as a payment reminder (MSG-3)."""
+
+    customer_id: UUID
+    #: Blank sends to the customer's own address.
+    recipient: str | None = Field(default=None, max_length=320)
+    #: Replaces the covering note.
+    message: str | None = Field(default=None, max_length=4000)
+
+
 class HandShareResponse(MessagingSchema):
     """What to share a document with by hand, from the person's own WhatsApp.
 
@@ -191,7 +204,9 @@ class HandShareResponse(MessagingSchema):
     attach.
     """
 
-    document_type: Literal["SALES_INVOICE"] = "SALES_INVOICE"
+    #: An invoice (MSG-1), or a customer's statement for a reminder (MSG-3),
+    #: whose ``document_id`` is then the customer's.
+    document_type: SharedDocument = "SALES_INVOICE"
     document_id: UUID
     document_number: str
     #: The number as the customer record holds it, for the screen.
@@ -207,7 +222,7 @@ class HandShareResponse(MessagingSchema):
 class HandShareRecord(MessagingSchema):
     """A share a person made by hand, for the document's timeline (A5)."""
 
-    document_type: Literal["SALES_INVOICE"] = "SALES_INVOICE"
+    document_type: SharedDocument = "SALES_INVOICE"
     document_id: UUID
     channel: Literal["WHATSAPP"] = "WHATSAPP"
     recipient: str | None = Field(default=None, max_length=40)
@@ -224,6 +239,8 @@ __all__ = [
     "HandShareRecord",
     "HandShareResponse",
     "ManualSendRequest",
+    "ReminderRequest",
+    "SharedDocument",
     "MessageResponse",
     "MessageStatus",
     "MessagingChannel",

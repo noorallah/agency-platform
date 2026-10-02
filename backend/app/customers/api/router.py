@@ -967,6 +967,32 @@ def customer_statement(
     )
 
 
+@router.get("/{customer_id}/statement/print", response_class=StreamingResponse)
+def customer_statement_pdf(
+    customer_id: UUID,
+    scope: CustomerViewScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Draw one customer's statement of account with their unpaid bills.
+
+    What a payment reminder attaches (MSG-3). The period defaults to the
+    oldest unpaid bill's date up to today (UTC); the figures are the
+    statement's and the ageing's own.
+    """
+    from app.customers.services.statement_pdf import CustomerStatementPdfService
+
+    pdf, filename = CustomerStatementPdfService(db).render(
+        customer_id, firm_id=scope.firm_id, from_date=from_date, to_date=to_date
+    )
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
 @router.get("/{customer_id}/balance-confirmation", response_class=StreamingResponse)
 def customer_balance_confirmation(
     customer_id: UUID,

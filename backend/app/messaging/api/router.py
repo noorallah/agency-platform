@@ -45,9 +45,11 @@ from app.messaging.schemas import (
     MessagingSettingsWrite,
     ProviderFieldResponse,
     ProviderResponse,
+    ReminderRequest,
 )
 from app.messaging.services import MessagingService
 from app.messaging.services.hand_share import HandShareService
+from app.messaging.services.reminders import ReminderService
 
 router = APIRouter(
     prefix="/api/v1/messaging",
@@ -307,6 +309,38 @@ def prepare_hand_share(
     return ApiResponse(
         data=HandShareService(db).prepare(invoice_id, firm_id=scope.firm_id)
     )
+
+
+@router.get(
+    "/share/customer-statements/{customer_id}",
+    response_model=ApiResponse[HandShareResponse],
+)
+def prepare_reminder_share(
+    customer_id: UUID,
+    scope: SendScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[HandShareResponse]:
+    """Say whom to remind on WhatsApp by hand, and what to say (MSG-3)."""
+    return ApiResponse(
+        data=ReminderService(db).prepare_whatsapp(customer_id, firm_id=scope.firm_id)
+    )
+
+
+@router.post(
+    "/remind",
+    response_model=ApiResponse[MessageResponse],
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def remind_customer(
+    data: ReminderRequest,
+    scope: SendScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[MessageResponse]:
+    """Email a customer their statement as a payment reminder (MSG-3)."""
+    row = ReminderService(db).remind_by_email(
+        data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=_message(row), message="Queued to send.")
 
 
 @router.post(

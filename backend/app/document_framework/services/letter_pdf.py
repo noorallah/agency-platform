@@ -52,6 +52,19 @@ class LetterPage:
     signatory: str = "Authorised Signatory"
     #: A second signature box on the left (the voucher's "Received by").
     counter_signatory: str | None = None
+    #: Tables after the paragraphs: a heading, the column names and the rows.
+    #: A column whose name is in ``LetterTable.numeric`` is set right.
+    tables: list[LetterTable] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class LetterTable:
+    """One table a letter carries -- a statement's movements, its open bills."""
+
+    heading: str
+    columns: tuple[str, ...]
+    rows: list[tuple[str, ...]]
+    numeric: frozenset[str] = frozenset()
 
 
 class LetterPdfRenderer:
@@ -160,9 +173,57 @@ class LetterPdfRenderer:
         for paragraph in page.paragraphs:
             story.append(Paragraph(escape(paragraph), self._body))
             story.append(Spacer(1, 3 * mm))
+        for table in page.tables:
+            story.extend(self._table(table, width))
         story.append(Spacer(1, 14 * mm))
         story.append(self._signatures(page, width))
         return story
+
+    def _table(self, table: LetterTable, width: float) -> list[Flowable]:
+        """Draw one table under its heading, the header row tinted."""
+        right = [
+            index for index, name in enumerate(table.columns) if name in table.numeric
+        ]
+        cell = ParagraphStyle("cell", parent=self._small, textColor=colors.black)
+        cell_right = ParagraphStyle("cell_right", parent=cell, alignment=TA_RIGHT)
+        rows = [
+            [
+                Paragraph(
+                    f"<b>{escape(name)}</b>",
+                    cell_right if index in right else cell,
+                )
+                for index, name in enumerate(table.columns)
+            ],
+            *(
+                [
+                    Paragraph(escape(value), cell_right if index in right else cell)
+                    for index, value in enumerate(row)
+                ]
+                for row in table.rows
+            ),
+        ]
+        drawn = Table(
+            rows,
+            colWidths=[width / len(table.columns)] * len(table.columns),
+            repeatRows=1,
+        )
+        drawn.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EEF1F5")),
+                    ("LINEBELOW", (0, 0), (-1, -1), 0.25, colors.HexColor("#D5D8DD")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("TOPPADDING", (0, 0), (-1, -1), 2),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ]
+            )
+        )
+        return [
+            Paragraph(escape(table.heading), self._label),
+            Spacer(1, 1.5 * mm),
+            drawn,
+            Spacer(1, 5 * mm),
+        ]
 
     def _letterhead(self, firm: PartyBlock, width: float) -> list[Flowable]:
         """Draw the firm's name, address and registrations, ruled off."""

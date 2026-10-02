@@ -286,10 +286,22 @@ in the trail. It never says *sent*: whether the person pressed send is
 something only WhatsApp knows. `app/messaging/services/hand_share.py`,
 `desktop/lib/ui/workspace/whatsapp_share.dart`.
 
+## Payment reminders by hand (A4, built 2026-10-03, MSG-3)
+
+*Remind* on the Customer Statement screen and on an approved invoice sends the
+customer their statement of account (`GET /api/v1/customers/{id}/statement/print`:
+the movement from the oldest unpaid bill, the balance, the unpaid bills with
+days overdue). By email, `POST /api/v1/messaging/remind` queues an outbox row
+with event `MANUAL_REMINDER` and document type `CUSTOMER_STATEMENT` (its
+`document_id` is the customer's); the worker renders the statement as the
+attachment. On WhatsApp, `GET /api/v1/messaging/share/customer-statements/{id}`
+feeds the same hand-share flow as an invoice, recorded in the customer's audit
+trail since a statement has no timeline. The customer's *no reminders*, and a
+balance of nothing, refuse both. `app/messaging/services/reminders.py`.
+
 ## Not built yet
 
-- A4 (Remind from the overdue list and statements) and B4 (payment links) of
-  §51. A3 (UPI QR) is built: `docs/BACKLOG_BUILD_PLAN.md` MSG-2.
+- B4 (payment links) of §51. A3 (UPI QR) is built: `docs/BACKLOG_BUILD_PLAN.md` MSG-2.
 - Sending documents other than the sales invoice by hand; attaching a PDF to
   any event but the invoice's.
 - WhatsApp media (a PDF in a document-header template) -- WhatsApp and SMS send

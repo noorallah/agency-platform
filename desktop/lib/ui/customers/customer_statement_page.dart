@@ -16,6 +16,8 @@ import '../../models/entities.dart';
 import '../../phase2/indian_format.dart';
 import '../workspace/balance_confirmation.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/remind_dialog.dart';
+import '../workspace/whatsapp_share.dart';
 
 /// Which of the two questions is on screen.
 enum _View { statement, ageing }
@@ -28,6 +30,7 @@ class CustomerStatementPage extends StatefulWidget {
     required this.permissions,
     required this.hasActiveFirm,
     this.letters = const BalanceConfirmationActions(),
+    this.whatsApp = const WhatsAppSharer(),
   });
 
   final ApiClient api;
@@ -36,6 +39,9 @@ class CustomerStatementPage extends StatefulWidget {
 
   /// How letters are shown and saved; tests replace it.
   final BalanceConfirmationActions letters;
+
+  /// How a reminder on WhatsApp reaches the machine; tests replace it.
+  final WhatsAppSharer whatsApp;
 
   @override
   State<CustomerStatementPage> createState() => _CustomerStatementPageState();
@@ -147,6 +153,37 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
     );
   }
 
+  /// The name of the customer on show, from the statement or the ageing row.
+  String get _selectedCustomerName {
+    final Json? statement = _statement;
+    if (statement != null &&
+        stringValue(statement['customer_id']) == _selectedCustomerId) {
+      return stringValue(statement['customer_name']);
+    }
+    for (final Json row in _ageing) {
+      if (stringValue(row['customer_id']) == _selectedCustomerId) {
+        return stringValue(row['customer_name']);
+      }
+    }
+    return 'customer';
+  }
+
+  /// Remind the customer on show to pay: their statement, by email or by
+  /// hand on WhatsApp (MSG-3).
+  Future<void> _remind() async {
+    final String? id = _selectedCustomerId;
+    if (id == null) return;
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => RemindDialog(
+        api: widget.api,
+        customerId: id,
+        customerName: _selectedCustomerName,
+        whatsApp: widget.whatsApp,
+      ),
+    );
+  }
+
   Future<void> _everyone() => widget.letters.everyone(
         context,
         fetch: () => widget.api.customerBalanceConfirmations(asOf: _asOf),
@@ -202,6 +239,18 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
                 ),
               ],
               commands: [
+                // Sends the statement as a payment reminder (MSG-3).
+                if (widget.permissions.hasPermission('DOCUMENT_SEND'))
+                  ToolbarCommand(
+                    id: 'remind',
+                    label: 'Remind',
+                    icon: Icons.notifications_active_outlined,
+                    tooltip: 'Send the customer their statement and unpaid '
+                        'bills, by email or WhatsApp',
+                    onPressed: _selectedCustomerId == null
+                        ? null
+                        : () => unawaited(_remind()),
+                  ),
                 ToolbarCommand(
                   id: 'balance-confirmation',
                   label: 'Balance confirmation',

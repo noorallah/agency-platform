@@ -151,7 +151,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | **Messaging and integration** | | | | | |
 | MSG-1 | §51 A2 | Share a document on WhatsApp by hand -- **built 2026-10-03** (A56) | Nothing | S | Claude alone |
 | MSG-2 | §51 A3 | UPI QR code on the printed bill -- **built 2026-10-03** (A55) | Nothing | S | Claude alone |
-| MSG-3 | §51 A4 | Payment reminder by hand from the overdue list and statement | Nothing | S | Claude alone |
+| MSG-3 | §51 A4 | Payment reminder by hand from the overdue list and statement -- **built 2026-10-03** (A57) | Nothing | S | Claude alone |
 | MSG-4 | §51 | Send documents other than the invoice by hand | Nothing | M | Claude alone |
 | MSG-5 | §55 G4 | Export to Tally (vouchers and masters, XML) | Nothing (the CA's Tally to check an import) | L | Claude alone |
 
@@ -770,6 +770,7 @@ otherwise it is built as written.
 - **What it is:** *Remind* on the overdue list and the customer statement sends the statement by email or WhatsApp.
 - **What gets built:** *Remind* actions calling the existing send path (`desktop/lib/ui/settings/send_message_dialog.dart`, `backend/app/messaging`) with the statement PDF; respects *no reminders*. Tests.
 - **Depends on:** MSG-1 for the WhatsApp half. **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A57): *Remind* on the Customer Statement screen (the customer on show) and on an approved invoice's selection bar (its customer; chiefly from the Overdue view), `DOCUMENT_SEND`. It sends the customer's **statement of account** -- a new PDF, `GET /customers/{id}/statement/print` (`app/customers/services/statement_pdf.py`): the movement from the oldest unpaid bill to today, the closing balance, the bills unpaid with days overdue, and the UPI line where MSG-2 applies; figures from the statement and the ageing services. By **email**: `POST /messaging/remind` queues an outbox row (`MANUAL_REMINDER`, document `CUSTOMER_STATEMENT`) whose attachment the worker renders; needs messaging and email on. On **WhatsApp by hand**: `GET /messaging/share/customer-statements/{id}` plus MSG-1's flow, recorded in the customer's audit trail. *No reminders* and a customer who owes nothing are refused by name on both roads. The letter renderer gained tables (`LetterTable`). No migration. Tests: `test_reminders.py`, `remind_dialog_test.dart`, `whatsapp_share_test.dart`.
 
 #### MSG-4. Send other documents by hand (§51)
 - **What it is:** email the order, quotation, statement, receipt and purchase order, as the invoice already is.

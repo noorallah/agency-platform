@@ -350,6 +350,17 @@ def _attachments(session: Session, row: MessagingOutbox) -> tuple[Attachment, ..
     """Render the document's PDF for an email that attaches it."""
     if not row.attach_pdf or row.channel != "EMAIL" or row.document_id is None:
         return ()
+    if row.document_type == "CUSTOMER_STATEMENT":
+        # A payment reminder (MSG-3): the statement as it stood the day it was
+        # asked for, which a pass later the same day reproduces exactly.
+        from app.customers.services.statement_pdf import CustomerStatementPdfService
+
+        pdf, filename = CustomerStatementPdfService(session).render(
+            row.document_id,
+            firm_id=row.firm_id,
+            to_date=as_utc(row.created_at).date(),
+        )
+        return (Attachment(filename=filename, content=pdf),)
     if row.document_type != "SALES_INVOICE":
         return ()
     # Imported here: the print service pulls in reportlab, which a pass with
