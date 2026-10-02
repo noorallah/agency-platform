@@ -1100,6 +1100,30 @@ class ApiClient {
         _unwrapMap(await request('GET', '/api/v1/customers/$id')),
       );
 
+  /// The sentence naming the other customers that hold this GSTIN or PAN, or
+  /// null when none does (decision A7: a repeat is allowed, so the form asks
+  /// before saving rather than being refused). [excludingId] is the customer
+  /// being edited.
+  Future<String?> customerIdentityCheck({
+    String gstNumber = '',
+    String panNumber = '',
+    String? excludingId,
+  }) async {
+    final Json data = _unwrapMap(
+      await request(
+        'GET',
+        '/api/v1/customers/identity-check',
+        query: {
+          if (gstNumber.isNotEmpty) 'gst_number': gstNumber,
+          if (panNumber.isNotEmpty) 'pan_number': panNumber,
+          if (excludingId != null) 'excluding_id': excludingId,
+        },
+      ),
+    );
+    final dynamic message = data['message'];
+    return message is String && message.isNotEmpty ? message : null;
+  }
+
   Future<Customer> createCustomer(Json data) async =>
       Customer.fromJson(_unwrapMap(
         await request('POST', '/api/v1/customers', body: data),

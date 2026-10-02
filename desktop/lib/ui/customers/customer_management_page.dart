@@ -259,6 +259,12 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
           // Passed as loaders rather than the client itself, matching `onSave`:
           // the dialog stays a form and does not grow an API dependency.
           loadPlaces: widget.api.geoPlaces,
+          // Advisory: names who else holds the GSTIN or PAN (decision A7).
+          checkIdentity: (gst, pan) => widget.api.customerIdentityCheck(
+            gstNumber: gst,
+            panNumber: pan,
+            excludingId: customer?.id,
+          ),
           loadRoutes: customer == null
               ? null
               : () => widget.api.customerRoutes(customer.id),
@@ -874,6 +880,7 @@ class CustomerWorkspaceDialog extends StatefulWidget {
     required this.customer,
     required this.onSave,
     required this.loadPlaces,
+    this.checkIdentity,
     this.loadRoutes,
     this.loadAttributes,
     this.loadGroups,
@@ -897,6 +904,11 @@ class CustomerWorkspaceDialog extends StatefulWidget {
   /// the client itself, matching `onSave` and `loadRoutes`: the dialog stays a
   /// form and does not grow an API dependency.
   final GeoPlaceLoader loadPlaces;
+
+  /// Names the other customers holding a GSTIN or PAN, or null when none does
+  /// (decision A7). Null here skips the check. A failure of the call is
+  /// swallowed by the form: the check is advisory and never blocks a save.
+  final Future<String?> Function(String gst, String pan)? checkIdentity;
 
   /// The rounds that call this shop. Null while creating, since a customer
   /// that does not exist yet is on nothing.
@@ -1232,6 +1244,11 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
       _saving = true;
       _error = null;
     });
+    final bool carryOn = await _confirmRepeatedIdentity();
+    if (!carryOn) {
+      if (mounted) setState(() => _saving = false);
+      return;
+    }
     try {
       final Customer saved = await widget.onSave(_payload());
       if (mounted) Navigator.pop(context, saved);
@@ -1251,6 +1268,39 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         });
       }
     }
+  }
+
+  /// Ask before saving a GSTIN or PAN another customer already holds (A7).
+  ///
+  /// One company has several accounts, so a repeat is allowed; the person is
+  /// told and decides. Only a value that is new -- on a create, or changed
+  /// from what was loaded -- is asked about. The check is advisory, so a
+  /// failure of the call saves as before.
+  Future<bool> _confirmRepeatedIdentity() async {
+    final check = widget.checkIdentity;
+    if (check == null) return true;
+    final String gst = (_nullable('gst_number') ?? '').toUpperCase();
+    final String pan = (_nullable('pan_number') ?? '').toUpperCase();
+    final Customer? loaded = widget.customer;
+    final bool gstNew = gst.isNotEmpty &&
+        (loaded == null || gst != loaded.gstNumber.trim().toUpperCase());
+    final bool panNew = pan.isNotEmpty &&
+        (loaded == null || pan != loaded.panNumber.trim().toUpperCase());
+    if (!gstNew && !panNew) return true;
+    String? message;
+    try {
+      message = await check(gstNew ? gst : '', panNew ? pan : '');
+    } on Object {
+      return true;
+    }
+    if (message == null || !mounted) return true;
+    return AppDialogs.confirm(
+      context,
+      title: 'Same GSTIN or PAN on another customer',
+      message: '$message\n\nOne company may have several accounts. '
+          'Save anyway?',
+      confirmLabel: 'Save anyway',
+    );
   }
 
   Json _payload() => {
