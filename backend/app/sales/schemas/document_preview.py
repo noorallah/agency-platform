@@ -27,3 +27,7 @@ class DocumentPreviewLine(BaseModel):
     #: the screen says what the customer last paid *net*, not only the rate.
     last_discount_percent: Decimal | None = None
     available_quantity: Decimal = Decimal("0")
+    #: On open purchase orders for that warehouse, not yet received (STK-10).
+    incoming_quantity: Decimal = Decimal("0")
+    #: Promised on open sales orders there, not yet dispatched nor reserved.
+    outgoing_quantity: Decimal = Decimal("0")

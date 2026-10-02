@@ -93,7 +93,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | STK-7 | §70 row 11 | Adjustment reasons as a list the firm keeps | Nothing | M | Claude alone |
 | STK-8 | §70 row 12 | Large adjustments and write-offs need approval | Nothing | M | Claude alone |
 | STK-9 | §70 row 13 | Photos and documents on adjustments, write-offs, counts | Nothing | S | Claude alone |
-| STK-10 | §70 row 14 | Incoming and outgoing beside available stock | Nothing | S | Claude alone |
+| STK-10 | §70 row 14 | Incoming and outgoing beside available stock -- **built 2026-10-03** (A60) | Nothing | S | Claude alone |
 | STK-11 | §70 row 15 | Issue rule per product: earliest expiry, first in, or pick by hand | Nothing | S | Claude alone |
 | STK-12 | §70 row 16 | Reservations that lapse after N days | Nothing | M | Claude alone |
 | STK-13 | §70 row 17 | Returned goods held until checked | Nothing | S | Claude alone |
@@ -488,6 +488,7 @@ otherwise it is built as written.
 - **What it is:** beside available, how much is on order from suppliers and promised to customers.
 - **What gets built:** two derived figures in the stock summary of `inventory_service.py` (open purchase order lines not received; open sales order lines not reserved), grouped in SQL; shown on the stock screen and the sales order line. No migration. Tests.
 - **Depends on:** nothing. **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A60): `app/inventory/services/pipeline.py` derives **incoming** (approved purchase orders less completed receipts, in stock units) and **outgoing** (APPROVED / PARTIALLY_DELIVERED sales order lines less what left the warehouse less what is still reserved), per warehouse and product, one grouped read per table; reorder planning now uses the same incoming derivation, still counting drafts. `GET /inventory/summary/by-product` and `/by-warehouse` carry `incoming_quantity`, `outgoing_quantity` and `projected_quantity` (available + incoming - outgoing); by-product also lists a product with no stock row but open orders. The order preview's line carries both for the warehouse it ships from. Desktop: a *Product stock* table on Stock Summary (the by-product route gained its screen) and Incoming / Outgoing / Projected columns there and on *Warehouse stock*; the order editor's side panel shows both under Stock. No migration. Tests: `test_stock_pipeline.py`, `inventory_sections_test.dart`.
 
 #### STK-11. Issue rule per product (§70 row 15)
 - **What it is:** per product: earliest expiry first, first received first, or the person picks.

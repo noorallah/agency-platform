@@ -149,6 +149,24 @@ class _InventoryApi extends ApiClient {
         },
       };
     }
+    if (path == '/api/v1/inventory/summary/by-product') {
+      // STK-10: what open orders on both sides will do to the stock.
+      return {
+        'data': [
+          {
+            'scope_id': 'product-1',
+            'scope_code': 'AMOX500',
+            'scope_name': 'Amoxicillin 500',
+            'current_quantity': '40.0000',
+            'available_quantity': '30.0000',
+            'reserved_quantity': '10.0000',
+            'incoming_quantity': '600.0000',
+            'outgoing_quantity': '25.0000',
+            'projected_quantity': '605.0000',
+          },
+        ],
+      };
+    }
     if (path.startsWith('/api/v1/inventory/summary/')) {
       return {
         'data': [
@@ -359,5 +377,27 @@ void main() {
     expect(delete, findsOneWidget);
     expect(tester.widget<OutlinedButton>(delete).onPressed, isNull,
         reason: 'nothing is selected yet, so it is disabled rather than absent');
+  });
+
+  testWidgets('the stock summary shows incoming, outgoing and projected '
+      'per product', (tester) async {
+    await _pump(
+      tester,
+      InventoryManagementPage(
+        api: _InventoryApi(),
+        preferences: DesktopPreferencesService(),
+        permissions: _permissions(),
+        hasActiveFirm: true,
+        section: InventorySection.stockSummary,
+      ),
+    );
+
+    expect(find.text('Product stock'), findsOneWidget);
+    final Finder product = find.text('Product stock');
+    await tester.ensureVisible(product);
+    expect(find.text('Incoming'), findsWidgets);
+    expect(find.text('Projected'), findsWidgets);
+    expect(find.text('600.0000'), findsOneWidget);
+    expect(find.text('605.0000'), findsOneWidget);
   });
 }

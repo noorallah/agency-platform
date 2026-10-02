@@ -42,20 +42,19 @@ from datetime import timedelta
 from decimal import ROUND_CEILING, Decimal
 from uuid import UUID
 
-from sqlalchemy import String, cast, func, or_, select
+from sqlalchemy import String, cast, func, select
 from sqlalchemy.orm import Session
 
 from app.branches.models import Warehouse
 from app.common.audit.services import record_audit
 from app.core.exceptions import ValidationError
 from app.core.utils.dates import utc_now
-from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.inventory.models import InventoryRecord, InventoryTransaction
 from app.inventory.schemas import REVERSAL_SUFFIX
+from app.inventory.services.pipeline import incoming
 from app.products.models import Product
 from app.purchase.models import (
     PurchaseOrder,
-    PurchaseOrderLine,
     ReorderPlanningSettings,
 )
 from app.purchase.schemas import (
@@ -516,77 +515,20 @@ class ReorderService:
     ) -> dict[tuple[UUID, UUID], Decimal]:
         """Return what open orders still bring, per warehouse and product.
 
-        In stock units: each line's ordered quantity less what its completed
-        receipts took in, times its conversion factor. One grouped read for
-        the lines and one for the receipts, never one per row.
+        In stock units, through the derivation the stock screen's *incoming*
+        reads (STK-10) -- with drafts counted here, so a second run does not
+        order the same goods.
         """
-        line_warehouse = func.coalesce(
-            PurchaseOrderLine.warehouse_id, PurchaseOrder.warehouse_id
-        )
-        lines = self._session.execute(
-            select(
-                PurchaseOrderLine.id,
-                line_warehouse,
-                PurchaseOrderLine.product_id,
-                PurchaseOrderLine.ordered_quantity,
-                PurchaseOrderLine.conversion_factor,
-            )
-            .join(
-                PurchaseOrder, PurchaseOrder.id == PurchaseOrderLine.purchase_order_id
-            )
-            .where(
-                PurchaseOrder.firm_id == firm_id,
-                PurchaseOrder.is_deleted.is_(False),
-                PurchaseOrder.status.in_(OPEN_ORDER_STATUSES),
-                PurchaseOrderLine.is_deleted.is_(False),
-                PurchaseOrderLine.product_id.in_(product_ids),
-                or_(
-                    PurchaseOrderLine.warehouse_id.in_(warehouse_ids),
-                    PurchaseOrder.warehouse_id.in_(warehouse_ids),
-                ),
-            )
-        ).all()
-        if not lines:
-            return {}
-        received: dict[UUID, Decimal] = {
-            line_id: Decimal(str(quantity))
-            for line_id, quantity in self._session.execute(
-                select(
-                    GoodsReceiptLine.purchase_order_line_id,
-                    func.coalesce(
-                        func.sum(GoodsReceiptLine.current_receipt_quantity), 0
-                    ),
-                )
-                .join(
-                    GoodsReceipt, GoodsReceipt.id == GoodsReceiptLine.goods_receipt_id
-                )
-                .join(
-                    PurchaseOrderLine,
-                    PurchaseOrderLine.id == GoodsReceiptLine.purchase_order_line_id,
-                )
-                .join(
-                    PurchaseOrder,
-                    PurchaseOrder.id == PurchaseOrderLine.purchase_order_id,
-                )
-                .where(
-                    GoodsReceipt.firm_id == firm_id,
-                    GoodsReceipt.status.in_(RECEIVED_STATUSES),
-                    GoodsReceipt.is_deleted.is_(False),
-                    GoodsReceiptLine.is_deleted.is_(False),
-                    PurchaseOrder.status.in_(OPEN_ORDER_STATUSES),
-                    PurchaseOrderLine.product_id.in_(product_ids),
-                )
-                .group_by(GoodsReceiptLine.purchase_order_line_id)
-            ).all()
+        return {
+            key: quantity
+            for key, quantity in incoming(
+                self._session,
+                firm_id=firm_id,
+                product_ids=product_ids,
+                open_statuses=OPEN_ORDER_STATUSES,
+            ).items()
+            if key[0] in warehouse_ids
         }
-        result: dict[tuple[UUID, UUID], Decimal] = defaultdict(lambda: ZERO)
-        for line_id, warehouse, product_id, ordered, factor in lines:
-            outstanding = Decimal(str(ordered)) - received.get(line_id, ZERO)
-            if outstanding > ZERO:
-                result[(warehouse, product_id)] += outstanding * Decimal(
-                    str(factor or 1)
-                )
-        return dict(result)
 
     def _suppliers(
         self, firm_id: UUID, products: dict[UUID, Product]

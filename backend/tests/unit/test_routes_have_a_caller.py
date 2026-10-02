@@ -134,7 +134,6 @@ _ACCEPTED: dict[str, str] = {
     "PATCH /api/v1/finance/financial-years/{year_id}": _SCREEN_GAP,
     "DELETE /api/v1/finance/financial-years/{year_id}": _SCREEN_GAP,
     "GET /api/v1/branch-warehouse/settings": _SCREEN_GAP,
-    "GET /api/v1/inventory/summary/by-product": _SCREEN_GAP,
     "GET /api/v1/sales-returns/summary": _SCREEN_GAP,
 }
 
