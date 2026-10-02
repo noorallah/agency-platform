@@ -146,7 +146,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | PLT-7 | D-PERF-1 | The 38 routes past their time target on WHOLE01 | Nothing | M | Claude alone |
 | PLT-8 | §31.17 rest | One search box on the audit trail spanning who and what -- **built 2026-10-03** (A77) | Nothing | S | Claude alone |
 | PLT-9 | §31 leftovers | Phase 1 leftovers: payload guard on the phase 2 editors, "Line 1" labels, price-list counts -- **built 2026-10-03** | Nothing | S | Claude alone |
-| PLT-10 | §3 | The stray `installer/` folder | Nothing | S | Claude alone |
+| PLT-10 | §3 | The stray `installer/` folder -- **done 2026-10-03** | Nothing | S | Claude alone |
 | PLT-11 | §53 item 4 | Report: parties with no PAN, and PAN that does not match the GSTIN -- **built 2026-10-03** (A53) | Nothing | S | Claude alone |
 | **Messaging and integration** | | | | | |
 | MSG-1 | §51 A2 | Share a document on WhatsApp by hand -- **built 2026-10-03** (A56) | Nothing | S | Claude alone |
@@ -766,6 +766,7 @@ otherwise it is built as written.
 - **What it is:** an old, unused folder on the development machine.
 - **What gets built:** it holds two small files from an early attempt, is ignored by git and exists only in the owner's checkout; delete it and the `/installer/` line in `.gitignore`. Nothing reads it.
 - **Effort / Who:** S, Claude alone.
+- **Done 2026-10-03**: the two files (`apply-tenant-installer-config.ps1`, 19 lines writing five `AGENCY_TENANCY_*` settings from a JSON file, and its 8-line example) were checked against the tree -- nothing referred to them; the shipped installer is `packaging/server_setup.ps1` -- and deleted from the owner's checkout, with the `/installer/` line in `.gitignore`.
 
 #### PLT-11. PAN reports (§53 item 4)
 - **What it is:** lists of customers and suppliers with no PAN (they cost the higher TDS rate) and with a PAN that does not match their GSTIN.
