@@ -698,6 +698,15 @@ class SalesReturnService(TransactionalDocumentService):
             SalesReturnStatus.CLOSED.value,
         }:
             raise ValidationError("Cancelled/closed sales returns cannot be completed.")
+        # The firm's choice: goods back from a customer wait in quarantine
+        # until somebody checks them (STK-13).
+        from app.batch_serial.services.batch_sale_policy import BatchSalePolicyService
+
+        hold_for_check = (
+            BatchSalePolicyService(self._session)
+            .settings_response(firm_scope)
+            .hold_returns_for_check
+        )
         if row.status != SalesReturnStatus.APPROVED.value:
             raise ValidationError("Only approved sales returns can be completed.")
         # Asked again where the stock arrives and the customer is credited: a
@@ -774,6 +783,7 @@ class SalesReturnService(TransactionalDocumentService):
                 # One unit coming back is named on the movement itself; the
                 # count below refuses the line if the movement is not one unit.
                 serial_id=picks[0][1].id if len(picks) == 1 else None,
+                hold_for_check=hold_for_check,
             )
             if serialised:
                 # Counted on the movement, which is in the product's own unit

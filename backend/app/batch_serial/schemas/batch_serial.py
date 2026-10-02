@@ -231,6 +231,9 @@ class BatchSaleSettingsWrite(BatchSchema):
     #: A line whose batch is chosen takes the batch's selling price as its
     #: rate, before the price list (backlog 79 row 7). Off by default.
     price_from_batch: bool = False
+    #: A customer return goes to quarantine until checked (STK-13). Off by
+    #: default.
+    hold_returns_for_check: bool = False
 
 
 class BatchSaleSettingsResponse(BatchSaleSettingsWrite):

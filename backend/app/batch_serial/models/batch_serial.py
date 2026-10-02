@@ -313,3 +313,8 @@ class BatchSaleSettings(BaseEntity):
     price_from_batch: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    #: Goods a customer sends back go to quarantine rather than onto the
+    #: shelf, until somebody checks them and releases them (STK-13).
+    hold_returns_for_check: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )

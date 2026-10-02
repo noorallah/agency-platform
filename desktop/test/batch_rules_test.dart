@@ -217,7 +217,7 @@ Future<void> _pumpSettings(
 
 void main() {
   group('the Batch rules dialog', () {
-    testWidgets('loads, and saves exactly the six keys', (tester) async {
+    testWidgets('loads, and saves exactly the seven keys', (tester) async {
       final _BatchApi api = _BatchApi();
       await _pumpSettings(tester, api, ['SALES_VIEW', 'SALES_MANAGE_SETTINGS']);
       expect(tester.takeException(), isNull);
@@ -234,6 +234,12 @@ void main() {
       );
       await tester.tap(find.byKey(const ValueKey('batch-rules-price-from-batch')));
       await tester.pumpAndSettle();
+      // STK-13: customer returns held until checked.
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('batch-rules-hold-returns')),
+      );
+      await tester.tap(find.byKey(const ValueKey('batch-rules-hold-returns')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('batch-rules-save')));
       await tester.pumpAndSettle();
 
@@ -244,6 +250,7 @@ void main() {
         'near_expiry_below_floor': false,
         'shelf_life_policy': 'BLOCK',
         'price_from_batch': true,
+        'hold_returns_for_check': true,
       });
     });
 

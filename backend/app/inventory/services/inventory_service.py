@@ -2488,6 +2488,7 @@ class InventoryService:
         remarks: str | None = None,
         batch_id: UUID | None = None,
         serial_id: UUID | None = None,
+        hold_for_check: bool = False,
     ) -> InventoryTransaction:
         """Take back into stock the goods a customer sent back.
 
@@ -2503,6 +2504,10 @@ class InventoryService:
         The unit cost is left unset so the goods return at the moving average
         the product is carried at. Bringing them back at the selling price
         would revalue stock at a number no purchase ever paid.
+
+        ``hold_for_check`` (the firm's *hold customer returns until checked*,
+        STK-13) puts the sellable part in quarantine instead of on the shelf;
+        releasing it is the ordinary quarantine release.
         """
         (
             base_quantity,
@@ -2552,13 +2557,13 @@ class InventoryService:
                 reference_type="SALES_RETURN",
                 transaction_date=transaction_date,
                 quantity=base_quantity,
-                current_delta=restock_base,
+                current_delta=ZERO if hold_for_check else restock_base,
                 damaged_delta=damaged_base,
                 # Scrapped goods came back and were condemned in the same
                 # movement, so they land nowhere: the firm owns them for
                 # valuation and can neither sell nor repair them.
                 blocked_delta=ZERO,
-                quarantine_delta=ZERO,
+                quarantine_delta=restock_base if hold_for_check else ZERO,
                 # Everything that came back is owned, sellable or not, so the
                 # value follows the whole return rather than the shelf-ready
                 # part of it.

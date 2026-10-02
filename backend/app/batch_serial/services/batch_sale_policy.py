@@ -89,6 +89,7 @@ class BatchSalePolicyService:
                 near_expiry_below_floor=DEFAULT_NEAR_EXPIRY_BELOW_FLOOR,
                 shelf_life_policy=DEFAULT_SHELF_LIFE_POLICY,
                 price_from_batch=DEFAULT_PRICE_FROM_BATCH,
+                hold_returns_for_check=False,
                 is_configured=False,
             )
         return BatchSaleSettingsResponse(
@@ -98,6 +99,7 @@ class BatchSalePolicyService:
             near_expiry_below_floor=stored.near_expiry_below_floor,
             shelf_life_policy=stored.shelf_life_policy,
             price_from_batch=stored.price_from_batch,
+            hold_returns_for_check=stored.hold_returns_for_check,
             is_configured=True,
         )
 
@@ -118,6 +120,7 @@ class BatchSalePolicyService:
         row.near_expiry_below_floor = data.near_expiry_below_floor
         row.shelf_life_policy = data.shelf_life_policy
         row.price_from_batch = data.price_from_batch
+        row.hold_returns_for_check = data.hold_returns_for_check
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -147,6 +150,7 @@ class BatchSalePolicyService:
             "near_expiry_below_floor": row.near_expiry_below_floor,
             "shelf_life_policy": row.shelf_life_policy,
             "price_from_batch": row.price_from_batch,
+            "hold_returns_for_check": row.hold_returns_for_check,
         }
 
     def near_expiry_days(self, firm_id: UUID) -> int:
