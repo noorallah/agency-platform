@@ -22,6 +22,7 @@ from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.promotions.schemas import (
     CouponBatchRequest,
     CouponBatchResponse,
+    PromotionCopyRequest,
     PromotionCouponPerformanceRecord,
     PromotionCouponResponse,
     PromotionCouponWrite,
@@ -39,6 +40,7 @@ from app.promotions.services import (
     PromotionService,
 )
 from app.promotions.services.coupon_batches import CouponBatchService
+from app.promotions.services.promotion_copy import PromotionCopyService
 from app.promotions.services.promotion_crud import PromotionCrudService
 
 router = APIRouter(
@@ -118,6 +120,34 @@ def simulate_promotions(
     result = PromotionService(db).evaluate(data, firm_scope=scope.firm_id)
     db.commit()
     return ApiResponse(data=result)
+
+
+@router.post(
+    "/copy",
+    response_model=ApiResponse[list[PromotionResponse]],
+    status_code=status.HTTP_201_CREATED,
+)
+def copy_promotions(
+    data: PromotionCopyRequest,
+    scope: PromotionManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PromotionResponse]]:
+    """Copy last season's offers as drafts with new dates (SEL-8).
+
+    A literal above `/{promotion_id}`, like `/simulate`.
+    """
+    rows = PromotionCopyService(db).copy(
+        data.promotion_ids,
+        effective_from=data.effective_from,
+        effective_to=data.effective_to,
+        code_suffix=data.code_suffix,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(
+        data=PromotionCrudService(db).promotion_responses(rows),
+        message=f"{len(rows)} offer(s) copied as drafts.",
+    )
 
 
 # Every coupon path is a literal above `/{promotion_id}`, or FastAPI reads

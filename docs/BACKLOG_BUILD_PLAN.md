@@ -57,7 +57,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | SEL-5 | §60 row 7 | Offer: 500 single-use coupon codes at once, exported to a file -- **built 2026-10-03** (A70) | Nothing | S | Claude alone |
 | SEL-6 | §60 row 8 | Offer only for a first order, or for customers not billed in 90 days | Nothing | M | Claude alone |
 | SEL-7 | §60 row 9 | Offer only on certain weekdays or hours | Nothing | S | Claude alone |
-| SEL-8 | §60 row 10 | Copy last Diwali's offers with new dates | Nothing | S | Claude alone |
+| SEL-8 | §60 row 10 | Copy last Diwali's offers with new dates -- **built 2026-10-03** (A71) | Nothing | S | Claude alone |
 | SEL-9 | §64 row 1 | Special rate per customer, and named price levels (Retail, Wholesale, Dealer) | Nothing | M | Claude alone |
 | SEL-10 | §67 row 1 | Enquiries and leads before the quotation | Nothing | L | Claude alone |
 | SEL-11 | §42.7, §60 row 11, §55 G10 | Claims to the principal: scheme, expiry and breakage | Nothing | L | Claude alone |
@@ -313,6 +313,7 @@ otherwise it is built as written.
 - **What it is:** copy last year's offers with new dates.
 - **What gets built:** `POST /promotions/copy` (ids, new from / until) creating drafts; *Copy...* on `desktop/lib/ui/pricing/promotion_page.dart` for the ticked rows. Tests: copies are drafts, the originals untouched.
 - **Depends on:** nothing. **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A71): `app/promotions/services/promotion_copy.py` -- `POST /promotions/copy` (ids, window, code suffix) copies each offer as a DRAFT at version one with the suffixed code and the same conditions and benefits, all or nothing, one `promotion.copied` audit row per copy naming its source; coupons are not copied. No migration. Desktop: *Copy with new dates...* on the promotions page copies the picked offer (the offers grid is single-select; the API takes up to 100). Tests: `test_promotion_copy.py`, `promotion_copy_test.dart`.
 
 #### SEL-9. Special rates per customer and named price levels (§64 row 1)
 - **What it is:** "Anand pays 80 for detergent"; Retail / Wholesale / Dealer rates.

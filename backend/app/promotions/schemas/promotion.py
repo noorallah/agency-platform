@@ -417,6 +417,17 @@ class PromotionCouponWrite(PromotionSchema):
         return self
 
 
+class PromotionCopyRequest(PromotionSchema):
+    """Copy a set of offers as drafts with a new window (SEL-8)."""
+
+    promotion_ids: list[UUID] = Field(min_length=1, max_length=100)
+    effective_from: date
+    effective_to: date
+    #: Added to each code, since a code names one offer for good: DIWALI
+    #: becomes DIWALI-26.
+    code_suffix: str = Field(min_length=1, max_length=12)
+
+
 class CouponBatchRequest(PromotionSchema):
     """Mint a campaign's single-use codes against one offer (SEL-5)."""
 

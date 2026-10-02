@@ -5302,6 +5302,35 @@ class ApiClient {
   Future<void> deletePromotion(String id) =>
       request('DELETE', '/api/v1/promotions/$id');
 
+  /// Copy offers as drafts with a new window and a suffix on each code
+  /// (SEL-8); returns the copies.
+  Future<List<PromotionRecord>> copyPromotions(
+    List<String> ids, {
+    required DateTime effectiveFrom,
+    required DateTime effectiveTo,
+    required String codeSuffix,
+  }) async {
+    String day(DateTime date) => date.toIso8601String().substring(0, 10);
+    final Json response = await request(
+      'POST',
+      '/api/v1/promotions/copy',
+      body: <String, dynamic>{
+        'promotion_ids': ids,
+        'effective_from': day(effectiveFrom),
+        'effective_to': day(effectiveTo),
+        'code_suffix': codeSuffix,
+      },
+    );
+    final dynamic data = response['data'];
+    return data is List
+        ? data
+            .whereType<Map>()
+            .map((item) =>
+                PromotionRecord.fromJson(Map<String, dynamic>.from(item)))
+            .toList()
+        : <PromotionRecord>[];
+  }
+
   Future<PagedResult<PromotionCouponRecord>> promotionCoupons({
     int page = 1,
     int pageSize = 20,

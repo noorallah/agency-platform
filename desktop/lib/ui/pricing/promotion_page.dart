@@ -12,6 +12,7 @@ import '../../core/dialogs/app_dialogs.dart';
 import '../workspace/desktop_framework.dart';
 import 'coupon_batch_dialog.dart';
 import 'coupon_dialog.dart';
+import 'promotion_copy_dialog.dart';
 import 'promotion_dialog.dart';
 import 'promotion_try_dialog.dart';
 
@@ -198,6 +199,25 @@ class _PromotionPageState extends State<PromotionPage> {
       });
       unawaited(_load(requestedPage: 1));
     }
+  }
+
+  /// Copy the picked offer as a draft with new dates (SEL-8).
+  Future<void> _copyOffer(PromotionRecord offer) async {
+    final List<PromotionRecord>? copies =
+        await showDialog<List<PromotionRecord>>(
+      context: context,
+      builder: (_) => PromotionCopyDialog(
+        api: widget.api,
+        promotions: [offer],
+      ),
+    );
+    if (copies == null || !mounted) return;
+    NotificationService.show(
+      context,
+      '${copies.length} offer(s) copied as drafts.',
+      kind: AppNotificationKind.success,
+    );
+    unawaited(_load(requestedPage: 1));
   }
 
   /// Save an offer's codes as a CSV: the selected coupon's or offer's, or one
@@ -427,6 +447,18 @@ class _PromotionPageState extends State<PromotionPage> {
             tooltip: 'Mint many single-use codes for an offer',
             menuOnly: true,
             onPressed: () => unawaited(_generateCodes()),
+          ),
+        // Last season's offer again with new dates (SEL-8): about the picked
+        // offer, so it waits for one.
+        if (_mayManage && !_showingCoupons)
+          ToolbarCommand(
+            id: 'copy-offers',
+            label: 'Copy with new dates...',
+            icon: Icons.copy_all_outlined,
+            tooltip: 'Copy the picked offer as a draft with a new window',
+            menuOnly: true,
+            onPressed:
+                offer == null ? null : () => unawaited(_copyOffer(offer)),
           ),
         ToolbarCommand(
           id: 'export-codes',
