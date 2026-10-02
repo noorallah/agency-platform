@@ -123,6 +123,8 @@ class ProductWrite(ProductSchema):
     #: The trade licence this product needs, overriding its category's;
     #: null takes the category's (backlog 54).
     required_licence_type_id: UUID | None = None
+    #: The supplier it is normally bought from; reorder orders from it (A18).
+    preferred_vendor_id: UUID | None = None
     unit: str | None = Field(default=None, max_length=20)
     brand: str | None = Field(default=None, max_length=120)
     model: str | None = Field(default=None, max_length=120)
@@ -251,6 +253,7 @@ class ProductResponse(ProductSchema):
     category_id: UUID | None
     sub_category_id: UUID | None
     required_licence_type_id: UUID | None = None
+    preferred_vendor_id: UUID | None = None
     unit: str | None
     brand: str | None
     model: str | None

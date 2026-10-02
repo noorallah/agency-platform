@@ -251,3 +251,62 @@ def test_a_caller_who_cannot_see_the_cost_cannot_clear_it() -> None:
     sighted = blind | {"PRODUCT_VIEW_COST_PRICE", "PRODUCT_PRICING_MANAGE"}
     assert save(sighted, purchase_price="75").purchase_price == Decimal("75")
     assert save(sighted, purchase_price=None).purchase_price is None
+
+
+def test_a_preferred_supplier_must_be_the_firms_and_active() -> None:
+    """Decision A18: another firm's or an inactive supplier is refused."""
+    from app.vendors.models import Vendor
+
+    session = _session()
+    firm = _firm(session, "PPU5")
+    other = Firm(
+        name="PPU6 Firm",
+        code="PPU6",
+        country="IN",
+        currency_code="INR",
+        financial_year_start=date(2026, 4, 1),
+    )
+    session.add(other)
+    session.commit()
+    product = _full_product(session, firm)
+    service = ProductService(session)
+    mine = Vendor(
+        firm_id=firm.id, code="V1", name="Mine", display_name="Mine", status="ACTIVE"
+    )
+    theirs = Vendor(
+        firm_id=other.id,
+        code="V2",
+        name="Theirs",
+        display_name="Theirs",
+        status="ACTIVE",
+    )
+    idle = Vendor(
+        firm_id=firm.id, code="V3", name="Idle", display_name="Idle", status="INACTIVE"
+    )
+    session.add_all([mine, theirs, idle])
+    session.commit()
+
+    for refused in (theirs, idle):
+        with pytest.raises(ValidationError, match="Preferred supplier not found"):
+            service.update_product(
+                product.id,
+                _three_fields(preferred_vendor_id=refused.id),
+                firm_scope=firm.id,
+                actor_id=uuid4(),
+            )
+        session.rollback()
+
+    updated = service.update_product(
+        product.id,
+        _three_fields(preferred_vendor_id=mine.id),
+        firm_scope=firm.id,
+        actor_id=uuid4(),
+    )
+    assert updated.preferred_vendor_id == mine.id
+    # An edit that leaves it alone is not refused once it goes inactive.
+    mine.status = "INACTIVE"
+    session.commit()
+    again = service.update_product(
+        product.id, _three_fields(brand="Other"), firm_scope=firm.id, actor_id=uuid4()
+    )
+    assert again.preferred_vendor_id == mine.id
