@@ -1217,6 +1217,41 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'status', label: 'Status'),
     ],
   ),
+  // Parties whose PAN needs attention (PLT-11): a supplier with none costs
+  // the higher TDS rate, and one outside the GSTIN is wrong on one side.
+  ReportDefinition(
+    id: 'customer-pan-check',
+    label: 'Customer PAN check',
+    description: 'Customers with no PAN, a PAN not in the PAN format, or one '
+        'that is not characters 3 to 12 of their GSTIN. Saving a customer '
+        'whose GSTIN carries the PAN fills a blank one.',
+    path: '/api/v1/customers/reports/pan',
+    permission: 'CUSTOMER_VIEW',
+    area: ReportArea.financial,
+    columns: _panCheckColumns,
+  ),
+  ReportDefinition(
+    id: 'vendor-pan-check',
+    label: 'Supplier PAN check',
+    description: 'Suppliers with no PAN -- tax is deducted from them at the '
+        'higher rate -- a PAN not in the PAN format, or one that is not '
+        'characters 3 to 12 of their GSTIN.',
+    path: '/api/v1/vendors/reports/pan',
+    permission: 'VENDOR_VIEW',
+    area: ReportArea.financial,
+    columns: _panCheckColumns,
+  ),
+];
+
+/// The PAN reports' columns (PLT-11).
+const List<ReportColumn> _panCheckColumns = [
+  ReportColumn(key: 'code', label: 'Code'),
+  ReportColumn(key: 'name', label: 'Name'),
+  ReportColumn(key: 'status', label: 'Status'),
+  ReportColumn(key: 'gstin', label: 'GSTIN'),
+  ReportColumn(key: 'pan', label: 'PAN'),
+  ReportColumn(key: 'pan_in_gstin', label: 'PAN in GSTIN'),
+  ReportColumn(key: 'problem', label: 'Problem'),
 ];
 
 /// The cash book's and the bank book's columns: Tally's layout, with the
