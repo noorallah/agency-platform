@@ -21,6 +21,7 @@ import '../trade_licences/licence_check_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import '../document_framework/document_status_gate.dart';
 import 'goods_receipt_editor_dialog.dart';
+import 'goods_receipt_eway_dialog.dart';
 import 'goods_receipt_view_dialog.dart';
 
 /// A named view over the one goods receipt list.
@@ -317,11 +318,55 @@ class _GoodsReceiptManagementPageState
     await _load();
     if (!mounted) return;
     setState(() => _selected = saved);
+    final String ewayWarning = saved.ewayBillWarning;
     NotificationService.show(
       context,
       'Goods receipt ${saved.grnNumber} created as a draft. Complete it to '
-      'post the stock.',
-      kind: AppNotificationKind.success,
+      'post the stock.${ewayWarning.isEmpty ? '' : ' $ewayWarning'}',
+      kind: ewayWarning.isEmpty
+          ? AppNotificationKind.success
+          : AppNotificationKind.warning,
+    );
+  }
+
+  /// Record the supplier's e-way bill on the selected receipt. A completed
+  /// receipt's editor is closed, so this is how the number gets onto it
+  /// (backlog 78 row 6); any receipt that is not cancelled takes it.
+  ToolbarCommand _recordEwayBillCommand() => ToolbarCommand(
+        id: 'record-eway-bill',
+        label: 'Record e-way bill',
+        icon: Icons.local_shipping_outlined,
+        onPressed: _selected == null ||
+                _selected!.status == 'CANCELLED' ||
+                !widget.permissions.hasPermission('PURCHASE_UPDATE')
+            ? null
+            : () => unawaited(_recordEwayBill()),
+      );
+
+  Future<void> _recordEwayBill() async {
+    final GoodsReceiptRecord? selected = _selected;
+    if (selected == null) return;
+    final Object? saved = await askForEwayBill(
+      context,
+      receiptNumber: selected.grnNumber,
+      currentNumber: selected.ewayBillNumber,
+      currentDate: selected.ewayBillDate,
+      save: (number, date) =>
+          widget.api.setGoodsReceiptEwayBill(selected.id, number, date),
+    );
+    if (saved is! GoodsReceiptRecord || !mounted) return;
+    await _load();
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      saved.ewayBillWarning.isNotEmpty
+          ? saved.ewayBillWarning
+          : saved.ewayBillNumber.isEmpty
+              ? 'E-way bill cleared on ${selected.grnNumber}.'
+              : 'E-way bill recorded on ${selected.grnNumber}.',
+      kind: saved.ewayBillWarning.isNotEmpty
+          ? AppNotificationKind.warning
+          : AppNotificationKind.success,
     );
   }
 
@@ -597,6 +642,7 @@ class _GoodsReceiptManagementPageState
                   Icons.lock_outline,
                   DocumentToolbarAction.close,
                 ),
+                _recordEwayBillCommand(),
               ]
             : const [],
         // Period right after the search, then Columns, as every sales list

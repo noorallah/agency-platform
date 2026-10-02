@@ -76,6 +76,7 @@ from app.purchase_invoice.models import (
 )
 from app.purchase_invoice.schemas import PurchaseInvoiceStatus
 from app.tax.schemas import TaxRuleSimulationRequest
+from app.tax.services.gst_compliance import GstComplianceService
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.trade_licences.services.licence_check import (
@@ -318,6 +319,8 @@ class GoodsReceiptService(TransactionalDocumentService):
             receipt_date=data.receipt_date,
             transport_details=data.transport_details,
             vehicle_number=data.vehicle_number,
+            eway_bill_number=data.eway_bill_number,
+            eway_bill_date=data.eway_bill_date,
             invoice_reference=data.invoice_reference,
             remarks=data.remarks,
             status=GoodsReceiptStatus.DRAFT.value,
@@ -382,6 +385,12 @@ class GoodsReceiptService(TransactionalDocumentService):
         row.received_by_id = data.received_by_id
         row.transport_details = data.transport_details
         row.vehicle_number = data.vehicle_number
+        # Absent keeps the e-way bill on file: a client that never showed it
+        # cannot clear it.
+        if "eway_bill_number" in data.model_fields_set:
+            row.eway_bill_number = data.eway_bill_number
+        if "eway_bill_date" in data.model_fields_set:
+            row.eway_bill_date = data.eway_bill_date
         row.invoice_reference = data.invoice_reference
         row.remarks = data.remarks
         row.updated_by = actor_id
@@ -833,6 +842,7 @@ class GoodsReceiptService(TransactionalDocumentService):
             ids,
         )
         warnings = self._duplicate_warnings(rows)
+        eway_warnings = self._eway_bill_warnings(rows)
         vendors = {
             found[0]: (found[1], found[2])
             for found in self._session.execute(
@@ -849,6 +859,7 @@ class GoodsReceiptService(TransactionalDocumentService):
                 notes=notes[row.id],
                 warning=warnings.get(row.id),
                 vendor=vendors.get(row.vendor_id),
+                eway_warning=eway_warnings.get(row.id),
             )
             for row in rows
         ]
@@ -862,6 +873,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         notes: list[GoodsReceiptNote],
         warning: str | None,
         vendor: tuple[str, str] | None,
+        eway_warning: str | None = None,
     ) -> GoodsReceiptResponse:
         """Build one receipt's response from what the page already read."""
         payload = GoodsReceiptResponse.model_validate(row).model_dump(mode="python")
@@ -880,9 +892,111 @@ class GoodsReceiptService(TransactionalDocumentService):
             for item in notes
         ]
         payload["duplicate_warning"] = warning
+        payload["eway_bill_warning"] = eway_warning
         payload["vendor_name"] = vendor[0] if vendor else ""
         payload["vendor_code"] = vendor[1] if vendor else ""
         return GoodsReceiptResponse.model_validate(payload)
+
+    def _eway_bill_warnings(self, rows: Sequence[GoodsReceipt]) -> dict[UUID, str]:
+        """Say which receipts arrived above the e-way bill limit with none.
+
+        Backlog 78 row 6, CGST rule 138: goods worth more than the firm's
+        limit (50,000 unless it set its state's) travel on an e-way bill.
+        The supplier or transporter raises it and the buyer records its
+        number; for an unregistered supplier's goods the buyer raises it.
+        Warned, never refused -- the goods are already on the dock.
+        """
+        live = [
+            row
+            for row in rows
+            if row.status != GoodsReceiptStatus.CANCELLED.value
+            and not row.eway_bill_number
+        ]
+        if not live:
+            return {}
+        settings = GstComplianceService(self._session)
+        limits = {
+            firm_id: settings.settings_response(firm_id).eway_bill_limit
+            for firm_id in {row.firm_id for row in live}
+        }
+        over = [
+            row
+            for row in live
+            if Decimal(str(row.grand_total or 0)) > limits[row.firm_id]
+        ]
+        if not over:
+            return {}
+        unregistered = {
+            vendor_id
+            for vendor_id, gst_type, gstin in self._session.execute(
+                select(Vendor.id, Vendor.gst_registration_type, Vendor.gstin).where(
+                    Vendor.id.in_({row.vendor_id for row in over})
+                )
+            )
+            if gst_type == "UNREGISTERED" or (gst_type is None and not gstin)
+        }
+        found: dict[UUID, str] = {}
+        for row in over:
+            value = f"{Decimal(str(row.grand_total)):,.2f}"
+            limit = f"{limits[row.firm_id]:,.0f}"
+            who = (
+                "The supplier is unregistered, so the e-way bill is yours to "
+                "raise; record its number here."
+                if row.vendor_id in unregistered
+                else "Record the number from the supplier's e-way bill."
+            )
+            found[row.id] = (
+                f"Goods worth {value} need an e-way bill above {limit} (CGST "
+                f"rule 138), and none is recorded. {who}"
+            )
+        return found
+
+    def set_eway_bill(
+        self,
+        receipt_id: UUID,
+        *,
+        number: str | None,
+        on: date | None,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> GoodsReceipt:
+        """Record or clear a receipt's e-way bill (backlog 78 row 6).
+
+        The number moves no stock and no money, so a completed or closed
+        receipt takes it too -- it is often typed after the goods are in. A
+        cancelled receipt is history and keeps what it had.
+        """
+        row = self.get_receipt(receipt_id, firm_scope=firm_scope)
+        if row.status == GoodsReceiptStatus.CANCELLED.value:
+            raise ValidationError("A cancelled goods receipt cannot be changed.")
+        on = on if number else None
+        before: dict[str, object] = {
+            "eway_bill_number": row.eway_bill_number,
+            "eway_bill_date": (
+                row.eway_bill_date.isoformat() if row.eway_bill_date else None
+            ),
+        }
+        after: dict[str, object] = {
+            "eway_bill_number": number,
+            "eway_bill_date": on.isoformat() if on else None,
+        }
+        if before == after:
+            return row
+        row.eway_bill_number = number
+        row.eway_bill_date = on
+        row.updated_by = actor_id
+        record_audit(
+            self._session,
+            action="goods_receipt.eway_bill_set",
+            entity_type="goods_receipt",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            before_data=before,
+            after_data=after,
+        )
+        self._session.commit()
+        return row
 
     def receipt_history(
         self, *, receipt_id: UUID, firm_scope: UUID

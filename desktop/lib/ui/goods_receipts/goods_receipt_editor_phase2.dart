@@ -272,6 +272,26 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
         ),
       _box(
         context,
+        label: 'E-way bill no.',
+        value: _ewayBillNumber,
+        width: 140,
+        onChanged: (value) => _ewayBillNumber = value,
+      ),
+      DocumentField(
+        label: 'E-way bill date',
+        width: 140,
+        child: _dateBox(
+          context,
+          key: const ValueKey('goods-receipt-eway-date'),
+          value: _ewayBillDate,
+          onPicked: (day) => _setState(() => _ewayBillDate = day),
+          onClear: _ewayBillDate.isEmpty
+              ? null
+              : () => _setState(() => _ewayBillDate = ''),
+        ),
+      ),
+      _box(
+        context,
         label: 'Remarks',
         value: _remarks,
         width: 240,

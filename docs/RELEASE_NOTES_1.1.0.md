@@ -107,6 +107,10 @@ screen (1.1.0).
   e-invoicing; its bill records the IRN from the QR code (on an approved bill
   too), and a bill from it without one is warned about, as is a second bill
   carrying the same IRN (§78 row 5).
+- **The e-way bill on a goods receipt.** A receipt records the e-way bill
+  number and date the goods came on, completed receipts too, and one worth
+  more than the firm's e-way bill limit without it is warned about (§78
+  row 6).
 - **Places from India Post.** Districts, towns, PIN codes and localities
   load by state from India Post's directory, shipped with the installer; the
   southern states are already loaded in every firm, with no setup step (B6).

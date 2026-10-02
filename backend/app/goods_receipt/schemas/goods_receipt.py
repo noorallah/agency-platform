@@ -1,5 +1,6 @@
 """Validated contracts for goods receipt notes."""
 
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -12,6 +13,16 @@ class GoodsReceiptSchema(BaseModel):
     """Goods Receipt Schema contract."""
 
     model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+
+def normalize_eway_bill_number(value: str | None) -> str | None:
+    """Return a 12-digit e-way bill number, spaces dropped; None for blank."""
+    if value is None or not str(value).strip():
+        return None
+    token = re.sub(r"[\s-]", "", str(value))
+    if not re.fullmatch(r"\d{12}", token):
+        raise ValueError("An e-way bill number is 12 digits.")
+    return token
 
 
 class GoodsReceiptStatus(StrEnum):
@@ -98,6 +109,10 @@ class GoodsReceiptCreate(GoodsReceiptSchema):
     received_by_id: UUID | None = None
     transport_details: str | None = Field(default=None, max_length=250)
     vehicle_number: str | None = Field(default=None, max_length=80)
+    #: The e-way bill the goods came on (backlog 78 row 6). Absent on an
+    #: edit keeps what is on file; null clears it.
+    eway_bill_number: str | None = None
+    eway_bill_date: date | None = None
     invoice_reference: str | None = Field(default=None, max_length=120)
     remarks: str | None = None
     lines: list[GoodsReceiptLineWrite] = Field(min_length=1, max_length=1000)
@@ -115,6 +130,25 @@ class GoodsReceiptCreate(GoodsReceiptSchema):
             return None
         token = value.strip().upper()
         return token or None
+
+    @field_validator("eway_bill_number", mode="before")
+    @classmethod
+    def _eway(cls, value: str | None) -> str | None:
+        """Check the e-way bill number is 12 digits."""
+        return normalize_eway_bill_number(value)
+
+
+class GoodsReceiptEwayBillWrite(GoodsReceiptSchema):
+    """Record or clear the e-way bill on a receipt not cancelled (78.6)."""
+
+    eway_bill_number: str | None
+    eway_bill_date: date | None = None
+
+    @field_validator("eway_bill_number", mode="before")
+    @classmethod
+    def _eway(cls, value: str | None) -> str | None:
+        """Check the e-way bill number is 12 digits."""
+        return normalize_eway_bill_number(value)
 
 
 class GoodsReceiptUpdate(GoodsReceiptCreate):
@@ -226,6 +260,8 @@ class GoodsReceiptResponse(GoodsReceiptSchema):
     receipt_date: date
     transport_details: str | None
     vehicle_number: str | None
+    eway_bill_number: str | None = None
+    eway_bill_date: date | None = None
     invoice_reference: str | None
     remarks: str | None
     status: GoodsReceiptStatus
@@ -252,6 +288,9 @@ class GoodsReceiptResponse(GoodsReceiptSchema):
     attachments: list[GoodsReceiptAttachmentResponse] = Field(default_factory=list)
     notes: list[GoodsReceiptNoteResponse] = Field(default_factory=list)
     duplicate_warning: str | None = None
+    #: The goods are worth more than the firm's e-way bill limit and no
+    #: e-way bill is recorded (backlog 78 row 6).
+    eway_bill_warning: str | None = None
 
 
 class GoodsReceiptListFilters(GoodsReceiptSchema):

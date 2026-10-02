@@ -98,6 +98,8 @@ Json _receiptJson({String receiptQuantity = '40'}) => <String, dynamic>{
       'invoice_reference': 'INV-77',
       'transport_details': 'Blue Dart',
       'vehicle_number': 'KA01AB1234',
+      'eway_bill_number': '123456789012',
+      'eway_bill_date': '2026-09-02',
       'remarks': 'left at the gate',
       'version': 4,
       'lines': <Json>[
@@ -217,5 +219,42 @@ void main() {
     expect(lines, hasLength(1));
     expect((lines.first as Json)['current_receipt_quantity'], '40');
     expect((lines.first as Json)['batch_number'], 'B-9');
+  });
+
+  testWidgets('the e-way bill on file is shown and sent back on an edit', (
+    tester,
+  ) async {
+    // Backlog 78 row 6: a full-replace PUT keeps what the body carries, so
+    // the editor must send the number it shows or an edit would clear it.
+    final _Api api = _Api();
+    await _openEditor(
+      tester,
+      api,
+      existing: GoodsReceiptRecord.fromJson(_receiptJson()),
+    );
+
+    expect(find.text('123456789012'), findsWidgets);
+    await tester.tap(find.widgetWithText(FilledButton, 'Save Receipt'));
+    await tester.pumpAndSettle();
+
+    expect(api.sentBody!['eway_bill_number'], '123456789012');
+    expect(api.sentBody!['eway_bill_date'], '2026-09-02');
+  });
+
+  testWidgets('a malformed e-way bill number stops the save', (tester) async {
+    final _Api api = _Api();
+    await _openEditor(
+      tester,
+      api,
+      existing: GoodsReceiptRecord.fromJson(_receiptJson()),
+    );
+
+    await tester.enterText(find.text('123456789012').first, '12345');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save Receipt'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('An e-way bill number is 12 digits.'),
+        findsOneWidget);
+    expect(api.calls.where((call) => call.startsWith('PUT')), isEmpty);
   });
 }

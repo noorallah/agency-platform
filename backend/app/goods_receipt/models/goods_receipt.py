@@ -61,6 +61,12 @@ class GoodsReceipt(BaseEntity):
     receipt_date: Mapped[date] = mapped_column(Date, nullable=False)
     transport_details: Mapped[str | None] = mapped_column(String(250))
     vehicle_number: Mapped[str | None] = mapped_column(String(80))
+    #: The e-way bill the goods travelled on (CGST rule 138; backlog 78 row
+    #: 6): its 12-digit number and the date it was generated. The supplier
+    #: or transporter raises it; the buyer does only for an unregistered
+    #: supplier's goods.
+    eway_bill_number: Mapped[str | None] = mapped_column(String(12))
+    eway_bill_date: Mapped[date | None] = mapped_column(Date)
     invoice_reference: Mapped[str | None] = mapped_column(String(120))
     remarks: Mapped[str | None] = mapped_column(Text)
     # Retired (D-BUY-16): a receipt may never take in more than the order

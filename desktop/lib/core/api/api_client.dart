@@ -3905,6 +3905,21 @@ class ApiClient {
         )),
       );
 
+  /// Record (or, with null, clear) the supplier's e-way bill on a receipt that
+  /// is not cancelled, completed ones included (backlog 78 row 6).
+  Future<GoodsReceiptRecord> setGoodsReceiptEwayBill(
+    String id,
+    String? number,
+    String? date,
+  ) async =>
+      GoodsReceiptRecord.fromJson(
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/goods-receipts/$id/eway-bill',
+          body: {'eway_bill_number': number, 'eway_bill_date': date},
+        )),
+      );
+
   Future<GoodsReceiptRecord> completeGoodsReceipt(String id) async =>
       GoodsReceiptRecord.fromJson(
         _unwrapMap(

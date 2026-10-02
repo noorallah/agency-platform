@@ -14,6 +14,7 @@ import '../../models/purchase.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
+import 'goods_receipt_eway_dialog.dart';
 
 part 'goods_receipt_editor_phase2.dart';
 
@@ -167,6 +168,8 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
   String _invoiceReference = '';
   String _transportDetails = '';
   String _vehicleNumber = '';
+  String _ewayBillNumber = '';
+  String _ewayBillDate = '';
   String _remarks = '';
   bool _saving = false;
   bool _loadingLines = false;
@@ -188,6 +191,8 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
       _invoiceReference = current.invoiceReference;
       _transportDetails = current.transportDetails;
       _vehicleNumber = current.vehicleNumber;
+      _ewayBillNumber = current.ewayBillNumber;
+      _ewayBillDate = current.ewayBillDate;
       _remarks = current.remarks;
       final PurchaseOrder? order = _orderOf(current.purchaseOrderId);
       if (order != null) {
@@ -350,6 +355,8 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
   /// Lines with nothing on them are not sent; the rest must add up.
   String? _validation() {
     if (_order == null) return 'Choose the purchase order being received.';
+    final String? ewayProblem = ewayBillProblem(_ewayBillNumber);
+    if (ewayProblem != null) return ewayProblem;
     final List<GoodsReceiptDraftLine> sending = _sendableLines();
     if (sending.isEmpty) {
       return 'Enter a received quantity on at least one line.';
@@ -396,6 +403,14 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
         if (_vehicleNumber.trim().isNotEmpty)
           'vehicle_number': _vehicleNumber.trim(),
         if (_remarks.trim().isNotEmpty) 'remarks': _remarks.trim(),
+        // Sent on an edit too: the editor shows what is on file, so what it
+        // holds is what to keep. A blank number is null, which clears.
+        'eway_bill_number':
+            _ewayBillNumber.trim().isEmpty ? null : _ewayBillNumber.trim(),
+        'eway_bill_date':
+            _ewayBillNumber.trim().isEmpty || _ewayBillDate.trim().isEmpty
+                ? null
+                : _ewayBillDate.trim(),
         // Line numbers are renumbered from one over what is actually being
         // sent, so skipping a line that did not arrive cannot leave a gap the
         // document has to explain.
@@ -545,6 +560,10 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
           if (widget.features.isEnabled('VEHICLE_TRACKING'))
             _text('Vehicle Number', _vehicleNumber,
                 (value) => _vehicleNumber = value, null),
+          _text('E-way Bill No.', _ewayBillNumber,
+              (value) => _ewayBillNumber = value, '12 digits'),
+          _text('E-way Bill Date', _ewayBillDate,
+              (value) => _ewayBillDate = value, 'YYYY-MM-DD'),
           _text('Remarks', _remarks, (value) => _remarks = value, null),
         ],
       );
