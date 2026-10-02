@@ -101,6 +101,12 @@ class _Api extends ApiClient {
       return <String, dynamic>{'data': _bill(byHand: true)};
     }
     if (path.startsWith('/api/v1/einvoice/delivery-notes/') &&
+        path.endsWith('/eway-bill/cancel')) {
+      return <String, dynamic>{
+        'data': <String, dynamic>{..._bill(), 'status': 'CANCELLED'},
+      };
+    }
+    if (path.startsWith('/api/v1/einvoice/delivery-notes/') &&
         path.endsWith('/eway-bill')) {
       if (method == 'POST') {
         due = <Json>[];
@@ -333,6 +339,22 @@ void main() {
       expect(find.textContaining('123456789012'), findsOneWidget);
       expect(find.byKey(const ValueKey('note-eway-raise')), findsNothing);
       expect(find.byKey(const ValueKey('note-eway-record')), findsNothing);
+    });
+
+    testWidgets('a live bill is withdrawn with a reason', (tester) async {
+      final _Api api = _Api(existingBill: _bill());
+      await open(tester, api);
+      await tester.tap(find.byKey(const ValueKey('note-eway-withdraw')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'Vehicle broke down');
+      await tester.tap(find.text('Withdraw').last);
+      await tester.pumpAndSettle();
+
+      expect(
+        api.calls,
+        contains('POST /api/v1/einvoice/delivery-notes/dn-1/eway-bill/cancel'),
+      );
+      expect(api.lastBody, {'reason': 'Vehicle broke down'});
     });
 
     testWidgets('offers Raise and Record where it has none', (tester) async {

@@ -49,6 +49,8 @@ class ImportMappingPanel extends StatefulWidget {
 class _ImportMappingPanelState extends State<ImportMappingPanel> {
   ImportPreview? _preview;
   List<ImportMapping> _saved = const [];
+  /// The saved mapping last applied, which the delete button removes.
+  ImportMapping? _applied;
   Map<String, String?> _choice = <String, String?>{};
   bool _loading = true;
   String? _notice;
@@ -148,9 +150,30 @@ class _ImportMappingPanelState extends State<ImportMappingPanel> {
         if (entry.value != null && !known.contains(entry.value)) continue;
         _choice[entry.key] = entry.value;
       }
+      _applied = saved;
       _notice = 'Applied "${saved.name}".';
     });
     _report();
+  }
+
+  /// Delete the saved mapping last applied; the columns stay as they are.
+  Future<void> _deleteApplied() async {
+    final ImportMapping? applied = _applied;
+    if (applied == null) return;
+    try {
+      await widget.api.deleteImportMapping(applied.id);
+      if (!mounted) return;
+      setState(() {
+        _saved = [
+          for (final ImportMapping other in _saved)
+            if (other.id != applied.id) other,
+        ];
+        _applied = null;
+        _notice = 'Deleted "${applied.name}".';
+      });
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _notice = error.message);
+    }
   }
 
   Future<void> _saveAs() async {
@@ -227,6 +250,13 @@ class _ImportMappingPanelState extends State<ImportMappingPanel> {
               )
             else
               const Spacer(),
+            if (_applied != null)
+              IconButton(
+                key: const ValueKey<String>('import-mapping-delete'),
+                tooltip: 'Delete "${_applied!.name}"',
+                onPressed: _deleteApplied,
+                icon: const Icon(Icons.delete_outline),
+              ),
             const SizedBox(width: AppSpacing.md),
             OutlinedButton.icon(
               key: const ValueKey<String>('import-mapping-save'),
