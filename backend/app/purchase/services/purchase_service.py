@@ -1875,6 +1875,12 @@ class PurchaseService(TransactionalDocumentService):
         )
         if row is None:
             raise ValidationError("Selected product is not available in this firm.")
+        if row.status == "DISCONTINUED":
+            # Sold until gone, never bought again (STK-17).
+            raise ValidationError(
+                f"{row.code} ({row.name}) is discontinued: it is sold until the "
+                "stock is gone but not bought again. Set it active to order it."
+            )
         if row.status != "ACTIVE":
             raise ValidationError("Inactive/blocked products cannot be purchased.")
         return row

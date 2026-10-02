@@ -278,7 +278,9 @@ class ReorderService:
         for entry in stock:
             warehouse, product_id = entry.warehouse_id, entry.product_id
             product = products.get(product_id)
-            if product is None:
+            # Only what a purchase order would take: a discontinued product
+            # is sold out, not reordered (STK-17).
+            if product is None or product.status != "ACTIVE":
                 continue
             held, reorder, maximum = entry.held, entry.reorder, entry.maximum
             coming = on_order.get((warehouse, product_id), ZERO)

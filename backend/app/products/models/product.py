@@ -207,6 +207,11 @@ class Product(BaseEntity):
     minimum_selling_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     mrp: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     status: Mapped[str] = mapped_column(String(20), nullable=False)
+    #: Bought and stocked but never sold -- packing material, consumables
+    #: (STK-17). Every new sales line naming it is refused.
+    not_for_sale: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     remarks: Mapped[str | None] = mapped_column(Text)
     track_batch: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"

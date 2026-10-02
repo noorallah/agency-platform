@@ -781,6 +781,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         'track_expiry': product.trackExpiry,
         'track_manufacturing_date': product.trackManufacturingDate,
         'track_warranty': product.trackWarranty,
+        'not_for_sale': product.notForSale,
         'allow_negative_stock': product.allowNegativeStock,
         'require_batch_on_receipt': product.requireBatchOnReceipt,
         'require_batch_on_issue': product.requireBatchOnIssue,
@@ -1360,7 +1361,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         _dropdown(
           label: 'Status',
           value: _status,
-          values: const ['ACTIVE', 'INACTIVE', 'DRAFT', 'ARCHIVED'],
+          values: const ['ACTIVE', 'DISCONTINUED', 'INACTIVE', 'DRAFT', 'ARCHIVED'],
           onChanged: (value) => setState(() => _status = value),
         ),
         _dropdown(
@@ -1793,6 +1794,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   late bool _trackManufacturingDate;
   late bool _trackWarranty;
   late bool _allowNegativeStock;
+  late bool _notForSale;
   late bool _requireBatchOnReceipt;
   late bool _requireBatchOnIssue;
   late bool _requireSerialOnReceipt;
@@ -1891,6 +1893,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     _trackManufacturingDate = product?.trackManufacturingDate ?? false;
     _trackWarranty = product?.trackWarranty ?? false;
     _allowNegativeStock = product?.allowNegativeStock ?? false;
+    _notForSale = product?.notForSale ?? false;
     _requireBatchOnReceipt = product?.requireBatchOnReceipt ?? false;
     _requireBatchOnIssue = product?.requireBatchOnIssue ?? false;
     _requireSerialOnReceipt = product?.requireSerialOnReceipt ?? false;
@@ -2186,7 +2189,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
           _dropdown(
             label: 'Status',
             value: _status,
-            values: const ['ACTIVE', 'INACTIVE', 'DRAFT', 'ARCHIVED'],
+            values: const ['ACTIVE', 'DISCONTINUED', 'INACTIVE', 'DRAFT', 'ARCHIVED'],
             onChanged: (value) => setState(() => _status = value ?? 'ACTIVE'),
           ),
           SizedBox(
@@ -2570,6 +2573,22 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
             onChanged: _readOnly
                 ? null
                 : (value) => setState(() => _allowNegativeStock = value),
+          ),
+        ),
+        // Packing material and consumables: bought and stocked, never sold
+        // (STK-17).
+        SizedBox(
+          width: 360,
+          child: SwitchListTile.adaptive(
+            key: const ValueKey('product-not-for-sale'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Not for sale'),
+            subtitle: const Text('Bought and stocked only, as packing '
+                'material is: never put on a sales document'),
+            value: _notForSale,
+            onChanged: _readOnly
+                ? null
+                : (value) => setState(() => _notForSale = value),
           ),
         ),
         SizedBox(
@@ -3123,6 +3142,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       'track_expiry': _trackExpiry,
       'track_manufacturing_date': _trackManufacturingDate,
       'track_warranty': _trackWarranty,
+      'not_for_sale': _notForSale,
       'allow_negative_stock': _allowNegativeStock,
       'require_batch_on_receipt': _requireBatchOnReceipt,
       'require_batch_on_issue': _requireBatchOnIssue,
@@ -3167,6 +3187,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       _trackExpiry = false;
       _trackManufacturingDate = false;
       _trackWarranty = false;
+      _notForSale = false;
       _allowNegativeStock = false;
       _requireBatchOnReceipt = false;
       _requireBatchOnIssue = false;
@@ -3338,7 +3359,7 @@ class _BulkOperationDialogState extends State<_BulkOperationDialog> {
                   isExpanded: true,
                   initialValue: _status,
                   decoration: const InputDecoration(labelText: 'New status'),
-                  items: const ['ACTIVE', 'INACTIVE', 'DRAFT', 'ARCHIVED']
+                  items: const ['ACTIVE', 'DISCONTINUED', 'INACTIVE', 'DRAFT', 'ARCHIVED']
                       .map(
                         (value) => DropdownMenuItem(
                           value: value,

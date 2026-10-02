@@ -222,6 +222,7 @@ class Product {
     this.trackExpiry = false,
     this.trackManufacturingDate = false,
     this.trackWarranty = false,
+    this.notForSale = false,
     this.allowNegativeStock = false,
     this.requireBatchOnReceipt = false,
     this.requireBatchOnIssue = false,
@@ -298,6 +299,10 @@ class Product {
   final bool trackExpiry;
   final bool trackManufacturingDate;
   final bool trackWarranty;
+
+  /// Bought and stocked but never sold -- packing material, consumables
+  /// (STK-17). The server refuses it on every new sales line.
+  final bool notForSale;
   final bool allowNegativeStock;
   final bool requireBatchOnReceipt;
   final bool requireBatchOnIssue;
@@ -368,6 +373,7 @@ class Product {
         trackExpiry: boolValue(json['track_expiry']),
         trackManufacturingDate: boolValue(json['track_manufacturing_date']),
         trackWarranty: boolValue(json['track_warranty']),
+        notForSale: boolValue(json['not_for_sale']),
         allowNegativeStock: boolValue(json['allow_negative_stock']),
         requireBatchOnReceipt: boolValue(json['require_batch_on_receipt']),
         requireBatchOnIssue: boolValue(json['require_batch_on_issue']),
