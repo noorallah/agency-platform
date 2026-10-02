@@ -92,6 +92,16 @@ class _CreditNoteApi extends ApiClient {
   final List<String> requested = <String>[];
   int? sentVersion;
 
+  /// Which note was asked for as a PDF. The printer plugin cannot run in a
+  /// widget test, so the call refuses the way an offline printer would.
+  String? printed;
+
+  @override
+  Future<List<int>> printCreditNote(String id) async {
+    printed = id;
+    throw ApiException('The printer is offline.', statusCode: 503);
+  }
+
   /// What the e-invoice registration read answers, and what a Register
   /// does: refuse with [refuseRegister] when set.
   Json? registration;
@@ -606,6 +616,60 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('selection-einvoice')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('note-einvoice-register')), findsNothing);
+    });
+  });
+
+  group('print (77 row 11)', () {
+    Future<_CreditNoteApi> open(WidgetTester tester, {String status = 'DRAFT'}) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final _CreditNoteApi api = _CreditNoteApi(
+        notes: <Json>[
+          <String, dynamic>{..._note(), 'status': status},
+        ],
+      );
+      await tester.pumpWidget(MaterialApp(
+        builder: (context, child) => Phase2Scope(child: child!),
+        home: Scaffold(
+          body: CreditNotePage(
+            api: api,
+            preferences: _preferences(),
+            permissions: _permissions(perms: const ['CREDIT_NOTE_VIEW']),
+            hasActiveFirm: true,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return api;
+    }
+
+    testWidgets('Print waits for a pick, then asks for the PDF of that note',
+        (tester) async {
+      final _CreditNoteApi api = await open(tester);
+      expect(find.byKey(const ValueKey('selection-print')), findsNothing);
+
+      await tester.tap(find.text('CN-2026-0001').first);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('selection-print')));
+      await tester.pumpAndSettle();
+
+      expect(api.printed, 'cn-1');
+      // The refusal is said, not swallowed.
+      expect(find.text('The printer is offline.'), findsOneWidget);
+    });
+
+    testWidgets('an approved note prints too, and view alone is enough',
+        (tester) async {
+      final _CreditNoteApi api = await open(tester, status: 'APPROVED');
+      await tester.tap(find.text('CN-2026-0001').first);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('selection-print')));
+      await tester.pumpAndSettle();
+
+      expect(api.printed, 'cn-1');
     });
   });
 }

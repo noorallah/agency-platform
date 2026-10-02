@@ -7807,6 +7807,15 @@ class ApiClient {
   Future<List<int>> creditNotePdf(String id) =>
       downloadBytes('/api/v1/sales-returns/$id/print');
 
+  /// The credit note raised against an invoice, as the PDF the customer files.
+  /// Any status prints; a draft carries a DRAFT banner from the server.
+  Future<List<int>> printCreditNote(String id) =>
+      downloadBytes('/api/v1/credit-notes/$id/print');
+
+  /// The debit note raised against an invoice, as the PDF the customer files.
+  Future<List<int>> printCustomerDebitNote(String id) =>
+      downloadBytes('/api/v1/customer-debit-notes/$id/print');
+
   /// What is still waiting to be billed.
   ///
   /// Asked for rather than derived client-side: only the server knows how much
