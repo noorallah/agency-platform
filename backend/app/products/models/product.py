@@ -8,6 +8,7 @@ from sqlalchemy import (
     Boolean,
     ForeignKey,
     Index,
+    Integer,
     Numeric,
     String,
     Text,
@@ -212,6 +213,9 @@ class Product(BaseEntity):
     not_for_sale: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    #: Days from manufacture to expiry (STK-18). A receipt that types only the
+    #: manufacturing date gets its expiry from this; None fills nothing.
+    shelf_life_days: Mapped[int | None] = mapped_column(Integer)
     remarks: Mapped[str | None] = mapped_column(Text)
     track_batch: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"

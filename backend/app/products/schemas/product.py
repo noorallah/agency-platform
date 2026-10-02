@@ -161,6 +161,9 @@ class ProductWrite(ProductSchema):
     #: Bought and stocked but never sold -- packing material, consumables
     #: (STK-17). Refused on every new sales line.
     not_for_sale: bool = False
+    #: Days from manufacture to expiry (STK-18): a receipt typed with only a
+    #: manufacturing date gets its expiry from it.
+    shelf_life_days: int | None = Field(default=None, ge=1, le=3650)
     remarks: str | None = None
     track_batch: bool = False
     track_lot: bool = False
@@ -287,6 +290,7 @@ class ProductResponse(ProductSchema):
     mrp: Decimal | None
     status: ProductStatus
     not_for_sale: bool = False
+    shelf_life_days: int | None = None
     remarks: str | None
     track_batch: bool
     track_lot: bool

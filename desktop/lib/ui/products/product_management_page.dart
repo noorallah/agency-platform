@@ -782,6 +782,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         'track_manufacturing_date': product.trackManufacturingDate,
         'track_warranty': product.trackWarranty,
         'not_for_sale': product.notForSale,
+        'shelf_life_days': product.shelfLifeDays,
         'allow_negative_stock': product.allowNegativeStock,
         'require_batch_on_receipt': product.requireBatchOnReceipt,
         'require_batch_on_issue': product.requireBatchOnIssue,
@@ -1764,6 +1765,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   late final TextEditingController _sellingPrice;
   late final TextEditingController _mrp;
   late final TextEditingController _minimumSellingPrice;
+  late final TextEditingController _shelfLife;
   late final TextEditingController _remarks;
   late String _productType;
   late String _status;
@@ -1857,6 +1859,8 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     _mrp = TextEditingController(text: product?.mrp ?? '');
     _minimumSellingPrice =
         TextEditingController(text: product?.minimumSellingPrice ?? '');
+    _shelfLife = TextEditingController(
+        text: product?.shelfLifeDays == null ? '' : '${product!.shelfLifeDays}');
     _remarks = TextEditingController(text: product?.remarks ?? '');
     _productType = product?.productType.isNotEmpty == true
         ? product!.productType
@@ -1939,6 +1943,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         _sellingPrice,
         _mrp,
         _minimumSellingPrice,
+        _shelfLife,
         _remarks,
       ];
 
@@ -2542,6 +2547,14 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                 : (value) => setState(() => _trackExpiry = value),
           ),
         ),
+        // STK-18: a receipt typed with only the manufacturing date gets its
+        // expiry from this.
+        _field(
+          _shelfLife,
+          'Shelf life (days)',
+          width: 320,
+          helper: "Fills a batch's expiry from its manufacturing date",
+        ),
         SizedBox(
           width: 320,
           child: SwitchListTile.adaptive(
@@ -3143,6 +3156,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       'track_manufacturing_date': _trackManufacturingDate,
       'track_warranty': _trackWarranty,
       'not_for_sale': _notForSale,
+      'shelf_life_days': int.tryParse(_shelfLife.text.trim()),
       'allow_negative_stock': _allowNegativeStock,
       'require_batch_on_receipt': _requireBatchOnReceipt,
       'require_batch_on_issue': _requireBatchOnIssue,
@@ -3199,6 +3213,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       _sellingPrice.clear();
       _mrp.clear();
       _minimumSellingPrice.clear();
+      _shelfLife.clear();
       _remarks.clear();
       for (final AttributeFieldController controller
           in _attributeControllers.values) {

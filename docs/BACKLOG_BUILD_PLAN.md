@@ -101,7 +101,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | STK-15 | §42.13 | Kits and combo packs | Nothing | L | Claude alone |
 | STK-16 | §55 S8 | Barcode label printing | Nothing (label size and printer to test) | S | Claude alone |
 | STK-17 | §75 row 5 | Discontinued products, and products never for sale -- **built 2026-10-03** (A58) | Nothing | S | Claude alone |
-| STK-18 | §75 row 6 | Shelf life on the product fills a batch's expiry | Nothing | S | Claude alone |
+| STK-18 | §75 row 6 | Shelf life on the product fills a batch's expiry -- **built 2026-10-03** (A59) | Nothing | S | Claude alone |
 | **Accounts** | | | | | |
 | ACC-1 | §42.2 | Bank reconciliation from the bank's statement file | Nothing (a sample statement helps) | L | Claude alone |
 | ACC-2 | §42.3 | Post-dated cheque register: held, deposited, cleared, bounced | Nothing | M | Claude alone |
@@ -529,6 +529,7 @@ otherwise it is built as written.
 - **What it is:** a product's shelf life fills each batch's expiry from its manufacturing date.
 - **What gets built:** migration: shelf life days on products (batches already carry `shelf_life_days` in `backend/app/batch_serial/models/batch_serial.py`); the receipt fills expiry when only a manufacturing date is typed. The customer's minimum remaining life is already built (§79). Tests.
 - **Depends on:** nothing. **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A59): `products.shelf_life_days` (1-3650, migration 0242, all stores; gated on the SHELF_LIFE feature like the product's other optional fields). A goods receipt line typed with a manufacturing date and no expiry is stored with expiry = manufacturing date + shelf life (`expiry_from_shelf_life` in `batch_serial_service.py`); a typed expiry stands; nothing is filled where the firm's profile does not enable EXPIRY_TRACKING, since the batch would then refuse it. The batch a receipt creates now keeps its manufacturing date and shelf life, each where the firm's profile has that feature (`feature_enabled` in `app/business/gating.py`). Product editor: *Shelf life (days)* beside *Track expiry*. Tests: `test_product_shelf_life.py`, `phase2_product_form_test.dart`.
 
 ### Accounts
 
