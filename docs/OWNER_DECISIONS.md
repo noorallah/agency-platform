@@ -21,7 +21,7 @@ The ones that change the product, in the order they will be built:
 9. B1 firm administrator reads own audit trail -- **built (#929)**
 10. B2 refuse a custom field's type change once it holds values (check what is built) -- **already built**
 11. B3 field mapping on file imports -- **built**
-12. B6 India Post PIN directory
+12. B6 India Post PIN directory -- **done**
 13. B8 drop TCS 27EQ from the backlog -- **done**
 
 For the CA, in the hand-over: A5, A8, A9, A20, A31. Waiting on the owner: A13
@@ -82,7 +82,7 @@ For the CA, in the hand-over: A5, A8, A9, A20, A31. Waiting on the owner: A13
 | B3 | §36 onboarding | Which tools are firms coming from, and real export files from them (Tally XML import is built only against real files) -- **Answered 2026-10-02:** **One common import with field mapping**, so a file from any software (Tally, Marg, Busy, Excel) is mapped onto our templates rather than a reader per product. **Built 2026-10-02**: preview, suggested mapping, saved mappings per firm and import (`app/imports`, migration 0226), on all six file imports. |
 | B4 | §70 rows 9-10 | FIFO costing as a firm option? A *warn* rather than *refuse* policy for negative stock at the counter? -- **Answered 2026-10-02:** Weighted average only; negative stock at the counter stays refused. |
 | B5 | §75 row 3 | One GSTIN or PAN on several customer accounts (branches of one company) -- allow? (Goes with A7) -- **Answered 2026-10-02:** Allowed with a warning (A7). |
-| B6 | §41 | Districts / cities / PIN codes: which source, its licence, and may the server download it -- **Answered 2026-10-02:** India Post's All-India PIN directory (data.gov.in, open licence), shipped with the installer. |
+| B6 | §41 | Districts / cities / PIN codes: which source, its licence, and may the server download it -- **Answered 2026-10-02:** India Post's All-India PIN directory (data.gov.in, open licence), shipped with the installer. Owner 10-02: southern states first. **Built 2026-10-02** (pack of all states, south ticked by default). |
 | B7 | §42.14, §42.6, §39, §48 | Customer/vendor portal (needs outside access), salesman mobile app and field collections, phone layouts -- product direction and timing -- **Answered 2026-10-02:** Next phase, after go-live. |
 | B8 | Low value -- keep or drop? | §42.15 BOM / job work / recurring invoices / marketplaces; §55 G11-13, N1, N2, N7-N9; §74 row 6 fixed assets; §63 item 5 TCS 27EQ (206C(1H) ended 1 April 2025) -- **Answered 2026-10-02:** Drop TCS 27EQ; park the rest as later. **Done 2026-10-02**: BACKLOG §63 item 5 marked dropped. |
 | B9 | §71-73 | Sign-in/branding, menu A or B, dialog review -- **parked by you** |

@@ -171,6 +171,8 @@ _EXPECTED = frozenset(
         ("DELETE", "/api/v1/sales-territories/geo/countries/{country_id}"),
         ("PUT", "/api/v1/sales-territories/geo/countries/{country_id}"),
         ("POST", "/api/v1/sales-territories/geo/districts"),
+        # The India Post places pack (B6): the same authority as typing them.
+        ("POST", "/api/v1/sales-territories/geo/places-pack/load"),
         ("DELETE", "/api/v1/sales-territories/geo/districts/{district_id}"),
         ("PUT", "/api/v1/sales-territories/geo/districts/{district_id}"),
         ("POST", "/api/v1/sales-territories/geo/localities"),

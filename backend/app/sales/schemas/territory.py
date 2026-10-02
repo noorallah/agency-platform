@@ -820,3 +820,38 @@ class BeatPlanResponse(TerritorySchema):
     created_at: datetime
     updated_at: datetime
     customer_stops: list[BeatPlanCustomerStopResponse] = Field(default_factory=list)
+
+
+class PlacesPackState(TerritorySchema):
+    """One state in the India Post places pack (decision B6)."""
+
+    code: str
+    name: str
+    #: False where the store holds no such state (or only a deleted one).
+    available: bool
+    post_offices: int
+    postal_codes: int
+    districts: int
+    #: Districts the store holds for the state already, loaded or typed.
+    districts_held: int
+    #: Offered ticked: the southern states, the first market.
+    default: bool
+
+
+class PlacesPackLoad(TerritorySchema):
+    """Which states to load, by their two-letter codes."""
+
+    states: list[str] = Field(min_length=1, max_length=40)
+
+
+class PlacesPackStateResult(TerritorySchema):
+    """What one state's load added and left alone."""
+
+    code: str
+    name: str
+    districts: int
+    cities: int
+    postal_codes: int
+    localities: int
+    skipped: int
+    note: str | None = None

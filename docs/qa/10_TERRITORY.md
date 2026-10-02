@@ -77,3 +77,11 @@ One standard check for every screen in this area. Run it once per screen as the 
 | Installed version | |
 | Cases passed / failed / blocked | |
 | Worst problem found | |
+
+### TC-TER-B6 — Loading places from India Post
+
+*Added 2026-10-02 (decision B6).*
+
+- **Preconditions:** signed in as the platform administrator with a firm selected; the store's states seeded (every store has them); no districts typed for Lakshadweep.
+- **Steps:** open the geography screen → **Load places from India Post...**. Look at which states are ticked. Untick all but **Lakshadweep** and **Load**. Then open a customer address and type PIN **682554**. Run the load again for Lakshadweep.
+- **Expect:** the seven southern states are ticked by default, each showing its PIN codes and post offices; the source line names India Post and data.gov.in. The Lakshadweep load reports 1 district, 9 towns, 9 PIN codes and 10 localities. PIN 682554 offers town **Chetlat**, district **Lakshadweep District**, state Lakshadweep, and localities Bithra and Chetlat. The second load adds nothing and the counts stay the same.

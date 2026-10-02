@@ -61,6 +61,9 @@ from app.sales.schemas import (
     GeoStateWrite,
     HierarchyResponse,
     HierarchyUpdateRequest,
+    PlacesPackLoad,
+    PlacesPackState,
+    PlacesPackStateResult,
     RouteTypeResponse,
     RouteTypeWrite,
     TerritoryAssignCustomersRequest,
@@ -81,6 +84,7 @@ from app.sales.schemas import (
     TerritoryUpdate,
 )
 from app.sales.services import SalesTerritoryService
+from app.sales.services.places_pack import PlacesPackService
 
 router = APIRouter(
     prefix="/api/v1/sales-territories",
@@ -323,6 +327,54 @@ def create_geo_postal_code(
 ) -> ApiResponse[GeoPostalCodeResponse]:
     return ApiResponse(
         data=_service(db).create_postal_code(payload, actor_id=scope.actor_id)
+    )
+
+
+@router.get("/geo/places-pack", response_model=ApiResponse[list[PlacesPackState]])
+def list_places_pack(
+    scope: TerritoryViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PlacesPackState]]:
+    """Return the states in the India Post places pack shipped with the server.
+
+    Each with its size and how many districts the store already holds; the
+    southern states are marked to be offered ticked (decision B6).
+    """
+    return ApiResponse(
+        data=[
+            PlacesPackState.model_validate(item)
+            for item in PlacesPackService(db).summary()
+        ]
+    )
+
+
+@router.post(
+    "/geo/places-pack/load",
+    response_model=ApiResponse[list[PlacesPackStateResult]],
+)
+def load_places_pack(
+    payload: PlacesPackLoad,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PlacesPackStateResult]]:
+    """Load districts, towns, PIN codes and localities for the chosen states.
+
+    From the file inside the installation -- nothing is fetched from the
+    internet. What the store already holds is skipped, never merged, and a
+    deleted place is not brought back, so loading twice adds nothing twice.
+    Geography is per store, so every firm on it sees what is loaded. The same
+    authority as typing a place in by hand.
+    """
+    outcome = PlacesPackService(db).load(payload.states, actor_id=scope.actor_id)
+    db.commit()
+    added = sum(item.localities for item in outcome.states)
+    return ApiResponse(
+        data=[
+            PlacesPackStateResult.model_validate(item, from_attributes=True)
+            for item in outcome.states
+        ],
+        message=f"Loaded {added} localities.",
     )
 
 

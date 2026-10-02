@@ -3319,6 +3319,10 @@ Not a bug, and not scheduled. Recorded so the decision is a decision.
 
 ## 41. Filling in districts, cities and pin codes without typing them
 
+**Status, 2026-10-02:** built as decision B6 -- an India Post places pack inside
+the installer, loaded by state from a screen, southern states ticked by
+default; skip-not-merge. See `docs/GEOGRAPHY_MASTERS.md`.
+
 Asked by the owner on 2026-09-17, straight after the state master landed
 (§32): *"can user has option to refresh one time other territory information
 based on net"*.

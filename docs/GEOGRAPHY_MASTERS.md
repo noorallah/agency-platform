@@ -19,8 +19,8 @@ Geography carries **no `firm_id`**, so this is per *store* rather than per
 firm: firms sharing `firm_shared` share one copy, and a dedicated store gets
 its own when `upgrade_store` runs during provisioning.
 
-**Only states.** Districts, cities, postal codes and localities stay
-user-entered -- the full Indian dataset is large and volatile, while the state
+**Only states are seeded.** Districts, cities, postal codes and localities are
+loaded on request from the India Post pack (below) or typed in -- the full Indian dataset is large and volatile, while the state
 list is small, stable and the rung an address actually turns on.
 
 **`code` is the two-letter abbreviation** (`TN`, `KA`, `MH`), which is what the
@@ -36,6 +36,35 @@ already holds is left exactly as it is, soft-deleted ones included. Both unique
 indexes are scoped to `is_deleted = false`, so re-inserting a deleted state
 would succeed and quietly undo a deliberate deletion -- a firm that removed a
 place it does not trade in would find it back after the next upgrade.
+
+## Loading places from India Post (decision B6, 2026-10-02)
+
+**Districts, towns, PIN codes and localities can be loaded by state** from the
+India Post *All India Pincode Directory* (data.gov.in, Government Open Data
+Licence - India), which ships with the server as
+`backend/app/sales/data/india_post_pincodes.csv.gz` -- five columns of the
+source, gzipped, all 36 states and territories, 1.1 MB. Nothing is fetched
+from the internet. `scripts/build_places_pack.py <source.csv>` rebuilds it
+when India Post republishes; `packaging/nuitka.args` carries it into the
+compiled build (`--include-package-data=app.sales`).
+
+- **The screen offers every state and ticks the southern ones** (AP, TS, KA,
+  TN, KL, PY, LD -- the first market). `GET /sales-territories/geo/places-pack`
+  lists them; `POST /geo/places-pack/load` loads, platform administrator only
+  like every other geography write.
+- **India Post has no town column**, so a PIN code's town is its delivering
+  office -- head office first, then sub-office, a village branch only where
+  nothing else serves the PIN -- with the ` H.O` / ` S.O` / ` B.O` suffix
+  dropped, and every office under the PIN, branches included, is a locality.
+  Districts read in title case (`Kumuram Bheem Asifabad`).
+- **Skip, never merge.** A district or town the store holds by name is kept
+  as it is and filled beneath; a deleted one is not brought back and nothing is
+  loaded under it; a PIN code held anywhere before the load is left where it
+  is. Loading twice adds nothing twice. A PIN that crosses a district or state
+  border **within one load** gets the other side's offices as localities of
+  the PIN already created.
+- **Per store.** All seven southern states are 129 districts, 6,802 PIN codes
+  and 43,475 localities, about three seconds.
 
 ## Retiring a place
 

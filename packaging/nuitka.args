@@ -38,6 +38,10 @@
 # Data files that are not code and are not found by following imports.
 # reportlab carries 32 font files; without them every PDF fails to render.
 --include-package-data=reportlab
+# The India Post places pack (app/sales/data/india_post_pincodes.csv.gz) is
+# read from disk by the places loader, not imported; without it the "Load
+# places" screen says the file is missing (decision B6).
+--include-package-data=app.sales
 
 # The development toolchain is not the product. Excluding it explicitly keeps
 # it out even if something in app/ imports it by accident -- and the release
