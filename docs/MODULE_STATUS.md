@@ -2,7 +2,7 @@
 
 What each module is for, what is built, and what is still open.
 
-The summary counts were re-derived on **2026-10-01** from the running
+The summary counts were re-derived on **2026-10-01** (only the migration head was refreshed on 2026-10-02, and the route counts of the modules changed that night are noted in their rows) from the running
 application (OpenAPI, `Base.metadata`, the module catalogue and the suites);
 the per-module rows below were compiled on **2026-09-05** from the running
 application and the four demo firms. Neither is from memory. Route and report counts are read off the OpenAPI
@@ -21,7 +21,7 @@ nobody re-derived it.
 | Desktop screens (catalog tabs) | 99 |
 | Tables per firm store | 193 (209 with the platform's 16) |
 | Tests passing | 2,376 backend unit + 52 integration + 2,221 desktop |
-| Migration head | `20261001_0174` |
+| Migration head | `20261002_0216` |
 
 ## How to read this
 
@@ -42,8 +42,8 @@ no seeded row satisfies.
 
 | Module | Routes | Reports | State | Notes |
 | --- | ---: | ---: | --- | --- |
-| Quotations `app/quotation` | 17 | 2 | Built | Offer, accept, convert. Expiry derives from `valid_until`, never a stored status. |
-| Sales orders `app/sales_order` | 22 | 6 | Built | Status follows its deliveries. A hold is a flag, not a status, so part-shipped progress survives it. |
+| Quotations `app/quotation` | 17 | 2 | Built | Offer, accept, convert. Expiry derives from `valid_until`, never a stored status. *Rate includes GST* since 2026-10-02 (A32): the rate typed at shelf price is read back to pre-tax and kept as typed. |
+| Sales orders `app/sales_order` | 22 | 6 | Built | Status follows its deliveries. A hold is a flag, not a status, so part-shipped progress survives it. *Rate includes GST* since 2026-10-02 (A32). |
 | Delivery notes `app/delivery_note` | 20 | 6 | Built | Moves stock and cost of goods sold. Inherits the order line's price rather than re-reading the masters. Batches can be chosen per line since 2026-10-02 (backlog 79); the challan prints one row per batch. |
 | Sales invoices `app/sales_invoice` | 23 | 8 | Built | Prints a real GST invoice with the CGST/SGST split and an HSN summary, the offers given and what was saved. Money taken at the counter is entered on the bill and becomes a receipt on approval. Sales Analysis: any one or two dimensions, with drill-down (2026-10-01). |
 | Sales returns `app/sales_return` | 18 | 4 | Built | Reverses stock, cost and the customer balance by the deltas the original row stored. |
@@ -63,10 +63,10 @@ no seeded row satisfies.
 
 | Module | Routes | Reports | State | Notes |
 | --- | ---: | ---: | --- | --- |
-| Purchase orders `app/purchase` | 21 | 6 | Built | Approval cannot be skipped; status follows the receipts. Reports added 2026-09-04. Reorder from typed levels or from sales since 2026-10-02 (backlog 69 row 12). |
+| Purchase orders `app/purchase` | 21 | 6 | Built | Approval cannot be skipped; status follows the receipts. Reports added 2026-09-04. Reorder from typed levels or from sales since 2026-10-02 (backlog 69 row 12). Each line carries a derived quantity picture (received, returned, invoiced, still to come, still to bill) and the order a billing status and a complete flag beside its status (A33). |
 | Goods receipts `app/goods_receipt` | 16 | 5 | Built | Posts stock and the ledger. A cancellation values the reversal from the **movement**, not the document. |
 | Purchase invoices `app/purchase_invoice` | 22 | 8 | Built | Approval clears the accrual, after which the receipt can no longer be cancelled. Purchase price variance and Purchase Analysis (2026-10-01). |
-| Purchase returns `app/purchase_return` | 18 | 6 | Built | Damaged and expired reports have rows only since 2026-09-04 — no seeded line carried the flags before. |
+| Purchase returns `app/purchase_return` | 18 | 6 | Built | Damaged and expired reports have rows only since 2026-09-04 — no seeded line carried the flags before. Each return records an outcome -- credit, replacement or refund (A34) -- and a return off a paid bill leaves a supplier credit (D-BUY-20); one off a reverse-charge bill takes its share of the reverse charge off. |
 | Vendors `app/vendors` | 23 | 0 | Built | Categories and types reachable since the route-order fix. Child collections merge on a partial edit. |
 
 ## Stock — what is on the shelf
@@ -84,7 +84,7 @@ no seeded row satisfies.
 | Module | Routes | Reports | State | Notes |
 | --- | ---: | ---: | --- | --- |
 | Finance `app/finance` | 33 | 0 | **Partial** | Chart of accounts, years, periods, journals, trial balance, P&L, balance sheet. **Eleven modules post automatically.** Cost and profit centres have screens and a journal-line picker since 2026-09-08; no seeded firm uses them. |
-| GST returns `app/gst_returns` | 2 | 0 | Built | GSTR-1 and the outward half of 3B, derived on every read so a cancelled invoice drops out. |
+| GST returns `app/gst_returns` | 12 | 0 | Built | GSTR-1 and 3B, derived on every read so a cancelled invoice drops out; GST payment; the **tax calendar** on Home with *Mark filed* (`gst_return_filings`); GSTR-2B import and reconciliation, with an optional matched-only claim (A36). No demo firm has imported a 2B. |
 | E-invoicing `app/einvoice` | 7 | 0 | **Partial** | Registration and e-way bills work in **sandbox**. Live filing needs GSP credentials and one `InvoiceRegistrationPortal`. |
 
 ## Configuration — how one firm differs from the next
@@ -103,6 +103,7 @@ no seeded row satisfies.
 | Firms and tenancy `app/firms` | 6 | 0 | Built | Shared schema, dedicated schema, or dedicated database — possibly on another server. Provisioning is an explicit action. |
 | Audit trail `app/common/audit` | 1 | 0 | Built | Append-only, enforced by a trigger in **every** schema. Per store, so no single query answers "everything that happened". |
 | Diagnostics `app/diagnostics` | 3 | 0 | Built | A screenshot joins its traceback by request id, and a fault fingerprints on this codebase's frames rather than the ASGI plumbing. |
+| Messaging `app/messaging` | 14 | 0 | Built 2026-10-01 | Email, WhatsApp and SMS, off until the firm switches it on with its own provider accounts. A failed send never blocks a document. Not exercised by any demo firm. |
 | Global search `app/search` | 1 | 0 | Built | Platform-owned definitions read the platform store; before that every Ctrl+K inside a firm answered 503. |
 
 ---
@@ -114,17 +115,13 @@ waiting on a decision rather than on code.**
 
 ## Deferred by the owner
 
-Do not start either unprompted. Both sections exist so the thinking does not
+Do not start licensing unprompted. The section exists so the thinking does not
 have to be redone.
 
-**Emailing a document to the party it names** (`docs/BACKLOG.md` §14). Most of
-it exists: `GET /api/v1/sales-invoices/{id}/print` and its purchase twin
-already return the finished PDF, and `document_states.allows_email` and
-`document_timeline.email_recipient` are columns waiting for a writer. What does
-not exist is everything about sending — no SMTP client, no mail configuration,
-no notifications subsystem. Four questions decide it, none technical: which
-address, whose outbox, what happens to a bounce, and whether a failed send
-blocks the document.
+**Emailing a document to the party it names** is no longer deferred: it was
+built on 2026-10-01 as `app/messaging` (email, WhatsApp and SMS, off until each
+firm switches it on with its own accounts; `docs/MESSAGING_FRAMEWORK.md`). No
+demo firm has switched it on, so the sending path runs on tests alone.
 
 **Licensing** (`docs/BACKLOG.md` §2). A `LICENSE_MANAGE` permission, a
 `LICENSE_ADMIN` role and a `license_error` code exist and are unused — there is

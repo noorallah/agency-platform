@@ -32,9 +32,10 @@ Each row names the screen. Do them on a copy of a firm, or on the demo firm.
 | 16 | **Go-live guide** | `GO_LIVE_GUIDE.pdf` beside Setup.exe | Read it as the firm's accountant would |
 | 17 | **Choosing batches** | Sell > Delivery Notes > New, a batch-tracked product | Every batch with expiry and days left, earliest expiry filled in; take a later one or split; expired cannot be chosen; the challan prints a row per batch (`docs/qa/08_SELLING.md` TC-SELL-019) |
 | 18 | **Reorder from sales** | Settings > Buying > Purchase Settings > Reorder planning; Reports > Operational > Below reorder level | *From sales*: products with no typed level are listed from their average daily sales, with Basis and Avg/day; a typed level still wins (`docs/qa/06_PURCHASING.md` TC-BUY-015) |
+| 19 | **Debit note to a customer** | Sell > Debit Notes > New, an approved invoice | Charge more on a line: tax at that line's rate; on Approve the customer owes more and Record Receipt shows the invoice at its total plus the note; GSTR-1 lists it as type D (`docs/qa/08_SELLING.md` TC-SELL-020) |
 
-The other changes of 2026-10-02 have their own cases: TC-BUY-009 to 014 and
-TC-SELL-018.
+The other changes of 2026-10-02 have their own cases: TC-BUY-009 to 014,
+TC-SELL-018 and TC-SELL-020.
 
 **On every failure**: a screenshot, the newest file in
 `C:\ProgramData\Agency Platform\logs\server`, and the version on the sign-in
@@ -99,6 +100,12 @@ screen (1.1.0).
   decision A38).
 - **Reorder from sales**: the planning formula behind *Below reorder level*
   (#913, decision A39).
+- **Debit note to a customer**: more charged on an invoice after billing,
+  taxed at the invoice line's rate, owed on that invoice, declared in GSTR-1
+  as a debit note and added in GSTR-3B (#918, decision A40). Not printable
+  yet, like the credit note.
+- Four desktop tests that failed only on a loaded machine now wait for what
+  they test (#917, D-TEST-2).
 
 ## Upgrading
 

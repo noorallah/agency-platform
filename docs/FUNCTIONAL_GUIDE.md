@@ -105,6 +105,11 @@ and an electronics distributor both get loyalty, promotions and TCS whether the
 industry wants them or not. The catalogue is working as designed; the product
 has simply outgrown its granularity.
 
+A ninth module followed on 2026-10-02: `customer_debit_note` (more charged to a
+customer on an invoice already raised, **Sales › Debit Notes**). It is folded
+into module 18 beside the credit note it mirrors. The same day's GST work for
+the sales and purchase chains is folded into modules 15, 16, 18 and 25.
+
 ---
 
 # 1. Firm setup and access
@@ -2082,11 +2087,34 @@ Approving a purchase invoice posts the payable, the input tax and the
 inventory clearing. **After that the receipt can no longer be cancelled** — the
 invoice already cleared the accrual, and a purchase return is the way.
 
+**Input credit is decided per bill line.** Each line carries *Eligible*,
+*Blocked (s.17(5))* or *Ineligible*, defaulting from the product or the expense
+account, then from a tax rule's *Input credit blocked*, and changeable on the
+line. Only an eligible line's tax goes to input tax (1300); the tax on a blocked
+or ineligible line is a cost of buying and is posted to **5450 Input Tax Not
+Claimable**. GSTR-3B reports blocked credit in 4(A)(5) and reverses it in
+4(B)(1), and credit ineligible for any other reason in 4(D)(2).
+
+**A supplier has a GST type** — Regular, Composition, Unregistered, Overseas or
+SEZ — set on the supplier. Only a *declared* Composition, Unregistered or
+Overseas supplier is billed no GST and gives no credit; a supplier with no type
+set is taxed by the rules as before, because a GSTIN nobody typed in does not
+make a supplier unregistered. Reverse charge still applies to any of them.
+
+**GSTR-2B** (the portal's file of what suppliers reported) is imported under
+**Sales › GSTR-2B Reconciliation** and matched to the firm's approved bills by supplier
+GSTIN, bill number and date, with a ₹1 tolerance. Each document reads Matched,
+Different, In 2B only or In books only. By default 3B keeps claiming **every**
+bill and lists what 2B lacks; a firm can switch to claiming **matched bills
+only**.
+
 ### D. Send goods back
 
 Completing a purchase return takes stock off and reverses the payable, the
-input tax and the inventory credit. Cancelling that return takes its journal
-back off too. Until 2026-08-22 it reversed the stock and left the payable
+input tax and the inventory credit. A return (or a debit note) off a bill the
+firm paid **reverse charge** on takes its share of that reverse-charge tax off
+as well, rather than leaving the self-assessed tax standing. Cancelling that
+return takes its journal back off too. Until 2026-08-22 it reversed the stock and left the payable
 standing — the same defect `goods_receipt` carried until 2026-08-18, in its
 mirror, which nobody thought to look for.
 
@@ -2200,6 +2228,15 @@ expires between the order and the invoice must not change the bill.
 
 ### A. Offer
 
+**Rate includes GST.** The quotation and the sales order each carry a *Rate
+includes GST* switch, defaulting in the editor from the firm's setting. Sent by
+nobody it is **off** — a converted quotation, a counter bill and an import all
+hand over rates already before tax. The line keeps the rate as typed beside the
+pre-tax figure and the editor shows it back as typed. A quotation typed at shelf
+prices becomes an order typed at them, read back to pre-tax at the order's date,
+so the customer is billed what was quoted. Bills raised from an order print only
+the pre-tax rate.
+
 Quotation: `DRAFT` → `SENT` → `ACCEPTED` → `CONVERTED`, or `DECLINED`.
 Expiry is derived from `valid_until` and nothing writes an `EXPIRED` status.
 An expired quotation cannot be accepted or converted. Converting twice is
@@ -2225,6 +2262,27 @@ A note line carries **two quantities and they are not interchangeable**:
 `delivered_quantity` is that plus free goods converted into inventory units.
 The second is right for stock, because all of it left. **Only the first is a
 billing cap.**
+
+**Every delivery note states why the goods are going out** — a *reason*: Sale
+(the default), Van or route sale, On approval, Quantity not known, Job work, or
+Other with words. It prints on the challan. A transfer between branches is a
+stock transfer, not a delivery note, so it is not a reason.
+
+**Dispatch before an invoice is a firm policy** (Settings › Tax › GST
+documents): **Off** says nothing, **Warn** (the default) lets a Sale note go and
+records the warning on the dispatch, **Block** refuses and points at *Dispatch
+and invoice*. A van or route sale is not judged unless the firm switches on
+*route sales need the invoice first*. **Dispatch and invoice** is one action
+that dispatches the note and raises and approves its invoice together, so the
+invoice exists at removal.
+
+**Batches are confirmed on the delivery note.** Each line opens with the
+batches the order reserved (earliest expiry first), and a **batch picker** lists
+every batch of the product in the warehouse — expiry, days left, and available
+(on hand less what is reserved for other orders). A line may split across
+batches and the challan prints one row per batch. The server checks product,
+warehouse, expiry on the document date and availability, and records a skip of
+the earliest-expiry order in the audit trail.
 
 ### D. Bill
 
@@ -2256,6 +2314,7 @@ own dialog.
 `delivery_notes` · `_lines` · `_notes` · `_attachments`
 `sales_invoices` · `_lines` · `_line_taxes` · `_sources` · `_accounting_events`
 `sales_returns` · `_lines` · `_line_taxes` · `_sources`
+`gst_compliance_settings` (the firm's dated GST document settings)
 
 `sales_invoice_line_taxes` is what makes a printed tax invoice possible: a line
 kept a single `tax_amount` until 2026-08-22, so the CGST/SGST split a tax
@@ -2446,6 +2505,28 @@ uv run python scripts/dump_route_permissions.py --markdown credit_note
 6. **It is not a sales return, and the two are not interchangeable.** If goods
    are physically coming back, raise a sales return so the stock moves and the
    cost is reversed at what the movement was worth.
+
+## The debit note to a customer
+
+The credit note turned the other way: **more** charged on an invoice already
+raised — a price that rose after billing, a short-billed quantity, an extra
+charge. **Sales › Debit Notes**, `/api/v1/customer-debit-notes`, number prefix
+`SDN` (`DN` is the delivery note's).
+
+- It names an **approved** invoice and the lines being charged more, moves no
+  stock, and is taxed **at the rate each line was charged**, split into
+  CGST/SGST/IGST the way the invoice was.
+- It has **no cap**, because a price can rise by whatever is agreed. The control
+  is approval: `CUSTOMER_DEBIT_NOTE_APPROVE` is a separate permission, not given
+  to the sales manager.
+- Approval posts Dr receivable, Cr sales revenue and output tax per head, and
+  raises the customer's balance by the same rounded figure.
+- It is **owed on the invoice**: a receipt allocated to the invoice settles it,
+  and it ages from the invoice's due date.
+- Cancelling is refused once money received on the invoice has met it. An
+  invoice with a live debit note cannot be cancelled.
+- GSTR-1 files it in CDNR with note type `D`; GSTR-3B adds it under
+  `debit_notes_added`.
 
 ---
 
@@ -2835,7 +2916,7 @@ What a firm has to declare for a period, read off what it actually sold.
 Two reads: **GSTR-1** (outward supplies, section by section) and **GSTR-3B**
 (the summary).
 
-**Nothing here stores anything.** A return is a *view of the documents*, and
+**The returns store nothing.** A return is a *view of the documents*, and
 the moment it were stored it could disagree with them — a cancelled invoice, a
 credit note raised late, an amended rate. So it is derived on every read, from
 the invoices and credit notes as they stand.
@@ -2847,7 +2928,7 @@ The sections are the ones this system's data can honestly fill:
 | **B2B** | Supplies to a customer carrying a GSTIN, invoice by invoice |
 | **B2CL** | Inter-state supplies to an unregistered customer above the invoice-wise threshold |
 | **B2CS** | Everything else unregistered, summarised by place of supply and rate — net of credit notes issued to those buyers in the period |
-| **CDNR** | Credit notes against registered customers |
+| **CDNR** | Credit notes **and debit notes** (note type `D`) against registered customers |
 | **HSN** | What was sold, by HSN code and rate |
 | **DOCS** | The document series issued |
 
@@ -2867,6 +2948,16 @@ There is no workflow to speak of, and that is the design: pick a period and
 read. `GET /api/v1/gst-returns/gstr1` and `/gstr3b`, both `SALES_VIEW`.
 Filing itself happens on the portal — this produces the figures.
 
+Around the two reads sit a few things that *are* stored, because they record
+what people did rather than what the documents say: the **GST payments** a firm
+records, the **filings** somebody marks as done (`gst_return_filings`), and the
+**GSTR-2B imports** with their match results. The **tax calendar** on Home reads
+them: for each of the last three months, GSTR-1 (due the 11th), GSTR-3B (due the
+20th) and, for a month that collected any, the TCS deposit (due the 7th), each
+marked done, due or late. It covers monthly filers only. GSTR-3B also reports
+blocked and ineligible input credit and the debit notes added (see modules 15
+and 18).
+
 ## How to use it
 
 **Sales › GST Returns** (`SALES_VIEW`).
@@ -2877,8 +2968,10 @@ uv run python scripts/dump_route_permissions.py --markdown gst_returns
 
 ## Tables
 
-**None.** This module owns no table. It reads sales invoices, credit notes,
-customers and products, and returns a computed document.
+The two returns own no table: they read sales invoices, credit notes, debit
+notes, customers and products, and return a computed document. The module's own
+tables are `gst_payments`, `gst_return_filings`, `gstr2b_imports` and
+`gstr2b_documents`.
 
 ## Rules that bite
 

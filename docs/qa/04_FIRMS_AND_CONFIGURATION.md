@@ -304,6 +304,15 @@ name.
 - **Expect**
   - Step 1: the firm-wide rule appears beside the product's own.
   - Step 2: the line shows **Base Qty 10**, not 20 — the product's factor of 1 outranks the firm-wide 2. (Ranked explicitly rather than by NULL sort, which PostgreSQL and SQLite order oppositely.)
+### TC-CONF-007 — GST documents: the firm's own rules for dispatch, e-invoicing and input credit
+
+*Added 2026-10-02 from the code; not yet driven. Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** any firm with the GST template.
+- **Steps:** as the prepared **Firm admin**, Settings (gear) → Tax → **GST Documents**. Read the banner. Choose **Block** for *Dispatch of a sale before its invoice*, set *E-invoicing applies from* to a date, and set *30-day reporting limit applies from* to a day **before** it → Save. Correct that, set *Claim input credit* to *Only bills matched to GSTR-2B*, set the matching tolerance → Save, close and reopen. Then open it as a user who holds Tax view but not the manage-tax-settings permission.
+- **Expect:** a firm that has never saved sees that it is using the default shown, and saving makes it the firm's own. The 30-day date earlier than the e-invoicing date (or with none) is refused with the server's message and the dialog stays open with what was typed. After the second save the values come back on reopening. The read-only user sees the values, a disabled Save and "Changing the GST document settings needs the manage tax settings permission."
+- **Leaves:** the firm's GST documents settings.
+
 ---
 
 ## Custom fields — how a profile reaches a record

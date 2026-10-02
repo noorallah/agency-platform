@@ -8,7 +8,9 @@ answer into a prioritised list. It builds on `docs/BACKLOG.md` §42 (the first
 comparison, 2026-09-18), and adds Vyapar, Odoo and ERPNext, a full feature
 matrix, and a launch-oriented priority order.
 
-Written 2026-09-26.
+Written 2026-09-26. **Rows touched by the 2026-10-02 work** (GSTR-2B, input
+credit, debit notes, reorder suggestions, batch choice on a sale) say so in
+their own cell; the rest is as of the 26th and is not re-derived here.
 
 **How to read the claims.**
 
@@ -42,6 +44,9 @@ Marks: **Yes** -- built and usable. **Partial** -- exists with a named gap.
 | Quotation, sales order, delivery note, invoice | Yes (full chain, each stage switchable per firm) | Yes | Yes | Yes | Yes | Yes | Yes |
 | Proforma invoice | Yes (own `PI` series, posts nothing) | Yes | Yes | Yes | Yes | Yes | Yes |
 | Sales returns and credit notes | Yes (credit note names the invoice line) | Yes | Yes | Yes | Yes | Yes | Yes |
+| Debit note to a customer | Yes (2026-10-02: against the invoice, taxed at each line's rate, owed on the invoice; approval is a separate permission; GSTR-1 note type D) | Yes (against a bill reference) | Yes | Yes | Partial | Yes | Yes |
+| Rate typed with GST included (quotation, order, bill) | Yes (2026-10-02: a switch on each, kept as typed) | not re-checked | not re-checked | not re-checked | not re-checked | not re-checked | not re-checked |
+| Delivery challan with a reason (sale, route sale, on approval, job work) and a dispatch-before-invoice rule | Yes (2026-10-02: reason prints on the challan; policy Off / Warn / Block; *Dispatch and invoice* in one action) | not re-checked | not re-checked | not re-checked | not re-checked | not re-checked | not re-checked |
 | Order hold, back orders, part delivery | Yes | Partial | Yes | Yes | Partial | Yes | Yes |
 | Credit limit control | Yes (warn or block, per firm) | Yes | Yes | Yes | Partial | Partial | Yes |
 | GST invoice print, A4 / A5 | Yes (CGST/SGST split, HSN summary, copies) | Yes | Yes | Yes | Yes | Yes | Yes |
@@ -58,7 +63,7 @@ Marks: **Yes** -- built and usable. **Partial** -- exists with a named gap.
 | PO, goods receipt, purchase invoice, return | Yes (approval cannot be skipped) | Yes | Yes | Yes | Yes | Yes | Yes |
 | Skip stages for a small firm | No (sales has stage switches; purchasing does not -- BACKLOG §38) | Yes (voucher directly) | Yes | Yes | Yes | Yes | Partial |
 | Damaged / rejected / expired on receipt and return | Yes (with reports) | Partial | Yes | Yes | Partial | Partial | Yes |
-| Reorder alert and suggested PO | Partial (reorder level + low-stock filter; no suggestion -- §42.9) | Partial | Yes | Yes | Partial | Yes | Yes |
+| Reorder alert and suggested PO | Yes (suggestion from typed levels, raised as draft POs; 2026-10-02: or from the last 90 days' sales -- lead + safety days, plus cover -- a typed level always wins) | Partial | Yes | Yes | Partial | Yes | Yes |
 | Landed cost (freight / clearing added to stock cost) | No (§42.12) | Partial | Partial | Partial | No | Yes | Yes |
 
 ### Inventory
@@ -66,7 +71,7 @@ Marks: **Yes** -- built and usable. **Partial** -- exists with a named gap.
 | Capability | Agency Platform | Tally Prime | Busy | Marg | Vyapar | Zoho | Odoo/ERPNext |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Multi-branch, multi-warehouse | Yes | Yes (godowns) | Yes | Yes | Partial | Yes | Yes |
-| Batch, expiry, earliest-expiry-first | Yes | Yes | Yes | Yes (pharma strength) | Yes | Yes | Yes |
+| Batch, expiry, earliest-expiry-first | Yes (2026-10-02: a batch picker on the delivery note, one challan row per batch) | Yes | Yes | Yes (pharma strength) | Yes | Yes | Yes |
 | Serial numbers with warranty dates | Yes (seeded on ELEC01 only) | Partial | Yes | Yes | Yes | Yes | Yes |
 | UOM conversions, packaging levels | Yes (all document types; carton/strip/piece with own barcodes) | Yes | Yes | Yes | Partial | Yes | Yes |
 | Transfers, adjustments, write-offs, physical count | Yes | Yes | Yes | Yes | Partial | Yes | Yes |
@@ -102,8 +107,9 @@ Marks: **Yes** -- built and usable. **Partial** -- exists with a named gap.
 | Day book, cash book, bank book, cash flow | No (not found in our docs) | Yes | Yes | Yes | Yes | Yes | Yes |
 | Cost / profit centres | Yes (screens and journal picker) | Yes | Yes | Partial | No | Partial | Yes |
 | Expense entry without writing a journal | No (P&L guide §5) | Yes (payment voucher) | Yes | Yes | Yes | Yes | Yes |
-| GSTR-1 and GSTR-3B | Yes (derived live; 3B includes ITC from approved bills) | Yes | Yes | Yes | Yes | Yes | Yes (India localisation) |
-| GSTR-2A / 2B reconciliation | No (§42.5) | Yes | Yes | Yes | Partial | Yes | Partial (ERPNext India Compliance) |
+| GSTR-1 and GSTR-3B | Yes (derived live; 3B includes ITC from approved bills, per-line eligibility -- blocked s.17(5) credit in 4(A)(5)/4(B)(1), ineligible in 4(D)(2); debit notes in CDNR) | Yes | Yes | Yes | Yes | Yes | Yes (India localisation) |
+| GSTR-2A / 2B reconciliation | Yes (2026-10-02: import the 2B file, match with a Rs 1 tolerance, claim all bills or matched only; no live portal fetch) | Yes | Yes | Yes | Partial | Yes | Partial (ERPNext India Compliance) |
+| Tax calendar (what is due, late, done) | Yes (2026-10-02: on Home, GSTR-1, 3B and TCS deposit; monthly filers only; "filed" is marked by a person) | not re-checked | not re-checked | not re-checked | not re-checked | not re-checked | not re-checked |
 | Upload / file returns to the portal | No (figures only; filing on the portal) | Yes | Yes | Yes | Partial | Yes | Partial |
 | E-invoice (IRN) | **Sandbox** (live needs a GSP) | Yes | Yes | Yes | Yes | Yes | Yes (via GSP apps) |
 | E-way bill | **Sandbox**, raised from the e-invoice only | Yes | Yes | Yes | Yes | Yes | Yes |
@@ -223,7 +229,7 @@ that lose data or money if absent.
 | M5 | **Bank reconciliation with a PDC register** | Import a statement, match to receipts and payments, cleared date; post-dated cheques held until their date, bounce with charges | Tally, Busy, Marg, Zoho, Odoo/ERPNext; Vyapar (cheques) | The accountant's weekly work; Indian distribution still runs on dated cheques | M | BACKLOG §42.2, §42.3 |
 | M6 | **Import masters and opening position from a file, and from Tally** | Templates, preview with row errors, all-or-nothing, update by code; Tally masters and balances | Busy, Marg, Vyapar import from Tally; all import Excel | Every customer is leaving another tool; onboarding must be a day, not a project | M (files) / L (Tally) | BACKLOG §46, §36, §42.11 |
 | M7 | **TDS, especially 194Q** | Deduction on the excess over Rs 50 lakh per seller per year; TDS on rent and contractors; certificates | Tally, Busy, Marg, Zoho, Odoo/ERPNext | Most distributors cross 194Q with their principal; an auditor asks for it | M (mirrors the TCS engine) | BACKLOG §42.4 |
-| M8 | **GSTR-2B reconciliation** | Import the portal's 2B JSON, match to purchase invoices, show credit at risk | Tally, Busy, Marg, Zoho | Input tax credit is only claimable on what suppliers filed | M | BACKLOG §42.5 |
+| M8 | **GSTR-2B reconciliation** (**built 2026-10-02**: import and match; claim all or matched only) | Import the portal's 2B JSON, match to purchase invoices, show credit at risk | Tally, Busy, Marg, Zoho | Input tax credit is only claimable on what suppliers filed | M | BACKLOG §42.5 |
 | M9 | **Day book, cash and bank books, period-range reports** | The standard Indian books; P&L and trial balance for a year, a quarter or chosen months; drill-down to vouchers | All seven | The first reports an owner or CA opens; one-month P&L is not enough for year-end | S-M | BACKLOG §50; phase 2 §9 item 3; day/cash book not found in our docs |
 | M10 | **Fast counter billing with barcode** | Scan or type a code to add a line, save-print-next in one key, keyboard only | Busy, Marg, Vyapar, Odoo; Tally partially | Retail and cash-and-carry counters judge software on seconds per bill | M | UI_PHASE_2_DESIGN §4.6 (target set, not yet measured) |
 | M11 | **Licensing** | Activation, expiry, what a firm sees near its limit | All commercial tools | Needed to sell the product at all, though not a customer feature | M | BACKLOG §2 (deferred by owner) |
@@ -237,7 +243,7 @@ months of use.
 | --- | --- | --- | --- | --- | --- | --- |
 | S1 | **Salesman mobile app** | Order booking at the outlet, stock and scheme check, receipts, visit check-in; offline with sync | Marg (eOrder), DMS apps, Busy add-on | The feature distributors compare field-sales products on; our routes and beats are desktop-only today | L (separate product) | BACKLOG §42.6, §39, §48 |
 | S2 | **Scheme claims to the principal** | Sum promotion cost per principal per period, raise a claim, settle it | Marg, DMS apps | How an agency earns back what it passes on; the figures already exist in the promotion ledger | M | BACKLOG §42.7 |
-| S3 | **Reorder suggestion to a purchase order** | "Raise a PO for everything below reorder, up to maximum" | Busy, Marg, Zoho, Odoo/ERPNext | Turns an existing column into a saved afternoon a week | S | BACKLOG §42.9 |
+| S3 | **Reorder suggestion to a purchase order** (**built**: from typed levels, and from sales as of 2026-10-02) | "Raise a PO for everything below reorder, up to maximum" | Busy, Marg, Zoho, Odoo/ERPNext | Turns an existing column into a saved afternoon a week | S | BACKLOG §42.9 |
 | S4 | **UPI QR on the invoice** | Static QR from the firm's UPI ID and the amount | Tally, Busy, Marg, Vyapar, Zoho | Faster collection with no gateway and no internet | S | BACKLOG §42.10 |
 | S5 | **Stage switches for purchasing** | Record a supplier bill without a typed PO and GRN | All the Indian desktop tools (direct purchase voucher) | A one-person firm types three documents for one bill today | M | BACKLOG §38 |
 | S6 | **Landed cost** | Spread a transporter's or clearing agent's bill over the goods received | Zoho, Odoo/ERPNext; partial in Tally/Busy | Without it stock cost and margin are understated | M | BACKLOG §42.12 |
@@ -283,7 +289,7 @@ in the backlog.
 | G5 | **Batch-wise MRP and rates** | Each batch carries its own MRP and rates (PTR, PTS in pharma); billing and printing take the batch's | Marg, Busy | Pharma and FMCG receive the same product at a new MRP; one MRP per product (`products.mrp`) cannot hold both | **High** (pharma/FMCG) | M | none |
 | G6 | **Last rate while billing** | The rate and discount this customer last got for this product (and the last purchase rate) shown on the line | Tally, Busy, Marg, Vyapar | Used on nearly every bill; prevents quoting a regular customer a different price | Medium | S | none |
 | G7 | **Picking list and loading sheet** | One sheet per van or route: everything to load for the day's deliveries, by product and batch | Marg, Busy, DMS apps | How a distributor's godown actually dispatches; per-delivery notes alone mean picking the same product ten times | Medium | S | none (delivery notes carry the vehicle number) |
-| G8 | **Debit note to a supplier** | Rate difference, shortage or a scheme owed, without goods going back -- the mirror of a credit note | Tally, Busy, Marg, Zoho | Only a purchase return reduces a supplier bill today, which forces a fake stock movement | Medium | S | none; credit notes are sales-side only |
+| G8 | **Debit note to a supplier** (`app/debit_note` now exists, and 2026-10-02 added the mirror to a customer) | Rate difference, shortage or a scheme owed, without goods going back -- the mirror of a credit note | Tally, Busy, Marg, Zoho | Only a purchase return reduces a supplier bill today, which forces a fake stock movement | Medium | S | none; credit notes are sales-side only |
 | G9 | **Cash discount and interest on overdue** | A discount for paying early; interest charged on overdue bills at the firm's rate | Tally (interest), Busy, Marg | Common credit terms ("2% if paid in 7 days"; 18% on overdue) | Medium | S-M | none |
 | G10 | **Expiry and breakage claims to the principal** | Stock expired or broken in the market, returned or claimed from the company for credit | Marg, pharma and FMCG DMS | A real cost for pharma and FMCG distributors; the figures are partly in sales and purchase returns | Medium | M | extends S2 |
 | G11 | **GSTR-9 annual return; composition-scheme parties** | The annual return from the year's documents; a bill of supply for a firm under composition, and composition customers treated as such | Tally, Busy, Marg, Zoho | Year-end compliance; small firms under composition cannot use the product | Low-Medium | M | none |

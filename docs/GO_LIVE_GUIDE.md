@@ -146,7 +146,8 @@ On **Sell > Sales Orders** or **Buy > Purchase Orders**:
 Closing a month stops anybody posting into it by mistake after you have
 reconciled it: a bill dated last month and typed today is refused, by name.
 
-1. Reconcile the month first: bank, cash, the outstanding lists, GST.
+1. Reconcile the month first: bank, cash, the outstanding lists, GST
+   (including the GSTR-2B match, section 7).
 2. **Gear > Financial Years.** Open the year, and in its list of months press
    **Close** beside the month.
 3. To correct something later, press **Open** on that month, post the
@@ -209,13 +210,18 @@ When it **blocks**:
 | Daily | Expenses | Accounts > Expenses |
 | By the 7th | TDS challan for last month, as a journal | Accounts > Journal Entries |
 | By the 11th | GSTR-1 | Accounts > GST Returns |
+| Before the 20th | Import the month's **GSTR-2B** from the portal and look at what it lacks: bills you booked that the supplier has not filed | Accounts > GSTR-2B Reconciliation |
 | By the 20th | GSTR-3B, and pay the GST due: credit set off, the rest by challan | Accounts > GST Returns, then Accounts > GST Payment |
 | Month end | Reconcile, then close the month | Gear > Financial Years |
 | Quarter end | TDS deducted list to the CA for 26Q; tick TDS by customers against 26AS | Reports > Financial |
 | Year end | Close every month, then the year | Gear > Financial Years |
 
 Dates are the statutory ones as of 2026; check the current calendar with the
-CA.
+CA. Home also shows a **Tax calendar** (for whoever may open GST Payment):
+the last three months' GSTR-1, GSTR-3B and TCS deposit, each due, late or
+done. Filing happens on the portal, so press **Mark filed** there with the date
+and the acknowledgement number; recording the GST payment closes GSTR-3B for
+you.
 
 ---
 

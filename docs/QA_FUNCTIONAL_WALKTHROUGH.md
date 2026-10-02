@@ -168,7 +168,7 @@ From here on, work as the **firm administrator** unless a step says otherwise.
 | W40 | Sales Orders → the order → **Hold**, reason *awaiting cheque* | Status reads *Approved (on hold)* | Not run | |
 | W41 | Sell → **Delivery Notes** → **+ New** → choose the order → **Save delivery note** | Refused: the order is on hold, naming the reason. Reserved stays 4 | Not run | |
 | W42 | Sales Orders → the order → **Release** | Status back to plain **Approved** | Not run | |
-| W43 | Delivery Notes → **+ New** → the order. The line shows Reserved 4 and Delivering **4**; the side panel shows warehouse MAIN and the stock it is expected to ship from. Save → on the list **Approve** → **Dispatch** | Created as a draft. After Dispatch: **Dispatched**, the order **Delivered** | Not run | |
+| W43 | Delivery Notes → **+ New** → the order. The line shows Reserved 4 and Delivering **4**; the side panel shows warehouse MAIN and the stock it is expected to ship from. Save → on the list **Approve** → **Dispatch** | Created as a draft, reason **Sale**. Dispatch finds no approved invoice and asks (the firm's policy defaults to **Warn**): choose **Dispatch anyway**. Then **Dispatched**, the order **Delivered** | Not run | |
 | W44 | Stock → **Inventory**, QA-P1 | MAIN current **6**, reserved **0** | Not run | |
 | W45 | Stock Ledger, QA-P1 | A `DISPATCH` row of **−4** naming the delivery note | Not run | |
 | W46 | Sell → **Sales Invoices** → **+ New**. In **Bill this delivery note** choose the note. Type **5** in the quantity to bill | The line shows red and the bill cannot be saved: only 4 left to bill | Not run | |

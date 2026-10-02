@@ -11,6 +11,16 @@ from the application's screen catalogue and role seed. The files are
 regenerated from those sources rather than edited by hand, so a fix belongs
 in the source.
 
+**Cases added on 2026-10-02** (the return outcome and supplier refunds, a
+return off a paid bill, input credit and supplier GST type, GSTR-2B, the
+dispatch policy, choosing batches, reorder from sales, the debit note to a
+customer, the tax calendar, one quantity picture per order line and the GST
+Documents settings) were written from the code and have not all been driven
+against a running server; those that say so in their own text have not.
+Treat a failure in one of them as possibly the case's mistake, and correct the
+case once it is settled. *Rate includes GST* on orders and quotations
+(TC-SELL-021) is so far in `docs/INDEPENDENT_TEST_CASES.md` only.
+
 ## The files
 
 | File | Area | Detailed cases | Screen checks |
@@ -18,19 +28,19 @@ in the source.
 | `01_ROLES_AND_ACCESS` | What each of the 11 job templates may reach and do | 11 jobs, 353 screen rows | |
 | `02_SIGN_IN_AND_ACCOUNTS` | Sign-in, lockout, sessions, your own account, platform mode | 27 | |
 | `03_USERS_AND_ROLES` | Users, hiring, job templates, roles in two tiers | 52 | 5 |
-| `04_FIRMS_AND_CONFIGURATION` | Creating and finishing a firm, isolation, numbering, profiles, tax, units, custom fields | 41 | 19 |
+| `04_FIRMS_AND_CONFIGURATION` | Creating and finishing a firm, isolation, numbering, profiles, tax, units, custom fields | 42 | 19 |
 | `05_MASTERS` | Customers, vendors, products, branches, warehouses | 14 | 14 |
-| `06_PURCHASING` | Purchase order to supplier payment, returns | 8 | 7 |
+| `06_PURCHASING` | Purchase order to supplier payment, returns, GST on purchases | 16 | 7 |
 | `07_INVENTORY` | Stock, transfers, write-offs, counts, batches, serials | 8 | 14 |
-| `08_SELLING` | Quotation to cash, holds, returns, credit notes, proforma | 17 | 7 |
+| `08_SELLING` | Quotation to cash, holds, returns, credit notes, debit notes, proforma | 20 | 8 |
 | `09_PRICING_AND_INCENTIVES` | Price lists, promotions, loyalty, commission, targets | 8 | 5 |
 | `10_TERRITORY` | Territories, routes, beat plans, call lists | 5 | 7 |
-| `11_COMPLIANCE` | GSTR-1, GSTR-3B, e-invoice and e-way bill sandbox, TCS | 7 | 3 |
+| `11_COMPLIANCE` | GSTR-1, GSTR-3B, e-invoice and e-way bill sandbox, TCS, the tax calendar | 8 | 3 |
 | `12_FINANCE_AND_REPORTS` | Ledger, journals, statements, periods, reports, audit, diagnostics | 21 | 17 |
 | `13_CROSS_CUTTING` | Permissions enforced by the server, two people editing one record | 17 | |
 | `14_TEST_DATA` | The values to type for every firm, person, master and case (written by hand) | | |
 
-In all: **225 detailed cases, 98 screen checks and 11 role checks**. The
+In all: **238 detailed cases, 99 screen checks and 11 role checks**. The
 installation itself is tested separately by `docs/INSTALLER_QA_CHECKLIST.md`,
 and `docs/QA_FUNCTIONAL_WALKTHROUGH.md` is a one-day end-to-end run that
 makes a good first pass before this suite.

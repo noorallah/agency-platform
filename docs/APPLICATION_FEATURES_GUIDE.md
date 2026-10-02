@@ -10,7 +10,10 @@ guide*.
 
 Written 2026-09-27 for release 1.0.2; brought up to 1.1.0 on 2026-10-01;
 GST documents, input credit and GSTR-2B added 2026-10-02; choosing batches
-on a delivery note and reordering from sales added the same night.
+on a delivery note and reordering from sales added the same night; the tax
+calendar on Home, *Rate includes GST* on orders and quotations, the purchase
+order quantity picture, reverse-charge returns and debit notes to customers
+brought in the same day.
 
 ## Contents
 
@@ -184,6 +187,15 @@ The first screen after signing in, cut to what the person may see:
 - **To do**, each a count that opens the list behind it: orders to approve,
   orders to deliver, invoices overdue, purchase orders to receive, supplier
   bills overdue.
+- **Tax calendar** (for whoever may open GST Payment): for each of the last
+  three finished months the firm traded in, **GSTR-1** (due the 11th),
+  **GSTR-3B** (due the 20th, with the cash it works out to) and the **TCS
+  deposit** (due the 7th, only for a month that collected any), each shown as
+  due, late by so many days, or done. Filing happens on the government portal,
+  so a return is closed by **Mark filed** (the date and the acknowledgement
+  number); *Undo* withdraws it. GSTR-3B also closes by itself when the
+  month's GST payment is recorded. A month that is closed drops off unless it
+  is the latest. Rows open GST Returns or GST Payment.
 - **Favourites**: the screens a person opens most, pinned.
 
 **Customise** chooses which of these a person sees.
@@ -227,6 +239,15 @@ reserves the stock and claims any promotion. An order can be put **on hold**
 (the stock stays reserved; nothing more is delivered until the hold is
 released) or cancelled (the reservation is released). The credit check runs
 here: see 5.5.
+
+**Rate includes GST.** The order and the quotation carry the same switch the
+counter bill has, starting from the firm's setting (*Settings → Selling →
+Sales Stages*). Switched on, the rate and any discount *amount* typed on a
+line are the shelf prices; the tax is taken back out to find the rate before
+tax, and what was typed is kept so the editor shows it again. A quotation
+typed at shelf prices becomes an order typed at them, so the customer pays
+what was quoted. The quotation print shows both rates. Orders raised by a
+conversion, a counter bill or an import start with it off.
 
 **Delivery Notes.** Picked from an approved order, choosing the warehouse
 (and batch or serial, where the product is tracked). Dispatching takes the
@@ -412,7 +433,14 @@ value of a point, expiry) is set per firm.
 **Purchase Orders.** Enter the supplier and the lines. An order is
 **approved** before anything can be received against it, and approval can be
 kept to a purchase manager. Receiving moves the order to *part received* and
-then *received* on its own; nobody sets that by hand.
+then *received* on its own; nobody sets that by hand. Once an order has left
+draft, the side panel of the selected line shows what was **received,
+rejected, returned and billed**, what is still **pending** and what is still
+**to bill** (the figures behind it also carry accepted and damaged), worked out
+afresh from the live receipts, bills and returns; only approved bills count as
+billed. The order carries a **billing status** (*Not billed*, *Part billed*,
+*Billed*) and a **Complete** flag beside its status, so billing never
+overwrites how far receiving got.
 
 **Goods Receipts.** Record what actually arrived against an order: the
 quantity accepted, damaged and rejected, into which warehouse, with the batch
@@ -441,7 +469,10 @@ what the supplier gives back: **Credit** (set against the next bill, the
 default), **Replacement** (the order is owed the goods again and the next
 receipt takes them in) or **Refund** (the supplier pays the money back:
 *Payments → Supplier refunds → Record refund*). A return off a bill already
-paid becomes a supplier credit for what the bill can no longer absorb.
+paid becomes a supplier credit for what the bill can no longer absorb. A
+return or debit note off a bill charged under **reverse charge** takes the
+matching share of that reverse charge (and the input credit it raised) off
+too, so the firm does not go on paying tax on goods it no longer holds.
 
 ## 6.3 Money and insight
 
@@ -750,10 +781,11 @@ to restore one.
 
 | Group | Screens | What they set |
 | --- | --- | --- |
-| Firm | Firm Settings, Financial Years, Numbering Series, My Branch and Warehouse | The firm's details; its years and accounting periods (open and close); the number pattern of each kind of document; the branch and warehouse **each person's** new orders, quotations and purchase orders open with |
-| Buying | Purchase Settings | Purchasing defaults and approval |
-| Stock | Inventory Settings | The firm's stock defaults |
-| Tax | Tax Configuration, Tax Rules, Rule Simulator, Execution Log, Tax Settings | Tax systems, components and rates; the rules that choose the tax for a line (by product tax group, category, place of supply, customer type); trying a rule before relying on it; what each calculation decided |
+| Firm | Firm Settings, Financial Years, Numbering Series, My Branch and Warehouse | The firm's details; its years and accounting periods (open and close); the number pattern of each kind of document; the branch and warehouse **each person's** new orders, quotations and purchase orders open with; **Messaging** (email, WhatsApp, SMS: off until the firm switches it on with its own accounts) |
+| Selling | Sales Stages, Credit Control, Price Floor, Discount Limits, Loyalty Scheme, TCS Settings | Which stages of a sale the firm's people type, and whether *Rate includes GST* starts on; the credit warning and whether it blocks; the lowest price and each role's discount limit; points; tax collected at source |
+| Buying | Purchase Settings, Approval Limits | Purchasing defaults and approval, and the **reorder planning** choice (typed levels or from sales) |
+| Stock | Inventory Settings | The firm's stock defaults (the near-expiry window, 30 days, is not yet a setting) |
+| Tax | Tax Configuration, Tax Rules, Rule Simulator, Execution Log, Tax Settings | Tax systems, components and rates; the rules that choose the tax for a line (by product tax group, category, place of supply, customer type); trying a rule before relying on it; what each calculation decided; **GST Documents**: the dispatch-before-invoice policy, whether route sales need the invoice first, the dates e-invoicing and the 30-day limit start, whether GSTR-3B claims every bill or only those matched to GSTR-2B, and the 2B tolerance (read with *Tax view*, changed with the tax-settings permission) |
 | Business profile | Feature Management, Module Configuration, Attribute Definitions, Mandatory Attributes, Profile Assignment, Industry Templates | What each industry switches on, which extra fields exist and which are mandatory for which product category, and which profile each firm has |
 
 **How tax is chosen.** Tax is not a rate stored on a product. The product

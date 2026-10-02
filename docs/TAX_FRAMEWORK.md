@@ -346,6 +346,19 @@ head.
 - **GSTR-2B**: `itc_claim_basis` ALL (default) claims every bill and lists what
   2B lacks; MATCHED_ONLY holds unmatched credit out of 4(A)(5) as
   `itc_awaiting_2b` until a 2B import matches it.
+- **A return or debit note off a reverse-charge bill** takes its share of the
+  self-assessed tax off (`app/purchase_invoice/services/reverse_charge.py`):
+  the supplier charged nothing, so the note's own tax is zero, and 3.1(d) and
+  4(A)(3) fall by the returned share in the period the note took effect.
+  Details in `docs/LEDGER_POSTING_RULES.md`.
+- **A debit note to a customer** (`app/customer_debit_note`) is taxed at the
+  rate each invoice line was charged, never by re-running the rules, so a
+  profile edited since the sale cannot change what the sale was taxed at. It is
+  declared in GSTR-1 with note type D and added to 3B 3.1(a).
+
+### Returns still to file (63.4)
+
+`GET /api/v1/gst-returns/calendar` (`app/gst_returns/services/tax_calendar.py`) lists, for each of the last three months the firm traded in, GSTR-1 (due the 11th), GSTR-3B (the 20th) and, where tax was collected at source, the TCS deposit (the 7th), each as done, due or late. It reads the same figures the returns do and stores only the fact that a return was filed (`gst_return_filings`), because the portal is where filing happens. Monthly filers only.
 
 ## Where the code is
 

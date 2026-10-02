@@ -141,6 +141,18 @@ order read APPROVED -- so the desktop gate lists the new statuses rather than
 disabling a button the API accepts. Orders predating the change are not
 backfilled, as on the purchase side.
 
+## An invoice is corrected upward by a debit note, not by a second invoice
+
+`app/customer_debit_note` (prefix `SDN`). It names the invoice and its lines,
+moves no stock and charges tax at the rate **each line was charged**, because a
+tax profile edited in September must not retax a March supply. It has **no
+cap** -- a price can rise by whatever is agreed -- so the control is approval,
+`CUSTOMER_DEBIT_NOTE_APPROVE`, deliberately not given to the sales manager who
+drafts one. What it adds is owed **on the invoice**: receipts allocate to the
+invoice, which ages from its own due date. A live debit note stops the invoice
+being cancelled, and the note cannot be cancelled once money received on the
+invoice has met it.
+
 ## Credit limits warn, and block only if a firm asks
 
 **Credit limits warn, and block only if a firm asks.** `customers.credit_limit` constrained nothing until `20260810_0057`. `CreditControlService` compares it against exposure — `current_outstanding - unapplied_advance + the document being saved` — at sales order and sales invoice approval, the two points where credit is committed. Policy is per firm in `credit_control_settings` (`OFF` / `WARN` / `BLOCK`, with warn and block percentages); a firm with no row warns at 80% and never blocks, and a `credit_limit` of zero means unset rather than no credit, so shipping this stopped nobody trading. `GET /api/v1/customers/{id}/credit-status?amount=` answers the question before a document is saved rather than reporting the breach after, and `GET`/`PUT /api/v1/customers/credit-settings` carries the policy. Writing the policy needs `CUSTOMER_MANAGE_SETTINGS`, deliberately **not** granted to `SALES_MANAGER`: the role the limit constrains must not be able to switch it off. **Moving a customer's `credit_limit` needs the same code** (D-CFG-17): raising it, or setting it to zero, lifts a BLOCK as surely as switching the policy off, so `PUT /customers/{id}` refuses a changed limit by name without it and the desktop shows the field read-only; resending the stored figure is not a change, and a new customer's limit is anyone's to set because every customer otherwise starts with none. The desktop **warns and never blocks**: `warnOnCreditExposure` (`desktop/lib/ui/sales/credit_notice.dart`) runs on Approve for sales orders and sales invoices, before the action so the document is not counted twice, and stays silent when `would_block` is true because the server's refusal already carries the same sentence. A client that blocked on its own would enforce a rule the firm may not have chosen and could be bypassed by any other client. The policy itself is edited from the Settings action on the customers workspace (`credit_settings_dialog.dart`), which is readable with `CUSTOMER_VIEW` — someone the policy warns should see the rule behind the warning — and writable only with `CUSTOMER_MANAGE_SETTINGS`.
@@ -206,6 +218,26 @@ whatever the person leaves blank -- distance, mode, transporter, vehicle --
 from the latest delivery note the invoice billed, and sends its LR as
 `TransDocNo` / `TransDocDt`. A distance is still required from one or the
 other.
+
+## Goods leave with an invoice, or on a challan that says why
+
+Every delivery note carries a **reason** (`challan_reason`: Sale by default;
+van or route sale, on approval, quantity not known, job work, other with the
+firm's own words). It prints on the challan and decides whether dispatch is
+judged. A tax invoice is issued at or before removal of goods (CGST s.31), so
+a `SALE` note dispatched with no approved invoice is judged by the firm's
+`dispatch_without_invoice` policy: `OFF`, `WARN` (the default; the warning is
+kept on the dispatch event and the audit row) or `BLOCK`. A van or route sale
+is judged only if the firm switches on *route sales need the invoice first*;
+the other reasons leave on a challan and are billed later, one invoice for
+several notes if need be. The firm chooses because CAs differ.
+
+**A bill that dispatches the note it raised is never judged** -- the invoice is
+what ships it. **Dispatch and invoice** is the compliant one-click path: it
+dispatches, raises the bill of the whole note and approves it in one
+transaction, so the invoice exists when the goods leave, and if the bill's own
+approval refuses nothing is dispatched either. Both live in the delivery
+note's service, not the client, so no other client can skip them.
 
 ## A note is delivered only with a proof -- and delivered is a flag
 

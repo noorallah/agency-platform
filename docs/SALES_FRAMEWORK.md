@@ -25,6 +25,7 @@ counted off the routers on 2026-08-24.
 | `app/delivery_note` | delivery note | 20 | list, editor, lifecycle |
 | `app/sales_invoice` | sales invoice | 18 | list, editor (raise and correct), lifecycle, print |
 | `app/sales_return` | sales return / credit note | 18 | list, editor, lifecycle |
+| `app/customer_debit_note` | debit note to a customer (more charged on an invoice already raised) | 9 | Sales > Debit Notes: list, editor, lifecycle |
 | `app/sales` | territory, route, beat plan, geography | 63 | six screens |
 | `app/customers` | customer, credit policy, receivables | 17 | list, editor, settings |
 | `app/settlements` | receipt (money in) | 5 | settlements workspace |
@@ -95,6 +96,14 @@ Quotation ──convert──▶ Sales Order ──▶ Delivery Note ──▶ S
                                                         Sales Return ◀┘
                                                      goods back, credit note
 ```
+
+A sale can also be corrected upward after the invoice. A price raised later, a
+line under-billed or a charge added afterwards is a **debit note against the
+invoice** (`app/customer_debit_note`, prefix `SDN`), not a second invoice: it
+names the invoice and its lines, moves no stock, charges tax at the rate each
+line was charged, has no cap, and is owed on the invoice it adds to. The
+control is approval, which is its own permission. The sequence is in
+`SALES_TO_RECEIPT_FLOW.md`.
 
 **A firm chooses which of these stages its people type**, in
 `sales_workflow_settings` — one row per firm, a boolean per skippable stage.
@@ -177,6 +186,9 @@ document is built, on the document's own date.
 | Commission | `commission_rules` + `commission_rule_slabs`, per firm | Flat rate, a ladder, or an amount per unit; scoped to a product, a category or everything; paid on money collected or on invoiced value, with an optional floor, ceiling and target bonus |
 | Targets | `sales_targets`, per firm | Reported, not enforced — `GET /api/v1/sales-targets/achievement`, measured on each target's own period and basis. `SALES_TARGET_MANAGE` to set one |
 | Promotions | `promotions`, per firm | Yes — stacked in priority order while the document is priced, before tax. `GET`/`PUT /api/v1/promotions`, written with `PROMOTION_MANAGE` |
+| Dispatch before the invoice | Firm GST settings, Settings > Tax > GST documents | Yes -- `OFF` / `WARN` / `BLOCK` for a `SALE` delivery note dispatched with no approved invoice; `WARN` by default. *Dispatch and invoice* raises and approves the bill in the same action as the dispatch. A van or route sale is judged only when the firm switches on *route sales need the invoice first*. E-invoicing and the 30-day rule are dated settings in the same place |
+| Rate includes GST | `sales_workflow_settings.rate_includes_tax` | A default for the editor only. The quotation, the sales order and the counter bill each carry the switch; sent by nobody it is off, so a converted quotation or an import is never read twice. The stored rate is always before tax |
+| Batches on a sale | Nothing yet (fixed defaults) | The delivery note confirms batches (FEFO pre-filled, a picker one keystroke away; a FEFO skip is recorded in the audit trail). Near expiry is 30 days. The firm settings A38 names -- near-expiry days, a reason for a FEFO skip, a per-customer minimum shelf life -- are not built yet (§79) |
 | Credit limits | `credit_control_settings`, per firm | Yes — `OFF` / `WARN` / `BLOCK` at sales order and sales invoice approval. A firm with no row warns at 80% and never blocks |
 | Territory and route | `app/sales` | A route's effective window decides whether a document may be tagged with it, judged on the document's own date |
 | Tax | `app/tax` profiles and rules | Yes, per line |
@@ -191,7 +203,7 @@ Seeded in `app/identity/system_seed.py`. Firm-owned, so every one is checked
 together with active `UserFirm` membership for the `X-Firm-ID` header.
 
 `SALES_VIEW`, `SALES_CREATE`, `SALES_UPDATE`, `SALES_APPROVE`, `SALES_CANCEL`,
-`SALES_IMPORT`, `SALES_EXPORT`, `SALES_RETURN`, plus the three narrower creates
+`SALES_IMPORT`, `SALES_EXPORT`, `SALES_RETURN`, the debit note's `CUSTOMER_DEBIT_NOTE_VIEW`, `CUSTOMER_DEBIT_NOTE_MANAGE` and `CUSTOMER_DEBIT_NOTE_APPROVE` (the sales manager drafts one but does not hold approval, because approving adds output tax the firm declares), plus the three narrower creates
 `SALES_QUOTATION_CREATE`, `SALES_ORDER_CREATE`, `SALES_INVOICE_CREATE`, and the
 two roles `SALES_EXECUTIVE` and `SALES_MANAGER`.
 
@@ -1320,11 +1332,9 @@ in seven.
 
 ## What is still not built
 
-**Margin-based commission.** `sales_invoice_lines` carries no cost, so a
-margin would have to be reconstructed from the stock ledger's moving average
-per movement — reachable, but a real piece of work and not something to
-declare before it exists. It is the last item of the original incentive spec
-with no code behind it.
+Nothing from the original incentive spec is outstanding: margin-based
+commission landed (see *Commission on the margin* above). What remains open is
+listed in `docs/MODULE_STATUS.md` and `docs/DEFECTS.md`.
 
 ## 10. ~~No sales targets or quotas~~ — landed 2026-09-03
 
@@ -1376,6 +1386,7 @@ Worth stating so they are not "fixed" by mistake:
 | The five services | `backend/app/{quotation,sales_order,delivery_note,sales_invoice,sales_return}/services/` |
 | Discounts and free goods | `backend/app/core/utils/pricing.py` |
 | Credit control | `backend/app/customers/services/credit_control.py` |
+| Debit note to a customer | `backend/app/customer_debit_note/` |
 | Ledger posting | `backend/app/finance/services/document_posting.py` |
 | Invoice PDF | `backend/app/sales_invoice/services/invoice_pdf.py` |
 | Territory | `backend/app/sales/` |

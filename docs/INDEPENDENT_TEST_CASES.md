@@ -102,6 +102,8 @@ about (e.g. *System* roles), and name your rows by their suffix.
 Every expectation below was **driven against the running backend** before it
 was written, and the sidebar lists were taken from the desktop's own
 `ModuleVisibility` logic rather than inferred from permission codes.
+**Exception:** the cases added on 2026-10-02 say in their own text that they
+were written from the code and not yet driven.
 
 ### 5. Accounts
 
@@ -620,6 +622,16 @@ name.
 - **Data (HTTP):** the order's line carries `conversion_factor` 1 and `base_quantity` 10. *(Driven with two firm-wide PACK→KG rules at 2 in place: still 10.)* Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §14.11 in `fx_<suffix>_r` — step 1 inserts a `uom_conversion_rules` row with `product_id` null and writes `uom.conversion.created` with no data; the line stores the factor and the rule's `version_number`. Do not edit either rule while a receipt of this order is in draft: completing it re-reads the rule and moves stock at the new factor (D-CFG-1).
 - **Leaves:** a firm-wide rule and a draft order in the fixture's store.
 
+### TC-CONF-007 — GST documents: the firm's own rules for dispatch, e-invoicing and input credit
+
+*Added 2026-10-02 from the code; not yet driven. Drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 77 rows 1-3 and 78 row 3, A35, A36
+- **Fixture:** `firm-admin`
+- **Steps:** as the fixture's **Firm admin**, Settings (gear) → Tax → **GST Documents**. Read the banner. Choose **Block** for *Dispatch of a sale before its invoice*, set *E-invoicing applies from* to a date, and set *30-day reporting limit applies from* to a day **before** it → Save. Correct that, set *Claim input credit* to *Only bills matched to GSTR-2B*, set the matching tolerance → Save, close and reopen. Then open it as a user who holds Tax view but not the manage-tax-settings permission.
+- **Expect:** a firm that has never saved sees that it is using the default shown, and saving makes it the firm's own. The 30-day date earlier than the e-invoicing date (or with none) is refused with the server's message and the dialog stays open with what was typed. After the second save the values come back on reopening. The read-only user sees the values, a disabled Save and "Changing the GST document settings needs the manage tax settings permission."
+- **Leaves:** the firm's GST documents settings.
+
 ---
 
 ## Buying — order to payment
@@ -786,6 +798,28 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Expect:** rows read **Matched**, **Different** ("CGST … in 2B, … in the books"), **Not in books**; the "In books, not in 2B" section lists any bill 2B lacks. Importing the month again replaces it. Under *matched only*, 3B claims only matched bills and shows the rest as *Held back — not yet in GSTR-2B*.
 - **Leaves:** what the steps made.
 
+### TC-BUY-015 — Reorder from what sold (planning formula)
+
+*Added 2026-10-02 from the code and the QA suite; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 69 row 12, A39
+- **Fixture:** `buy-ready`
+- **Also needs:** a product with **no** reorder or minimum level typed, 100 received in one warehouse long ago and 90 delivered to customers within the last 90 days (10 left); a second product with a reorder level typed.
+- **Steps:** as the fixture's **Firm admin**: Settings (gear) → Buying → **Purchase Settings** → **Reorder planning** → Open. Note it says the firm plans on typed levels. Reports → Operational → **Below reorder level**. Then choose **From sales**, leave 90 / 7 / 7 / 30 → Save. Open the report again, and Purchase Orders → "..." → **Below reorder level...**. Try Cover 0 → Save. Open the dialog as a role without *Manage purchase settings*.
+- **Expect:** on typed levels the first product is **not** listed. On sales it is listed with **Basis Sales**, **Avg/day 1**, reorder level 14, maximum 44 and **suggested 34** (44 - 10), whole units; the second product keeps **Basis Level** with its typed figures. The dialog names the basis above the grid, and **Raise draft orders** raises a draft for 34. Cover 0 is refused with the range. Without the permission the dialog is read-only. Settings → Audit trail shows **purchase.reorder_planning_updated**.
+- **Leaves:** what the steps made.
+
+### TC-BUY-016 — One quantity picture per order line, and the billing status
+
+*Added 2026-10-02 from the code and the QA suite; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 69 row 5, A33
+- **Fixture:** `po-invoiced`
+- **Also needs:** as *po-invoiced*: an order for 10, receipts of 4 and 6 completed, a bill for the receipt of 6 **approved**.
+- **Steps:** as the fixture's **Firm admin**, Purchases → Purchase Orders → open the order and select its line. Then Purchase Invoices → raise a second bill for the receipt of 4 but leave it in **Draft**; reopen the order. Approve that bill; reopen. Then Purchase Returns → return 2 off the receipt of 6 → Approve → Complete; reopen. Open a **Draft** order beside it.
+- **Expect:** after the first bill the header reads *Part billed*, and the side panel's *Received and billed* block says Received 10, Billed 6, Pending 0, **To bill 4**. The draft bill changes nothing (only approved bills count). After approving it: *Billed*, **Complete**, To bill 0. After the return of 2: Returned 2, **To bill 0** still (the return is set against what was kept), and Complete stays. A draft order shows none of the block and no billing chip. Nothing in the editor lets the figures be typed, and saving the order does not send them.
+- **Leaves:** what the steps made.
+
 ## Stock
 
 Everything here lives under **Inventory**, in two groups that must be clicked
@@ -857,7 +891,7 @@ the fixture builds (a minute or two).
 - **Fixture:** `pharma-firm` — `<SUFFIX>-AMX` in three batches of 10: `-B1` **expired 30 days ago**, `-B2` expiring in 20 days, `-B3` in 400; an approved order for **5**.
 - **Steps**
   1. Sign in as the fixture's **Firm admin** → Inventory → **Batch & Serial** → **Batches**, search `<SUFFIX>-B`.
-  2. Delivery Notes → **New** → the fixture's order for 5 → read "Expected to ship from — earliest expiry first, decided at dispatch" → **Save** → **Approve** → **Dispatch**.
+  2. Delivery Notes → **New** → the fixture's order for 5 → read "Expected to ship from — earliest expiry first, decided at dispatch" (in the phase 2 editor the side panel instead lists the batches, already filled earliest expiry first; see TC-SELL-019) → **Save** → **Approve** → **Dispatch**.
   3. Batches again; Stock Ledger for `<SUFFIX>-AMX`.
   4. Inventory → Batch & Serial → **Expiry Monitor**.
 - **Expect**
@@ -1123,6 +1157,38 @@ promotion, or the customer's standing rate).
 - **Also needs:** *sell-ready*: an approved sales order for 10 of `<SUFFIX>-S` with stock.
 - **Steps:** as the fixture's **Firm admin**: Settings (gear) → Tax → **GST Documents**: leave *Dispatch of a sale before its invoice* at **Warn** → Save. Delivery Notes → **New** off the order for 2, **Reason** *Sale* → Save → Approve → **Dispatch**. Repeat with **Reason** *Supply on approval*. Then set the policy to **Block** and dispatch a *Sale* note. Then on another approved *Sale* note use **Dispatch and invoice**. Then a note with **Reason** *Other* and no words. Print one challan.
 - **Expect:** under Warn, Dispatch on a *Sale* note shows the GST message with **Dispatch and invoice / Dispatch anyway / Cancel**; *Dispatch anyway* dispatches and the audit trail keeps the warning. *Supply on approval* dispatches with no question. Under Block there is no *Dispatch anyway*. **Dispatch and invoice** dispatches the note and creates an **approved** invoice of it in one step ("Dispatched and invoiced as SI-…"); if the invoice is refused (e.g. price below its floor) nothing is dispatched. *Other* without words is refused ("Say why…"). The challan print shows **Reason**. *Van or route sale* dispatches freely unless **Van or route sales need the invoice** is switched on.
+- **Leaves:** what the steps made.
+
+### TC-SELL-019 — Choosing batches on a delivery note
+
+*Added 2026-10-02 from the code and the QA suite; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 79, A38
+- **Fixture:** `pharma-firm`
+- **Also needs:** the product `<SUFFIX>-AMX` in three batches of 10 as in TC-STOCK-005 (one expired, one within 30 days, one later); an approved sales order for 8 of it, and a second one.
+- **Steps:** Delivery Notes → **New** off the order. Look at the side panel's batch list. (a) Change nothing → Save → Approve → **Dispatch**. On a second order: (b) type 8 against the *later* batch and 0 against the earlier → Save → Approve → Dispatch. (c) Split 5 + 3 across the two in-date batches → dispatch → **Print** the challan. (d) Type only 6 in total → Save → Approve → Dispatch. (e) Edit a box, then **Use earliest expiry**.
+- **Expect:** every batch is listed nearest expiry first with expiry, days left and *can take*; the expired one is greyed and cannot be typed into; the next one is marked near expiry; the boxes start at the earliest-expiry split. (a) ships the nearest in-date batch, as before. (b) ships the later batch, the earlier one's stock is free again, and the audit trail shows **delivery_note.fefo_skipped** with both splits. (c) the challan prints **two rows** for the line, quantities 5 and 3, values adding up to the line. (d) the panel flags that 6 of 8 are chosen, Save works, and Dispatch is refused. (e) the boxes return to the earliest-expiry split. The near-expiry window is a fixed 30 days and no setting yet asks for a reason on a skip.
+- **Leaves:** a dispatched note.
+
+### TC-SELL-020 — Charging a customer more after the invoice
+
+*Added 2026-10-02 from the code and the QA suite; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 77 row 5, A40
+- **Fixture:** `selling-invoiced`
+- **Also needs:** an approved invoice to a **registered** customer for 10 at 100 + 18% GST (1,180.00), nothing received on it.
+- **Steps:** as a **Sales manager** (hire one if the fixture has none): Sales → **Debit Notes** → **New** → pick the invoice → reason *Price increase* → 100 on its line → watch the tax → **Save**. Try **Approve**. As the **Firm admin**: approve it. Then Sales → Receipts → New for the customer. Then GST Returns → GSTR-1 and GSTR-3B for the month. Then try to cancel the **invoice**. Then record a receipt of 1,250.00 against the invoice and try to cancel the **debit note**.
+- **Expect:** the preview shows tax **18.00**, total **118.00** (the invoice line's rate). The sales manager can raise but is not offered **Approve**. After approval the customer's balance is **118.00** higher, and Record Receipt lists the invoice at **1,298.00** owing, one row not two. GSTR-1 CDNR shows the note as type **D** against the invoice, taxable 100, CGST 9 + SGST 9; GSTR-3B 3.1(a) is 100 higher. Cancelling the invoice is refused naming the debit note. With 1,250.00 received, cancelling the debit note is refused ("Reverse that receipt first"); after reversing the receipt it cancels and the balance drops back. There is no print of a debit note yet.
+- **Leaves:** what the steps made.
+
+### TC-SELL-021 — Rate includes GST on an order and a quotation
+
+*Added 2026-10-02 from the code and the QA suite; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 64 row 4, A32
+- **Fixture:** `selling-firm`
+- **Steps:** as the fixture's **Firm admin**, Quotations → **New** for `<SUFFIX>-C01`. Switch **Rate includes GST** on, type a rate of **118** on a line taxed at 18%, with quantity 10 → Save. Reopen it, then **Print**. Convert it to a sales order and open the order. Then Settings (gear) → Selling → **Sales Stages** → *Rates typed on a bill include GST* on → Save, and start another new sales order.
+- **Expect:** while the switch is on the Rate column is labelled as the shelf price and the totals show a taxable value of 1,000.00 with 180.00 tax, total 1,180.00. Reopening shows 118 as typed; the print shows both rates. The order opens with the switch **on** and the same typed rate, and the customer is billed what was quoted. A bill raised from the order prints only the pre-tax rate. A new order starts with the switch on only after the setting is saved; an order made by converting a quotation never reads the setting a second time.
 - **Leaves:** what the steps made.
 
 ## Pricing, promotions and incentives
@@ -1405,6 +1471,17 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Leaves:** unchanged.
 
 ---
+
+### TC-COMP-008 — The tax calendar on Home, and marking a return filed
+
+*Added 2026-10-02 from the code and the QA suite; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 63 row 4
+- **Fixture:** `compliance-firm`
+- **Also needs:** the fixture's invoices are dated this month, so the calendar's rows are for the month just gone only if the firm traded then; if the list reads "Nothing due.", use a firm with last month's invoices.
+- **Steps:** as the fixture's **Firm admin**, Home → **Tax calendar**. On a GSTR-1 row choose to record it as filed, with a date and an acknowledgement number. Then withdraw it (Undo). Record a GST payment for the month and look again.
+- **Expect:** one row per return per finished month (GSTR-1 due the 11th, GSTR-3B the 20th; a TCS deposit row only for a month that collected tax at source), each reading due in N days, N days late or Filed on a date. Marking GSTR-1 filed turns its row to Filed and nothing else moves; Undo puts it back. GSTR-3B closes once a GST payment is recorded for the month. A TCS row has no record button. A role that may not open GST Payment does not see the card.
+- **Leaves:** a filing record, unless withdrawn.
 
 ## Finance, reports and the rest of the platform
 

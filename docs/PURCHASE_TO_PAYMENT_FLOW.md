@@ -1,6 +1,6 @@
 # Purchase to payment: stock, and the money
 
-Updated 2026-10-02: what a firm configures (table below); input credit per bill line and where blocked tax posts; the supplier's GST type; GSTR-2B import and matching; a purchase return's outcome (credit, replacement, refund); a return off a paid bill; reorder planning from sales (backlog 69 row 12).
+Updated 2026-10-02: the order's quantity picture and billing status (A33); reverse charge taken off by a return or debit note; what a firm configures (table below); input credit per bill line and where blocked tax posts; the supplier's GST type; GSTR-2B import and matching; a purchase return's outcome (credit, replacement, refund); a return off a paid bill; reorder planning from sales (backlog 69 row 12).
 
 How a purchase becomes stock on the shelf and money out of the bank, which
 document does each part, and where every rupee is recorded.
@@ -110,7 +110,11 @@ This is the first step that moves anything.
 - **Inventory** goes up by the received quantity, per batch where the product is
   batch-tracked.
 - **The purchase order** advances to `PARTIALLY_RECEIVED` or `RECEIVED`, summed
-  from the completed receipts.
+  from the completed receipts. Each order line's own picture (received,
+  accepted, rejected, damaged, returned, invoiced, still to come, still to
+  bill) is derived from the live receipts, bills and returns on every read
+  (`app/purchase/services/line_quantities.py`), and the order's `billing_status`
+  and `is_complete` come from the same figures beside its status (A33).
 - **The ledger** gets:
 
 ```
@@ -262,6 +266,20 @@ STEP 7  PY-2026-2027-000001 POSTED 1180.00   <-- money leaves
 
 Built 2026-10-02 (backlog 78, decisions A36 and A37; the rules and what other
 products do are in `GST_DOCUMENT_COMPLIANCE.md` section 6).
+
+### Reverse charge on a bill, and what takes it off
+
+Where a tax rule marks a bill line *Reverse charge*, the supplier charged no
+tax: the firm owes it itself, so approving the bill credits reverse-charge
+payable and debits input credit per head (3.1(d) and 4(A)(3) on GSTR-3B). A
+**purchase return** or a **supplier debit note** against such a bill carries no
+tax of its own, so each takes the same share of the bill line's reverse charge
+as its value is of the bill line's (`app/purchase_invoice/services/reverse_charge.py`):
+completing the return, or approving the note, debits reverse-charge payable and
+credits input credit, the bill's legs mirrored, and 3B falls by the same in
+that period, so the GST payment pays less. Cancelling either mirrors its
+journal and 3B drops it. Before 2026-10-02 the liability stayed in full after
+the goods went back.
 
 ### Input credit is decided per bill line
 

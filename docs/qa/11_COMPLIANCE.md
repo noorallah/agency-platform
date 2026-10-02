@@ -39,7 +39,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 
 - **Preconditions:** The GST-registered firm described in this section's preparation table, with its three invoices.
 - **Steps:** GST Returns → **GSTR-3B**, same month. Add GSTR-1's B2B, B2CS and CDNR taxable values by hand.
-- **Expect:** **3.1(a)** taxable **1,800.00**, CGST 162.00, SGST 162.00 — equal to GSTR-1's sum; credit notes deducted 0; the inward side reads "Not derived: the purchase side files this." 3B is aggregated from the documents, not parsed out of GSTR-1.
+- **Expect:** **3.1(a)** taxable **1,800.00**, CGST 162.00, SGST 162.00 — equal to GSTR-1's sum; credit notes deducted 0; the inward side (table 4, input credit) reads zero here because this preparation has no purchase bills -- with bills it is derived from them, line by line. 3B is aggregated from the documents, not parsed out of GSTR-1.
 ### TC-COMP-004 — The e-invoice screen says it is a rehearsal
 
 - **Preconditions:** The GST-registered firm described in this section's preparation table, with its three invoices.
@@ -69,6 +69,12 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
   - The banner reads "Collecting under section 206C(1H) • (the threshold, 0) per buyer per year, then 0.100% (1.000% without a PAN)"; the register lists the two receipts from Vijaya — **2.42** and **3.42**, rate **1.000%** (no PAN), **COLLECTED**.
   - Settings: **Collect under section 206C(1H)** on; preceding year turnover 150,000,000; threshold 0; rate 0.1; without a PAN 1.0.
   - Journal: `TCS-RC-…` entries separate from the receipts' own; View reads **Dr 1100 Trade Receivables / Cr 2500 TCS Payable** — 2500, not Output Tax.
+### TC-COMP-008 — The tax calendar on Home, and marking a return filed
+
+- **Preconditions:** The GST-registered firm described in this section's preparation table. Its invoices are dated this month, so the calendar's rows are for the month just gone only if the firm traded then; if the list reads "Nothing due.", take a firm with last month's invoices.
+- **Steps:** as the prepared **Firm admin**, Home → **Tax calendar**. On a GSTR-1 row choose to record it as filed, with a date. Then withdraw it.
+- **Expect:** one row per return per finished month (GSTR-1 due the 11th, GSTR-3B the 20th; a TCS deposit row only for a month that collected tax at source), each reading "due in N days", "N days late" or "Filed <day> <month>". Marking GSTR-1 filed turns its row to "Filed" and nothing else moves; withdrawing it puts it back. GSTR-3B turns to "Paid" once a GST payment is recorded for the month. A TCS row has no record button.
+
 ---
 
 ## Screen checks
