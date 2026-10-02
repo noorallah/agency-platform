@@ -71,7 +71,7 @@ rules about what a firm may skip are in `docs/SALES_CHAIN_RULES.md`.
 | Numbering per financial year | Built (`include_financial_year`, `auto_reset`) |
 | 16-character limit on a GST document number | **Not checked** |
 | Transport details on the delivery note (transporter, GSTIN, mode, LR, distance) | Built (§67 row 5) |
-| E-invoice: IRN, QR, 24-hour cancellation, e-way bill from the IRN | Built, **sandbox only** (`app/einvoice`) |
+| E-invoice: IRN, QR, 24-hour cancellation, e-way bill from the IRN | Built (`app/einvoice`). Each firm chooses its route (A42): **Sandbox** (rehearsal) or **Offline** -- export the portal's bulk-upload JSON, upload it by hand, import the result. Direct NIC API and GSP adapters to follow |
 | E-invoice live through a GSP | **Not built** (§55 M2) |
 | E-invoice for credit and debit notes | **Not built** -- registration links to `sales_invoices` only |
 | Whether a firm must e-invoice, and the 30-day rule | **Recorded, not yet enforced** (#903): *e-invoicing applies from* and *30-day rule from* are dated firm settings (Settings > Tax > GST documents, `TAX_MANAGE_SETTINGS`); nothing yet refuses an unregistered B2B invoice or a late registration |
@@ -239,7 +239,12 @@ Rows 1 to 3 and 5 are built; 4 and 6 to 14 are not. **Order of work:** 2, 3 and 
 
 1. **Dispatch before invoice:** warn by default, block by firm choice;
    consolidated billing (§58) stays -- section 4a, A35. Confirm with the CA.
-2. **Which GSP** for live e-invoice and e-way bill (§55 M2) -- **owner**.
+2. **Which GSP** for live e-invoice and e-way bill (§55 M2) -- **decided as a
+   framework (A42)**: no single GSP. Each firm chooses its route in GST
+   Documents settings: Sandbox, **Offline JSON** (free, built 2026-10-02),
+   then **Direct NIC** (the firm's own API credentials) and one GSP adapter
+   (Masters India or ClearTax), more as customers ask. Which GSP comes first
+   follows the first customer who wants one.
 3. **Who sets "e-invoicing applies":** the firm administrator, dated -- A35.
 4. **State-wise e-way bill limits:** each firm sets its own, default ₹50,000
    -- A35.
