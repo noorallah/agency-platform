@@ -990,6 +990,9 @@ class QuotationService(TransactionalDocumentService):
             PromotionEvaluationRequest(
                 transaction_type="SALES_QUOTATION",
                 transaction_date=row.quotation_date,
+                # Its own creation time, so a later save keeps it in or
+                # out of a time-of-day window (SEL-7).
+                transaction_time=row.created_at,
                 customer_id=row.customer_id,
                 customer_group_id=customer_group_id,
                 branch_id=row.branch_id,

@@ -315,7 +315,36 @@ const Map<String, String> promotionFieldLabels = <String, String>{
   'line_quantity': 'Quantity on the line',
   'line_gross': 'Line value',
   'document_gross': 'Order value',
+  'weekday': 'Days of the week',
+  'time_of_day': 'Time of day',
 };
+
+/// ISO weekday numbers (1 Monday .. 7 Sunday) and their short names.
+const Map<int, String> promotionWeekdayNames = <int, String>{
+  1: 'Mon',
+  2: 'Tue',
+  3: 'Wed',
+  4: 'Thu',
+  5: 'Fri',
+  6: 'Sat',
+  7: 'Sun',
+};
+
+/// Minutes after midnight as `HH:MM` (1440 reads `24:00`).
+String promotionClock(int minutes) =>
+    '${(minutes ~/ 60).toString().padLeft(2, '0')}:'
+    '${(minutes % 60).toString().padLeft(2, '0')}';
+
+/// `HH:MM` (24-hour) as minutes after midnight, or null when it is not a time.
+/// `24:00` is accepted so a window can run to the end of the day.
+int? parsePromotionClock(String text) {
+  final Match? match = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(text.trim());
+  if (match == null) return null;
+  final int hours = int.parse(match.group(1)!);
+  final int minutes = int.parse(match.group(2)!);
+  if (minutes > 59 || hours > 24 || (hours == 24 && minutes != 0)) return null;
+  return hours * 60 + minutes;
+}
 
 /// What each comparison is called on a screen.
 const Map<String, String> promotionOperatorLabels = <String, String>{
@@ -343,6 +372,25 @@ String describePromotionCondition(PromotionConditionRecord condition) {
       promotionOperatorLabels[condition.operator] ?? condition.operator;
   if (promotionUnaryOperators.contains(condition.operator)) {
     return '$field $test';
+  }
+  if (condition.fieldKey == 'weekday' && condition.valueList.isNotEmpty) {
+    final List<int> days = <int>[
+      for (final String item in condition.valueList)
+        if (num.tryParse(item) != null) num.parse(item).toInt(),
+    ]..sort();
+    final String names =
+        days.map((day) => promotionWeekdayNames[day] ?? '$day').join(', ');
+    return 'Days: $names';
+  }
+  if (condition.fieldKey == 'time_of_day' &&
+      condition.operator == 'BETWEEN' &&
+      condition.valueList.length == 2) {
+    final num? from = num.tryParse(condition.valueList[0]);
+    final num? to = num.tryParse(condition.valueList[1]);
+    if (from != null && to != null) {
+      return 'Time: ${promotionClock(from.toInt())}-'
+          '${promotionClock(to.toInt() + 1)}';
+    }
   }
   if (condition.operator == 'BETWEEN' && condition.valueList.length == 2) {
     return '$field $test ${_plainNumber(condition.valueList[0])} and '

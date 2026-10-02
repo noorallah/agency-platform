@@ -202,6 +202,21 @@ class _PromotionDialogState extends State<PromotionDialog> {
     for (final _ConditionDraft c in _conditions) {
       final String name = promotionFieldLabels[c.fieldKey] ?? c.fieldKey;
       final String op = c.operator;
+      if (c.fieldKey == 'weekday') {
+        if (c.values.isEmpty) return 'Choose at least one day of the week.';
+        continue;
+      }
+      if (c.fieldKey == 'time_of_day') {
+        final int? from = parsePromotionClock(c.timeFrom.text);
+        final int? until = parsePromotionClock(c.timeUntil.text);
+        if (from == null || until == null) {
+          return 'Enter the time as HH:MM (24-hour), e.g. 16:00.';
+        }
+        if (until <= from) {
+          return 'A window cannot cross midnight -- make it two offers';
+        }
+        continue;
+      }
       if (promotionUnaryOperators.contains(op)) continue;
       if (promotionListOperators.contains(op)) {
         if (c.values.isEmpty) {
@@ -799,6 +814,8 @@ class _PromotionDialogState extends State<PromotionDialog> {
   Widget _valueInput(_ConditionDraft condition) {
     final String op = condition.operator;
     final String kind = _kindOfField(condition.fieldKey);
+    if (kind == 'weekday') return _weekdayInput(condition);
+    if (kind == 'time') return _timeInput(condition);
     if (promotionUnaryOperators.contains(op)) {
       return Padding(
         padding: const EdgeInsets.only(top: AppSpacing.md),
@@ -861,6 +878,74 @@ class _PromotionDialogState extends State<PromotionDialog> {
     return TextFormField(
       controller: condition.valueText,
       decoration: const InputDecoration(labelText: 'Value'),
+    );
+  }
+
+  /// Seven toggle chips, Monday to Sunday; the chosen ones are the ISO day
+  /// numbers an `IN` carries.
+  Widget _weekdayInput(_ConditionDraft condition) {
+    return Wrap(
+      spacing: AppSpacing.xs,
+      children: [
+        for (final MapEntry<int, String> day in promotionWeekdayNames.entries)
+          FilterChip(
+            key: ValueKey('promotion-weekday-${day.key}'),
+            label: Text(day.value),
+            selected: condition.values.any((v) => v.id == '${day.key}'),
+            onSelected: (on) => setState(() {
+              condition.values.removeWhere((v) => v.id == '${day.key}');
+              if (on) {
+                condition.values.add(_PickOption('${day.key}', day.value));
+              }
+            }),
+          ),
+      ],
+    );
+  }
+
+  /// From and Until as 24-hour `HH:MM`, each with a clock to pick from.
+  Widget _timeInput(_ConditionDraft condition) {
+    Widget box(String key, String label, TextEditingController controller) {
+      return Expanded(
+        child: TextFormField(
+          key: ValueKey(key),
+          controller: controller,
+          decoration: InputDecoration(
+            labelText: label,
+            hintText: 'HH:MM',
+            suffixIcon: IconButton(
+              tooltip: 'Pick a time',
+              icon: const Icon(Icons.schedule, size: 16),
+              onPressed: () async {
+                final int minutes = parsePromotionClock(controller.text) ?? 0;
+                final TimeOfDay? picked = await showTimePicker(
+                  context: context,
+                  initialTime: TimeOfDay(
+                    hour: (minutes ~/ 60) % 24,
+                    minute: minutes % 60,
+                  ),
+                  builder: (context, child) => MediaQuery(
+                    data: MediaQuery.of(context)
+                        .copyWith(alwaysUse24HourFormat: true),
+                    child: child!,
+                  ),
+                );
+                if (picked == null) return;
+                controller.text =
+                    promotionClock(picked.hour * 60 + picked.minute);
+              },
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        box('promotion-time-from', 'From', condition.timeFrom),
+        const SizedBox(width: AppSpacing.sm),
+        box('promotion-time-until', 'Until', condition.timeUntil),
+      ],
     );
   }
 
@@ -969,7 +1054,7 @@ class _PromotionDialogState extends State<PromotionDialog> {
                 condition.clearValues();
                 condition.fieldKey = next;
                 if (!_operatorsFor(next).contains(condition.operator)) {
-                  condition.operator = 'EQUALS';
+                  condition.operator = _operatorsFor(next).first;
                 }
               }),
             ),
@@ -1088,6 +1173,10 @@ String _kindOfField(String fieldKey) {
       return 'type';
     case 'transaction_date':
       return 'date';
+    case 'weekday':
+      return 'weekday';
+    case 'time_of_day':
+      return 'time';
     case 'line_quantity':
     case 'line_gross':
     case 'document_gross':
@@ -1100,6 +1189,8 @@ String _kindOfField(String fieldKey) {
 /// numbers and dates, and `BETWEEN` only numbers; "is set" is pointless for a
 /// value every line has.
 List<String> _operatorsFor(String fieldKey) => switch (_kindOfField(fieldKey)) {
+      'weekday' => const <String>['IN'],
+      'time' => const <String>['BETWEEN'],
       'number' => const <String>[
           'EQUALS',
           'NOT_EQUALS',
@@ -1138,7 +1229,26 @@ class _ConditionDraft {
     draft.valueText.text = record.valueText;
     draft.valueNumber.text = record.valueNumber;
     draft.valueDate.text = record.valueDate;
-    if (record.operator == 'BETWEEN' && record.valueList.length == 2) {
+    if (record.fieldKey == 'weekday') {
+      final List<int> days = <int>[
+        for (final String item in record.valueList)
+          if (num.tryParse(item) != null) num.parse(item).toInt(),
+      ]..sort();
+      draft.values = [
+        for (final int day in days)
+          _PickOption('$day', promotionWeekdayNames[day] ?? '$day'),
+      ];
+    } else if (record.fieldKey == 'time_of_day') {
+      // Stored as the last minute of the window; shown as the closing time.
+      final num? from =
+          record.valueList.isEmpty ? null : num.tryParse(record.valueList[0]);
+      final num? to =
+          record.valueList.length < 2 ? null : num.tryParse(record.valueList[1]);
+      if (from != null && to != null) {
+        draft.timeFrom.text = promotionClock(from.toInt());
+        draft.timeUntil.text = promotionClock(to.toInt() + 1);
+      }
+    } else if (record.operator == 'BETWEEN' && record.valueList.length == 2) {
       draft.low.text = record.valueList[0];
       draft.high.text = record.valueList[1];
     } else {
@@ -1166,6 +1276,10 @@ class _ConditionDraft {
   final TextEditingController low = TextEditingController();
   final TextEditingController high = TextEditingController();
 
+  /// The window of a time-of-day condition, as `HH:MM`.
+  final TextEditingController timeFrom = TextEditingController();
+  final TextEditingController timeUntil = TextEditingController();
+
   /// The chosen values of an `IN` / `NOT_IN`.
   List<_PickOption> values = <_PickOption>[];
 
@@ -1179,6 +1293,8 @@ class _ConditionDraft {
     valueDate.clear();
     low.clear();
     high.clear();
+    timeFrom.clear();
+    timeUntil.clear();
     adder.clear();
     values = <_PickOption>[];
     label = '';
@@ -1190,11 +1306,34 @@ class _ConditionDraft {
     valueDate.dispose();
     low.dispose();
     high.dispose();
+    timeFrom.dispose();
+    timeUntil.dispose();
     adder.dispose();
   }
 
   Json toJson(int sequence) {
     final String kind = _kindOfField(fieldKey);
+    if (kind == 'weekday') {
+      final List<int> days = <int>[
+        for (final _PickOption v in values) int.parse(v.id),
+      ]..sort();
+      return PromotionConditionRecord(
+        fieldKey: fieldKey,
+        operator: 'IN',
+        sequence: sequence,
+        valueList: <String>[for (final int day in days) '$day'],
+      ).toJson();
+    }
+    if (kind == 'time') {
+      final int from = parsePromotionClock(timeFrom.text) ?? 0;
+      final int until = parsePromotionClock(timeUntil.text) ?? 1;
+      return PromotionConditionRecord(
+        fieldKey: fieldKey,
+        operator: 'BETWEEN',
+        sequence: sequence,
+        valueList: <String>['$from', '${until - 1}'],
+      ).toJson();
+    }
     return PromotionConditionRecord(
       fieldKey: fieldKey,
       operator: operator,
