@@ -41,6 +41,7 @@ class _BatchSaleSettingsDialogState extends State<BatchSaleSettingsDialog>
   String _shelfLifePolicy = 'BLOCK';
   bool _belowFloor = true;
   bool _priceFromBatch = false;
+  bool _holdReturns = false;
   bool _isConfigured = false;
   bool _loading = true;
   String? _loadError;
@@ -79,6 +80,7 @@ class _BatchSaleSettingsDialogState extends State<BatchSaleSettingsDialog>
             settings.shelfLifePolicy == 'WARN' ? 'WARN' : 'BLOCK';
         _belowFloor = settings.nearExpiryBelowFloor;
         _priceFromBatch = settings.priceFromBatch;
+        _holdReturns = settings.holdReturnsForCheck;
         _isConfigured = settings.isConfigured;
         _loading = false;
       });
@@ -107,6 +109,7 @@ class _BatchSaleSettingsDialogState extends State<BatchSaleSettingsDialog>
           nearExpiryBelowFloor: _belowFloor,
           shelfLifePolicy: _shelfLifePolicy,
           priceFromBatch: _priceFromBatch,
+          holdReturnsForCheck: _holdReturns,
           isConfigured: true,
         ),
       );
@@ -262,6 +265,23 @@ class _BatchSaleSettingsDialogState extends State<BatchSaleSettingsDialog>
                       onChanged: editable && !saving
                           ? (value) =>
                               setState(() => _priceFromBatch = value ?? false)
+                          : null,
+                    ),
+                    // STK-13: customer returns wait to be checked.
+                    CheckboxListTile(
+                      key: const ValueKey('batch-rules-hold-returns'),
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: const Text(
+                        'Hold customer returns in quarantine until checked',
+                      ),
+                      subtitle: const Text(
+                        'Released onto the shelf from Stock with Release',
+                      ),
+                      value: _holdReturns,
+                      onChanged: editable && !saving
+                          ? (value) =>
+                              setState(() => _holdReturns = value ?? false)
                           : null,
                     ),
                   ],

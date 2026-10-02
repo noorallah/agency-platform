@@ -96,7 +96,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | STK-10 | §70 row 14 | Incoming and outgoing beside available stock -- **built 2026-10-03** (A60) | Nothing | S | Claude alone |
 | STK-11 | §70 row 15 | Issue rule per product: earliest expiry, first in, or pick by hand | Nothing | S | Claude alone |
 | STK-12 | §70 row 16 | Reservations that lapse after N days | Nothing | M | Claude alone |
-| STK-13 | §70 row 17 | Returned goods held until checked | Nothing | S | Claude alone |
+| STK-13 | §70 row 17 | Returned goods held until checked -- **built 2026-10-03** (A62) | Nothing | S | Claude alone |
 | STK-14 | §70 row 18 | Stock alerts and the inventory dashboard | Nothing | M | Claude alone |
 | STK-15 | §42.13 | Kits and combo packs | Nothing | L | Claude alone |
 | STK-16 | §55 S8 | Barcode label printing | Nothing (label size and printer to test) | S | Claude alone |
@@ -505,6 +505,7 @@ otherwise it is built as written.
 - **What it is:** a customer return goes to quarantine until someone checks it.
 - **What gets built:** a firm setting (off by default); `backend/app/sales_return` posts restock quantities to quarantine when on; release through the existing quarantine release. Tests.
 - **Depends on:** nothing. **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A62): `batch_sale_settings.hold_returns_for_check` (migration 0244, all stores; off), set under Settings > Stock > Batch Rules. When on, completing a sales return puts the sellable part in quarantine (`record_sales_return(hold_for_check=True)`), still owned and valued; damaged and scrapped parts are unchanged; cancelling the return takes it back out of quarantine; *Release* on the stock row puts checked goods on the shelf. Tests: `test_return_quarantine.py`, `batch_rules_test.dart`.
 
 #### STK-14. Stock alerts and the inventory dashboard (§70 row 18)
 - **What it is:** warnings for low, out, over maximum, near expiry, pending transfers and counts, and Home figures for stock.

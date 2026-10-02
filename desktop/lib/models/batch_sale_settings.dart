@@ -11,6 +11,7 @@ class BatchSaleSettings {
     this.nearExpiryBelowFloor = true,
     this.shelfLifePolicy = 'BLOCK',
     this.priceFromBatch = false,
+    this.holdReturnsForCheck = false,
     this.isConfigured = false,
   });
 
@@ -34,6 +35,10 @@ class BatchSaleSettings {
   /// Whether a line's rate is taken from its batch's selling price.
   final bool priceFromBatch;
 
+  /// Whether goods a customer sends back wait in quarantine until checked
+  /// (STK-13).
+  final bool holdReturnsForCheck;
+
   /// False while the firm is still on the platform default.
   final bool isConfigured;
 
@@ -50,10 +55,11 @@ class BatchSaleSettings {
             ? 'WARN'
             : 'BLOCK',
         priceFromBatch: boolValue(json['price_from_batch']),
+        holdReturnsForCheck: boolValue(json['hold_returns_for_check']),
         isConfigured: boolValue(json['is_configured']),
       );
 
-  /// Exactly the six keys the server declares; it refuses any other.
+  /// Exactly the seven keys the server declares; it refuses any other.
   Json toJson() => <String, dynamic>{
         'near_expiry_days': nearExpiryDays,
         'near_expiry_policy': nearExpiryPolicy,
@@ -61,6 +67,7 @@ class BatchSaleSettings {
         'near_expiry_below_floor': nearExpiryBelowFloor,
         'shelf_life_policy': shelfLifePolicy,
         'price_from_batch': priceFromBatch,
+        'hold_returns_for_check': holdReturnsForCheck,
       };
 }
 
