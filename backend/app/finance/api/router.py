@@ -58,6 +58,10 @@ from app.finance.schemas import (
     MoneyBookRecord,
     OpeningTrialBalanceReplace,
     OpeningTrialBalanceResponse,
+    PeriodCloseCheckItemResponse,
+    PeriodCloseCheckResponse,
+    PeriodCloseSettingsResponse,
+    PeriodCloseSettingsUpdate,
     ProfitCenterCreate,
     ProfitCenterResponse,
     ProfitCenterUpdate,
@@ -267,6 +271,73 @@ def list_accounting_periods(
     )
     return ApiResponse(
         data=[AccountingPeriodResponse.model_validate(row) for row in rows]
+    )
+
+
+@router.get(
+    "/period-close-settings",
+    response_model=ApiResponse[PeriodCloseSettingsResponse],
+)
+def get_period_close_settings(
+    scope: YearViewScope, db: Session = Depends(get_db)
+) -> ApiResponse[PeriodCloseSettingsResponse]:
+    """Return what the firm does when a month it closes has work left (ACC-5)."""
+    from app.finance.services.period_close_checks import PeriodCloseChecks
+
+    return ApiResponse(
+        data=PeriodCloseSettingsResponse(
+            close_check=PeriodCloseChecks(db).close_check(scope.firm_id)
+        )
+    )
+
+
+@router.put(
+    "/period-close-settings",
+    response_model=ApiResponse[PeriodCloseSettingsResponse],
+)
+def update_period_close_settings(
+    payload: PeriodCloseSettingsUpdate,
+    scope: YearManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PeriodCloseSettingsResponse]:
+    """Set the firm's policy: WARN lists and closes, BLOCK refuses (ACC-5)."""
+    from app.finance.services.period_close_checks import PeriodCloseChecks
+
+    value = PeriodCloseChecks(db).set_close_check(
+        scope.firm_id, payload.close_check, actor_id=scope.actor_id
+    )
+    db.commit()
+    return ApiResponse(data=PeriodCloseSettingsResponse(close_check=value))
+
+
+@router.get(
+    "/accounting-periods/{period_id}/close-checks",
+    response_model=ApiResponse[PeriodCloseCheckResponse],
+)
+def accounting_period_close_checks(
+    period_id: UUID, scope: PeriodCloseScope, db: Session = Depends(get_db)
+) -> ApiResponse[PeriodCloseCheckResponse]:
+    """List what is unfinished in the period before it is closed (ACC-5)."""
+    from app.finance.services.period_close_checks import PeriodCloseChecks
+
+    period = FinanceService(db).get_accounting_period(period_id, firm_id=scope.firm_id)
+    result = PeriodCloseChecks(db).run(scope.firm_id, period.starts_on, period.ends_on)
+    return ApiResponse(
+        data=PeriodCloseCheckResponse(
+            period_id=period.id,
+            close_check=result.close_check,
+            refuses=result.refuses,
+            items=[
+                PeriodCloseCheckItemResponse(
+                    code=item.code,
+                    label=item.label,
+                    count=item.count,
+                    blocks=item.blocks,
+                    examples=item.examples,
+                )
+                for item in result.items
+            ],
+        )
     )
 
 

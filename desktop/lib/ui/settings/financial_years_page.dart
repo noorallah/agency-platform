@@ -6,6 +6,7 @@ import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
+import '../../models/entities.dart';
 import '../../models/finance.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
@@ -66,6 +67,7 @@ class _FinancialYearsPageState extends State<FinancialYearsPage> {
   void initState() {
     super.initState();
     unawaited(_load());
+    unawaited(_loadCloseSetting());
   }
 
   Future<void> _load() async {
@@ -223,7 +225,108 @@ class _FinancialYearsPageState extends State<FinancialYearsPage> {
     }
   }
 
+  /// Before a month closes, list what is unfinished in it (ACC-5). Returns
+  /// whether to go ahead: a firm that warns may close anyway, one whose
+  /// policy refuses is told why and goes no further.
+  Future<bool> _confirmClose(AccountingPeriod period) async {
+    final Json checks = await widget.api.periodCloseChecks(period.id);
+    final List<Json> items = [
+      for (final dynamic item
+          in checks['items'] is List ? checks['items'] as List : const [])
+        if (item is Map) Map<String, dynamic>.from(item),
+    ];
+    if (items.isEmpty || !mounted) return true;
+    final bool refuses = checks['refuses'] == true;
+    final bool? go = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(refuses
+            ? '${period.name} cannot be closed yet'
+            : 'Close ${period.name} with work left in it?'),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final Json item in items)
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(
+                      item['blocks'] == true
+                          ? Icons.error_outline
+                          : Icons.info_outline,
+                    ),
+                    title: Text('${stringValue(item['label'])}: '
+                        '${item['count']}'),
+                    subtitle: Text([
+                      for (final dynamic example in item['examples'] is List
+                          ? item['examples'] as List
+                          : const [])
+                        '$example',
+                    ].join(', ')),
+                  ),
+                Text(
+                  refuses
+                      ? 'This firm refuses a close while drafts or unposted '
+                          'documents stand. Post or cancel them first.'
+                      : 'Closing stops anybody booking into the month. What '
+                          'is listed can still be finished after reopening it.',
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(refuses ? 'OK' : 'Cancel'),
+          ),
+          if (!refuses)
+            FilledButton(
+              key: const ValueKey('close-anyway'),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Close anyway'),
+            ),
+        ],
+      ),
+    );
+    return go ?? false;
+  }
+
+  /// The firm's policy, shown to whoever may change it (ACC-5).
+  String? _closeSetting;
+
+  Future<void> _loadCloseSetting() async {
+    if (!_canDelete) return;
+    try {
+      final String value = await widget.api.periodCloseSetting();
+      if (mounted) setState(() => _closeSetting = value);
+    } on ApiException {
+      // The year list still works; the policy control stays hidden.
+    }
+  }
+
+  Future<void> _setCloseSetting(String value) async {
+    try {
+      final String saved = await widget.api.setPeriodCloseSetting(value);
+      if (mounted) setState(() => _closeSetting = saved);
+    } on ApiException catch (exception) {
+      if (mounted) setState(() => _error = exception.message);
+    }
+  }
+
   Future<void> _setStatus(AccountingPeriod period, String status) async {
+    if (status != 'OPEN') {
+      try {
+        if (!await _confirmClose(period)) return;
+      } on ApiException catch (exception) {
+        if (mounted) setState(() => _error = exception.message);
+        return;
+      }
+    }
     setState(() => _loading = true);
     try {
       await widget.api.setPeriodStatus(period.id, status);
@@ -275,6 +378,32 @@ class _FinancialYearsPageState extends State<FinancialYearsPage> {
                 ),
               ],
             ),
+          ),
+        if (_closeSetting != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, 0),
+            child: Row(children: [
+              const Expanded(
+                child: Text('Before closing a month with drafts or '
+                    'unposted documents in it'),
+              ),
+              SizedBox(
+                width: 220,
+                child: DropdownButtonFormField<String>(
+                  key: const ValueKey('period-close-setting'),
+                  initialValue: _closeSetting,
+                  isExpanded: true,
+                  items: const [
+                    DropdownMenuItem(value: 'WARN', child: Text('Warn')),
+                    DropdownMenuItem(value: 'BLOCK', child: Text('Refuse')),
+                  ],
+                  onChanged: (String? value) {
+                    if (value != null) unawaited(_setCloseSetting(value));
+                  },
+                ),
+              ),
+            ]),
           ),
         Expanded(
           child: _years.isEmpty

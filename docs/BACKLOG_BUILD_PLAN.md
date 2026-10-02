@@ -107,7 +107,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | ACC-2 | §42.3 | Post-dated cheque register: held, deposited, cleared, bounced | Nothing | M | Claude alone |
 | ACC-3 | §74.1 row 12 | How money moved: UPI, cheque, NEFT, card, cash, with number and date -- **built 2026-10-02** (A49) | Nothing | S | Claude alone |
 | ACC-4 | §74.1 row 13 | The firm's bank details printed on bills; account numbers masked | Nothing | M | Claude alone |
-| ACC-5 | §74.1 row 14 | Checks before closing a month | Nothing | S | Claude alone |
+| ACC-5 | §74.1 row 14 | Checks before closing a month -- **built 2026-10-02** (A50) | Nothing | S | Claude alone |
 | ACC-6 | §74.1 row 16 | Ageing buckets set per firm; due today and this week | Nothing | S | Claude alone |
 | ACC-7 | §53.1 | TDS challan screen; a supplier's usual TDS section | Nothing | M | Claude alone |
 | ACC-8 | §42.4 | TDS 194Q worked out automatically past ₹50 lakh per supplier | Nothing (CA confirms the rate at hand-over) | M | Claude alone |
@@ -554,6 +554,7 @@ otherwise it is built as written.
 - **What it is:** before a month closes, list what is unfinished.
 - **What gets built:** a pre-close check in `backend/app/finance/services/finance_service.py`: draft journals and documents dated in the month, approved documents without a journal, unallocated receipts, GST return not marked filed (`gst_return_filings`), and unreconciled bank lines once ACC-1 exists. Warn by default, refuse by firm setting (migration for the setting). Tests.
 - **Depends on:** nothing. **Effort / Who:** S, Claude alone.
+- **Built 2026-10-02** (A50): `app/finance/services/period_close_checks.py`; `period_close_settings` (migration 0237); `GET /finance/accounting-periods/{id}/close-checks`, `GET`/`PUT /finance/period-close-settings`; the Financial years screen lists before closing. Unreconciled bank lines join when ACC-1 is built. Tests in `tests/unit/test_period_close_checks.py`.
 
 #### ACC-6. Ageing buckets per firm; due lists (§74.1 row 16)
 - **What it is:** a firm chooses its ageing columns, and sees what falls due today and this week.
