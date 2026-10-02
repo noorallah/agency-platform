@@ -149,6 +149,20 @@ are added to it:
 
 Every PC signs in with its own user account; the platform administrator's is
 for administration only.
+
+**Check the installation works.** Once a firm and its people exist, run the
+quick check on the server PC, in PowerShell, as any user who belongs to the
+firm:
+
+```powershell
+& "C:\Program Files\Agency Platform\backend\agency-server.exe" quick-check --email <your sign-in email>
+```
+
+It asks for the password, then opens every list and report of every firm
+that person can open, reading only, and ends *RESULT: everything answered*
+or names what failed; the full result is an HTML page in the current
+folder. `docs/qa/SANITY_CHECK.md` explains the result and the hand checks
+that follow it.
 [`platform-administration-guide.md`](platform-administration-guide.md) walks
 through firms, roles and users in detail.
 
@@ -343,6 +357,14 @@ cd "C:\Program Files\Agency Platform\backend"
 version, the environment and the folder it runs from. `.\agency-server.exe
 migrate-all --dry-run` lists every database the server uses and the revision
 each is at. Try both first when the server will not start.
+
+**Does everything answer.** `.\agency-server.exe quick-check --email <a
+user>` signs in to the running server and checks that every store is at
+the newest revision and every list and report of every firm that user can
+open comes back, module by module, writing an HTML page of the result. It
+only reads. Add `--firm <code>` for one firm, `--no-stores` when running
+it from another PC with `--base-url http://<server>:8000`. Exit code 1 when
+anything failed.
 
 **Messaging key.** Firms that send bills by email, WhatsApp or SMS save their
 provider passwords and tokens encrypted under `AGENCY_MESSAGING_KEY` in

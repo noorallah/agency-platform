@@ -847,6 +847,12 @@ time is required, and a person whose access is removed is signed out at once.
   trail and nothing else.
 - **Diagnostics**: the server's health, versions and recent errors, for
   support.
+- **The quick check** (on the server PC, not a screen): `agency-server
+  quick-check --email <user>` proves an installation works -- the server
+  and database answer, every store is migrated, every list and report of
+  every firm the user can open comes back -- counted module by module,
+  with an HTML page of the result. It only reads, so it is safe on live
+  books. `docs/qa/SANITY_CHECK.md` adds the hand checks, module by module.
 - **Platform Dashboard**: counts of firms, users and roles across the
   installation, for the platform administrator.
 - **Licensing**: a placeholder; licensing is not in use in 1.1.0.
