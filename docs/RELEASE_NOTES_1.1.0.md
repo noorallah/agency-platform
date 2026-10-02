@@ -100,6 +100,9 @@ screen (1.1.0).
   decision A38).
 - **Choosing batches on a counter bill**: a batch-tracked line opens the same
   picker as the delivery note, and the batch chosen is the one that leaves.
+- **Places from India Post.** Districts, towns, PIN codes and localities
+  load by state from India Post's directory, shipped with the installer; the
+  southern states are ticked by default (B6).
 - **The IRN and signed QR print** on a registered invoice, credit note
   and debit note; credit and debit notes to customers can now be printed
   (§77 row 11).
