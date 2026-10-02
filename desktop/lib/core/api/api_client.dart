@@ -4865,6 +4865,13 @@ class ApiClient {
   Future<Json> createPurchaseInvoice(Json body) =>
       request('POST', '/api/v1/purchase-invoices', body: body);
 
+  /// Record (or, with null, clear) the supplier's IRN on a bill that is not
+  /// cancelled -- the way to put it on an approved bill, whose editor is
+  /// read-only (backlog 78 row 5).
+  Future<Json> setPurchaseInvoiceSupplierIrn(String id, String? irn) =>
+      request('PUT', '/api/v1/purchase-invoices/$id/supplier-irn',
+          body: {'supplier_irn': irn});
+
   // ---- price lists ---------------------------------------------------
 
   Future<PagedResult<PriceListRecord>> priceLists({

@@ -697,6 +697,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
       TextEditingController(text: widget.vendor?.udyamNumber ?? '');
   late String _msmeCategory = widget.vendor?.msmeCategory ?? '';
   late bool _msmeAgreement = widget.vendor?.msmeWrittenAgreement ?? false;
+  late bool _issuesEInvoices = widget.vendor?.issuesEInvoices ?? false;
   late final TextEditingController _email =
       TextEditingController(text: widget.vendor?.email ?? '');
   late final TextEditingController _phone =
@@ -1273,6 +1274,15 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
             value: _gstRegistration,
             onChanged: (value) => setState(() => _gstRegistration = value),
           ),
+          SwitchListTile(
+            key: const ValueKey('vendor-issues-e-invoices'),
+            title: const Text('Supplier e-invoices (bills carry an IRN)'),
+            subtitle: const Text(
+                'A bill from them with no IRN is warned about when it is '
+                'entered (rule 48(4)).'),
+            value: _issuesEInvoices,
+            onChanged: (value) => setState(() => _issuesEInvoices = value),
+          ),
           const SizedBox(height: 12),
           Row(
             children: [
@@ -1759,6 +1769,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
             : _udyam.text.trim().toUpperCase(),
         'msme_category': _msmeCategory.isEmpty ? null : _msmeCategory,
         'msme_written_agreement': _msmeAgreement,
+        'issues_e_invoices': _issuesEInvoices,
         'email': _email.text.trim(),
         'phone': _phone.text.trim(),
         'mobile': _mobile.text.trim(),

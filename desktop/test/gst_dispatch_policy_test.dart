@@ -5,7 +5,7 @@
 // with Other); dispatching asks the server's dispatch check first, offers
 // three choices under WARN and no "Dispatch anyway" under BLOCK; "Dispatch and
 // invoice" calls its own route; and the GST documents settings load and PUT
-// exactly the seven keys the server declares.
+// exactly the nine keys the server declares.
 
 import 'dart:convert';
 import 'dart:io';
@@ -436,7 +436,7 @@ void main() {
   });
 
   group('the GST documents settings', () {
-    testWidgets('load, and save exactly the seven keys', (tester) async {
+    testWidgets('load, and save exactly the nine keys', (tester) async {
       final _GstApi api = _GstApi();
       await _pumpSettings(tester, api, ['TAX_VIEW', 'TAX_MANAGE_SETTINGS']);
       expect(tester.takeException(), isNull);
@@ -478,6 +478,8 @@ void main() {
         'itc_claim_basis': 'ALL',
         'gstr2b_tolerance': '1.00',
         'eway_bill_limit': '75000',
+        'rule37_mode': 'REPORT',
+        'supplier_irn_check': 'WARN',
       });
     });
 

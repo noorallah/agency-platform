@@ -14,6 +14,7 @@ import '../../models/document_preview.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
+import 'supplier_irn_dialog.dart';
 
 part 'purchase_invoice_editor_phase2.dart';
 
@@ -222,6 +223,9 @@ class _PurchaseInvoiceEditorDialogState
   String _invoiceDate = _today();
   String _supplierInvoiceNumber = '';
   String _supplierInvoiceDate = _today();
+
+  /// The IRN printed on the supplier's e-invoice; blank is none.
+  String _supplierIrn = '';
   String _remarks = '';
   bool _saving = false;
   bool _loadingLines = false;
@@ -552,6 +556,8 @@ class _PurchaseInvoiceEditorDialogState
       return "Enter the supplier's invoice date.";
     }
     if (_invoiceDate.trim().isEmpty) return 'Enter the invoice date.';
+    final String? irnProblem = supplierIrnProblem(_supplierIrn);
+    if (irnProblem != null) return irnProblem;
     if (_direct) return _directValidation();
     final List<PurchaseInvoiceDraftLine> sending = _sendableLines();
     if (sending.isEmpty) {
@@ -632,6 +638,12 @@ class _PurchaseInvoiceEditorDialogState
       'supplier_invoice_number':
           pricing && supplierNumber.isEmpty ? '-' : supplierNumber,
       'supplier_invoice_date': _supplierInvoiceDate.trim(),
+      // Blank is none. Priced while typing, half an IRN is left out rather
+      // than refused: the number changes no figure.
+      'supplier_irn': _supplierIrn.trim().isEmpty ||
+              (pricing && supplierIrnProblem(_supplierIrn) != null)
+          ? null
+          : _supplierIrn.trim(),
       if (_remarks.trim().isNotEmpty) 'remarks': _remarks.trim(),
       // An order or a list of products raises its own receipt, which the
       // server records as the source; only a typed receipt is named here.

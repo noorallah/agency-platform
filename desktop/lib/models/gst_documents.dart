@@ -60,6 +60,7 @@ class GstComplianceSettings {
     this.gstr2bTolerance = '1.00',
     this.ewayBillLimit = '50000',
     this.rule37Mode = 'REPORT',
+    this.supplierIrnCheck = 'WARN',
   });
 
   /// ISO dates (`2026-04-01`), or null when not set.
@@ -86,6 +87,10 @@ class GstComplianceSettings {
   /// (backlog 78 row 4).
   final String rule37Mode;
 
+  /// OFF or WARN: whether a bill from an e-invoicing supplier with no IRN is
+  /// warned about (backlog 78 row 5).
+  final String supplierIrnCheck;
+
   factory GstComplianceSettings.fromJson(Json json) {
     String? date(dynamic value) {
       final String text = stringValue(value);
@@ -110,10 +115,13 @@ class GstComplianceSettings {
       rule37Mode: stringValue(json['rule37_mode']).isEmpty
           ? 'REPORT'
           : stringValue(json['rule37_mode']),
+      supplierIrnCheck: stringValue(json['supplier_irn_check']).isEmpty
+          ? 'WARN'
+          : stringValue(json['supplier_irn_check']),
     );
   }
 
-  /// Exactly the eight keys the server declares; it refuses any other.
+  /// Exactly the nine keys the server declares; it refuses any other.
   Json toJson() => <String, dynamic>{
         'einvoice_applicable_from': einvoiceApplicableFrom,
         'thirty_day_rule_from': thirtyDayRuleFrom,
@@ -123,5 +131,6 @@ class GstComplianceSettings {
         'gstr2b_tolerance': gstr2bTolerance,
         'eway_bill_limit': ewayBillLimit,
         'rule37_mode': rule37Mode,
+        'supplier_irn_check': supplierIrnCheck,
       };
 }

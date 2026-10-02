@@ -372,6 +372,11 @@ class GstComplianceSettings(BaseEntity):
     rule37_mode: Mapped[str] = mapped_column(
         String(10), nullable=False, default="REPORT", server_default="REPORT"
     )
+    #: OFF or WARN: whether a bill from a supplier that e-invoices is warned
+    #: about when it carries no IRN (backlog 78 row 5).
+    supplier_irn_check: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="WARN", server_default="WARN"
+    )
     #: A consignment worth more than this needs an e-way bill (backlog 77
     #: row 10, A35): the screen prompts for one, and the due list names it.
     #: Each firm sets its state's limit; ₹50,000 is the national one.

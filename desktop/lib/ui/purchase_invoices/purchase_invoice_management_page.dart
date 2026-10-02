@@ -24,6 +24,7 @@ import '../workspace/bulk_action.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
 import 'purchase_invoice_editor_dialog.dart';
+import 'supplier_irn_dialog.dart';
 
 class PurchaseInvoiceManagementPage extends StatefulWidget {
   const PurchaseInvoiceManagementPage({
@@ -233,11 +234,15 @@ class _PurchaseInvoiceManagementPageState
     if (saved == null || !mounted) return;
     await _load();
     if (!mounted) return;
+    final String irnWarning = stringValue(saved['irn_warning']);
     NotificationService.show(
       context,
       'Purchase invoice ${stringValue(saved['invoice_number'])} created as a '
-      'draft. Approving it is what posts it to the books.',
-      kind: AppNotificationKind.success,
+      'draft. Approving it is what posts it to the books.'
+      '${irnWarning.isEmpty ? '' : ' $irnWarning'}',
+      kind: irnWarning.isEmpty
+          ? AppNotificationKind.success
+          : AppNotificationKind.warning,
     );
   }
 
@@ -588,6 +593,7 @@ class _PurchaseInvoiceManagementPageState
                   DocumentLifecycleAction.close,
                   '/close',
                 ),
+                _recordIrnCommand(),
               ]
             : const [],
         // Period right after the search, then Columns, as every sales list
@@ -660,6 +666,47 @@ class _PurchaseInvoiceManagementPageState
           label: Text(label),
         ),
       );
+
+  /// Record the supplier's IRN on the selected bill. An approved bill's
+  /// editor is read-only, so this is how the number gets onto it (backlog 78
+  /// row 5); any bill that is not cancelled takes it.
+  ToolbarCommand _recordIrnCommand() => ToolbarCommand(
+        id: 'record-irn',
+        label: 'Record IRN',
+        icon: Icons.qr_code_2_outlined,
+        onPressed: _selected == null ||
+                _selected!.status == 'CANCELLED' ||
+                !widget.permissions.hasPermission('PURCHASE_UPDATE')
+            ? null
+            : () => unawaited(_recordIrn()),
+      );
+
+  Future<void> _recordIrn() async {
+    final _PurchaseInvoiceRecord? selected = _selected;
+    if (selected == null) return;
+    final Json? saved = await askForSupplierIrn(
+      context,
+      billNumber: selected.invoiceNumber,
+      current: selected.supplierIrn,
+      save: (irn) =>
+          widget.api.setPurchaseInvoiceSupplierIrn(selected.id, irn),
+    );
+    if (saved == null || !mounted) return;
+    await _load();
+    if (!mounted) return;
+    final dynamic data = saved['data'];
+    final String warning =
+        stringValue((data is Json ? data : saved)['irn_warning']);
+    NotificationService.show(
+      context,
+      warning.isNotEmpty
+          ? warning
+          : 'IRN recorded on ${selected.invoiceNumber}.',
+      kind: warning.isNotEmpty
+          ? AppNotificationKind.warning
+          : AppNotificationKind.success,
+    );
+  }
 
   /// The same step as a phase 2 command, enabled as its button is.
   ToolbarCommand _command(
@@ -943,6 +990,7 @@ class _PurchaseInvoiceRecord {
     this.dueDate = '',
     this.createdAt = '',
     this.selfInvoiceNumber = '',
+    this.supplierIrn = '',
     this.reverseChargeTaxTotal = '0',
     required this.currencyCode,
     required this.exchangeRate,
@@ -974,6 +1022,9 @@ class _PurchaseInvoiceRecord {
   /// The self-invoice raised for a reverse-charge supply, and the tax the
   /// firm owes itself on it -- outside the payable (backlog 68 row 8).
   final String selfInvoiceNumber;
+
+  /// The IRN printed on the supplier's e-invoice, empty when none is on file.
+  final String supplierIrn;
   final String reverseChargeTaxTotal;
   final String currencyCode;
   final String exchangeRate;
@@ -1008,6 +1059,7 @@ class _PurchaseInvoiceRecord {
       dueDate: stringValue(json['due_date']),
       createdAt: stringValue(json['created_at']),
       selfInvoiceNumber: stringValue(json['self_invoice_number']),
+      supplierIrn: stringValue(json['supplier_irn']),
       reverseChargeTaxTotal: stringValue(json['reverse_charge_tax_total']),
       currencyCode: stringValue(json['currency_code']),
       exchangeRate: stringValue(json['exchange_rate']),

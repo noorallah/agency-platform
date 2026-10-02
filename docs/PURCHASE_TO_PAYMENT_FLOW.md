@@ -59,7 +59,7 @@ worked.
 | Default branch and warehouse (same row) | Same screen | `default_branch_id`, `default_warehouse_id`: null falls back to the firm's default branch and warehouse | Where a raised-for-you receipt puts the goods; receiving refuses a line with no warehouse |
 | Reorder planning (`reorder_planning_settings`) | Settings > Buying > Purchase Settings > Reorder planning; `GET/PUT /api/v1/purchases/reorder-planning` (decision A39) | `basis` LEVELS (default) or SALES; `sales_window_days` 90, `lead_time_days` 7, `safety_days` 7, `cover_days` 30 | What *Below reorder level* lists and suggests before step 1: on SALES, every product with no typed level is reordered at average daily sales x (lead + safety) and ordered up to that plus the cover, in whole units, less what is on order; a typed level still wins (`PURCHASE_FRAMEWORK.md`) |
 | Approval Limits (`role_purchase_approval_limits`) | Settings > Buying > Approval Limits; `GET/PUT /api/v1/purchases/approval-limits` (decision A30) | One `max_order_amount` per role code, compared with the order's grand total, tax included. A role with no row has no limit of its own; a person's limit is the largest of their roles' limits; somebody with none, or a platform administrator, is not limited | Step 2. An order above the approver's limit is refused at approval, naming the amount needed, and stays submitted for somebody allowed more. The approval that clears it records both figures |
-| GST Documents (`gst_compliance_settings`) | Settings > Tax > GST Documents; `GET/PUT /api/v1/tax-framework/gst-compliance-settings` | `itc_claim_basis` `ALL` (default) or `MATCHED_ONLY`; `gstr2b_tolerance` 1.00 (rupees) | See "GST on the purchase" below. The same row carries the selling-side fields, described in `SALES_TO_RECEIPT_FLOW.md` |
+| GST Documents (`gst_compliance_settings`) | Settings > Tax > GST Documents; `GET/PUT /api/v1/tax-framework/gst-compliance-settings` | `itc_claim_basis` `ALL` (default) or `MATCHED_ONLY`; `gstr2b_tolerance` 1.00 (rupees); `rule37_mode` OFF, REPORT (default) or POST; `supplier_irn_check` OFF or WARN (default) | See "GST on the purchase" below. `supplier_irn_check` warns on a bill from a supplier marked *Supplier e-invoices* that carries no IRN (§78 row 5). The same row carries the selling-side fields, described in `SALES_TO_RECEIPT_FLOW.md` |
 | Trade licences (`trade_licence_settings`) | `app/trade_licences`; `GET/PUT /api/v1/trade-licences/settings` | `purchase_enforcement` OFF or `WARN` (default). Never BLOCK | A purchase order or goods receipt for a licensed product, with the firm holding no valid licence, warns. It never refuses: the goods are already on the dock |
 | Party adjustments (`party_adjustment_settings`) | `GET/PUT /api/v1/party-adjustments/settings` | A rounding limit (10.00 unless set) and an approval threshold (1,000.00 unless set); see `app/party_adjustments` | Step 7: how much a payment may round off, and when a write-back needs a second person holding `PARTY_ADJUSTMENT_APPROVE` |
 | Numbering Series | Settings > Firm > Numbering Series; `/api/v1/document-framework/numbering-rules` | Per document type; see `app/document_framework` for the fields | The number on every document above |
@@ -506,12 +506,9 @@ It is now a **supplier credit**, the payable twin of a customer's advance:
 
 ### Still open
 
-Checked against `GST_DOCUMENT_COMPLIANCE.md` section 6.2 on 2026-10-02:
+Checked against `GST_DOCUMENT_COMPLIANCE.md` section 6.2 on 2026-10-02 (rule
+37 and the supplier's IRN were built the same day, §78 rows 4 and 5):
 
-- **The 180-day reversal** (rule 37: credit reversed on a bill unpaid 180
-  days after its date) is not built.
-- **The supplier's IRN** is not recorded on the bill, so a missing one is not
-  warned about.
 - **The e-way bill number** is not on the goods receipt (the vehicle is).
 
 ### Not a gap: a payment needs no invoice

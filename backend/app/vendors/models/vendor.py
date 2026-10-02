@@ -159,6 +159,12 @@ class Vendor(BaseEntity):
     msme_written_agreement: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    #: The supplier is past the e-invoicing threshold, so its B2B bills carry
+    #: an IRN (CGST rule 48(4); backlog 78 row 5). A bill from it with none
+    #: is warned about.
+    issues_e_invoices: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     license_number: Mapped[str | None] = mapped_column(String(64))
     registration_number: Mapped[str | None] = mapped_column(String(64))
     website: Mapped[str | None] = mapped_column(String(500))

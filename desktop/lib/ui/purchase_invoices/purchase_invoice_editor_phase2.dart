@@ -69,6 +69,7 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
     final String number = stringValue(_preview?.invoice['invoice_number']);
     final String duplicate =
         stringValue(_preview?.invoice['duplicate_warning']);
+    final String irnWarning = stringValue(_preview?.invoice['irn_warning']);
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () {
@@ -116,6 +117,7 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
                 if (duplicate.isNotEmpty &&
                     _supplierInvoiceNumber.trim().isNotEmpty)
                   '$duplicate Check it is not the same bill entered twice.',
+                if (irnWarning.isNotEmpty) irnWarning,
               ])
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
@@ -492,6 +494,20 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
           decoration: documentBoxDecoration(context, hint: 'as printed'),
           onChanged: (value) {
             _setState(() => _supplierInvoiceNumber = value);
+            _schedulePreview();
+          },
+        ),
+      ),
+      DocumentField(
+        label: "IRN (from the supplier's e-invoice)",
+        width: 260,
+        child: TextFormField(
+          key: const ValueKey('purchase-invoice-supplier-irn'),
+          initialValue: _supplierIrn,
+          readOnly: _saving,
+          decoration: documentBoxDecoration(context, hint: '64 characters'),
+          onChanged: (value) {
+            _setState(() => _supplierIrn = value);
             _schedulePreview();
           },
         ),

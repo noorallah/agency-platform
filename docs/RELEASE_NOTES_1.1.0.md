@@ -103,6 +103,10 @@ screen (1.1.0).
 - **Rule 37, the 180-day rule.** Bills unpaid 180 days after their date
   are listed with the credit to reverse, and reclaimed when paid; a firm can
   post both from the list, and GSTR-3B reports them (§78 row 4).
+- **The supplier's IRN on a bill.** A supplier can be marked as
+  e-invoicing; its bill records the IRN from the QR code (on an approved bill
+  too), and a bill from it without one is warned about, as is a second bill
+  carrying the same IRN (§78 row 5).
 - **Places from India Post.** Districts, towns, PIN codes and localities
   load by state from India Post's directory, shipped with the installer; the
   southern states are already loaded in every firm, with no setup step (B6).
