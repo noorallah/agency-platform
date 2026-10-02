@@ -27,6 +27,7 @@ import 'eway_bill_actions.dart';
 import 'price_floor_check_dialog.dart';
 import 'sales_workflow_settings_dialog.dart';
 import '../settings/send_message_dialog.dart';
+import '../workspace/remind_dialog.dart';
 import '../workspace/whatsapp_share.dart';
 
 /// A named view over the one sales invoice list.
@@ -675,24 +676,12 @@ class _SalesInvoiceManagementPageState
         ({bool referenceCopy = false}) =>
             widget.api.salesInvoicePdf(id, referenceCopy: referenceCopy),
       );
-      if (pdf == null || !mounted) return;
-      final String path = await widget.whatsApp.savePdf(share.fileName, pdf);
-      await widget.whatsApp.reveal(path);
-      await widget.whatsApp.openLink(
-        WhatsAppSharer.link(number: share.whatsappNumber, text: share.text),
-      );
-      await widget.api.recordHandShare(id, recipient: share.phone);
       if (!mounted) return;
-      NotificationService.show(
+      await widget.whatsApp.share(
         context,
-        share.whatsappNumber == null
-            ? 'WhatsApp is opening with the message typed. The customer has '
-                'no number: choose the chat, attach ${share.fileName} from the '
-                'folder that opened, then send.'
-            : 'WhatsApp is opening at ${share.phone} with the message typed. '
-                'Attach ${share.fileName} from the folder that opened, then '
-                'send.',
-        kind: AppNotificationKind.success,
+        share: share,
+        pdf: pdf,
+        record: () => widget.api.recordHandShare(id, recipient: share.phone),
       );
     } on ApiException catch (exception) {
       if (!mounted) return;
@@ -702,6 +691,20 @@ class _SalesInvoiceManagementPageState
         kind: AppNotificationKind.error,
       );
     }
+  }
+
+  /// Remind the bill's customer to pay: their statement, by email or by hand
+  /// on WhatsApp (MSG-3).
+  Future<void> _remindCustomer(Map<String, dynamic> invoice) async {
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => RemindDialog(
+        api: widget.api,
+        customerId: '${invoice['customer_id']}',
+        customerName: '${invoice['customer_name'] ?? 'customer'}',
+        whatsApp: widget.whatsApp,
+      ),
+    );
   }
 
   /// How this firm prints its bills: copies, letterhead, terms, paper.
@@ -897,6 +900,20 @@ class _SalesInvoiceManagementPageState
                     const <String>{'DRAFT', 'CANCELLED'}.contains(status)
                 ? null
                 : () => unawaited(_shareOnWhatsApp(selected)),
+          ),
+        // The customer's statement as a payment reminder (MSG-3), chiefly
+        // from the Overdue view. The server refuses one who owes nothing.
+        if (widget.permissions.hasPermission('DOCUMENT_SEND'))
+          ToolbarCommand(
+            id: 'remind',
+            label: 'Remind',
+            icon: Icons.notifications_active_outlined,
+            onPressed: selected == null ||
+                    _loading ||
+                    selected['customer_id'] == null ||
+                    const <String>{'DRAFT', 'CANCELLED'}.contains(status)
+                ? null
+                : () => unawaited(_remindCustomer(selected)),
           ),
         _command(DocumentToolbarAction.approve, '/approve'),
         ToolbarCommand(

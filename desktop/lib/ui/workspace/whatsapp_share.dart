@@ -1,8 +1,11 @@
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/logging/app_log.dart';
+import '../../core/notifications/notification_service.dart';
+import '../../models/messaging.dart' show HandShare;
 
 /// Shares a document from the person's own WhatsApp, by hand (MSG-1, §51 A2).
 ///
@@ -31,6 +34,36 @@ class WhatsAppSharer {
   /// page where not. No number lets WhatsApp ask whom to send to.
   static String link({String? number, required String text}) =>
       'https://wa.me/${number ?? ''}?text=${Uri.encodeComponent(text)}';
+
+  /// Saves [pdf], opens its folder and WhatsApp with [share]'s message, then
+  /// [record]s it and says what to do next. Returns false when no PDF came
+  /// (the person turned down a reference copy).
+  Future<bool> share(
+    BuildContext context, {
+    required HandShare share,
+    required List<int>? pdf,
+    required Future<void> Function() record,
+  }) async {
+    if (pdf == null) return false;
+    final String path = await savePdf(share.fileName, pdf);
+    await reveal(path);
+    await openLink(link(number: share.whatsappNumber, text: share.text));
+    await record();
+    if (context.mounted) {
+      NotificationService.show(
+        context,
+        share.whatsappNumber == null
+            ? 'WhatsApp is opening with the message typed. The customer has '
+                'no number: choose the chat, attach ${share.fileName} from the '
+                'folder that opened, then send.'
+            : 'WhatsApp is opening at ${share.phone} with the message typed. '
+                'Attach ${share.fileName} from the folder that opened, then '
+                'send.',
+        kind: AppNotificationKind.success,
+      );
+    }
+    return true;
+  }
 }
 
 /// The Downloads folder, where a person looks for a file they were just given;

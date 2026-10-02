@@ -80,6 +80,7 @@ class _ShareApi extends ApiClient {
             'invoice_date': '2026-10-03',
             'status': status,
             'grand_total': '1180.00',
+            'customer_id': 'cust-1',
             'customer_name': 'Buyer',
             'version': 2,
           },
@@ -223,5 +224,15 @@ void main() {
     expect(_whatsApp, findsNothing);
     // The bar is there, with what the person may do.
     expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+  });
+
+  testWidgets("Remind beside it opens the reminder for the bill's customer",
+      (tester) async {
+    await _open(tester, _ShareApi(), _Machine());
+
+    await tester.tap(find.byKey(const ValueKey('selection-remind')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Remind Buyer'), findsOneWidget);
   });
 }

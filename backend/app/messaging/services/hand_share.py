@@ -122,8 +122,11 @@ class HandShareService:
             for invoices set up to hang it on (the trail still has it).
 
         """
-        invoice = self._invoice(data.document_id, firm_id=firm_id)
         recipient = (data.recipient or "").strip() or None
+        if data.document_type == "CUSTOMER_STATEMENT":
+            self._record_reminder(data, recipient, firm_id=firm_id, actor_id=actor_id)
+            return None
+        invoice = self._invoice(data.document_id, firm_id=firm_id)
         type_id = self._session.scalar(
             select(DocumentTypeDefinition.id).where(
                 DocumentTypeDefinition.firm_id == firm_id,
@@ -168,6 +171,39 @@ class HandShareService:
         return event
 
     # ------------------------------------------------------------------
+    def _record_reminder(
+        self,
+        data: HandShareRecord,
+        recipient: str | None,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> None:
+        """Put a reminder shared by hand in the trail, against the customer.
+
+        A statement is no document with a timeline of its own; the customer's
+        audit trail is where *who reminded them, and when* is looked for.
+        """
+        customer = self._session.scalar(
+            select(Customer).where(
+                Customer.id == data.document_id,
+                Customer.firm_id == firm_id,
+                Customer.is_deleted.is_(False),
+            )
+        )
+        if customer is None:
+            raise ResourceNotFoundError("Customer not found.")
+        record_audit(
+            self._session,
+            action="message.reminder_shared_by_hand",
+            entity_type="customer",
+            entity_id=customer.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            after_data={"channel": data.channel, "recipient": recipient},
+        )
+        self._session.commit()
+
     def _invoice(self, invoice_id: UUID, *, firm_id: UUID) -> SalesInvoice:
         """Return an approved invoice of the firm's, or refuse."""
         invoice = self._session.scalar(

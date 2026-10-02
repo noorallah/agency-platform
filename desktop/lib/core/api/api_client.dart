@@ -1479,14 +1479,49 @@ class ApiClient {
     return HandShare.fromJson(response['data'] as Json);
   }
 
-  /// Puts a share made by hand on the bill's timeline.
-  Future<void> recordHandShare(String invoiceId, {String? recipient}) =>
+  /// Whom to remind on WhatsApp by hand, and what to say (MSG-3).
+  Future<HandShare> customerStatementShare(String customerId) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/messaging/share/customer-statements/$customerId',
+    );
+    return HandShare.fromJson(response['data'] as Json);
+  }
+
+  /// Emails a customer their statement as a payment reminder (MSG-3).
+  Future<void> remindCustomer(
+    String customerId, {
+    String? recipient,
+    String? message,
+  }) =>
+      request(
+        'POST',
+        '/api/v1/messaging/remind',
+        body: <String, dynamic>{
+          'customer_id': customerId,
+          if (recipient != null && recipient.isNotEmpty) 'recipient': recipient,
+          if (message != null && message.isNotEmpty) 'message': message,
+        },
+      );
+
+  /// A customer's statement of account with their unpaid bills, as a PDF:
+  /// what a reminder attaches.
+  Future<List<int>> customerStatementPdf(String customerId) =>
+      downloadBytes('/api/v1/customers/$customerId/statement/print');
+
+  /// Records a share made by hand: on the bill's timeline, or in the
+  /// customer's trail for a statement sent as a reminder.
+  Future<void> recordHandShare(
+    String documentId, {
+    String? recipient,
+    String documentType = 'SALES_INVOICE',
+  }) =>
       request(
         'POST',
         '/api/v1/messaging/shared',
         body: <String, dynamic>{
-          'document_type': 'SALES_INVOICE',
-          'document_id': invoiceId,
+          'document_type': documentType,
+          'document_id': documentId,
           'channel': 'WHATSAPP',
           if (recipient != null && recipient.isNotEmpty) 'recipient': recipient,
         },
