@@ -48,6 +48,7 @@ no seeded row satisfies.
 | Sales invoices `app/sales_invoice` | 23 | 8 | Built | Prints a real GST invoice with the CGST/SGST split and an HSN summary, the offers given and what was saved. Money taken at the counter is entered on the bill and becomes a receipt on approval. Sales Analysis: any one or two dimensions, with drill-down (2026-10-01). |
 | Sales returns `app/sales_return` | 18 | 4 | Built | Reverses stock, cost and the customer balance by the deltas the original row stored. |
 | Credit notes `app/credit_note` | 9 | 3 | Built | Names the invoice **line**, so the tax reversed is the tax charged. Approval is a separate permission. |
+| Customer debit notes `app/customer_debit_note` | 9 | 1 | Built 2026-10-02 | The credit note turned round (§77 row 5): charges tax at the invoice line's rate, owed on the invoice (A40). No print yet. |
 | Proformas `app/proforma` | 8 | 2 | Built | Posts nothing, and draws its own `PI` series so GSTR-1's declared invoice range stays whole. |
 | Receipts and refunds `app/settlements` | 15 | 0 | Built | Money in and out through one document. Allocating posts no journal — the receipt already did. |
 | Customers `app/customers` | 24 | 0 | **Partial** | Statements and ageing reconcile to the account. Credit control ships in **warn** mode; no firm has chosen **block**. |

@@ -30,6 +30,7 @@ from app.branches.models import Branch
 from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ValidationError
 from app.credit_note.models import CreditNote, CreditNoteLine
+from app.customer_debit_note.models import CustomerDebitNote, CustomerDebitNoteLine
 from app.customers.models import Customer, CustomerGroup
 from app.products.models import Product, ProductCategory
 from app.sales.models.territory import SalesTerritoryNode, TerritoryRouteProfile
@@ -249,8 +250,10 @@ class SalesAnalysisService:
         filters = filters or AnalysisFilters()
 
         grouped: list[tuple[str, str, Cell]] = []
-        for kind in ("invoice", "credit_note", "sales_return"):
-            if kind != "invoice" and not net_of_returns:
+        # A debit note to a customer is more of a sale already made (backlog
+        # 77 row 5), so it counts whether or not returns are netted off.
+        for kind in ("invoice", "debit_note", "credit_note", "sales_return"):
+            if kind in ("credit_note", "sales_return") and not net_of_returns:
                 continue
             grouped.extend(
                 self._grouped(kind, firm_id, rows, columns, from_date, to_date, filters)
@@ -359,6 +362,22 @@ class SalesAnalysisService:
                 "tax": SalesInvoiceLine.tax_amount,
                 "net": SalesInvoiceLine.net_amount,
             }
+        if kind == "debit_note":
+            return {
+                "date": CustomerDebitNote.debit_note_date,
+                "product": CustomerDebitNoteLine.product_id,
+                "customer": CustomerDebitNote.customer_id,
+                "salesman": SalesInvoice.salesman_id,
+                "territory": SalesInvoice.territory_id,
+                "route": SalesInvoice.route_id,
+                "branch": SalesInvoice.branch_id,
+                "document": CustomerDebitNote.id,
+                # Value, not units: the goods were counted on the invoice.
+                "quantity": literal(0),
+                "taxable": CustomerDebitNoteLine.taxable_amount,
+                "tax": CustomerDebitNoteLine.tax_amount,
+                "net": CustomerDebitNoteLine.total_amount,
+            }
         if kind == "credit_note":
             return {
                 "date": CreditNote.credit_note_date,
@@ -450,6 +469,25 @@ class SalesAnalysisService:
                 SalesInvoiceLine, SalesInvoiceLine.sales_invoice_id == SalesInvoice.id
             )
             scope = self._invoice_scope(firm_id, from_date, to_date)
+        elif kind == "debit_note":
+            query = (
+                query.select_from(CustomerDebitNote)
+                .join(
+                    CustomerDebitNoteLine,
+                    CustomerDebitNoteLine.debit_note_id == CustomerDebitNote.id,
+                )
+                .join(
+                    SalesInvoice, SalesInvoice.id == CustomerDebitNote.sales_invoice_id
+                )
+            )
+            scope = [
+                CustomerDebitNote.firm_id == firm_id,
+                CustomerDebitNote.is_deleted.is_(False),
+                CustomerDebitNote.status == "APPROVED",
+                CustomerDebitNote.debit_note_date >= from_date,
+                CustomerDebitNote.debit_note_date <= to_date,
+                CustomerDebitNoteLine.is_deleted.is_(False),
+            ]
         elif kind == "credit_note":
             query = (
                 query.select_from(CreditNote)
@@ -482,7 +520,7 @@ class SalesAnalysisService:
             .where(*scope, *self._filter_clauses(kind, filters))
             .group_by(row_expr, column_expr)
         )
-        sign = Decimal("1") if kind == "invoice" else Decimal("-1")
+        sign = Decimal("1") if kind in ("invoice", "debit_note") else Decimal("-1")
         results: list[tuple[str, str, Cell]] = []
         for (
             row_key,

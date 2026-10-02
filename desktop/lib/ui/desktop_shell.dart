@@ -60,6 +60,7 @@ import 'commission/sales_target_page.dart';
 import 'purchases/debit_note_page.dart';
 import 'purchases/purchase_approval_limits_dialog.dart';
 import 'sales/credit_note_page.dart';
+import 'sales/customer_debit_note_page.dart';
 import 'sales/einvoice_page.dart';
 import 'sales/gst_payment_page.dart';
 import 'sales/gst_return_page.dart';
@@ -2799,6 +2800,12 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),
+      'customer-debit-notes' => CustomerDebitNotePage(
+          api: widget.api,
+          preferences: widget.preferences,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+        ),
       'einvoice' => EInvoicePage(
           api: widget.api,
           permissions: widget.permissions,
@@ -2919,6 +2926,12 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           'Money credited without goods coming back — a rate agreed later, a '
               'discount given after the sale. It reverses the tax the invoice '
               'charged; a sales return is the one that moves stock.',
+        ),
+      'customer-debit-notes' => (
+          'Debit Notes',
+          'More charged on a sale already invoiced — a price raised after '
+              'billing, a line under-billed, a charge added later. Owed on the '
+              'invoice it names, taxed at that invoice’s rate.',
         ),
       'commission' => (
           'Commission',

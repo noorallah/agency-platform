@@ -139,6 +139,15 @@ CREDIT_NOTE_DOCUMENT_PURPOSES = (
     ControlAccountPurpose.SALES_RETURNS,
 )
 
+#: A debit note to a customer: the receivable it raises and the revenue it
+#: adds -- a sale's own accounts, because it is more of that sale, not a
+#: separate supply (backlog 77 row 5). The output tax legs resolve their own
+#: purposes per GST head, as the invoice's do.
+CUSTOMER_DEBIT_NOTE_PURPOSES = (
+    ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
+    ControlAccountPurpose.SALES_REVENUE,
+)
+
 #: A debit note to a supplier: the payable it reduces and the account the
 #: value comes back through. The input tax legs resolve their own purposes per
 #: GST head, as a purchase return's do.
@@ -2154,6 +2163,88 @@ class DocumentPostingService:
             lines=lines,
             source_module="credit_note",
             source_id=credit_note_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_customer_debit_note_document(
+        self,
+        *,
+        firm_id: UUID,
+        debit_note_id: UUID,
+        debit_note_number: str,
+        note_date: date,
+        taxable_amount: Decimal,
+        tax_amount: Decimal,
+        actor_id: UUID,
+        tax_by_component: dict[str, Decimal] | None = None,
+    ) -> JournalEntry | None:
+        """Post a debit note to a customer: Dr receivable, Cr sales and output tax.
+
+        The credit note turned the other way. The extra is more of the sale it
+        names, so it is credited to sales revenue rather than to a contra
+        account, and its tax is owed per GST head the way that invoice was
+        taxed -- the caller resolves the split from the invoice, never from
+        today's tax profile.
+
+        Args:
+            firm_id: The owning firm.
+            debit_note_id: The source document.
+            debit_note_number: Its number, used as the journal reference.
+            note_date: The date the charge is booked on.
+            taxable_amount: What is charged before tax.
+            tax_amount: The tax charged with it.
+            actor_id: The user approving it.
+            tax_by_component: The tax per GST head; None credits `OUTPUT_TAX`
+                as a whole.
+
+        Returns:
+            The posted journal entry, or None where there is nothing to post.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        ledger_taxable = quantize_ledger(quantize_money(taxable_amount))
+        ledger_tax = quantize_ledger(quantize_money(tax_amount))
+        ledger_total = ledger_taxable + ledger_tax
+        if ledger_total == ZERO:
+            return None
+        accounts = self._require_mapping(
+            firm_id,
+            CUSTOMER_DEBIT_NOTE_PURPOSES
+            + output_tax_purposes(ledger_tax, tax_by_component),
+        )
+        context = self.context_for(firm_id, note_date)
+        lines = [
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.ACCOUNTS_RECEIVABLE],
+                debit_amount=ledger_total,
+                description=f"Debit note {debit_note_number}",
+            ),
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.SALES_REVENUE],
+                credit_amount=ledger_taxable,
+                description=f"Debit note {debit_note_number}",
+            ),
+            *self._output_tax_legs(
+                firm_id=firm_id,
+                ledger_tax=ledger_tax,
+                tax_by_component=tax_by_component,
+                describe=f"charged on {debit_note_number}",
+            ),
+        ]
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=note_date,
+            reference_number=debit_note_number,
+            description=f"Debit note {debit_note_number}",
+            lines=lines,
+            source_module="customer_debit_note",
+            source_id=debit_note_id,
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)

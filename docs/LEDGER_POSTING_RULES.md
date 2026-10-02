@@ -299,8 +299,9 @@ Backlog 74 row 2 (2026-10-01). A receipt three rupees short, a bank charge the
 customer's bank took, a discount for paying early, a debt that will never be
 paid, a supplier balance the firm will never pay, and a customer who is also a
 supplier: each moves a party's balance **without money moving and without
-tax**. Reducing the value of a supply is a credit note (`/credit-notes`) or a
-debit note (`/debit-notes`), which reverse the tax charged on it; nothing here
+tax**. Changing the value of a supply is a credit note (`/credit-notes`), a
+debit note to a supplier (`/debit-notes`) or one to a customer
+(`/customer-debit-notes`), which move the tax charged on it; nothing here
 touches output or input tax, GSTR-1 or GSTR-3B.
 
 **Deductions on a receipt or payment** (`settlements.rounding_amount`,
@@ -796,6 +797,38 @@ an invoice line. Approving posts *and* moves the customer balance, or
 neither. `CREDIT_NOTE_APPROVE` is separate from `CREDIT_NOTE_MANAGE` and not
 granted to `SALES_MANAGER`: drafting is bookkeeping, approving reverses a
 declared tax.
+
+## A debit note to a customer charges tax and is owed on its invoice
+
+Backlog 77 row 5 (2026-10-02, OWNER_DECISIONS A40). **More charged on a sale
+already invoiced is a debit note against that invoice** (CGST Act s.34(3)),
+never a second invoice -- which would declare a second supply -- and never a
+hand adjustment of the balance, which charges no tax. `app/customer_debit_note`
+(`POST /api/v1/customer-debit-notes`, `DRAFT -> APPROVED`, or `CANCELLED`) is
+the credit note turned round: it names the invoice and the lines, moves no
+stock, and charges tax at the rate each line was actually charged. Approving
+posts `post_customer_debit_note_document` *and* raises the balance (a
+`DEBIT_NOTE` receivable row), or neither:
+
+```
+Dr  1100 Trade Receivables            taxable + tax
+    Cr  4000 Sales Revenue            taxable
+    Cr  2200 Output Tax (per head)    tax, split the way the invoice was taxed
+```
+
+**The extra is owed on the invoice it names**, as TallyPrime's
+against-reference debit note is: `settled_against` nets approved debit notes
+(`debited_against`), so Record Receipt offers the invoice at its total plus
+the note, a receipt allocated to it settles both, and the ageing ages the
+extra from the invoice's due date. There is no cap -- a price can rise by
+whatever the parties agree -- so the control is the approval:
+`CUSTOMER_DEBIT_NOTE_APPROVE`, not granted to `SALES_MANAGER`. Cancelling
+mirrors the journal and reverses the receivable row, and is refused while
+money received on the invoice has already met the extra; an invoice with a
+live debit note cannot be cancelled. GSTR-1 declares it in CDNR (or CDNUR, or
+on the B2CS row) with note type **D**, the HSN summary takes its value and no
+units, and GSTR-3B adds it to 3.1(a) and reports it as `debit_notes_added`
+beside `credit_notes_deducted`.
 
 ## `app/settlements` is money in and money out
 

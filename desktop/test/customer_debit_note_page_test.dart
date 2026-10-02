@@ -1,0 +1,517 @@
+// Debit notes to customers: more charged on a sale already invoiced.
+//
+// A debit note is owed on the invoice it names and taxed at that invoice
+// line's rate; unlike a credit note nothing caps it.
+
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:agency_desktop/core/api/api_client.dart';
+import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
+import 'package:agency_desktop/core/security/permission_service.dart';
+import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/ui/sales/customer_debit_note_page.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
+    show ColumnsButton, Phase2Scope;
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+String _accessToken(Map<String, dynamic> claims) =>
+    'header.${base64Url.encode(utf8.encode(jsonEncode(claims))).replaceAll('=', '')}.sig';
+
+PermissionService _permissions({
+  List<String> perms = const [
+    'CUSTOMER_DEBIT_NOTE_VIEW',
+    'CUSTOMER_DEBIT_NOTE_MANAGE',
+    'CUSTOMER_DEBIT_NOTE_APPROVE',
+  ],
+}) =>
+    PermissionService()
+      ..applyAccessToken(_accessToken({
+        'roles': <String>['user'],
+        'permissions': perms,
+      }));
+
+/// One document the picker might be offered, in the shape the list returns.
+///
+/// `description` is null on every one of them, because it is null on every
+/// real document too -- nothing populates it. That is the premise of the
+/// labelling test below rather than an omission here.
+Json _document({
+  required String id,
+  required String number,
+  required String status,
+  String productName = 'Toothpaste 100g',
+  bool withLines = true,
+}) =>
+    <String, dynamic>{
+      'id': id,
+      'invoice_number': number,
+      'delivery_note_number': number,
+      'invoice_date': '2026-09-01',
+      'delivery_date': '2026-09-01',
+      'customer_id': 'cust-1',
+      'customer_name': 'Kumar Stores',
+      'status': status,
+      'lines': withLines
+          ? <Json>[
+              <String, dynamic>{
+                'id': '$id-line-1',
+                'line_number': 1,
+                'product_id': 'prod-1',
+                'product_name': productName,
+                'description': null,
+                'current_invoice_quantity': '7.0000',
+                'current_delivery_quantity': '7.0000',
+                'unit_price': '84.0000',
+              },
+            ]
+          : const <Json>[],
+    };
+
+class _CustomerDebitNoteApi extends ApiClient {
+  _CustomerDebitNoteApi({this.notes = const [], this.invoices, this.deliveryNotes})
+      : super(
+          baseUrl: 'http://localhost:8000',
+          accessToken: () => null,
+          refreshAccessToken: () async => false,
+          activeFirmId: () => 'firm-1',
+        );
+
+  final List<Json> notes;
+
+  /// What the two unfiltered document lists answer. Null means "the default
+  /// set" -- an approved invoice, a cancelled one, an approved invoice with
+  /// no lines, and a delivery note -- which is what the picker has to sort
+  /// out. The fake used to answer an empty list for both, which is why no
+  /// test here had ever populated the picker at all.
+  final List<Json>? invoices;
+  final List<Json>? deliveryNotes;
+  final List<String> requested = <String>[];
+  int? sentVersion;
+
+  /// What was asked to be priced, and what was raised.
+  final List<Json> previews = <Json>[];
+  Json? raised;
+
+  List<Json> get _invoices =>
+      invoices ??
+      <Json>[
+        _document(id: 'inv-1', number: 'SI-2026-0009', status: 'APPROVED'),
+        _document(id: 'inv-2', number: 'SI-2026-0010', status: 'CANCELLED'),
+        _document(
+            id: 'inv-3',
+            number: 'SI-2026-0011',
+            status: 'APPROVED',
+            withLines: false),
+      ];
+
+  List<Json> get _deliveryNotes =>
+      deliveryNotes ??
+      <Json>[
+        _document(id: 'dn-1', number: 'DN-2026-0004', status: 'COMPLETED'),
+      ];
+
+  @override
+  Future<Json> request(
+    String method,
+    String path, {
+    Json? body,
+    Map<String, String>? query,
+    bool authenticated = true,
+    bool retrying = false,
+    int? expectedVersion,
+  }) async {
+    requested.add('$method $path');
+    if (method == 'POST' && path == '/api/v1/customer-debit-notes/preview') {
+      previews.add(body!);
+      final List<dynamic> lines = body['lines'] as List<dynamic>;
+      final double taxable = double.parse(
+        '${(lines.first as Json)['taxable_amount']}',
+      );
+      return <String, dynamic>{
+        'data': <String, dynamic>{
+          ..._note(),
+          'taxable_amount': taxable.toStringAsFixed(2),
+          'tax_amount': (taxable * .18).toStringAsFixed(2),
+          'total_amount': (taxable * 1.18).toStringAsFixed(2),
+          'lines': [
+            <String, dynamic>{
+              'line_number': 1,
+              'sales_invoice_line_id': (lines.first as Json)
+                  ['sales_invoice_line_id'],
+              'product_name': 'Toothpaste 100g',
+              'taxable_amount': taxable.toStringAsFixed(2),
+              'tax_amount': (taxable * .18).toStringAsFixed(2),
+              'total_amount': (taxable * 1.18).toStringAsFixed(2),
+              'tax_rate_percent': '18.00',
+            },
+          ],
+        },
+      };
+    }
+    if (method == 'POST' && path == '/api/v1/customer-debit-notes') {
+      raised = body;
+      return <String, dynamic>{'data': _note()};
+    }
+    if (path.contains('/customer-debit-notes')) {
+      if (path.endsWith('/approve') || path.endsWith('/cancel')) {
+        sentVersion = expectedVersion;
+        return <String, dynamic>{'data': _note()};
+      }
+      return <String, dynamic>{
+        'data': notes,
+        'pagination': <String, dynamic>{'total_records': notes.length},
+      };
+    }
+    if (path.contains('/sales-invoices')) {
+      return <String, dynamic>{'data': _invoices};
+    }
+    if (path.contains('/delivery-notes')) {
+      return <String, dynamic>{'data': _deliveryNotes};
+    }
+    return <String, dynamic>{'data': const <Json>[]};
+  }
+}
+
+/// A fresh folder for the grid's remembered columns.
+DesktopPreferencesService _preferences() => DesktopPreferencesService(
+      directory: Directory.systemTemp.createTempSync('customer-debit-notes'),
+    );
+
+/// One draft note against an invoice, charging 100 and adding 18 of tax.
+Json _note() => <String, dynamic>{
+      'id': 'cn-1',
+      'debit_note_number': 'CN-2026-0001',
+      'debit_note_date': '2026-09-02',
+      'customer_id': 'cust-1',
+      'customer_name': 'Kumar Stores',
+      'sales_invoice_id': 'inv-1',
+      'sales_invoice_number': 'SI-2026-0009',
+      'reason': 'PRICE_INCREASE',
+      'status': 'DRAFT',
+      'taxable_amount': '100.0000',
+      'tax_amount': '18.0000',
+      'total_amount': '118.0000',
+      'remarks': null,
+      'journal_entry_id': null,
+      'version': 4,
+      'lines': const <Json>[],
+    };
+
+Future<void> _pump(
+  WidgetTester tester,
+  _CustomerDebitNoteApi api, {
+  PermissionService? permissions,
+}) async {
+  tester.view.physicalSize = const Size(1700, 1200);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+  await tester.pumpWidget(MaterialApp(
+    home: Scaffold(
+      body: CustomerDebitNotePage(
+        api: api,
+        preferences: _preferences(),
+        permissions: permissions ?? _permissions(),
+        hasActiveFirm: true,
+      ),
+    ),
+  ));
+  await tester.pumpAndSettle();
+}
+
+void main() {
+  testWidgets('the list shows the tax beside what was charged',
+      (tester) async {
+    final _CustomerDebitNoteApi api = _CustomerDebitNoteApi(notes: <Json>[_note()]);
+    await _pump(tester, api);
+
+    expect(find.text('CN-2026-0001'), findsOneWidget);
+    expect(find.text('DRAFT · Price increase'), findsOneWidget);
+    // The tax is the whole reason this document exists rather than a
+    // receivable adjustment, so it is on the row and not behind a click.
+    expect(find.text('118.00 (tax 18.00)'), findsOneWidget);
+  });
+
+  testWidgets('the screen says what a debit note is for', (tester) async {
+    final _CustomerDebitNoteApi api = _CustomerDebitNoteApi(notes: <Json>[_note()]);
+    await _pump(tester, api);
+
+    // Choosing the wrong document is silent, so the screen says what a debit
+    // note is for and that it is taxed at the invoice line's rate.
+    expect(find.textContaining('owes more'), findsOneWidget);
+    expect(find.textContaining('rate that invoice line charged'),
+        findsOneWidget);
+  });
+
+  testWidgets('approving carries the version the row was read at',
+      (tester) async {
+    final _CustomerDebitNoteApi api = _CustomerDebitNoteApi(notes: <Json>[_note()]);
+    await _pump(tester, api);
+
+    await tester.tap(find.text('Approve'));
+    await tester.pumpAndSettle();
+
+    expect(api.requested, contains('POST /api/v1/customer-debit-notes/cn-1/approve'));
+    expect(api.sentVersion, 4);
+  });
+
+  testWidgets('without CUSTOMER_DEBIT_NOTE_APPROVE nothing can be approved',
+      (tester) async {
+    final _CustomerDebitNoteApi api = _CustomerDebitNoteApi(notes: <Json>[_note()]);
+    await _pump(
+      tester,
+      api,
+      // Approving puts output tax on the return. Drafting one is
+      // bookkeeping; approving it changes a return.
+      permissions: _permissions(
+        perms: const ['CUSTOMER_DEBIT_NOTE_VIEW', 'CUSTOMER_DEBIT_NOTE_MANAGE'],
+      ),
+    );
+
+    expect(find.text('Approve'), findsNothing);
+    expect(find.text('Cancel'), findsNothing);
+    expect(find.widgetWithText(FilledButton, 'Raise debit note'),
+        findsOneWidget);
+  });
+
+  testWidgets('a firm with no debit note permission sees nothing',
+      (tester) async {
+    final _CustomerDebitNoteApi api = _CustomerDebitNoteApi(notes: <Json>[_note()]);
+    await _pump(tester, api, permissions: _permissions(perms: const []));
+
+    expect(find.text('You cannot see debit notes'), findsOneWidget);
+    expect(api.requested, isEmpty);
+  });
+
+  testWidgets('the screen fits the smallest supported window', (tester) async {
+    final _CustomerDebitNoteApi api = _CustomerDebitNoteApi(notes: <Json>[_note()]);
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: CustomerDebitNotePage(
+          api: api,
+          preferences: _preferences(),
+          permissions: _permissions(),
+          hasActiveFirm: true,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    // Reachable, not merely rendered: a row action past the right edge is one
+    // nobody finds, which is how the payout grid shipped wrong once.
+    await tester.tap(find.text('Approve'));
+    await tester.pumpAndSettle();
+    expect(api.requested, contains('POST /api/v1/customer-debit-notes/cn-1/approve'));
+  });
+
+  testWidgets('the invoice picker offers only bills there is something to debit on',
+      (tester) async {
+    // The list behind this picker is the sales-return one: the 50 most recent
+    // delivery notes and the 50 most recent invoices, unfiltered. A delivery
+    // note is not a bill, a cancelled invoice charged nobody, and an invoice
+    // with no lines has nothing to correct -- and choosing any of the three
+    // gave an empty Line dropdown with no word about why, which is what made
+    // the screen look broken on 2026-09-15.
+    final _CustomerDebitNoteApi api = _CustomerDebitNoteApi(notes: <Json>[_note()]);
+    await _pump(tester, api);
+
+    await tester.tap(find.text('Raise debit note'));
+    await tester.pumpAndSettle();
+
+    // **Open the dropdown before asserting.** A closed
+    // `DropdownButtonFormField` renders only its selected item, so
+    // `findsNothing` on the others holds whatever the list contains -- the
+    // first cut of this test passed with the filter reverted, which is no
+    // test at all.
+    await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('SI-2026-0009'), findsWidgets);
+    expect(find.textContaining('SI-2026-0010'), findsNothing,
+        reason: 'cancelled: it charged nobody');
+    expect(find.textContaining('SI-2026-0011'), findsNothing,
+        reason: 'no lines: nothing to debit');
+    expect(find.textContaining('DN-2026-0004'), findsNothing,
+        reason: 'a delivery note is not a bill');
+  });
+
+  testWidgets('a line is named by its product, not by "Line 1"',
+      (tester) async {
+    // `description` is null on every real document line, so the picker fell
+    // back to "Line N" for all of them -- a dropdown of indistinguishable
+    // rows on a screen whose whole job is choosing which supply to correct.
+    // The server now sends `product_name` beside it.
+    final _CustomerDebitNoteApi api = _CustomerDebitNoteApi(notes: <Json>[_note()]);
+    await _pump(tester, api);
+
+    await tester.tap(find.text('Raise debit note'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Toothpaste 100g'), findsWidgets);
+    expect(find.text('Line 1'), findsNothing);
+  });
+
+  testWidgets('with nothing to debit it says so rather than showing an empty form',
+      (tester) async {
+    final _CustomerDebitNoteApi api = _CustomerDebitNoteApi(
+      notes: <Json>[_note()],
+      invoices: const <Json>[],
+      deliveryNotes: const <Json>[],
+    );
+    await _pump(tester, api);
+
+    await tester.tap(find.text('Raise debit note'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('No approved invoice to debit'), findsOneWidget);
+  });
+
+  testWidgets('phase 2 debits on one screen, the tax priced as typed',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _CustomerDebitNoteApi api = _CustomerDebitNoteApi(notes: <Json>[_note()]);
+    // Above the navigator, as in the app, so the screen it opens sees it.
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => Phase2Scope(child: child!),
+      home: Scaffold(
+        body: CustomerDebitNotePage(
+          api: api,
+          preferences: _preferences(),
+          permissions: _permissions(),
+          hasActiveFirm: true,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('New').last);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    // The invoice's line is on screen, named by its product.
+    expect(find.text('Toothpaste 100g'), findsWidgets);
+    expect(find.text('588.00'), findsWidgets);
+
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('customer-debit-note-amount-inv-1-0')),
+      '100',
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(api.previews.last['lines'][0]['taxable_amount'], '100');
+    expect(find.text('18.00'), findsWidgets);
+    expect(find.textContaining('118.00', findRichText: true), findsWidgets);
+
+    await tester.tap(find.byKey(const ValueKey('customer-debit-note-save')));
+    await tester.pumpAndSettle();
+    expect(api.raised?['sales_invoice_id'], 'inv-1');
+    expect(api.raised?['lines'][0]['sales_invoice_line_id'], 'inv-1-line-1');
+
+    // The schema forbids unknown keys, so only the declared ones are sent --
+    // on the preview as on the create.
+    const Set<String> declared = {
+      'sales_invoice_id',
+      'debit_note_date',
+      'reason',
+      'debit_note_number',
+      'reference_number',
+      'remarks',
+      'lines',
+    };
+    const Set<String> declaredLine = {
+      'sales_invoice_line_id',
+      'line_number',
+      'quantity',
+      'taxable_amount',
+      'description',
+    };
+    for (final Json body in <Json>[api.previews.last, api.raised!]) {
+      expect(declared.containsAll(body.keys), isTrue, reason: '${body.keys}');
+      expect(body['reason'], 'PRICE_INCREASE');
+      for (final dynamic line in body['lines'] as List<dynamic>) {
+        expect(declaredLine.containsAll((line as Json).keys), isTrue,
+            reason: '${line.keys}');
+      }
+    }
+  });
+
+  testWidgets('only a draft can be approved; an approved note can be cancelled',
+      (tester) async {
+    final Json approved = <String, dynamic>{..._note(), 'status': 'APPROVED'};
+    final _CustomerDebitNoteApi api =
+        _CustomerDebitNoteApi(notes: <Json>[approved]);
+    await _pump(tester, api);
+
+    // The classic grid's row actions: Approve is for a draft alone.
+    expect(find.text('Approve'), findsNothing);
+    expect(find.text('Cancel'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(api.requested,
+        contains('POST /api/v1/customer-debit-notes/cn-1/cancel'));
+    expect(api.sentVersion, 4);
+  });
+
+  // Phase 2 (owner, 2026-09-27): option C's bar carries Approve and Cancel,
+  // Columns and the Period sit after the search, and a double-click reads.
+  group('phase 2 grid', () {
+    Future<_CustomerDebitNoteApi> open(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final _CustomerDebitNoteApi api = _CustomerDebitNoteApi(notes: <Json>[_note()]);
+      await tester.pumpWidget(MaterialApp(
+        builder: (context, child) => Phase2Scope(child: child!),
+        home: Scaffold(
+          body: CustomerDebitNotePage(
+            api: api,
+            preferences: _preferences(),
+            permissions: _permissions(),
+            hasActiveFirm: true,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return api;
+    }
+
+    testWidgets('the bar approves the picked note, sending its version',
+        (tester) async {
+      final _CustomerDebitNoteApi api = await open(tester);
+      expect(find.byType(ColumnsButton), findsOneWidget);
+      expect(find.text('SI-2026-0009'), findsOneWidget);
+
+      await tester.tap(find.text('CN-2026-0001').first);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+      expect(find.textContaining('Kumar Stores ·'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('selection-approve')));
+      await tester.pumpAndSettle();
+      expect(api.sentVersion, 4);
+
+      tester.view.physicalSize = const Size(1366, 768);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('double-clicking a note reads it', (tester) async {
+      await open(tester);
+      final Finder row = find.text('CN-2026-0001').first;
+      await tester.tap(row);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.textContaining('Against SI-2026-0009'), findsOneWidget);
+    });
+  });
+}
