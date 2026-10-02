@@ -94,7 +94,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | STK-8 | §70 row 12 | Large adjustments and write-offs need approval | Nothing | M | Claude alone |
 | STK-9 | §70 row 13 | Photos and documents on adjustments, write-offs, counts | Nothing | S | Claude alone |
 | STK-10 | §70 row 14 | Incoming and outgoing beside available stock -- **built 2026-10-03** (A60) | Nothing | S | Claude alone |
-| STK-11 | §70 row 15 | Issue rule per product: earliest expiry, first in, or pick by hand | Nothing | S | Claude alone |
+| STK-11 | §70 row 15 | Issue rule per product: earliest expiry, first in, or pick by hand -- **built 2026-10-03** (A63) | Nothing | S | Claude alone |
 | STK-12 | §70 row 16 | Reservations that lapse after N days | Nothing | M | Claude alone |
 | STK-13 | §70 row 17 | Returned goods held until checked -- **built 2026-10-03** (A62) | Nothing | S | Claude alone |
 | STK-14 | §70 row 18 | Stock alerts and the inventory dashboard | Nothing | M | Claude alone |
@@ -495,6 +495,7 @@ otherwise it is built as written.
 - **What it is:** per product: earliest expiry first, first received first, or the person picks.
 - **What gets built:** a product / category setting (migration); allocation in `batch_serial_service.py` follows it; "person picks" refuses silent allocation at dispatch (the §79 picker already exists). Tests.
 - **Depends on:** nothing. **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A63): `products.issue_rule` (FEFO / FIFO / PICK, null = FEFO; migration 0245, all stores). The one ranking every allocation uses (`_expiry_ranked_rows` in `inventory_service.py`) follows it, so reservation, release and dispatch agree: FIFO ranks batches by when they were received. PICK keeps expiry order for holds but `allocate_for_dispatch` refuses by name to draw a batch-held product silently -- the line must name its batches (the §79 picker) -- and the FEFO-skip audit is not raised for it. Per product only; a category default can follow. Product editor: *Batch issue rule*. Tests: `test_issue_rule.py`, `phase2_product_form_test.dart`.
 
 #### STK-12. Reservations that lapse (§70 row 16)
 - **What it is:** stock held for an order that never ships is released after N days.

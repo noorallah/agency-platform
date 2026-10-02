@@ -224,6 +224,7 @@ class Product {
     this.trackWarranty = false,
     this.notForSale = false,
     this.shelfLifeDays,
+    this.issueRule = '',
     this.allowNegativeStock = false,
     this.requireBatchOnReceipt = false,
     this.requireBatchOnIssue = false,
@@ -308,6 +309,9 @@ class Product {
   /// Days from manufacture to expiry (STK-18): a receipt typed with only a
   /// manufacturing date gets its expiry from it. Null fills nothing.
   final int? shelfLifeDays;
+
+  /// FEFO, FIFO or PICK (STK-11); empty is earliest expiry.
+  final String issueRule;
   final bool allowNegativeStock;
   final bool requireBatchOnReceipt;
   final bool requireBatchOnIssue;
@@ -379,6 +383,7 @@ class Product {
         trackManufacturingDate: boolValue(json['track_manufacturing_date']),
         trackWarranty: boolValue(json['track_warranty']),
         notForSale: boolValue(json['not_for_sale']),
+        issueRule: stringValue(json['issue_rule']),
         shelfLifeDays: json['shelf_life_days'] is num
             ? (json['shelf_life_days'] as num).toInt()
             : null,

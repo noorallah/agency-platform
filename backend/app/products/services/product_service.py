@@ -1670,6 +1670,8 @@ class ProductService:
         payload["product_type"] = data.product_type.value
         if "status" in payload:
             payload["status"] = data.status.value
+        if payload.get("issue_rule") is not None:
+            payload["issue_rule"] = str(payload["issue_rule"])
         return payload
 
     @staticmethod
@@ -1817,6 +1819,7 @@ class ProductService:
             "status": product.status,
             "not_for_sale": product.not_for_sale,
             "shelf_life_days": product.shelf_life_days,
+            "issue_rule": product.issue_rule,
             "remarks": product.remarks,
             "track_batch": product.track_batch,
             "track_lot": product.track_lot,

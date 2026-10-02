@@ -783,6 +783,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         'track_warranty': product.trackWarranty,
         'not_for_sale': product.notForSale,
         'shelf_life_days': product.shelfLifeDays,
+        'issue_rule': product.issueRule.isEmpty ? null : product.issueRule,
         'allow_negative_stock': product.allowNegativeStock,
         'require_batch_on_receipt': product.requireBatchOnReceipt,
         'require_batch_on_issue': product.requireBatchOnIssue,
@@ -1766,6 +1767,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   late final TextEditingController _mrp;
   late final TextEditingController _minimumSellingPrice;
   late final TextEditingController _shelfLife;
+  String _issueRule = '';
   late final TextEditingController _remarks;
   late String _productType;
   late String _status;
@@ -1898,6 +1900,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     _trackWarranty = product?.trackWarranty ?? false;
     _allowNegativeStock = product?.allowNegativeStock ?? false;
     _notForSale = product?.notForSale ?? false;
+    _issueRule = product?.issueRule ?? '';
     _requireBatchOnReceipt = product?.requireBatchOnReceipt ?? false;
     _requireBatchOnIssue = product?.requireBatchOnIssue ?? false;
     _requireSerialOnReceipt = product?.requireSerialOnReceipt ?? false;
@@ -2555,6 +2558,25 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
           width: 320,
           helper: "Fills a batch's expiry from its manufacturing date",
         ),
+        // STK-11: which batch the goods leave from.
+        SizedBox(
+          width: 320,
+          child: DropdownButtonFormField<String>(
+            key: const ValueKey('product-issue-rule'),
+            isExpanded: true,
+            initialValue: _issueRule,
+            decoration: const InputDecoration(labelText: 'Batch issue rule'),
+            items: const [
+              DropdownMenuItem(value: '', child: Text('Earliest expiry first')),
+              DropdownMenuItem(value: 'FIFO', child: Text('First received first')),
+              DropdownMenuItem(
+                  value: 'PICK', child: Text('Person picks the batch')),
+            ],
+            onChanged: _readOnly
+                ? null
+                : (value) => setState(() => _issueRule = value ?? ''),
+          ),
+        ),
         SizedBox(
           width: 320,
           child: SwitchListTile.adaptive(
@@ -3157,6 +3179,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       'track_warranty': _trackWarranty,
       'not_for_sale': _notForSale,
       'shelf_life_days': int.tryParse(_shelfLife.text.trim()),
+      'issue_rule': _issueRule.isEmpty ? null : _issueRule,
       'allow_negative_stock': _allowNegativeStock,
       'require_batch_on_receipt': _requireBatchOnReceipt,
       'require_batch_on_issue': _requireBatchOnIssue,
@@ -3214,6 +3237,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       _mrp.clear();
       _minimumSellingPrice.clear();
       _shelfLife.clear();
+      _issueRule = '';
       _remarks.clear();
       for (final AttributeFieldController controller
           in _attributeControllers.values) {

@@ -216,6 +216,9 @@ class Product(BaseEntity):
     #: Days from manufacture to expiry (STK-18). A receipt that types only the
     #: manufacturing date gets its expiry from this; None fills nothing.
     shelf_life_days: Mapped[int | None] = mapped_column(Integer)
+    #: Which batch the goods leave from: FEFO, FIFO or PICK (STK-11). None
+    #: is earliest expiry, as every product followed before.
+    issue_rule: Mapped[str | None] = mapped_column(String(10))
     remarks: Mapped[str | None] = mapped_column(Text)
     track_batch: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"

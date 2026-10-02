@@ -165,5 +165,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(sent?['shelf_life_days'], 180);
+    // STK-11: no rule chosen is earliest expiry, sent as null.
+    expect(sent?['issue_rule'], isNull);
   });
 }
