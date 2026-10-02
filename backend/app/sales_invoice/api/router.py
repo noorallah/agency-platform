@@ -384,7 +384,9 @@ def check_sales_invoice_prices(
         )
     ).all()
     return ApiResponse(
-        data=PriceFloorService(db).check(scope.firm_id, invoice_lines(lines))
+        data=PriceFloorService(db).check(
+            scope.firm_id, invoice_lines(lines), as_of=row.invoice_date
+        )
     )
 
 

@@ -907,7 +907,12 @@ class SalesInvoiceService(TransactionalDocumentService):
         return row
 
     def dispatch_and_invoice(
-        self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID
+        self,
+        note_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        batch_reason: str | None = None,
     ) -> SalesInvoice:
         """Dispatch an approved delivery note and bill it, in one transaction.
 
@@ -932,7 +937,14 @@ class SalesInvoiceService(TransactionalDocumentService):
                 f"{note.delivery_note_number} is {note.status.lower()}: only an "
                 "approved delivery note can be dispatched and invoiced."
             )
-        notes.stage_dispatch(note.id, firm_scope=firm_scope, actor_id=actor_id)
+        # A person dispatching, so the firm's batch rules judge it (79 row 6).
+        notes.stage_dispatch(
+            note.id,
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+            batch_reason=batch_reason,
+            judge_batches=True,
+        )
         self._session.flush()
         lines = self._session.scalars(
             select(DeliveryNoteLine)
@@ -1094,6 +1106,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 ).all()
             ),
             override_reason=price_override_reason,
+            as_of=row.invoice_date,
         )
         # What the bill itself typed, against the approver's limit (backlog 64
         # row 3); what it inherited was judged when its order was approved.

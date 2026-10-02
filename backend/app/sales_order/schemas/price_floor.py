@@ -41,6 +41,9 @@ class PriceFloorFinding(SalesOrderSchema):
     #: sells may not be allowed to see what the goods cost.
     minimum_price: Decimal | None
     message: str
+    #: Why the line may be sold below its floor anyway -- its batches are near
+    #: expiry (decision A2). An exempt line never warns or blocks.
+    exemption: str | None = None
 
 
 class PriceFloorCheckResponse(SalesOrderSchema):

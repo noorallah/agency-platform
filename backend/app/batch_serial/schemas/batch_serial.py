@@ -3,6 +3,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -191,6 +192,43 @@ class BatchAvailability(BatchSchema):
     expired: bool
     near_expiry: bool
     fefo: Decimal = Decimal("0")
+
+
+NearExpiryPolicy = Literal["WARN", "REASON"]
+FefoSkipPolicy = Literal["RECORD", "REASON"]
+
+
+class BatchSaleSettingsWrite(BatchSchema):
+    """Replace the firm's batch-sale rules (backlog 79 row 6). All sent."""
+
+    near_expiry_days: int = Field(ge=0, le=730)
+    near_expiry_policy: NearExpiryPolicy
+    fefo_skip_policy: FefoSkipPolicy
+    near_expiry_below_floor: bool
+
+
+class BatchSaleSettingsResponse(BatchSaleSettingsWrite):
+    """The firm's rules, and whether the firm actually chose them."""
+
+    is_configured: bool
+
+
+class DispatchBatchFinding(BatchSchema):
+    """One line of a delivery note whose batches a rule has something to say on."""
+
+    line_number: int
+    #: NEAR_EXPIRY or FEFO_SKIP.
+    kind: Literal["NEAR_EXPIRY", "FEFO_SKIP"]
+    message: str
+
+
+class DispatchBatchCheck(BatchSchema):
+    """What dispatching a note would meet under the firm's batch rules (79)."""
+
+    findings: list[DispatchBatchFinding]
+    #: True when a finding's rule is REASON: dispatch needs ``batch_reason``.
+    needs_reason: bool
+    message: str | None
 
 
 # ── Lot schemas ──────────────────────────────────────────────────────────────
