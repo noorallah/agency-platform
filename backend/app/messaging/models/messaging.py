@@ -49,6 +49,12 @@ class MessagingSettings(BaseEntity):
     overdue_every_days: Mapped[int] = mapped_column(
         Integer, nullable=False, default=7, server_default="7"
     )
+    #: PAYMENT_OVERDUE stops for a bill this many days past its due date
+    #: (decision A12): switching reminders on must not chase every bill
+    #: overdue since the firm began. 90 unless the firm says otherwise.
+    overdue_stop_after_days: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=90, server_default="90"
+    )
     #: The UTC day the reminder scan last ran for this firm; it runs once a day.
     last_reminder_scan_on: Mapped[date | None] = mapped_column(Date)
 

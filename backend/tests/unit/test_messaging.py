@@ -161,11 +161,14 @@ class _Shop(_Firm):
         self.stages(quotation=False, sales_order=False, delivery_note=False)
         self.messaging = MessagingService(self.session)
 
-    def switch_on(self, *, overdue_every: int = 7) -> None:
+    def switch_on(self, *, overdue_every: int = 7, stop_after: int = 90) -> None:
         """Turn messaging on for the firm."""
         self.messaging.update_settings(
             MessagingSettingsWrite(
-                is_enabled=True, due_soon_days=3, overdue_every_days=overdue_every
+                is_enabled=True,
+                due_soon_days=3,
+                overdue_every_days=overdue_every,
+                overdue_stop_after_days=stop_after,
             ),
             firm_id=self.firm.id,
             actor_id=self.actor_id,
@@ -725,6 +728,28 @@ def test_an_overdue_reminder_goes_once_per_cycle(shop: _Shop) -> None:
     assert (
         "8" in shop.outbox()[1].variables
     )  # days overdue, in order  # type: ignore[operator]
+
+
+def test_a_bill_overdue_longer_than_the_window_is_not_reminded(shop: _Shop) -> None:
+    """Decision A12: switching reminders on does not chase every old bill.
+
+    Due 1 September, a 30-day window: reminded on the 30th day overdue, not on
+    the 31st -- and not on switching on in December either.
+    """
+    shop.switch_on(overdue_every=1, stop_after=30)
+    shop.channel("EMAIL")
+    shop.event("PAYMENT_OVERDUE", "EMAIL")
+    _overdue(shop, 0)
+    shop.run(datetime(2026, 10, 1, 9, tzinfo=UTC))  # 30 days overdue
+    assert len(shop.outbox()) == 1
+    shop.run(datetime(2026, 10, 2, 9, tzinfo=UTC))  # 31: past the window
+    shop.run(datetime(2026, 12, 1, 9, tzinfo=UTC))
+    assert len(shop.outbox()) == 1
+
+
+def test_the_window_defaults_to_ninety_days(shop: _Shop) -> None:
+    """A firm that never chose stops at 90."""
+    assert shop.messaging.settings_response(shop.firm.id).overdue_stop_after_days == 90
 
 
 def test_a_due_soon_reminder_goes_once_before_the_due_date(shop: _Shop) -> None:

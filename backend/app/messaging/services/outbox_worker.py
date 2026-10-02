@@ -448,7 +448,13 @@ def _scan_reminders(
                     occurrence=f"DUE-{due.isoformat()}",
                 )
                 _count(staged, report)
-            if "PAYMENT_OVERDUE" in wanted and due < today:
+            # A bill long past due is the firm's to chase by hand, not a
+            # message the day reminders are switched on (decision A12).
+            if (
+                "PAYMENT_OVERDUE" in wanted
+                and due < today
+                and (today - due).days <= settings.overdue_stop_after_days
+            ):
                 days_overdue, cycle = overdue_cycle(
                     due, today, settings.overdue_every_days
                 )

@@ -66,6 +66,8 @@ class MessagingSettingsResponse(MessagingSchema):
     is_enabled: bool
     due_soon_days: int
     overdue_every_days: int
+    #: A bill more than this many days overdue is not reminded (A12).
+    overdue_stop_after_days: int
     #: False until the firm saves the page once.
     is_configured: bool
     #: False when the server has no AGENCY_MESSAGING_KEY in production: no
@@ -79,6 +81,7 @@ class MessagingSettingsWrite(MessagingSchema):
     is_enabled: bool = False
     due_soon_days: int = Field(default=3, ge=0, le=60)
     overdue_every_days: int = Field(default=7, ge=1, le=90)
+    overdue_stop_after_days: int = Field(default=90, ge=1, le=3650)
 
 
 class ChannelResponse(MessagingSchema):

@@ -15,7 +15,8 @@ Everything below is done once, under **Settings → Messaging**.
 Tick **Send messages from this firm**. Set the reminder schedule if the
 defaults do not suit you: a *due soon* reminder 3 days before a bill falls due,
 and an *overdue* reminder the day after it falls due and every 7 days while it
-is still owed.
+is still owed -- until it is 90 days overdue (*stop after n days*), so a bill
+unpaid for years is not suddenly chased the day you switch reminders on.
 
 If the page says the server cannot store accounts, ask whoever installed the
 software to set `AGENCY_MESSAGING_KEY` in the server's `config\.env` and
