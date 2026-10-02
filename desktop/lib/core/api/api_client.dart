@@ -7819,6 +7819,7 @@ class ApiClient {
     String? entityType,
     String? dateFrom,
     String? dateTo,
+    String? search,
   }) =>
       _list(
         '/api/v1/audit-logs',
@@ -7832,6 +7833,7 @@ class ApiClient {
             'entity_type': entityType,
           if (dateFrom != null && dateFrom.isNotEmpty) 'date_from': dateFrom,
           if (dateTo != null && dateTo.isNotEmpty) 'date_to': dateTo,
+          if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
         },
       );
 

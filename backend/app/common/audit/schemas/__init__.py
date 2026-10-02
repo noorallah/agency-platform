@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AuditLogResponse(BaseModel):
@@ -49,6 +49,12 @@ class AuditLogFilters(BaseModel):
     actor_id: UUID | None = None
     date_from: date | None = None
     date_to: date | None = None
+    #: One box for the whole trail (PLT-8): part of an action, a record type,
+    #: or the name or email of who did it or was acted on.
+    search: str | None = None
+    #: The people whose name or email holds ``search``, read from the
+    #: platform store by the router -- a firm store has no ``users``.
+    search_people: list[UUID] = Field(default_factory=list)
 
 
 __all__ = ["AuditLogFilters", "AuditLogResponse"]

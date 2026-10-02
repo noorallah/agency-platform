@@ -2724,6 +2724,8 @@ stating it costs a round trip every time somebody types a short password.
 
 ### 31.17 The audit trail cannot be searched, only matched exactly (2026-09-15, plan section 23; first raised at 13.8)
 
+**Status, 2026-10-03: built** (PLT-8, A77). Partial matching on action and record type came first (#622); one search box now spans action, record type and the name or email of who did it or was acted on.
+
 **Action** and **Entity type** on Settings → Audit Logs are exact-match:
 `AuditLog.action == filters.action` in `AuditLogReader._apply`. Typing `user`
 finds nothing; only `user_template.applied`, in full, does. The boxes are

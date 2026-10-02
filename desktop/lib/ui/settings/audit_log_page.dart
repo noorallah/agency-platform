@@ -38,6 +38,7 @@ class AuditLogPage extends StatefulWidget {
 
 class _AuditLogPageState extends State<AuditLogPage> {
   static const int _rowsPerPage = 20;
+  final TextEditingController _search = TextEditingController();
   final TextEditingController _action = TextEditingController();
   final TextEditingController _entityType = TextEditingController();
   List<AuditLogEntry> _rows = const [];
@@ -62,6 +63,7 @@ class _AuditLogPageState extends State<AuditLogPage> {
 
   @override
   void dispose() {
+    _search.dispose();
     _action.dispose();
     _entityType.dispose();
     super.dispose();
@@ -78,6 +80,7 @@ class _AuditLogPageState extends State<AuditLogPage> {
       final PagedResult<AuditLogEntry> result = await widget.api.auditLogs(
         page: _page,
         pageSize: _rowsPerPage,
+        search: _search.text.trim(),
         action: _action.text.trim(),
         entityType: _entityType.text.trim(),
         dateFrom: _period.from == null ? null : DatePeriod.iso(_period.from!),
@@ -124,6 +127,18 @@ class _AuditLogPageState extends State<AuditLogPage> {
         Padding(
           padding: const EdgeInsets.all(AppSpacing.lg),
           child: Row(children: [
+            SizedBox(
+              width: 300,
+              child: TextField(
+                controller: _search,
+                decoration: const InputDecoration(
+                  hintText: 'Search actions, records or people',
+                  prefixIcon: Icon(Icons.search),
+                ),
+                onSubmitted: (_) => _load(requestedPage: 1),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
             SizedBox(
               width: 260,
               child: TextField(
@@ -252,8 +267,8 @@ class _AuditLogPageState extends State<AuditLogPage> {
           ],
         ),
         searchPanel: SearchFilterPanel(
-          controller: _action,
-          hintText: 'Search action, e.g. customer.created',
+          controller: _search,
+          hintText: 'Search actions, records or people',
           onSearch: (_) => unawaited(_load(requestedPage: 1)),
         ),
         filterPanel: FilterPanel(
