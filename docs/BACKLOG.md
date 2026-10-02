@@ -4600,7 +4600,7 @@ branch, salesman, document type and date, and the tests "is one of", "between",
 | 3 | **Product and customer sets** | "any of these 12 products" | server has `IN`; needs a multi-pick on the screen (D-SELL-42) |
 | 4 | **Buy X get Y at a discount** | buy 2, second at 50% off | new benefit; today only fully free |
 | 5 | **Combo / bundle price** | shampoo + soap for 150 | new benefit: a set price for a set of lines |
-| 6 | **Festival bonus points** | double loyalty points during Diwali | a benefit that multiplies the loyalty earn rate for the offer's dates |
+| 6 | **Festival bonus points** | double loyalty points during Diwali | **Built 2026-10-03** (SEL-4, A73): a *Bonus loyalty points* benefit multiplies what a bill earns at approval while the offer runs |
 | 7 | **Bulk coupon codes** | 500 single-use codes for a campaign, exported to CSV | **Built 2026-10-03** (SEL-5, A70): *Generate codes* mints up to 5,000 single-use codes; *Export codes* gives the CSV |
 | 8 | **Customer eligibility** | first order only; customers not billed in 90 days | new conditions |
 | 9 | **Day and time** | weekends only; 4-6 pm | **Built 2026-10-03** (SEL-7, A72): weekday from the document date, time of day in India time from when it was raised |

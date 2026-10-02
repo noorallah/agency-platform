@@ -147,6 +147,12 @@ the order is what gets approved. An unrecognised code leaves the order
 saveable and simply gives nothing -- a typo in a field that gives money away
 must not refuse a sale.
 
+**Bonus points are an offer settled at approval, not at pricing** (SEL-4,
+A73): `LOYALTY_MULTIPLIER` is the only benefit on its offer, the pricing
+engine passes over it, and `LoyaltyService.bonus_for` applies the largest
+live multiplier whose conditions hold for the bill as a whole when the
+points are earned. Multipliers do not stack -- they are rates.
+
 **An offer can hold to days and hours** (SEL-7, A72): `weekday` is the
 document date's ISO weekday and `time_of_day` the minutes after midnight in
 India time of when the document was raised -- its own `created_at`, so a

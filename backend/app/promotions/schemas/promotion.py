@@ -105,6 +105,12 @@ class PromotionActionType(StrEnum):
     #: charge at all. A firm wanting to take only part of it off has
     #: `BILL_DISCOUNT_AMOUNT` already, which is why this takes no parameter.
     FREE_SHIPPING = "FREE_SHIPPING"
+    #: Multiplies the loyalty points a bill earns while the offer runs --
+    #: "double points for Diwali" (SEL-4). It changes nothing on the document:
+    #: the points are earned when the bill is approved, so the pricing engine
+    #: passes over it and the loyalty scheme reads it. An offer carrying it
+    #: carries nothing else.
+    LOYALTY_MULTIPLIER = "LOYALTY_MULTIPLIER"
 
 
 class PromotionConditionWrite(PromotionSchema):
@@ -203,6 +209,11 @@ class PromotionActionWrite(PromotionSchema):
         default=None, ge=0, le=100, max_digits=9, decimal_places=4
     )
     amount: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
+    #: For LOYALTY_MULTIPLIER: how many times the usual points, above 1 and
+    #: at most 10 (SEL-4).
+    multiplier: Decimal | None = Field(
+        default=None, gt=1, le=10, max_digits=6, decimal_places=2
+    )
     #: For FREE_QUANTITY: how many must be bought, and how many come free.
     buy_quantity: Decimal | None = Field(
         default=None, gt=0, max_digits=18, decimal_places=4
@@ -247,6 +258,11 @@ class PromotionActionWrite(PromotionSchema):
                 raise ValueError("Say which product is given away.")
             if self.free_quantity is None:
                 raise ValueError("Say how many of it are given away.")
+        points = self.action_type is PromotionActionType.LOYALTY_MULTIPLIER
+        if points and self.multiplier is None:
+            raise ValueError("Say how many times the usual points, such as 2.")
+        if not points and self.multiplier is not None:
+            raise ValueError("Only a bonus-points benefit has a multiplier.")
         return self
 
 
@@ -270,6 +286,23 @@ class PromotionWrite(PromotionSchema):
         default_factory=list, max_length=50
     )
     actions: list[PromotionActionWrite] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def _points_offer_stands_alone(self) -> "PromotionWrite":
+        """Keep a bonus-points offer apart from price benefits (SEL-4).
+
+        Its points are earned at approval while a price benefit is given when
+        the document is priced, and one offer settled at two moments would be
+        claimed once and paid twice -- or the other way round.
+        """
+        kinds = {action.action_type for action in self.actions}
+        points = PromotionActionType.LOYALTY_MULTIPLIER
+        if points in kinds and len(kinds) > 1:
+            raise ValueError(
+                "A bonus-points offer gives nothing else; make the discount a "
+                "separate offer."
+            )
+        return self
 
     @model_validator(mode="after")
     def _window_is_ordered(self) -> "PromotionWrite":
