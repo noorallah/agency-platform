@@ -168,4 +168,67 @@ void main() {
     // STK-11: no rule chosen is earliest expiry, sent as null.
     expect(sent?['issue_rule'], isNull);
   });
+
+  group('the product code (MST-5)', () {
+    Future<List<Json>> pumpForm(
+      WidgetTester tester,
+      ProductDialogMode mode,
+      Product? product,
+    ) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final List<Json> sent = <Json>[];
+      await tester.pumpWidget(MaterialApp(
+        builder: (context, child) => Phase2Scope(child: child!),
+        home: Scaffold(
+          body: ProductWorkspaceDialog(
+            mode: mode,
+            product: product,
+            categories: const [],
+            uoms: const [],
+            definitions: const [],
+            metadata: _metadata,
+            initialTab: 'general',
+            onMetadataForCategory: (_) async => _metadata,
+            onSave: (payload) async {
+              sent.add(payload);
+              return _product;
+            },
+            onTabChanged: (_) {},
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return sent;
+    }
+
+    testWidgets('a new product may leave it blank and sends none',
+        (tester) async {
+      final List<Json> sent =
+          await pumpForm(tester, ProductDialogMode.create, null);
+      expect(find.text('Blank: issued on save'), findsOneWidget);
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Product name *'),
+        'Cough Syrup',
+      );
+      await tester.tap(find.byKey(const ValueKey('product-save')));
+      await tester.pumpAndSettle();
+      expect(sent, hasLength(1));
+      expect(sent.single.containsKey('code'), isFalse);
+    });
+
+    testWidgets('an edit still refuses a blank code', (tester) async {
+      final List<Json> sent =
+          await pumpForm(tester, ProductDialogMode.edit, _product);
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Product code *'),
+        '',
+      );
+      await tester.tap(find.byKey(const ValueKey('product-save')));
+      await tester.pumpAndSettle();
+      expect(sent, isEmpty);
+      expect(find.textContaining('Product code is required.'), findsOneWidget);
+    });
+  });
 }

@@ -29,6 +29,7 @@ from app.business.models import (
 from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit, record_change, row_state
 from app.common.firm_metadata import FirmMetadataReader
+from app.common.master_code_series import MasterCodeNumbering
 from app.common.master_codes import assert_codes_free
 from app.common.open_documents import (
     describe_documents,
@@ -327,11 +328,19 @@ class ProductService:
         Split out so the import can stage a whole file and commit once. Nothing
         here is durable until the caller commits.
         """
+        if data.code is None:
+            # A blank code takes the next from the firm's series (MST-5).
+            issued = MasterCodeNumbering(self._session, "PRODUCT").code(
+                None, code_column=Product.code, firm_id=firm_id, actor_id=actor_id
+            )
+            data = data.model_copy(update={"code": issued})
+        # Issued above when it was left blank, so always a code from here on.
+        code = data.code or ""
         # The form and all three import formats end here, so one check covers
         # every way a product is created (D-MST-10).
-        self._assert_duties_held(None, self._product_values(data), code=data.code)
-        self._assert_attribute_duty_held(None, data.attributes, code=data.code)
-        self._assert_unique_code(firm_id, data.code)
+        self._assert_duties_held(None, self._product_values(data), code=code)
+        self._assert_attribute_duty_held(None, data.attributes, code=code)
+        self._assert_unique_code(firm_id, code)
         self._assert_unique_barcode(firm_id, data.barcode)
         category = self._validate_category_reference(firm_id, data.category_id)
         self._validate_sub_category_reference(

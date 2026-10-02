@@ -1162,7 +1162,13 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         children: [
           Row(
             children: [
-              Expanded(child: _field(_code, 'Vendor Code')),
+              Expanded(
+                child: _field(
+                  _code,
+                  'Vendor Code',
+                  helper: widget.vendor == null ? 'Blank: issued on save' : null,
+                ),
+              ),
               const SizedBox(width: 12),
               Expanded(child: _field(_name, 'Vendor Name')),
             ],
@@ -1741,7 +1747,9 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
       );
 
   Json _payload() => {
-        'code': _code.text.trim().toUpperCase(),
+        // Blank on a new vendor: the server issues the next code.
+        if (widget.vendor != null || _code.text.trim().isNotEmpty)
+          'code': _code.text.trim().toUpperCase(),
         'name': _name.text.trim(),
         'legal_name': _legalName.text.trim(),
         'display_name': _displayName.text.trim().isEmpty

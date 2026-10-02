@@ -14,6 +14,7 @@ from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader
+from app.common.master_code_series import MasterCodeNumbering
 from app.common.master_references import (
     MasterReferences,
     assert_master_references,
@@ -144,6 +145,12 @@ class CustomerService:
         self, data: CustomerCreate, *, firm_id: UUID, actor_id: UUID
     ) -> Customer:
         """Stage one customer and audit event without committing."""
+        if data.code is None:
+            # A blank code takes the next from the firm's series (MST-5).
+            issued = MasterCodeNumbering(self._session, "CUSTOMER").code(
+                None, code_column=Customer.code, firm_id=firm_id, actor_id=actor_id
+            )
+            data = data.model_copy(update={"code": issued})
         # A shelf-life requirement is about expiry dates (backlog 79 row 6).
         assert_feature_fields(
             self._session,
@@ -748,7 +755,10 @@ class CustomerService:
     ) -> None:
         if (
             self._repository.duplicate_id(
-                firm_id, code=data.code, excluding_id=excluding_id
+                # A create's blank code is issued before this is asked.
+                firm_id,
+                code=data.code or "",
+                excluding_id=excluding_id,
             )
             is not None
         ):
