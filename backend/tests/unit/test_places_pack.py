@@ -49,6 +49,7 @@ def _session() -> Session:
         ("LD", "Lakshadweep"),
         ("PY", "Puducherry"),
         ("KA", "Karnataka"),
+        ("TN", "Tamil Nadu"),
     ):
         session.add(GeoState(country_id=india.id, code=code, name=name))
     session.commit()
@@ -79,7 +80,7 @@ def test_the_pack_offers_every_state_with_the_south_ticked() -> None:
     assert states["LD"]["available"] and states["LD"]["post_offices"] == 10
     assert states["TN"]["default"] and not states["MH"]["default"]
     # This store holds only three states; the rest cannot be loaded here.
-    assert not states["TN"]["available"]
+    assert not states["MH"]["available"]
 
 
 def test_a_state_loads_district_town_pin_and_locality() -> None:
@@ -208,5 +209,17 @@ def test_an_unknown_or_missing_state_is_refused_or_reported() -> None:
         service.load(["ZZ"], actor_id=ACTOR)
     with pytest.raises(ValidationError, match="at least one state"):
         service.load([" "], actor_id=ACTOR)
-    result = service.load(["TN"], actor_id=ACTOR).states[0]
+    result = service.load(["MH"], actor_id=ACTOR).states[0]
     assert result.note is not None and result.localities == 0
+
+
+def test_a_pin_across_a_border_keeps_both_sides_offices() -> None:
+    """A PIN in two states gets the second state's offices as localities."""
+    session = _session()
+
+    outcome = PlacesPackService(session).load(["TN", "PY"], actor_id=ACTOR)
+
+    puducherry = outcome.states[1]
+    assert puducherry.skipped == 0
+    assert puducherry.localities == 95
+    assert puducherry.postal_codes < 33

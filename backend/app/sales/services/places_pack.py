@@ -149,6 +149,7 @@ class PlacesPackService:
     def __init__(self, session: Session) -> None:
         """Keep the store session the places are loaded into."""
         self._session = session
+        self._fresh: dict[str, tuple[UUID, set[str]]] = {}
 
     def summary(self) -> list[dict[str, object]]:
         """Return each state in the pack: its size and how much is loaded.
@@ -162,7 +163,9 @@ class PlacesPackService:
                 select(GeoDistrict.state_id, func.count())
                 .where(GeoDistrict.is_deleted.is_(False))
                 .group_by(GeoDistrict.state_id)
-            ).tuples().all()
+            )
+            .tuples()
+            .all()
         )
         result: list[dict[str, object]] = []
         for code, offices in sorted(_pack().items()):
@@ -203,6 +206,10 @@ class PlacesPackService:
             raise ValidationError(f"Not in the places file: {', '.join(unknown)}.")
         states = self._states()
         outcome = PlacesLoad()
+        # PIN codes this load created, with their localities: a PIN that
+        # crosses a district or state border gets the other side's offices
+        # as localities rather than losing them.
+        self._fresh = {}
         for code in dict.fromkeys(wanted):
             state = states.get(code)
             if state is None:
@@ -309,7 +316,9 @@ class PlacesPackService:
 
         # PIN codes held anywhere in the store, live or deleted: a PIN is one
         # place nationally, and a firm's own entry or deletion stands.
-        pins_held = set(self._session.scalars(select(GeoPostalCode.postal_code)))
+        pins_held = set(self._session.scalars(select(GeoPostalCode.postal_code))) - set(
+            self._fresh
+        )
         cities_held: dict[UUID, dict[str, GeoCity]] = defaultdict(dict)
         for row in self._session.scalars(
             select(GeoCity).where(GeoCity.district_id.in_(list(district_ids.values())))
@@ -332,10 +341,13 @@ class PlacesPackService:
             for office in offices_here:
                 by_pin[office.pincode].append(office)
             for pincode, pin_offices in sorted(by_pin.items()):
+                if pincode in self._fresh:
+                    pin_id, seen = self._fresh[pincode]
+                    self._localities(pin_id, pin_offices, seen, new_localities, audit)
+                    continue
                 if pincode in pins_held:
                     report.skipped += 1
                     continue
-                pins_held.add(pincode)
                 main = min(
                     pin_offices,
                     key=lambda item: (_DELIVERING.get(item.kind, 9), item.office),
@@ -370,21 +382,10 @@ class PlacesPackService:
                         **audit,
                     }
                 )
-                seen: set[str] = set()
-                for entry in sorted(pin_offices, key=lambda item: item.office):
-                    locality = place_name(entry.office)[:120]
-                    if locality.casefold() in seen:
-                        continue
-                    seen.add(locality.casefold())
-                    new_localities.append(
-                        {
-                            "id": uuid4(),
-                            "postal_code_id": pin_id,
-                            "name": locality,
-                            "is_active": True,
-                            **audit,
-                        }
-                    )
+                self._fresh[pincode] = (pin_id, set())
+                self._localities(
+                    pin_id, pin_offices, self._fresh[pincode][1], new_localities, audit
+                )
         batches: list[tuple[type[object], list[dict[str, object]]]] = [
             (GeoCity, new_cities),
             (GeoPostalCode, new_pins),
@@ -397,3 +398,27 @@ class PlacesPackService:
         report.postal_codes = len(new_pins)
         report.localities = len(new_localities)
         return report
+
+    @staticmethod
+    def _localities(
+        pin_id: UUID,
+        offices: list[_Office],
+        seen: set[str],
+        into: list[dict[str, object]],
+        audit: dict[str, UUID],
+    ) -> None:
+        """Add each office under a PIN as a locality, once by name."""
+        for entry in sorted(offices, key=lambda item: item.office):
+            locality = place_name(entry.office)[:120]
+            if locality.casefold() in seen:
+                continue
+            seen.add(locality.casefold())
+            into.append(
+                {
+                    "id": uuid4(),
+                    "postal_code_id": pin_id,
+                    "name": locality,
+                    "is_active": True,
+                    **audit,
+                }
+            )
