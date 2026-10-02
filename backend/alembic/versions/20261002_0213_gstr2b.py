@@ -156,9 +156,7 @@ def upgrade() -> None:
                 ondelete="CASCADE",
             ),
         )
-        op.create_index(
-            "IX_gstr2b_documents_firm_id", "gstr2b_documents", ["firm_id"]
-        )
+        op.create_index("IX_gstr2b_documents_firm_id", "gstr2b_documents", ["firm_id"])
         op.create_index(
             "IX_gstr2b_documents_import", "gstr2b_documents", ["gstr2b_import_id"]
         )
