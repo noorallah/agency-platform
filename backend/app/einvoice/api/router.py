@@ -25,6 +25,7 @@ from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.core.utils.dates import utc_now
 from app.einvoice.models import EInvoiceRegistration, EWayBill
 from app.einvoice.services import EInvoiceService
+from app.einvoice.services.eway_bills import EWayBillService
 from app.einvoice.services.offline import OfflineEInvoiceService
 from app.einvoice.services.settings import (
     AVAILABLE_PROVIDERS,
@@ -98,7 +99,11 @@ class EWayBillResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    sales_invoice_id: UUID
+    sales_invoice_id: UUID | None
+    #: The challan it travels on, where no invoice bills the goods (77.9).
+    delivery_note_id: UUID | None = None
+    #: Raised by hand on the portal and its number recorded here (A42).
+    entered_by_hand: bool = False
     mode: str
     status: str
     eway_bill_number: str | None
@@ -262,6 +267,166 @@ async def import_offline(
             f"{len(report.registered)} registered, {len(report.failed)} refused, "
             f"{len(report.unmatched)} not matched."
         ),
+    )
+
+
+class EWayBillDueItem(BaseModel):
+    """A consignment above the firm's limit with no live e-way bill."""
+
+    document_type: str
+    document_id: UUID
+    number: str
+    on: date
+    value: Decimal
+
+
+class EWayBillDueResponse(BaseModel):
+    """The firm's limit and what is above it without an e-way bill (77.10)."""
+
+    limit: Decimal
+    items: list[EWayBillDueItem]
+
+
+class EWayBillRecordRequest(BaseModel):
+    """An e-way bill raised by hand on the portal, for one document (A42)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    sales_invoice_id: UUID | None = None
+    delivery_note_id: UUID | None = None
+    eway_bill_number: str = Field(min_length=12, max_length=20)
+    valid_until: date | None = None
+    distance_km: Decimal | None = Field(
+        default=None, gt=0, max_digits=9, decimal_places=2
+    )
+    vehicle_number: str | None = Field(default=None, max_length=20)
+
+
+def _eway_service(db: Session, firm_id: UUID) -> EWayBillService:
+    """Return the e-way bill service on the firm's route."""
+    base = EInvoiceService.for_firm(db, firm_id)
+    return EWayBillService(db, mode=base.mode, provider=base.provider)
+
+
+@router.get("/eway-bills/due", response_model=ApiResponse[EWayBillDueResponse])
+def eway_bills_due(
+    scope: EInvoiceViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[EWayBillDueResponse]:
+    """List consignments above the firm's limit with no e-way bill (77.10)."""
+    service = _eway_service(db, scope.firm_id)
+    return ApiResponse(
+        data=EWayBillDueResponse(
+            limit=service.limit(scope.firm_id),
+            items=[
+                EWayBillDueItem(
+                    document_type=item.document_type,
+                    document_id=item.document_id,
+                    number=item.number,
+                    on=item.on,
+                    value=item.value,
+                )
+                for item in service.due(scope.firm_id)
+            ],
+        )
+    )
+
+
+@router.post("/eway-bills/record", response_model=ApiResponse[EWayBillResponse])
+def record_eway_bill(
+    payload: EWayBillRecordRequest,
+    scope: EInvoiceManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[EWayBillResponse]:
+    """Record an e-way bill raised by hand on the portal (A42)."""
+    row = _eway_service(db, scope.firm_id).record(
+        invoice_id=payload.sales_invoice_id,
+        note_id=payload.delivery_note_id,
+        eway_bill_number=payload.eway_bill_number,
+        valid_until=payload.valid_until,
+        distance_km=payload.distance_km,
+        vehicle_number=payload.vehicle_number,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    db.commit()
+    db.refresh(row)
+    return ApiResponse(
+        data=EWayBillResponse.model_validate(row),
+        message=f"E-way bill {row.eway_bill_number} recorded.",
+    )
+
+
+@router.get(
+    "/delivery-notes/{note_id}/eway-bill",
+    response_model=ApiResponse[EWayBillResponse | None],
+)
+def get_note_eway_bill(
+    note_id: UUID,
+    scope: EInvoiceViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[EWayBillResponse | None]:
+    """Return a delivery note's e-way bill, or nothing."""
+    row = _eway_service(db, scope.firm_id).for_note(note_id, firm_scope=scope.firm_id)
+    return ApiResponse(
+        data=None if row is None else EWayBillResponse.model_validate(row)
+    )
+
+
+@router.post(
+    "/delivery-notes/{note_id}/eway-bill",
+    response_model=ApiResponse[EWayBillResponse],
+)
+def generate_note_eway_bill(
+    note_id: UUID,
+    payload: EWayBillRequest,
+    scope: EInvoiceManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[EWayBillResponse]:
+    """Raise an e-way bill for a delivery note no invoice bills (77 row 9)."""
+    row = _eway_service(db, scope.firm_id).generate_for_note(
+        note_id,
+        distance_km=payload.distance_km,
+        transport_mode=payload.transport_mode,
+        transporter_id=payload.transporter_id,
+        transporter_name=payload.transporter_name,
+        vehicle_number=payload.vehicle_number,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    db.commit()
+    db.refresh(row)
+    return ApiResponse(
+        data=EWayBillResponse.model_validate(row),
+        message=(
+            f"E-way bill raised in {row.mode} mode."
+            if row.status == "GENERATED"
+            else "The portal refused this consignment."
+        ),
+    )
+
+
+@router.post(
+    "/delivery-notes/{note_id}/eway-bill/cancel",
+    response_model=ApiResponse[EWayBillResponse],
+)
+def cancel_note_eway_bill(
+    note_id: UUID,
+    payload: CancellationRequest,
+    scope: EInvoiceManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[EWayBillResponse]:
+    """Withdraw a delivery note's e-way bill."""
+    row = _eway_service(db, scope.firm_id).cancel_for_note(
+        note_id,
+        reason=payload.reason,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    db.commit()
+    db.refresh(row)
+    return ApiResponse(
+        data=EWayBillResponse.model_validate(row), message="E-way bill withdrawn."
     )
 
 

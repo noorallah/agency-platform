@@ -35,6 +35,8 @@ from app.tax.schemas.gst_compliance import (
 
 #: The policy every firm without a row shares.
 DEFAULT_DISPATCH_WITHOUT_INVOICE = "WARN"
+#: The national e-way bill limit; a firm sets its own state's (A35).
+DEFAULT_EWAY_BILL_LIMIT = Decimal("50000")
 
 #: Why a delivery note goes out. SALE is the default; the rest are the
 #: movements a challan may carry ahead of the invoice.
@@ -75,6 +77,7 @@ class GstComplianceService:
                 route_sale_needs_invoice=False,
                 itc_claim_basis="ALL",
                 gstr2b_tolerance=Decimal("1.00"),
+                eway_bill_limit=DEFAULT_EWAY_BILL_LIMIT,
                 is_configured=False,
             )
         return GstComplianceSettingsResponse(
@@ -84,6 +87,7 @@ class GstComplianceService:
             route_sale_needs_invoice=stored.route_sale_needs_invoice,
             itc_claim_basis=stored.itc_claim_basis or "ALL",
             gstr2b_tolerance=Decimal(str(stored.gstr2b_tolerance)),
+            eway_bill_limit=Decimal(str(stored.eway_bill_limit)),
             is_configured=True,
         )
 
@@ -106,6 +110,8 @@ class GstComplianceService:
             row.itc_claim_basis = data.itc_claim_basis
         if data.gstr2b_tolerance is not None:
             row.gstr2b_tolerance = data.gstr2b_tolerance
+        if data.eway_bill_limit is not None:
+            row.eway_bill_limit = data.eway_bill_limit
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -141,6 +147,7 @@ class GstComplianceService:
             ),
             "dispatch_without_invoice": row.dispatch_without_invoice,
             "route_sale_needs_invoice": row.route_sale_needs_invoice,
+            "eway_bill_limit": str(row.eway_bill_limit),
             "itc_claim_basis": row.itc_claim_basis,
             "gstr2b_tolerance": str(row.gstr2b_tolerance),
         }

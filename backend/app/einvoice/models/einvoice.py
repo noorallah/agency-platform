@@ -21,6 +21,8 @@ from uuid import UUID
 
 from sqlalchemy import (
     JSON,
+    Boolean,
+    CheckConstraint,
     Date,
     ForeignKey,
     Index,
@@ -160,19 +162,37 @@ class TransportMode(StrEnum):
 
 
 class EWayBill(BaseEntity):
-    """One consignment's e-way bill, raised against an invoice."""
+    """One consignment's e-way bill, raised against an invoice or a challan.
+
+    An invoice, as before; or, where no invoice bills the goods yet, the
+    delivery note that moves them (backlog 77 row 9). Exactly one is named.
+    """
 
     __tablename__ = "eway_bills"
     __table_args__ = (
         UniqueConstraint("firm_id", "sales_invoice_id", name="UQ_eway_bills_invoice"),
+        UniqueConstraint(
+            "firm_id", "delivery_note_id", name="UQ_eway_bills_delivery_note"
+        ),
+        CheckConstraint(
+            "(sales_invoice_id IS NULL) <> (delivery_note_id IS NULL)",
+            name="CK_eway_bills_one_document",
+        ),
         Index("IX_eway_bills_firm_status", "firm_id", "status"),
     )
 
     firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
-    sales_invoice_id: Mapped[UUID] = mapped_column(
-        UUIDType(),
-        ForeignKey("sales_invoices.id", ondelete="RESTRICT"),
-        nullable=False,
+    sales_invoice_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("sales_invoices.id", ondelete="RESTRICT")
+    )
+    #: The challan it travels on, where no invoice bills the goods yet.
+    delivery_note_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("delivery_notes.id", ondelete="RESTRICT")
+    )
+    #: Raised by hand on the e-way bill portal and its number recorded here
+    #: (a firm filing offline, A42), rather than through this platform.
+    entered_by_hand: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
     )
     mode: Mapped[str] = mapped_column(String(20), nullable=False)
     status: Mapped[str] = mapped_column(

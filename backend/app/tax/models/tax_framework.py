@@ -366,6 +366,12 @@ class GstComplianceSettings(BaseEntity):
     itc_claim_basis: Mapped[str] = mapped_column(
         String(15), nullable=False, default="ALL", server_default="ALL"
     )
+    #: A consignment worth more than this needs an e-way bill (backlog 77
+    #: row 10, A35): the screen prompts for one, and the due list names it.
+    #: Each firm sets its state's limit; ₹50,000 is the national one.
+    eway_bill_limit: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("50000"), server_default="50000"
+    )
     #: How far a bill's tax may differ from GSTR-2B and still match, in rupees.
     gstr2b_tolerance: Mapped[Decimal] = mapped_column(
         Numeric(18, 2), nullable=False, default=Decimal("1.00"), server_default="1.00"
