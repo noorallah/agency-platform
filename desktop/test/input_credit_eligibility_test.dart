@@ -241,7 +241,6 @@ class _ReturnsApi extends ApiClient {
           'itc_reversed_blocked': heads(123),
           'itc_ineligible': heads(45),
           'net_itc': heads(577),
-          'inward_supplies': 'Not derived.',
         },
       };
     }

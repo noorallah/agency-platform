@@ -504,15 +504,6 @@ class _GstReturnPageState extends State<GstReturnPage> {
           ],
         ),
         _inputCredit(data),
-        Padding(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          child: Text(
-            // Said rather than shown as zero: a zero would read as "no input
-            // credit", which is a different claim from "not derived here".
-            stringValue(data['inward_supplies']),
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-        ),
       ],
     );
   }
@@ -541,7 +532,18 @@ class _GstReturnPageState extends State<GstReturnPage> {
         _money(block['cess']),
       ]);
     }
-    if (rows.isEmpty) return const SizedBox.shrink();
+    if (rows.isEmpty) {
+      // Said rather than shown as zero: a zero would read as "no input
+      // credit", which is a different claim from "not sent" (D-UI-1).
+      return Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+        child: Text(
+          'Table 4 (input tax credit) was not sent by the server, '
+          'so it is not shown here.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      );
+    }
     // Credit held back until the supplier files it (backlog 78 row 3); only
     // nonzero when the firm claims on 2B-matched bills only.
     final Object? held = data['itc_awaiting_2b'];

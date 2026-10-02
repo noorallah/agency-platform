@@ -34,7 +34,8 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
 
   String? _einvoiceFrom;
   String? _thirtyDayFrom;
-  String _dispatch = 'OFF';
+  // The server's default, so the box never shows Off while it loads (D-UI-1).
+  String _dispatch = 'WARN';
   bool _routeSaleNeedsInvoice = false;
   String _itcBasis = 'ALL';
   final TextEditingController _tolerance =
@@ -67,7 +68,7 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
         _thirtyDayFrom = settings.thirtyDayRuleFrom;
         _dispatch = _enforcements.contains(settings.dispatchWithoutInvoice)
             ? settings.dispatchWithoutInvoice
-            : 'OFF';
+            : 'WARN';
         _routeSaleNeedsInvoice = settings.routeSaleNeedsInvoice;
         _itcBasis =
             settings.itcClaimBasis == 'MATCHED_ONLY' ? 'MATCHED_ONLY' : 'ALL';

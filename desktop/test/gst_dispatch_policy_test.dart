@@ -39,7 +39,11 @@ const String _warnMessage =
     'before the goods leave.';
 
 class _GstApi extends ApiClient {
-  _GstApi({this.enforcement = 'WARN', this.message = _warnMessage})
+  _GstApi({
+    this.enforcement = 'WARN',
+    this.message = _warnMessage,
+    this.storedDispatch = 'OFF',
+  })
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -49,6 +53,9 @@ class _GstApi extends ApiClient {
 
   final String enforcement;
   final String? message;
+
+  /// What the settings read says about dispatch before invoice.
+  final String storedDispatch;
 
   /// Every call the screens made, as `METHOD path`.
   final List<String> calls = <String>[];
@@ -92,7 +99,7 @@ class _GstApi extends ApiClient {
         'data': {
           'einvoice_applicable_from': '2026-04-01',
           'thirty_day_rule_from': null,
-          'dispatch_without_invoice': 'OFF',
+          'dispatch_without_invoice': storedDispatch,
           'route_sale_needs_invoice': false,
           'is_configured': false,
         },
@@ -449,6 +456,22 @@ void main() {
         'itc_claim_basis': 'ALL',
         'gstr2b_tolerance': '1.00',
       });
+    });
+
+    testWidgets('a value the screen does not know reads as the server default',
+        (tester) async {
+      // The server defaults to WARN; starting the box at Off claimed a
+      // policy nobody chose (D-UI-1).
+      final _GstApi api = _GstApi(storedDispatch: 'SOMETHING_NEW');
+      await _pumpSettings(tester, api, ['TAX_VIEW', 'TAX_MANAGE_SETTINGS']);
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('gst-dispatch-policy')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('gst-settings-save')));
+      await tester.pumpAndSettle();
+
+      expect(api.savedSettings?['dispatch_without_invoice'], 'WARN');
     });
 
     testWidgets('without TAX_MANAGE_SETTINGS nothing can be saved',

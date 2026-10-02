@@ -129,7 +129,6 @@ Json _gstr3b() => <String, dynamic>{
         'taxable_value': 0.0,
         'tax': 0.0,
       },
-      'inward_supplies': 'Not derived: the purchase side files this.',
     };
 
 Future<void> _pump(
@@ -233,15 +232,16 @@ void main() {
     expect(find.text('SI-2026-0009'), findsOneWidget);
   });
 
-  testWidgets('the summary says it does not know the inward side',
+  testWidgets('a summary without table 4 says so rather than showing zero',
       (tester) async {
     await _pump(tester, _ReturnsApi(one: _gstr1(), summary: _gstr3b()));
     await tester.tap(find.text('GSTR-3B'));
     await tester.pumpAndSettle();
 
     // A zero in this box would read as "no input credit claimed", which is a
-    // different declaration from "this screen cannot derive it".
-    expect(find.textContaining('Not derived'), findsOneWidget);
+    // different declaration from "the server did not send it" (D-UI-1).
+    expect(find.textContaining('Table 4 (input tax credit) was not sent'),
+        findsOneWidget);
     expect(find.text('135.00'), findsWidgets);
   });
 
