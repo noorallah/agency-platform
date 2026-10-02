@@ -178,9 +178,7 @@ def test_a_count_sheet_keeps_files_and_removing_one_leaves_a_trail() -> None:
     kept = session.get(StockAttachment, row.id)
     assert kept is not None and kept.is_deleted
     actions = set(
-        session.scalars(
-            select(AuditLog.action).where(AuditLog.entity_id == count.id)
-        )
+        session.scalars(select(AuditLog.action).where(AuditLog.entity_id == count.id))
     )
     assert {"inventory.evidence_attached", "inventory.evidence_removed"} <= actions
 
