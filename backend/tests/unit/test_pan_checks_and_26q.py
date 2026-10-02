@@ -221,19 +221,30 @@ def test_a_customer_pan_is_checked_filled_and_matched() -> None:
     assert filled.pan_number == COMPANY_PAN
 
 
-def test_a_second_branch_of_the_same_company_is_not_refused_for_a_filled_pan() -> None:
-    """One company, a GSTIN per state, and a PAN unique among customers."""
+def test_a_second_branch_of_the_same_company_keeps_its_pan_and_is_named() -> None:
+    """One company, a GSTIN per state, one PAN on both (decision A7).
+
+    Until A7 the second branch's PAN was left blank, because a PAN was unique
+    among customers. Now it is kept, and the save is warned about by name.
+    """
     session = _factory()()
     firm = _firm(session)
     service = CustomerService(session)
-    service.create(
+    first = service.create(
         _customer("KA", gst_number=COMPANY_GSTIN), firm_id=firm.id, actor_id=ACTOR
     )
     other_state = f"33{COMPANY_PAN}1Z9"
     second = service.create(
         _customer("TN", gst_number=other_state), firm_id=firm.id, actor_id=ACTOR
     )
-    assert second.pan_number is None
+    assert second.pan_number == COMPANY_PAN
+    warning = service.identity_warning(
+        firm.id,
+        gst_number=second.gst_number,
+        pan_number=second.pan_number,
+        excluding_id=second.id,
+    )
+    assert warning == f"PAN {COMPANY_PAN} is also on {first.code} {first.name}."
 
 
 def test_a_customer_with_an_old_bad_pan_can_still_be_edited() -> None:

@@ -13,6 +13,8 @@ from app.customers.schemas.customer import (
     CustomerCreate,
     CustomerGroupResponse,
     CustomerGroupWrite,
+    CustomerIdentityCheck,
+    CustomerIdentityHolder,
     CustomerImportRequest,
     CustomerReceivableSummary,
     CustomerReceivableTransactionCreate,
@@ -54,6 +56,8 @@ __all__ = [
     "CustomerReceivableTransactionResponse",
     "CustomerReceivableTransactionType",
     "CustomerResponse",
+    "CustomerIdentityCheck",
+    "CustomerIdentityHolder",
     "CustomerSummary",
     "CustomerUpdate",
 ]

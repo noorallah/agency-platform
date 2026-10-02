@@ -135,6 +135,14 @@ warehouse rename its capability flags.
 - **Preconditions:** A firm administrator of QA01, and a product `QA-PM` *Slot Check*: category *Shelf*, tax profile group GST_18_LOCAL, base, inventory and sales unit PIECE, purchase unit BOX, and a *Case* barcode. (`QA-PM` has a **Case** level of 12 pieces with the barcode the preparation printed.)
 - **Steps:** as the prepared **Firm admin**, Administration → Configuration → UOM & Packaging → **Packaging Levels** (or Ctrl+K and the screen's name) → product `QA-PM` → type the barcode into "Scan or type a code" → **Look up**.
 - **Expect:** resolves to **Slot Check qa**, level **Case**, **12** base units. No scanner needed: a scanner only types the digits and presses Enter.
+
+### TC-MAST-009 — One company, two customer accounts
+
+*Added 2026-10-02 (decision A7).*
+
+- **Preconditions:** a customer `QA-HO` with GSTIN `29AAACP1234C1Z5`.
+- **Steps:** Masters → Customers → **New**: code `QA-KA2`, GSTIN `29AAACP1234C1Z5` → Save; on the question, **Cancel**; then Save again → **Save anyway**. New again: code `QA-TN`, GSTIN `33AAACP1234C1Z9` → Save → Save anyway. Then New with code `QA-HO` again.
+- **Expect:** the first save asks "Same GSTIN or PAN on another customer", naming **QA-HO** for both the GSTIN and the PAN; Cancel keeps everything typed and saves nothing; Save anyway saves. `QA-TN` is asked about the PAN only, and its PAN box holds `AAACP1234C` (filled from the GSTIN, no longer left blank). A second `QA-HO` is refused: "Customer code QA-HO already exists in this firm."
 ---
 
 ## Screen checks

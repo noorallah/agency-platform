@@ -38,6 +38,8 @@ from app.customers.schemas import (
     CustomerCreate,
     CustomerGroupResponse,
     CustomerGroupWrite,
+    CustomerIdentityCheck,
+    CustomerIdentityHolder,
     CustomerImportRequest,
     CustomerReceivableSummary,
     CustomerReceivableTransactionResponse,
@@ -223,6 +225,50 @@ def customer_summary(
     return ApiResponse(data=summary)
 
 
+@router.get("/identity-check", response_model=ApiResponse[CustomerIdentityCheck])
+def check_customer_identity(
+    scope: CustomerViewScope,
+    gst_number: Annotated[str | None, Query(max_length=32)] = None,
+    pan_number: Annotated[str | None, Query(max_length=32)] = None,
+    excluding_id: UUID | None = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CustomerIdentityCheck]:
+    """Name the other customers holding a GSTIN or PAN, before a save (A7).
+
+    A repeat is allowed -- a branch per state shares the company's PAN -- so
+    the form warns and lets the person decide. ``excluding_id`` is the
+    customer being edited.
+    """
+    if scope.firm_id is None:
+        raise ValidationError("X-Firm-ID is required to check a customer's GSTIN.")
+    gst = (gst_number or "").strip().upper() or None
+    pan = (pan_number or "").strip().upper() or None
+    service = CustomerService(db)
+    holders = service.identity_holders(
+        scope.firm_id, gst_number=gst, pan_number=pan, excluding_id=excluding_id
+    )
+    return ApiResponse(
+        data=CustomerIdentityCheck(
+            holders=[
+                CustomerIdentityHolder(
+                    id=row.id,
+                    code=row.code,
+                    name=row.name,
+                    gst_number=row.gst_number,
+                    pan_number=row.pan_number,
+                )
+                for row in holders
+            ],
+            message=service.identity_warning(
+                scope.firm_id,
+                gst_number=gst,
+                pan_number=pan,
+                excluding_id=excluding_id,
+            ),
+        )
+    )
+
+
 @router.get("/export")
 def export_customers(
     scope: CustomerExportScope,
@@ -290,7 +336,20 @@ def create_customer(
             "CUSTOMER_MANAGE_SETTINGS"
         ),
     )
-    return ApiResponse(data=_response(customer, db))
+    return ApiResponse(
+        data=_response(customer, db),
+        message=_identity_message(customer, db),
+    )
+
+
+def _identity_message(customer: Customer, db: Session) -> str | None:
+    """Say which other customers share this one's GSTIN or PAN (A7)."""
+    return CustomerService(db).identity_warning(
+        customer.firm_id,
+        gst_number=customer.gst_number,
+        pan_number=customer.pan_number,
+        excluding_id=customer.id,
+    )
 
 
 @router.post(
@@ -757,7 +816,10 @@ def update_customer(
         ),
     )
     set_etag(response, customer)
-    return ApiResponse(data=_response(customer, db))
+    return ApiResponse(
+        data=_response(customer, db),
+        message=_identity_message(customer, db),
+    )
 
 
 @router.delete("/{customer_id}", status_code=status.HTTP_204_NO_CONTENT)

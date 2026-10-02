@@ -326,8 +326,8 @@ def test_a_standing_discount_needs_the_settings_permission() -> None:
     assert _codes(factory) == ["DISC", "NONE"]
 
 
-def test_one_gst_number_on_two_rows_is_refused_on_the_second() -> None:
-    """The uniqueness check sees rows staged earlier in the same file."""
+def test_one_gst_number_on_two_rows_imports_both() -> None:
+    """A GSTIN may repeat across one company's accounts (decision A7)."""
     factory = _factory()
     session = factory()
     firm = _firm(session)
@@ -339,8 +339,8 @@ def test_one_gst_number_on_two_rows_is_refused_on_the_second() -> None:
 
     report = _run(session, firm.id, content, apply=True)
 
-    assert [(issue.row, issue.code) for issue in report.issues] == [(3, "SECOND")]
-    assert _codes(factory) == []
+    assert report.issues == []
+    assert sorted(_codes(factory)) == ["FIRST", "SECOND"]
 
 
 def test_a_bare_indian_number_is_written_with_its_country_code() -> None:

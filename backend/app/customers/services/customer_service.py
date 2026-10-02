@@ -435,17 +435,13 @@ class CustomerService:
         # may hold one now, and restoring into the clash is refused by name.
         if (
             self._repository.duplicate_id(
-                customer.firm_id,
-                code=customer.code,
-                gst_number=customer.gst_number,
-                pan_number=customer.pan_number,
-                excluding_id=customer.id,
+                customer.firm_id, code=customer.code, excluding_id=customer.id
             )
             is not None
         ):
             raise ConflictError(
                 f"{customer.code} cannot be restored: a live customer now holds "
-                "its code, GST number or PAN number."
+                "its code."
             )
         self._repost_reversed_opening_balance(customer, actor_id=actor_id)
         customer.is_deleted = False
@@ -737,18 +733,66 @@ class CustomerService:
     ) -> None:
         if (
             self._repository.duplicate_id(
-                firm_id,
-                code=data.code,
-                gst_number=data.gst_number,
-                pan_number=data.pan_number,
-                excluding_id=excluding_id,
+                firm_id, code=data.code, excluding_id=excluding_id
             )
             is not None
         ):
             raise ConflictError(
-                "Customer code, GST number, or PAN number already exists "
-                "in this firm."
+                f"Customer code {data.code} already exists in this firm."
             )
+
+    def identity_holders(
+        self,
+        firm_id: UUID,
+        *,
+        gst_number: str | None,
+        pan_number: str | None,
+        excluding_id: UUID | None = None,
+    ) -> list[Customer]:
+        """Return the live customers already holding this GSTIN or PAN (A7)."""
+        return self._repository.identity_holders(
+            firm_id,
+            gst_number=gst_number,
+            pan_number=pan_number,
+            excluding_id=excluding_id,
+        )
+
+    def identity_warning(
+        self,
+        firm_id: UUID,
+        *,
+        gst_number: str | None,
+        pan_number: str | None,
+        excluding_id: UUID | None = None,
+    ) -> str | None:
+        """Say which other customers hold this GSTIN or PAN, or None (A7).
+
+        One company is often several accounts -- a branch per state shares
+        its PAN, a head office and its outlets may share a GSTIN -- so a
+        repeat is allowed, as Tally and Zoho allow it, and named so a
+        duplicate typed by mistake is caught by whoever saves it.
+        """
+        holders = self._repository.identity_holders(
+            firm_id,
+            gst_number=gst_number,
+            pan_number=pan_number,
+            excluding_id=excluding_id,
+        )
+        if not holders:
+            return None
+        parts: list[str] = []
+        for label, value, field in (
+            ("GSTIN", gst_number, "gst_number"),
+            ("PAN", pan_number, "pan_number"),
+        ):
+            named = [
+                f"{row.code} {row.name}".strip()
+                for row in holders
+                if value and getattr(row, field) == value
+            ]
+            if named:
+                parts.append(f"{label} {value} is also on {', '.join(named[:5])}")
+        return "; ".join(parts) + "." if parts else None
 
     def _assert_account_manager(
         self, firm_id: UUID, salesman_id: UUID | None, *, current: UUID | None
@@ -783,14 +827,11 @@ class CustomerService:
     ) -> str | None:
         """Check the PAN against the GSTIN; return the PAN to store.
 
-        A PAN is unique among a firm's live customers, while one company
-        registers a GSTIN in every state it trades from -- so two customers
-        can be the same company's branches. A PAN *filled* from the GSTIN is
-        therefore left blank when another customer already holds it, rather
-        than refusing the second branch for a PAN nobody typed. A PAN typed
-        into the box still meets the uniqueness check as before.
+        A PAN filled from the GSTIN is always kept now that a PAN may repeat
+        across one company's branches (decision A7); until then it was left
+        blank when another customer held it.
         """
-        settled = settle_pan(
+        return settle_pan(
             pan=pan,
             gstin=gstin,
             stored_pan=current.pan_number if current is not None else None,
@@ -799,18 +840,6 @@ class CustomerService:
             pan_field="pan_number",
             gstin_field="gst_number",
         )
-        if pan is None and settled is not None:
-            holder = self._session.scalar(
-                select(Customer.id).where(
-                    Customer.firm_id == firm_id,
-                    Customer.is_deleted.is_(False),
-                    Customer.pan_number == settled,
-                    *([Customer.id != current.id] if current is not None else []),
-                )
-            )
-            if holder is not None:
-                return None
-        return settled
 
     def _commit_unique(self) -> None:
         try:
@@ -821,9 +850,7 @@ class CustomerService:
 
     @staticmethod
     def _unique_conflict() -> ConflictError:
-        return ConflictError(
-            "Customer code, GST number, or PAN number already exists " "in this firm."
-        )
+        return ConflictError("Customer code already exists in this firm.")
 
     @staticmethod
     def _assert_may_change_credit_limit(
