@@ -278,5 +278,7 @@ def test_one_statement_answers_the_whole_document(session: Session) -> None:
         event.remove(engine, "before_cursor_execute", count)
 
     assert [line.last_price for line in lines] == [Decimal("13")] * 6
-    # One for the rates, one for the firm-wide stock.
-    assert len(statements) == 2
+    # One for the rates, one for the firm-wide stock, and one each for what
+    # is coming in and going out (STK-10) -- four for the whole document,
+    # however many lines and past bills it has.
+    assert len(statements) == 4

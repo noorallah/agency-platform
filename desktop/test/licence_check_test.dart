@@ -364,7 +364,7 @@ void main() {
     ));
     await tester.pumpAndSettle();
     await tester.enterText(
-      find.widgetWithText(TextField, 'Product code *'),
+      find.widgetWithText(TextField, 'Product code'),
       'PARA',
     );
     await tester.enterText(

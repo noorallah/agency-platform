@@ -102,6 +102,10 @@ class BulkBusinessProfileRequest(BulkIdsRequest):
 
 
 VendorViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("VENDOR_VIEW")]
+#: A report opens to whoever reads the module or holds REPORT_VIEW (D-RPT-4).
+PanReportScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("VENDOR_VIEW", "REPORT_VIEW")
+]
 #: Whoever reads suppliers or buys from them may say what they think (BUY-15).
 VendorRatingScope = Annotated[
     ResolvedFirmScope, firm_any_permission_scope("VENDOR_VIEW", "PURCHASE_VIEW")
@@ -801,7 +805,7 @@ def delete_vendor_type(
 # Declared above `/{vendor_id}`: FastAPI matches in declaration order.
 @router.get("/reports/pan", response_model=ApiResponse[list[PanReportRow]])
 def vendor_pan_check(
-    scope: VendorViewScope,
+    scope: PanReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PanReportRow]]:
     """List the suppliers with no PAN, or one that disagrees with the GSTIN.

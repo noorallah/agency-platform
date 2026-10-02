@@ -262,7 +262,9 @@ class StockEvidenceService:
                 InventoryTransaction.quantity == movement.quantity,
                 InventoryTransaction.is_deleted.is_(False),
             )
-            .order_by(InventoryTransaction.created_at.desc())
+            .order_by(
+                InventoryTransaction.created_at.desc(), InventoryTransaction.id.desc()
+            )
             .limit(1)
         )
         return outbound or movement

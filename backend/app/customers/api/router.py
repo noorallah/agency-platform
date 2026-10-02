@@ -19,7 +19,11 @@ from app.common.file_import import (
     report_response,
 )
 from app.common.pan_report import PanReportRow, customer_pan_report
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    ResolvedFirmScope,
+    firm_any_permission_scope,
+    firm_permission_scope,
+)
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
@@ -90,6 +94,10 @@ router = APIRouter(
 
 
 CustomerViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("CUSTOMER_VIEW")]
+#: A report opens to whoever reads the module or holds REPORT_VIEW (D-RPT-4).
+PanReportScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("CUSTOMER_VIEW", "REPORT_VIEW")
+]
 CustomerCreateScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("CUSTOMER_CREATE")
 ]
@@ -656,7 +664,7 @@ def customer_ageing(
 # Declared above `/{customer_id}`, for the reason `/ageing` is.
 @router.get("/reports/pan", response_model=ApiResponse[list[PanReportRow]])
 def customer_pan_check(
-    scope: CustomerViewScope,
+    scope: PanReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PanReportRow]]:
     """List the customers with no PAN, or one that disagrees with the GSTIN.

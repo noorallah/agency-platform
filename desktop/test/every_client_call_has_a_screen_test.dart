@@ -52,6 +52,9 @@ const Map<String, String> _accepted = <String, String>{
       'from list rows, which is why a version is a field on the row as well as '
       'an ETag on the record',
   'lotRecord': 'as batchRecord',
+  'chequeLayouts': 'every saved cheque layout at once; the Cheque layout '
+      'dialog reads the one bank account it is aligning (chequeLayout), '
+      'which is all a person lines up at a time (ACC-12)',
   'serialRecord': 'as batchRecord',
   'beatPlan': 'as batchRecord',
   'einvoiceRegistration': 'as batchRecord; the registrations list carries the '
