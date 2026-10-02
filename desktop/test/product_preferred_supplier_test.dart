@@ -74,7 +74,7 @@ Future<void> _open(
   await tester.pumpAndSettle();
   if (mode == ProductDialogMode.create) {
     await tester.enterText(
-      find.widgetWithText(TextField, 'Product code *'),
+      find.widgetWithText(TextField, 'Product code'),
       'PARA',
     );
     await tester.enterText(

@@ -227,6 +227,10 @@ RESET_ORDER: tuple[str, ...] = (
     "sales_quotations",
     "credit_note_lines",
     "credit_notes",
+    # A customer debit note names the sales invoice, its lines and its
+    # journal, as a credit note does, so it goes with it.
+    "customer_debit_note_lines",
+    "customer_debit_notes",
     # A debit note names the supplier bill, its lines and its journal, all
     # RESTRICT, so it goes before the bills below (backlog 65 row 6).
     "debit_note_lines",

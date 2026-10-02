@@ -8124,7 +8124,7 @@ class ApiClient {
           authenticated &&
           !retrying &&
           await refreshAccessToken()) {
-        return request(
+        return await request(
           method,
           path,
           body: body,
@@ -8196,7 +8196,7 @@ class ApiClient {
       if (response.statusCode == HttpStatus.unauthorized &&
           !retrying &&
           await refreshAccessToken()) {
-        return downloadText(path, query: query, retrying: true);
+        return await downloadText(path, query: query, retrying: true);
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {
         String message = 'The export request failed.';
@@ -8441,7 +8441,7 @@ class ApiClient {
       if (response.statusCode == HttpStatus.unauthorized &&
           !retrying &&
           await refreshAccessToken()) {
-        return downloadBytes(path,
+        return await downloadBytes(path,
             query: query, method: method, body: body, retrying: true);
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -8556,7 +8556,7 @@ class ApiClient {
           authenticated &&
           !retrying &&
           await refreshAccessToken()) {
-        return multipartRequest(
+        return await multipartRequest(
           method,
           path,
           fields: fields,
