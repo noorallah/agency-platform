@@ -4103,6 +4103,8 @@ applies to what are configuration.
 
 **Status, 2026-10-02:** item 2 built -- PAN and TAN format checks on customers, vendors and the firm, PAN filled from and checked against the GSTIN (checked only when set). 53.1: the 26Q export is built as a workbook for the CA / RPU (Reports > Financial > *TDS return (26Q)*); the FVU text file waits on the challan screen. See `docs/OWNER_DECISIONS.md` A7-A8.
 
+**Status, 2026-10-03:** the PAN reports are **built** (PLT-11, A53) -- Reports > Financial > *Customer PAN check* and *Supplier PAN check* (`GET /customers/reports/pan`, `GET /vendors/reports/pan`): every live party with no PAN, a blank PAN its GSTIN carries, a PAN not in the PAN format, or one that is not characters 3 to 12 of the GSTIN, the problem named per row.
+
 Owner, 2026-09-27: customers in the market carry both a PAN and a TAN; the
 product should tell them apart and put each to work.
 

@@ -147,7 +147,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | PLT-8 | §31.17 rest | One search box on the audit trail spanning who and what | Nothing | S | Claude alone |
 | PLT-9 | §31 leftovers | Phase 1 leftovers: payload guard on the phase 2 editors, "Line 1" labels, price-list counts | Nothing | S | Claude alone |
 | PLT-10 | §3 | The stray `installer/` folder | Nothing | S | Claude alone |
-| PLT-11 | §53 item 4 | Report: parties with no PAN, and PAN that does not match the GSTIN | Nothing | S | Claude alone |
+| PLT-11 | §53 item 4 | Report: parties with no PAN, and PAN that does not match the GSTIN -- **built 2026-10-03** (A53) | Nothing | S | Claude alone |
 | **Messaging and integration** | | | | | |
 | MSG-1 | §51 A2 | Share a document on WhatsApp by hand | Nothing | S | Claude alone |
 | MSG-2 | §51 A3 | UPI QR code on the printed bill | Nothing | S | Claude alone |
@@ -749,6 +749,7 @@ otherwise it is built as written.
 - **What it is:** lists of customers and suppliers with no PAN (they cost the higher TDS rate) and with a PAN that does not match their GSTIN.
 - **What gets built:** two reports grouped in SQL over customers and vendors; entries in `report_catalog.dart`. The TDS registers already flag deductees with no PAN. No migration.
 - **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A53): `app/common/pan_report.py`; `pan_problem` beside `settle_pan` in `app/core/validation/common.py` (one rule for the write check and the report); `GET /customers/reports/pan` (CUSTOMER_VIEW) and `GET /vendors/reports/pan` (VENDOR_VIEW); *Customer PAN check* and *Supplier PAN check* under Reports > Financial. Only the six columns shown are read per live party; the format check is a pattern, so it is applied to those values rather than in SQL. No migration. Tests in `test_pan_reports.py`.
 
 ### Messaging and integration
 

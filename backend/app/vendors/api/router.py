@@ -18,6 +18,7 @@ from app.common.file_import import (
     file_format_of,
     report_response,
 )
+from app.common.pan_report import PanReportRow, vendor_pan_report
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
@@ -781,6 +782,23 @@ def delete_vendor_type(
         actor_id=scope.actor_id,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# Declared above `/{vendor_id}`: FastAPI matches in declaration order.
+@router.get("/reports/pan", response_model=ApiResponse[list[PanReportRow]])
+def vendor_pan_check(
+    scope: VendorViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PanReportRow]]:
+    """List the suppliers with no PAN, or one that disagrees with the GSTIN.
+
+    PLT-11: a deductee with no PAN costs the higher TDS rate (206AA), and a
+    PAN that is not inside the GSTIN is wrong on one side. Each row names the
+    problem.
+    """
+    if scope.firm_id is None:
+        raise ValidationError("X-Firm-ID is required for the PAN report.")
+    return ApiResponse(data=vendor_pan_report(db, firm_id=scope.firm_id))
 
 
 @router.get("/{vendor_id}", response_model=ApiResponse[VendorResponse])

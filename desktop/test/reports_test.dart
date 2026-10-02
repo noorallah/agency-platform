@@ -452,7 +452,7 @@ void main() {
 
     testWidgets('with no report-backing code there is nothing to show',
         (tester) async {
-      await _pump(tester, _ReportApi(), perms: const ['CUSTOMER_VIEW']);
+      await _pump(tester, _ReportApi(), perms: const ['PRODUCT_VIEW']);
       expect(find.textContaining('do not have permission'), findsOneWidget);
     });
   });

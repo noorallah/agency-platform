@@ -18,6 +18,7 @@ from app.common.file_import import (
     file_format_of,
     report_response,
 )
+from app.common.pan_report import PanReportRow, customer_pan_report
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
@@ -639,6 +640,22 @@ def customer_ageing(
             firm_scope=scope.firm_id, customer_id=customer_id, as_of=as_of
         )
     )
+
+
+# Declared above `/{customer_id}`, for the reason `/ageing` is.
+@router.get("/reports/pan", response_model=ApiResponse[list[PanReportRow]])
+def customer_pan_check(
+    scope: CustomerViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PanReportRow]]:
+    """List the customers with no PAN, or one that disagrees with the GSTIN.
+
+    PLT-11: a PAN missing, malformed, or not inside the GSTIN -- records
+    written before `settle_pan` checked them. Each row names the problem.
+    """
+    if scope.firm_id is None:
+        raise ValidationError("X-Firm-ID is required for the PAN report.")
+    return ApiResponse(data=customer_pan_report(db, firm_id=scope.firm_id))
 
 
 # Declared above `/{customer_id}`, for the reason `/ageing` is.

@@ -215,6 +215,33 @@ def settle_pan(
     return pan
 
 
+#: What can be wrong with a stored PAN, for the PAN reports (PLT-11).
+PAN_NOT_HELD = "No PAN"
+PAN_NOT_FILLED = "PAN blank; the GSTIN carries it"
+PAN_MALFORMED = "Not a PAN"
+PAN_MISMATCH = "PAN does not match the GSTIN"
+
+
+def pan_problem(pan: str | None, gstin: str | None) -> str | None:
+    """Say what is wrong with a stored PAN, or None when nothing is.
+
+    The read-side twin of `settle_pan`, for records written before it existed
+    or never edited since: a blank PAN whose GSTIN carries one (saving the
+    record fills it), a blank PAN with nothing to fill it from (a deductee's
+    costs the higher TDS rate), a PAN not in the PAN format, and a PAN that is not
+    characters 3 to 12 of the GSTIN.
+    """
+    pan = _identifier(pan)
+    in_gstin = pan_in_gstin(gstin)
+    if pan is None:
+        return PAN_NOT_FILLED if in_gstin else PAN_NOT_HELD
+    if not _PAN_PATTERN.fullmatch(pan):
+        return PAN_MALFORMED
+    if in_gstin is not None and pan != in_gstin:
+        return PAN_MISMATCH
+    return None
+
+
 def check_tan_if_set(
     tan: str | None, *, stored_tan: str | None = None, creating: bool, field: str
 ) -> str | None:
