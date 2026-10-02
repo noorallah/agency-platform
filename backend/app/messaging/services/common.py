@@ -120,17 +120,23 @@ def is_usable(config: MessagingChannelConfig | None) -> str | None:
 
 
 def recipient_for(
-    session: Session, customer: Customer | None, channel: str
+    session: Session,
+    customer: Customer | None,
+    channel: str,
+    *,
+    require_opt_in: bool = True,
 ) -> tuple[str | None, str | None]:
     """Return ``(address, why_not)`` for one customer on one channel.
 
     The customer's own email or phone first, then the primary contact's, then
-    any contact's. WhatsApp also needs the customer's recorded opt-in: Meta's
-    rules, and the decent thing.
+    any contact's. WhatsApp sent by the firm's account also needs the
+    customer's recorded opt-in: Meta's rules, and the decent thing. A person
+    sharing from their own WhatsApp (MSG-1) is not sending through that
+    account, so ``require_opt_in=False`` there.
     """
     if customer is None:
         return None, "the document names no customer"
-    if channel == "WHATSAPP" and not customer.whatsapp_opt_in:
+    if channel == "WHATSAPP" and require_opt_in and not customer.whatsapp_opt_in:
         return None, "the customer has not opted in to WhatsApp"
     contacts = sorted(
         (

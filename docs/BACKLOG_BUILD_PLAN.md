@@ -149,7 +149,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | PLT-10 | §3 | The stray `installer/` folder | Nothing | S | Claude alone |
 | PLT-11 | §53 item 4 | Report: parties with no PAN, and PAN that does not match the GSTIN -- **built 2026-10-03** (A53) | Nothing | S | Claude alone |
 | **Messaging and integration** | | | | | |
-| MSG-1 | §51 A2 | Share a document on WhatsApp by hand | Nothing | S | Claude alone |
+| MSG-1 | §51 A2 | Share a document on WhatsApp by hand -- **built 2026-10-03** (A56) | Nothing | S | Claude alone |
 | MSG-2 | §51 A3 | UPI QR code on the printed bill -- **built 2026-10-03** (A55) | Nothing | S | Claude alone |
 | MSG-3 | §51 A4 | Payment reminder by hand from the overdue list and statement | Nothing | S | Claude alone |
 | MSG-4 | §51 | Send documents other than the invoice by hand | Nothing | M | Claude alone |
@@ -758,6 +758,7 @@ otherwise it is built as written.
 - **What it is:** a *WhatsApp* button opens WhatsApp at the party's number with the message typed, and saves the PDF to attach.
 - **What gets built:** desktop only: build the `https://wa.me/<number>?text=` link, save the print PDF and open its folder, from the document bar in `desktop/lib/phase2/document_page.dart`; record the send on the timeline (A5 endpoint exists). Widget test.
 - **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A56): *WhatsApp* on an approved invoice's selection bar (beside *Send*, `DOCUMENT_SEND`). The server composes the share (`GET /messaging/share/sales-invoices/{id}`: number as `wa.me` wants it, the firm's covering note, the UPI line where MSG-2 applies) and records it (`POST /messaging/shared`: *WhatsApp shared by hand to ...* on the timeline, never *sent*) -- the timeline needed a route of its own, since A5's writer only knew outbox rows. No account, switch or opt-in needed. The desktop saves the PDF to Downloads, opens the folder with it selected, and opens `wa.me`. `app/messaging/services/hand_share.py`, `desktop/lib/ui/workspace/whatsapp_share.dart`. No migration. Tests: `test_hand_share.py`, `whatsapp_share_test.dart`.
 
 #### MSG-2. UPI QR on the invoice (§51 A3)
 - **What it is:** the customer scans the bill and pays by UPI.

@@ -1469,6 +1469,29 @@ class ApiClient {
         },
       );
 
+  /// Whom to share an approved bill with on WhatsApp by hand, and what to
+  /// say (MSG-1). Needs no messaging account.
+  Future<HandShare> salesInvoiceHandShare(String invoiceId) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/messaging/share/sales-invoices/$invoiceId',
+    );
+    return HandShare.fromJson(response['data'] as Json);
+  }
+
+  /// Puts a share made by hand on the bill's timeline.
+  Future<void> recordHandShare(String invoiceId, {String? recipient}) =>
+      request(
+        'POST',
+        '/api/v1/messaging/shared',
+        body: <String, dynamic>{
+          'document_type': 'SALES_INVOICE',
+          'document_id': invoiceId,
+          'channel': 'WHATSAPP',
+          if (recipient != null && recipient.isNotEmpty) 'recipient': recipient,
+        },
+      );
+
   /// What the approval would say about a sales order's prices, before it is
   /// asked to.
   Future<PriceFloorCheck> salesOrderPriceCheck(String id) async =>

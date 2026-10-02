@@ -14,6 +14,7 @@ import '../document_framework/document_status_gate.dart';
 import '../document_framework/document_line_labels.dart';
 import '../document_framework/document_view_dialog.dart';
 import '../../models/entities.dart';
+import '../../models/messaging.dart' show HandShare;
 import '../trade_licences/licence_check_dialog.dart';
 import '../workspace/bulk_action.dart';
 import '../workspace/desktop_framework.dart';
@@ -26,6 +27,7 @@ import 'eway_bill_actions.dart';
 import 'price_floor_check_dialog.dart';
 import 'sales_workflow_settings_dialog.dart';
 import '../settings/send_message_dialog.dart';
+import '../workspace/whatsapp_share.dart';
 
 /// A named view over the one sales invoice list.
 ///
@@ -84,6 +86,7 @@ class SalesInvoiceManagementPage extends StatefulWidget {
     required this.hasActiveFirm,
     this.initialView = SalesInvoiceView.all,
     this.onOpenGlobalSearch,
+    this.whatsApp = const WhatsAppSharer(),
   });
 
   final ApiClient api;
@@ -92,6 +95,9 @@ class SalesInvoiceManagementPage extends StatefulWidget {
   final bool hasActiveFirm;
   final SalesInvoiceView initialView;
   final Future<void> Function()? onOpenGlobalSearch;
+
+  /// How *WhatsApp* reaches the machine; a test stands in for it.
+  final WhatsAppSharer whatsApp;
 
   @override
   State<SalesInvoiceManagementPage> createState() =>
@@ -653,6 +659,51 @@ class _SalesInvoiceManagementPageState
     );
   }
 
+  /// Shares an approved bill from the person's own WhatsApp (MSG-1).
+  ///
+  /// WhatsApp opens at the customer's number with the message typed in; the
+  /// PDF is saved and its folder opened, for the person to attach. The share
+  /// goes on the bill's timeline as shared by hand -- whether it was then
+  /// sent is something only WhatsApp knows.
+  Future<void> _shareOnWhatsApp(Map<String, dynamic> invoice) async {
+    final String id = invoice['id'] as String;
+    try {
+      final HandShare share = await widget.api.salesInvoiceHandShare(id);
+      if (!mounted) return;
+      final List<int>? pdf = await fetchPrintablePdf(
+        context,
+        ({bool referenceCopy = false}) =>
+            widget.api.salesInvoicePdf(id, referenceCopy: referenceCopy),
+      );
+      if (pdf == null || !mounted) return;
+      final String path = await widget.whatsApp.savePdf(share.fileName, pdf);
+      await widget.whatsApp.reveal(path);
+      await widget.whatsApp.openLink(
+        WhatsAppSharer.link(number: share.whatsappNumber, text: share.text),
+      );
+      await widget.api.recordHandShare(id, recipient: share.phone);
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        share.whatsappNumber == null
+            ? 'WhatsApp is opening with the message typed. The customer has '
+                'no number: choose the chat, attach ${share.fileName} from the '
+                'folder that opened, then send.'
+            : 'WhatsApp is opening at ${share.phone} with the message typed. '
+                'Attach ${share.fileName} from the folder that opened, then '
+                'send.',
+        kind: AppNotificationKind.success,
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        exception.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
   /// How this firm prints its bills: copies, letterhead, terms, paper.
   Future<void> _openPrintSettings() async {
     await showDialog<bool>(
@@ -834,6 +885,18 @@ class _SalesInvoiceManagementPageState
                     const <String>{'DRAFT', 'CANCELLED'}.contains(status)
                 ? null
                 : () => unawaited(_sendInvoice(selected)),
+          ),
+        // From the person's own WhatsApp, no account needed (MSG-1).
+        if (widget.permissions.hasPermission('DOCUMENT_SEND'))
+          ToolbarCommand(
+            id: 'whatsapp',
+            label: 'WhatsApp',
+            icon: Icons.chat_outlined,
+            onPressed: selected == null ||
+                    _loading ||
+                    const <String>{'DRAFT', 'CANCELLED'}.contains(status)
+                ? null
+                : () => unawaited(_shareOnWhatsApp(selected)),
           ),
         _command(DocumentToolbarAction.approve, '/approve'),
         ToolbarCommand(

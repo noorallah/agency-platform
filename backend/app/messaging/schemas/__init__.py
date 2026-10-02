@@ -183,6 +183,36 @@ class ManualSendRequest(MessagingSchema):
     message: str | None = Field(default=None, max_length=4000)
 
 
+class HandShareResponse(MessagingSchema):
+    """What to share a document with by hand, from the person's own WhatsApp.
+
+    No account and no API (MSG-1, §51 A2): the desktop opens WhatsApp at the
+    number with the message typed in, and saves the PDF for the person to
+    attach.
+    """
+
+    document_type: Literal["SALES_INVOICE"] = "SALES_INVOICE"
+    document_id: UUID
+    document_number: str
+    #: The number as the customer record holds it, for the screen.
+    phone: str | None
+    #: Digits only with the country code, as ``wa.me`` wants it; None where
+    #: the customer has no number, and WhatsApp asks whom to send to.
+    whatsapp_number: str | None
+    text: str
+    #: What to call the saved PDF.
+    file_name: str
+
+
+class HandShareRecord(MessagingSchema):
+    """A share a person made by hand, for the document's timeline (A5)."""
+
+    document_type: Literal["SALES_INVOICE"] = "SALES_INVOICE"
+    document_id: UUID
+    channel: Literal["WHATSAPP"] = "WHATSAPP"
+    recipient: str | None = Field(default=None, max_length=40)
+
+
 __all__ = [
     "ChannelAccountWrite",
     "ChannelHealth",
@@ -191,6 +221,8 @@ __all__ = [
     "EventChannelWrite",
     "EventConfigResponse",
     "EventConfigWrite",
+    "HandShareRecord",
+    "HandShareResponse",
     "ManualSendRequest",
     "MessageResponse",
     "MessageStatus",

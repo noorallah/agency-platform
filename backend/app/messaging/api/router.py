@@ -34,6 +34,8 @@ from app.messaging.schemas import (
     ChannelResponse,
     EventConfigResponse,
     EventConfigWrite,
+    HandShareRecord,
+    HandShareResponse,
     ManualSendRequest,
     MessageResponse,
     MessageStatus,
@@ -45,6 +47,7 @@ from app.messaging.schemas import (
     ProviderResponse,
 )
 from app.messaging.services import MessagingService
+from app.messaging.services.hand_share import HandShareService
 
 router = APIRouter(
     prefix="/api/v1/messaging",
@@ -285,6 +288,40 @@ def send_document(
         data, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data=_message(row), message="Queued to send.")
+
+
+@router.get(
+    "/share/sales-invoices/{invoice_id}",
+    response_model=ApiResponse[HandShareResponse],
+)
+def prepare_hand_share(
+    invoice_id: UUID,
+    scope: SendScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[HandShareResponse]:
+    """Say whom to share a bill with on WhatsApp by hand, and what to say.
+
+    Needs no messaging account and no switch: the person sends it from their
+    own WhatsApp (MSG-1).
+    """
+    return ApiResponse(
+        data=HandShareService(db).prepare(invoice_id, firm_id=scope.firm_id)
+    )
+
+
+@router.post(
+    "/shared",
+    response_model=ApiResponse[None],
+    status_code=status.HTTP_201_CREATED,
+)
+def record_hand_share(
+    data: HandShareRecord,
+    scope: SendScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[None]:
+    """Put a share made by hand on the document's timeline."""
+    HandShareService(db).record(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    return ApiResponse(data=None, message="Recorded on the timeline.")
 
 
 @router.post(

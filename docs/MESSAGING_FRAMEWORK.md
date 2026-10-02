@@ -270,11 +270,26 @@ there first; it is refused while messaging is off or the channel cannot send.
 - **Reminder defaults**: 3 days before due; overdue the day after due and every
   7 days (§51, open question 4).
 
+## Sharing by hand (A2, built 2026-10-03, MSG-1)
+
+*WhatsApp* on an approved invoice's selection bar shares it from the person's
+own WhatsApp: no account, no switch, no opt-in. `GET
+/api/v1/messaging/share/sales-invoices/{id}` (`DOCUMENT_SEND`) returns the
+customer's number written as `wa.me` wants it (`whatsapp_number`: digits with
+91 added to a ten-digit number) and the message -- the firm's own email wording
+for *Invoice approved*, or the platform's, plus "Pay ... by UPI to ..." where
+the firm prints a UPI QR (A3, MSG-2) and the bill still owes money. The desktop
+saves the PDF to Downloads, opens the folder with the file selected, and opens
+`https://wa.me/<number>?text=...`; then `POST /api/v1/messaging/shared` puts
+*WhatsApp shared by hand to ...* on the bill's timeline (`MESSAGE_SHARED`) and
+in the trail. It never says *sent*: whether the person pressed send is
+something only WhatsApp knows. `app/messaging/services/hand_share.py`,
+`desktop/lib/ui/workspace/whatsapp_share.dart`.
+
 ## Not built yet
 
-- Phase A2 (open WhatsApp on the PC with the text typed in), A3 (UPI QR on the
-  invoice), A4 (Remind from the overdue list and statements) and B4 (payment
-  links) of §51.
+- A4 (Remind from the overdue list and statements) and B4 (payment links) of
+  §51. A3 (UPI QR) is built: `docs/BACKLOG_BUILD_PLAN.md` MSG-2.
 - Sending documents other than the sales invoice by hand; attaching a PDF to
   any event but the invoice's.
 - WhatsApp media (a PDF in a document-header template) -- WhatsApp and SMS send
