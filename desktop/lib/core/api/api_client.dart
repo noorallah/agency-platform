@@ -36,6 +36,7 @@ import '../../models/tcs.dart';
 import '../../models/firm_member.dart';
 import '../../models/messaging.dart';
 import '../../models/price_floor.dart';
+import '../../models/batch_sale_settings.dart';
 import '../../models/gst_documents.dart';
 import '../../models/sales_invoice.dart';
 import '../../models/sales_analysis.dart';
@@ -4050,10 +4051,49 @@ class ApiClient {
 
   /// Dispatch an approved note and raise and approve its invoice in one
   /// transaction. Returns the whole envelope: its `message` names the invoice.
-  Future<Json> dispatchAndInvoiceDeliveryNote(String noteId) => request(
+  ///
+  /// [batchReason] answers the firm's batch rules where they ask why a
+  /// near-expiry batch is left behind (backlog 79 row 6).
+  Future<Json> dispatchAndInvoiceDeliveryNote(
+    String noteId, {
+    String? batchReason,
+  }) =>
+      request(
         'POST',
         '/api/v1/delivery-notes/$noteId/dispatch-and-invoice',
         body: const <String, dynamic>{},
+        query: batchReason == null ? null : {'batch_reason': batchReason},
+      );
+
+  /// What the firm's batch rules say about dispatching this note: near-expiry
+  /// batches left behind, earlier-expiring batches skipped (backlog 79 row 6).
+  Future<DispatchBatchCheck> deliveryNoteBatchCheck(String noteId) async =>
+      DispatchBatchCheck.fromJson(
+        _unwrapMap(
+          await request('GET', '/api/v1/delivery-notes/$noteId/batch-check'),
+        ),
+      );
+
+  /// The firm's rules for selling batches: readable by stock and sales
+  /// viewers, writable only with `SALES_MANAGE_SETTINGS`.
+  Future<BatchSaleSettings> batchSaleSettings() async =>
+      BatchSaleSettings.fromJson(
+        _unwrapMap(
+          await request('GET', '/api/v1/batch-serial/sale-settings'),
+        ),
+      );
+
+  Future<BatchSaleSettings> updateBatchSaleSettings(
+    BatchSaleSettings settings,
+  ) async =>
+      BatchSaleSettings.fromJson(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/batch-serial/sale-settings',
+            body: settings.toJson(),
+          ),
+        ),
       );
 
   /// The firm's GST document policy (backlog 77.1): readable with `TAX_VIEW`,

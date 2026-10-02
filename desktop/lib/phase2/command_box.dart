@@ -35,6 +35,12 @@ const Map<String, List<String>> _synonyms = {
   MenuLayout.salesStagesRoute: ['sales workflow', 'stages', 'quotation stage'],
   MenuLayout.creditControlRoute: ['credit limit', 'credit policy'],
   MenuLayout.priceFloorRoute: ['price floor', 'minimum price', 'below cost'],
+  MenuLayout.batchRulesRoute: [
+    'batch rules',
+    'near expiry',
+    'fefo',
+    'expiry window',
+  ],
   MenuLayout.discountLimitsRoute: [
     'discount limit',
     'max discount',

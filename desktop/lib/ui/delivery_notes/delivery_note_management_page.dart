@@ -28,6 +28,7 @@ import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
 import '../workspace/printed_document.dart';
 import '../workspace/print_settings_dialog.dart';
+import 'batch_dispatch_check.dart';
 import 'delivery_note_editor_dialog.dart';
 import 'delivery_proof_dialog.dart';
 
@@ -672,7 +673,7 @@ class _DeliveryNoteManagementPageState
                           _selected!.status.toUpperCase() != 'APPROVED' ||
                           !_mayDispatchAndInvoice()
                       ? null
-                      : () => unawaited(_dispatchAndInvoice(_selected!)),
+                      : () => unawaited(_dispatchAndInvoiceChecked(_selected!)),
                 ),
                 ToolbarCommand(
                   id: 'print-settings',
@@ -832,16 +833,25 @@ class _DeliveryNoteManagementPageState
     _DeliveryNoteRecord note,
     String suffix,
   ) async {
+    // The firm's batch rules come first, on a plain dispatch (the only route
+    // that takes the reason); the answer rides on whichever dispatch follows.
+    String? batchReason;
+    if (suffix == '/dispatch') {
+      final BatchDispatchOutcome batch =
+          await confirmBatchDispatch(context, widget.api, note.id);
+      if (!batch.proceed || !mounted) return;
+      batchReason = batch.reason;
+    }
     DispatchCheck check;
     try {
       check = await widget.api.deliveryNoteDispatchCheck(note.id);
     } on ApiException {
-      await _act(suffix);
+      await _act(suffix, batchReason: batchReason);
       return;
     }
     final String? message = check.message;
     if (message == null) {
-      await _act(suffix);
+      await _act(suffix, batchReason: batchReason);
       return;
     }
     if (!mounted) return;
@@ -856,12 +866,21 @@ class _DeliveryNoteManagementPageState
     if (!mounted) return;
     switch (choice) {
       case _DispatchChoice.invoice:
-        await _dispatchAndInvoice(note);
+        await _dispatchAndInvoice(note, batchReason: batchReason);
       case _DispatchChoice.anyway:
-        await _act(suffix);
+        await _act(suffix, batchReason: batchReason);
       case _DispatchChoice.cancel || null:
         break;
     }
+  }
+
+  /// The direct "Dispatch and invoice" button: the batch rules are asked
+  /// first, as they are before a plain dispatch.
+  Future<void> _dispatchAndInvoiceChecked(_DeliveryNoteRecord note) async {
+    final BatchDispatchOutcome batch =
+        await confirmBatchDispatch(context, widget.api, note.id);
+    if (!batch.proceed || !mounted) return;
+    await _dispatchAndInvoice(note, batchReason: batch.reason);
   }
 
   /// Dispatching and invoicing in one step takes both permissions: it
@@ -870,10 +889,13 @@ class _DeliveryNoteManagementPageState
       widget.permissions.hasPermission('SALES_APPROVE') &&
       widget.permissions.hasPermission('SALES_CREATE');
 
-  Future<void> _dispatchAndInvoice(_DeliveryNoteRecord note) async {
+  Future<void> _dispatchAndInvoice(
+    _DeliveryNoteRecord note, {
+    String? batchReason,
+  }) async {
     try {
-      final Json response =
-          await widget.api.dispatchAndInvoiceDeliveryNote(note.id);
+      final Json response = await widget.api
+          .dispatchAndInvoiceDeliveryNote(note.id, batchReason: batchReason);
       if (!mounted) return;
       NotificationService.show(
         context,
@@ -898,17 +920,23 @@ class _DeliveryNoteManagementPageState
   /// The try/catch used to sit around the toolbar's `onAction` switch; it
   /// lives here now that each button calls this directly, so a refusal still
   /// reaches the user instead of becoming an unhandled exception.
-  Future<void> _act(String suffix, {String? overrideReason}) async {
+  Future<void> _act(
+    String suffix, {
+    String? overrideReason,
+    String? batchReason,
+  }) async {
     final _DeliveryNoteRecord? selected = _selected;
     if (selected == null) return;
+    final Map<String, String> query = {
+      if (overrideReason != null) 'licence_override_reason': overrideReason,
+      if (batchReason != null) 'batch_reason': batchReason,
+    };
     try {
       await widget.api.documentAction(
         'delivery-notes',
         selected.id,
         suffix,
-        query: overrideReason == null
-            ? null
-            : {'licence_override_reason': overrideReason},
+        query: query.isEmpty ? null : query,
       );
       await _load();
     } on ApiException catch (error) {

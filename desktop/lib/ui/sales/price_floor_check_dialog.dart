@@ -37,7 +37,10 @@ Future<PriceFloorOutcome> confirmPriceFloor(
   } on ApiException {
     return PriceFloorOutcome.proceedResult;
   }
-  if (result.findings.isEmpty || !context.mounted) {
+  // A line allowed below its floor because its batches are near expiry is
+  // not a finding to answer for; only the others are put to the user.
+  if (result.findings.every((finding) => finding.isExempt) ||
+      !context.mounted) {
     return PriceFloorOutcome.proceedResult;
   }
   final PriceFloorOutcome? outcome = await showDialog<PriceFloorOutcome>(
@@ -98,11 +101,19 @@ class PriceFloorDialog extends StatelessWidget {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(
-                      Icons.circle,
-                      size: 6,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
+                    if (finding.isExempt)
+                      Icon(
+                        Icons.check_circle_outline,
+                        key: const ValueKey('price-floor-exempt'),
+                        size: 14,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      )
+                    else
+                      Icon(
+                        Icons.circle,
+                        size: 6,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
                     const SizedBox(width: AppSpacing.sm),
                     Expanded(child: Text(finding.message)),
                   ],
