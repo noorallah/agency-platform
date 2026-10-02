@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.batch_serial.schemas import PickedSerial
+from app.delivery_note.schemas.delivery_note import DeliveryNoteBatchPick
 from app.sales.schemas.document_preview import DocumentPreviewLine
 
 
@@ -183,6 +184,11 @@ class SalesInvoiceLineWrite(SalesInvoiceSchema):
     #: without one per unit (D-STK-4). A line billing a note already
     #: dispatched takes none: its units were picked on that note.
     serial_ids: list[UUID] | None = Field(default=None, max_length=10000)
+    #: The batches this line ships, in stock units, where the bill dispatches
+    #: its own goods -- a counter bill (backlog 79 row 2). Handed to the note
+    #: the bill raises, as ``serial_ids`` are; absent leaves the note's choice
+    #: (earliest expiry first), an empty list clears it.
+    batches: list[DeliveryNoteBatchPick] | None = Field(default=None, max_length=500)
 
     @model_validator(mode="after")
     def _one_provenance(self) -> "SalesInvoiceLineWrite":
@@ -440,6 +446,9 @@ class SalesInvoiceLineResponse(SalesInvoiceSchema):
     picks_serials: bool = False
     #: The units that note line ships, where ``picks_serials`` is true.
     serials: list[PickedSerial] = Field(default_factory=list)
+    #: The batches the note line behind it takes: chosen, or after dispatch
+    #: what left (backlog 79). Empty where nobody chose and nothing shipped.
+    batches: list[DeliveryNoteBatchPick] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

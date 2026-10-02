@@ -51,7 +51,7 @@ from app.customers.services.customer_service import CustomerService
 from app.customers.services.ship_to import resolve_ship_to, ship_to_is_valid
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.delivery_note.rules import goods_have_left_clause, require_dispatched_note
-from app.delivery_note.schemas import DeliveryNoteStatus
+from app.delivery_note.schemas import DeliveryNoteBatchPick, DeliveryNoteStatus
 from app.delivery_note.services.delivery_note_service import DeliveryNoteService
 from app.document_framework.models import (
     DocumentLifecycleEvent,
@@ -699,6 +699,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         data = self._restate_own_serials(
             data, row=row, own_notes=own_notes, firm_id=firm_id, actor_id=actor_id
         )
+        data = self._restate_own_batches(data, own_notes=own_notes, actor_id=actor_id)
         # An edit bills the lines the first save priced, so a rate typed with
         # GST in it is kept for each line still billed at the rate it derived
         # to (backlog 64 row 4). Absent leaves the bill's switch as it is.
@@ -1270,6 +1271,50 @@ class SalesInvoiceService(TransactionalDocumentService):
             )
         return data.model_copy(update={"lines": kept})
 
+    def _restate_own_batches(
+        self,
+        data: SalesInvoiceCreate,
+        *,
+        own_notes: frozenset[UUID],
+        actor_id: UUID,
+    ) -> SalesInvoiceCreate:
+        """Hand the batches an edited draft names to the note it raised (79).
+
+        As with serials: on create the chain carries a line's ``batches`` onto
+        the note it raises; on an edit that note exists, so they are restated
+        on its line here and taken off the payload. A line billing anybody
+        else's note keeps them, and is refused where the sources are read.
+        """
+        notes = DeliveryNoteService(self._session)
+        kept: list[SalesInvoiceLineWrite] = []
+        changed = False
+        for line in data.lines:
+            if (
+                line.batches is not None
+                and line.source_document_type == SalesInvoiceSourceType.DELIVERY_NOTE
+                and line.source_document_id in own_notes
+                and line.source_document_line_id is not None
+            ):
+                note_line = self._session.get(
+                    DeliveryNoteLine, line.source_document_line_id
+                )
+                if note_line is None or note_line.delivery_note_id not in own_notes:
+                    raise ValidationError(
+                        f"Line {line.line_number}: that delivery line is not "
+                        "this bill's own."
+                    )
+                notes.set_line_batches(
+                    note_line,
+                    line.batches,
+                    label=f"Line {line.line_number}",
+                    actor_id=actor_id,
+                )
+                kept.append(line.model_copy(update={"batches": None}))
+                changed = True
+            else:
+                kept.append(line)
+        return data.model_copy(update={"lines": kept}) if changed else data
+
     def _billed_hsn(self, product_id: UUID | None) -> str | None:
         """Return the HSN or SAC code the product carries now, for the line.
 
@@ -1828,6 +1873,15 @@ class SalesInvoiceService(TransactionalDocumentService):
         # sales-return pickers were reduced to.
         products = self._products_named(every_line)
         picked = self._own_note_picks_for(rows, lines, products)
+        # The batches behind each line, one read for the page (backlog 79).
+        chosen = DeliveryNoteService(self._session).batch_picks(
+            [
+                line.source_document_line_id
+                for line in every_line
+                if line.source_document_type
+                == SalesInvoiceSourceType.DELIVERY_NOTE.value
+            ]
+        )
         names = customer_labels(self._session, (row.customer_id for row in rows))
         return [
             self._invoice_response(
@@ -1836,6 +1890,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 taxes=taxes,
                 products=products,
                 picked=picked,
+                chosen=chosen,
                 sources=sources[row.id],
                 attachments=attachments[row.id],
                 notes=notes[row.id],
@@ -1855,6 +1910,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         products: dict[UUID, Product],
         picked: dict[UUID, list[PickedSerial]],
         sources: list[SalesInvoiceSource],
+        chosen: dict[UUID, list[DeliveryNoteBatchPick]] | None = None,
         attachments: list[SalesInvoiceAttachment],
         notes: list[SalesInvoiceNote],
         accounting_events: list[SalesInvoiceAccountingEvent],
@@ -1917,6 +1973,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                     taxes.get(item.id, []),
                     products.get(item.product_id),
                     serials=picked.get(item.source_document_line_id),
+                    batches=(chosen or {}).get(item.source_document_line_id, []),
                 )
                 for item in lines
             ],
@@ -2932,6 +2989,13 @@ class SalesInvoiceService(TransactionalDocumentService):
             raise ValidationError(
                 "Serial numbers are picked on the delivery note that ships the "
                 "goods; this bill names a note that has already been dispatched."
+            )
+        if any(item.batches for item in data.lines):
+            # The same for batches (backlog 79): a note somebody typed chose
+            # its batches itself.
+            raise ValidationError(
+                "Batches are chosen on the delivery note that ships the goods; "
+                "this bill names a note that has already been dispatched."
             )
         lines = [item.model_dump(mode="python") for item in data.lines]
         sources = [item.model_dump(mode="python") for item in data.source_documents]
@@ -4312,6 +4376,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         product: Product | None = None,
         *,
         serials: list[PickedSerial] | None = None,
+        batches: list[DeliveryNoteBatchPick] | None = None,
     ) -> SalesInvoiceLineResponse:
         return SalesInvoiceLineResponse(
             id=row.id,
@@ -4370,6 +4435,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             ],
             picks_serials=serials is not None,
             serials=serials or [],
+            batches=batches or [],
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
