@@ -15,7 +15,18 @@ from sqlalchemy import ColumnElement, and_, func, or_, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.batch_serial.models import BatchRecord, SerialNumber
-from app.batch_serial.schemas import PickedSerial, SerialStatus
+from app.batch_serial.schemas import (
+    BatchSaleSettingsResponse,
+    DispatchBatchCheck,
+    DispatchBatchFinding,
+    PickedSerial,
+    SerialStatus,
+)
+from app.batch_serial.services.batch_sale_policy import (
+    BatchSalePolicyService,
+    describe_batches,
+)
+from app.batch_serial.services.batch_serial_service import BatchSerialService
 from app.batch_serial.services.serial_trail_service import (
     DELIVERY_NOTE,
     LineRef,
@@ -682,13 +693,20 @@ class DeliveryNoteService(TransactionalDocumentService):
         return row
 
     def dispatch_note(
-        self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID
+        self,
+        note_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        batch_reason: str | None = None,
     ) -> DeliveryNote:
         """Dispatch one delivery note by hand and commit it.
 
         By hand, so before any invoice: the firm's GST policy judges it
         (backlog 77 row 2). A bill dispatching the note it raised goes through
         `stage_dispatch` and is not judged -- the invoice is what ships it.
+        The firm's batch rules are (backlog 79 row 6): ``batch_reason`` is why
+        a near-expiry batch or a FEFO skip goes out, where the firm asks.
         """
         row = self.get_note(note_id, firm_scope=firm_scope)
         warning = (
@@ -697,10 +715,99 @@ class DeliveryNoteService(TransactionalDocumentService):
             else None
         )
         row = self.stage_dispatch(
-            note_id, firm_scope=firm_scope, actor_id=actor_id, gst_warning=warning
+            note_id,
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+            gst_warning=warning,
+            batch_reason=batch_reason,
+            judge_batches=True,
         )
         self._session.commit()
         return row
+
+    def batch_check(self, note_id: UUID, *, firm_scope: UUID) -> DispatchBatchCheck:
+        """Say what dispatching this note would meet under the batch rules (79).
+
+        The batches each line will take -- those a person chose, or the
+        earliest-expiry split dispatch would draw -- judged as dispatch will
+        judge them, so the screen can ask for a reason before it is refused.
+        Dispatch itself stays the authority: stock can move in between.
+        """
+        row = self.get_note(note_id, firm_scope=firm_scope)
+        policy = BatchSalePolicyService(self._session)
+        rules = policy.settings_response(firm_scope)
+        lines = self._session.scalars(
+            select(DeliveryNoteLine)
+            .where(
+                DeliveryNoteLine.delivery_note_id == row.id,
+                DeliveryNoteLine.is_deleted.is_(False),
+            )
+            .order_by(DeliveryNoteLine.line_number.asc())
+        ).all()
+        picks = self._batch_picks([line.id for line in lines])
+        stock = BatchSerialService(self._session)
+        findings: list[DispatchBatchFinding] = []
+        needs_reason = False
+        for line in lines:
+            if line.warehouse_id is None or line.delivered_quantity <= ZERO:
+                continue
+            if self._trail.is_serialised(line.product_id):
+                continue
+            fefo = [
+                (item.batch_id, item.fefo)
+                for item in stock.batch_availability(
+                    firm_scope=firm_scope,
+                    product_id=line.product_id,
+                    warehouse_id=line.warehouse_id,
+                    storage_node_id=line.storage_node_id,
+                    as_of=row.delivery_date,
+                    quantity=line.delivered_quantity,
+                    sales_order_line_id=line.sales_order_line_id,
+                    near_expiry_days=rules.near_expiry_days,
+                )
+                if item.fefo > ZERO
+            ]
+            chosen = [
+                (pick.batch_id, self._q(pick.quantity))
+                for pick in picks.get(line.id, [])
+            ]
+            split = chosen or fefo
+            near = policy.near_expiry(
+                firm_scope,
+                [batch_id for batch_id, _ in split],
+                as_of=row.delivery_date,
+                days=rules.near_expiry_days,
+            )
+            if near:
+                needs_reason = needs_reason or rules.near_expiry_policy == "REASON"
+                findings.append(
+                    DispatchBatchFinding(
+                        line_number=line.line_number,
+                        kind="NEAR_EXPIRY",
+                        message=(
+                            f"Line {line.line_number}: near expiry -- "
+                            f"{describe_batches(near, row.delivery_date)}."
+                        ),
+                    )
+                )
+            as_split = {batch_id: self._q(qty) for batch_id, qty in fefo}
+            if chosen and dict(chosen) != as_split:
+                needs_reason = needs_reason or rules.fefo_skip_policy == "REASON"
+                findings.append(
+                    DispatchBatchFinding(
+                        line_number=line.line_number,
+                        kind="FEFO_SKIP",
+                        message=(
+                            f"Line {line.line_number}: a later batch is chosen "
+                            "ahead of an earlier-expiring one."
+                        ),
+                    )
+                )
+        return DispatchBatchCheck(
+            findings=findings,
+            needs_reason=needs_reason,
+            message=" ".join(item.message for item in findings) or None,
+        )
 
     def _gst_dispatch_warning(
         self, row: DeliveryNote, *, firm_scope: UUID
@@ -726,6 +833,8 @@ class DeliveryNoteService(TransactionalDocumentService):
         firm_scope: UUID,
         actor_id: UUID,
         gst_warning: str | None = None,
+        batch_reason: str | None = None,
+        judge_batches: bool = False,
     ) -> DeliveryNote:
         """Dispatch one delivery note without committing it.
 
@@ -733,6 +842,11 @@ class DeliveryNoteService(TransactionalDocumentService):
         the step a composed chain most needs rolled back with everything else:
         committing here and failing at the invoice is goods gone with nothing
         owed for them.
+
+        ``judge_batches`` is a person dispatching: a firm rule that wants a
+        reason for a near-expiry batch or a FEFO skip refuses without
+        ``batch_reason``. A bill shipping the notes it raised for itself is
+        recorded but not refused -- its counter has no picker yet (79).
         """
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status == DeliveryNoteStatus.DISPATCHED.value:
@@ -742,10 +856,22 @@ class DeliveryNoteService(TransactionalDocumentService):
         order = self._sales_order(row.sales_order_id, firm_id=firm_scope)
         self._refuse_unless_order_open(order)
         self._refuse_if_held(order)
-        self._dispatch_inventory(row=row, actor_id=actor_id)
+        batch_notes = self._dispatch_inventory(
+            row=row,
+            actor_id=actor_id,
+            batch_reason=batch_reason,
+            judge_batches=judge_batches,
+        )
         row.status = DeliveryNoteStatus.DISPATCHED.value
         row.dispatched_at = utc_now()
         row.updated_by = actor_id
+        details: dict[str, object] = {}
+        if gst_warning:
+            details["gst_warning"] = gst_warning
+        if batch_notes:
+            details["batch_warnings"] = batch_notes
+            if batch_reason and batch_reason.strip():
+                details["batch_reason"] = batch_reason.strip()
         self._record_event(
             firm_id=firm_scope,
             document_type=self._document_type(firm_scope),
@@ -754,7 +880,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             from_state=DeliveryNoteStatus.APPROVED.value,
             to_state=row.status,
             actor_id=actor_id,
-            details={"gst_warning": gst_warning} if gst_warning else None,
+            details=details or None,
         )
         record_audit(
             self._session,
@@ -763,7 +889,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
-            after_data={"gst_warning": gst_warning} if gst_warning else None,
+            after_data=details or None,
         )
         stage_document_event(
             self._session,
@@ -810,7 +936,9 @@ class DeliveryNoteService(TransactionalDocumentService):
             self._refuse_unless_order_open(order)
             self._refuse_if_held(order)
             gst_warning = self._gst_dispatch_warning(row, firm_scope=firm_scope)
-            self._dispatch_inventory(row=row, actor_id=actor_id)
+            # Completing is a person dispatching too, so the batch rules judge
+            # it; one that wants a reason is answered by dispatching first.
+            self._dispatch_inventory(row=row, actor_id=actor_id, judge_batches=True)
             row.dispatched_at = row.dispatched_at or utc_now()
         elif row.status != DeliveryNoteStatus.DISPATCHED.value:
             raise ValidationError(
@@ -2049,16 +2177,18 @@ class DeliveryNoteService(TransactionalDocumentService):
         *,
         branch_id: UUID,
         actor_id: UUID,
-    ) -> None:
+        reason: str | None = None,
+    ) -> bool:
         """Audit a chosen split that is not the one expiry order would draw (79).
 
         Choosing a later batch while an earlier one sits on the shelf is the
         decision a pharmacy is asked about afterwards, so the trail keeps both
-        splits. Asked after this line's own hold is let go, as the allocation
-        it is compared with would be.
+        splits, and the reason where one was given. Asked after this line's
+        own hold is let go, as the allocation it is compared with would be.
+        Returns whether it was a skip.
         """
         if line.warehouse_id is None:
-            return
+            return False
         try:
             fefo = self._inventory.allocate_for_dispatch(
                 firm_scope=row.firm_id,
@@ -2074,7 +2204,10 @@ class DeliveryNoteService(TransactionalDocumentService):
         as_split = {str(batch_id): str(self._q(qty)) for batch_id, qty in fefo}
         chose = {str(batch_id): str(self._q(qty)) for batch_id, qty in chosen}
         if as_split == chose:
-            return
+            return False
+        after: dict[str, object] = {"line_number": line.line_number, "chosen": chose}
+        if reason and reason.strip():
+            after["reason"] = reason.strip()
         record_audit(
             self._session,
             action="delivery_note.fefo_skipped",
@@ -2083,8 +2216,78 @@ class DeliveryNoteService(TransactionalDocumentService):
             actor_id=actor_id,
             firm_id=row.firm_id,
             before_data={"line_number": line.line_number, "earliest_expiry": as_split},
-            after_data={"line_number": line.line_number, "chosen": chose},
+            after_data=after,
         )
+        return True
+
+    def _judge_batches(
+        self,
+        row: DeliveryNote,
+        line: DeliveryNoteLine,
+        allocation: list[tuple[UUID | None, Decimal]],
+        *,
+        fefo_skipped: bool,
+        policy: BatchSalePolicyService,
+        rules: BatchSaleSettingsResponse,
+        reason: str | None,
+        enforce: bool,
+        actor_id: UUID,
+    ) -> list[str]:
+        """Judge the batches one line takes under the firm's rules (79 row 6).
+
+        A near-expiry batch leaving is recorded in the audit trail with the
+        reason given; where the firm wants a reason for it, or for a FEFO
+        skip, a person dispatching without one is refused by line and batch.
+
+        Raises:
+            ValidationError: When a rule wants a reason and none was given.
+
+        """
+        given = (reason or "").strip()
+        near = policy.near_expiry(
+            row.firm_id,
+            [batch_id for batch_id, qty in allocation if qty > ZERO],
+            as_of=row.delivery_date,
+            days=rules.near_expiry_days,
+        )
+        notes: list[str] = []
+        if near:
+            named = describe_batches(near, row.delivery_date)
+            if enforce and rules.near_expiry_policy == "REASON" and not given:
+                raise ValidationError(
+                    f"Line {line.line_number}: {named} is near expiry, and the "
+                    "firm asks for a reason before a near-expiry batch is "
+                    "dispatched."
+                )
+            notes.append(f"Line {line.line_number}: near expiry -- {named}.")
+            after: dict[str, object] = {
+                "line_number": line.line_number,
+                "batches": [str(batch.id) for batch in near],
+                "described": named,
+            }
+            if given:
+                after["reason"] = given
+            record_audit(
+                self._session,
+                action="delivery_note.near_expiry_dispatched",
+                entity_type="delivery_note",
+                entity_id=row.id,
+                actor_id=actor_id,
+                firm_id=row.firm_id,
+                after_data=after,
+            )
+        if fefo_skipped:
+            if enforce and rules.fefo_skip_policy == "REASON" and not given:
+                raise ValidationError(
+                    f"Line {line.line_number}: the batches chosen skip an "
+                    "earlier-expiring batch, and the firm asks for a reason "
+                    "when that happens."
+                )
+            notes.append(
+                f"Line {line.line_number}: a later batch was chosen ahead of an "
+                "earlier-expiring one."
+            )
+        return notes
 
     def _replace_serial_picks(
         self,
@@ -2366,7 +2569,18 @@ class DeliveryNoteService(TransactionalDocumentService):
             storage_node_id=source_line.storage_node_id,
         )
 
-    def _dispatch_inventory(self, *, row: DeliveryNote, actor_id: UUID) -> None:
+    def _dispatch_inventory(
+        self,
+        *,
+        row: DeliveryNote,
+        actor_id: UUID,
+        batch_reason: str | None = None,
+        judge_batches: bool = False,
+    ) -> list[str]:
+        """Move every line's stock out, and say what the batch rules noticed."""
+        policy = BatchSalePolicyService(self._session)
+        rules = policy.settings_response(row.firm_id)
+        batch_notes: list[str] = []
         lines = list(
             self._session.scalars(
                 select(DeliveryNoteLine)
@@ -2508,6 +2722,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             # earliest expiry first. One movement is posted per batch drawn
             # from; the line records the first, and the movements carry the
             # whole split.
+            fefo_skipped = False
             by_batch = self._units_by_batch(
                 line_ref,
                 picks,
@@ -2529,12 +2744,13 @@ class DeliveryNoteService(TransactionalDocumentService):
                 # A person chose the batches (backlog 79): those, and only
                 # those, leave.
                 allocation = chosen
-                self._record_fefo_skip(
+                fefo_skipped = self._record_fefo_skip(
                     row,
                     line,
                     chosen,
                     branch_id=goods_branch_id,
                     actor_id=actor_id,
+                    reason=batch_reason,
                 )
                 shares = self._trail.deal(
                     picks, [allocated for _, allocated in allocation]
@@ -2555,6 +2771,19 @@ class DeliveryNoteService(TransactionalDocumentService):
                 shares = self._trail.deal(
                     picks, [allocated for _, allocated in allocation]
                 )
+            batch_notes.extend(
+                self._judge_batches(
+                    row,
+                    line,
+                    allocation,
+                    fefo_skipped=fefo_skipped,
+                    policy=policy,
+                    rules=rules,
+                    reason=batch_reason,
+                    enforce=judge_batches,
+                    actor_id=actor_id,
+                )
+            )
             entered_total = self._q(line.current_delivery_quantity + line.free_quantity)
             dispatched = None
             for index, (batch_id, allocated) in enumerate(allocation):
@@ -2621,6 +2850,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             source_module="delivery_note",
             actor_id=actor_id,
         )
+        return batch_notes
 
     def _issue_cost(self, transaction_id: UUID) -> Decimal:
         """Return what the stock ledger released for one movement.

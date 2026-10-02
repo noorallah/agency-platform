@@ -479,7 +479,11 @@ def check_sales_order_prices(
         )
     ).all()
     return ApiResponse(
-        data=PriceFloorService(db).check(scope.firm_id, order_lines(lines))
+        data=PriceFloorService(db).check(
+            scope.firm_id,
+            order_lines(lines, warehouse_id=row.warehouse_id),
+            as_of=row.order_date,
+        )
     )
 
 

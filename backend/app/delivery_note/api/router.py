@@ -18,6 +18,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.batch_serial.schemas import DispatchBatchCheck
 from app.common.scope import (
     ResolvedFirmScope,
     firm_any_permission_scope,
@@ -74,6 +75,21 @@ class ActionReasonRequest(BaseModel):
     """Carry the optional reason a lifecycle action was taken for."""
 
     reason: str | None = Field(default=None, max_length=500)
+
+
+#: Why a near-expiry batch or a FEFO skip goes out, where the firm's batch
+#: rules ask (backlog 79 row 6). A query parameter, as the licence override is:
+#: dispatch has no body and every caller would change for one optional field.
+BatchReason = Annotated[
+    str | None,
+    Query(
+        max_length=500,
+        description=(
+            "Why a near-expiry batch, or a later batch ahead of an earlier "
+            "one, is dispatched. Recorded in the audit trail."
+        ),
+    ),
+]
 
 
 DeliveryNoteViewScope = Annotated[
@@ -341,13 +357,33 @@ def dispatch_delivery_note(
     note_id: UUID,
     scope: DeliveryNoteApproveScope,
     db: Session = Depends(get_db),
+    batch_reason: BatchReason = None,
 ) -> ApiResponse[DeliveryNoteResponse]:
-    """Dispatch one delivery note."""
+    """Dispatch one delivery note.
+
+    ``batch_reason`` answers the firm's batch rules where they ask why a
+    near-expiry batch or a FEFO skip goes out (backlog 79 row 6).
+    """
     service = DeliveryNoteService(db)
     row = service.dispatch_note(
-        note_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+        note_id,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        batch_reason=batch_reason,
     )
     return ApiResponse(data=service.note_response(row))
+
+
+@router.get("/{note_id}/batch-check", response_model=ApiResponse[DispatchBatchCheck])
+def check_delivery_note_batches(
+    note_id: UUID,
+    scope: DeliveryNoteViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[DispatchBatchCheck]:
+    """Say what dispatching this note would meet under the batch rules (79)."""
+    return ApiResponse(
+        data=DeliveryNoteService(db).batch_check(note_id, firm_scope=scope.firm_id)
+    )
 
 
 @router.get(
@@ -377,6 +413,7 @@ def dispatch_and_invoice_delivery_note(
     note_id: UUID,
     scope: DeliveryNoteApproveScope,
     db: Session = Depends(get_db),
+    batch_reason: BatchReason = None,
 ) -> ApiResponse[SalesInvoiceResponse]:
     """Dispatch one approved note and raise and approve its bill, together.
 
@@ -390,7 +427,10 @@ def dispatch_and_invoice_delivery_note(
         )
     service = SalesInvoiceService(db)
     row = service.dispatch_and_invoice(
-        note_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+        note_id,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        batch_reason=batch_reason,
     )
     return ApiResponse(
         data=service.invoice_response(row),

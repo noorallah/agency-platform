@@ -52,6 +52,7 @@ import 'sales/route_type_management_page.dart';
 import 'sales/sales_invoice_management_page.dart';
 import 'sales/discount_limits_dialog.dart';
 import 'sales/price_floor_settings_dialog.dart';
+import 'stock/batch_sale_settings_dialog.dart';
 import 'tax/gst_documents_settings_dialog.dart';
 import 'settings/messaging_settings_dialog.dart';
 import 'sales/sales_workflow_settings_dialog.dart';
@@ -420,6 +421,14 @@ class _DesktopShellState extends State<DesktopShell> {
         await showDialog<bool>(
           context: context,
           builder: (_) => PriceFloorSettingsDialog(
+            api: api,
+            permissions: widget.permissions,
+          ),
+        );
+      case MenuLayout.batchRulesRoute:
+        await showDialog<bool>(
+          context: context,
+          builder: (_) => BatchSaleSettingsDialog(
             api: api,
             permissions: widget.permissions,
           ),

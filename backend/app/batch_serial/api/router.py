@@ -13,6 +13,8 @@ from app.batch_serial.schemas import (
     BatchCreate,
     BatchListFilters,
     BatchResponse,
+    BatchSaleSettingsResponse,
+    BatchSaleSettingsWrite,
     BatchStatus,
     BatchSummary,
     BatchUpdate,
@@ -29,7 +31,7 @@ from app.batch_serial.schemas import (
     SerialStatus,
     SerialUpdate,
 )
-from app.batch_serial.services import BatchSerialService
+from app.batch_serial.services import BatchSalePolicyService, BatchSerialService
 from app.business.gating import require_feature
 from app.common.scope import (
     ResolvedFirmScope,
@@ -136,6 +138,9 @@ BatchPickScope = Annotated[
     ResolvedFirmScope,
     firm_any_permission_scope("BATCH_VIEW", "INVENTORY_VIEW", "SALES_VIEW"),
 ]
+BatchSaleSettingsScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_MANAGE_SETTINGS")
+]
 
 
 @router.get(
@@ -149,7 +154,7 @@ def batch_availability(
     as_of: date | None = None,
     quantity: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
     sales_order_line_id: UUID | None = None,
-    near_expiry_days: Annotated[int, Query(ge=0, le=3650)] = 30,
+    near_expiry_days: Annotated[int | None, Query(ge=0, le=3650)] = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[BatchAvailability]]:
     """List a product's batches in a warehouse with what each can give (79).
@@ -157,6 +162,7 @@ def batch_availability(
     ``as_of`` is the document's date (today if absent), so expiry is judged as
     dispatch will judge it; ``quantity`` asks for the earliest-expiry split to
     pre-fill; ``sales_order_line_id`` counts that line's own hold as its own.
+    ``near_expiry_days`` defaults to the firm's own window (79 row 6).
     """
     rows = BatchSerialService(db).batch_availability(
         firm_scope=scope.firm_id,
@@ -166,9 +172,40 @@ def batch_availability(
         as_of=as_of or utc_now().date(),
         quantity=quantity,
         sales_order_line_id=sales_order_line_id,
-        near_expiry_days=near_expiry_days,
+        near_expiry_days=(
+            near_expiry_days
+            if near_expiry_days is not None
+            else BatchSalePolicyService(db).near_expiry_days(scope.firm_id)
+        ),
     )
     return ApiResponse(data=rows)
+
+
+@router.get("/sale-settings", response_model=ApiResponse[BatchSaleSettingsResponse])
+def get_batch_sale_settings(
+    scope: BatchPickScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BatchSaleSettingsResponse]:
+    """Report the firm's rules for which batches go out on a sale (79 row 6)."""
+    return ApiResponse(data=BatchSalePolicyService(db).settings_response(scope.firm_id))
+
+
+@router.put("/sale-settings", response_model=ApiResponse[BatchSaleSettingsResponse])
+def update_batch_sale_settings(
+    data: BatchSaleSettingsWrite,
+    scope: BatchSaleSettingsScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BatchSaleSettingsResponse]:
+    """Replace the firm's batch-sale rules (backlog 79 row 6).
+
+    ``SALES_MANAGE_SETTINGS``: the rules constrain who may sell what, so they
+    sit with the firm's other selling policies, beside the price floor.
+    """
+    return ApiResponse(
+        data=BatchSalePolicyService(db).update_settings(
+            data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
 
 
 @router.get("/batches/{batch_id}", response_model=ApiResponse[BatchResponse])

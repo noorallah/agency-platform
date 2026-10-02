@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     ForeignKey,
@@ -16,6 +17,7 @@ from sqlalchemy import (
     UniqueConstraint,
     and_,
     or_,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql.elements import ColumnElement
@@ -247,3 +249,47 @@ class DocumentLineSerial(BaseEntity):
     inventory_transaction_id: Mapped[UUID | None] = mapped_column(UUIDType())
     #: When the unit moved on this line; empty while it is only picked.
     moved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class BatchSaleSettings(BaseEntity):
+    """One firm's rules for which batches go out on a sale (backlog 79 row 6).
+
+    The shape of ``price_floor_settings``: one row per firm, and a firm with
+    no row shares the defaults -- near expiry is 30 days, a near-expiry batch
+    and a FEFO skip are recorded but need no reason, and a near-expiry batch
+    may be sold below the price floor (decision A2).
+    """
+
+    __tablename__ = "batch_sale_settings"
+    __table_args__ = (
+        Index(
+            "UQ_batch_sale_settings_firm_active",
+            "firm_id",
+            unique=True,
+            postgresql_where=text("NOT is_deleted"),
+            sqlite_where=text("NOT is_deleted"),
+        ),
+    )
+
+    #: No foreign key: `firms` lives only in the platform schema.
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    #: A batch expiring within this many days of the document's date is near
+    #: expiry: flagged in the picker, and judged by the two rules below.
+    near_expiry_days: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=30, server_default="30"
+    )
+    #: WARN records a near-expiry batch leaving; REASON refuses the dispatch
+    #: until somebody says why.
+    near_expiry_policy: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="WARN", server_default="WARN"
+    )
+    #: RECORD keeps both splits in the audit trail when a person draws a
+    #: later batch ahead of an earlier one; REASON also needs a reason.
+    fefo_skip_policy: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="RECORD", server_default="RECORD"
+    )
+    #: Whether a line drawn wholly from near-expiry batches may be sold below
+    #: its price floor, the batches kept on the approval (decision A2).
+    near_expiry_below_floor: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )

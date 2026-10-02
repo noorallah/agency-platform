@@ -743,9 +743,11 @@ class SalesOrderService(TransactionalDocumentService):
                             SalesOrderLine.sales_order_id == row.id,
                             SalesOrderLine.is_deleted.is_(False),
                         )
-                    ).all()
+                    ).all(),
+                    warehouse_id=row.warehouse_id,
                 ),
                 override_reason=price_override_reason,
+                as_of=row.order_date,
             )
             if check_licences
             else (None, None)

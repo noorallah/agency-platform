@@ -132,6 +132,11 @@ abstract final class MenuLayout {
   static const String creditControlRoute = 'settings/credit-control';
   static const String priceFloorRoute = 'settings/price-floor';
   static const String discountLimitsRoute = 'settings/discount-limits';
+
+  /// Batch rules (backlog 79 row 6): near-expiry window, what dispatch needs
+  /// when a batch is left behind or skipped, and the below-floor allowance. A
+  /// dialog, under Stock.
+  static const String batchRulesRoute = 'settings/batch-rules';
   static const String loyaltySchemeRoute = 'settings/loyalty-scheme';
   static const String tcsSettingsRoute = 'settings/tcs';
 
@@ -432,6 +437,8 @@ abstract final class MenuLayout {
     MenuGroupSpec('Stock', [
       MenuItemSpec(
           AppModule.inventory, 'inventory-settings', 'Inventory Settings'),
+      MenuItemSpec.setting(batchRulesRoute, 'Batch Rules',
+          permission: 'INVENTORY_VIEW'),
       // Branch & Warehouse Settings is left out (MenuLayout.notOffered).
     ]),
     MenuGroupSpec('Tax', [

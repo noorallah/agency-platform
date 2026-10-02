@@ -1,0 +1,340 @@
+"""A firm's rules for which batches go out on a sale (backlog 79 row 6, A2).
+
+The shop from ``test_batch_picker``: STALE (expired), MARCH (196 days left on
+the note's date) and JUNE (287), ten each, and an order for eight holding
+MARCH. A 200-day window makes MARCH near expiry and leaves JUNE fresh.
+"""
+
+from decimal import Decimal
+
+import pytest
+from sqlalchemy import select
+
+from app.batch_serial.schemas import BatchSaleSettingsWrite
+from app.batch_serial.services import BatchSalePolicyService
+from app.common.audit.models import AuditLog
+from app.core.exceptions import ValidationError
+from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
+from app.document_framework.models import DocumentLifecycleEvent
+from app.sales_order.models import PriceFloorSettings, SalesOrder
+from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
+from app.sales_order.services import SalesOrderService
+from app.sales_order.services.price_floor import PricedLine, PriceFloorService
+from tests.unit.test_batch_picker import NOTE_DATE, _Shop
+
+
+def _rules(
+    shop: _Shop,
+    *,
+    days: int = 200,
+    near: str = "WARN",
+    skip: str = "RECORD",
+    below_floor: bool = True,
+) -> None:
+    """Write the firm's batch-sale rules."""
+    BatchSalePolicyService(shop.session).update_settings(
+        BatchSaleSettingsWrite(
+            near_expiry_days=days,
+            near_expiry_policy=near,  # type: ignore[arg-type]
+            fefo_skip_policy=skip,  # type: ignore[arg-type]
+            near_expiry_below_floor=below_floor,
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor_id,
+    )
+
+
+def _audit(shop: _Shop, action: str) -> list[AuditLog]:
+    """Return the trail's rows for one action."""
+    return list(
+        shop.session.scalars(select(AuditLog).where(AuditLog.action == action)).all()
+    )
+
+
+def _event(shop: _Shop, document_id: object, action: str) -> DocumentLifecycleEvent:
+    """Return a document's one lifecycle event of a kind."""
+    row = shop.session.scalar(
+        select(DocumentLifecycleEvent).where(
+            DocumentLifecycleEvent.source_document_id == document_id,
+            DocumentLifecycleEvent.action == action,
+        )
+    )
+    assert row is not None
+    return row
+
+
+def _approved(shop: _Shop, note: DeliveryNote) -> DeliveryNote:
+    """Approve a note."""
+    return shop.notes.approve_note(
+        note.id, firm_scope=shop.firm_id, actor_id=shop.actor_id
+    )
+
+
+def _floor(shop: _Shop, *, minimum: str = "150") -> None:
+    """Refuse a sale below a minimum price the product's rate is under."""
+    shop.product.minimum_selling_price = Decimal(minimum)
+    shop.session.add(
+        PriceFloorSettings(
+            firm_id=shop.firm_id, enforcement="BLOCK", include_cost=False
+        )
+    )
+    shop.session.commit()
+
+
+def _order(shop: _Shop, quantity: str) -> SalesOrder:
+    """Raise a second order at 100 a unit, below a floor of 150."""
+    return SalesOrderService(shop.session).create_order(
+        SalesOrderCreate(
+            customer_id=shop.order.customer_id,
+            branch_id=shop.order.branch_id,
+            warehouse_id=shop.warehouse_id,
+            order_date=NOTE_DATE,
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=shop.product.id,
+                    quantity=Decimal(quantity),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor_id,
+    )
+
+
+# -- The rules -----------------------------------------------------------------
+
+
+def test_a_firm_that_never_chose_shares_the_defaults() -> None:
+    """Thirty days, warn, record, and the floor exemption on."""
+    shop = _Shop()
+
+    rules = BatchSalePolicyService(shop.session).settings_response(shop.firm_id)
+
+    assert rules.near_expiry_days == 30
+    assert rules.near_expiry_policy == "WARN"
+    assert rules.fefo_skip_policy == "RECORD"
+    assert rules.near_expiry_below_floor is True
+    assert rules.is_configured is False
+
+
+def test_writing_the_rules_is_audited_with_what_they_were() -> None:
+    """The first write creates the row; the second keeps the before."""
+    shop = _Shop()
+    _rules(shop)
+    _rules(shop, days=60, near="REASON")
+
+    rules = BatchSalePolicyService(shop.session).settings_response(shop.firm_id)
+    assert (rules.near_expiry_days, rules.near_expiry_policy) == (60, "REASON")
+    assert rules.is_configured is True
+    assert len(_audit(shop, "batch_sale_settings.created")) == 1
+    updated = _audit(shop, "batch_sale_settings.updated")
+    assert len(updated) == 1
+    assert updated[0].before_data is not None
+    assert updated[0].before_data["near_expiry_days"] == 200
+
+
+# -- Dispatch ------------------------------------------------------------------
+
+
+def test_a_near_expiry_batch_leaving_is_recorded_under_warn() -> None:
+    """MARCH goes out, and the trail and the timeline both say it was short."""
+    shop = _Shop()
+    _rules(shop)
+    note = shop.note(None)
+
+    shop.dispatch(note)
+
+    rows = _audit(shop, "delivery_note.near_expiry_dispatched")
+    assert len(rows) == 1
+    assert rows[0].after_data is not None
+    assert "batch MARCH (expires 2027-03-31, 196 days left)" in str(
+        rows[0].after_data["described"]
+    )
+    details = _event(shop, note.id, "DISPATCHED").details_json
+    assert details is not None and "batch_warnings" in details
+
+
+def test_outside_the_window_nothing_is_recorded() -> None:
+    """The default thirty days: MARCH is six months out, so it is just stock."""
+    shop = _Shop()
+    note = shop.note(None)
+
+    shop.dispatch(note)
+
+    assert _audit(shop, "delivery_note.near_expiry_dispatched") == []
+
+
+def test_reason_policy_refuses_a_near_expiry_dispatch_without_one() -> None:
+    """Refused by line and batch, and nothing leaves."""
+    shop = _Shop()
+    _rules(shop, near="REASON")
+    note = _approved(shop, shop.note(None))
+
+    with pytest.raises(ValidationError, match="Line 1: batch MARCH"):
+        shop.notes.dispatch_note(
+            note.id, firm_scope=shop.firm_id, actor_id=shop.actor_id
+        )
+    shop.session.rollback()
+
+    assert shop.stock("MARCH").current_quantity == Decimal("10.0000")
+    assert shop.session.get(DeliveryNote, note.id).status == "APPROVED"  # type: ignore[union-attr]
+
+
+def test_a_reason_given_is_kept_beside_the_batch() -> None:
+    """With a reason the near-expiry batch goes, and the trail says why."""
+    shop = _Shop()
+    _rules(shop, near="REASON")
+    note = _approved(shop, shop.note(None))
+
+    shop.notes.dispatch_note(
+        note.id,
+        firm_scope=shop.firm_id,
+        actor_id=shop.actor_id,
+        batch_reason="Customer clears short-dated stock",
+    )
+
+    rows = _audit(shop, "delivery_note.near_expiry_dispatched")
+    assert rows[0].after_data is not None
+    assert rows[0].after_data["reason"] == "Customer clears short-dated stock"
+    details = _event(shop, note.id, "DISPATCHED").details_json
+    assert details is not None
+    assert details["batch_reason"] == "Customer clears short-dated stock"
+
+
+def test_reason_policy_for_a_fefo_skip() -> None:
+    """Choosing JUNE over MARCH wants a reason; given, it is kept with both."""
+    shop = _Shop()
+    _rules(shop, days=30, skip="REASON")
+    note = _approved(shop, shop.note(shop.picks(JUNE="8")))
+
+    with pytest.raises(ValidationError, match="skip an earlier-expiring batch"):
+        shop.notes.dispatch_note(
+            note.id, firm_scope=shop.firm_id, actor_id=shop.actor_id
+        )
+    shop.session.rollback()
+
+    shop.notes.dispatch_note(
+        note.id,
+        firm_scope=shop.firm_id,
+        actor_id=shop.actor_id,
+        batch_reason="Customer asked for the June batch",
+    )
+    skips = shop.fefo_skips()
+    assert len(skips) == 1
+    assert skips[0].after_data is not None
+    assert skips[0].after_data["reason"] == "Customer asked for the June batch"
+
+
+def test_the_check_says_beforehand_what_dispatch_will_ask() -> None:
+    """The screen can ask for the reason before dispatch refuses."""
+    shop = _Shop()
+    _rules(shop, near="REASON", skip="REASON")
+    fefo = _approved(shop, shop.note(None))
+
+    check = shop.notes.batch_check(fefo.id, firm_scope=shop.firm_id)
+
+    assert check.needs_reason is True
+    assert [(item.line_number, item.kind) for item in check.findings] == [
+        (1, "NEAR_EXPIRY")
+    ]
+
+
+def test_the_check_names_a_skip_and_is_quiet_when_nothing_applies() -> None:
+    """JUNE chosen at thirty days: a skip and nothing near expiry."""
+    shop = _Shop()
+    _rules(shop, days=30)
+    note = _approved(shop, shop.note(shop.picks(JUNE="8")))
+
+    check = shop.notes.batch_check(note.id, firm_scope=shop.firm_id)
+
+    assert [item.kind for item in check.findings] == ["FEFO_SKIP"]
+    assert check.needs_reason is False, "RECORD wants no reason"
+
+
+# -- The price floor (decision A2) ---------------------------------------------
+
+
+def test_a_near_expiry_line_may_be_sold_below_the_floor() -> None:
+    """Two of MARCH at 100 against a floor of 150: approved, and kept."""
+    shop = _Shop()
+    _rules(shop)
+    _floor(shop)
+    order = _order(shop, "2")
+
+    SalesOrderService(shop.session).approve_order(
+        order.id, firm_scope=shop.firm_id, actor_id=shop.actor_id
+    )
+
+    details = _event(shop, order.id, "APPROVED").details_json
+    assert details is not None
+    assert "price_warning" not in details
+    kept = details["price_near_expiry"]
+    assert isinstance(kept, dict)
+    assert "batch MARCH" in str(kept["findings"])
+
+
+def test_a_line_partly_from_a_fresh_batch_is_still_judged() -> None:
+    """Eight takes MARCH's free two and six of JUNE, which is not near expiry."""
+    shop = _Shop()
+    _rules(shop)
+    _floor(shop)
+    order = _order(shop, "8")
+
+    with pytest.raises(ValidationError, match="below its minimum price"):
+        SalesOrderService(shop.session).approve_order(
+            order.id, firm_scope=shop.firm_id, actor_id=shop.actor_id
+        )
+
+
+def test_a_firm_may_turn_the_exemption_off() -> None:
+    """Off, the near-expiry line is judged like any other."""
+    shop = _Shop()
+    _rules(shop, below_floor=False)
+    _floor(shop)
+    order = _order(shop, "2")
+
+    with pytest.raises(ValidationError, match="below its minimum price"):
+        SalesOrderService(shop.session).approve_order(
+            order.id, firm_scope=shop.firm_id, actor_id=shop.actor_id
+        )
+
+
+@pytest.mark.parametrize(("picked", "exempt"), [("MARCH", True), ("JUNE", False)])
+def test_a_bill_is_judged_on_the_batches_its_note_shipped(
+    picked: str, exempt: bool
+) -> None:
+    """A bill line from a dispatched note takes the batches the note recorded.
+
+    MARCH is what expiry order would draw either way, so JUNE -- shipped by
+    choice -- is judged as fresh stock: the recorded split, not a guess.
+    """
+    shop = _Shop()
+    _rules(shop)
+    note = shop.note(shop.picks(**{picked: "8"}))
+    shop.dispatch(note)
+    _floor(shop)
+    line = shop.session.scalar(
+        select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
+    )
+    assert line is not None
+
+    result = PriceFloorService(shop.session).check(
+        shop.firm_id,
+        [
+            PricedLine(
+                line_number=1,
+                product_id=shop.product.id,
+                stock_quantity=Decimal("8"),
+                net_amount=Decimal("800"),
+                warehouse_id=shop.warehouse_id,
+                delivery_note_line_id=line.id,
+            )
+        ],
+        as_of=NOTE_DATE,
+    )
+
+    assert len(result.findings) == 1
+    assert (result.findings[0].exemption is not None) is exempt
+    assert result.would_block is not exempt

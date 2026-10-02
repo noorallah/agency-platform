@@ -40,6 +40,7 @@ class PriceFloorFinding {
     required this.floor,
     required this.minimumPrice,
     required this.message,
+    this.exemption,
   });
 
   final String lineNumber;
@@ -52,6 +53,12 @@ class PriceFloorFinding {
   final String minimumPrice;
   final String message;
 
+  /// Set when the line is allowed below its floor, e.g. because its batches
+  /// are near expiry (backlog 79 row 6). Such a finding never blocks.
+  final String? exemption;
+
+  bool get isExempt => exemption != null;
+
   factory PriceFloorFinding.fromJson(Json json) => PriceFloorFinding(
         lineNumber: stringValue(json['line_number']),
         productCode: stringValue(json['product_code']),
@@ -60,6 +67,9 @@ class PriceFloorFinding {
         floor: stringValue(json['floor']),
         minimumPrice: stringValue(json['minimum_price']),
         message: stringValue(json['message']),
+        exemption: stringValue(json['exemption']).isEmpty
+            ? null
+            : stringValue(json['exemption']),
       );
 }
 

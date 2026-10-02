@@ -177,6 +177,14 @@ promotion, or the customer's standing rate).
 - **Steps:** as the prepared **Sales manager**: Sell → **Debit Notes** → **New** → pick the invoice → reason *Price increase* → 100 on its line → watch the tax → **Save**. Try **Approve**. Sign in as the **Firm admin**: approve it. Then Sell → Receipts → New for the customer. Then Reports → GST → GSTR-1 and GSTR-3B for the month. Then try to cancel the **invoice**. Then record a receipt of 1,250.00 against the invoice and try to cancel the **debit note**.
 - **Expect:** the preview shows tax **18.00**, total **118.00** (the invoice line's rate). The sales manager can raise but is not offered **Approve**. After approval the customer's balance is **118.00** higher, and Record Receipt lists the invoice at **1,298.00** owing -- one row, not two. GSTR-1 CDNR shows the note with type **D**, against the invoice, taxable 100, CGST 9 + SGST 9; GSTR-3B 3.1(a) is 100 higher and *Debit notes added* reads 100 / 18. Cancelling the invoice is refused naming the debit note. With 1,250.00 received, cancelling the debit note is refused ("Reverse that receipt first"); after reversing the receipt it cancels and the balance drops back.
 
+### TC-SELL-022 — Batch rules: near expiry, a reason, and the price floor
+
+*Added 2026-10-02 (backlog 79 row 6, A2).*
+
+- **Preconditions:** the shop from TC-SELL-019 (a batch expiring within 30 days and a later one, 10 each). The product's **minimum selling price** 150. Settings → Selling → **Price Floor**: *Block*.
+- **Steps:** Settings → Stock → **Batch Rules**: note the defaults, then set *A near-expiry batch leaving* to **Need a reason** → Save. (a) A sales order for 2 at **100** → Approve. (b) A sales order for 15 at 100 → Approve. (c) A delivery note off order (a), batches untouched → Save → Approve → **Dispatch**; cancel the reason prompt; Dispatch again and give *Short-dated stock cleared*. (d) Set *FEFO skip* to **Need a reason**; a note choosing the *later* batch → Dispatch. (e) Untick *may be sold below the price floor* → repeat (a).
+- **Expect:** the defaults read 30 days, Warn, Record, ticked. (a) approves although 100 is below 150; its timeline names the near-expiry batch. (b) is refused below the minimum price -- 15 takes the later batch too, which is fresh stock. (c) the prompt names the line and the near-expiry batch; cancelling dispatches nothing; with the reason it dispatches and Settings → Audit trail shows **delivery_note.near_expiry_dispatched** with the reason. (d) asks for a reason before dispatching; **delivery_note.fefo_skipped** keeps it. (e) is refused like (b).
+
 ---
 
 ## Screen checks

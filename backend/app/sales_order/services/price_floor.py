@@ -22,16 +22,26 @@ shape of the licence check (``app/trade_licences/services/licence_check.py``).
 
 A message names the minimum price but never the cost: who sells is not always
 allowed to see what the goods cost (``PRODUCT_VIEW_COST_PRICE`` on the product form).
+
+**Near expiry (decision A2).** A line drawn wholly from batches inside the
+firm's near-expiry window may be sold below its floor, unless the firm turned
+that off (``batch_sale_settings``). The finding is still made and kept on the
+approval with the batches named -- the trail says why the floor did not bite --
+but it neither warns nor blocks. The batches are the ones the line will take:
+those its delivery note recorded, or the earliest-expiry split of the line's
+warehouse where nothing is recorded yet. Cost stays one moving average.
 """
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.batch_serial.services.batch_sale_policy import BatchSalePolicyService
 from app.common.audit.services import record_audit
 from app.core.exceptions import ValidationError
 from app.core.utils.money import quantize_money
@@ -62,6 +72,11 @@ class PricedLine:
     stock_quantity: Decimal
     #: Gross less the line's discount and its share of the bill discount.
     net_amount: Decimal
+    #: Where the stock leaves from, to know which batches a line takes (A2).
+    warehouse_id: UUID | None = None
+    storage_node_id: UUID | None = None
+    #: The delivery-note line a bill line ships, whose batches are recorded.
+    delivery_note_line_id: UUID | None = None
 
 
 def _net(gross: Decimal, discount: Decimal, bill_share: Decimal) -> Decimal:
@@ -73,8 +88,13 @@ def _net(gross: Decimal, discount: Decimal, bill_share: Decimal) -> Decimal:
     )
 
 
-def order_lines(lines: Iterable[object]) -> list[PricedLine]:
-    """Read sales order lines: ``base_quantity`` is already in stock units."""
+def order_lines(
+    lines: Iterable[object], *, warehouse_id: UUID | None = None
+) -> list[PricedLine]:
+    """Read sales order lines: ``base_quantity`` is already in stock units.
+
+    ``warehouse_id`` is the order's own, for a line that names none.
+    """
     return [
         PricedLine(
             line_number=int(getattr(line, "line_number", 0)),
@@ -85,9 +105,17 @@ def order_lines(lines: Iterable[object]) -> list[PricedLine]:
                 getattr(line, "discount_amount", _ZERO),
                 getattr(line, "bill_discount_amount", _ZERO),
             ),
+            warehouse_id=getattr(line, "warehouse_id", None) or warehouse_id,
+            storage_node_id=getattr(line, "storage_node_id", None),
         )
         for line in lines
     ]
+
+
+def _source_type(line: object) -> str:
+    """Return a bill line's source type as text, stored or enum alike."""
+    kind = getattr(line, "source_document_type", None)
+    return str(getattr(kind, "value", kind) or "")
 
 
 def invoice_lines(lines: Iterable[object]) -> list[PricedLine]:
@@ -104,6 +132,13 @@ def invoice_lines(lines: Iterable[object]) -> list[PricedLine]:
                 getattr(line, "gross_amount", _ZERO),
                 getattr(line, "discount_amount", _ZERO),
                 getattr(line, "bill_discount_amount", _ZERO),
+            ),
+            warehouse_id=getattr(line, "warehouse_id", None),
+            storage_node_id=getattr(line, "storage_node_id", None),
+            delivery_note_line_id=(
+                getattr(line, "source_document_line_id", None)
+                if _source_type(line) == "DELIVERY_NOTE"
+                else None
             ),
         )
         for line in lines
@@ -193,10 +228,64 @@ class PriceFloorService:
             if cost is not None and Decimal(cost) > _ZERO
         }
 
+    def _split(
+        self, firm_id: UUID, line: PricedLine, *, as_of: date
+    ) -> list[tuple[UUID | None, Decimal]]:
+        """Return the batches a line takes: recorded, or what FEFO would draw."""
+        # Imported here: the delivery note imports this module.
+        from app.batch_serial.services.batch_serial_service import (
+            BatchSerialService,
+        )
+        from app.delivery_note.models import DeliveryNoteLine, DeliveryNoteLineBatch
+
+        warehouse_id = line.warehouse_id
+        storage_node_id = line.storage_node_id
+        order_line_id: UUID | None = None
+        if line.delivery_note_line_id is not None:
+            recorded = self._session.execute(
+                select(
+                    DeliveryNoteLineBatch.batch_id, DeliveryNoteLineBatch.quantity
+                ).where(
+                    DeliveryNoteLineBatch.delivery_note_line_id
+                    == line.delivery_note_line_id,
+                    DeliveryNoteLineBatch.is_deleted.is_(False),
+                )
+            ).all()
+            if recorded:
+                return [(batch_id, Decimal(qty)) for batch_id, qty in recorded]
+            note_line = self._session.get(DeliveryNoteLine, line.delivery_note_line_id)
+            if note_line is not None:
+                warehouse_id = note_line.warehouse_id or warehouse_id
+                storage_node_id = note_line.storage_node_id or storage_node_id
+                order_line_id = note_line.sales_order_line_id
+        if warehouse_id is None:
+            return []
+        return [
+            (item.batch_id, item.fefo)
+            for item in BatchSerialService(self._session).batch_availability(
+                firm_scope=firm_id,
+                product_id=line.product_id,
+                warehouse_id=warehouse_id,
+                storage_node_id=storage_node_id,
+                as_of=as_of,
+                quantity=line.stock_quantity,
+                sales_order_line_id=order_line_id,
+            )
+            if item.fefo > _ZERO
+        ]
+
     def check(
-        self, firm_id: UUID, lines: Sequence[PricedLine]
+        self,
+        firm_id: UUID,
+        lines: Sequence[PricedLine],
+        *,
+        as_of: date | None = None,
     ) -> PriceFloorCheckResponse:
-        """Judge every charged line against its floor under the firm's policy."""
+        """Judge every charged line against its floor under the firm's policy.
+
+        ``as_of`` is the document's date: with it, a line drawn wholly from
+        near-expiry batches is found but exempt (decision A2).
+        """
         policy = self.settings_response(firm_id)
         if policy.enforcement == "OFF":
             return PriceFloorCheckResponse(
@@ -242,6 +331,13 @@ class PriceFloorService:
                 continue
             net_rate = quantize_money(line.net_amount / line.stock_quantity)
             label = f"{product.code} {product.name}".strip()
+            exemption = (
+                BatchSalePolicyService(self._session).floor_exemption(
+                    firm_id, self._split(firm_id, line, as_of=as_of), as_of=as_of
+                )
+                if as_of is not None
+                else None
+            )
             if kind == "minimum":
                 message = (
                     f"Line {line.line_number} ({label}) is sold at {net_rate} a "
@@ -263,15 +359,19 @@ class PriceFloorService:
                     minimum_price=(
                         quantize_money(floor_rate) if kind == "minimum" else None
                     ),
-                    message=message,
+                    message=(
+                        f"{message} Allowed, {exemption}." if exemption else message
+                    ),
+                    exemption=exemption,
                 )
             )
-        would_block = bool(findings) and policy.enforcement == "BLOCK"
+        judged = [item for item in findings if item.exemption is None]
+        would_block = bool(judged) and policy.enforcement == "BLOCK"
         summary: str | None = None
-        if findings:
+        if judged:
             summary = (
-                f"{len(findings)} line(s) are sold below their floor price. "
-                + " ".join(item.message for item in findings)
+                f"{len(judged)} line(s) are sold below their floor price. "
+                + " ".join(item.message for item in judged)
             )
         return PriceFloorCheckResponse(
             enforcement=policy.enforcement,
@@ -286,18 +386,38 @@ class PriceFloorService:
         lines: Sequence[PricedLine],
         *,
         override_reason: str | None,
+        as_of: date | None = None,
     ) -> tuple[str | None, dict[str, object] | None]:
         """Refuse a blocked document, or say what to record on its timeline.
 
         Returns the remark and the event details: a warning under WARN, an
         override when BLOCK refused and a reason was given, nothing when every
-        line clears its floor. Whether the caller may override is the router's
-        question -- it holds the principal.
+        line clears its floor. A line exempt for near expiry (A2) is kept as
+        ``price_near_expiry`` and never warns or blocks. Whether the caller
+        may override is the router's question -- it holds the principal.
         """
-        result = self.check(firm_id, lines)
+        result = self.check(firm_id, lines, as_of=as_of)
         if not result.findings:
             return None, None
-        findings = [item.model_dump(mode="json") for item in result.findings]
+        exempt = [
+            item.model_dump(mode="json")
+            for item in result.findings
+            if item.exemption is not None
+        ]
+        findings = [
+            item.model_dump(mode="json")
+            for item in result.findings
+            if item.exemption is None
+        ]
+        if not findings:
+            return (
+                "Sold below the floor price on near-expiry stock: "
+                + " ".join(str(item["message"]) for item in exempt),
+                {"price_near_expiry": {"findings": exempt}},
+            )
+        extra: dict[str, object] = (
+            {"price_near_expiry": {"findings": exempt}} if exempt else {}
+        )
         if result.would_block:
             reason = (override_reason or "").strip()
             if not reason:
@@ -308,6 +428,6 @@ class PriceFloorService:
                 )
             return (
                 f"Price floor overridden: {reason}",
-                {"price_override": {"reason": reason, "findings": findings}},
+                {"price_override": {"reason": reason, "findings": findings}, **extra},
             )
-        return result.message, {"price_warning": {"findings": findings}}
+        return result.message, {"price_warning": {"findings": findings}, **extra}
