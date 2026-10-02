@@ -9,6 +9,7 @@ import 'dart:convert';
 
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
+import 'package:agency_desktop/models/einvoice.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/sales/gst_return_page.dart';
 import 'package:agency_desktop/ui/sales/gstr2b_page.dart';
@@ -55,6 +56,11 @@ class _Api extends ApiClient {
   final List<List<String?>> matches = [];
   Json? savedSettings;
   Json summary3b = {};
+
+  // The dialog asks for the filing provider too; a refusal hides that choice.
+  @override
+  Future<EInvoiceSettings> einvoiceSettings() async =>
+      throw const ApiException('not here');
 
   @override
   Future<Json> gstr2bReconciliation(String returnPeriod) async => {

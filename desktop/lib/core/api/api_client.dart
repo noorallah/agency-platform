@@ -5732,6 +5732,29 @@ class ApiClient {
         body: {'purchase_invoice_id': purchaseInvoiceId},
       ));
 
+  // ---- rule 37: bills unpaid 180 days (backlog 78 row 4) ---------------
+
+  /// Credit to reverse on bills unpaid 180 days after their date, and to
+  /// reclaim as they are paid, as of [asOf] (YYYY-MM-DD).
+  Future<Json> rule37(String asOf) async => _unwrapMap(await request(
+        'GET',
+        '/api/v1/gst-returns/rule37',
+        query: {'as_of': asOf},
+      ));
+
+  /// Post the reversals and reclaims; the server refuses unless the firm's
+  /// mode is POST. Null [purchaseInvoiceIds] posts every row.
+  Future<Json> postRule37(String asOf, {List<String>? purchaseInvoiceIds}) async =>
+      _unwrapMap(await request(
+        'POST',
+        '/api/v1/gst-returns/rule37/post',
+        body: {
+          'as_of': asOf,
+          if (purchaseInvoiceIds != null)
+            'purchase_invoice_ids': purchaseInvoiceIds,
+        },
+      ));
+
   // ---- paying the tax (backlog 63) -------------------------------------
 
   /// A month's set-off and cash payable, by the statutory order; writes

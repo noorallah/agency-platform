@@ -587,6 +587,13 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['ACCOUNT_VIEW', 'SALES_VIEW'],
           requiresAnyPermission: true,
         ),
+        // Credit on bills unpaid 180 days (backlog 78 row 4).
+        ModuleTabDefinition(
+          id: 'rule37',
+          label: 'Rule 37 (180 days)',
+          requiredPermissions: ['ACCOUNT_VIEW', 'SALES_VIEW'],
+          requiresAnyPermission: true,
+        ),
         // Paying the month's GST: set-off and challan (backlog 63).
         ModuleTabDefinition(
           id: 'gst-payment',

@@ -21,6 +21,7 @@ from app.common.scope import (
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.responses.models import ApiResponse
+from app.core.utils.dates import utc_now
 from app.gst_returns.models import HEADS, GstPayment, GstReturnType
 from app.gst_returns.schemas import (
     GstHeadRow,
@@ -34,6 +35,10 @@ from app.gst_returns.schemas import (
     GstReturnFilingCreate,
     GstReturnFilingResponse,
     GstUtilisationRow,
+    Rule37Heads,
+    Rule37Post,
+    Rule37Response,
+    Rule37RowResponse,
     TaxCalendarItemResponse,
 )
 from app.gst_returns.services import GstReturnService
@@ -42,6 +47,7 @@ from app.gst_returns.services.gst_payment_service import (
     GstPaymentService,
 )
 from app.gst_returns.services.gstr2b import Gstr2bService
+from app.gst_returns.services.rule37 import Rule37Row, Rule37Service
 from app.gst_returns.services.tax_calendar import TaxCalendarService
 
 router = APIRouter(
@@ -383,4 +389,76 @@ def match_gstr2b_document(
                 str(row.purchase_invoice_id) if row.purchase_invoice_id else None
             ),
         }
+    )
+
+
+def _rule37_row(row: Rule37Row) -> Rule37RowResponse:
+    """Shape one rule 37 row for the screen."""
+    return Rule37RowResponse(
+        purchase_invoice_id=row.purchase_invoice_id,
+        invoice_number=row.invoice_number,
+        supplier_invoice_number=row.supplier_invoice_number,
+        vendor_name=row.vendor_name,
+        bill_date=row.bill_date,
+        days=row.days,
+        bill_total=row.bill_total,
+        outstanding=row.outstanding,
+        credit=Rule37Heads(**row.credit),
+        reversed=Rule37Heads(**row.reversed),
+        action=row.action,
+        amount=Rule37Heads(**{head: abs(value) for head, value in row.move.items()}),
+    )
+
+
+@router.get("/rule37", response_model=ApiResponse[Rule37Response])
+def rule37_list(
+    scope: GstPaymentViewScope,
+    db: Annotated[Session, Depends(get_db)],
+    as_of: Annotated[date | None, Query()] = None,
+) -> ApiResponse[Rule37Response]:
+    """Return bills whose credit rule 37 reverses or gives back (78 row 4).
+
+    Credit on a bill unpaid 180 days after its date is reversed in proportion
+    to what is unpaid, and claimed back as it is paid. Empty when the firm has
+    turned the check off.
+    """
+    on = as_of or utc_now().date()
+    service = Rule37Service(db)
+    mode = service.mode(scope.firm_id)
+    rows = [] if mode == "OFF" else service.rows(firm_id=scope.firm_id, as_of=on)
+    return ApiResponse(
+        data=Rule37Response(
+            as_of=on, mode=mode, rows=[_rule37_row(row) for row in rows]
+        )
+    )
+
+
+@router.post("/rule37/post", response_model=ApiResponse[Rule37Response])
+def rule37_post(
+    payload: Rule37Post,
+    scope: GstPaymentPostScope,
+    db: Annotated[Session, Depends(get_db)],
+) -> ApiResponse[Rule37Response]:
+    """Post the reversals and reclaims due, one journal per bill.
+
+    Only for a firm that chose *Report and post*; the reversal moves the
+    credit to Input Tax Not Claimable and a reclaim moves it back. Returns
+    the list as it stands afterwards.
+    """
+    service = Rule37Service(db)
+    made = service.post(
+        firm_id=scope.firm_id,
+        as_of=payload.as_of,
+        actor_id=scope.actor_id,
+        bill_ids=payload.purchase_invoice_ids,
+    )
+    db.commit()
+    rows = service.rows(firm_id=scope.firm_id, as_of=payload.as_of)
+    return ApiResponse(
+        data=Rule37Response(
+            as_of=payload.as_of,
+            mode=service.mode(scope.firm_id),
+            rows=[_rule37_row(row) for row in rows],
+        ),
+        message=f"Posted {len(made)} rule 37 entr{'y' if len(made) == 1 else 'ies'}.",
     )

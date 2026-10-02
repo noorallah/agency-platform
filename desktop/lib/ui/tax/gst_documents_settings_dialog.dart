@@ -39,6 +39,7 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
   String _dispatch = 'WARN';
   bool _routeSaleNeedsInvoice = false;
   String _itcBasis = 'ALL';
+  String _rule37 = 'REPORT';
   final TextEditingController _tolerance =
       TextEditingController(text: '1.00');
   final TextEditingController _ewayLimit =
@@ -86,6 +87,9 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
         _routeSaleNeedsInvoice = settings.routeSaleNeedsInvoice;
         _itcBasis =
             settings.itcClaimBasis == 'MATCHED_ONLY' ? 'MATCHED_ONLY' : 'ALL';
+        _rule37 = const ['OFF', 'REPORT', 'POST'].contains(settings.rule37Mode)
+            ? settings.rule37Mode
+            : 'REPORT';
         _tolerance.text = settings.gstr2bTolerance;
         _ewayLimit.text = settings.ewayBillLimit;
         _isConfigured = settings.isConfigured;
@@ -109,6 +113,7 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
             routeSaleNeedsInvoice: _routeSaleNeedsInvoice,
             isConfigured: true,
             itcClaimBasis: _itcBasis,
+            rule37Mode: _rule37,
             gstr2bTolerance: _tolerance.text.trim().isEmpty
                 ? '1.00'
                 : _tolerance.text.trim(),
@@ -317,6 +322,32 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
                       onChanged: editable && !saving
                           ? (value) =>
                               setState(() => _itcBasis = value ?? _itcBasis)
+                          : null,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    DropdownButtonFormField<String>(
+                      key: const ValueKey('gst-rule37-mode'),
+                      isExpanded: true,
+                      initialValue: _rule37,
+                      decoration: const InputDecoration(
+                        labelText: '180-day unpaid bills (rule 37)',
+                        helperText: 'Credit on a bill unpaid 180 days after '
+                            'its date is reversed, and reclaimed when paid.',
+                        helperMaxLines: 2,
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'OFF', child: Text('Off')),
+                        DropdownMenuItem(
+                          value: 'REPORT',
+                          child: Text('Report only'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'POST',
+                          child: Text('Report and post'),
+                        ),
+                      ],
+                      onChanged: editable && !saving
+                          ? (value) => setState(() => _rule37 = value ?? _rule37)
                           : null,
                     ),
                     if (_filing != null) ...[

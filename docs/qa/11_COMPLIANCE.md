@@ -128,3 +128,11 @@ One standard check for every screen in this area. Run it once per screen as the 
 - **Preconditions:** TC-COMP-011 done: a registered invoice, a registered credit note and a registered debit note; plus one approved invoice never registered.
 - **Steps:** Print each of the four. Withdraw the invoice's registration (inside 24 hours) and print it again.
 - **Expect:** the three registered documents carry an **E-INVOICE** box under the title with the IRN, Ack No. and Ack Date and a QR code; scanning the QR returns the signed text. The credit note is titled **CREDIT NOTE**, names "Against invoice" with the invoice number and date and the reason, and splits its tax into CGST and SGST as the invoice did. The unregistered invoice and the withdrawn one print with no box.
+
+### TC-COMP-013 — Rule 37: a bill unpaid 180 days
+
+*Added 2026-10-02 (backlog 78 row 4).*
+
+- **Preconditions:** an approved supplier bill of 400 + 18% local GST (CGST 36, SGST 36) dated more than 180 days ago, nothing paid; Settings > Tax > GST Documents, *180-day unpaid bills* on **Report and post**.
+- **Steps:** GST > Rule 37, as of today. **Post reversals and reclaims.** Open the trial balance and GSTR-3B for this month. Pay the bill in full. Back to Rule 37, post again; GSTR-3B for that month.
+- **Expect:** the bill is listed to REVERSE CGST 36 and SGST 36. After posting the list is empty, input tax is down 72 and *Input Tax Not Claimable* up 72, and 3B shows 72 in 4(B)(2), "of which rule 37" 72. After payment the bill is listed to RECLAIM 72; once posted the books are back, and that month's 3B shows the 72 in 4(A)(5) and in 4(D)(1). With the setting on **Report only**, the list shows but posting is refused with the reason.

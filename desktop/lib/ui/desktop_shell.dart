@@ -66,6 +66,7 @@ import 'sales/einvoice_page.dart';
 import 'sales/gst_payment_page.dart';
 import 'sales/gst_return_page.dart';
 import 'sales/gstr2b_page.dart';
+import 'sales/rule37_page.dart';
 import 'sales/sales_analysis_page.dart';
 import 'sales/proforma_page.dart';
 import 'sales/tcs_page.dart';
@@ -2835,6 +2836,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),
+      'rule37' => Rule37Page(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+        ),
       'gst-payment' => GstPaymentPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -2908,6 +2914,12 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           'GSTR-2B Reconciliation',
           'What suppliers filed against the bills in the books. Input credit '
               'is claimable only on what a supplier has filed.',
+        ),
+      'rule37' => (
+          'Rule 37 (180 days)',
+          'Credit on supplier bills unpaid 180 days after their date, '
+              'reversed in proportion to what is unpaid and reclaimed as it '
+              'is paid.',
         ),
       'gst-payment' => (
           'GST Payment',
