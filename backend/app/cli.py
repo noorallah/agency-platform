@@ -130,8 +130,13 @@ def _purge_retention(args: argparse.Namespace) -> int:
     from app.core.logging.retention import purge_log_files
     from app.core.tenancy.retention import RetentionPolicy, purge_every_store
 
+    settings = Settings()
+    if args.scheduled and not settings.retention_auto_purge:
+        # The nightly task asks every night; the platform said not to (PLT-6).
+        print("retention: switched off (AGENCY_RETENTION_AUTO_PURGE=false)")
+        return 0
     if not args.dry_run:
-        logs = purge_log_files(Settings())
+        logs = purge_log_files(settings)
         print(
             f"logs: {len(logs.compressed)} compressed, {len(logs.expired)} "
             f"expired, {len(logs.capped)} deleted to meet the size cap"
@@ -352,6 +357,12 @@ def build_parser() -> argparse.ArgumentParser:
     purge.add_argument("--password-history-keep", type=int, default=10)
     purge.add_argument("--execution-log-days", type=int, default=365)
     purge.add_argument("--error-report-days", type=int, default=90)
+    purge.add_argument(
+        "--scheduled",
+        action="store_true",
+        help="Run as the nightly task does: skipped when "
+        "AGENCY_RETENTION_AUTO_PURGE is false.",
+    )
     purge_mode = purge.add_mutually_exclusive_group(required=True)
     purge_mode.add_argument(
         "--dry-run", action="store_true", help="Report counts without deleting."

@@ -273,7 +273,13 @@ Files from before yesterday are gzipped, server logs are kept 30 days and error
 logs 90 (`AGENCY_LOG_RETENTION_DAYS`, `AGENCY_LOG_ERROR_RETENTION_DAYS`), and the
 whole folder is capped at 1 GB (`AGENCY_LOG_MAX_TOTAL_MB`), oldest files first.
 The server applies that at startup and hourly, and `purge-retention --yes` does
-too. `docs/LOGGING.md` has the detail.
+too.
+
+**Retention runs every night** (PLT-6): the `Agency Platform daily backup`
+task ends by running `agency-server purge-retention --yes --scheduled`, after
+the backup so what it prunes is still in that night's copy, and logs what it
+did into the backup log. `AGENCY_RETENTION_AUTO_PURGE=false` in `config\.env`
+switches it off; a hand-run `purge-retention` is never skipped. `docs/LOGGING.md` has the detail.
 
 **The customer guide travels with the installer.** Staging renders
 `docs/INSTALL_GUIDE.md` -- the one source, which the guard tests also read --

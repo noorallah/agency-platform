@@ -142,7 +142,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | PLT-3 | §56 C | Fast global search (trigram indexes) -- **built 2026-10-03** (A75) | Nothing | S | Claude alone |
 | PLT-4 | §56 C | GSTR-1, GSTR-3B and outstanding reports under 3 seconds | Nothing | M | Claude alone |
 | PLT-5 | §56 C | Back-dated entries carried forward in one statement | Nothing | M | Claude alone |
-| PLT-6 | §56 C | Old login and log records pruned by default | Nothing | S | Claude alone |
+| PLT-6 | §56 C | Old login and log records pruned by default -- **built 2026-10-03** (A76) | Nothing | S | Claude alone |
 | PLT-7 | D-PERF-1 | The 38 routes past their time target on WHOLE01 | Nothing | M | Claude alone |
 | PLT-8 | §31.17 rest | One search box on the audit trail spanning who and what | Nothing | S | Claude alone |
 | PLT-9 | §31 leftovers | Phase 1 leftovers: payload guard on the phase 2 editors, "Line 1" labels, price-list counts | Nothing | S | Claude alone |
@@ -743,6 +743,7 @@ otherwise it is built as written.
 - **What it is:** old login records, refresh tokens and tax logs are pruned automatically.
 - **What gets built:** the installed server runs `agency-server purge-retention` daily (`backend/app/cli.py`), as the scheduled backup does; a firm or the platform can switch it off. `docs/RELEASE_BUILD.md` updated.
 - **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A76): `Invoke-Retention` in `packaging/server_setup.ps1` runs `agency-server purge-retention --yes --scheduled` at the end of the nightly `DailyBackup` task; `--scheduled` returns at once when `AGENCY_RETENTION_AUTO_PURGE` (new, default true) is false. Platform-wide switch only -- the largest pruned tables are platform records. A failure is logged and never fails the backup. Tests: `test_retention_by_default.py`, `test_cli_entry_point.py`.
 
 #### PLT-7. D-PERF-1: 38 slow routes on WHOLE01
 - **What it is:** some screens are slower than their target on a two-year firm.
