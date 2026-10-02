@@ -201,6 +201,7 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `account_groups` | firm store ¹ | Group ledger accounts for classification and report rollups. | `firms` |
 | `accounting_periods` | firm store ¹ | Represent one posting period inside a financial year. | `firms`, `financial_years` |
+| `period_close_settings` | firm store ¹ | A firm's policy on closing a month with work left in it: WARN or BLOCK (ACC-5). | -- |
 | `cost_centers` | firm store ¹ | Represent a cost centre used to attribute expenditure. | `firms` |
 | `customer_ledgers` | firm store ¹ | Hold derived receivable totals for one customer and period. | `firms`, `customers`, `accounting_periods` |
 | `financial_years` | firm store ¹ | Represent one fiscal year owned by a firm. | `firms` |

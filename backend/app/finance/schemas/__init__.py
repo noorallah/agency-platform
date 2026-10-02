@@ -132,6 +132,38 @@ class AccountingPeriodUpdate(FinanceSchema):
     description: str | None = None
 
 
+class PeriodCloseCheckItemResponse(FinanceSchema):
+    """One kind of unfinished work in a month (ACC-5)."""
+
+    code: str
+    label: str
+    count: int
+    #: Whether it refuses the close when the firm's policy is BLOCK.
+    blocks: bool
+    examples: list[str]
+
+
+class PeriodCloseCheckResponse(FinanceSchema):
+    """What is unfinished in a period, and whether closing is refused."""
+
+    period_id: UUID
+    close_check: str
+    refuses: bool
+    items: list[PeriodCloseCheckItemResponse]
+
+
+class PeriodCloseSettingsResponse(FinanceSchema):
+    """The firm's policy on closing a month with work in it (ACC-5)."""
+
+    close_check: str
+
+
+class PeriodCloseSettingsUpdate(FinanceSchema):
+    """Set the firm's policy: WARN or BLOCK."""
+
+    close_check: str = Field(pattern=r"^(WARN|BLOCK)$")
+
+
 class AccountingPeriodResponse(FinanceSchema):
     """Return one accounting period."""
 
@@ -935,6 +967,10 @@ __all__ = [
     "AccountTypeEnum",
     "AccountingPeriodCreate",
     "AccountingPeriodResponse",
+    "PeriodCloseCheckItemResponse",
+    "PeriodCloseCheckResponse",
+    "PeriodCloseSettingsResponse",
+    "PeriodCloseSettingsUpdate",
     "AccountingPeriodUpdate",
     "CostCenterCreate",
     "CostCenterResponse",

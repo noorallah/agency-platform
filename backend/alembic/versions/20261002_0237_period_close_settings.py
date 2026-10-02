@@ -1,0 +1,72 @@
+"""A firm's policy on closing a month with work left in it (backlog ACC-5).
+
+``period_close_settings``: one row per firm, ``close_check`` WARN (the
+default, also what a firm with no row gets) or BLOCK. Closing a period lists
+draft journals and documents, approved documents with no journal, money held
+on account and GST returns not recorded as filed; BLOCK refuses the close
+while any of the first three stands.
+
+Firm-owned: run ``scripts/migrate_all_stores.py``. Idempotent: created only in
+a store that holds journals and lacks it.
+
+Revision ID: 20261002_0237
+Revises: 20261002_0236
+Create Date: 2026-10-02
+
+"""
+
+from collections.abc import Sequence
+
+import sqlalchemy as sa
+
+from alembic import op
+from app.core.database.types import UUIDType
+
+revision: str = "20261002_0237"
+down_revision: str | Sequence[str] | None = "20261002_0236"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
+
+_TABLE = "period_close_settings"
+
+
+def upgrade() -> None:
+    """Create the table in a firm store that lacks it."""
+    inspector = sa.inspect(op.get_bind())
+    if not inspector.has_table("journal_entries") or inspector.has_table(_TABLE):
+        return
+    op.create_table(
+        _TABLE,
+        sa.Column("id", UUIDType(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+            nullable=False,
+        ),
+        sa.Column(
+            "is_deleted", sa.Boolean(), server_default=sa.text("false"), nullable=False
+        ),
+        sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("deleted_by", UUIDType(), nullable=True),
+        sa.Column("created_by", UUIDType(), nullable=True),
+        sa.Column("updated_by", UUIDType(), nullable=True),
+        sa.Column("version", sa.Integer(), server_default=sa.text("0"), nullable=False),
+        sa.Column("firm_id", UUIDType(), nullable=False),
+        sa.Column("close_check", sa.String(10), server_default="WARN", nullable=False),
+        sa.PrimaryKeyConstraint("id", name="PK_period_close_settings"),
+        sa.UniqueConstraint("firm_id", name="UQ_period_close_settings_firm"),
+    )
+    op.create_index("IX_period_close_settings_firm_id", _TABLE, ["firm_id"])
+
+
+def downgrade() -> None:
+    """Drop the table; every firm warns again."""
+    if sa.inspect(op.get_bind()).has_table(_TABLE):
+        op.drop_table(_TABLE)

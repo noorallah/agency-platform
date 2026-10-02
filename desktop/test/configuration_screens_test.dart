@@ -118,6 +118,20 @@ class _ConfigApi extends ApiClient {
   }) async =>
       periods;
 
+  /// What closing a period finds unfinished (ACC-5); nothing by default.
+  Json closeChecks = <String, dynamic>{'items': <Json>[], 'refuses': false};
+  String closeSetting = 'WARN';
+
+  @override
+  Future<Json> periodCloseChecks(String id) async => closeChecks;
+
+  @override
+  Future<String> periodCloseSetting() async => closeSetting;
+
+  @override
+  Future<String> setPeriodCloseSetting(String value) async =>
+      closeSetting = value;
+
   @override
   Future<AccountingPeriod> setPeriodStatus(String id, String status) async {
     statusCalls.add('$id:$status');
@@ -243,6 +257,63 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(api.statusCalls, ['p-1:CLOSED']);
+    });
+
+    testWidgets('closing lists what is unfinished, and may close anyway',
+        (tester) async {
+      // ACC-5: the firm warns, so the month closes once the user agrees.
+      final _ConfigApi api = _ConfigApi(
+        years: [_year()],
+        periods: [_period(id: 'p-1')],
+      )..closeChecks = <String, dynamic>{
+          'refuses': false,
+          'items': <Json>[
+            <String, dynamic>{
+              'label': 'Draft journals dated in the month',
+              'count': 1,
+              'blocks': true,
+              'examples': <String>['JV-0001'],
+            },
+          ],
+        };
+      await _pumpYears(tester, api);
+
+      await tester.tap(find.widgetWithText(TextButton, 'Close'));
+      await tester.pumpAndSettle();
+      expect(find.text('Draft journals dated in the month: 1'), findsOneWidget);
+      expect(find.text('JV-0001'), findsOneWidget);
+      expect(api.statusCalls, isEmpty);
+
+      await tester.tap(find.byKey(const ValueKey('close-anyway')));
+      await tester.pumpAndSettle();
+      expect(api.statusCalls, ['p-1:CLOSED']);
+    });
+
+    testWidgets('a firm that refuses is told why, and nothing is closed',
+        (tester) async {
+      final _ConfigApi api = _ConfigApi(
+        years: [_year()],
+        periods: [_period(id: 'p-1')],
+      )..closeChecks = <String, dynamic>{
+          'refuses': true,
+          'items': <Json>[
+            <String, dynamic>{
+              'label': 'Documents dated in the month still in draft',
+              'count': 2,
+              'blocks': true,
+              'examples': <String>['Sales invoice SI-26-27-000004'],
+            },
+          ],
+        };
+      await _pumpYears(tester, api);
+
+      await tester.tap(find.widgetWithText(TextButton, 'Close'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('cannot be closed yet'), findsOneWidget);
+      expect(find.byKey(const ValueKey('close-anyway')), findsNothing);
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      expect(api.statusCalls, isEmpty);
     });
 
     testWidgets('a locked year offers no open or close', (tester) async {

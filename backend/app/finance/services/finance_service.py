@@ -503,6 +503,24 @@ class FinanceService:
             period.ends_on = ends_on
         if data.status is not None:
             self._assert_period_order(period, status=data.status.value, firm_id=firm_id)
+            if (
+                period.status == PeriodStatus.OPEN.value
+                and data.status.value != PeriodStatus.OPEN.value
+            ):
+                # Closing: refused only when the firm's policy is BLOCK and
+                # work is left in the month (ACC-5). Imported here to keep
+                # the documents it reads out of this module's load.
+                from app.finance.services.period_close_checks import (
+                    PeriodCloseChecks,
+                    refuse_if_blocked,
+                )
+
+                refuse_if_blocked(
+                    PeriodCloseChecks(self._session).run(
+                        firm_id, period.starts_on, period.ends_on
+                    ),
+                    period.code,
+                )
             period.status = data.status.value
         period.updated_by = actor_id
         record_audit(

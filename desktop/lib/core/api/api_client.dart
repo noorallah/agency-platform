@@ -4421,6 +4421,33 @@ class ApiClient {
   Future<void> deleteAccountingPeriod(String id) =>
       request('DELETE', '/api/v1/finance/accounting-periods/$id');
 
+  /// What is unfinished in a period before it is closed (ACC-5): `items`,
+  /// each with `label`, `count`, `blocks` and `examples`, and `refuses`
+  /// when the firm's policy would refuse the close.
+  Future<Json> periodCloseChecks(String id) async => _unwrapMap(
+        await request(
+          'GET',
+          '/api/v1/finance/accounting-periods/$id/close-checks',
+        ),
+      );
+
+  /// The firm's policy on closing a month with work left: WARN or BLOCK.
+  Future<String> periodCloseSetting() async => stringValue(
+        _unwrapMap(
+          await request('GET', '/api/v1/finance/period-close-settings'),
+        )['close_check'],
+      );
+
+  Future<String> setPeriodCloseSetting(String value) async => stringValue(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/finance/period-close-settings',
+            body: {'close_check': value},
+          ),
+        )['close_check'],
+      );
+
   /// Open or close one period.
   Future<AccountingPeriod> setPeriodStatus(String id, String status) async =>
       AccountingPeriod.fromJson(

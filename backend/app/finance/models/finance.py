@@ -607,3 +607,24 @@ class FirmControlAccount(BaseEntity):
         ForeignKey("ledger_accounts.id", ondelete="RESTRICT"),
         nullable=False,
     )
+
+
+class PeriodCloseSettings(BaseEntity):
+    """What a firm does when a month it closes still has work in it (ACC-5).
+
+    ``close_check`` is WARN (the default, and what a firm with no row gets):
+    closing lists what is unfinished and lets it close; or BLOCK: draft
+    journals and documents, and approved documents with no journal, refuse
+    the close until they are dealt with. Money held on account and returns
+    not yet filed are listed either way and never refuse it.
+    """
+
+    __tablename__ = "period_close_settings"
+    __table_args__ = (
+        UniqueConstraint("firm_id", name="UQ_period_close_settings_firm"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    close_check: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="WARN", server_default="WARN"
+    )
