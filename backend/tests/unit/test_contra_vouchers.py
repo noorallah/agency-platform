@@ -80,13 +80,18 @@ def _account(books: _Books, code: str) -> LedgerAccount:
 
 
 def _open_account(
-    books: _Books, code: str, name: str, *, active: bool = True
+    books: _Books,
+    code: str,
+    name: str,
+    *,
+    beside: str = CASH,
+    active: bool = True,
 ) -> LedgerAccount:
-    """Open another account in the group cash and bank sit in."""
-    cash = _account(books, CASH)
+    """Open another account in the group the ``beside`` account sits in."""
+    neighbour = _account(books, beside)
     row = LedgerAccount(
         firm_id=books.firm.id,
-        account_group_id=cash.account_group_id,
+        account_group_id=neighbour.account_group_id,
         code=code,
         name=name,
         account_type="ASSET",
@@ -136,9 +141,9 @@ def _legs(books: _Books, entry_id: UUID | None) -> dict[str, tuple[Decimal, Deci
 
 def test_money_accounts_are_cash_bank_and_the_accounts_grouped_with_them() -> None:
     books = _books()
-    _open_account(books, "1020", "HDFC Current Account")
+    _open_account(books, "1020", "HDFC Current Account", beside=BANK)
     _open_account(books, "1005", "Petty Cash")
-    _open_account(books, "1030", "Old Bank", active=False)
+    _open_account(books, "1030", "Old Bank", beside=BANK, active=False)
 
     accounts = ContraVoucherService(books.session).money_accounts(books.firm.id)
     kinds = {row.code: row.kind for row in accounts}
@@ -149,11 +154,69 @@ def test_money_accounts_are_cash_bank_and_the_accounts_grouped_with_them() -> No
         BANK: MoneyAccountKindEnum.BANK,
         "1020": MoneyAccountKindEnum.BANK,
     }
-    # Receivables, inventory and input tax share the group and are left out:
-    # they are kept by their own documents.
+    # Receivables, inventory and input tax are kept by their own documents.
     assert "1100" not in kinds and "1200" not in kinds and "1300" not in kinds
     # Cash first.
     assert [row.kind for row in accounts][:2] == [MoneyAccountKindEnum.CASH] * 2
+
+
+def test_a_new_firm_keeps_cash_and_bank_in_groups_of_their_own() -> None:
+    """Decision A22: Cash-in-Hand and Bank Accounts, under Current Assets.
+
+    A firm's own asset opened in Current Assets -- a security deposit -- is
+    therefore not offered as money, as it was while cash and bank shared it.
+    """
+    from app.finance.models import AccountGroup
+
+    books = _books()
+    cash, bank = _account(books, CASH), _account(books, BANK)
+    groups = {
+        row.id: row
+        for row in books.session.scalars(
+            select(AccountGroup).where(AccountGroup.firm_id == books.firm.id)
+        )
+    }
+    assert groups[cash.account_group_id].name == "Cash-in-Hand"
+    assert groups[bank.account_group_id].name == "Bank Accounts"
+    parent = groups[cash.account_group_id].parent_group_id
+    assert parent is not None and groups[parent].code == "CA"
+    assert groups[bank.account_group_id].parent_group_id == parent
+
+    receivables = _account(books, "1100")
+    deposit = LedgerAccount(
+        firm_id=books.firm.id,
+        account_group_id=receivables.account_group_id,
+        code="1490",
+        name="Security Deposit",
+        account_type="ASSET",
+        created_by=books.actor_id,
+        updated_by=books.actor_id,
+    )
+    books.session.add(deposit)
+    books.session.commit()
+
+    codes = {
+        row.code
+        for row in ContraVoucherService(books.session).money_accounts(books.firm.id)
+    }
+    assert codes == {CASH, BANK}
+
+
+def test_a_firm_set_up_before_keeps_cash_and_bank_where_they_were() -> None:
+    """Existing firms are unchanged: in Current Assets, the old rule applies."""
+    books = _books()
+    cash, bank = _account(books, CASH), _account(books, BANK)
+    current_assets = _account(books, "1100").account_group_id
+    cash.account_group_id = current_assets
+    bank.account_group_id = current_assets
+    books.session.commit()
+    _open_account(books, "1005", "Petty Cash")
+
+    codes = {
+        row.code
+        for row in ContraVoucherService(books.session).money_accounts(books.firm.id)
+    }
+    assert codes == {CASH, BANK, "1005"}
 
 
 def test_an_account_that_is_not_money_is_refused_by_name() -> None:
@@ -200,7 +263,7 @@ def test_each_kind_is_derived_and_posts_dr_to_cr_from(
     source: str, target: str, kind: ContraKindEnum
 ) -> None:
     books = _books()
-    _open_account(books, "1020", "HDFC Current Account")
+    _open_account(books, "1020", "HDFC Current Account", beside=BANK)
     _open_account(books, "1005", "Petty Cash")
 
     row, _ = _move(

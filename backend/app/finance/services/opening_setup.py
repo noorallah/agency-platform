@@ -69,6 +69,17 @@ GROUPS: tuple[tuple[str, str, AccountTypeEnum], ...] = (
     ("EQ", "Equity", AccountTypeEnum.EQUITY),
 )
 
+#: Groups inside another, created only with the first account that needs them
+#: (decision A22, 2026-10-02). Cash and bank sit in groups of their own, as
+#: Tally's *Cash-in-Hand* and *Bank Accounts* do, so a contra voucher offers
+#: only money accounts and a bank book reads every bank account the firm adds
+#: there -- rather than every unmapped asset in Current Assets. Lazily, so a
+#: firm set up before keeps its chart exactly as it was.
+SUB_GROUPS: dict[str, tuple[str, AccountTypeEnum, str]] = {
+    "CA-CASH": ("Cash-in-Hand", AccountTypeEnum.ASSET, "CA"),
+    "CA-BANK": ("Bank Accounts", AccountTypeEnum.ASSET, "CA"),
+}
+
 #: The day-to-day costs a firm pays and records on the Expenses screen. A
 #: person chooses one, so most carry no control purpose. Bank Charges is the
 #: exception since backlog 74 row 2: a receipt that a customer's bank cut
@@ -92,10 +103,10 @@ INDIRECT_EXPENSE_ACCOUNTS: tuple[SeedAccount, ...] = tuple(
 
 CHART: tuple[SeedAccount, ...] = (
     SeedAccount(
-        "1000", "Cash", AccountTypeEnum.ASSET, "CA", ControlAccountPurpose.CASH
+        "1000", "Cash", AccountTypeEnum.ASSET, "CA-CASH", ControlAccountPurpose.CASH
     ),
     SeedAccount(
-        "1010", "Bank", AccountTypeEnum.ASSET, "CA", ControlAccountPurpose.BANK
+        "1010", "Bank", AccountTypeEnum.ASSET, "CA-BANK", ControlAccountPurpose.BANK
     ),
     SeedAccount(
         "1100",
@@ -379,6 +390,40 @@ CHART: tuple[SeedAccount, ...] = (
 )
 
 
+def _sub_group(
+    session: Session,
+    finance: FinanceService,
+    code: str,
+    groups: dict[str, UUID],
+    firm_id: UUID,
+    actor_id: UUID,
+    created: dict[str, int],
+) -> UUID:
+    """Return a sub-group's id, creating it under its parent if it is missing."""
+    existing = session.scalar(
+        select(AccountGroup).where(
+            AccountGroup.firm_id == firm_id,
+            AccountGroup.code == code,
+            AccountGroup.is_deleted.is_(False),
+        )
+    )
+    if existing is not None:
+        return existing.id
+    name, account_type, parent = SUB_GROUPS[code]
+    row = finance.create_account_group(
+        AccountGroupCreate(
+            code=code,
+            name=name,
+            account_type=account_type,
+            parent_group_id=groups[parent],
+        ),
+        firm_id=firm_id,
+        actor_id=actor_id,
+    )
+    created["groups"] += 1
+    return row.id
+
+
 def seed_finance_setup(
     session: Session, *, firm_id: UUID, year_starts_on: date, actor_id: UUID
 ) -> dict[str, int]:
@@ -427,6 +472,10 @@ def seed_finance_setup(
             )
         )
         if existing_account is None:
+            if entry.group not in groups:
+                groups[entry.group] = _sub_group(
+                    session, finance, entry.group, groups, firm_id, actor_id, created
+                )
             existing_account = finance.create_ledger_account(
                 LedgerAccountCreate(
                     account_group_id=groups[entry.group],
