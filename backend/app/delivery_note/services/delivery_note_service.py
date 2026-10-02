@@ -744,7 +744,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             )
             .order_by(DeliveryNoteLine.line_number.asc())
         ).all()
-        picks = self._batch_picks([line.id for line in lines])
+        picks = self.batch_picks([line.id for line in lines])
         stock = BatchSerialService(self._session)
         findings: list[DispatchBatchFinding] = []
         needs_reason = False
@@ -1257,7 +1257,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         every_line = [item for group in lines.values() for item in group]
         products = self._products_named(every_line)
         serials = self._trail.picked_serials(line.id for line in every_line)
-        batch_picks = self._batch_picks([line.id for line in every_line])
+        batch_picks = self.batch_picks([line.id for line in every_line])
         names = customer_labels(self._session, (row.customer_id for row in rows))
         warnings = self._duplicate_warnings(rows)
         return [
@@ -2037,48 +2037,71 @@ class DeliveryNoteService(TransactionalDocumentService):
             ).all()
         }
         for line_number, picks in stated.items():
-            line = persisted[line_number]
-            if picks and self._trail.is_serialised(line.product_id):
-                raise ValidationError(
-                    f"Line {line_number}: a serial-tracked product leaves from "
-                    "the batch of each unit picked, so its batches are not "
-                    "chosen separately."
-                )
-            if len({pick.batch_id for pick in picks}) != len(picks):
-                raise ValidationError(
-                    f"Line {line_number}: a batch is named twice; give it once "
-                    "with the whole quantity."
-                )
-            for old in self._session.scalars(
-                select(DeliveryNoteLineBatch).where(
-                    DeliveryNoteLineBatch.delivery_note_line_id == line.id
-                )
-            ).all():
-                self._session.delete(old)
-            for pick in picks:
-                batch = self._session.get(BatchRecord, pick.batch_id)
-                if (
-                    batch is None
-                    or batch.firm_id != row.firm_id
-                    or batch.product_id != line.product_id
-                    or batch.is_deleted
-                ):
-                    raise ValidationError(
-                        f"Line {line.line_number}: that batch is not this product's."
-                    )
-                self._session.add(
-                    DeliveryNoteLineBatch(
-                        delivery_note_line_id=line.id,
-                        firm_id=row.firm_id,
-                        batch_id=batch.id,
-                        quantity=self._q(pick.quantity),
-                        created_by=actor_id,
-                        updated_by=actor_id,
-                    )
-                )
+            self.set_line_batches(
+                persisted[line_number],
+                picks,
+                label=f"Line {line_number}",
+                actor_id=actor_id,
+            )
         self._session.flush()
 
-    def _batch_picks(
+    def set_line_batches(
+        self,
+        line: DeliveryNoteLine,
+        picks: Sequence[DeliveryNoteBatchPick],
+        *,
+        label: str,
+        actor_id: UUID,
+    ) -> None:
+        """Replace one note line's chosen batches; an empty list clears them.
+
+        Shared by the note's own editor and by a counter bill choosing the
+        batches of the note it raised for itself (backlog 79 row 2). ``label``
+        names the line as the person typed it, which on a counter bill is the
+        bill's line, not the note's.
+
+        Raises:
+            ValidationError: When a batch is not the line's product's, is named
+                twice, or the product is serial-tracked.
+
+        """
+        if picks and self._trail.is_serialised(line.product_id):
+            raise ValidationError(
+                f"{label}: a serial-tracked product leaves from the batch of "
+                "each unit picked, so its batches are not chosen separately."
+            )
+        if len({pick.batch_id for pick in picks}) != len(picks):
+            raise ValidationError(
+                f"{label}: a batch is named twice; give it once with the whole "
+                "quantity."
+            )
+        for old in self._session.scalars(
+            select(DeliveryNoteLineBatch).where(
+                DeliveryNoteLineBatch.delivery_note_line_id == line.id
+            )
+        ).all():
+            self._session.delete(old)
+        for pick in picks:
+            batch = self._session.get(BatchRecord, pick.batch_id)
+            if (
+                batch is None
+                or batch.firm_id != line.firm_id
+                or batch.product_id != line.product_id
+                or batch.is_deleted
+            ):
+                raise ValidationError(f"{label}: that batch is not this product's.")
+            self._session.add(
+                DeliveryNoteLineBatch(
+                    delivery_note_line_id=line.id,
+                    firm_id=line.firm_id,
+                    batch_id=batch.id,
+                    quantity=self._q(pick.quantity),
+                    created_by=actor_id,
+                    updated_by=actor_id,
+                )
+            )
+
+    def batch_picks(
         self, line_ids: Sequence[UUID]
     ) -> dict[UUID, list[DeliveryNoteBatchPick]]:
         """Return each line's chosen batches, for a page of lines at once."""
@@ -2111,7 +2134,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             ValidationError: When the quantities disagree or a batch expired.
 
         """
-        picks = self._batch_picks([line.id]).get(line.id, [])
+        picks = self.batch_picks([line.id]).get(line.id, [])
         if not picks:
             return None
         total = sum((pick.quantity for pick in picks), ZERO)

@@ -16,6 +16,7 @@ import '../../models/product.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../sales/ship_to_field.dart';
+import '../workspace/batch_picker_panel.dart';
 import '../workspace/desktop_framework.dart';
 
 part 'delivery_note_editor_phase2.dart';
@@ -265,24 +266,6 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
 
   /// Phase 2: the line the side panel follows.
   int _current = 0;
-
-  /// Phase 2: what each line's batch picker offers, by order line id, read
-  /// from the server once the line, warehouse, date and quantity settle.
-  final Map<String, List<BatchAvailabilityRecord>> _availability = {};
-  final Map<String, String> _availabilityAsked = {};
-  final Set<String> _availabilityFailed = {};
-  final Map<String, Timer> _availabilityTimers = {};
-
-  /// Bumped whenever a line's boxes are reset, so they are rebuilt.
-  final Map<String, int> _pickEpoch = {};
-
-  @override
-  void dispose() {
-    for (final Timer timer in _availabilityTimers.values) {
-      timer.cancel();
-    }
-    super.dispose();
-  }
 
   void _setState(VoidCallback change) => setState(change);
 

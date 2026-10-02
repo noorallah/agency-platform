@@ -437,9 +437,22 @@ counting a note line's own order hold as its own. A sales order is judged
 before it reserves, so its split is what reservation is about to take. Cost
 stays one moving average per product; only the floor's bite changes.
 
-Still open (backlog 79): batch picks on the counter bill, *pin batch* on the
-sales order line, minimum shelf life per customer, price from the batch (a
-batch carries no MRP yet).
+### Batches on a counter bill (backlog 79 row 2)
+
+A counter bill raises its own order and delivery note when the draft is saved,
+and its approval dispatches that note. `batches` on a bill line (stock units)
+is handed to the note line it raises, exactly as `serial_ids` are
+(`SalesChainService._note_line`), so dispatch draws the chosen batches; on an
+edit of the draft the bill's lines name that note, and their `batches` are
+restated on its line (`DeliveryNoteService.set_line_batches`, shared with the
+note's own editor). Absent leaves the choice -- earliest expiry first -- and an
+empty list clears it. A bill billing a note somebody else typed is refused
+`batches`: that note chose its own. Each bill line's response carries the
+batches its note line takes. The batch rules judge a bill's dispatch as a
+record only (no reason asked), as before.
+
+Still open (backlog 79): *pin batch* on the sales order line, minimum shelf
+life per customer, price from the batch (a batch carries no MRP yet).
 
 ---
 

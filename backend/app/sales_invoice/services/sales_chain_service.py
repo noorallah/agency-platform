@@ -26,7 +26,11 @@ from sqlalchemy.orm import Session
 from app.branches.models import Branch, Warehouse
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
-from app.delivery_note.schemas import DeliveryNoteCreate, DeliveryNoteLineWrite
+from app.delivery_note.schemas import (
+    DeliveryNoteBatchPick,
+    DeliveryNoteCreate,
+    DeliveryNoteLineWrite,
+)
 from app.delivery_note.services.delivery_note_service import DeliveryNoteService
 from app.products.models import Product
 from app.sales_invoice.schemas import (
@@ -204,21 +208,33 @@ class SalesChainService:
             for line in data.lines
             if line.serial_ids is not None
         }
+        chosen = {
+            line.line_number: line.batches
+            for line in data.lines
+            if line.batches is not None
+        }
+        raised_lines = self._session.scalars(
+            select(SalesOrderLine).where(
+                SalesOrderLine.sales_order_id == order.id,
+                SalesOrderLine.is_deleted.is_(False),
+            )
+        ).all()
         serials = {
             line.id: stated[line.line_number]
-            for line in self._session.scalars(
-                select(SalesOrderLine).where(
-                    SalesOrderLine.sales_order_id == order.id,
-                    SalesOrderLine.is_deleted.is_(False),
-                )
-            ).all()
+            for line in raised_lines
             if line.line_number in stated
+        }
+        batches = {
+            line.id: chosen[line.line_number]
+            for line in raised_lines
+            if line.line_number in chosen
         }
         return self._raise_and_rebind(
             data,
             order=order,
             quantities=None,
             serials=serials,
+            batches=batches,
             firm_id=firm_id,
             actor_id=actor_id,
         )
@@ -263,11 +279,17 @@ class SalesChainService:
             for line in data.lines
             if line.source_document_line_id is not None and line.serial_ids is not None
         }
+        batches = {
+            line.source_document_line_id: line.batches
+            for line in data.lines
+            if line.source_document_line_id is not None and line.batches is not None
+        }
         return self._raise_and_rebind(
             data,
             order=order,
             quantities=quantities,
             serials=serials,
+            batches=batches,
             firm_id=firm_id,
             actor_id=actor_id,
         )
@@ -281,6 +303,7 @@ class SalesChainService:
         serials: dict[UUID, list[UUID]],
         firm_id: UUID,
         actor_id: UUID,
+        batches: dict[UUID, list[DeliveryNoteBatchPick]] | None = None,
     ) -> SalesInvoiceCreate:
         """Raise and approve the note, then bill it instead.
 
@@ -292,7 +315,8 @@ class SalesChainService:
 
         `quantities` names how much of each order line to ship; None ships the
         whole order, which is what a bare bill means. `serials` names the units
-        each order line ships, for a serial-tracked product.
+        each order line ships, for a serial-tracked product; `batches` the
+        batches a counter bill chose for a line (backlog 79 row 2).
         """
         order_lines = list(
             self._session.scalars(
@@ -324,7 +348,12 @@ class SalesChainService:
                 bill_discount_amount=data.bill_discount_amount,
                 freight_amount=data.freight_amount,
                 lines=[
-                    self._note_line(line, quantities, serials.get(line.id))
+                    self._note_line(
+                        line,
+                        quantities,
+                        serials.get(line.id),
+                        (batches or {}).get(line.id),
+                    )
                     for line in order_lines
                     if self._shipping(line, quantities) > ZERO
                 ],
@@ -371,6 +400,7 @@ class SalesChainService:
         line: SalesOrderLine,
         quantities: dict[UUID, Decimal] | None,
         serial_ids: list[UUID] | None = None,
+        batches: list[DeliveryNoteBatchPick] | None = None,
     ) -> DeliveryNoteLineWrite:
         """Ship one order line, carrying the deal the order already struck.
 
@@ -400,6 +430,7 @@ class SalesChainService:
             storage_node_id=line.storage_node_id,
             remarks=line.remarks,
             serial_ids=serial_ids,
+            batches=batches,
         )
 
     @staticmethod

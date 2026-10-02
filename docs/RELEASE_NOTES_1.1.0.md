@@ -98,6 +98,8 @@ screen (1.1.0).
   **tax calendar** on Home (#898).
 - **Choosing batches** on a delivery note, printed one row per batch (#911,
   decision A38).
+- **Choosing batches on a counter bill**: a batch-tracked line opens the same
+  picker as the delivery note, and the batch chosen is the one that leaves.
 - **Batch rules** (Settings > Stock > Batch Rules): how many days count
   as near expiry, whether a near-expiry batch or a later batch chosen ahead of
   an earlier one needs a reason at dispatch, and near-expiry stock may be sold
