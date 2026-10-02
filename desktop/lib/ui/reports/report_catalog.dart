@@ -1185,6 +1185,9 @@ const List<ReportColumn> _moneyBookColumns = [
   ReportColumn(key: 'particulars', label: 'Particulars'),
   ReportColumn(key: 'source', label: 'Raised by'),
   ReportColumn(key: 'account', label: 'Account'),
+  // How a receipt's or payment's money moved, and its cheque or UTR (ACC-3).
+  ReportColumn(key: 'mode', label: 'Mode'),
+  ReportColumn(key: 'instrument', label: 'Instrument'),
   ReportColumn(key: 'narration', label: 'Narration'),
   ReportColumn(key: 'receipt', label: 'Receipt', numeric: true),
   ReportColumn(key: 'payment', label: 'Payment', numeric: true),

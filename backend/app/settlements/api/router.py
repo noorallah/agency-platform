@@ -170,9 +170,11 @@ def _to_responses(
                     else orders.get(row.sales_order_id)
                 ),
                 method=row.method,
+                payment_mode=row.payment_mode,
                 ledger_account_id=row.ledger_account_id,
                 ledger_account_name=accounts.get(row.ledger_account_id, ""),
                 instrument_reference=row.instrument_reference,
+                instrument_date=row.instrument_date,
                 narration=row.narration,
                 status=row.status,
                 journal_entry_id=row.journal_entry_id,

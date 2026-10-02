@@ -171,6 +171,7 @@ class _Firm:
         on: date,
         amount: str,
         method: str = "CASH",
+        mode: str | None = None,
         reversed_on: date | None = None,
         allocations: tuple[tuple[UUID, str], ...] = (),
     ) -> UUID:
@@ -196,6 +197,7 @@ class _Firm:
             settlement_date=on,
             amount=Decimal(amount),
             method=method,
+            payment_mode=mode,
             status="REVERSED" if reversal else "POSTED",
             reversal_journal_entry_id=reversal,
         )
@@ -432,9 +434,28 @@ def test_collections_by_mode() -> None:
     rows = collections_by_mode(
         report_scope(firm.id), date(2026, 5, 1), date(2026, 5, 31), db=firm.session
     ).data
+    # Recorded before the mode was asked for: a bank receipt says so rather
+    # than being guessed into one (ACC-3).
     assert [(row.label, row.net_collected) for row in rows] == [
-        ("Bank", Decimal("250.00")),
+        ("Bank (mode not recorded)", Decimal("250.00")),
         ("Cash", Decimal("100.00")),
+    ]
+
+
+def test_collections_by_mode_name_how_the_bank_money_came() -> None:
+    """A cheque, a UPI and a transfer each count under their own mode (ACC-3)."""
+    firm = _Firm()
+    firm.receipt(on=date(2026, 5, 3), amount="100", method="CASH", mode="CASH")
+    firm.receipt(on=date(2026, 5, 4), amount="250", method="BANK", mode="CHEQUE")
+    firm.receipt(on=date(2026, 5, 4), amount="70", method="BANK", mode="UPI")
+    firm.receipt(on=date(2026, 5, 5), amount="30", method="BANK", mode="UPI")
+    rows = collections_by_mode(
+        report_scope(firm.id), date(2026, 5, 1), date(2026, 5, 31), db=firm.session
+    ).data
+    assert [(row.label, row.receipts, row.net_collected) for row in rows] == [
+        ("Cash", 1, Decimal("100.00")),
+        ("Cheque", 1, Decimal("250.00")),
+        ("UPI", 2, Decimal("100.00")),
     ]
 
 

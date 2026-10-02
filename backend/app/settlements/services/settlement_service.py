@@ -964,10 +964,14 @@ class SettlementService(TransactionalDocumentService):
             unallocated_amount=amount - allocated,
             sales_order_id=None if order is None else order.id,
             method=data.method.value,
+            payment_mode=(
+                None if data.payment_mode is None else data.payment_mode.value
+            ),
             ledger_account_id=money_account_id,
             instrument_reference=(
                 data.instrument_reference.strip() if data.instrument_reference else None
             ),
+            instrument_date=data.instrument_date,
             narration=data.narration,
             status=SettlementStatus.POSTED.value,
             journal_entry_id=entry.id,

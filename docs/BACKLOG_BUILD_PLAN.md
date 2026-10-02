@@ -105,7 +105,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | **Accounts** | | | | | |
 | ACC-1 | §42.2 | Bank reconciliation from the bank's statement file | Nothing (a sample statement helps) | L | Claude alone |
 | ACC-2 | §42.3 | Post-dated cheque register: held, deposited, cleared, bounced | Nothing | M | Claude alone |
-| ACC-3 | §74.1 row 12 | How money moved: UPI, cheque, NEFT, card, cash, with number and date | Nothing | S | Claude alone |
+| ACC-3 | §74.1 row 12 | How money moved: UPI, cheque, NEFT, card, cash, with number and date -- **built 2026-10-02** (A49) | Nothing | S | Claude alone |
 | ACC-4 | §74.1 row 13 | The firm's bank details printed on bills; account numbers masked | Nothing | M | Claude alone |
 | ACC-5 | §74.1 row 14 | Checks before closing a month | Nothing | S | Claude alone |
 | ACC-6 | §74.1 row 16 | Ageing buckets set per firm; due today and this week | Nothing | S | Claude alone |
@@ -543,6 +543,7 @@ otherwise it is built as written.
 - **What it is:** record whether money came by UPI, cheque, NEFT, card or cash, with its number and date.
 - **What gets built:** migration: a mode, instrument number and date on settlements beside `SettlementMethod` (`backend/app/settlements/models/settlement.py`); `record_settlement_dialog.dart` fields; the day / cash / bank books (`books_register.py`) and the collection report show the mode. Tests.
 - **Depends on:** nothing. **Effort / Who:** S, Claude alone.
+- **Built 2026-10-02** (A49): `settlements.payment_mode` and `instrument_date` (migration 0236); cash and bank books gain *Mode* and *Instrument*; collections by mode read the mode; tests in `tests/unit/test_settlement_payment_mode.py`.
 
 #### ACC-4. Firm bank accounts and masking (§74.1 row 13)
 - **What it is:** the firm's bank name, account and IFSC printed on bills; others' account numbers show only the last four digits.

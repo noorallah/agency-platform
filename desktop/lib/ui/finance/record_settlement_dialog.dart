@@ -100,7 +100,15 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   /// What tax collected at source this receipt would attract, answered before
   /// the money is taken rather than discovered after.
   Json? _tcs;
-  String _method = 'BANK';
+  /// How the money moved (ACC-3); the method follows from it -- cash is
+  /// cash, every other mode goes through the bank.
+  String _mode = 'BANK_TRANSFER';
+  String get _method => _mode == 'CASH' ? 'CASH' : 'BANK';
+
+  /// The cheque's or draft's own date, asked only for those two.
+  DateTime? _instrumentDate;
+  bool get _hasInstrumentDate =>
+      _mode == 'CHEQUE' || _mode == 'DEMAND_DRAFT';
   DateTime _date = DateTime.now();
   List<OutstandingInvoice> _invoices = const [];
 
@@ -290,8 +298,12 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
               _date.toIso8601String().substring(0, 10),
           'amount': _amount.text.trim(),
           'method': _method,
+          'payment_mode': _mode,
           if (_reference.text.trim().isNotEmpty)
             'instrument_reference': _reference.text.trim(),
+          if (_hasInstrumentDate && _instrumentDate != null)
+            'instrument_date':
+                _instrumentDate!.toIso8601String().substring(0, 10),
           if (_narration.text.trim().isNotEmpty)
             'narration': _narration.text.trim(),
           if (widget.direction.allocates && deducted > 0) ...{
@@ -377,11 +389,15 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
                   width: 220,
                   child: TextField(
                     controller: _reference,
-                    decoration: const InputDecoration(
-                      labelText: 'Cheque or transfer reference',
+                    decoration: InputDecoration(
+                      labelText: _referenceLabel,
                     ),
                   ),
                 ),
+                if (_hasInstrumentDate) ...[
+                  const SizedBox(width: AppSpacing.md),
+                  SizedBox(width: 170, child: _instrumentDateField(context)),
+                ],
                 const SizedBox(width: AppSpacing.md),
                 Expanded(
                   child: TextField(
@@ -805,13 +821,51 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
       );
 
   Widget _methodPicker() => DropdownButtonFormField<String>(
-        initialValue: _method,
-        decoration: const InputDecoration(labelText: 'Method'),
-        items: const [
-          DropdownMenuItem<String>(value: 'BANK', child: Text('Bank')),
-          DropdownMenuItem<String>(value: 'CASH', child: Text('Cash')),
+        key: const ValueKey('settlement-mode'),
+        initialValue: _mode,
+        isExpanded: true,
+        decoration: const InputDecoration(labelText: 'Mode'),
+        items: [
+          for (final MapEntry<String, String> mode in paymentModeLabels.entries)
+            DropdownMenuItem<String>(value: mode.key, child: Text(mode.value)),
         ],
-        onChanged: (value) => setState(() => _method = value ?? 'BANK'),
+        onChanged: (value) =>
+            setState(() => _mode = value ?? 'BANK_TRANSFER'),
+      );
+
+  /// What the reference box asks for, by mode.
+  String get _referenceLabel => switch (_mode) {
+        'CHEQUE' => 'Cheque number',
+        'DEMAND_DRAFT' => 'Draft number',
+        'UPI' => 'UPI reference',
+        'BANK_TRANSFER' => 'UTR / transfer reference',
+        'CARD' => 'Card slip reference',
+        'CASH' => 'Receipt or note reference',
+        _ => 'Reference',
+      };
+
+  Widget _instrumentDateField(BuildContext context) => InkWell(
+        key: const ValueKey('settlement-instrument-date'),
+        onTap: () async {
+          final DateTime? picked = await showDatePicker(
+            context: context,
+            initialDate: _instrumentDate ?? _date,
+            firstDate: DateTime(2000),
+            lastDate: DateTime(2100),
+          );
+          if (picked == null) return;
+          setState(() => _instrumentDate = picked);
+        },
+        child: InputDecorator(
+          decoration: InputDecoration(
+            labelText: _mode == 'CHEQUE' ? 'Cheque date' : 'Draft date',
+          ),
+          child: Text(
+            _instrumentDate == null
+                ? 'Not given'
+                : _instrumentDate!.toIso8601String().substring(0, 10),
+          ),
+        ),
       );
 
   Widget _dateField(BuildContext context) => InkWell(

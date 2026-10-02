@@ -923,12 +923,13 @@ class _SettlementsPageState extends State<SettlementsPage> {
         '${row.partyCode} ${row.partyName}',
       ),
       subtitle: Text(
-        '$cleared  ·  ${row.method} into ${row.ledgerAccountName}'
+        '$cleared  ·  ${row.modeLabel} into ${row.ledgerAccountName}'
         // The order the money came in against, where it came in against one.
         // Without it a deposit is indistinguishable from a payment somebody
         // made for no stated reason.
         '${row.salesOrderNumber.isEmpty ? '' : ' · against ${row.salesOrderNumber}'}'
-        '${row.instrumentReference.isEmpty ? '' : ' · ${row.instrumentReference}'}',
+        '${row.instrumentReference.isEmpty ? '' : ' · ${row.instrumentReference}'}'
+        '${row.instrumentDate.isEmpty ? '' : ' dated ${row.instrumentDate}'}',
       ),
       trailing: Row(mainAxisSize: MainAxisSize.min, children: [
         Text(row.amount, style: Theme.of(context).textTheme.titleSmall),

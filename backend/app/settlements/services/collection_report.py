@@ -44,12 +44,15 @@ from app.settlements.models import (
     SettlementDirection,
     SettlementStatus,
 )
+from app.settlements.schemas import MODE_LABELS
 
 ZERO = Decimal("0.00")
 GROUPINGS = ("day", "salesman", "method")
 ON_ACCOUNT = "On account"
 NO_SALESMAN = "No salesman"
-METHOD_LABELS = {"CASH": "Cash", "BANK": "Bank"}
+#: By mode, a receipt counts under how the money moved (ACC-3); a bank
+#: receipt recorded before the mode was asked for counts as *Bank*.
+MODE = func.coalesce(Settlement.payment_mode, Settlement.method)
 
 
 @dataclass(frozen=True)
@@ -153,9 +156,7 @@ class CollectionReportService:
         tallies: dict[str, _Tally],
     ) -> None:
         """Tally receipts and reversals by day or by mode, both in SQL."""
-        received_key = (
-            Settlement.settlement_date if grouping == "day" else Settlement.method
-        )
+        received_key = Settlement.settlement_date if grouping == "day" else MODE
         for key, count, amount in self._session.execute(
             select(received_key, func.count(Settlement.id), func.sum(Settlement.amount))
             .where(
@@ -167,7 +168,7 @@ class CollectionReportService:
             tally = tallies.setdefault(str(key), _Tally())
             tally.receipts += int(count)
             tally.collected += _money(amount)
-        reversed_key = self._reversal_date() if grouping == "day" else Settlement.method
+        reversed_key = self._reversal_date() if grouping == "day" else MODE
         for key, count, amount in self._session.execute(
             select(reversed_key, func.count(Settlement.id), func.sum(Settlement.amount))
             .join(JournalEntry, JournalEntry.id == Settlement.reversal_journal_entry_id)
@@ -284,7 +285,7 @@ class CollectionReportService:
     def _labels(self, firm_id: UUID, grouping: str, keys: list[str]) -> dict[str, str]:
         """Name each row: a day as itself, a mode in words, a salesman by name."""
         if grouping == "method":
-            return {key: METHOD_LABELS.get(key, key.title()) for key in keys}
+            return {key: MODE_LABELS.get(key, key.title()) for key in keys}
         if grouping == "day":
             return {key: date.fromisoformat(key[:10]).isoformat() for key in keys}
         members = {
