@@ -39,6 +39,7 @@ from app.sales_invoice.services.invoice_pdf import (
     PartyBlock,
     TemplateSettings,
 )
+from app.sales_invoice.services.upi_qr import UpiPayment, upi_payment
 from app.sales_order.models import SalesOrder
 from app.trade_licences.services import TradeLicenceService
 from app.uom.models import Uom
@@ -175,6 +176,11 @@ class SalesInvoicePrintService:
         document = self._document(invoice, firm_scope=firm_scope)
         if no_irn is not None:
             document = replace(document, not_final=REFERENCE_COPY_BANNER)
+        if document.not_final is None:
+            # Only a bill that stands asks to be paid (MSG-2).
+            document = replace(
+                document, upi=self._upi(invoice, template, document.seller.name)
+            )
         if any(line.batch for line in document.lines):
             # The batches the goods left in, with their expiry and printed
             # MRP, as the challan carries them (backlog 79 row 7).
@@ -187,6 +193,30 @@ class SalesInvoicePrintService:
         pdf = InvoicePdfRenderer(template).render(document)
         safe = invoice.invoice_number.replace("/", "-").replace(" ", "-")
         return pdf, f"{safe}.pdf"
+
+    # ------------------------------------------------------------------
+    def _upi(
+        self, invoice: SalesInvoice, template: TemplateSettings, payee: str
+    ) -> UpiPayment | None:
+        """Return what the bill's QR asks for: what it still owes, if anything.
+
+        What has come off the bill is read from ``settled_against``, the one
+        answer Record Receipt and the ageing also read, so a bill paid at the
+        counter prints no QR and a part-paid one asks only for the rest.
+        """
+        if not template.upi_id:
+            return None
+        from app.settlements.services.settlement_service import settled_against
+
+        settled = settled_against(
+            self._session, firm_id=invoice.firm_id, invoice_ids=[invoice.id]
+        ).get(invoice.id, ZERO)
+        return upi_payment(
+            upi_id=template.upi_id,
+            payee=payee,
+            amount=invoice.grand_total - settled,
+            note=invoice.invoice_number,
+        )
 
     # ------------------------------------------------------------------
     def _template(self, firm_scope: UUID) -> TemplateSettings:

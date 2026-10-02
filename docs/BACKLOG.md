@@ -3522,6 +3522,7 @@ TCS, an audit trail, currency and exchange-rate fields, and a low-stock view.
 - **Who has it:** TallyPrime (payment links, UPI QR), Zoho (payment links, and
   card or UPI terminals).
 - **Here:** a `upi_id` field on vendors only.
+- **Status, 2026-10-03:** the static UPI QR is **built** (MSG-2, A55): the firm's UPI ID on the invoice's Print settings, a QR for what the bill still owes on the A4 and 80 mm prints. Payment links stay open (§51 B4).
 - **Why it matters:** a static UPI QR printed on the invoice needs no gateway
   and no internet -- only the firm's UPI ID and the amount. Payment links need a
   gateway and are a bigger decision.

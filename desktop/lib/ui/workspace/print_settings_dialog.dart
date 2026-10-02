@@ -43,6 +43,7 @@ class PrintSettingsDialog extends StatefulWidget {
 class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
   final TextEditingController _title = TextEditingController();
   final TextEditingController _bank = TextEditingController();
+  final TextEditingController _upi = TextEditingController();
   final TextEditingController _terms = TextEditingController();
   final TextEditingController _declaration = TextEditingController();
   final TextEditingController _jurisdiction = TextEditingController();
@@ -80,6 +81,7 @@ class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
     for (final TextEditingController controller in <TextEditingController>[
       _title,
       _bank,
+      _upi,
       _terms,
       _declaration,
       _jurisdiction,
@@ -100,6 +102,7 @@ class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
       setState(() {
         _title.text = template.titleText;
         _bank.text = template.bankDetails;
+        _upi.text = template.upiId;
         _terms.text = template.terms;
         _declaration.text = template.declaration;
         _jurisdiction.text = template.jurisdiction;
@@ -164,6 +167,7 @@ class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
               : _title.text.trim(),
           showBankDetails: _showBank,
           bankDetails: _bank.text.trim(),
+          upiId: _upi.text.trim(),
           terms: _terms.text.trim(),
           declaration: _declaration.text.trim(),
           jurisdiction: _jurisdiction.text.trim(),
@@ -280,6 +284,19 @@ class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
                           : null,
                     ),
                     _field(_bank, 'Bank details', lines: 3),
+                    // Only a bill asks to be paid (MSG-2).
+                    if (widget.documentType == 'SALES_INVOICE') ...[
+                      _field(_upi, 'UPI ID, such as shop@okaxis'),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          'A bill that still owes money prints a QR the '
+                          'customer scans to pay that amount. Leave blank '
+                          'for no QR.',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ),
+                    ],
                     _field(_terms, 'Terms', lines: 3),
                     _field(_declaration, 'Declaration', lines: 2),
                     _field(_jurisdiction, 'Jurisdiction'),
