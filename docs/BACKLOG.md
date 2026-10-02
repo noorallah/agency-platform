@@ -4604,7 +4604,7 @@ branch, salesman, document type and date, and the tests "is one of", "between",
 | 7 | **Bulk coupon codes** | 500 single-use codes for a campaign, exported to CSV | **Built 2026-10-03** (SEL-5, A70): *Generate codes* mints up to 5,000 single-use codes; *Export codes* gives the CSV |
 | 8 | **Customer eligibility** | first order only; customers not billed in 90 days | new conditions |
 | 9 | **Day and time** | weekends only; 4-6 pm | condition on weekday and time; mainly retail |
-| 10 | **Offer templates** | "copy last Diwali's offers, new dates" | copy a promotion, or a set of them |
+| 10 | **Offer templates** | "copy last Diwali's offers, new dates" | **Built 2026-10-03** (SEL-8, A71): *Copy with new dates...* copies the ticked offers as drafts with a code suffix |
 | 11 | **Manufacturer scheme claims** | free goods given on the company's scheme, claimed back | track the value per scheme to claim from the supplier |
 | 12 | **Offer shown on the print** | "Diwali offer: 250 saved" on the bill | **Built 2026-10-01**: the bill head names the offers claimed on the orders it bills (*Offers*) and *You saved* -- line discounts plus the bill discount |
 | 13 | **Try an offer before launch** | see today what next week's Diwali offer does to an order | **Built.** *Try offers* on the Promotions screen (behind "...") over `POST /api/v1/promotions/simulate`: a date, document, optional customer, coupon and delivery charge, and lines; it shows each line's discount and free goods, the bill discount, delivery waived, gifts, the total saved, and every offer tried with why it applied or not |
