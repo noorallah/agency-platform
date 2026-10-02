@@ -3,6 +3,9 @@
 Work that is agreed but not started, with the decisions each one is waiting on.
 Items move out of here when they are built, not when they are discussed.
 
+**What each open item needs to be built** -- owner input, modules, effort,
+who, and a build order in waves -- is `docs/BACKLOG_BUILD_PLAN.md` (2026-10-02).
+
 Open feature-gating decisions live in `docs/MODULE_REVIEW_CHECKLIST.md` under
 "three features deliberately left ungated" — they are questions rather than
 tasks, so they stay there.
@@ -2642,6 +2645,8 @@ improvement, deferred by the owner to do later.
   migrations.
 
 ## 34. Stock movements should be numbered by the system, not typed
+
+**Status, 2026-10-02: built** (found while compiling `docs/BACKLOG_BUILD_PLAN.md`) as D-QA-16 -- transfers, write-offs, quarantine and adjustments draw `ST`, `WO`, `QR` and `ADJ` numbers from their own series (`backend/app/inventory/services/movement_numbering.py`); a typed reference is still taken as it is.
 
 Proposed 2026-09-12 during section 8 of the manual pass; **a decision for the
 owner, not yet scheduled.**
