@@ -205,8 +205,9 @@ approval; stock leaving at dispatch; the stage switches
 (`sales_workflow_settings`) -- a firm with the delivery-note stage off already
 has the invoice dispatch the goods, which is Flow A.
 
-**Still needed from the owner:** which GSP (row 8), and whether any firm
-today is composition or sells exempt goods (row 14 is later unless one is).
+**Still needed from the owner:** whether any firm today is composition or
+sells exempt goods (row 14 is later unless one is). Which GSP (row 8) is now
+each firm's choice (A42, section 5).
 
 Sources (read 2026-10-02):
 [Zoho -- delivery challan](https://www.zoho.com/en-in/pos/resources/help/delivery-challan.html),
@@ -221,17 +222,17 @@ goes live; **P2** for every firm; **P3** completes the picture.
 
 | # | Change | Pri |
 | --- | --- | --- |
-| 1 | **Firm GST settings:** *e-invoicing applies* (turnover crossed ₹5 cr) and *30-day rule applies* (₹10 cr or more), dated, set by the firm administrator -- **built 2026-10-02 (#903)**, recorded only until rows 6 and 7 read them | P1 |
+| 1 | **Firm GST settings:** *e-invoicing applies* (turnover crossed ₹5 cr) and *30-day rule applies* (₹10 cr or more), dated, set by the firm administrator -- **built 2026-10-02 (#903)**; rows 6 and 7 read them since #945 and #946 | P1 |
 | 2 | **Invoice before dispatch:** a per-firm policy -- *off*, *warn* (default) or *block* -- when a delivery note is dispatched with no invoice and no challan reason, with *Dispatch and invoice* -- **built 2026-10-02 (#903)** | P1 |
 | 3 | **Challan reason** on the delivery note: sale (invoice follows at once), on approval, job work, stock transfer, quantity not known, other; printed on the challan -- **built 2026-10-02 (#903)** | P1 |
-| 4 | **E-invoice credit notes and debit notes**, not only invoices: a document type on the registration | P1 |
+| 4 | **E-invoice credit notes and debit notes**, not only invoices: a document type on the registration -- **built 2026-10-02 (#938)**; a sales return's credit note too (#946, D-TAX-2, A45) | P1 |
 | 5 | **Debit note to a customer** (§67 row 7) -- **built 2026-10-02** | P1 |
 | 6 | **Refuse to print or send a B2B invoice without an IRN** where e-invoicing applies; a B2C invoice is unaffected -- **built 2026-10-02** (A43): credit and debit notes too; a reference copy prints marked not valid; the automatic email waits for the IRN | P1 |
 | 7 | **30-day check:** a list of documents not yet registered with days left; warn near the limit; refuse after it with the portal's reason -- **built 2026-10-02** (A44) | P1 |
-| 8 | **Live e-invoice and e-way bill through a GSP** (§55 M2), with duplicate-IRN handling | P1 -- needs a GSP contract |
-| 9 | **E-way bill without an IRN:** from the invoice or the delivery challan, so firms below ₹5 cr and non-sale movements can raise one | P2 |
-| 10 | **₹50,000 prompt:** offer the e-way bill when the goods value crosses the limit; state-wise limit as a setting | P2 |
-| 11 | **IRN, acknowledgement and signed QR on the printed invoice, credit and debit note** | P2 |
+| 8 | **Live e-invoice and e-way bill through a GSP** (§55 M2), with duplicate-IRN handling -- the route is per firm (A42); the offline portal upload is built (#936), Direct NIC and a GSP adapter are not | P1 -- needs a GSP contract |
+| 9 | **E-way bill without an IRN:** from the invoice or the delivery challan, so firms below ₹5 cr and non-sale movements can raise one -- **built 2026-10-02 (#937)** | P2 |
+| 10 | **₹50,000 prompt:** offer the e-way bill when the goods value crosses the limit; state-wise limit as a setting -- **built 2026-10-02 (#937)** | P2 |
+| 11 | **IRN, acknowledgement and signed QR on the printed invoice, credit and debit note** -- **built 2026-10-02 (#939)** | P2 |
 | 12 | **Credit note after 30 November** of the following year: warn, naming the date | P3 |
 | 13 | **16-character check** on GST document numbering rules | P3 |
 | 14 | **Bill of supply** for exempt goods and composition firms | P3 |
@@ -296,14 +297,15 @@ product lacks it.
 | 1 | **Credit eligibility per bill line**: Eligible, Blocked (17(5)), Ineligible (other). Defaults from the product's or expense account's setting, then from a tax rule's *Input credit blocked*, and can be changed on the line. Blocked or ineligible tax is added to the cost of the goods or expense, not to input tax, and 3B shows it as a permanent reversal. Fixes D-TAX-1 | Per product and per expense account | Eligible | P1 |
 | 2 | **Supplier GST treatment**: Regular, Composition, Unregistered, Overseas, SEZ, as customers already have. A composition or unregistered supplier's bill charges no tax (reverse charge aside) and gives no credit | Per supplier | Regular if a GSTIN is on file, else Unregistered | P1 |
 | 3 | **GSTR-2B matching**: import the 2B file from the portal; match by supplier GSTIN, bill number and date, and amounts within a tolerance; list Matched, Different, In 2B only, In books only | Tolerance per firm; and whether 3B claims **all** bills (as today) or **only matched** ones | ₹1; all bills, with the unmatched listed | P1 |
-| 4 | **180-day check**: a list of bills unpaid past 180 days with the credit to reverse; the reversal posted on request, and the reclaim when paid | Off / Report / Report and post | Report | P2 |
-| 5 | **Supplier's IRN** on the bill, and a flag on the supplier that it e-invoices; warn when that supplier's bill has none | Off / Warn | Warn | P2 |
-| 6 | **E-way bill number on the goods receipt**, asked for above the firm's limit (the same setting as sales, §77 row 10) | Limit per firm | ₹50,000 | P2 |
+| 4 | **180-day check**: a list of bills unpaid past 180 days with the credit to reverse; the reversal posted on request, and the reclaim when paid -- **built 2026-10-02 (#941)** | Off / Report / Report and post | Report | P2 |
+| 5 | **Supplier's IRN** on the bill, and a flag on the supplier that it e-invoices; warn when that supplier's bill has none -- **built 2026-10-02 (#943)** | Off / Warn | Warn | P2 |
+| 6 | **E-way bill number on the goods receipt**, asked for above the firm's limit (the same setting as sales, §77 row 10) -- **built 2026-10-02 (#944)** | Limit per firm | ₹50,000 | P2 |
 | 7 | **30 November warning** on a bill entered after its year's credit can be claimed | -- | On | P3 |
 | 8 | **Import bill of entry** (IGST on imports) | -- | -- | P3 (§68) |
 | 9 | **Common credit reversal** for a firm with exempt sales | -- | -- | P3 |
 
-**Order:** 1 (it overstates credit today) → 2 → 3 → 4, 5, 6 → 7-9.
+**Order:** 1 (it overstated credit) → 2 → 3 → 4, 5, 6 → 7-9. Rows 1 to 6 are
+built (2026-10-02); 7 to 9 are not.
 
 **Decided by Claude** (OWNER_DECISIONS A36), by the products above: the
 eligibility lives on the line with a default from the master, as Zoho and

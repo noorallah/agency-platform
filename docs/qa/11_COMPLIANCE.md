@@ -152,3 +152,35 @@ One standard check for every screen in this area. Run it once per screen as the 
 - **Preconditions:** Settings > Tax > GST Documents, e-way bill limit **50,000**; an approved purchase order worth more than 50,000 from a supplier with a GSTIN, and a second from a supplier with none.
 - **Steps:** Receive the first order with no e-way bill number and save. Type `EWB-1` in the e-way bill box. Type `3312 3456 7890` and a date, and save. Complete the receipt; **Record e-way bill**, clear it, record it again. Receive the second order with no number.
 - **Expect:** the first save warns that goods worth more than 50,000 need an e-way bill and none is recorded (rule 138), asking for the supplier's number; `EWB-1` is refused as not 12 digits; with the number the warning goes and it is stored as `331234567890`. On the completed receipt the number can be recorded and cleared, and the audit trail shows each change. The unregistered supplier's receipt warns that the e-way bill is yours to raise. A receipt under 50,000 shows no warning.
+
+### TC-COMP-016 — No print or email of a B2B invoice without its IRN
+
+*Added 2026-10-02 (backlog 77 row 6, decision A43).*
+
+- **Preconditions:** a GST-registered firm on the **Sandbox** route with *E-invoicing applies from* set to a day in the past (Settings → Tax → GST Documents). An approved invoice dated on or after that day to a buyer **with** a GSTIN, not registered; an approved invoice to a buyer **without** a GSTIN; an approved credit note against the first invoice, not registered. Messaging switched on with an email channel that can send.
+- **Steps:** (a) Sell → Sales Invoices → the B2B invoice → **Print**. Read the dialog, choose **Cancel**; Print again and choose **Print reference copy**. (b) **Send** it by email. (c) Print the consumer's invoice. (d) Print the credit note. (e) Sell → E-Invoice → register the B2B invoice, then Print and Send it again.
+- **Expect:** (a) a *No IRN yet* dialog: "<number> has no IRN yet. The firm e-invoices from <date> and the buyer is registered for GST, so it is not a valid tax invoice until it is registered on the portal (CGST rule 48(4)). Register it under E-invoice first, or print a reference copy marked not valid." Cancel prints nothing; the reference copy prints with **NO IRN YET - NOT A VALID TAX INVOICE** across its top. (b) the email is refused with the same sentence. (c) the consumer's bill prints as before, with no dialog. (d) the credit note is refused the same way, naming its own number. (e) once registered the invoice prints with its IRN box and no banner, and the email is accepted. A WhatsApp or SMS send is never held.
+
+### TC-COMP-017 — The automatic invoice email waits for the IRN
+
+*Added 2026-10-02 (backlog 77 row 6, decision A43).*
+
+- **Preconditions:** TC-COMP-016's firm; Settings → Messaging → *Events*: *Invoice approved* on, by email; a B2B customer with an email address.
+- **Steps:** Approve a new invoice to that customer. After the next messaging pass, Settings → Messaging → **Message log**. Then Sell → E-Invoice → register the invoice; wait at least five minutes and look at the log again.
+- **Expect:** the row stays **Queued** with the Reason "Waiting for <number>'s IRN: it goes out on the first pass after the invoice is registered on the portal." Nothing is sent and Tries does not climb. After registration the row is sent on the next pass (looked at again every 5 minutes) with the registered invoice attached -- one email, not two. Other queued messages keep going out while it waits.
+
+### TC-COMP-018 — The 30-day limit and the To register list
+
+*Added 2026-10-02 (backlog 77 row 7, decision A44).*
+
+- **Preconditions:** TC-COMP-016's firm, *30-day reporting limit applies from* set to a day in the past (not before the e-invoicing date). Three approved B2B invoices, not registered: one dated 35 days ago, one dated 27 days ago, one dated today.
+- **Steps:** Sell → E-Invoice → **To register**. Choose **Register** on the 27-day-old invoice. Try to register the 35-day-old one from **Register an invoice** (and, on the Offline route, by **Export for portal**). Clear the *30-day reporting limit* date, Save, and open **To register** again.
+- **Expect:** the list shows every approved B2B document without an IRN, oldest first, with Document, Number, Date, Customer, Amount, **Last day** (date + 30), **Days left** and Status: the 35-day-old one **Late**, with no Register button and the note "A late document cannot be registered: cancel it and raise it again under today's date."; the 27-day-old one "3 days left" (due soon, within 5 days); today's **Open**. Register on the 27-day-old one registers it and it leaves the list. Registering or exporting the late one is refused: "<number> is dated <date>; the last day to register it was <date>. The IRP refuses a document more than 30 days old ... Cancel it and raise it again under today's date." With the date cleared the list still shows the pending documents, says "The 30-day limit does not apply to this firm (Settings > Tax > GST Documents).", and has no Last day or Days left columns.
+
+### TC-COMP-019 — A sales return's credit note on the IRP
+
+*Added 2026-10-02 (D-TAX-2, decision A45).*
+
+- **Preconditions:** TC-COMP-016's firm on the **Sandbox** route. A B2B customer with two approved invoices for the same product; a sales return of goods from **both** invoices, completed; a second completed return of goods that were only delivered, never invoiced.
+- **Steps:** Sell → Sales Returns → the first return → **Print credit note**. Sell → E-Invoice → **To register**: find it and **Register**. Print its credit note again. Switch to **Offline**, raise and complete another return of billed goods, **Export for portal** with it ticked, and open the file. Look for the second return in **To register**.
+- **Expect:** before registration the credit note print is refused with the no-IRN sentence and offers a reference copy. The return is listed as **Sales return**; it registers with an `SBX` IRN, and its credit note then prints with the E-INVOICE box. The exported entry is a `CRN` whose `RefDtls` names **each** invoice it returns goods from. The return of goods never invoiced is not listed and is never registered ("... returns goods no invoice billed, so it credits no tax invoice and is not registered.").

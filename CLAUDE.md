@@ -62,7 +62,7 @@ uv run mypy app
 uv run pytest -q
 ```
 
-As of 2026-10-02 `pytest` holds **2,899 unit + 56 integration** tests (collected; the 10-02 end-to-end run passed them in chunks) and every test file also passes standalone — `tests/conftest.py` imports all model modules so `Base.metadata.create_all` sees the whole schema regardless of test order. Keep that list in step with `alembic/env.py`.
+As of 2026-10-02 `pytest` holds **3,056 unit + 56 integration** tests (collected at #947; the 10-02 end-to-end run passed the first 2,899 in chunks) and every test file also passes standalone — `tests/conftest.py` imports all model modules so `Base.metadata.create_all` sees the whole schema regardless of test order. Keep that list in step with `alembic/env.py`.
 
 `tests/integration/` needs a real PostgreSQL server and **skips cleanly without one**. It covers what SQLite cannot express: platform tables being invisible to a firm schema, firm-scope resolution across deployment modes, two schemas holding independent rows, and ORM-vs-deployed-schema drift. Run it with `uv run pytest tests/integration -q`. Reach for it whenever a change touches tenancy, cross-schema foreign keys, triggers or concurrency — every defect in that class has been invisible to the unit suite.
 
@@ -223,7 +223,7 @@ Prefer extending these over adding module-specific machinery. Each has a referen
 - **Territory, routes & beats** (`app/sales`) — `docs/TERRITORY_FRAMEWORK.md`. A route's effective window is enforced, judged on the document's own date, and `PUT /{id}/customers` replaces the whole list with `visit_sequence` as position in it.
 - **batch/serial/expiry** (`app/batch_serial`) — `docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`.
 - **Pricing, promotions and loyalty** — `docs/PRICING_AND_PROMOTIONS.md`. One resolver, `app/core/utils/pricing.py`, which every sales and purchase document calls.
-- **Importing from a file** (`app/common/file_import.py`) -- products, customers, suppliers, opening bills, opening trial balance and opening stock all run on it: a template generated from the firm's own records, a **check** that names every problem by row and column and writes nothing, and an **apply** that is all or nothing in one transaction through the module's `stage_*` methods. A new import copies `app/vendors/services/vendor_import.py`; never a sixth hand-rolled `csv.DictReader`.
+- **Importing from a file** (`app/common/file_import.py`) -- products, customers, suppliers, opening bills, opening trial balance and opening stock all run on it: a template generated from the firm's own records, a **check** that names every problem by row and column and writes nothing, and an **apply** that is all or nothing in one transaction through the module's `stage_*` methods. A new import copies `app/vendors/services/vendor_import.py`; never a sixth hand-rolled `csv.DictReader`. A file in another program's layout is mapped onto the template by `app/imports` (decision B3): a new import joins `IMPORT_KINDS` there and lets `remap_headings` relabel the file, rather than reading foreign headings itself.
 - **Acting on many documents** (`run_each` in `app/document_framework/services/bulk_actions.py`) -- bulk approve and cancel are **per row, not all-or-nothing**: each row goes through the single action's service method and commits on its own, a refusal is rolled back and reported with the service's message, and a `version` that moved since the list was read refuses that row. That is the opposite of an import, deliberately.
 - **Ledger posting** (`app/finance`, live at `/api/v1/finance`, migration `20260809_0042`) — `docs/LEDGER_POSTING_RULES.md`. Eleven modules post through `DocumentPostingService`, and `firm_control_accounts` carries 24 purposes per firm. It uses the seeded `accounting` / `financial_year` permission codes rather than a `FINANCE_*` namespace.
 
@@ -337,7 +337,7 @@ since -- consecutive sweeps over the same tree prove nothing twice. Targeted
 runs need no permission and should be constant; say which files you ran.
 
 **Run what the change can break, not everything.** The full backend suite is
-2,899 unit tests and the desktop suite about 2,500 (2,499 on 2026-10-02 before #918; on 2026-10-01 the backend took 14:31 and the desktop 2:35). On an **idle** machine they
+3,056 unit tests (collected at #947) and the desktop suite about 2,500 (2,499 on 2026-10-02 before #918; on 2026-10-01 the backend took 14:31 and the desktop 2:35). On an **idle** machine they
 take **7:19** and **2:26** (measured 2026-09-06); with the dev server and the
 built desktop client running, the same backend suite took **23 minutes** the
 same day and had to be run in quarters to fit inside a ten-minute tool
@@ -371,7 +371,7 @@ caught a toolbar overflow that only appears at the 800x600 test window, in no
 file a reasonable person would have called impacted -- so a targeted run is a
 speed choice while iterating, never a claim that the narrow set was sufficient.
 
-Backend tests are unit tests under `backend/tests/unit/`, one file per module. They build a **SQLite in-memory** engine with `Base.metadata.create_all` and a `StaticPool`, then call FastAPI route functions directly with hand-constructed `Principal`/scope objects — no running server or PostgreSQL required. Follow that pattern; new modules should keep their models SQLite-compatible for tests even though PostgreSQL is the deployment target. `backend/tests/integration/` is **not** empty -- it holds 52 tests and is described above; this line said it was empty long after it stopped being true.
+Backend tests are unit tests under `backend/tests/unit/`, one file per module. They build a **SQLite in-memory** engine with `Base.metadata.create_all` and a `StaticPool`, then call FastAPI route functions directly with hand-constructed `Principal`/scope objects — no running server or PostgreSQL required. Follow that pattern; new modules should keep their models SQLite-compatible for tests even though PostgreSQL is the deployment target. `backend/tests/integration/` is **not** empty -- it holds 56 tests (collected 2026-10-02) and is described above; this line said it was empty long after it stopped being true.
 
 Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests plus login and navigation-tree tests. `flutter test` is **green (2,499, run in five chunks on 2026-10-02)** and `flutter analyze` is clean.
 

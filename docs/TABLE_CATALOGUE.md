@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**234 tables**, of which **16** live only in the platform store.
+**237 tables**, of which **16** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -185,8 +185,9 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `einvoice_registrations` | firm store ¹ | One document -- a sales invoice, credit note, debit note to a customer or sales return -- as the Invoice Registration Portal knows it. | `sales_invoices`, `credit_notes`, `customer_debit_notes`, `sales_returns` |
-| `eway_bills` | firm store ¹ | One consignment's e-way bill, raised against an invoice. | `sales_invoices` |
+| `einvoice_registrations` | firm store ¹ | One document, as the Invoice Registration Portal knows it. | `sales_invoices`, `credit_notes`, `customer_debit_notes`, `sales_returns` |
+| `einvoice_settings` | firm store ¹ | How one firm registers its e-invoices (decision A42). |  |
+| `eway_bills` | firm store ¹ | One consignment's e-way bill, raised against an invoice or a challan. | `sales_invoices`, `delivery_notes` |
 
 ### `app/expenses`
 
@@ -238,6 +239,7 @@ trigger each schema owns its own copy of.
 | `gst_return_filings` | firm store ¹ | One return, for one month, filed on the portal. |  |
 | `gstr2b_documents` | firm store ¹ | One supplier document in a month's GSTR-2B, and what it matched. | `gstr2b_imports` |
 | `gstr2b_imports` | firm store ¹ | One month's GSTR-2B, imported once; a re-import replaces it. |  |
+| `itc_reversals` | firm store ¹ | One reversal of a bill's credit, or one reclaim of it. | `purchase_invoices`, `journal_entries` |
 
 ### `app/identity`
 
@@ -256,6 +258,12 @@ trigger each schema owns its own copy of.
 | `user_template_roles` | platform ¹ | One role in a template's bundle. | `user_templates`, `roles` |
 | `user_templates` | platform ¹ | A named bundle of roles for one job, so a firm hires by naming the job. | `firms` |
 | `users` | platform ¹ | Represent an interactive platform user. |  |
+
+### `app/imports`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `import_mappings` | firm store ¹ | How one firm reads one kind of file from one source, by name. |  |
 
 ### `app/inventory`
 
@@ -308,7 +316,7 @@ trigger each schema owns its own copy of.
 | `product_attribute_values` | firm store ¹ | Store one configurable attribute value for a product. | `products`, `firms`, `attribute_definitions` |
 | `product_categories` | firm store ¹ | Represent a hierarchical firm category tree for products. | `firms`, `trade_licence_types` |
 | `product_media` | firm store ¹ | Store product images, attachments, and reference documents. | `firms`, `products` |
-| `products` | firm store ¹ | Represent one configurable product core master row. | `firms`, `product_categories`, `trade_licence_types`, `uoms` |
+| `products` | firm store ¹ | Represent one configurable product core master row. | `firms`, `product_categories`, `trade_licence_types`, `uoms`, `vendors` |
 
 ### `app/proforma`
 
@@ -415,7 +423,7 @@ trigger each schema owns its own copy of.
 | `price_floor_settings` | firm store ¹ | One firm's policy on selling below cost or below a minimum price. |  |
 | `role_discount_limits` | firm store ¹ | The largest discount one role may give on its own, in one firm. |  |
 | `sales_order_attachments` | firm store ¹ | Store sales order attachments. | `sales_orders`, `firms` |
-| `sales_order_lines` | firm store ¹ | Store one sales order line. | `sales_orders`, `firms`, `products`, `uoms`, `packaging_types`, `tax_profiles`, `warehouses`, `warehouse_storage_nodes` |
+| `sales_order_lines` | firm store ¹ | Store one sales order line. | `sales_orders`, `firms`, `products`, `uoms`, `packaging_types`, `tax_profiles`, `warehouses`, `warehouse_storage_nodes`, `batches` |
 | `sales_order_notes` | firm store ¹ | Store sales order notes. | `sales_orders`, `firms` |
 | `sales_orders` | firm store ¹ | Store one sales order header. | `firms`, `customers`, `users`, `sales_territories`, `territory_route_profiles`, `branches`, `warehouses`, `business_profiles` |
 | `sales_workflow_settings` | firm store ¹ | Store which sales stages one firm fills in by hand. | `firms`, `branches`, `warehouses` |
@@ -443,8 +451,8 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `settlement_allocations` | firm store ¹ | Store how much of one settlement cleared one invoice. | `firms`, `settlements`, `sales_invoices`, `purchase_invoices`, `vendor_opening_bills`, `customer_opening_bills` |
 | `settlements` | firm store ¹ | Store one receipt from a customer or payment to a vendor. | `firms`, `customers`, `vendors`, `ledger_accounts`, `sales_orders`, `journal_entries` |
-| `supplier_credit_applications` | firm store ¹ | Store how much of one purchase return's supplier credit cleared one bill. | `vendors`, `purchase_returns`, `purchase_invoices` |
-| `supplier_credit_refunds` | firm store ¹ | Money a supplier paid back against one return's credit (69 row 7). | `vendors`, `purchase_returns`, `ledger_accounts`, `journal_entries` |
+| `supplier_credit_applications` | firm store ¹ | Store how much of one purchase return's supplier credit cleared one bill. | `vendors`, `purchase_returns`, `debit_notes`, `purchase_invoices` |
+| `supplier_credit_refunds` | firm store ¹ | Money a supplier paid back against one return's credit (69 row 7). | `vendors`, `purchase_returns`, `debit_notes`, `ledger_accounts`, `journal_entries` |
 
 ### `app/tax`
 

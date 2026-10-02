@@ -33,9 +33,18 @@ Each row names the screen. Do them on a copy of a firm, or on the demo firm.
 | 17 | **Choosing batches** | Sell > Delivery Notes > New, a batch-tracked product | Every batch with expiry and days left, earliest expiry filled in; take a later one or split; expired cannot be chosen; the challan prints a row per batch (`docs/qa/08_SELLING.md` TC-SELL-019) |
 | 18 | **Reorder from sales** | Settings > Buying > Purchase Settings > Reorder planning; Reports > Operational > Below reorder level | *From sales*: products with no typed level are listed from their average daily sales, with Basis and Avg/day; a typed level still wins (`docs/qa/06_PURCHASING.md` TC-BUY-015) |
 | 19 | **Debit note to a customer** | Sell > Debit Notes > New, an approved invoice | Charge more on a line: tax at that line's rate; on Approve the customer owes more and Record Receipt shows the invoice at its total plus the note; GSTR-1 lists it as type D (`docs/qa/08_SELLING.md` TC-SELL-020) |
+| 20 | **No print without the IRN** | Settings > Tax > GST Documents: *E-invoicing applies from* in the past; then Sell > Sales Invoices, an approved invoice to a customer with a GSTIN > Print | Refused, naming the invoice; *Print reference copy* prints under "NO IRN YET - NOT A VALID TAX INVOICE"; once registered it prints with the IRN and QR; a consumer's bill prints as before (`docs/qa/11_COMPLIANCE.md` TC-COMP-016, 017) |
+| 21 | **To register and the 30-day limit** | Accounts > Tax filing > E-Invoice > ... > To register | Every B2B document without an IRN, with last day and days left, *N days left* within 5, *Late* after; registering a late one is refused naming its last day (TC-COMP-018) |
+| 22 | **E-invoice route and notes** | GST Documents > route *Offline*; E-Invoice > Export for portal / Import portal result; a credit note, debit note and completed sales return | The file holds invoices and notes; importing the portal's result records each IRN; a sales return registers as a credit note naming its invoices (TC-COMP-009, 011, 012, 019) |
+| 23 | **E-way bills** | E-Invoice > ... > E-way bills due; a delivery note with reason Job work above ₹50,000; a goods receipt above the limit | Consignments above the limit are listed and prompted; the note raises one without an IRN; the receipt warns until *Record e-way bill* (TC-COMP-010, 015) |
+| 24 | **Purchases under GST** | Accounts > Tax filing > Rule 37 (180 days); a bill from a supplier marked *Supplier e-invoices* | Old unpaid bills with the credit to reverse, posted and reclaimed; a bill with no IRN warns, *Record IRN* clears it (TC-COMP-013, 014) |
+| 25 | **Batches, the rest** | Settings > Stock > Batch Rules; a counter bill; a sales order line *Pinned batch*; a customer's *Minimum shelf life (days)*; a goods receipt with MRP | Reasons asked at dispatch; the counter bill's picks are what leaves; the pinned batch is reserved and picked; short batches passed over; no bill above the batch MRP (`docs/qa/08_SELLING.md` TC-SELL-022 to 026) |
+| 26 | **Mapping an import's columns** | Masters > Products (or Customers, Vendors, opening bills, opening stock) > Import, a file with its own headings | Each heading beside the template column it is read as; change one, *Save mapping as...*, pick it again from *Saved mappings* (`docs/qa/05_MASTERS.md` TC-MAST-010) |
+| 27 | **Places from India Post** | Masters > Places, a new firm | Southern states' districts, towns and PIN codes are already there; *Load places from India Post...* adds another state (`docs/qa/10_TERRITORY.md` TC-TERR-006) |
 
-The other changes of 2026-10-02 have their own cases: TC-BUY-009 to 014,
-TC-SELL-018 and TC-SELL-020.
+The other changes of 2026-10-02 have their own cases: TC-BUY-009 to 018,
+TC-SELL-018, TC-SELL-020 to 026, TC-MAST-009 and 010, and TC-COMP-009 to
+019.
 
 **On every failure**: a screenshot, the newest file in
 `C:\ProgramData\Agency Platform\logs\server`, and the version on the sign-in
@@ -99,86 +108,111 @@ screen (1.1.0).
 - **Choosing batches** on a delivery note, printed one row per batch (#911,
   decision A38).
 - **Choosing batches on a counter bill**: a batch-tracked line opens the same
-  picker as the delivery note, and the batch chosen is the one that leaves.
+  picker as the delivery note, and the batch chosen is the one that leaves
+  (#931).
 - **Rule 37, the 180-day rule.** Bills unpaid 180 days after their date
   are listed with the credit to reverse, and reclaimed when paid; a firm can
-  post both from the list, and GSTR-3B reports them (§78 row 4).
+  post both from the list, and GSTR-3B reports them (#941, §78 row 4).
 - **The supplier's IRN on a bill.** A supplier can be marked as
   e-invoicing; its bill records the IRN from the QR code (on an approved bill
   too), and a bill from it without one is warned about, as is a second bill
-  carrying the same IRN (§78 row 5).
+  carrying the same IRN (#943, §78 row 5).
 - **The e-way bill on a goods receipt.** A receipt records the e-way bill
   number and date the goods came on, completed receipts too, and one worth
-  more than the firm's e-way bill limit without it is warned about (§78
-  row 6).
+  more than the firm's e-way bill limit without it is warned about (#944,
+  §78 row 6).
 - **Places from India Post.** Districts, towns, PIN codes and localities
   load by state from India Post's directory, shipped with the installer; the
-  southern states are already loaded in every firm, with no setup step (B6).
+  southern states are already loaded in every firm, with no setup step
+  (#940, #942, B6).
 - **The IRN and signed QR print** on a registered invoice, credit note
   and debit note; credit and debit notes to customers can now be printed
-  (§77 row 11).
+  (#939, §77 row 11).
 - **Credit and debit notes are e-invoiced** like invoices, through the
-  sandbox or the offline portal upload (§77 row 4).
+  sandbox or the offline portal upload (#938, §77 row 4).
 - **E-way bills for every consignment**: from the invoice without an IRN
   where the firm need not e-invoice, from a delivery note no invoice bills
   (job work, approval, van sales), or recorded by hand after raising it on
   the portal; a list of consignments above the firm's limit (₹50,000 by
-  default) that still need one, and a prompt after dispatch.
+  default) that still need one, and a prompt after dispatch (#937, §77 rows
+  9-10).
 - **E-invoice without a GSP**: a firm may file offline -- export its invoices
   as the e-invoice portal's bulk-upload JSON, upload it there, and import the
-  result to record each IRN, acknowledgement and QR (decision A42; Settings >
-  Tax > GST Documents).
+  result to record each IRN, acknowledgement and QR (#936, decision A42;
+  Settings > Tax > GST Documents).
 - **Map any file's columns on import**: products, customers, suppliers,
   opening bills and opening stock show the file's headings with the template
   column each is read as; change them, and save the mapping for the next
-  export from Tally, Marg, Busy or Excel (decision B3).
+  export from Tally, Marg, Busy or Excel (#935, decision B3).
 - **Batch MRP**: each batch keeps the MRP printed on it (and a selling
   price), taken from the goods receipt; no bill may charge more, and the
   challan and the invoice print each batch with its MRP. A firm may take a
-  line's rate from its batch (decision A41).
+  line's rate from its batch (#934, decision A41).
 - **Pin a batch on a sales order** when the customer asks for one: approval
-  holds that batch, and the delivery note starts with it picked.
+  holds that batch, and the delivery note starts with it picked (#933).
 - **Minimum shelf life per customer**: a customer may ask for goods with so
   many days left; earliest-expiry dispatch passes over shorter batches, and
-  one chosen by hand is refused (or warned, as the firm sets).
+  one chosen by hand is refused (or warned, as the firm sets) (#932).
 - **Batch rules** (Settings > Stock > Batch Rules): how many days count
   as near expiry, whether a near-expiry batch or a later batch chosen ahead of
   an earlier one needs a reason at dispatch, and near-expiry stock may be sold
-  below the price floor with the batches kept on the approval (decision A2).
+  below the price floor with the batches kept on the approval (#922,
+  decision A2).
 - **Debit note on a paid bill**: the part the bill no longer owes is a
-  supplier credit, to set against the next bill or be paid back (decision A4).
+  supplier credit, to set against the next bill or be paid back (#923,
+  decision A4).
 - **One company, several customer accounts**: a GSTIN or PAN may repeat
   across customers; saving one already on another account names it and asks
-  first (decision A7).
+  first (#924, decision A7).
 - **Overdue reminders stop after 90 days** past due (a firm setting), so
-  switching reminders on does not chase every old bill (decision A12).
+  switching reminders on does not chase every old bill (#925, decision A12).
 - **Preferred supplier** on a product: *Below reorder level* orders from it,
-  else from the supplier last billed (decision A18).
+  else from the supplier last billed (#926, decision A18).
 - **Cash-in-Hand and Bank Accounts groups** for a new firm's chart, so a
-  contra voucher offers only money accounts (decision A22; existing firms
-  unchanged).
+  contra voucher offers only money accounts (#927, decision A22; existing
+  firms unchanged).
 - **Reverse charge, ready-made**: the GST template carries GTA (5%) and legal
   services (18%) under reverse charge, switched off until a firm turns them
-  on; applying the template again gives an existing firm the same (A29).
+  on; applying the template again gives an existing firm the same (#928,
+  A29).
 - **A firm's audit trail can be given to its own people**: the firm
   administrator may grant *Firm Audit Log View* to any role, which reads that
-  firm's trail and nothing else (decision B1).
+  firm's trail and nothing else (#929, decision B1).
+- **No B2B invoice leaves without its IRN.** Once the firm's *e-invoicing
+  applies from* date has passed, an approved invoice to a buyer with a GSTIN
+  -- and a credit or debit note against one -- is refused at print and at
+  email until it has its IRN; *Print reference copy* prints it marked "NO IRN
+  YET - NOT A VALID TAX INVOICE". The automatic *Invoice approved* email waits
+  for the IRN and then goes (#945, §77 row 6, decision A43).
+- **The 30-day limit and the To register list.** From the firm's *30-day rule
+  from* date a document more than 30 days old is refused at registration,
+  naming its last day; Accounts > Tax filing > E-Invoice > ... > *To register*
+  lists every B2B document without an IRN with its last day, days left, *due
+  soon* (5 days) or *Late*, and a Register button (#946, §77 row 7, A44).
+- **A sales return's credit note is e-invoiced** as a CRN naming each invoice
+  it returns goods from, prints with its IRN, and falls under the print gate
+  (#946, D-TAX-2, A45).
+- **GSTR-3B screen** no longer prints an inward-supplies line the server
+  stopped sending, and the GST documents dialog starts at *Warn*, as the
+  server does (#921, D-UI-2).
 - **Reorder from sales**: the planning formula behind *Below reorder level*
   (#913, decision A39).
 - **Debit note to a customer**: more charged on an invoice after billing,
   taxed at the invoice line's rate, owed on that invoice, declared in GSTR-1
-  as a debit note and added in GSTR-3B (#918, decision A40). Not printable
-  yet, like the credit note.
+  as a debit note and added in GSTR-3B (#918, decision A40). Printable, with
+  the credit note, since #939.
 - Four desktop tests that failed only on a loaded machine now wait for what
   they test (#917, D-TEST-2).
 
 ## Upgrading
 
 Setup backs up the database, then migrates every firm's store to the new
-schema (revisions `20261001_0175` to `20261002_0215`: from TDS columns, GST
+schema (revisions `20261001_0175` to `20261002_0234`: from TDS columns, GST
 payments, user work defaults, the offer mode and received now on the bill to
 the 2026-10-02 additions above -- GST settings, input credit, GSTR-2B, return
-outcomes, batch picks and reorder planning). Nothing existing changes how
+outcomes, batch picks and reorder planning, then batch rules, MRP and
+pins, import mappings, the e-invoice route, e-way bills on notes and receipts,
+rule 37, supplier IRNs and the India Post places). Nothing existing changes how
 it prices or posts: TDS is blank unless entered, offers still combine unless
 a firm chooses Best offer only, and a cap applies only where one is set, and a bill with nothing received
 now settles exactly as before.
