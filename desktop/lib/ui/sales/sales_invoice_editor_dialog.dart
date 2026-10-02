@@ -16,6 +16,7 @@ import '../../models/sales_invoice.dart';
 import '../../models/document_preview.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
+import '../../phase2/source_tick_dialog.dart';
 import '../workspace/batch_picker_panel.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/printed_document.dart';
@@ -98,6 +99,9 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   /// one invoice (D-SELL-39). [_document] stays the primary one; phase 1
   /// only ever uses that.
   final List<BillableDocument> _extraDocuments = <BillableDocument>[];
+
+  /// Phase 2: the customer chosen before any note is ticked (SEL-1).
+  String? _billCustomerId;
   bool _loading = true;
   bool _saving = false;
   String? _error;
@@ -507,47 +511,115 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         ..._extraDocuments,
       ];
 
-  /// Notes the bill could also take: the same customer and branch as the
-  /// first (the server refuses sources that differ), not already on it.
-  List<BillableDocument> get _alsoBillable {
-    final BillableDocument? first = _document;
-    if (first == null) return const [];
-    return [
-      for (final BillableDocument item in _billable)
-        if (item.customerId == first.customerId &&
-            item.branchId == first.branchId &&
-            item.sourceDocumentId != first.sourceDocumentId &&
-            !_extraDocuments
-                .any((row) => row.sourceDocumentId == item.sourceDocumentId))
-          item,
-    ];
+  /// The customers with something waiting to be billed, in the order their
+  /// newest note arrives (SEL-1: the customer is chosen first).
+  List<BillableDocument> get _billableCustomers {
+    final Map<String, BillableDocument> byCustomer =
+        <String, BillableDocument>{};
+    for (final BillableDocument item in _billable) {
+      byCustomer.putIfAbsent(item.customerId, () => item);
+    }
+    final List<BillableDocument> rows = byCustomer.values.toList()
+      ..sort((a, b) => a.customerName.compareTo(b.customerName));
+    return rows;
   }
 
-  /// Put another note's lines on the bill, at what is left of each.
-  void _addDocument(BillableDocument document) {
-    if (_document == null) return;
-    for (final BillableLine line in document.lines) {
-      _quantities[line.sourceDocumentLineId]?.dispose();
-      _quantities[line.sourceDocumentLineId] =
-          TextEditingController(text: line.remainingQuantity);
-      if (_picksSerials(document, line)) {
-        _loadSerials(line.productId, line.warehouseId);
+  /// The customer whose notes the tick list offers: the one chosen, or the
+  /// one the bill's notes belong to.
+  String? get _tickCustomerId => _document?.customerId ?? _billCustomerId;
+
+  /// That customer's notes with something left to bill, plus any already on
+  /// the bill (a draft's own notes may be billed in full elsewhere in it).
+  List<BillableDocument> get _customerNotes {
+    final String? customer = _tickCustomerId;
+    if (customer == null) return const [];
+    final Map<String, BillableDocument> byId = <String, BillableDocument>{
+      for (final BillableDocument item in _documents)
+        item.sourceDocumentId: item,
+    };
+    for (final BillableDocument item in _billable) {
+      if (item.customerId == customer) {
+        byId.putIfAbsent(item.sourceDocumentId, () => item);
       }
     }
-    _extraDocuments.add(document);
+    return byId.values.toList();
   }
 
-  /// Take an added note's lines back off the bill.
-  void _removeDocument(String sourceDocumentId) {
-    final int at = _extraDocuments
-        .indexWhere((item) => item.sourceDocumentId == sourceDocumentId);
-    if (at < 0) return;
-    final BillableDocument document = _extraDocuments.removeAt(at);
-    for (final BillableLine line in document.lines) {
-      _quantities.remove(line.sourceDocumentLineId)?.dispose();
-      _pickedSerials.remove(line.sourceDocumentLineId);
+  /// Why [candidate] cannot share a bill with [ticked], naming the field and
+  /// the note it clashes with, or null where it can (SEL-1, backlog 58 item
+  /// 4). The server's rule, asked before the save: one branch, and at most
+  /// one salesman, territory and route among the notes that name one.
+  String? _noteClash(BillableDocument candidate, List<BillableDocument> ticked) {
+    for (final BillableDocument other in ticked) {
+      final String number = other.sourceDocumentNumber;
+      if (candidate.branchId != other.branchId) {
+        return 'Another branch: ${_named(candidate.branchName, 'this one')}'
+            ' here, ${_named(other.branchName, 'another')} on $number';
+      }
+      if (candidate.salesmanId.isNotEmpty &&
+          other.salesmanId.isNotEmpty &&
+          candidate.salesmanId != other.salesmanId) {
+        return 'Another salesman: ${_named(candidate.salesmanName, 'one')}'
+            ' here, ${_named(other.salesmanName, 'another')} on $number';
+      }
+      if (candidate.territoryId.isNotEmpty &&
+          other.territoryId.isNotEmpty &&
+          candidate.territoryId != other.territoryId) {
+        return 'Another territory: ${_named(candidate.territoryName, 'one')}'
+            ' here, ${_named(other.territoryName, 'another')} on $number';
+      }
+      if (candidate.routeId.isNotEmpty &&
+          other.routeId.isNotEmpty &&
+          candidate.routeId != other.routeId) {
+        return 'Another route: ${_named(candidate.routeName, 'one')}'
+            ' here, ${_named(other.routeName, 'another')} on $number';
+      }
     }
+    return null;
+  }
+
+  String _named(String name, String fallback) =>
+      name.isEmpty ? fallback : name;
+
+  /// Put exactly [picked] on the bill, in that order: the first is the
+  /// primary note. Quantities already typed on a note that stays are kept;
+  /// a note coming on starts at what is left of each line.
+  void _setDocuments(List<BillableDocument> picked) {
+    final Set<String> keep = {
+      for (final BillableDocument item in picked) item.sourceDocumentId,
+    };
+    for (final BillableDocument document in _documents) {
+      if (keep.contains(document.sourceDocumentId)) continue;
+      for (final BillableLine line in document.lines) {
+        _quantities.remove(line.sourceDocumentLineId)?.dispose();
+        _pickedSerials.remove(line.sourceDocumentLineId);
+      }
+    }
+    final Set<String> had = {
+      for (final BillableDocument item in _documents) item.sourceDocumentId,
+    };
+    for (final BillableDocument document in picked) {
+      if (had.contains(document.sourceDocumentId)) continue;
+      for (final BillableLine line in document.lines) {
+        _quantities[line.sourceDocumentLineId]?.dispose();
+        _quantities[line.sourceDocumentLineId] =
+            TextEditingController(text: line.remainingQuantity);
+        if (_picksSerials(document, line)) {
+          _loadSerials(line.productId, line.warehouseId);
+        }
+      }
+    }
+    final String? before = _document?.customerId;
+    _document = picked.isEmpty ? null : picked.first;
+    _extraDocuments
+      ..clear()
+      ..addAll(picked.skip(1));
     _current = 0;
+    final String? after = _document?.customerId;
+    if (after != null && after != before) {
+      _shipToId = null;
+      unawaited(_loadAddresses(after));
+    }
   }
 
   double _quantityOf(BillableLine line) =>

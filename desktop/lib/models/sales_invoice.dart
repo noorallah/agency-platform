@@ -16,6 +16,14 @@ class BillableDocument {
     required this.customerName,
     required this.lines,
     this.branchId = '',
+    this.branchName = '',
+    this.salesOrderNumber = '',
+    this.salesmanId = '',
+    this.salesmanName = '',
+    this.territoryId = '',
+    this.territoryName = '',
+    this.routeId = '',
+    this.routeName = '',
   });
 
   /// `DELIVERY_NOTE` or `SALES_ORDER`, sent back on every invoice line.
@@ -28,6 +36,28 @@ class BillableDocument {
   final String branchId;
   final List<BillableLine> lines;
 
+  /// What the tick list shows beside the note, and what decides whether two
+  /// notes may share one bill (SEL-1). Blank where the note names none.
+  final String branchName;
+  final String salesOrderNumber;
+  final String salesmanId;
+  final String salesmanName;
+  final String territoryId;
+  final String territoryName;
+  final String routeId;
+  final String routeName;
+
+  /// What is left to bill before tax, after each line's own discount.
+  double get valueLeft {
+    double total = 0;
+    for (final BillableLine line in lines) {
+      final double gross = (double.tryParse(line.remainingQuantity) ?? 0) *
+          (double.tryParse(line.unitPrice) ?? 0);
+      total += gross * (1 - (double.tryParse(line.discountPercent) ?? 0) / 100);
+    }
+    return total;
+  }
+
   String get label =>
       '$sourceDocumentNumber  ·  $documentDate  ·  $customerName';
 
@@ -39,6 +69,14 @@ class BillableDocument {
         customerId: stringValue(json['customer_id']),
         customerName: stringValue(json['customer_name']),
         branchId: stringValue(json['branch_id']),
+        branchName: stringValue(json['branch_name']),
+        salesOrderNumber: stringValue(json['sales_order_number']),
+        salesmanId: stringValue(json['salesman_id']),
+        salesmanName: stringValue(json['salesman_name']),
+        territoryId: stringValue(json['territory_id']),
+        territoryName: stringValue(json['territory_name']),
+        routeId: stringValue(json['route_id']),
+        routeName: stringValue(json['route_name']),
         lines: [
           for (final dynamic line
               in json['lines'] is List ? json['lines'] as List : const [])

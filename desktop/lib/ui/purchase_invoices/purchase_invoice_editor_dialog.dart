@@ -13,6 +13,7 @@ import '../../models/vendor.dart';
 import '../../models/document_preview.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
+import '../../phase2/source_tick_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import 'supplier_irn_dialog.dart';
 
@@ -216,6 +217,9 @@ class _PurchaseInvoiceEditorDialogState
   /// paper (D-BUY-18). [_receipt] stays the primary one; every line of every
   /// receipt is in [_lines].
   List<GoodsReceiptRecord> _extraReceipts = const [];
+
+  /// Phase 2: the supplier chosen before any receipt is ticked (SEL-1).
+  String? _billVendorId;
   PurchaseOrder? _order;
   String? _vendorId;
   final List<PurchaseDirectLine> _directLines = [PurchaseDirectLine()];
@@ -329,20 +333,92 @@ class _PurchaseInvoiceEditorDialogState
     });
   }
 
-  /// Receipts the bill could also take: completed, of the same supplier and
-  /// branch as the first, and not already on it. The server refuses a bill
-  /// whose sources differ in either, so they are not offered.
-  List<GoodsReceiptRecord> get _alsoBillable {
-    final GoodsReceiptRecord? first = _receipt;
-    if (first == null) return const [];
+  /// The supplier whose receipts the tick list offers: the one chosen, or
+  /// the one the bill's receipts belong to.
+  String? get _tickVendorId => _receipt?.vendorId ?? _billVendorId;
+
+  /// That supplier's receipts waiting to be billed.
+  List<GoodsReceiptRecord> get _vendorReceipts {
+    final String? vendor = _tickVendorId;
+    if (vendor == null) return const [];
     return [
       for (final GoodsReceiptRecord item in widget.receipts)
-        if (item.id != first.id &&
-            item.vendorId == first.vendorId &&
-            item.branchId == first.branchId &&
-            !_extraReceipts.any((row) => row.id == item.id))
-          item,
+        if (item.vendorId == vendor) item,
     ];
+  }
+
+  /// Why [candidate] cannot share a bill with [ticked], or null where it
+  /// can. The server's rule, asked before the save: one supplier and one
+  /// branch (SEL-1, backlog 58 item 4).
+  String? _receiptClash(
+    GoodsReceiptRecord candidate,
+    List<GoodsReceiptRecord> ticked,
+  ) {
+    for (final GoodsReceiptRecord other in ticked) {
+      if (candidate.branchId != other.branchId) {
+        return 'Another branch from ${other.grnNumber}: a bill covers '
+            'the receipts of one branch';
+      }
+    }
+    return null;
+  }
+
+  /// Put exactly [picked] on the bill, in that order: the first is the
+  /// primary receipt. Quantities already typed on a receipt that stays are
+  /// kept; a receipt coming on starts at what it still has to be billed for.
+  Future<void> _setReceipts(List<GoodsReceiptRecord> picked) async {
+    final Set<String> had = {
+      if (_receipt != null) _receipt!.id,
+      for (final GoodsReceiptRecord item in _extraReceipts) item.id,
+    };
+    final bool adding = picked.any((item) => !had.contains(item.id));
+    Map<String, double> invoiced = const <String, double>{};
+    if (adding) {
+      setState(() {
+        _loadingLines = true;
+        _error = null;
+      });
+      invoiced = await _invoicedByLine();
+      if (!mounted) return;
+    }
+    setState(() {
+      final Map<String, List<PurchaseInvoiceDraftLine>> kept =
+          <String, List<PurchaseInvoiceDraftLine>>{};
+      for (final PurchaseInvoiceDraftLine line in _lines) {
+        kept
+            .putIfAbsent(line.sourceDocumentId, () => <PurchaseInvoiceDraftLine>[])
+            .add(line);
+      }
+      final List<PurchaseInvoiceDraftLine> lines = <PurchaseInvoiceDraftLine>[];
+      for (final GoodsReceiptRecord receipt in picked) {
+        final List<PurchaseInvoiceDraftLine>? own = kept[receipt.id];
+        if (own != null) {
+          lines.addAll(own);
+          continue;
+        }
+        for (int index = 0; index < receipt.lines.length; index++) {
+          lines.add(_draftLine(
+            receipt,
+            receipt.lines[index],
+            lines.length + 1,
+            invoiced[receipt.lines[index].id] ?? 0,
+          ));
+        }
+      }
+      _receipt = picked.isEmpty ? null : picked.first;
+      _extraReceipts = picked.skip(1).toList();
+      _lines = lines;
+      _loadingLines = false;
+      _current = 0;
+      // The paper usually carries the number the storeman noted.
+      final GoodsReceiptRecord? first = _receipt;
+      if (first != null &&
+          _supplierInvoiceNumber.trim().isEmpty &&
+          first.invoiceReference.isNotEmpty) {
+        _supplierInvoiceNumber = first.invoiceReference;
+        _supplierNumberEpoch++;
+      }
+    });
   }
 
   /// The receipt number a line belongs to, for telling apart the lines of
@@ -353,49 +429,6 @@ class _PurchaseInvoiceEditorDialogState
       if (item.id == receiptId) return item.grnNumber;
     }
     return '';
-  }
-
-  /// Put another receipt's lines on the bill, at what each still has to be
-  /// billed for.
-  Future<void> _addReceipt(GoodsReceiptRecord receipt) async {
-    if (_receipt == null || _extraReceipts.any((r) => r.id == receipt.id)) {
-      return;
-    }
-    setState(() {
-      _loadingLines = true;
-      _error = null;
-    });
-    final Map<String, double> invoiced = await _invoicedByLine();
-    if (!mounted) return;
-    setState(() {
-      _extraReceipts = [..._extraReceipts, receipt];
-      _lines = [
-        ..._lines,
-        for (int index = 0; index < receipt.lines.length; index++)
-          _draftLine(
-            receipt,
-            receipt.lines[index],
-            _lines.length + index + 1,
-            invoiced[receipt.lines[index].id] ?? 0,
-          ),
-      ];
-      _loadingLines = false;
-    });
-  }
-
-  /// Take an added receipt's lines back off the bill.
-  void _removeReceipt(String receiptId) {
-    setState(() {
-      _extraReceipts = [
-        for (final GoodsReceiptRecord item in _extraReceipts)
-          if (item.id != receiptId) item,
-      ];
-      _lines = [
-        for (final PurchaseInvoiceDraftLine line in _lines)
-          if (line.sourceDocumentId != receiptId) line,
-      ];
-      if (_current >= _lines.length) _current = 0;
-    });
   }
 
   /// Seed the lines from an approved order, at what is still to arrive.

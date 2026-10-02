@@ -1,11 +1,11 @@
-// One supplier bill charges for several goods receipts (D-BUY-18, 2026-09-30).
+// One supplier bill charges for several goods receipts (D-BUY-18, 2026-09-30;
+// SEL-1, 2026-10-03).
 //
 // The server infers the sources from the lines and only asks that they share
-// a vendor and a branch, but the phase 2 editor offered one receipt picker, so
-// a supplier who delivered twice and billed once was entered as two bills.
-// These pin the "Also bill" control: only receipts of the same supplier and
-// branch are offered, both receipts' lines go in one payload numbered 1..n,
-// and every receipt is named in `source_documents`.
+// a vendor and a branch. The screen asks for the supplier first and offers
+// their receipts as a tick list; a receipt of another branch cannot be ticked
+// beside one already ticked, and says so. Both receipts' lines go in one
+// payload numbered 1..n, and every receipt is named in `source_documents`.
 //
 // The buying editor only creates -- a draft bill is not reopened -- so there
 // is no edit case here; the sales twin's edit case is in
@@ -34,7 +34,10 @@ GoodsReceiptRecord _receipt(
       'receipt_date': '2026-08-10',
       'status': 'COMPLETED',
       'vendor_id': vendor,
+      'vendor_name': vendor == 'vendor-1' ? 'Cipla Distributors' : 'Medline',
       'branch_id': branch,
+      'purchase_order_number': 'PO-$number',
+      'grand_total': '590',
       'lines': [
         {
           'id': '$id-l1',
@@ -130,37 +133,53 @@ Future<void> _open(WidgetTester tester, _Api api) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> _chooseSupplier(WidgetTester tester, String name) async {
+  await tester
+      .tap(find.byKey(const ValueKey('purchase-invoice-receipt-supplier')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(name).last);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _tick(WidgetTester tester, String id) async {
+  await tester.tap(find.byKey(ValueKey<String>('purchase-invoice-tick-$id')));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _done(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey('purchase-invoice-tick-done')));
+  await tester.pumpAndSettle();
+  await tester.pump(const Duration(milliseconds: 400));
+  await tester.pumpAndSettle();
+}
+
 void main() {
-  testWidgets('a second receipt of the same supplier is added to the bill',
+  testWidgets('the supplier comes first, then a tick list of their receipts',
       (tester) async {
     final _Api api = _Api();
     await _open(tester, api);
-    expect(
-        find.byKey(const ValueKey('purchase-invoice-also-bill')), findsNothing);
+    expect(find.byKey(const ValueKey('purchase-invoice-choose-receipts')),
+        findsNothing);
 
-    await tester.tap(find.byKey(const ValueKey('purchase-invoice-receipt')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.textContaining('GRN-000001').last);
-    await tester.pumpAndSettle();
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.pumpAndSettle();
+    await _chooseSupplier(tester, 'Cipla Distributors');
     expect(tester.takeException(), isNull);
-
-    await tester.tap(find.byKey(const ValueKey('purchase-invoice-also-bill')));
-    await tester.pumpAndSettle();
-    // Only the receipt of the same supplier and branch is offered.
-    expect(find.byKey(const ValueKey('purchase-invoice-add-grn-2')),
+    // Three receipts of this supplier, so the list opened by itself; the
+    // other supplier's is not in it.
+    expect(find.byKey(const ValueKey('purchase-invoice-tick-grn-1')),
         findsOneWidget);
     expect(
-        find.byKey(const ValueKey('purchase-invoice-add-grn-3')), findsNothing);
-    expect(
-        find.byKey(const ValueKey('purchase-invoice-add-grn-4')), findsNothing);
-    expect(
-        find.byKey(const ValueKey('purchase-invoice-add-grn-1')), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('purchase-invoice-add-grn-2')));
-    await tester.pumpAndSettle();
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.pumpAndSettle();
+        find.byKey(const ValueKey('purchase-invoice-tick-grn-3')), findsNothing);
+    expect(find.text('PO-GRN-000002'), findsOneWidget);
+
+    await _tick(tester, 'grn-1');
+    // Another branch's receipt cannot join, and says why.
+    final Checkbox other = tester.widget<Checkbox>(
+        find.byKey(const ValueKey('purchase-invoice-tick-grn-4')));
+    expect(other.onChanged, isNull);
+    expect(find.byKey(const ValueKey('purchase-invoice-clash-grn-4')),
+        findsOneWidget);
+    await _tick(tester, 'grn-2');
+    await _done(tester);
     expect(tester.takeException(), isNull);
 
     // Two rows, each saying which receipt it is from.
@@ -169,7 +188,7 @@ void main() {
     expect(
         find.byKey(const ValueKey('purchase-invoice-line-1')), findsOneWidget);
     expect(find.text('receipt GRN-000002'), findsOneWidget);
-    expect(find.byKey(const ValueKey('purchase-invoice-extra-grn-2')),
+    expect(find.byKey(const ValueKey('purchase-invoice-receipt-chip-grn-2')),
         findsOneWidget);
 
     await tester.enterText(
@@ -200,26 +219,22 @@ void main() {
     );
   });
 
-  testWidgets('an added receipt comes off again with its lines',
+  testWidgets('unticking a receipt takes its lines off the bill',
       (tester) async {
     final _Api api = _Api();
     await _open(tester, api);
-    await tester.tap(find.byKey(const ValueKey('purchase-invoice-receipt')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.textContaining('GRN-000001').last);
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('purchase-invoice-also-bill')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('purchase-invoice-add-grn-2')));
-    await tester.pumpAndSettle();
+    await _chooseSupplier(tester, 'Cipla Distributors');
+    await _tick(tester, 'grn-1');
+    await _tick(tester, 'grn-2');
+    await _done(tester);
     expect(
         find.byKey(const ValueKey('purchase-invoice-line-1')), findsOneWidget);
 
-    await tester.tap(find.descendant(
-      of: find.byKey(const ValueKey('purchase-invoice-extra-grn-2')),
-      matching: find.byType(Icon),
-    ));
+    await tester
+        .tap(find.byKey(const ValueKey('purchase-invoice-choose-receipts')));
     await tester.pumpAndSettle();
+    await _tick(tester, 'grn-2');
+    await _done(tester);
     expect(find.byKey(const ValueKey('purchase-invoice-line-1')), findsNothing);
 
     await tester.enterText(
@@ -233,5 +248,20 @@ void main() {
     final Json sent = api.sent!;
     expect((sent['lines'] as List<dynamic>).length, 1);
     expect((sent['source_documents'] as List<dynamic>).length, 1);
+  });
+
+  testWidgets("a supplier's only receipt is ticked without asking",
+      (tester) async {
+    final _Api api = _Api();
+    await _open(tester, api);
+    await _chooseSupplier(tester, 'Medline');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('purchase-invoice-tick-done')),
+        findsNothing);
+    expect(find.byKey(const ValueKey('purchase-invoice-receipt-chip-grn-3')),
+        findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('purchase-invoice-line-0')), findsOneWidget);
   });
 }
