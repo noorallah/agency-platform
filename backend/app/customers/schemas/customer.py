@@ -333,6 +333,27 @@ class CustomerResponse(CustomerSchema):
     attributes: list[AttributeValueResponse] = Field(default_factory=list)
 
 
+class CustomerIdentityHolder(CustomerSchema):
+    """Another live customer holding the same GSTIN or PAN (decision A7)."""
+
+    id: UUID
+    code: str
+    name: str
+    gst_number: str | None = None
+    pan_number: str | None = None
+
+
+class CustomerIdentityCheck(CustomerSchema):
+    """Who else holds a GSTIN or PAN, asked before a save (decision A7).
+
+    A repeat is allowed -- one company is often several accounts -- so this
+    warns rather than refuses; ``message`` is the sentence to show.
+    """
+
+    holders: list[CustomerIdentityHolder]
+    message: str | None = None
+
+
 class CustomerSummary(CustomerSchema):
     """Expose aggregate customer counts and credit totals."""
 

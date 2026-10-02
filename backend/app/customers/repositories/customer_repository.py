@@ -64,26 +64,48 @@ class CustomerRepository:
         firm_id: UUID,
         *,
         code: str,
+        excluding_id: UUID | None = None,
+    ) -> UUID | None:
+        """Find a live customer already holding this code.
+
+        Only the code is unique: a GSTIN or a PAN may repeat across one
+        company's accounts (decision A7) and is warned about instead.
+        """
+        # Live rows only (D-MST-11): a deleted customer releases its code, as
+        # the partial key does.
+        statement = select(Customer.id).where(
+            Customer.firm_id == firm_id,
+            Customer.is_deleted.is_(False),
+            Customer.code == code,
+        )
+        if excluding_id is not None:
+            statement = statement.where(Customer.id != excluding_id)
+        return self._session.scalar(statement)
+
+    def identity_holders(
+        self,
+        firm_id: UUID,
+        *,
         gst_number: str | None,
         pan_number: str | None,
         excluding_id: UUID | None = None,
-    ) -> UUID | None:
-        """Find a conflicting firm-local business identifier."""
-        conditions = [Customer.code == code]
+    ) -> list[Customer]:
+        """Return the live customers already holding this GSTIN or PAN (A7)."""
+        conditions = []
         if gst_number:
             conditions.append(Customer.gst_number == gst_number)
         if pan_number:
             conditions.append(Customer.pan_number == pan_number)
-        # Live rows only (D-MST-11): a deleted customer releases its code,
-        # GST and PAN, as the partial keys do.
-        statement = select(Customer.id).where(
+        if not conditions:
+            return []
+        statement = select(Customer).where(
             Customer.firm_id == firm_id,
             Customer.is_deleted.is_(False),
             or_(*conditions),
         )
         if excluding_id is not None:
             statement = statement.where(Customer.id != excluding_id)
-        return self._session.scalar(statement)
+        return list(self._session.scalars(statement.order_by(Customer.code)))
 
     def list_customers(
         self,

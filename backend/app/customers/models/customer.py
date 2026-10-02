@@ -90,22 +90,12 @@ class Customer(BaseEntity):
             postgresql_where=text("is_deleted = false"),
             sqlite_where=text("is_deleted = 0"),
         ),
-        Index(
-            "UQ_customers_firm_gst_number_active",
-            "firm_id",
-            "gst_number",
-            unique=True,
-            postgresql_where=text("is_deleted = false"),
-            sqlite_where=text("is_deleted = 0"),
-        ),
-        Index(
-            "UQ_customers_firm_pan_number_active",
-            "firm_id",
-            "pan_number",
-            unique=True,
-            postgresql_where=text("is_deleted = false"),
-            sqlite_where=text("is_deleted = 0"),
-        ),
+        # Not unique (decision A7, 2026-10-02): one company is several
+        # customer accounts -- a branch per state, a head office and its
+        # outlets -- sharing a PAN and sometimes a GSTIN. A save that repeats
+        # one is warned about by name; these only make the lookup cheap.
+        Index("IX_customers_firm_gst_number", "firm_id", "gst_number"),
+        Index("IX_customers_firm_pan_number", "firm_id", "pan_number"),
         Index("IX_customers_firm_name", "firm_id", "name"),
         Index("IX_customers_firm_status", "firm_id", "status"),
     )
