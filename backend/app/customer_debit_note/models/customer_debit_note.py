@@ -62,6 +62,9 @@ class CustomerDebitNoteReason(StrEnum):
 
     PRICE_INCREASE = "PRICE_INCREASE"
     SHORT_BILLED = "SHORT_BILLED"
+    #: Interest on a bill paid late (SEL-14): part of the value of the
+    #: supply (CGST s.15(2)(d)), so taxed at the bill's own rates.
+    LATE_PAYMENT_INTEREST = "LATE_PAYMENT_INTEREST"
     ADDITIONAL_CHARGES = "ADDITIONAL_CHARGES"
     OTHER = "OTHER"
 

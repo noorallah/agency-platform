@@ -4408,7 +4408,7 @@ strike it with the reason).
 | G6 | Last rate while billing (sale and purchase) | Medium, small | |
 | G7 | Picking list and loading sheet, by van or route | Medium, small | |
 | G8 | Debit note to a supplier | Medium, small | Mirror of credit notes |
-| G9 | Cash discount for early payment; interest on overdue | Medium | |
+| G9 | Cash discount for early payment; interest on overdue -- **built 2026-10-03** (SEL-14, A91): cash discount window, overdue interest on the statement, interest debit note | Medium | |
 | G10 | Expiry and breakage claims to the principal | Medium | Extends §42.7 scheme claims |
 | S7 | Stock ageing, slow-moving and dead stock; vendor ageing | Medium, small | Not in the report catalogue |
 | S8 | Barcode label printing -- **built 2026-10-03** (STK-16, A65): A4 65/24-up sheets and 50 x 25 mm roll, from the product list and a goods receipt | Medium, small | After M10 |

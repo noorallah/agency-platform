@@ -73,6 +73,8 @@ from app.customers.schemas.records import (
 from app.customers.schemas.statement import (
     CombinedStatementLine,
     CombinedStatementResponse,
+    InterestDebitNoteCreate,
+    OverdueInterestRow,
 )
 from app.customers.services import (
     CreditControlService,
@@ -89,6 +91,7 @@ from app.customers.services.customer_import import (
 from app.customers.services.customer_records import CustomerRecordsService
 from app.customers.services.opening_bill_import import CustomerOpeningBillFileImporter
 from app.customers.services.opening_bill_service import CustomerOpeningBillService
+from app.customers.services.payment_terms import PaymentTermsService
 from app.imports.services import columns_for_kind, mapped_content, parse_mapping
 
 router = APIRouter(
@@ -1139,6 +1142,78 @@ def customer_combined_statement(
                 for line in found.lines
             ],
         )
+    )
+
+
+#: Raising the note is raising a customer debit note.
+InterestNoteScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("CUSTOMER_DEBIT_NOTE_MANAGE")
+]
+
+
+@router.get(
+    "/{customer_id}/overdue-interest",
+    response_model=ApiResponse[list[OverdueInterestRow]],
+)
+def customer_overdue_interest(
+    customer_id: UUID,
+    scope: CustomerViewScope,
+    as_of: Annotated[date, Query()],
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[OverdueInterestRow]]:
+    """Return the interest each overdue bill has run up by a day (SEL-14).
+
+    At the firm's yearly rate, on what each bill still owes, for each day past
+    its due date once the grace days have run. Shown, not charged.
+    """
+    rows = PaymentTermsService(db).overdue_interest(
+        customer_id, firm_id=scope.firm_id, as_of=as_of
+    )
+    return ApiResponse(
+        data=[
+            OverdueInterestRow(
+                invoice_id=row.invoice_id,
+                invoice_number=row.invoice_number,
+                due_date=row.due_date,
+                outstanding=row.outstanding,
+                days=row.days,
+                rate=row.rate,
+                interest=row.interest,
+            )
+            for row in rows
+        ]
+    )
+
+
+@router.post(
+    "/{customer_id}/overdue-interest/debit-note",
+    response_model=ApiResponse[dict[str, str]],
+)
+def raise_interest_debit_note(
+    customer_id: UUID,
+    data: InterestDebitNoteCreate,
+    scope: InterestNoteScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[dict[str, str]]:
+    """Raise a draft debit note for one bill's interest (SEL-14).
+
+    Spread over the bill's lines by value, so each part is taxed at its
+    line's rate (interest for late payment is part of the value of the
+    supply), and left a draft for the usual approval.
+    """
+    note = PaymentTermsService(db).raise_interest_note(
+        customer_id,
+        data.invoice_id,
+        firm_id=scope.firm_id,
+        as_of=data.as_of,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(
+        data={
+            "id": str(note.id),
+            "debit_note_number": note.debit_note_number,
+        },
+        message="Interest debit note raised as a draft.",
     )
 
 

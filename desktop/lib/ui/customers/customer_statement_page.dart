@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
+import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/customer.dart';
 import '../../models/entities.dart';
@@ -707,6 +708,107 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
         message: 'Pick one from the ageing to read their account.',
       );
     }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(child: _statementBody(statement)),
+        _interestSection(statement),
+      ],
+    );
+  }
+
+  /// Interest the customer's overdue bills have accrued as of the statement's
+  /// end date (SEL-14), with a debit note per bill for whoever may raise one.
+  Widget _interestSection(Json statement) {
+    final dynamic raw = statement['overdue_interest'];
+    final List<Json> rows = raw is List
+        ? raw.whereType<Map>().map(Map<String, dynamic>.from).toList()
+        : const <Json>[];
+    if (rows.isEmpty) return const SizedBox.shrink();
+    final ThemeData theme = Theme.of(context);
+    final bool mayRaise =
+        widget.permissions.hasPermission('CUSTOMER_DEBIT_NOTE_MANAGE');
+    return Container(
+      key: const ValueKey('statement-overdue-interest'),
+      constraints: const BoxConstraints(maxHeight: 190),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: theme.dividerColor)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Interest on overdue bills: ${_money(statement['interest_accrued'])}',
+            style: theme.textTheme.titleSmall,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Flexible(
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                for (final Json row in rows)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${stringValue(row['invoice_number'])}  due '
+                            '${stringValue(row['due_date'])}  '
+                            '${_money(row['outstanding'])} owing  '
+                            '${stringValue(row['days'])} days at '
+                            '${stringValue(row['rate'])}%  =  '
+                            '${_money(row['interest'])}',
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 2,
+                          ),
+                        ),
+                        if (mayRaise)
+                          TextButton(
+                            key: ValueKey(
+                                'raise-interest-${stringValue(row['invoice_id'])}'),
+                            onPressed: () => unawaited(_raiseInterest(row)),
+                            child: const Text('Raise interest debit note'),
+                          ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _raiseInterest(Json row) async {
+    final String? customerId = _selectedCustomerId;
+    if (customerId == null) return;
+    try {
+      final Json made = await widget.api.raiseOverdueInterestDebitNote(
+        customerId,
+        invoiceId: stringValue(row['invoice_id']),
+        asOf: _to.text.trim(),
+      );
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        'Debit note ${stringValue(made['debit_note_number'])} raised as a '
+        'draft.',
+        kind: AppNotificationKind.success,
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
+  Widget _statementBody(Json statement) {
     final List<dynamic> lines = _lines();
     if (Phase2Scope.of(context)) return _statementGrid(statement, lines);
     return Column(

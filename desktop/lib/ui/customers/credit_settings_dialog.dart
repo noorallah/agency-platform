@@ -32,6 +32,10 @@ class _CreditSettingsDialogState extends State<CreditSettingsDialog> {
 
   final TextEditingController _warn = TextEditingController();
   final TextEditingController _block = TextEditingController();
+  final TextEditingController _cashDays = TextEditingController();
+  final TextEditingController _cashPercent = TextEditingController();
+  final TextEditingController _interestRate = TextEditingController();
+  final TextEditingController _graceDays = TextEditingController();
   String _enforcement = 'WARN';
   bool _loading = true;
   bool _saving = false;
@@ -51,6 +55,10 @@ class _CreditSettingsDialogState extends State<CreditSettingsDialog> {
   void dispose() {
     _warn.dispose();
     _block.dispose();
+    _cashDays.dispose();
+    _cashPercent.dispose();
+    _interestRate.dispose();
+    _graceDays.dispose();
     super.dispose();
   }
 
@@ -65,6 +73,12 @@ class _CreditSettingsDialogState extends State<CreditSettingsDialog> {
             : 'WARN';
         _warn.text = _trim(settings.warnAtPercent);
         _block.text = _trim(settings.blockAtPercent);
+        _cashDays.text = settings.cashDiscountDays?.toString() ?? '';
+        _cashPercent.text = settings.cashDiscountPercent == null
+            ? ''
+            : _trim(settings.cashDiscountPercent!);
+        _interestRate.text = _trim(settings.overdueInterestRate);
+        _graceDays.text = settings.interestGraceDays.toString();
         _isConfigured = settings.isConfigured;
         _loading = false;
       });
@@ -102,6 +116,30 @@ class _CreditSettingsDialogState extends State<CreditSettingsDialog> {
       return 'The warning threshold must not be above the blocking one, '
           'or it could never fire.';
     }
+    final String days = _cashDays.text.trim();
+    final String percent = _cashPercent.text.trim();
+    if (days.isNotEmpty) {
+      final int? parsed = int.tryParse(days);
+      if (parsed == null || parsed < 0 || parsed > 365) {
+        return 'Cash discount days must be between 0 and 365.';
+      }
+    }
+    if (percent.isNotEmpty) {
+      final double? parsed = double.tryParse(percent);
+      if (parsed == null || parsed < 0 || parsed > 100) {
+        return 'Cash discount must be between 0 and 100 percent.';
+      }
+    }
+    final double? rate = double.tryParse(
+        _interestRate.text.trim().isEmpty ? '0' : _interestRate.text.trim());
+    if (rate == null || rate < 0 || rate > 100) {
+      return 'Interest must be between 0 and 100 percent a year.';
+    }
+    final int? grace = int.tryParse(
+        _graceDays.text.trim().isEmpty ? '0' : _graceDays.text.trim());
+    if (grace == null || grace < 0 || grace > 365) {
+      return 'Grace days must be between 0 and 365.';
+    }
     return null;
   }
 
@@ -122,6 +160,12 @@ class _CreditSettingsDialogState extends State<CreditSettingsDialog> {
           warnAtPercent: _warn.text.trim(),
           blockAtPercent: _block.text.trim(),
           isConfigured: true,
+          cashDiscountDays: int.tryParse(_cashDays.text.trim()),
+          cashDiscountPercent:
+              _cashPercent.text.trim().isEmpty ? null : _cashPercent.text.trim(),
+          overdueInterestRate:
+              _interestRate.text.trim().isEmpty ? '0' : _interestRate.text.trim(),
+          interestGraceDays: int.tryParse(_graceDays.text.trim()) ?? 0,
         ),
       );
       if (!mounted) return;
@@ -158,7 +202,8 @@ class _CreditSettingsDialogState extends State<CreditSettingsDialog> {
       title: const Text('Credit policy'),
       content: SizedBox(
         width: 460,
-        child: _loading
+        child: SingleChildScrollView(
+         child: _loading
             ? const Padding(
                 padding: EdgeInsets.all(AppSpacing.xl),
                 child: Center(child: CircularProgressIndicator()),
@@ -223,6 +268,61 @@ class _CreditSettingsDialogState extends State<CreditSettingsDialog> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: AppSpacing.xl),
+                  Text('Cash discount', style: theme.textTheme.titleSmall),
+                  const SizedBox(height: AppSpacing.sm),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: _field(
+                          key: const ValueKey('credit-cash-days'),
+                          controller: _cashDays,
+                          label: 'Pay within (days)',
+                          helper: 'Blank: none offered',
+                          integer: true,
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.lg),
+                      Expanded(
+                        child: _field(
+                          key: const ValueKey('credit-cash-percent'),
+                          controller: _cashPercent,
+                          label: 'Discount',
+                          helper: 'Off the bill',
+                          suffix: '%',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  Text('Interest on overdue bills',
+                      style: theme.textTheme.titleSmall),
+                  const SizedBox(height: AppSpacing.sm),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: _field(
+                          key: const ValueKey('credit-interest-rate'),
+                          controller: _interestRate,
+                          label: 'Rate a year',
+                          helper: '0: no interest',
+                          suffix: '%',
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.lg),
+                      Expanded(
+                        child: _field(
+                          key: const ValueKey('credit-interest-grace'),
+                          controller: _graceDays,
+                          label: 'Grace (days)',
+                          helper: 'After the due date',
+                          integer: true,
+                        ),
+                      ),
+                    ],
+                  ),
                   if (!_mayManage) ...[
                     const SizedBox(height: AppSpacing.lg),
                     _Notice(
@@ -241,6 +341,7 @@ class _CreditSettingsDialogState extends State<CreditSettingsDialog> {
                   ],
                 ],
               ),
+        ),
       ),
       actions: [
         TextButton(
@@ -254,6 +355,30 @@ class _CreditSettingsDialogState extends State<CreditSettingsDialog> {
       ],
     );
   }
+
+  Widget _field({
+    required Key key,
+    required TextEditingController controller,
+    required String label,
+    required String helper,
+    bool integer = false,
+    String? suffix,
+  }) =>
+      TextField(
+        key: key,
+        controller: controller,
+        enabled: _mayManage && !_saving,
+        keyboardType: TextInputType.numberWithOptions(decimal: !integer),
+        inputFormatters: [
+          FilteringTextInputFormatter.allow(
+              integer ? RegExp(r'[0-9]') : RegExp(r'[0-9.]')),
+        ],
+        decoration: InputDecoration(
+          labelText: label,
+          helperText: helper,
+          suffixText: suffix,
+        ),
+      );
 
   Widget _percentField({
     required TextEditingController controller,

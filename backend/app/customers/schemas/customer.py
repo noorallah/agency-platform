@@ -184,6 +184,12 @@ class CustomerWrite(CustomerSchema):
     salesman_id: UUID | None = None
     #: The price level the customer buys at (SEL-9); blank takes the group's.
     price_level_id: UUID | None = None
+    #: Percent off a bill paid within the days of its date (SEL-14); blank
+    #: days take the firm's terms, zero days refuse them.
+    cash_discount_days: int | None = Field(default=None, ge=0, le=365)
+    cash_discount_percent: Decimal | None = Field(
+        default=None, ge=0, le=100, max_digits=9, decimal_places=4
+    )
     #: The same business as a supplier (ACC-11): one combined statement, and
     #: a set-off between the two preselected.
     linked_vendor_id: UUID | None = None
@@ -322,6 +328,8 @@ class CustomerResponse(CustomerSchema):
     gst_registration_type: str | None = None
     salesman_id: UUID | None = None
     price_level_id: UUID | None = None
+    cash_discount_days: int | None = None
+    cash_discount_percent: Decimal | None = None
     linked_vendor_id: UUID | None = None
     email: str | None
     phone: str | None
@@ -481,6 +489,11 @@ class CreditControlSettingsResponse(CustomerSchema):
     enforcement: CreditEnforcement
     warn_at_percent: Decimal
     block_at_percent: Decimal
+    #: The firm's cash discount terms and overdue interest (SEL-14).
+    cash_discount_days: int | None = None
+    cash_discount_percent: Decimal | None = None
+    overdue_interest_rate: Decimal = Decimal("0")
+    interest_grace_days: int = 0
     is_configured: bool
 
 
@@ -490,6 +503,16 @@ class CreditControlSettingsWrite(CustomerSchema):
     enforcement: CreditEnforcement
     warn_at_percent: Decimal = Field(ge=Decimal("1"), le=Decimal("500"))
     block_at_percent: Decimal = Field(ge=Decimal("1"), le=Decimal("500"))
+    #: Absent keeps the firm's own (SEL-14), as do the three below. Sent with
+    #: null days, the firm offers no cash discount.
+    cash_discount_days: int | None = Field(default=None, ge=0, le=365)
+    cash_discount_percent: Decimal | None = Field(
+        default=None, ge=0, le=100, max_digits=9, decimal_places=4
+    )
+    overdue_interest_rate: Decimal | None = Field(
+        default=None, ge=0, le=60, max_digits=7, decimal_places=4
+    )
+    interest_grace_days: int | None = Field(default=None, ge=0, le=365)
 
     @model_validator(mode="after")
     def _warn_before_block(self) -> "CreditControlSettingsWrite":

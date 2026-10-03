@@ -151,6 +151,10 @@ class Customer(BaseEntity):
     price_level_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("price_levels.id", ondelete="RESTRICT")
     )
+    #: The customer's own cash discount for early payment (SEL-14): percent
+    #: off a bill paid within the days of its date. Null days takes the firm's.
+    cash_discount_days: Mapped[int | None] = mapped_column(Integer)
+    cash_discount_percent: Mapped[Decimal | None] = mapped_column(Numeric(9, 4))
     #: The same business as a supplier (ACC-11, decision A86): a shop that
     #: buys from the firm and sells to it. Read by the combined statement and
     #: preselected by a set-off between the two.
@@ -386,6 +390,20 @@ class CreditControlSettings(BaseEntity):
     #: WARN, so lowering it cannot surprise a firm that has not opted in.
     block_at_percent: Mapped[Decimal] = mapped_column(
         Numeric(5, 2), nullable=False, default=Decimal("100"), server_default="100"
+    )
+    #: The firm's usual cash discount for early payment (SEL-14): this many
+    #: percent off a bill paid within this many days of its date. A customer
+    #: may carry its own. Null days: no cash discount.
+    cash_discount_days: Mapped[int | None] = mapped_column(Integer)
+    cash_discount_percent: Mapped[Decimal | None] = mapped_column(Numeric(9, 4))
+    #: Interest a year on a bill unpaid past its due date (SEL-14), shown on
+    #: the statement and charged only when somebody raises it. Zero: none.
+    overdue_interest_rate: Mapped[Decimal] = mapped_column(
+        Numeric(7, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: Days past the due date before interest starts to run.
+    interest_grace_days: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
     )
 
 

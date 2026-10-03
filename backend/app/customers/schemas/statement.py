@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class StatementSchema(BaseModel):
@@ -29,6 +29,31 @@ class CustomerStatementLine(StatementSchema):
     balance: Decimal
 
 
+class OverdueInterestRow(StatementSchema):
+    """The interest one overdue bill has run up (SEL-14)."""
+
+    invoice_id: UUID
+    invoice_number: str
+    due_date: date
+    outstanding: Decimal
+    days: int
+    #: The firm's yearly rate, in percent.
+    rate: Decimal
+    interest: Decimal
+
+
+class CashDiscountRow(StatementSchema):
+    """What one bill offers off if paid on the day asked (SEL-14)."""
+
+    invoice_id: UUID
+    invoice_number: str
+    invoice_date: date
+    outstanding: Decimal
+    percent: Decimal
+    discount_until: date
+    amount: Decimal
+
+
 class CustomerStatement(StatementSchema):
     """A customer's account over one period."""
 
@@ -44,6 +69,10 @@ class CustomerStatement(StatementSchema):
     #: is entitled to have applied.
     unapplied_advance: Decimal
     lines: list[CustomerStatementLine]
+    #: Interest each overdue bill has run up by ``to_date`` at the firm's
+    #: rate (SEL-14) -- shown, not charged; empty while interest is off.
+    overdue_interest: list[OverdueInterestRow] = Field(default_factory=list)
+    interest_accrued: Decimal = Decimal("0")
 
 
 class OverdueInvoice(StatementSchema):
@@ -129,3 +158,12 @@ class CombinedStatementResponse(StatementSchema):
     payable_closing: Decimal
     net_closing: Decimal
     lines: list[CombinedStatementLine]
+
+
+class InterestDebitNoteCreate(StatementSchema):
+    """Raise a debit note for one overdue bill's interest (SEL-14)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    invoice_id: UUID
+    as_of: date

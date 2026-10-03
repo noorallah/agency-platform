@@ -348,6 +348,7 @@ otherwise it is built as written.
 - **What it is:** "2% off if paid in 10 days", and interest charged on late bills.
 - **What gets built:** migration: cash-discount days and % on payment terms / the customer; Record Receipt offers it as a *discount allowed* deduction when inside the window (deductions already exist on receipts). An interest rate per firm; the customer statement (`backend/app/customers/services/statement_service.py`) shows interest accrued per overdue bill; *Raise interest debit note* uses `backend/app/customer_debit_note`. Tests.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A91): `customers.cash_discount_days/percent`, and on `credit_control_settings` the firm's discount terms, `overdue_interest_rate` and `interest_grace_days` (migration 0262). `app/customers/services/payment_terms.py`; `GET /receipts/cash-discounts?customer_id&on`, `GET /customers/{id}/overdue-interest?as_of`, `POST /customers/{id}/overdue-interest/debit-note` (CUSTOMER_DEBIT_NOTE_MANAGE, a draft with reason LATE_PAYMENT_INTEREST); the statement carries `overdue_interest` and `interest_accrued`. Desktop: terms on the customer and the credit policy, discount prefilled on Record Receipt, interest on the statement with *Raise interest debit note*. Tests: `test_payment_terms.py`, `payment_terms_test.dart`.
 
 #### SEL-15. New outlet pending office approval (§75 row 11)
 - **What it is:** a shop a salesman adds can take orders, but is not billed on credit until the office approves it.
