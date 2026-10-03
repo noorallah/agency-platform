@@ -67,6 +67,7 @@ from app.inventory.models import (
     stock_attachment,  # noqa: F401
     stock_transfer,  # noqa: F401
 )
+from app.landed_costs import models as _landed_costs  # noqa: F401
 from app.loyalty.models import loyalty  # noqa: F401
 from app.messaging.models import messaging as _messaging  # noqa: F401
 from app.notifications.models import notification_read  # noqa: F401

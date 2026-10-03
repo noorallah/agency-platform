@@ -48,6 +48,7 @@ from app.gst_returns.api.router import router as gst_returns_router
 from app.identity.api import router as identity_router
 from app.imports.api import router as imports_router
 from app.inventory.api import router as inventory_router
+from app.landed_costs.api import router as landed_costs_router
 from app.loyalty.api import router as loyalty_router
 from app.messaging.api import router as messaging_router
 from app.messaging.services.outbox_worker import MessagingWorker
@@ -173,6 +174,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(report_layouts_router)
     application.include_router(supplier_rebates_router)
     application.include_router(principal_claims_router)
+    application.include_router(landed_costs_router)
     application.include_router(notifications_router)
     application.include_router(trade_licences_router)
     application.include_router(products_router)

@@ -300,6 +300,16 @@ CHART: tuple[SeedAccount, ...] = (
         ControlAccountPurpose.COST_OF_GOODS_SOLD,
     ),
     SeedAccount(
+        # Freight and clearing on goods, until a landed cost voucher moves
+        # it into the stock (BUY-16). Migration 20261003_0291 gives existing
+        # firms the same account.
+        "5210",
+        "Expenses Included in Valuation",
+        AccountTypeEnum.EXPENSE,
+        "EXP",
+        ControlAccountPurpose.LANDED_COST_CLEARING,
+    ),
+    SeedAccount(
         "5400",
         "Purchase Price Variance",
         AccountTypeEnum.EXPENSE,

@@ -69,6 +69,7 @@ import 'commission/sales_target_page.dart';
 import 'purchases/debit_note_page.dart';
 import 'purchases/purchase_requisition_page.dart';
 import 'purchases/quality_inspection_page.dart';
+import 'purchases/landed_costs_page.dart';
 import 'purchases/principal_claims_page.dart';
 import 'purchases/supplier_rebates_page.dart';
 import 'purchases/purchase_approval_limits_dialog.dart';
@@ -3275,6 +3276,12 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
         ),
+      'landed-costs' => LandedCostsPage(
+          api: widget.api,
+          preferences: widget.preferences,
+          permissions: widget.permissions,
+          hasActiveFirm: hasActiveFirm,
+        ),
       'purchase-analytics' => PurchaseManagementPage(
           api: widget.api,
           preferences: widget.preferences,
@@ -3308,6 +3315,7 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
         'quality-inspection' => 'Quality Inspection',
         'supplier-rebates' => 'Supplier Rebates',
         'principal-claims' => 'Principal Claims',
+        'landed-costs' => 'Landed Costs',
         'purchase-analysis' => 'Purchase Analysis',
         'purchase-rate-trend' => 'Rate Trend',
         'purchase-analytics' => 'Purchase Analytics',
@@ -3336,6 +3344,9 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
         'principal-claims' =>
           'What a principal owes for the schemes it funded, expired stock and '
               'breakage: preview, raise, then settle by credit note or payment.',
+        'landed-costs' =>
+          'Freight and clearing bills spread over received goods, so what '
+              'they cost includes what it took to bring them in.',
         'purchase-analysis' =>
           'Purchases by any one or two dimensions, net of returns. Click a '
               'figure to see the bills behind it.',

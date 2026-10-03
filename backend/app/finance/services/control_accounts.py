@@ -148,6 +148,9 @@ class ControlAccountPurpose(StrEnum):
     #: What a principal owes the firm on a claim raised for its schemes,
     #: expired and broken stock (SEL-11), until its credit note or payment.
     PRINCIPAL_CLAIM_RECEIVABLE = "PRINCIPAL_CLAIM_RECEIVABLE"
+    #: Where a freight, loading or clearing bill on goods is booked until a
+    #: landed cost voucher moves it into the stock's cost (BUY-16).
+    LANDED_COST_CLEARING = "LANDED_COST_CLEARING"
     #: What the owner takes out of the business -- a supplier's gift they
     #: keep (BUY-2).
     DRAWINGS = "DRAWINGS"
@@ -287,6 +290,7 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     ControlAccountPurpose.SUPPLIER_INCENTIVE_INCOME: frozenset({"INCOME"}),
     ControlAccountPurpose.SUPPLIER_REBATE_RECEIVABLE: frozenset({"ASSET"}),
     ControlAccountPurpose.PRINCIPAL_CLAIM_RECEIVABLE: frozenset({"ASSET"}),
+    ControlAccountPurpose.LANDED_COST_CLEARING: frozenset({"EXPENSE"}),
     ControlAccountPurpose.DRAWINGS: frozenset({"EQUITY"}),
     ControlAccountPurpose.TDS_INTEREST_AND_FEES: frozenset({"EXPENSE"}),
     ControlAccountPurpose.CHEQUE_RETURN_CHARGES: frozenset({"INCOME"}),
@@ -362,6 +366,7 @@ PURPOSE_LABELS: dict[ControlAccountPurpose, str] = {
     ControlAccountPurpose.PRINCIPAL_CLAIM_RECEIVABLE: (
         "Claims receivable from principals"
     ),
+    ControlAccountPurpose.LANDED_COST_CLEARING: "Expenses included in valuation",
     ControlAccountPurpose.DRAWINGS: "Drawings",
     ControlAccountPurpose.TDS_INTEREST_AND_FEES: "Interest and fees on TDS",
     ControlAccountPurpose.CHEQUE_RETURN_CHARGES: "Cheque return charges",

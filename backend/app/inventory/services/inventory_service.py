@@ -2360,6 +2360,78 @@ class InventoryService:
         value = Decimal(str(entry.total_cost or ZERO)) if entry else ZERO
         return transaction, value
 
+    def stage_revaluation(
+        self,
+        *,
+        firm_scope: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        product_id: UUID,
+        batch_id: UUID | None,
+        amount: Decimal,
+        reference_number: str,
+        transaction_date: date,
+        remarks: str,
+        actor_id: UUID,
+    ) -> InventoryTransaction:
+        """Add value to stock already held, moving no quantity (BUY-16).
+
+        A landed cost lands after the goods: the quantity on hand is what it
+        is, and only its value -- and so its moving average -- changes. The
+        movement carries no quantity in any bucket; its ledger entry carries
+        the value added and the average after it, which is what the
+        valuation and the stock statement read. ``amount`` is negative when a
+        cancelled voucher takes the value back off.
+
+        Raises:
+            ValidationError: If value is added to a product with nothing on
+                hand to carry it.
+
+        """
+        inventory = self._ensure_inventory_projection(
+            firm_id=firm_scope,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            storage_node_id=None,
+            product_id=product_id,
+            actor_id=actor_id,
+            batch_id=batch_id,
+        )
+        transaction = self._stage_movement(
+            inventory,
+            actor_id=actor_id,
+            movement=_Movement(
+                transaction_type=InventoryTransactionType.LANDED_COST.value,
+                batch_id=batch_id,
+                reference_number=reference_number,
+                reference_type="LANDED_COST",
+                transaction_date=transaction_date,
+                quantity=ZERO,
+                revalues=False,
+                remarks=remarks,
+            ),
+        )
+        valuation = self.valuation_for(firm_scope=firm_scope, product_id=product_id)
+        on_hand = Decimal(str(valuation.quantity_on_hand))
+        if on_hand <= ZERO and amount != ZERO:
+            raise ValidationError(
+                "Nothing of this product is on hand to carry the added cost."
+            )
+        new_value = quantize_money(Decimal(str(valuation.total_value)) + amount)
+        valuation.total_value = new_value
+        valuation.average_cost = new_value / on_hand if on_hand > ZERO else ZERO
+        valuation.updated_by = actor_id
+        self._session.flush()
+        entry = self._session.scalar(
+            select(StockLedgerEntry).where(
+                StockLedgerEntry.transaction_id == transaction.id
+            )
+        )
+        if entry is not None:
+            entry.total_cost = quantize_money(amount)
+            entry.average_cost_after = valuation.average_cost
+        return transaction
+
     def record_goods_receipt(
         self,
         *,

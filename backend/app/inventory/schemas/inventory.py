@@ -47,6 +47,8 @@ class InventoryTransactionType(StrEnum):
     WRITE_OFF = "WRITE_OFF"
     QUARANTINE_HOLD = "QUARANTINE_HOLD"
     QUARANTINE_RELEASE = "QUARANTINE_RELEASE"
+    #: Value added to stock on hand by a landed cost voucher (BUY-16).
+    LANDED_COST = "LANDED_COST"
 
 
 #: Appended by ``reverse_transaction`` to the type it reverses.
