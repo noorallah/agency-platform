@@ -545,6 +545,54 @@ class _DeliveryNoteManagementPageState
     await _afterBulk();
   }
 
+  /// The two sheets a dispatcher works from, over every ticked note (SEL-13).
+  List<ToolbarCommand> _dispatchSheetCommands() => [
+        ToolbarCommand(
+          id: 'pick-list',
+          label: 'Pick list',
+          icon: Icons.checklist_outlined,
+          onPressed: _loading || _ticked.isEmpty
+              ? null
+              : () => unawaited(_openSheet(loading: false)),
+        ),
+        ToolbarCommand(
+          id: 'loading-sheet',
+          label: 'Loading sheet',
+          icon: Icons.local_shipping_outlined,
+          onPressed: _loading || _ticked.isEmpty
+              ? null
+              : () => unawaited(_openSheet(loading: true)),
+        ),
+      ];
+
+  /// Fetch the pick list or loading sheet for the ticked notes and open it the
+  /// way the challan opens. A refusal (a completed note, say) is shown as the
+  /// server worded it.
+  Future<void> _openSheet({required bool loading}) async {
+    final List<String> ids = [
+      for (final _DeliveryNoteRecord row in _tickedRows) row.id,
+    ];
+    if (ids.isEmpty) return;
+    try {
+      final List<int> pdf = loading
+          ? await widget.api.deliveryLoadingSheetPdf(ids)
+          : await widget.api.deliveryPickListPdf(ids);
+      if (!mounted) return;
+      await printDocument(
+        context,
+        bytes: pdf,
+        documentName: loading ? 'Loading sheet' : 'Pick list',
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
   Future<void> _afterBulk() async {
     if (!mounted) return;
     setState(() => _ticked = <String>{});
@@ -633,10 +681,11 @@ class _DeliveryNoteManagementPageState
         // Phase 2 (4.11): the same steps as commands that fold into "..."
         // when the line is short, the print settings behind it.
         commands: _bulkMode
-            ? _bulkCommands()
+            ? [..._bulkCommands(), ..._dispatchSheetCommands()]
             : !Phase2Scope.of(context)
             ? const []
             : [
+                ..._dispatchSheetCommands(),
                 ToolbarCommand(
                   id: 'print-challan',
                   label: 'Print challan',

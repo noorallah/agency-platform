@@ -343,6 +343,7 @@ otherwise it is built as written.
 - **What it is:** what the storeman picks and what goes on each van, by route.
 - **What gets built:** two PDFs beside `backend/app/delivery_note/services/challan_print_service.py`: a pick list summing products and batches over the chosen notes, and a loading sheet per vehicle with customers in route order (`visit_sequence`) and amounts to collect. Delivery note list: tick notes, *Pick list*, *Loading sheet*. No migration.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A92): `app/delivery_note/services/dispatch_sheets.py`; `POST /delivery-notes/pick-list` and `POST /delivery-notes/loading-sheet` with `{note_ids}` (SALES_VIEW), each an A4 PDF. No migration. Desktop: tick notes on the delivery note list, *Pick list*, *Loading sheet*. Tests: `test_dispatch_sheets.py`, `dispatch_sheets_test.dart`.
 
 #### SEL-14. Cash discount for early payment; interest on overdue (§55 G9)
 - **What it is:** "2% off if paid in 10 days", and interest charged on late bills.
