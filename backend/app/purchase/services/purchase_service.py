@@ -460,6 +460,8 @@ class PurchaseService(TransactionalDocumentService):
             created_by=actor_id,
             updated_by=actor_id,
         )
+        if row.expected_delivery_date is None:
+            row.expected_delivery_date = self._expected_from_lead_time(row, data.lines)
         self._session.add(row)
         self._flush_or_conflict("Purchase order number already exists in this firm.")
         # An order a supplier bill raises records what was billed, so the
@@ -1727,6 +1729,32 @@ class PurchaseService(TransactionalDocumentService):
         return 0
 
     @stamps_tax_rules(PurchaseOrderLine, "purchase_order_id")
+    def _expected_from_lead_time(
+        self, order: PurchaseOrder, lines: Sequence[PurchaseLineWrite]
+    ) -> date | None:
+        """Date a new order is expected, from the supplier's lead time (BUY-6).
+
+        The longest lead time the supplier's catalogue quotes for the lines
+        ordered, counted from the order's date; None when none is quoted.
+        """
+        from app.vendors.services.supplier_catalogue import current_rows
+
+        terms = current_rows(
+            self._session,
+            firm_id=order.firm_id,
+            vendor_id=order.vendor_id,
+            product_ids=[line.product_id for line in lines],
+            on=order.purchase_date,
+        )
+        quoted = [
+            row.lead_time_days
+            for row in terms.values()
+            if row.lead_time_days is not None
+        ]
+        if not quoted:
+            return None
+        return order.purchase_date + timedelta(days=max(quoted))
+
     def _assert_order_quantities(
         self, order: PurchaseOrder, lines: Sequence[PurchaseLineWrite]
     ) -> None:

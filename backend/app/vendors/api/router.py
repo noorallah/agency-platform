@@ -64,8 +64,10 @@ from app.vendors.schemas.statement import SupplierStatement
 from app.vendors.schemas.supplier_product import (
     SupplierProductResponse,
     SupplierProductWrite,
+    VendorLeadTimeResponse,
 )
 from app.vendors.services import VendorService
+from app.vendors.services.lead_times import lead_time_summary
 from app.vendors.services.opening_bill_import import VendorOpeningBillFileImporter
 from app.vendors.services.opening_bill_service import VendorOpeningBillService
 from app.vendors.services.statement_service import SupplierStatementService
@@ -1232,3 +1234,30 @@ async def import_supplier_catalogue_file(
         apply=apply,
     )
     return ApiResponse(data=report_response(report))
+
+
+@router.get(
+    "/{vendor_id}/lead-time", response_model=ApiResponse[VendorLeadTimeResponse]
+)
+def vendor_lead_time(
+    vendor_id: UUID,
+    scope: VendorViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[VendorLeadTimeResponse]:
+    """Return the supplier's quoted lead time against what it delivered (BUY-6).
+
+    Days from each completed receipt's order to the receipt, and how many
+    came after the order's expected date.
+    """
+    summary = lead_time_summary(db, firm_id=scope.firm_id, vendor_id=vendor_id)
+    return ApiResponse(
+        data=VendorLeadTimeResponse(
+            vendor_id=summary.vendor_id,
+            quoted_days=summary.quoted_days,
+            receipts=summary.receipts,
+            average_days=summary.average_days,
+            late_receipts=summary.late_receipts,
+            receipts_with_expected_date=summary.receipts_with_expected_date,
+            on_time_percent=summary.on_time_percent,
+        )
+    )

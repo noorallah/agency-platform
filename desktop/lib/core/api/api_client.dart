@@ -2030,6 +2030,12 @@ class ApiClient {
         SupplierCatalogueRow.fromJson,
       );
 
+  /// How long a supplier quotes and takes to deliver (BUY-6).
+  Future<SupplierLeadTime> supplierLeadTime(String vendorId) async =>
+      SupplierLeadTime.fromJson(_unwrapMap(
+        await request('GET', '/api/v1/vendors/$vendorId/lead-time'),
+      ));
+
   /// Add one catalogue row; a change is a new row from a later date.
   Future<SupplierCatalogueRow> addSupplierCatalogueRow(
     String vendorId,
