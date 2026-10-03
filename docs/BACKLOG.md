@@ -4406,7 +4406,7 @@ strike it with the reason).
 | M10 | Fast counter billing with barcode -- **built 2026-10-03** (SEL-12, A90): scan to add, F9 save-print-next, tender split | High for counters | UI_PHASE_2_DESIGN 4.6 |
 | M2 | Live e-invoice and e-way bill through a GSP | High above the threshold | A GSP contract first |
 | G6 | Last rate while billing (sale and purchase) | Medium, small | |
-| G7 | Picking list and loading sheet, by van or route | Medium, small | |
+| G7 | Picking list and loading sheet, by van or route -- **built 2026-10-03** (SEL-13, A92): pick list and loading sheet PDFs | Medium, small | |
 | G8 | Debit note to a supplier | Medium, small | Mirror of credit notes |
 | G9 | Cash discount for early payment; interest on overdue -- **built 2026-10-03** (SEL-14, A91): cash discount window, overdue interest on the statement, interest debit note | Medium | |
 | G10 | Expiry and breakage claims to the principal | Medium | Extends §42.7 scheme claims |

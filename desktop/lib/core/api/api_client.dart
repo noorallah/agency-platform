@@ -8876,6 +8876,23 @@ class ApiClient {
   Future<List<int>> deliveryChallanPdf(String id) =>
       downloadBytes('/api/v1/delivery-notes/$id/print');
 
+  /// What to pick from the shelves for these notes, products and batches
+  /// summed over them (SEL-13).
+  Future<List<int>> deliveryPickListPdf(List<String> noteIds) => downloadBytes(
+        '/api/v1/delivery-notes/pick-list',
+        method: 'POST',
+        body: <String, dynamic>{'note_ids': noteIds},
+      );
+
+  /// What goes on each vehicle for these notes, in round order, with the
+  /// amount to collect (SEL-13).
+  Future<List<int>> deliveryLoadingSheetPdf(List<String> noteIds) =>
+      downloadBytes(
+        '/api/v1/delivery-notes/loading-sheet',
+        method: 'POST',
+        body: <String, dynamic>{'note_ids': noteIds},
+      );
+
   /// The offer a customer is sent.
   Future<List<int>> quotationPdf(String id) =>
       downloadBytes('/api/v1/quotations/$id/print');

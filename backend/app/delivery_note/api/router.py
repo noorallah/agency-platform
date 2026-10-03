@@ -15,7 +15,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.batch_serial.schemas import DispatchBatchCheck
@@ -48,6 +48,7 @@ from app.delivery_note.services import DeliveryNoteService
 from app.delivery_note.services.challan_print_service import (
     DeliveryChallanPrintService,
 )
+from app.delivery_note.services.dispatch_sheets import DispatchSheetService
 from app.document_framework.schemas import DocumentLifecycleEventResponse
 from app.document_framework.schemas.bulk_actions import (
     BulkActionResult,
@@ -245,6 +246,49 @@ def export_delivery_notes(
         iter([csv_content.encode("utf-8")]),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=delivery_notes.csv"},
+    )
+
+
+class DispatchSheetRequest(BaseModel):
+    """The delivery notes a pick list or loading sheet covers (SEL-13)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    note_ids: list[UUID] = Field(min_length=1, max_length=300)
+
+
+def _pdf(content: bytes, filename: str) -> StreamingResponse:
+    """Send a PDF to open in a viewer rather than save."""
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.post("/pick-list", response_class=StreamingResponse)
+def delivery_pick_list(
+    data: DispatchSheetRequest,
+    scope: DeliveryNoteViewScope,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Print what to pick for the chosen notes, by product and batch (SEL-13)."""
+    return _pdf(
+        DispatchSheetService(db).pick_list_pdf(scope.firm_id, data.note_ids),
+        "pick-list.pdf",
+    )
+
+
+@router.post("/loading-sheet", response_class=StreamingResponse)
+def delivery_loading_sheet(
+    data: DispatchSheetRequest,
+    scope: DeliveryNoteViewScope,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Print each vehicle's drops in round order, with what to collect (SEL-13)."""
+    return _pdf(
+        DispatchSheetService(db).loading_sheet_pdf(scope.firm_id, data.note_ids),
+        "loading-sheet.pdf",
     )
 
 
