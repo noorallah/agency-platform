@@ -392,6 +392,46 @@ class GstReturnService:
         from_date: date,
         to_date: date,
         gstin: str | None = None,
+        live: bool = False,
+    ) -> dict[str, object]:
+        """Return GSTR-1 for a period: as filed, or live with its amendments.
+
+        A period already marked filed returns what was filed (GST-6), unless
+        ``live`` asks for the documents as they stand now -- which is how
+        marking it filed takes the snapshot. A period not filed carries an
+        ``amendments`` section: what changed, since filing, in the periods
+        filed before it.
+        """
+        from app.gst_returns.services.amendments import GstAmendmentService
+
+        scope = BranchRegistration(self._session).scope(firm_scope, gstin)
+        amendments = GstAmendmentService(self._session)
+        if not live:
+            snapshot = amendments.filed(firm_scope, scope.gstin, from_date, to_date)
+            if snapshot is not None:
+                return {**(snapshot.payload or {}), "filed": True}
+        data = self._gstr1_core(
+            firm_scope=firm_scope, from_date=from_date, to_date=to_date, gstin=gstin
+        )
+        changes = amendments.amendments(
+            firm_scope,
+            scope.gstin,
+            before=from_date,
+            recompute=lambda start, end: self._gstr1_core(
+                firm_scope=firm_scope, from_date=start, to_date=end, gstin=gstin
+            ),
+        )
+        # Recomputing earlier periods moved the scope; put it back.
+        self._gstin_scope = scope
+        return {**data, "amendments": changes, "filed": False}
+
+    def _gstr1_core(
+        self,
+        *,
+        firm_scope: UUID,
+        from_date: date,
+        to_date: date,
+        gstin: str | None = None,
     ) -> dict[str, object]:
         """Return the outward supplies for a period, section by section.
 
@@ -721,10 +761,27 @@ class GstReturnService:
             credit_sgst += row.buckets.sgst
             credit_cess += row.buckets.cess
 
+        # What later edits to filed GSTR-1 periods change, stated beside the
+        # month's own supplies rather than folded into them (GST-6).
+        from app.gst_returns.services.amendments import GstAmendmentService
+
+        scope = self._gstin_scope
+        amendment_service = GstAmendmentService(self._session)
+        changes = amendment_service.amendments(
+            firm_scope,
+            seller_gstin,
+            before=from_date,
+            recompute=lambda start, end: self._gstr1_core(
+                firm_scope=firm_scope, from_date=start, to_date=end, gstin=gstin
+            ),
+        )
+        self._gstin_scope = scope
+
         return {
             "gstin": seller_gstin,
             "from_date": from_date.isoformat(),
             "to_date": to_date.isoformat(),
+            "amendments_to_earlier_returns": amendment_service.net_effect(changes),
             "outward_taxable_supplies": {
                 "taxable_value": _filed(taxable - credited + debited),
                 "integrated_tax": _filed(buckets.igst - credit_igst + debit_igst),

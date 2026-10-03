@@ -594,6 +594,8 @@ class _GstReturnPageState extends State<GstReturnPage> {
               style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: AppSpacing.md),
         ],
+        if (data['filed'] == true) _filedBanner(),
+        ..._amendmentSections(data['amendments']),
         _Section(
           title: 'B2B — registered buyers, invoice by invoice',
           // Invoice-wise because the buyer claims credit against the number.
@@ -724,6 +726,164 @@ class _GstReturnPageState extends State<GstReturnPage> {
     );
   }
 
+  /// A period marked filed shows the figures as reported (GST-6).
+  Widget _filedBanner() {
+    final ThemeData theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+      child: Container(
+        key: const ValueKey('gst-filed-banner'),
+        padding: const EdgeInsets.all(AppSpacing.md),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.secondaryContainer,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.lock_outline,
+                color: theme.colorScheme.onSecondaryContainer),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Text(
+                'Filed -- figures as reported on the portal; later changes '
+                'appear as amendments in the next return',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSecondaryContainer),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static double _num(Object? value) => double.tryParse('${value ?? 0}') ?? 0;
+
+  static double _taxOf(Map row) =>
+      _num(row['integrated_tax']) +
+      _num(row['central_tax']) +
+      _num(row['state_tax']) +
+      _num(row['cess']);
+
+  /// Amendment tables, one per non-empty list; nothing when the server sent
+  /// none (older responses lack the block).
+  List<Widget> _amendmentSections(Object? block) {
+    if (block is! Map) return const [];
+    const List<(String, String)> kinds = [
+      ('b2ba', 'B2BA — amended invoices to registered buyers'),
+      ('b2cla', 'B2CLA — amended large inter-state B2C invoices'),
+      ('cdnra', 'CDNRA — amended credit notes'),
+      ('b2csa', 'B2CSA — amended B2C summary'),
+    ];
+    final List<Widget> out = [];
+    for (final (String key, String title) in kinds) {
+      final Object? list = block[key];
+      if (list is! List || list.isEmpty) continue;
+      final List<List<String>> rows = [];
+      for (final Object? entry in list) {
+        if (entry is! Map) continue;
+        final Map declared = entry['declared'] is Map
+            ? entry['declared'] as Map
+            : const <String, dynamic>{};
+        final Map revised = entry['revised'] is Map
+            ? entry['revised'] as Map
+            : const <String, dynamic>{};
+        final Map shown = revised.isNotEmpty ? revised : declared;
+        final String document = shown['invoice_number'] != null
+            ? stringValue(shown['invoice_number'])
+            : shown['note_number'] != null
+                ? stringValue(shown['note_number'])
+                : '${stringValue(shown['place_of_supply'])} @ '
+                    '${stringValue(shown['rate'])}%';
+        rows.add([
+          document,
+          stringValue(entry['original_period']),
+          _money(declared['taxable_value']),
+          _money(revised['taxable_value']),
+          _money(_taxOf(declared)),
+          _money(_taxOf(revised)),
+        ]);
+      }
+      if (rows.isEmpty) continue;
+      out.add(_Section(
+        title: title,
+        headers: const [
+          'Document',
+          'Original period',
+          'Declared taxable',
+          'Revised taxable',
+          'Declared tax',
+          'Revised tax',
+        ],
+        rows: rows,
+      ));
+    }
+    final Object? added = block['added'];
+    if (added is List && added.isNotEmpty) {
+      final List<List<String>> rows = [];
+      for (final Object? entry in added) {
+        if (entry is! Map) continue;
+        final Map row = entry['row'] is Map
+            ? entry['row'] as Map
+            : const <String, dynamic>{};
+        rows.add([
+          stringValue(entry['section']),
+          row['invoice_number'] != null
+              ? stringValue(row['invoice_number'])
+              : row['note_number'] != null
+                  ? stringValue(row['note_number'])
+                  : '${stringValue(row['place_of_supply'])} @ '
+                      '${stringValue(row['rate'])}%',
+          stringValue(row['invoice_date'] ?? row['note_date']),
+          _money(row['taxable_value']),
+          _money(_taxOf(row)),
+        ]);
+      }
+      if (rows.isNotEmpty) {
+        out.add(_Section(
+          title: 'Added late — belongs to a filed period',
+          headers: const ['Section', 'Document', 'Date', 'Taxable', 'Tax'],
+          rows: rows,
+        ));
+      }
+    }
+    if (out.isEmpty) return const [];
+    return [
+      Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+        child: Text('Amendments',
+            key: const ValueKey('gst-amendments'),
+            style: Theme.of(context).textTheme.titleMedium),
+      ),
+      ...out,
+    ];
+  }
+
+  /// What later edits did to earlier filed GSTR-1 periods; hidden when nil.
+  Widget _earlierChanges(Object? block) {
+    if (block is! Map) return const SizedBox.shrink();
+    const List<String> keys = [
+      'taxable_value',
+      'integrated_tax',
+      'central_tax',
+      'state_tax',
+      'cess',
+    ];
+    if (!keys.any((key) => _num(block[key]) != 0)) {
+      return const SizedBox.shrink();
+    }
+    return KeyedSubtree(
+      key: const ValueKey('gst-earlier-changes'),
+      child: _Section(
+        title: 'Changes to earlier filed GSTR-1',
+        headers: const ['Taxable', 'IGST', 'CGST', 'SGST', 'Cess'],
+        rows: [
+          [for (final String key in keys) _money(block[key])],
+        ],
+      ),
+    );
+  }
+
   Widget _summary(Json data) {
     final Map<String, dynamic> outward =
         (data['outward_taxable_supplies'] as Map?)?.cast<String, dynamic>() ??
@@ -775,6 +935,7 @@ class _GstReturnPageState extends State<GstReturnPage> {
             ([_money(credited['taxable_value']), _money(credited['tax'])]),
           ],
         ),
+        _earlierChanges(data['amendments_to_earlier_returns']),
         _inputCredit(data),
       ],
     );

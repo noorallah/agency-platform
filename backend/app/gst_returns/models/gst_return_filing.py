@@ -15,7 +15,7 @@ from datetime import date
 from enum import StrEnum
 from uuid import UUID
 
-from sqlalchemy import Date, Index, String, Text, text
+from sqlalchemy import JSON, Date, ForeignKey, Index, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database.entity import BaseEntity
@@ -62,4 +62,35 @@ class GstReturnFiling(BaseEntity):
     remarks: Mapped[str | None] = mapped_column(Text)
 
 
-__all__ = ["GstReturnFiling", "GstReturnType"]
+class GstReturnSnapshot(BaseEntity):
+    """The GSTR-1 a filing reported, as it stood when marked filed (GST-6).
+
+    Once filed, a return's figures are what the portal holds and cannot
+    change; asking for that period again returns this. What a later edit to
+    a filed period does is an amendment, read off the difference between the
+    documents now and what the snapshots -- replayed in filing order -- say
+    was declared.
+    """
+
+    __tablename__ = "gst_return_snapshots"
+    __table_args__ = (
+        Index("IX_gst_return_snapshots_firm_period", "firm_id", "from_date"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    filing_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("gst_return_filings.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    return_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    gstin: Mapped[str] = mapped_column(String(15), nullable=False)
+    from_date: Mapped[date] = mapped_column(Date, nullable=False)
+    to_date: Mapped[date] = mapped_column(Date, nullable=False)
+    payload: Mapped[dict[str, object]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+
+
+__all__ = ["GstReturnFiling", "GstReturnSnapshot", "GstReturnType"]

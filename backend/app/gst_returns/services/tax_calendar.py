@@ -48,8 +48,10 @@ from app.gst_returns.models import (
 from app.gst_returns.services.filing_frequency import (
     FilingFrequencyService,
     FilingPlan,
+    month_bounds,
     position_in_quarter,
     quarter_label,
+    quarter_months,
 )
 from app.gst_returns.services.gst_payment_service import (
     GstPaymentService,
@@ -337,6 +339,8 @@ class TaxCalendarService:
         )
         self._session.add(row)
         self._session.flush()
+        if return_type == GstReturnType.GSTR1:
+            self._snapshot(row, quarterly=quarterly, actor_id=actor_id)
         record_audit(
             self._session,
             action="gst_return.filed",
@@ -352,6 +356,36 @@ class TaxCalendarService:
             },
         )
         return row
+
+    def _snapshot(
+        self, filing: GstReturnFiling, *, quarterly: bool, actor_id: UUID
+    ) -> None:
+        """Keep the GSTR-1 being filed, as the documents stand now (GST-6).
+
+        A quarterly filer's return covers the quarter it closes.
+        """
+        # Imported here: the return service reads this module's filings.
+        from app.gst_returns.services.amendments import GstAmendmentService
+        from app.gst_returns.services.gstr_service import GstReturnService
+
+        first = (
+            quarter_months(filing.return_period)[0]
+            if quarterly
+            else filing.return_period
+        )
+        from_date, _ = month_bounds(first)
+        _, to_date = month_bounds(filing.return_period)
+        payload = GstReturnService(self._session).gstr1(
+            firm_scope=filing.firm_id, from_date=from_date, to_date=to_date, live=True
+        )
+        GstAmendmentService(self._session).record(
+            filing,
+            gstin=str(payload.get("gstin") or ""),
+            from_date=from_date,
+            to_date=to_date,
+            payload=payload,
+            actor_id=actor_id,
+        )
 
     def withdraw(self, filing_id: UUID, *, firm_id: UUID, actor_id: UUID) -> None:
         """Take back a return recorded as filed in error; does not commit."""
