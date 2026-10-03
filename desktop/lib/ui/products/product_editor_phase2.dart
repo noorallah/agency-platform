@@ -189,6 +189,7 @@ extension _Phase2ProductForm on _ProductWorkspaceDialogState {
           ),
         'tax' => _taxSection(),
         'business_attributes' => _attributesSection(),
+        'components' => _componentsSection(),
         'images' => _mediaSection(_imageRows, imageMode: true),
         'attachments' => _mediaSection(_attachmentRows, imageMode: false),
         _ => const SizedBox.shrink(),

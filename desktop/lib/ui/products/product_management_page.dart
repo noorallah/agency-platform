@@ -14,7 +14,11 @@ import '../../models/pricing.dart';
 import '../../models/product.dart';
 import '../../models/vendor.dart';
 import '../../models/file_import.dart';
+import 'kit_components_section.dart';
 import 'price_revisions_section.dart';
+import '../inventory/repack_dialog.dart' show RepackOption;
+import '../../models/branch_warehouse.dart';
+import '../../models/repack.dart';
 import 'product_import_dialog.dart';
 import '../../models/trade_licence.dart';
 import '../../models/uom_packaging.dart';
@@ -905,6 +909,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         onSaveLevelRates: _controller.saveLevelRates,
         priceRevisions: PriceRevisionActions.of(widget.api),
         canManagePriceRevisions: _canEdit,
+        kits: KitActions.of(widget.api),
         definitions: _controller.attributeDefinitions,
         metadata: _controller.metadata,
         initialTab: _dialogTab,
@@ -1220,6 +1225,68 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
     await _controller.load(requestedPage: 1);
   }
 
+  /// Whether the picked row is a kit the user may make up or break back.
+  bool _kitSelected(Product? selected) =>
+      selected != null &&
+      !selected.isDeleted &&
+      selected.productType == 'BUNDLE' &&
+      widget.permissions.hasPermission('INVENTORY_ADJUST');
+
+  /// Assemble or disassemble the picked kit (STK-15) in one warehouse.
+  Future<void> _kitStock(Product kit, {required bool assemble}) async {
+    List<BranchRecord> branches = const [];
+    List<WarehouseRecord> warehouses = const [];
+    try {
+      final List<dynamic> results = await Future.wait<dynamic>([
+        fetchAllPages((page) =>
+            widget.api.branches(page: page, pageSize: maxApiPageSize)),
+        fetchAllPages((page) =>
+            widget.api.warehouses(page: page, pageSize: maxApiPageSize)),
+      ]);
+      branches = results[0] as List<BranchRecord>;
+      warehouses = results[1] as List<WarehouseRecord>;
+    } on ApiException catch (error) {
+      if (mounted) {
+        NotificationService.show(context, error.message,
+            kind: AppNotificationKind.error);
+      }
+      return;
+    }
+    if (!mounted) return;
+    final KitActions actions = KitActions.of(widget.api);
+    final dynamic posted = await showDialog<dynamic>(
+      context: context,
+      builder: (context) => KitStockDialog(
+        kitName: kit.name,
+        assemble: assemble,
+        branches: [
+          for (final BranchRecord branch in branches)
+            RepackOption(id: branch.id, label: '${branch.code} - ${branch.name}'),
+        ],
+        warehouses: [
+          for (final WarehouseRecord warehouse in warehouses)
+            RepackOption(
+              id: warehouse.id,
+              label: '${warehouse.code} - ${warehouse.name}',
+              parentId: warehouse.branchId,
+            ),
+        ],
+        onSave: (body) => assemble
+            ? actions.assemble(kit.id, body)
+            : actions.disassemble(kit.id, body),
+      ),
+    );
+    if (posted == null || !mounted) return;
+    final String number =
+        posted is RepackRecord ? ' as ${posted.repackNumber}' : '';
+    NotificationService.show(
+      context,
+      '${assemble ? 'Kits assembled' : 'Kits disassembled'}$number.',
+      kind: AppNotificationKind.success,
+    );
+    await _controller.load();
+  }
+
   /// The products a label print is for: the ticked rows, else the picked one.
   List<Product> _labelProducts(Product? selected) {
     final List<Product> ticked =
@@ -1382,6 +1449,22 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
                 icon: Icons.label_outline,
                 onPressed:
                     _labelProducts(selected).isEmpty ? null : _printLabels,
+              ),
+              ToolbarCommand(
+                id: 'assemble-kits',
+                label: 'Assemble kits',
+                icon: Icons.inventory_2_outlined,
+                onPressed: _kitSelected(selected)
+                    ? () => unawaited(_kitStock(selected!, assemble: true))
+                    : null,
+              ),
+              ToolbarCommand(
+                id: 'disassemble-kits',
+                label: 'Disassemble kits',
+                icon: Icons.unarchive_outlined,
+                onPressed: _kitSelected(selected)
+                    ? () => unawaited(_kitStock(selected!, assemble: false))
+                    : null,
               ),
               if (_canImport)
                 ToolbarCommand(
@@ -1796,6 +1879,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
 /// value sent to the server is still the code; only the label changes.
 String productCodeLabel(String code) {
   if (code.isEmpty) return code;
+  if (code == 'BUNDLE') return 'Kit / combo pack';
   final String spaced = code.replaceAll('_', ' ').toLowerCase();
   return '${spaced[0].toUpperCase()}${spaced.substring(1)}';
 }
@@ -1826,7 +1910,12 @@ class ProductWorkspaceDialog extends StatefulWidget {
     this.onSaveLevelRates,
     this.priceRevisions,
     this.canManagePriceRevisions = false,
+    this.kits,
   });
+
+  /// Kit components (STK-15), the "Components" section of a BUNDLE product;
+  /// null hides it.
+  final KitActions? kits;
 
   /// The firm's active price levels; null hides the "Prices by level" grid
   /// (no `PRICE_LIST_VIEW`, or the levels could not be read).
@@ -1995,6 +2084,11 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     final List<String> tabs = List<String>.from(_coreTabs);
     if (_allowedAttributeIds.isEmpty) {
       tabs.remove('business_attributes');
+    }
+    if (widget.kits != null &&
+        widget.product != null &&
+        widget.product!.productType == 'BUNDLE') {
+      tabs.add('components');
     }
     if (!_readOnly || _imageRows.isNotEmpty) {
       tabs.add('images');
@@ -2338,6 +2432,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         'price_history' => 'Price history',
         'tax' => 'Tax',
         'business_attributes' => 'Attributes',
+        'components' => 'Components',
         'images' => 'Images',
         'attachments' => 'Attachments',
         'audit' => 'Audit',
@@ -2351,12 +2446,19 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         'pricing' => _pricingSection(),
         'tax' => _taxSection(),
         'business_attributes' => _attributesSection(),
+        'components' => _componentsSection(),
         'images' => _mediaSection(_imageRows, imageMode: true),
         'attachments' => _mediaSection(_attachmentRows, imageMode: false),
         'audit' => _auditSection(),
         'history' => _historySection(),
         _ => const SizedBox.shrink(),
       };
+
+  Widget _componentsSection() => KitComponentsSection(
+        productId: widget.product!.id,
+        actions: widget.kits!,
+        canManage: !_readOnly,
+      );
 
   Widget _generalSection() => Wrap(
         spacing: 16,

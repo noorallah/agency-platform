@@ -110,6 +110,7 @@ from app.inventory.models import InventoryRecord, StockLedgerEntry
 from app.inventory.services import InventoryService, LineConversion
 from app.messaging.services import MessagingDocument, stage_document_event
 from app.products.models import Product
+from app.products.services.kits import KitService
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import SalesOrderStatus
@@ -2817,7 +2818,33 @@ class DeliveryNoteService(TransactionalDocumentService):
                 storage_node_id=line.storage_node_id,
                 product_id=line.product_id,
             )
-            if available < line.delivered_quantity:
+            # What this line's order holds is released by this dispatch, so
+            # it counts towards what can ship.
+            own_hold = self._q(
+                min(source_line.reserved_quantity, line.delivered_quantity)
+            )
+            # A kit shipped beyond what is assembled is assembled from its
+            # components first, in this transaction (STK-15).
+            if available + own_hold < line.delivered_quantity and KitService(
+                self._session
+            ).assemble_for_dispatch(
+                firm_id=row.firm_id,
+                branch_id=goods_branch_id,
+                warehouse_id=line.warehouse_id,
+                product_id=line.product_id,
+                shortfall=line.delivered_quantity - available - own_hold,
+                on=row.delivery_date,
+                reference=row.delivery_note_number,
+                actor_id=actor_id,
+            ):
+                available, _ = self._stock_snapshot(
+                    firm_id=row.firm_id,
+                    branch_id=goods_branch_id,
+                    warehouse_id=line.warehouse_id,
+                    storage_node_id=line.storage_node_id,
+                    product_id=line.product_id,
+                )
+            if available + own_hold < line.delivered_quantity:
                 raise ValidationError("Insufficient available stock for dispatch line.")
             chosen = (
                 None

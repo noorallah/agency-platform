@@ -46,6 +46,7 @@ import '../../models/principal_claim.dart';
 import '../../models/supplier_rebate.dart';
 import '../../models/post_dated_cheque.dart';
 import '../../models/purchase_requisition.dart';
+import '../../models/kit.dart';
 import '../../models/repack.dart';
 import '../../models/stock_transfer.dart';
 import '../../models/quality_inspection.dart';
@@ -3693,6 +3694,53 @@ class ApiClient {
   Future<RepackRecord> createRepack(Json data) async => RepackRecord.fromJson(
         _unwrapMap(
           await request('POST', '/api/v1/inventory/repacks', body: data),
+        ),
+      );
+
+  /// A kit's components, one row per component (STK-15).
+  Future<List<KitComponent>> kitComponents(String productId) async =>
+      _unwrapList(
+        await request('GET', '/api/v1/products/$productId/components'),
+        KitComponent.fromJson,
+      );
+
+  /// Replaces a kit's whole component list. Refused for a product that is
+  /// not a kit, a kit inside a kit, the kit itself, or a duplicate.
+  Future<List<KitComponent>> replaceKitComponents(
+    String productId,
+    Json data,
+  ) async =>
+      _unwrapList(
+        await request(
+          'PUT',
+          '/api/v1/products/$productId/components',
+          body: data,
+        ),
+        KitComponent.fromJson,
+      );
+
+  /// Makes kits up from their components. Needs `INVENTORY_ADJUST`; the
+  /// refusal names the component that is short.
+  Future<RepackRecord> assembleKits(String productId, Json data) async =>
+      RepackRecord.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/products/$productId/assemble',
+            body: data,
+          ),
+        ),
+      );
+
+  /// Breaks kits back into their components.
+  Future<RepackRecord> disassembleKits(String productId, Json data) async =>
+      RepackRecord.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/products/$productId/disassemble',
+            body: data,
+          ),
         ),
       );
 

@@ -134,6 +134,21 @@ class RepackService(TransactionalDocumentService):
             ValidationError: If a product is not the firm's, or stock is short.
 
         """
+        row = self.stage_post(data, firm_id=firm_id, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def stage_post(self, data: RepackWrite, *, firm_id: UUID, actor_id: UUID) -> Repack:
+        """Post a repack without committing, for a caller composing more.
+
+        Kits are assembled this way when a delivery note ships more than is
+        assembled (STK-15): the components leave in the dispatch's own
+        transaction.
+
+        Raises:
+            ValidationError: If a product is not the firm's, or stock is short.
+
+        """
         on = data.repack_date
         products = {
             p.id: p
@@ -244,7 +259,6 @@ class RepackService(TransactionalDocumentService):
                 remarks=f"Wastage on repack {number}",
             )
         self._audit("repack.posted", row, actor_id)
-        self._session.commit()
         return row
 
     def cancel(
