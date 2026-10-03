@@ -699,6 +699,7 @@ otherwise it is built as written.
 - **What it is:** tie each product to its brand and each brand to the company (and supplier) whose agency the firm holds.
 - **What gets built:** principal and brand masters (migration), principal linked to a vendor; `products.brand` (free text) backfilled into brand rows; principal-wise filters on sales analysis, stock and reports. Masters screens in phase 2. Tests.
 - **Depends on:** nothing. Unblocks SEL-11. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A118): `principals`, `brands`, `products.brand_id` with the text brands backfilled (migration 0281); `app/products/services/brands.py`; `/products/principals` and `/products/brands` CRUD; brand and principal as sales analysis dimensions and filters. Stock and other reports by principal follow as they are touched. Desktop: Principals and Brands masters, brand picker on the product, the analysis choices. Tests: `test_principal_brand.py`, `principal_brand_test.dart`.
 
 #### MST-2. Price revision with an effective date (§75 row 7)
 - **What it is:** "new rates from the 1st", kept with history.

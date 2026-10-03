@@ -45,6 +45,8 @@ class SalesAnalysisPage extends StatelessWidget {
             'year': 'Year',
             'product': 'Product',
             'category': 'Category',
+            'brand': 'Brand',
+            'principal': 'Principal',
             'customer': 'Customer',
             'customer_group': 'Customer group',
             'salesman': 'Salesman',
@@ -55,6 +57,8 @@ class SalesAnalysisPage extends StatelessWidget {
           filterParameters: const {
             'product': 'product_id',
             'category': 'category_id',
+            'brand': 'brand_id',
+            'principal': 'principal_id',
             'customer': 'customer_id',
             'customer_group': 'customer_group_id',
             'salesman': 'salesman_id',

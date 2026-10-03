@@ -155,6 +155,8 @@ class ProductWrite(ProductSchema):
     preferred_vendor_id: UUID | None = None
     unit: str | None = Field(default=None, max_length=20)
     brand: str | None = Field(default=None, max_length=120)
+    #: The brand row (MST-1); naming one sets ``brand`` to its name.
+    brand_id: UUID | None = None
     model: str | None = Field(default=None, max_length=120)
     hsn_sac: str | None = Field(default=None, max_length=20)
     tax_profile_group_code: str | None = Field(
@@ -305,6 +307,7 @@ class ProductResponse(ProductSchema):
     preferred_vendor_id: UUID | None = None
     unit: str | None
     brand: str | None
+    brand_id: UUID | None = None
     model: str | None
     hsn_sac: str | None
     tax_profile_group_code: str | None
@@ -390,6 +393,8 @@ class ProductListFilters(ProductSchema):
     sub_category_id: UUID | None = None
     tax_profile_group_code: str | None = None
     brand: str | None = Field(default=None, max_length=120)
+    #: The brand row (MST-1); naming one sets ``brand`` to its name.
+    brand_id: UUID | None = None
     hsn_sac: str | None = Field(default=None, max_length=20)
     include_deleted: bool = False
     attribute_query: str | None = Field(default=None, max_length=200)

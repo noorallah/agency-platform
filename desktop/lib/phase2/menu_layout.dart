@@ -375,6 +375,8 @@ abstract final class MenuLayout {
         [
           MenuItemSpec(
               AppModule.masters, 'product-categories', 'Product Categories'),
+          MenuItemSpec(AppModule.masters, 'principals', 'Principals'),
+          MenuItemSpec(AppModule.masters, 'brands', 'Brands'),
           MenuItemSpec(AppModule.administration, 'uoms', 'Units of Measure'),
           MenuItemSpec(AppModule.administration, 'uom-groups', 'UOM Groups'),
           MenuItemSpec(

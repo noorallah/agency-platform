@@ -137,6 +137,12 @@ Future<void> _pump(
 Future<void> _choose(WidgetTester tester, String field, String option) async {
   await tester.tap(find.widgetWithText(DropdownButtonFormField<String>, field));
   await tester.pumpAndSettle();
+  // The menu is longer than the window, and scrolls to the chosen row.
+  await tester.scrollUntilVisible(
+    find.text(option),
+    -100,
+    scrollable: find.byType(Scrollable).last,
+  );
   await tester.tap(find.text(option).last);
   await tester.pumpAndSettle();
 }

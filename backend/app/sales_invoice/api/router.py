@@ -549,8 +549,12 @@ def _analysis_filters(
     territory_id: UUID | None,
     route_id: UUID | None,
     branch_id: UUID | None,
+    brand_id: UUID | None = None,
+    principal_id: UUID | None = None,
 ) -> AnalysisFilters:
     return AnalysisFilters(
+        brand_id=brand_id,
+        principal_id=principal_id,
         product_id=product_id,
         category_id=category_id,
         customer_id=customer_id,
@@ -582,12 +586,14 @@ def sales_analysis(
     territory_id: UUID | None = None,
     route_id: UUID | None = None,
     branch_id: UUID | None = None,
+    brand_id: UUID | None = None,
+    principal_id: UUID | None = None,
 ) -> ApiResponse[SalesAnalysisResponse]:
     """Billed sales by one or two dimensions, net of returns (backlog 62).
 
     ``rows`` and ``columns`` are each one of day, week, month, quarter, year,
-    product, category, customer, customer_group, salesman, territory, route,
-    branch. The period defaults to this month.
+    product, category, brand, principal, customer, customer_group, salesman,
+    territory, route, branch. The period defaults to this month.
     """
     today = utc_now().date()
     first = from_date or today.replace(day=1)
@@ -607,6 +613,8 @@ def sales_analysis(
             territory_id,
             route_id,
             branch_id,
+            brand_id,
+            principal_id,
         ),
         net_of_returns=net_of_returns,
     )
@@ -630,6 +638,8 @@ def sales_analysis_invoices(
     territory_id: UUID | None = None,
     route_id: UUID | None = None,
     branch_id: UUID | None = None,
+    brand_id: UUID | None = None,
+    principal_id: UUID | None = None,
 ) -> ApiResponse[list[AnalysisInvoiceRecord]]:
     """List the invoices behind one cell of the analysis (backlog 62)."""
     rows = SalesAnalysisService(db).invoices(
@@ -645,6 +655,8 @@ def sales_analysis_invoices(
             territory_id,
             route_id,
             branch_id,
+            brand_id,
+            principal_id,
         ),
     )
     return ApiResponse(

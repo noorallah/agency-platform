@@ -2583,6 +2583,14 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           api: widget.api,
           definition: productCategoryDefinition(widget.api, widget.permissions),
         ),
+      'principals' => ResourceManagementPage<PrincipalRecord>(
+          api: widget.api,
+          definition: principalDefinition(widget.api, widget.permissions),
+        ),
+      'brands' => ResourceManagementPage<BrandRecord>(
+          api: widget.api,
+          definition: brandDefinition(widget.api, widget.permissions),
+        ),
       'vendor-categories' => ResourceManagementPage<VendorClassification>(
           api: widget.api,
           definition: vendorClassificationDefinition(
@@ -2668,6 +2676,8 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
         'loyalty' => 'Loyalty',
         'products' => 'Product Management',
         'product-categories' => 'Product Categories',
+        'principals' => 'Principals',
+        'brands' => 'Brands',
         'vendors' => 'Vendor Management',
         'vendor-categories' => 'Vendor Categories',
         'vendor-types' => 'Vendor Types',
@@ -2701,6 +2711,12 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
         'product-categories' =>
           'Group products into a tree, for the product form, reports and '
               'category rules.',
+        'principals' =>
+          'The companies whose brands the firm distributes, and the supplier '
+              'each is bought through.',
+        'brands' =>
+          'The brands products are filed under, each with its principal; '
+              'sales can be analysed by either.',
         'vendors' =>
           'Manage enterprise vendor masters with contacts, addresses, banking, and tax details.',
         'vendor-categories' => 'Group vendors by what they supply.',
@@ -2738,6 +2754,8 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           'customers' => 'Customer Management',
           'products' => 'Product Management',
           'product-categories' => 'Product Categories',
+          'principals' => 'Principals',
+          'brands' => 'Brands',
           'vendors' => 'Vendor Management',
           'vendor-categories' => 'Vendor Categories',
           'vendor-types' => 'Vendor Types',
@@ -5760,6 +5778,115 @@ ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
     },
   );
 }
+
+/// The companies whose brands the firm distributes (MST-1). Every write
+/// asks `PRODUCT_UPDATE`, as the category routes do.
+ResourceDefinition<PrincipalRecord> principalDefinition(
+  ApiClient api,
+  PermissionService permissions,
+) =>
+    ResourceDefinition(
+      title: 'Principals',
+      resource: 'products/principals',
+      description: 'The companies whose brands the firm distributes, and the '
+          'supplier each is bought through.',
+      searchHint: 'Search principals by code or name',
+      headers: const ['Code', 'Name', 'Active'],
+      cells: (PrincipalRecord row) => [
+        row.code,
+        row.name,
+        row.isActive ? 'Yes' : 'No',
+      ],
+      id: (PrincipalRecord row) => row.id,
+      load: api.principalsPage,
+      canUseAction: (action, _) => _canUseResourceAction(
+        permissions,
+        action,
+        view: const ['PRODUCT_VIEW'],
+        create: const ['PRODUCT_UPDATE'],
+        update: const ['PRODUCT_UPDATE'],
+        delete: const ['PRODUCT_UPDATE'],
+      ),
+      fields: const [
+        FieldSpec(key: 'code', label: 'Code', required: true),
+        FieldSpec(key: 'name', label: 'Name', required: true),
+        FieldSpec(
+          key: 'vendor_id',
+          label: 'Supplier',
+          optionsResource: 'vendors',
+          singleSelection: true,
+          helperText: 'The supplier this principal is bought through.',
+        ),
+        FieldSpec(key: 'is_active', label: 'Active', boolean: true),
+      ],
+      initialValues: (PrincipalRecord? row) => row == null
+          ? <String, dynamic>{'is_active': true}
+          : <String, dynamic>{
+              'code': row.code,
+              'name': row.name,
+              'vendor_id': row.vendorId,
+              'is_active': row.isActive,
+            },
+      payload: (values, isCreating) => {
+        'code': values['code'],
+        'name': values['name'],
+        'vendor_id': _blankToNull(values['vendor_id']),
+        'is_active': values['is_active'] != false,
+      },
+    );
+
+/// The brands a product is filed under (MST-1), each optionally under a
+/// principal. Renaming one renames the brand text on its products.
+ResourceDefinition<BrandRecord> brandDefinition(
+  ApiClient api,
+  PermissionService permissions,
+) =>
+    ResourceDefinition(
+      title: 'Brands',
+      resource: 'products/brands',
+      description: 'The brands products are filed under, each with its '
+          'principal.',
+      searchHint: 'Search brands by name or principal',
+      headers: const ['Name', 'Principal', 'Active'],
+      cells: (BrandRecord row) => [
+        row.name,
+        row.principalName,
+        row.isActive ? 'Yes' : 'No',
+      ],
+      id: (BrandRecord row) => row.id,
+      load: api.brandsPage,
+      canUseAction: (action, _) => _canUseResourceAction(
+        permissions,
+        action,
+        view: const ['PRODUCT_VIEW'],
+        create: const ['PRODUCT_UPDATE'],
+        update: const ['PRODUCT_UPDATE'],
+        delete: const ['PRODUCT_UPDATE'],
+      ),
+      fields: const [
+        FieldSpec(key: 'name', label: 'Name', required: true),
+        FieldSpec(
+          key: 'principal_id',
+          label: 'Principal',
+          optionsResource: 'products/principals',
+          singleSelection: true,
+          helperText: 'Leave empty for a brand with no principal.',
+        ),
+        FieldSpec(key: 'is_active', label: 'Active', boolean: true),
+      ],
+      initialValues: (BrandRecord? row) => row == null
+          ? <String, dynamic>{'is_active': true}
+          : <String, dynamic>{
+              'name': row.name,
+              'principal_id': row.principalId,
+              'is_active': row.isActive,
+            },
+      payload: (values, isCreating) => {
+        'name': values['name'],
+        'principal_id': _blankToNull(values['principal_id']),
+        'is_active': values['is_active'] != false,
+      },
+    );
 
 /// The kinds of trade licence this firm holds or asks its customers and
 /// vendors for -- Drug Licence, FSSAI, Shop Act and the like (backlog 54).
