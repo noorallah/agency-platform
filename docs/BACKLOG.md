@@ -3453,6 +3453,8 @@ TCS, an audit trail, currency and exchange-rate fields, and a low-stock view.
 
 ### 42.3 A post-dated cheque register
 
+**Status, 2026-10-03: built** (ACC-2, A80): *Post-dated Cheques* under Sell > Money and Buy > Money. A cheque is held until it is banked, banking records the receipt or payment, and a returned cheque reverses it with the bank's fee and an optional charge to the customer.
+
 - **Who has it:** BUSY (PDC management on receipts and payments).
 - **Here:** a settlement carries `method` and a free-text
   `instrument_reference`; there is no cheque date, no "held until" state, no

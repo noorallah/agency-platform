@@ -1017,6 +1017,18 @@ abstract final class ModuleCatalog {
           label: 'Payments',
           requiredPermissions: ['PAYMENT_VIEW'],
         ),
+        // Cheques dated ahead, held until their day (ACC-2). Banking one
+        // raises the receipt or payment, so each reads on that code.
+        ModuleTabDefinition(
+          id: 'pdc-received',
+          label: 'Post-dated Cheques',
+          requiredPermissions: ['RECEIPT_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'pdc-issued',
+          label: 'Post-dated Cheques (Issued)',
+          requiredPermissions: ['PAYMENT_VIEW'],
+        ),
         // No `REFUND_*` code exists, so this keeps `ACCOUNT_VIEW` and stays
         // exactly as reachable as it is today. A refund reverses a settlement
         // and is not the job of whoever took the money -- the same separation

@@ -11,6 +11,7 @@ import '../workspace/module_catalog.dart';
 import 'balance_sheet_page.dart';
 import 'control_accounts_page.dart';
 import 'contra_voucher_page.dart';
+import 'post_dated_cheque_page.dart';
 import 'tds_challan_page.dart';
 import 'expenses_page.dart';
 import 'journal_entries_page.dart';
@@ -336,6 +337,20 @@ class _FinanceWorkspaceState extends State<FinanceWorkspace> {
               permissions: widget.permissions,
               hasActiveFirm: widget.hasActiveFirm,
               direction: SettlementDirection.payment,
+            ),
+          'pdc-received' => PostDatedChequePage(
+              api: widget.api,
+              preferences: widget.preferences,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
+              issued: false,
+            ),
+          'pdc-issued' => PostDatedChequePage(
+              api: widget.api,
+              preferences: widget.preferences,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
+              issued: true,
             ),
           'refunds' => SettlementsPage(
               api: widget.api,

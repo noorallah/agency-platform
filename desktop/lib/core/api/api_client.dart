@@ -32,6 +32,7 @@ import '../../models/debit_note.dart';
 import '../../models/party_adjustment.dart';
 import '../../models/contra_voucher.dart';
 import '../../models/tds_challan.dart';
+import '../../models/post_dated_cheque.dart';
 import '../../models/einvoice.dart';
 import '../../models/proforma.dart';
 import '../../models/tcs.dart';
@@ -6811,6 +6812,113 @@ class ApiClient {
       TdsChallan.fromJson(_unwrapMap(await request(
         'POST',
         '/api/v1/finance/tds-challans/$id/cancel',
+        body: {'reason': reason},
+        expectedVersion: expectedVersion,
+      )));
+
+  // ---- post-dated cheques (ACC-2) --------------------------------------
+
+  /// The register's path: a customer's cheques, or the firm's own.
+  String _pdcPath(bool issued) =>
+      '/api/v1/post-dated-cheques/${issued ? 'issued' : 'received'}';
+
+  /// [dueOn] lists only held cheques dated on or before that day.
+  Future<PagedResult<PostDatedCheque>> listPostDatedCheques({
+    required bool issued,
+    int page = 1,
+    int pageSize = 50,
+    String? search,
+    String? status,
+    String? partyId,
+    String? dueOn,
+    String? chequeFrom,
+    String? chequeTo,
+  }) async {
+    final Json response = await request(
+      'GET',
+      _pdcPath(issued),
+      query: {
+        'page': '$page',
+        'page_size': '$pageSize',
+        if (search != null && search.isNotEmpty) 'search': search,
+        if (status != null && status.isNotEmpty) 'status': status,
+        if (partyId != null && partyId.isNotEmpty) 'party_id': partyId,
+        if (dueOn != null) 'due_on': dueOn,
+        if (chequeFrom != null) 'cheque_from': chequeFrom,
+        if (chequeTo != null) 'cheque_to': chequeTo,
+      },
+    );
+    final dynamic data = response['data'];
+    return PagedResult<PostDatedCheque>(
+      items: data is List
+          ? data
+              .whereType<Map>()
+              .map((item) =>
+                  PostDatedCheque.fromJson(Map<String, dynamic>.from(item)))
+              .toList()
+          : const [],
+      total: _totalOf(response),
+    );
+  }
+
+  Future<PostDatedCheque> createPostDatedCheque({
+    required bool issued,
+    required Json body,
+  }) async =>
+      PostDatedCheque.fromJson(
+        _unwrapMap(await request('POST', _pdcPath(issued), body: body)),
+      );
+
+  /// Bank the cheque; the server raises the receipt or payment.
+  Future<PostDatedCheque> depositPostDatedCheque({
+    required bool issued,
+    required String id,
+    required Json body,
+    int? expectedVersion,
+  }) async =>
+      PostDatedCheque.fromJson(_unwrapMap(await request(
+        'POST',
+        '${_pdcPath(issued)}/$id/deposit',
+        body: body,
+        expectedVersion: expectedVersion,
+      )));
+
+  Future<PostDatedCheque> clearPostDatedCheque({
+    required bool issued,
+    required String id,
+    required Json body,
+    int? expectedVersion,
+  }) async =>
+      PostDatedCheque.fromJson(_unwrapMap(await request(
+        'POST',
+        '${_pdcPath(issued)}/$id/clear',
+        body: body,
+        expectedVersion: expectedVersion,
+      )));
+
+  /// A bounce reverses the receipt or payment the cheque raised.
+  Future<PostDatedCheque> bouncePostDatedCheque({
+    required bool issued,
+    required String id,
+    required Json body,
+    int? expectedVersion,
+  }) async =>
+      PostDatedCheque.fromJson(_unwrapMap(await request(
+        'POST',
+        '${_pdcPath(issued)}/$id/bounce',
+        body: body,
+        expectedVersion: expectedVersion,
+      )));
+
+  Future<PostDatedCheque> cancelPostDatedCheque({
+    required bool issued,
+    required String id,
+    required String reason,
+    int? expectedVersion,
+  }) async =>
+      PostDatedCheque.fromJson(_unwrapMap(await request(
+        'POST',
+        '${_pdcPath(issued)}/$id/cancel',
         body: {'reason': reason},
         expectedVersion: expectedVersion,
       )));

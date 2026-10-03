@@ -19,6 +19,13 @@ const Map<String, List<String>> _synonyms = {
   'purchaseInvoices': ['purchase bill', 'supplier bill', 'purchase entry'],
   'accounting/receipts': ['collection', 'money in'],
   'accounting/payments': ['money out', 'pay supplier'],
+  'accounting/pdc-received': [
+    'post-dated cheque',
+    'pdc',
+    'cheque bounce',
+    'deposit cheque'
+  ],
+  'accounting/pdc-issued': ['post-dated cheque issued', 'pdc issued'],
   'accounting/journal-entries': ['journal', 'jv'],
   'accounting/expenses': ['expense', 'payment voucher', 'rent', 'fuel'],
   'accounting/ledgers': ['ledger', 'account book'],

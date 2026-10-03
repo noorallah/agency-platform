@@ -600,6 +600,8 @@ class CustomerService:
             # Tax collected at source is owed on top of what was just paid,
             # so it increases the balance exactly as a bill does.
             CustomerReceivableTransactionType.TCS,
+            # So is what the firm charged for the customer's bounced cheque.
+            CustomerReceivableTransactionType.CHEQUE_RETURN_CHARGE,
         }:
             outstanding_delta = amount
         elif tx_type in {

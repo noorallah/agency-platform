@@ -262,6 +262,9 @@ RESET_ORDER: tuple[str, ...] = (
     # listed so the order is plain.
     "tds_challan_items",
     "tds_challans",
+    # A post-dated cheque names the receipt or payment it became and the
+    # journal its return charges posted, both RESTRICT (ACC-2).
+    "post_dated_cheques",
     # Settlements next: their allocations reference the invoices below, so
     # clearing history without them fails on a foreign key. They arrived with
     # the receipts and payments module and this list did not know about them.

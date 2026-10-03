@@ -487,6 +487,7 @@ trigger each schema owns its own copy of.
 | `tds_194q_settings` | firm store ¹ | One firm's 194Q switch, threshold and rates (ACC-8). |  |
 | `tds_challans` | firm store ¹ | One deposit of TDS under one section: CIN, tax, interest and fee, bank, journal (ACC-7). | `ledger_accounts`, `journal_entries` |
 | `tds_challan_items` | firm store ¹ | One deduction (a payment's or an expense's) a challan paid; one live challan each. | `tds_challans`, `settlements`, `expenses` |
+| `post_dated_cheques` | firm store ¹ | A cheque dated ahead, from a customer or to a supplier: held, banked (the settlement it became), cleared or returned with its charges (ACC-2). | `customers`, `vendors`, `settlements`, `journal_entries` |
 
 ### `app/trade_licences`
 

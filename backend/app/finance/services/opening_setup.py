@@ -398,6 +398,16 @@ CHART: tuple[SeedAccount, ...] = (
         "REV",
         ControlAccountPurpose.BALANCES_WRITTEN_BACK,
     ),
+    SeedAccount(
+        # What a customer is charged for a cheque that bounced (ACC-2): other
+        # income, outside GST. Migration 20261003_0253 gives existing firms
+        # the same account.
+        "4310",
+        "Cheque Return Charges Recovered",
+        AccountTypeEnum.INCOME,
+        "REV",
+        ControlAccountPurpose.CHEQUE_RETURN_CHARGES,
+    ),
     *INDIRECT_EXPENSE_ACCOUNTS,
 )
 
