@@ -14,7 +14,6 @@ import 'package:agency_desktop/ui/workspace/enterprise_sidebar.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:agency_desktop/ui/workspace/module_catalog.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// The whole shell, built for real, in the phase 2 frame.
@@ -102,7 +101,9 @@ void main() {
 
     expect(find.byType(AppMenuBar), findsOneWidget);
     expect(find.byType(EnterpriseSidebar), findsNothing);
-    expect(find.byKey(const ValueKey('menu-area-admin')), findsOneWidget);
+    // Admin left the bar for the Settings page behind the gear (backlog 72).
+    expect(find.byKey(const ValueKey('menu-area-admin')), findsNothing);
+    expect(find.byKey(const ValueKey('menu-area-settings')), findsOneWidget);
     // No firm is chosen, so the firm-owned areas are not offered (4.12).
     expect(find.byKey(const ValueKey('menu-area-sell')), findsNothing);
     // The screen it was left on is open as a tab.
@@ -112,17 +113,19 @@ void main() {
     await _unmount(tester);
   });
 
-  testWidgets('choosing from a panel opens the screen in a new tab',
+  testWidgets('the gear opens Settings, and a card opens its screen in a tab',
       (tester) async {
     await _pumpShell(tester);
 
-    await tester.tap(find.byKey(const ValueKey('menu-area-admin')));
+    await tester.tap(find.byKey(const ValueKey('menu-area-settings')));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byKey(const ValueKey('open-screen-setup')), findsOneWidget);
+    // What the Admin area held is under PLATFORM.
+    expect(find.text('PLATFORM'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('setup-section-Firms')));
     await tester.pump(const Duration(milliseconds: 300));
     await tester
-        .tap(find.byKey(const ValueKey('menu-item-administration/firms')));
-    // A menu item runs its action after the frame that closes the menu, so
-    // the shell redraws a frame later than the tap.
-    await tester.pump(const Duration(milliseconds: 300));
+        .tap(find.byKey(const ValueKey('setup-card-administration/firms')));
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.byKey(const ValueKey('open-screen-administration/users')),
@@ -133,26 +136,17 @@ void main() {
     await _unmount(tester);
   });
 
-  testWidgets('Alt+D opens Admin from the keyboard, and Enter opens a screen',
+  testWidgets('the Settings page search finds a setting in any section',
       (tester) async {
     await _pumpShell(tester);
 
-    // Alt and the area's letter, as a Windows menu bar (Admin is Alt+D).
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
-    await tester.pump();
-    await tester.sendKeyEvent(LogicalKeyboardKey.keyD, character: 'd');
-    await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+    await tester.tap(find.byKey(const ValueKey('menu-area-settings')));
     await tester.pump(const Duration(milliseconds: 300));
-    expect(find.byKey(const ValueKey('menu-item-administration/firms')),
-        findsOneWidget);
-
-    // Down into the panel and Enter on its first item.
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.enterText(find.byKey(const ValueKey('setup-search')), 'role');
     await tester.pump(const Duration(milliseconds: 100));
-    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-    await tester.pump(const Duration(milliseconds: 300));
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(find.byKey(const ValueKey('menu-item-administration/firms')),
+    expect(find.byKey(const ValueKey('setup-card-administration/roles')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('setup-card-administration/firms')),
         findsNothing);
     expect(tester.takeException(), isNull);
     await _unmount(tester);

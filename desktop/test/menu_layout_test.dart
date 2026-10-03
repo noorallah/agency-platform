@@ -103,7 +103,8 @@ void main() {
     }
   });
 
-  test('eight areas across the bar, as decided in section 8', () {
+  test('seven areas across the bar: Admin is behind the gear (backlog 72)',
+      () {
     expect(MenuLayout.areas.map((area) => area.label), [
       'Home',
       'Sell',
@@ -112,8 +113,114 @@ void main() {
       'Accounts',
       'Masters',
       'Reports',
-      'Admin',
     ]);
+  });
+
+  group('the light menu (backlog 72)', () {
+    test('a daily list names only screens of its own area', () {
+      for (final MenuAreaSpec area in MenuLayout.areas) {
+        for (final MenuDailyGroup group in area.daily) {
+          for (final String path in group.paths) {
+            if (path == MenuLayout.returnsAndNotes) {
+              expect(area.shortList, isNotEmpty, reason: area.label);
+            } else {
+              expect(area.item(path), isNotNull,
+                  reason: '${area.label}: $path');
+            }
+          }
+        }
+        for (final String path in area.shortList) {
+          expect(area.item(path), isNotNull, reason: '${area.label}: $path');
+        }
+      }
+    });
+
+    test('Sell shows seven a day, as the wireframe drew it', () {
+      final MenuAreaSpec sell =
+          MenuLayout.areas.singleWhere((area) => area.id == 'sell');
+      expect(
+        [
+          for (final MenuDailyGroup group in sell.daily)
+            for (final String path in group.paths)
+              path == MenuLayout.returnsAndNotes
+                  ? 'Returns & notes'
+                  : sell.item(path)!.label,
+        ],
+        [
+          'Quotations',
+          'Sales Orders',
+          'Delivery Notes',
+          'Sales Invoices',
+          'Returns & notes',
+          'Receipts',
+          'Customer Statements',
+        ],
+      );
+    });
+
+    test('no area carries set-up lists any more; Settings does', () {
+      final Set<String> setUp = {
+        for (final MenuGroupSpec group in MenuLayout.settings.groups)
+          if (group.part == MenuPart.setUp) group.label,
+      };
+      expect(setUp, {
+        'Pricing',
+        'Territories & routes',
+        'Account structure',
+        'Party lists',
+        'Item lists',
+        'Locations',
+      });
+      for (final MenuAreaSpec area in MenuLayout.areas) {
+        for (final String section in area.setUp) {
+          expect(setUp, contains(section), reason: area.label);
+        }
+      }
+      expect(
+        MenuLayout.settings.groups
+            .where((group) => group.part == MenuPart.platform)
+            .map((group) => group.label),
+        ['People', 'Firms', 'System'],
+      );
+    });
+
+    test('a daily item the user may not open is not offered', () {
+      final MenuAreaSpec? masters = MenuLayout.visible(
+        MenuLayout.areas.singleWhere((area) => area.id == 'masters'),
+        _visibility(['CUSTOMER_VIEW']),
+      );
+      expect(masters!.daily.single.paths, ['masters/customers']);
+    });
+
+    test('Returns & notes goes when nothing in it may be opened', () {
+      final MenuAreaSpec sell =
+          MenuLayout.areas.singleWhere((area) => area.id == 'sell');
+      final MenuAreaSpec? shown =
+          MenuLayout.visible(sell, _visibility(['RECEIPT_VIEW']));
+      expect(shown, isNotNull);
+      for (final MenuDailyGroup group in shown?.daily ?? const []) {
+        expect(group.paths, isNot(contains(MenuLayout.returnsAndNotes)));
+      }
+    });
+
+    test('the menu and the Settings page ask the server nothing', () {
+      // The owner's condition for approving them (2026-10-04, backlog 72):
+      // built from the catalogue and the permissions already held, so none
+      // of these files may reach for the API client.
+      for (final String file in [
+        'lib/phase2/menu_layout.dart',
+        'lib/phase2/app_menu_bar.dart',
+        'lib/phase2/set_up_page.dart',
+      ]) {
+        final String source = File(file).readAsStringSync();
+        expect(source, isNot(contains('api_client.dart')), reason: file);
+        expect(source, isNot(contains('ApiClient')), reason: file);
+      }
+    });
+
+    test('the Settings page is an item with a label for its tab', () {
+      expect(MenuLayout.itemFor(MenuLayout.setUpRoute)!.label, 'Settings');
+    });
   });
 
   group('the menu follows permissions (4.12)', () {
@@ -129,14 +236,13 @@ void main() {
       expect(masters.items.map((item) => item.label), contains('Customers'));
       expect(
           masters.items.map((item) => item.label), isNot(contains('Vendors')));
-      expect(shown.map((area) => area.id), isNot(contains('admin')));
       expect(shown.map((area) => area.id), isNot(contains('buy')));
     });
 
     test('Customer Groups follows whoever may open Customers', () {
       List<String> parties(List<String> codes) => [
             for (final MenuItemSpec item in MenuLayout.visible(
-                  MenuLayout.areas.singleWhere((area) => area.id == 'masters'),
+                  MenuLayout.settings,
                   _visibility(codes),
                 )?.items ??
                 const <MenuItemSpec>[])
@@ -151,11 +257,8 @@ void main() {
         MenuLayout.areas.singleWhere((area) => area.id == 'masters'),
         _visibility(['CUSTOMER_VIEW']),
       );
-      // Customers, and Customer Groups under CONFIGURATION; nothing else.
-      expect(masters!.groups.map((group) => group.label),
-          ['Parties', 'Parties']);
-      expect(masters.groups.map((group) => group.configuration),
-          [false, true]);
+      // Customers alone; Customer Groups is on the Settings page now.
+      expect(masters!.groups.map((group) => group.label), ['Parties']);
     });
 
     test('nobody with no permissions is offered an area', () {

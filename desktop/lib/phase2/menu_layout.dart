@@ -83,32 +83,90 @@ class MenuItemSpec {
       route ?? (tab == null ? module!.name : '${module!.name}/$tab');
 }
 
-/// A column in an area's drop-down panel (4.3).
+/// A column in an area's drop-down panel (4.3), or a section of Settings.
 class MenuGroupSpec {
-  const MenuGroupSpec(this.label, this.items, {this.configuration = false});
+  const MenuGroupSpec(this.label, this.items, {this.part = MenuPart.settings});
 
   final String label;
   final List<MenuItemSpec> items;
 
-  /// A group of lookup lists set up once and rarely touched -- categories,
-  /// types, units. The panel draws these apart, under CONFIGURATION, so the
-  /// masters opened every day are not lost among them (owner, 2026-09-26).
-  final bool configuration;
+  /// For a section of Settings, which part of its list it stands in. Ignored
+  /// in a drop-down.
+  final MenuPart part;
+}
+
+/// The three parts of the Settings page's list (backlog 72): the firm's
+/// settings as they always were, the lists set up once that the menus used
+/// to carry, and what the Admin area held.
+enum MenuPart {
+  settings('Settings', 'Firm settings.'),
+  setUp('Set up', 'Moved here from the menus: set up once, changed rarely.'),
+  platform('Platform', 'Moved here from the Admin menu.');
+
+  const MenuPart(this.label, this.note);
+
+  final String label;
+
+  /// Said under a section's heading on the Settings page.
+  final String note;
+}
+
+/// A column of an area's light drop-down: what is opened every day, named by
+/// path. [MenuLayout.returnsAndNotes] stands for the area's short list.
+class MenuDailyGroup {
+  const MenuDailyGroup(this.label, this.paths);
+
+  final String label;
+  final List<String> paths;
 }
 
 /// One entry of the menu bar (4.2), or the Settings gear (4.13).
 class MenuAreaSpec {
-  const MenuAreaSpec(this.id, this.label, this.groups);
+  const MenuAreaSpec(
+    this.id,
+    this.label,
+    this.groups, {
+    this.daily = const [],
+    this.shortList = const [],
+    this.setUp = const [],
+  });
 
   final String id;
   final String label;
   final List<MenuGroupSpec> groups;
 
+  /// The light menu (backlog 72, owner 2026-10-03): the columns the
+  /// drop-down shows until "All ... screens" is chosen. Empty shows every
+  /// group at once (Home, Reports).
+  final List<MenuDailyGroup> daily;
+
+  /// What "Returns & notes" opens beside the daily list.
+  final List<String> shortList;
+
+  /// The Settings sections that hold this area's set-up lists, linked from
+  /// the foot of its drop-down.
+  final List<String> setUp;
+
   Iterable<MenuItemSpec> get items => groups.expand((group) => group.items);
+
+  /// The item at [path] in this area, or null.
+  MenuItemSpec? item(String path) {
+    for (final MenuItemSpec item in items) {
+      if (item.path == path) return item;
+    }
+    return null;
+  }
 }
 
 /// The phase 2 menu: every phase 1 screen, placed as appendix A of
 /// `docs/UI_PHASE_2_DESIGN.md` places it.
+///
+/// **The light menu** (backlog 72, owner 2026-10-03): each drop-down shows
+/// only the area's [MenuAreaSpec.daily] list, with "All ... screens" one
+/// click away; the lists set up once and the Admin area live on the Settings
+/// page behind the gear, under SET UP and PLATFORM. None of it asks the
+/// server anything: it is this catalogue cut by the permissions held since
+/// sign-in.
 ///
 /// **No screen may be lost** (the owner's rule, 2026-09-25):
 /// `test/menu_layout_test.dart` reads the catalogue and fails when a screen
@@ -126,6 +184,18 @@ abstract final class MenuLayout {
 
   /// Backups: a phase 2 page for the platform tier.
   static const String backupsRoute = 'backups';
+
+  /// The Settings page the gear opens: every section of [settings] in a list,
+  /// its items as cards, and a search across them (backlog 72).
+  static const String setUpRoute = 'setup';
+
+  /// The Settings page as an item, so its tab has a label and a path.
+  static const MenuItemSpec setUpPage =
+      MenuItemSpec.phase2(setUpRoute, 'Settings');
+
+  /// In a [MenuDailyGroup], the place of "Returns & notes", which opens the
+  /// area's [MenuAreaSpec.shortList] beside the daily list.
+  static const String returnsAndNotes = '#returns-and-notes';
 
   /// The Selling settings behind the gear: dialogs, not screens.
   static const String salesStagesRoute = 'settings/sales-stages';
@@ -220,27 +290,25 @@ abstract final class MenuLayout {
         MenuItemSpec(AppModule.sales, 'call-lists', 'Call Lists'),
         MenuItemSpec(AppModule.sales, 'coverage', 'Coverage'),
       ]),
-      // Set up once and revisited now and then: drawn apart, under
-      // CONFIGURATION, as in Masters (owner, 2026-09-26).
-      MenuGroupSpec(
-        'Pricing',
-        [
-          MenuItemSpec(AppModule.sales, 'price-lists', 'Price Lists'),
-          MenuItemSpec(AppModule.sales, 'price-levels', 'Price Levels'),
-          MenuItemSpec(AppModule.sales, 'promotions', 'Promotions'),
-          MenuItemSpec(AppModule.masters, 'loyalty', 'Loyalty'),
-        ],
-        configuration: true,
-      ),
-      MenuGroupSpec(
-        'Territories & routes',
-        [
-          MenuItemSpec(AppModule.sales, 'territories', 'Territories'),
-          MenuItemSpec(AppModule.sales, 'route-types', 'Route Types'),
-          MenuItemSpec(AppModule.sales, 'route-builder', 'Route Builder'),
-        ],
-        configuration: true,
-      ),
+    ], daily: [
+      MenuDailyGroup('Sell', [
+        'quotations',
+        'salesOrders',
+        'deliveryNotes/delivery-notes',
+        'salesInvoices/sales-invoices',
+        returnsAndNotes,
+      ]),
+      MenuDailyGroup('Money', [
+        'accounting/receipts',
+        'masters/customer-statements',
+      ]),
+    ], shortList: [
+      'salesReturns',
+      'sales/credit-notes',
+      'sales/customer-debit-notes',
+    ], setUp: [
+      'Pricing',
+      'Territories & routes',
     ]),
     MenuAreaSpec('buy', 'Buy', [
       MenuGroupSpec('Documents', [
@@ -277,6 +345,20 @@ abstract final class MenuLayout {
         // Purchase Analytics is left out: its screen only says the backend
         // has no analytics yet (MenuLayout.notOffered).
       ]),
+    ], daily: [
+      MenuDailyGroup('Buy', [
+        'purchases/purchase-orders',
+        'goodsReceipts/receipts',
+        'purchaseInvoices',
+        returnsAndNotes,
+      ]),
+      MenuDailyGroup('Money', [
+        'accounting/payments',
+        'masters/supplier-statements',
+      ]),
+    ], shortList: [
+      'purchaseReturns',
+      'purchases/debit-notes',
     ]),
     MenuAreaSpec('stock', 'Stock', [
       MenuGroupSpec('Stock', [
@@ -303,6 +385,17 @@ abstract final class MenuLayout {
       MenuGroupSpec('Data', [
         MenuItemSpec(AppModule.inventory, 'inventory-import', 'Import'),
         MenuItemSpec(AppModule.inventory, 'inventory-export', 'Export'),
+      ]),
+    ], daily: [
+      MenuDailyGroup('Stock', [
+        'inventory/stock-summary',
+        'inventory/stock-ledger',
+        'inventory/stock-transfers',
+        'inventory/physical-counts',
+      ]),
+      MenuDailyGroup('Tracking', [
+        'inventory/batches',
+        'inventory/expiry-monitor',
       ]),
     ]),
     MenuAreaSpec('accounts', 'Accounts', [
@@ -342,20 +435,23 @@ abstract final class MenuLayout {
         MenuItemSpec(AppModule.accounting, 'tds-challans', 'TDS Challans'),
         MenuItemSpec(AppModule.accounting, 'bank-details', 'Bank Details'),
       ]),
-      MenuGroupSpec(
-        'Structure',
-        [
-          MenuItemSpec(
-              AppModule.accounting, 'control-accounts', 'Control Accounts'),
-          MenuItemSpec(AppModule.accounting, 'cost-centers', 'Cost Centres'),
-          MenuItemSpec(
-              AppModule.accounting, 'profit-centers', 'Profit Centres'),
-        ],
-        configuration: true,
-      ),
+    ], daily: [
+      MenuDailyGroup('Books', [
+        'accounting/journal-entries',
+        'accounting/expenses',
+        'accounting/ledgers',
+        'accounting/bank-reconciliation',
+      ]),
+      MenuDailyGroup('Statements', [
+        'accounting/trial-balance',
+        'accounting/profit-loss',
+        'accounting/balance-sheet',
+      ]),
+      MenuDailyGroup('Tax', ['sales/gst-returns']),
+    ], setUp: [
+      'Account structure',
     ]),
     MenuAreaSpec('masters', 'Masters', [
-      // Opened every day.
       MenuGroupSpec('Parties', [
         MenuItemSpec(AppModule.masters, 'customers', 'Customers'),
         MenuItemSpec(AppModule.masters, 'vendors', 'Vendors'),
@@ -370,84 +466,25 @@ abstract final class MenuLayout {
       MenuGroupSpec('Compliance', [
         MenuItemSpec(AppModule.masters, 'trade-licences', 'Trade Licences'),
       ]),
-      // Set up once, rarely touched: drawn apart, under CONFIGURATION.
-      MenuGroupSpec(
-        'Parties',
-        [
-          // Master data like vendor categories, not a button on the
-          // Customers screen (owner, 2026-09-26).
-          MenuItemSpec.phase2(customerGroupsRoute, 'Customer Groups',
-              gate: 'masters/customers'),
-          MenuItemSpec(
-              AppModule.masters, 'vendor-categories', 'Vendor Categories'),
-          MenuItemSpec(AppModule.masters, 'vendor-types', 'Vendor Types'),
-          MenuItemSpec(AppModule.masters, 'licence-types', 'Licence Types'),
-          MenuItemSpec(
-              AppModule.masters, 'licence-check-settings', 'Licence Check'),
-        ],
-        configuration: true,
-      ),
-      MenuGroupSpec(
-        'Items',
-        [
-          MenuItemSpec(
-              AppModule.masters, 'product-categories', 'Product Categories'),
-          MenuItemSpec(AppModule.masters, 'principals', 'Principals'),
-          MenuItemSpec(AppModule.masters, 'brands', 'Brands'),
-          MenuItemSpec(AppModule.administration, 'uoms', 'Units of Measure'),
-          MenuItemSpec(AppModule.administration, 'uom-groups', 'UOM Groups'),
-          MenuItemSpec(
-              AppModule.administration, 'packaging-types', 'Packaging Types'),
-          MenuItemSpec(
-              AppModule.administration, 'packaging-levels', 'Packaging Levels'),
-          MenuItemSpec(
-              AppModule.administration, 'conversion-rules', 'Conversion Rules'),
-        ],
-        configuration: true,
-      ),
-      MenuGroupSpec(
-        'Locations',
-        [
-          MenuItemSpec(AppModule.masters, 'storage-areas', 'Storage Areas'),
-          MenuItemSpec(AppModule.masters, 'branch-types', 'Branch Types'),
-          MenuItemSpec(AppModule.masters, 'warehouse-types', 'Warehouse Types'),
-          MenuItemSpec(AppModule.masters, 'geography-masters', 'Places'),
-        ],
-        configuration: true,
-      ),
+    ], daily: [
+      MenuDailyGroup('Masters', [
+        'masters/customers',
+        'masters/vendors',
+        'masters/products',
+      ]),
+      MenuDailyGroup('Organisation', [
+        'masters/branches',
+        'masters/warehouses',
+      ]),
+    ], setUp: [
+      'Party lists',
+      'Item lists',
+      'Locations',
     ]),
     MenuAreaSpec('reports', 'Reports', [
       MenuGroupSpec('Reports', [
         MenuItemSpec(AppModule.reports, 'operational', 'Operational'),
         MenuItemSpec(AppModule.reports, 'financial', 'Financial'),
-      ]),
-    ]),
-    MenuAreaSpec('admin', 'Admin', [
-      MenuGroupSpec('People', [
-        MenuItemSpec(AppModule.administration, 'users', 'Users'),
-        MenuItemSpec(AppModule.administration, 'roles', 'Roles'),
-        MenuItemSpec(AppModule.administration, 'permissions', 'Permissions'),
-        MenuItemSpec(
-            AppModule.administration, 'user-templates', 'User Templates'),
-        MenuItemSpec(
-            AppModule.administration, 'user-firms', 'User-Firm Assignments'),
-      ]),
-      MenuGroupSpec('Firms', [
-        MenuItemSpec(AppModule.administration, 'firms', 'Firms'),
-        MenuItemSpec(
-            AppModule.administration, 'business-profiles', 'Business Profiles'),
-      ]),
-      MenuGroupSpec('System', [
-        MenuItemSpec(AppModule.settings, 'audit-logs', 'Audit Logs'),
-        MenuItemSpec(AppModule.settings, 'diagnostics', 'Diagnostics'),
-        MenuItemSpec.module(AppModule.licensing, 'Licensing'),
-        // Platform tier only: the permission is the whole gate, and it needs
-        // no firm (a backup is of the installation, not of one firm).
-        MenuItemSpec.phase2(backupsRoute, 'Backups',
-            requiredPermission: 'SYSTEM_BACKUP'),
-        // Phase 1's Dashboard: platform-wide counts of firms, users and
-        // roles, for a platform administrator. Home is everybody's (4.9).
-        MenuItemSpec.module(AppModule.dashboard, 'Platform Dashboard'),
       ]),
     ]),
   ];
@@ -530,6 +567,83 @@ abstract final class MenuLayout {
       MenuItemSpec(
           AppModule.administration, 'industry-templates', 'Industry Templates'),
     ]),
+    // SET UP: the lists the menus carried under CONFIGURATION until the
+    // light menu (backlog 72), each section exactly one of those groups.
+    MenuGroupSpec('Pricing', [
+      MenuItemSpec(AppModule.sales, 'price-lists', 'Price Lists'),
+      MenuItemSpec(AppModule.sales, 'price-levels', 'Price Levels'),
+      MenuItemSpec(AppModule.sales, 'promotions', 'Promotions'),
+      MenuItemSpec(AppModule.masters, 'loyalty', 'Loyalty'),
+    ], part: MenuPart.setUp),
+    MenuGroupSpec('Territories & routes', [
+      MenuItemSpec(AppModule.sales, 'territories', 'Territories'),
+      MenuItemSpec(AppModule.sales, 'route-types', 'Route Types'),
+      MenuItemSpec(AppModule.sales, 'route-builder', 'Route Builder'),
+    ], part: MenuPart.setUp),
+    MenuGroupSpec('Account structure', [
+      MenuItemSpec(
+          AppModule.accounting, 'control-accounts', 'Control Accounts'),
+      MenuItemSpec(AppModule.accounting, 'cost-centers', 'Cost Centres'),
+      MenuItemSpec(AppModule.accounting, 'profit-centers', 'Profit Centres'),
+    ], part: MenuPart.setUp),
+    MenuGroupSpec('Party lists', [
+      // Master data like vendor categories, not a button on the Customers
+      // screen (owner, 2026-09-26).
+      MenuItemSpec.phase2(customerGroupsRoute, 'Customer Groups',
+          gate: 'masters/customers'),
+      MenuItemSpec(AppModule.masters, 'vendor-categories', 'Vendor Categories'),
+      MenuItemSpec(AppModule.masters, 'vendor-types', 'Vendor Types'),
+      MenuItemSpec(AppModule.masters, 'licence-types', 'Licence Types'),
+      MenuItemSpec(
+          AppModule.masters, 'licence-check-settings', 'Licence Check'),
+    ], part: MenuPart.setUp),
+    MenuGroupSpec('Item lists', [
+      MenuItemSpec(
+          AppModule.masters, 'product-categories', 'Product Categories'),
+      MenuItemSpec(AppModule.masters, 'principals', 'Principals'),
+      MenuItemSpec(AppModule.masters, 'brands', 'Brands'),
+      MenuItemSpec(AppModule.administration, 'uoms', 'Units of Measure'),
+      MenuItemSpec(AppModule.administration, 'uom-groups', 'UOM Groups'),
+      MenuItemSpec(
+          AppModule.administration, 'packaging-types', 'Packaging Types'),
+      MenuItemSpec(
+          AppModule.administration, 'packaging-levels', 'Packaging Levels'),
+      MenuItemSpec(
+          AppModule.administration, 'conversion-rules', 'Conversion Rules'),
+    ], part: MenuPart.setUp),
+    MenuGroupSpec('Locations', [
+      MenuItemSpec(AppModule.masters, 'storage-areas', 'Storage Areas'),
+      MenuItemSpec(AppModule.masters, 'branch-types', 'Branch Types'),
+      MenuItemSpec(AppModule.masters, 'warehouse-types', 'Warehouse Types'),
+      MenuItemSpec(AppModule.masters, 'geography-masters', 'Places'),
+    ], part: MenuPart.setUp),
+    // PLATFORM: what the Admin area held before it left the bar.
+    MenuGroupSpec('People', [
+      MenuItemSpec(AppModule.administration, 'users', 'Users'),
+      MenuItemSpec(AppModule.administration, 'roles', 'Roles'),
+      MenuItemSpec(AppModule.administration, 'permissions', 'Permissions'),
+      MenuItemSpec(
+          AppModule.administration, 'user-templates', 'User Templates'),
+      MenuItemSpec(
+          AppModule.administration, 'user-firms', 'User-Firm Assignments'),
+    ], part: MenuPart.platform),
+    MenuGroupSpec('Firms', [
+      MenuItemSpec(AppModule.administration, 'firms', 'Firms'),
+      MenuItemSpec(
+          AppModule.administration, 'business-profiles', 'Business Profiles'),
+    ], part: MenuPart.platform),
+    MenuGroupSpec('System', [
+      MenuItemSpec(AppModule.settings, 'audit-logs', 'Audit Logs'),
+      MenuItemSpec(AppModule.settings, 'diagnostics', 'Diagnostics'),
+      MenuItemSpec.module(AppModule.licensing, 'Licensing'),
+      // Platform tier only: the permission is the whole gate, and it needs
+      // no firm (a backup is of the installation, not of one firm).
+      MenuItemSpec.phase2(backupsRoute, 'Backups',
+          requiredPermission: 'SYSTEM_BACKUP'),
+      // Phase 1's Dashboard: platform-wide counts of firms, users and
+      // roles, for a platform administrator. Home is everybody's (4.9).
+      MenuItemSpec.module(AppModule.dashboard, 'Platform Dashboard'),
+    ], part: MenuPart.platform),
   ]);
 
   /// Every area, the gear included -- what the command box searches.
@@ -537,6 +651,7 @@ abstract final class MenuLayout {
 
   /// The item a router path names, for an open-screen tab's label.
   static MenuItemSpec? itemFor(String path) {
+    if (path == setUpRoute) return setUpPage;
     for (final MenuAreaSpec area in all) {
       for (final MenuItemSpec item in area.items) {
         if (item.path == path) return item;
@@ -591,9 +706,28 @@ abstract final class MenuLayout {
           MenuGroupSpec(
             group.label,
             group.items.where(offered).toList(),
-            configuration: group.configuration,
+            part: group.part,
           ),
     ];
-    return groups.isEmpty ? null : MenuAreaSpec(area.id, area.label, groups);
+    if (groups.isEmpty) return null;
+    final Set<String> kept = {
+      for (final MenuGroupSpec group in groups)
+        for (final MenuItemSpec item in group.items) item.path,
+    };
+    final List<String> shortList = area.shortList.where(kept.contains).toList();
+    bool shown(String path) =>
+        path == returnsAndNotes ? shortList.isNotEmpty : kept.contains(path);
+    return MenuAreaSpec(
+      area.id,
+      area.label,
+      groups,
+      daily: [
+        for (final MenuDailyGroup group in area.daily)
+          if (group.paths.any(shown))
+            MenuDailyGroup(group.label, group.paths.where(shown).toList()),
+      ],
+      shortList: shortList,
+      setUp: area.setUp,
+    );
   }
 }

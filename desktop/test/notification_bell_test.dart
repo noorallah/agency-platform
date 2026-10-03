@@ -61,6 +61,7 @@ Future<void> _pump(
           settings: MenuLayout.settings,
           currentPath: 'home',
           onOpen: (_) {},
+          onOpenSetUp: (_) {},
           trailing: [
             SearchLauncher(onPressed: () {}),
             NotificationBell(

@@ -129,6 +129,7 @@ import '../phase2/backups_page.dart';
 import '../phase2/customer_groups_page.dart';
 import '../phase2/home_page.dart';
 import '../phase2/menu_layout.dart';
+import '../phase2/set_up_page.dart';
 import 'theme_selector.dart';
 import 'workspace/module_catalog.dart';
 import 'workspace/module_visibility.dart';
@@ -276,6 +277,9 @@ class _DesktopShellState extends State<DesktopShell> {
   /// what they count. Dropped when a screen is opened any other way.
   ListViewRequest? _viewRequest;
   int _viewRequests = 0;
+
+  /// The section the Settings page shows, as its last link named it.
+  String? _setUpSection;
 
   /// The left of the phase 2 bottom bar: what the screen on show says about
   /// itself. Cleared on every change of screen, so a list's count never
@@ -819,6 +823,15 @@ class _DesktopShellState extends State<DesktopShell> {
                             permissions: widget.permissions,
                           )
                         : widget.phase2 &&
+                                _router.current.path == MenuLayout.setUpRoute
+                            ? SetUpPage(
+                                key: const ValueKey('setup'),
+                                settings: MenuLayout.visible(
+                                    MenuLayout.settings, _visibility),
+                                section: _setUpSection,
+                                onOpen: _openFromMenu,
+                              )
+                        : widget.phase2 &&
                                 _router.current.path ==
                                     MenuLayout.backupsRoute
                             ? BackupsPage(
@@ -908,6 +921,10 @@ class _DesktopShellState extends State<DesktopShell> {
             settings: MenuLayout.visible(MenuLayout.settings, visibility),
             currentPath: current,
             onOpen: _openFromMenu,
+            onOpenSetUp: (section) {
+              _setUpSection = section;
+              _openFromMenu(MenuLayout.setUpPage);
+            },
             trailing: [
               SearchLauncher(onPressed: () => unawaited(_openCommandBox())),
               const SizedBox(width: 8),
