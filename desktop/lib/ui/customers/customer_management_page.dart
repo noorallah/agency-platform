@@ -9,6 +9,7 @@ import '../../core/dialogs/app_dialogs.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/customer.dart';
+import '../../models/pricing.dart';
 import '../../models/customer_opening_bill.dart';
 import '../../models/customer_records.dart';
 import '../../models/entities.dart';
@@ -288,6 +289,17 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
                     (page) => widget.api.vendors(page: page),
                   )
               : null,
+          // The price level picker, phase 2 only, for somebody who may read
+          // price lists at all.
+          loadPriceLevels:
+              phase2 && widget.permissions.hasPermission('PRICE_LIST_VIEW')
+                  ? () => widget.api
+                      .priceLevels()
+                      .then((levels) => [
+                            for (final PriceLevelRecord level in levels)
+                              if (level.isActive) level,
+                          ])
+                  : null,
           // The server refuses a moved limit without it; the form says so first.
           mayChangeCreditLimit:
               widget.permissions.hasPermission('CUSTOMER_MANAGE_SETTINGS'),
@@ -932,6 +944,7 @@ class CustomerWorkspaceDialog extends StatefulWidget {
     this.loadGroups,
     this.loadMembers,
     this.loadVendors,
+    this.loadPriceLevels,
     this.mayChangeCreditLimit = true,
     this.mayChangeStandingDiscount = true,
     this.loadLicences,
@@ -983,6 +996,10 @@ class CustomerWorkspaceDialog extends StatefulWidget {
   /// omits the picker, and then `linked_vendor_id` is not sent at all, so a
   /// save cannot clear a link the form never showed.
   final Future<List<Vendor>> Function()? loadVendors;
+
+  /// The firm's active price levels, for the "Price level" picker; null for a
+  /// user without PRICE_LIST_VIEW, which hides the picker.
+  final Future<List<PriceLevelRecord>> Function()? loadPriceLevels;
 
   /// Whether the user holds `CUSTOMER_MANAGE_SETTINGS`. A credit limit is a
   /// credit control, so moving an existing customer's limit takes the code
@@ -1116,6 +1133,11 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   late String _linkedVendorId = widget.customer?.linkedVendorId ?? '';
   List<Vendor> _vendors = const [];
   bool _vendorsLoaded = false;
+  // Empty string is "no level", sent as null. Sent only once the levels
+  // arrived (`_priceLevelsLoaded`): absent leaves the level alone.
+  late String _priceLevelId = widget.customer?.priceLevelId ?? '';
+  List<PriceLevelRecord> _priceLevels = const [];
+  bool _priceLevelsLoaded = false;
   late final CustomFieldsController? _customFields =
       widget.loadAttributes == null
           ? null
@@ -1163,6 +1185,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     _loadGroups();
     _loadMembers();
     _loadVendors();
+    _loadPriceLevels();
     for (final TextEditingController controller in _fields.values) {
       controller.addListener(_markDirty);
     }
@@ -1217,6 +1240,59 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
       // Unreadable leaves the picker with just the stored manager.
       if (mounted) setState(() => _members = const []);
     }
+  }
+
+  Future<void> _loadPriceLevels() async {
+    if (widget.loadPriceLevels == null) return;
+    try {
+      final List<PriceLevelRecord> levels = await widget.loadPriceLevels!();
+      if (mounted) {
+        setState(() {
+          _priceLevels = levels;
+          _priceLevelsLoaded = true;
+        });
+      }
+    } on Object {
+      // Unreadable: no picker, and nothing about the level is sent.
+      if (mounted) setState(() => _priceLevelsLoaded = false);
+    }
+  }
+
+  /// The Price level picker. Values are level ids; '' is "no level". A stored
+  /// level that is no longer active stays selectable as its own item so a
+  /// save does not clear it.
+  Widget _priceLevelDropdown() {
+    final List<DropdownMenuItem<String>> items = [
+      const DropdownMenuItem(value: '', child: Text('No level')),
+      for (final PriceLevelRecord level in _priceLevels)
+        DropdownMenuItem(
+          value: level.id,
+          child: Text(level.label, overflow: TextOverflow.ellipsis),
+        ),
+    ];
+    if (_priceLevelId.isNotEmpty &&
+        !_priceLevels.any((level) => level.id == _priceLevelId)) {
+      items.add(DropdownMenuItem(
+        value: _priceLevelId,
+        child: const Text('Current level'),
+      ));
+    }
+    return DropdownButtonFormField<String>(
+      key: const ValueKey('customer-price-level'),
+      isExpanded: true,
+      initialValue: _priceLevelId,
+      decoration: const InputDecoration(
+        labelText: 'Price level',
+        helperText: "Blank: the group's level, else the product's price",
+      ),
+      items: items,
+      onChanged: _readOnly
+          ? null
+          : (value) => setState(() {
+                _priceLevelId = value ?? '';
+                _dirty = true;
+              }),
+    );
   }
 
   Future<void> _loadVendors() async {
@@ -1473,6 +1549,10 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         // alone" and null clears it.
         if (widget.loadVendors != null && _vendorsLoaded)
           'linked_vendor_id': _linkedVendorId.isEmpty ? null : _linkedVendorId,
+        // Only once the levels arrived: absent means "leave the level alone"
+        // and null clears it.
+        if (widget.loadPriceLevels != null && _priceLevelsLoaded)
+          'price_level_id': _priceLevelId.isEmpty ? null : _priceLevelId,
         'credit_limit': _fields['credit_limit']!.text.trim(),
         'default_discount_percent':
             _fields['default_discount_percent']!.text.trim().isEmpty
@@ -1698,6 +1778,8 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
           if (_error != null && !_flat) _errorBanner(),
           _responsiveFields([
             _groupDropdown(),
+            if (widget.loadPriceLevels != null && _priceLevelsLoaded)
+              _priceLevelDropdown(),
             _number(
               'credit_limit',
               'Credit limit',

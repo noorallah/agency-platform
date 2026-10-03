@@ -213,6 +213,7 @@ abstract final class MenuLayout {
         'Pricing',
         [
           MenuItemSpec(AppModule.sales, 'price-lists', 'Price Lists'),
+          MenuItemSpec(AppModule.sales, 'price-levels', 'Price Levels'),
           MenuItemSpec(AppModule.sales, 'promotions', 'Promotions'),
           MenuItemSpec(AppModule.masters, 'loyalty', 'Loyalty'),
         ],

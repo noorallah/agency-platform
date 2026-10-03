@@ -71,12 +71,14 @@ class CustomerGroupService:
     ) -> CustomerGroup:
         """Record one segment."""
         self._assert_free(data, firm_id=firm_id)
+        self._assert_level(data, firm_id=firm_id)
         row = CustomerGroup(
             firm_id=firm_id,
             code=data.code.strip().upper(),
             name=data.name.strip(),
             description=data.description,
             default_discount_percent=data.default_discount_percent,
+            price_level_id=data.price_level_id,
             is_active=data.is_active,
             created_by=actor_id,
             updated_by=actor_id,
@@ -106,6 +108,7 @@ class CustomerGroupService:
         """Replace one segment's details."""
         row = self.get_group(group_id, firm_id=firm_id)
         self._assert_free(data, firm_id=firm_id, excluding=row.id)
+        self._assert_level(data, firm_id=firm_id)
         before: dict[str, object] = {
             "name": row.name,
             "rate": str(row.default_discount_percent),
@@ -114,6 +117,7 @@ class CustomerGroupService:
         row.name = data.name.strip()
         row.description = data.description
         row.default_discount_percent = data.default_discount_percent
+        row.price_level_id = data.price_level_id
         row.is_active = data.is_active
         row.updated_by = actor_id
         record_audit(
@@ -128,6 +132,19 @@ class CustomerGroupService:
         )
         self._session.commit()
         return row
+
+    def _assert_level(self, data: CustomerGroupWrite, *, firm_id: UUID) -> None:
+        """Refuse a price level that is not one of the firm's live ones."""
+        from app.common.master_references import assert_master_reference
+        from app.pricing.models import PriceLevel
+
+        assert_master_reference(
+            self._session,
+            PriceLevel,
+            data.price_level_id,
+            label="Price level",
+            firm_id=firm_id,
+        )
 
     def delete_group(self, group_id: UUID, *, firm_id: UUID, actor_id: UUID) -> None:
         """Retire a segment nobody is in.

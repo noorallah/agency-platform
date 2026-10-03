@@ -74,6 +74,7 @@ import 'sales/rule42_page.dart';
 import 'sales/sales_analysis_page.dart';
 import 'sales/proforma_page.dart';
 import 'sales/tcs_page.dart';
+import 'pricing/price_level_page.dart';
 import 'pricing/price_list_page.dart';
 import 'pricing/promotion_page.dart';
 import 'products/product_management_page.dart';
@@ -2795,6 +2796,10 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),
+      'price-levels' => PriceLevelPage(
+          api: widget.api,
+          permissions: widget.permissions,
+        ),
       'promotions' => PromotionPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -2916,6 +2921,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           'Price Lists',
           'What a firm has agreed to charge, and to whom: a rate off the '
               'product price, from a date.',
+        ),
+      'price-levels' => (
+          'Price Levels',
+          'The named levels a customer is sold at. A product carries one '
+              'rate per level.',
         ),
       'promotions' => (
           'Promotions',

@@ -51,6 +51,7 @@ from app.document_framework.services.transactional_document_service import (
     TransactionalDocumentService,
 )
 from app.pricing.services.price_list_service import PriceListResolver
+from app.pricing.services.unit_price import UnitPriceResolver
 from app.products.models import Product
 from app.products.services.trading_status import assert_product_takes_new_lines
 from app.promotions.schemas import (
@@ -1539,6 +1540,8 @@ class QuotationService(TransactionalDocumentService):
         include GST; the tax asked about is the one each line is quoted at,
         through ``simulate``, which never commits.
         """
+        blank = {line.line_number for line in lines if line.unit_price is None}
+        lines = self._priced_from_arrangements(row, lines)
         if not row.rate_includes_tax:
             return lines, {}
 
@@ -1546,7 +1549,45 @@ class QuotationService(TransactionalDocumentService):
             """Return the billed rate of tax for this line at a value."""
             return partial(self._billed_rate_at, row=row, line=line, actor_id=actor_id)
 
-        return lines_before_tax(lines, rate_for=rate_for)
+        converted, entered = lines_before_tax(lines, rate_for=rate_for)
+        if not blank:
+            return converted, entered
+        # A price the arrangements gave is already before tax: only a typed
+        # one is read back out of a GST-inclusive figure.
+        priced = {line.line_number: line for line in lines}
+        return (
+            [
+                priced[line.line_number] if line.line_number in blank else line
+                for line in converted
+            ],
+            {key: value for key, value in entered.items() if key not in blank},
+        )
+
+    def _priced_from_arrangements(
+        self, row: SalesQuotation, lines: list[QuotationLineWrite]
+    ) -> list[QuotationLineWrite]:
+        """Give each line with no price the customer's price (SEL-9, A89)."""
+        if all(line.unit_price is not None for line in lines):
+            return lines
+        prices = UnitPriceResolver(
+            self._session,
+            firm_id=row.firm_id,
+            customer_id=row.customer_id,
+            territory_id=row.territory_id,
+            on=row.quotation_date,
+        )
+        return [
+            (
+                line
+                if line.unit_price is not None
+                else line.model_copy(
+                    update={
+                        "unit_price": prices.price(line.product_id, line.quantity).price
+                    }
+                )
+            )
+            for line in lines
+        ]
 
     def _billed_rate_at(
         self,

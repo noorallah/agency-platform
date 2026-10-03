@@ -64,6 +64,7 @@ class _PriceListDialogState extends State<PriceListDialog> {
         productId: item.productId,
         percent: item.discountPercent,
         from: item.minQuantity,
+        rate: item.rate,
       ),
   ];
 
@@ -126,6 +127,7 @@ class _PriceListDialogState extends State<PriceListDialog> {
               widget.products.isEmpty ? null : widget.products.first.id,
           percent: '',
           from: '',
+          rate: '',
         ),
       ];
     });
@@ -143,14 +145,22 @@ class _PriceListDialogState extends State<PriceListDialog> {
     if (!(_form.currentState?.validate() ?? false)) return null;
     final List<Json> items = [
       for (final _RateDraft rate in _rates)
-        if (rate.productId != null && rate.percent.text.trim().isNotEmpty)
+        if (rate.productId != null &&
+            (rate.percent.text.trim().isNotEmpty ||
+                rate.rate.text.trim().isNotEmpty))
           <String, dynamic>{
             'product_id': rate.productId,
             // Blank means the ordinary rate, which is what a list held
             // before breaks existed.
             'min_quantity':
                 rate.from.text.trim().isEmpty ? '0' : rate.from.text.trim(),
-            'discount_percent': rate.percent.text.trim(),
+            // Blank beside a fixed rate: the server's default of none.
+            if (rate.percent.text.trim().isNotEmpty)
+              'discount_percent': rate.percent.text.trim(),
+            // Blank is a rate off the product's price, as before.
+            'rate': rate.rate.text.trim().isEmpty
+                ? null
+                : rate.rate.text.trim(),
           },
     ];
     return <String, dynamic>{
@@ -207,7 +217,7 @@ class _PriceListDialogState extends State<PriceListDialog> {
           ? 'New price list'
           : 'Edit ${widget.existing!.code}'),
       content: SizedBox(
-        width: 640,
+        width: 780,
         child: Form(
           key: _form,
           child: SingleChildScrollView(
@@ -215,9 +225,10 @@ class _PriceListDialogState extends State<PriceListDialog> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  'A price list holds rates off the product price, not prices '
-                  'of their own — so a product repriced once carries every '
-                  'arrangement with it.',
+                  'A price list holds rates off the product price — so a '
+                  'product repriced once carries every arrangement with it. '
+                  'A Rate, where one is typed, is the price itself and '
+                  'overrides the discount.',
                   style: theme.textTheme.bodySmall,
                 ),
                 const SizedBox(height: AppSpacing.md),
@@ -443,7 +454,29 @@ class _PriceListDialogState extends State<PriceListDialog> {
             controller: rate.percent,
             decoration: const InputDecoration(labelText: 'Discount %'),
             keyboardType: TextInputType.number,
-            validator: _percentage,
+            validator: (value) =>
+                rate.rate.text.trim().isNotEmpty && (value ?? '').trim().isEmpty
+                    ? null
+                    : _percentage(value),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: TextFormField(
+            key: ValueKey<String>('price-list-rate-fixed-$index'),
+            controller: rate.rate,
+            decoration: const InputDecoration(
+              labelText: 'Rate',
+              helperText: 'Optional fixed price',
+              helperMaxLines: 2,
+            ),
+            keyboardType: TextInputType.number,
+            validator: (value) {
+              final String text = (value ?? '').trim();
+              if (text.isEmpty) return null;
+              final double? parsed = double.tryParse(text);
+              return parsed == null || parsed < 0 ? 'Enter a price.' : null;
+            },
           ),
         ),
         IconButton(
@@ -490,7 +523,9 @@ class _RateDraft {
     required this.productId,
     required String percent,
     required String from,
+    String rate = '',
   })  : percent = TextEditingController(text: percent),
+        rate = TextEditingController(text: rate),
         from = TextEditingController(text: from == '0' ? '' : from);
 
   String? productId;
@@ -500,7 +535,11 @@ class _RateDraft {
   final TextEditingController from;
   final TextEditingController percent;
 
+  /// The optional fixed price, beside the discount.
+  final TextEditingController rate;
+
   void dispose() {
+    rate.dispose();
     percent.dispose();
     from.dispose();
   }

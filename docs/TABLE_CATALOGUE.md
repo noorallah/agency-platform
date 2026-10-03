@@ -314,7 +314,9 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
+| `price_levels` | firm store ¹ | A named price level -- Retail, Wholesale, Dealer -- customers and groups buy at (SEL-9). |  |
 | `price_list_items` | firm store ¹ | One product's rate on one list. | `price_lists`, `products` |
+| `product_price_levels` | firm store ¹ | One product's price at one price level (SEL-9). | `products`, `price_levels` |
 | `price_lists` | firm store ¹ | One named arrangement, scoped to who it applies to and when. | `customers`, `sales_territories` |
 
 ### `app/products`

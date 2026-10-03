@@ -5274,6 +5274,76 @@ class ApiClient {
   Future<void> deletePriceList(String id) =>
       request('DELETE', '/api/v1/price-lists/$id');
 
+  // ---- price levels ----------------------------------------------------
+  // Created, updated and deleted through the generic `create`/`update`/
+  // `delete` helpers, whose `resource` on the definition is `price-levels`.
+
+  Future<List<PriceLevelRecord>> priceLevels() async {
+    final Json response = await request('GET', '/api/v1/price-levels');
+    final dynamic data = response['data'];
+    return <PriceLevelRecord>[
+      if (data is List)
+        for (final dynamic row in data)
+          if (row is Map)
+            PriceLevelRecord.fromJson(Map<String, dynamic>.from(row)),
+    ];
+  }
+
+  /// One product's rate at each level it has one.
+  Future<List<ProductLevelRate>> productLevelRates(String productId) async {
+    final Json response =
+        await request('GET', '/api/v1/price-levels/products/$productId');
+    final dynamic data = response['data'];
+    return <ProductLevelRate>[
+      if (data is List)
+        for (final dynamic row in data)
+          if (row is Map)
+            ProductLevelRate.fromJson(Map<String, dynamic>.from(row)),
+    ];
+  }
+
+  /// Replaces the whole list of a product's level rates.
+  Future<void> saveProductLevelRates(
+    String productId,
+    List<Map<String, dynamic>> rates,
+  ) =>
+      request(
+        'PUT',
+        '/api/v1/price-levels/products/$productId',
+        body: {'rates': rates},
+      );
+
+  /// What the server would charge for each of [productIds], and from which
+  /// arrangement. Keyed by product id.
+  Future<Map<String, UnitPriceQuote>> unitPrices({
+    required List<String> productIds,
+    required String on,
+    String customerId = '',
+    String territoryId = '',
+  }) async {
+    // `product_ids` repeats once per product, which a `Map<String, String>`
+    // query cannot say, so the query string is built here and rides on the path.
+    final String queryString = Uri(queryParameters: <String, dynamic>{
+      'product_ids': productIds,
+      'on': on,
+      if (customerId.isNotEmpty) 'customer_id': customerId,
+      if (territoryId.isNotEmpty) 'territory_id': territoryId,
+    }).query;
+    final Json response = await request(
+      'GET',
+      '/api/v1/price-levels/unit-prices?$queryString',
+    );
+    final dynamic data = response['data'];
+    final dynamic prices = data is Map ? data['prices'] : null;
+    return <String, UnitPriceQuote>{
+      if (prices is List)
+        for (final dynamic row in prices)
+          if (row is Map)
+            stringValue(row['product_id']):
+                UnitPriceQuote.fromJson(Map<String, dynamic>.from(row)),
+    };
+  }
+
   // ---- promotions ----------------------------------------------------
 
   Future<PagedResult<PromotionRecord>> promotions({

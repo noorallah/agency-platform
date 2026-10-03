@@ -51,6 +51,8 @@ class PriceListResolver:
         # Each product's whole ladder: (quantity the rate starts at, rate),
         # ascending. A product with no breaks has one entry starting at zero.
         self._rates: dict[UUID, list[tuple[Decimal, Decimal]]] = {}
+        # The fixed price (SEL-9) each break carries, where the list names one.
+        self._prices: dict[UUID, list[tuple[Decimal, Decimal | None]]] = {}
         # No early exit for a document naming neither a customer nor a
         # territory: the firm's own standing list still applies to it.
         self._load(
@@ -100,6 +102,7 @@ class PriceListResolver:
                 PriceListItem.min_quantity,
                 PriceListItem.discount_percent,
                 specificity.label("rank"),
+                PriceListItem.rate,
             )
             .join(PriceList, PriceList.id == PriceListItem.price_list_id)
             .where(
@@ -123,14 +126,19 @@ class PriceListResolver:
         # merging into it: a customer's own arrangement is the arrangement,
         # not an amendment to the firm-wide one.
         ladders: dict[UUID, dict[Decimal, Decimal]] = {}
+        prices: dict[UUID, dict[Decimal, Decimal | None]] = {}
         seen: dict[UUID, int] = {}
-        for product_id, min_quantity, percent, rank in rows:
+        for product_id, min_quantity, percent, rank, rate in rows:
             if seen.get(product_id) != rank:
                 seen[product_id] = rank
                 ladders[product_id] = {}
-            ladders[product_id][Decimal(str(min_quantity))] = Decimal(str(percent))
+                prices[product_id] = {}
+            threshold = Decimal(str(min_quantity))
+            ladders[product_id][threshold] = Decimal(str(percent))
+            prices[product_id][threshold] = None if rate is None else Decimal(str(rate))
         for product_id, ladder in ladders.items():
             self._rates[product_id] = sorted(ladder.items())
+            self._prices[product_id] = sorted(prices[product_id].items())
 
     def rate_for(
         self, product_id: UUID | None, quantity: Decimal | None = None
@@ -159,5 +167,27 @@ class PriceListResolver:
             else:
                 # Sorted ascending, so the first break above the quantity ends
                 # it -- nothing further down can apply either.
+                break
+        return best
+
+    def price_for(
+        self, product_id: UUID | None, quantity: Decimal | None = None
+    ) -> Decimal | None:
+        """Return the fixed price a list agreed, at the break the quantity takes.
+
+        The same break ``rate_for`` takes; None where the list names no price
+        there, so the line falls through to the customer's level (SEL-9).
+        """
+        if product_id is None:
+            return None
+        breaks = self._prices.get(product_id)
+        if not breaks:
+            return None
+        wanted = Decimal(str(quantity)) if quantity is not None else ZERO
+        best: Decimal | None = None
+        for threshold, price in breaks:
+            if threshold <= wanted:
+                best = price
+            else:
                 break
         return best

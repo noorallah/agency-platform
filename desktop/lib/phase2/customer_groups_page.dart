@@ -10,6 +10,7 @@ import '../core/notifications/notification_service.dart';
 import '../core/security/permission_service.dart';
 import '../models/customer.dart';
 import '../models/entities.dart';
+import '../models/pricing.dart';
 import '../ui/workspace/desktop_framework.dart';
 
 /// Masters > Parties > Customer Groups in the phase 2 app: a list screen like
@@ -98,7 +99,11 @@ class _CustomerGroupsPageState extends State<CustomerGroupsPage> {
     if (!_mayManage) return;
     final bool? saved = await showDialog<bool>(
       context: context,
-      builder: (_) => _GroupEditor(api: widget.api, group: group),
+      builder: (_) => _GroupEditor(
+        api: widget.api,
+        permissions: widget.permissions,
+        group: group,
+      ),
     );
     if (saved == true) await _load();
   }
@@ -254,9 +259,14 @@ class _CustomerGroupsPageState extends State<CustomerGroupsPage> {
 
 /// A group's code, name and rate -- new, or one being corrected.
 class _GroupEditor extends StatefulWidget {
-  const _GroupEditor({required this.api, this.group});
+  const _GroupEditor({
+    required this.api,
+    required this.permissions,
+    this.group,
+  });
 
   final ApiClient api;
+  final PermissionService permissions;
   final CustomerGroup? group;
 
   @override
@@ -275,6 +285,32 @@ class _GroupEditorState extends State<_GroupEditor> {
   );
   bool _saving = false;
   String? _error;
+
+  // Empty is "no level", sent as null. Null levels = not read: no picker,
+  // and nothing about the level is sent.
+  late String _priceLevelId = widget.group?.priceLevelId ?? '';
+  List<PriceLevelRecord>? _levels;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.permissions.hasPermission('PRICE_LIST_VIEW')) {
+      unawaited(_loadLevels());
+    }
+  }
+
+  Future<void> _loadLevels() async {
+    try {
+      final List<PriceLevelRecord> levels = await widget.api.priceLevels();
+      if (!mounted) return;
+      setState(() => _levels = [
+            for (final PriceLevelRecord level in levels)
+              if (level.isActive || level.id == _priceLevelId) level,
+          ]);
+    } on ApiException {
+      // Unreadable: the group still saves, without touching its level.
+    }
+  }
 
   @override
   void dispose() {
@@ -299,6 +335,8 @@ class _GroupEditorState extends State<_GroupEditor> {
       'default_discount_percent':
           _rate.text.trim().isEmpty ? '0' : _rate.text.trim(),
       'is_active': true,
+      if (_levels != null)
+        'price_level_id': _priceLevelId.isEmpty ? null : _priceLevelId,
     };
     try {
       final CustomerGroup? group = widget.group;
@@ -358,6 +396,32 @@ class _GroupEditorState extends State<_GroupEditor> {
                 keyboardType: TextInputType.number,
                 onSubmitted: (_) => _save(),
               ),
+              if (_levels != null) ...[
+                const SizedBox(height: AppSpacing.md),
+                DropdownButtonFormField<String>(
+                  key: const ValueKey('group-price-level'),
+                  isExpanded: true,
+                  initialValue: _levels!.any((l) => l.id == _priceLevelId)
+                      ? _priceLevelId
+                      : '',
+                  decoration: const InputDecoration(
+                    labelText: 'Price level',
+                    helperText: "Blank: the product's price",
+                  ),
+                  items: [
+                    const DropdownMenuItem(value: '', child: Text('No level')),
+                    for (final PriceLevelRecord level in _levels!)
+                      DropdownMenuItem(
+                        value: level.id,
+                        child: Text(level.label,
+                            overflow: TextOverflow.ellipsis),
+                      ),
+                  ],
+                  onChanged: _saving
+                      ? null
+                      : (value) => setState(() => _priceLevelId = value ?? ''),
+                ),
+              ],
               if (_error != null) ...[
                 const SizedBox(height: AppSpacing.md),
                 Text(

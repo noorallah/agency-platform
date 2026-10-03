@@ -286,6 +286,7 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
               _customerId = value;
               _shippingAddressId = defaultShipToId(_customerAddresses);
             });
+            unawaited(_quotePrices(_lines));
             _schedulePreview();
           },
         ),
@@ -771,7 +772,10 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
           line.unitPrice,
           validator: _priceBox,
           hint: _rateIncludesTax ? 'list rate' : null,
-          onTyped: () => line.priceEdited = true,
+          onTyped: () {
+            line.priceEdited = true;
+            line.priceSource = '';
+          },
         ),
         _cellBox(
           context,
@@ -902,7 +906,9 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
       DocumentSideNote(
         line.priceEdited
             ? 'as typed on this order'
-            : "the product's selling price"
+            : line.priceSource.isNotEmpty
+                ? 'from: ${line.priceSource}'
+                : "the product's selling price"
                 '${(product?.mrp ?? '').isEmpty ? '' : ' (MRP ${documentMoney(product!.mrp)})'}',
       ),
       if (companion != null && companion.lastPrice.isNotEmpty) ...[

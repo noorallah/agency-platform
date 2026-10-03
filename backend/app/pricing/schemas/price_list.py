@@ -25,7 +25,13 @@ class PriceListItemWrite(PricingSchema):
     min_quantity: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
-    discount_percent: Decimal = Field(ge=0, le=100, max_digits=9, decimal_places=4)
+    #: Zero when the row only fixes a price.
+    discount_percent: Decimal = Field(
+        default=Decimal("0"), ge=0, le=100, max_digits=9, decimal_places=4
+    )
+    #: A fixed price agreed for this product (SEL-9): the price a line starts
+    #: at, ahead of the customer's level; the discount still comes off it.
+    rate: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
 
 
 class PriceListWrite(PricingSchema):
@@ -71,6 +77,7 @@ class PriceListItemResponse(PricingSchema):
     product_name: str | None = None
     min_quantity: Decimal
     discount_percent: Decimal
+    rate: Decimal | None = None
 
 
 class PriceListResponse(PricingSchema):

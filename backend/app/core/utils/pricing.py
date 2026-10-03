@@ -160,6 +160,35 @@ def resolve_line_discount(
     return LineDiscount(amount=applied, percent=rate, source=source)
 
 
+@dataclass(frozen=True, slots=True)
+class LinePrice:
+    """The price a line starts at, and where it came from."""
+
+    price: Decimal
+    #: PRICE_LIST, PRICE_LEVEL or PRODUCT.
+    source: str
+
+
+def resolve_unit_price(
+    *,
+    product_price: Decimal | None,
+    level_rate: Decimal | None = None,
+    list_rate: Decimal | None = None,
+) -> LinePrice:
+    """Return the price a line starts at when none is typed (SEL-9).
+
+    A fixed price a list agreed for this customer beats the customer's price
+    level, which beats the product's own selling price -- the most specific
+    arrangement first, as the discount ranking above. A typed price beats all
+    three, which is why a caller asks only when the line names none.
+    """
+    if list_rate is not None:
+        return LinePrice(price=list_rate, source="PRICE_LIST")
+    if level_rate is not None:
+        return LinePrice(price=level_rate, source="PRICE_LEVEL")
+    return LinePrice(price=product_price or ZERO, source="PRODUCT")
+
+
 def resolve_bill_discount(
     *,
     taxable: Decimal,

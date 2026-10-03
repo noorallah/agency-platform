@@ -72,6 +72,11 @@ class CustomerGroup(BaseEntity):
     default_discount_percent: Mapped[Decimal] = mapped_column(
         Numeric(9, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: The price level everyone in the group buys at (SEL-9); a customer's
+    #: own level outranks it.
+    price_level_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("price_levels.id", ondelete="RESTRICT")
+    )
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
@@ -141,6 +146,11 @@ class Customer(BaseEntity):
     #: customer with no salesman of its own takes this one ahead of the
     #: territory's (`app/sales/services/scope_resolution.py`).
     salesman_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    #: The price level the customer buys at -- Retail, Wholesale, Dealer
+    #: (SEL-9). Blank takes the group's, then the product's own price.
+    price_level_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("price_levels.id", ondelete="RESTRICT")
+    )
     #: The same business as a supplier (ACC-11, decision A86): a shop that
     #: buys from the firm and sells to it. Read by the combined statement and
     #: preselected by a set-off between the two.

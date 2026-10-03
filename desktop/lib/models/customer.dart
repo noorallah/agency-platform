@@ -173,6 +173,7 @@ class Customer {
     this.whatsappOptIn = false,
     this.whatsappOptInAt = '',
     this.linkedVendorId = '',
+    this.priceLevelId,
   });
 
   final String id;
@@ -253,6 +254,10 @@ class Customer {
   /// The supplier record of the same business (ACC-11); empty when none.
   final String linkedVendorId;
 
+  /// The named price level this customer is sold at, or null to take their
+  /// group's level, else the product's price.
+  final String? priceLevelId;
+
   String get city {
     final Iterable<CustomerAddress> defaults =
         addresses.where((address) => address.isDefaultBilling);
@@ -317,6 +322,7 @@ class Customer {
         whatsappOptIn: boolValue(json['whatsapp_opt_in']),
         whatsappOptInAt: stringValue(json['whatsapp_opt_in_at']),
         linkedVendorId: stringValue(json['linked_vendor_id']),
+        priceLevelId: json['price_level_id'] as String?,
       );
 }
 
@@ -543,12 +549,16 @@ class CustomerGroup {
     this.defaultDiscountPercent = '0',
     this.isActive = true,
     this.version = 0,
+    this.priceLevelId,
   });
 
   final String id;
   final String code;
   final String name;
   final String description;
+
+  /// The price level everyone in the segment is sold at, or null.
+  final String? priceLevelId;
 
   /// What everyone in the segment is normally given. Ranked below the
   /// customer's own standing rate, because a rate agreed with one shop is
@@ -566,6 +576,7 @@ class CustomerGroup {
             stringValue(json['default_discount_percent']),
         isActive: boolValue(json['is_active'], fallback: true),
         version: (json['version'] as num?)?.toInt() ?? 0,
+        priceLevelId: json['price_level_id'] as String?,
       );
 
   Json toJson() => <String, dynamic>{

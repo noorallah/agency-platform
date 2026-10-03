@@ -121,3 +121,8 @@ class PriceListItem(BaseEntity):
     discount_percent: Mapped[Decimal] = mapped_column(
         Numeric(9, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: A fixed price agreed for this product on this list -- "Anand pays 80"
+    #: (SEL-9). When set it is the price a line starts at, ahead of the
+    #: customer's level and the product's own price; ``discount_percent``
+    #: still comes off it. Null: the list only gives a rate off the price.
+    rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))

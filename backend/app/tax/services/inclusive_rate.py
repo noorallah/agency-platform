@@ -143,7 +143,8 @@ class TypedLine(Protocol):
 
     line_number: int
     quantity: Decimal
-    unit_price: Decimal
+    #: None is a line priced by the arrangements (SEL-9), already pre-tax.
+    unit_price: Decimal | None
     discount_percent: Decimal | None
     discount_amount: Decimal | None
 
@@ -177,12 +178,13 @@ def lines_before_tax[LineT: TypedLine](
     written: list[LineT] = []
     entered: dict[int, EnteredRate] = {}
     for line in lines:
-        if line.unit_price <= ZERO:
+        typed = line.unit_price
+        if typed is None or typed <= ZERO:
             written.append(line)
             continue
         derived = derive_pre_tax(
             quantity=line.quantity,
-            entered_rate=line.unit_price,
+            entered_rate=typed,
             discount_percent=line.discount_percent,
             discount_amount=line.discount_amount,
             rate_at=rate_for(line),
