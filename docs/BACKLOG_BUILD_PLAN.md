@@ -577,6 +577,7 @@ otherwise it is built as written.
 - **What it is:** tick the bank statement against receipts and payments, and print what is still unmatched.
 - **What gets built:** a statement import through `app/common/file_import.py` with the field mapping of `backend/app/imports`; statement lines matched to settlements and contra vouchers by amount, date within 3 days and reference; a cleared date on settlements (migration); match / unmatch by hand; a bank reconciliation statement report. Phase 2 screen under Accounts. Tests.
 - **Depends on:** ACC-3 helps matching. **Effort / Who:** L, Claude alone.
+- **Built 2026-10-03** (A125, migration `20261003_0287`): `app/bank_reconciliation` at `/api/v1/bank-reconciliation` -- `bank_statements`, `bank_statement_lines`, `bank_reconciliation_matches`. Lines are matched to **postings on the bank ledger** (receipts, payments, contra vouchers, expenses and journals alike) rather than to settlements, so no cleared date was added to settlements: it is the matched line's date, kept on the match. Import through `file_import` and the B3 mapping (kind `bank-statement`), refusing a line already imported on the account; auto-match on amount, journal date within 3 days and reference (cheque number / UTR / journal number), ties left for a person; manual match of one line to several entries summing to it; unmatch; remove a statement; the reconciliation statement as on a date with the statement's printed balance as its check. Read `LEDGER_VIEW`, import and match `JOURNAL_POST`. The ACC-5 close checklist lists unmatched lines of the month (never refusing). Desktop: Accounts > Bank Reconciliation. Tests: `test_bank_reconciliation.py`, `bank_reconciliation_page_test.dart`.
 
 #### ACC-2. Post-dated cheque register (§42.3)
 - **What it is:** a cheque dated ahead is held until its date, then deposited, cleared or bounced.
@@ -600,7 +601,7 @@ otherwise it is built as written.
 - **What it is:** before a month closes, list what is unfinished.
 - **What gets built:** a pre-close check in `backend/app/finance/services/finance_service.py`: draft journals and documents dated in the month, approved documents without a journal, unallocated receipts, GST return not marked filed (`gst_return_filings`), and unreconciled bank lines once ACC-1 exists. Warn by default, refuse by firm setting (migration for the setting). Tests.
 - **Depends on:** nothing. **Effort / Who:** S, Claude alone.
-- **Built 2026-10-02** (A50): `app/finance/services/period_close_checks.py`; `period_close_settings` (migration 0237); `GET /finance/accounting-periods/{id}/close-checks`, `GET`/`PUT /finance/period-close-settings`; the Financial years screen lists before closing. Unreconciled bank lines join when ACC-1 is built. Tests in `tests/unit/test_period_close_checks.py`.
+- **Built 2026-10-02** (A50): `app/finance/services/period_close_checks.py`; `period_close_settings` (migration 0237); `GET /finance/accounting-periods/{id}/close-checks`, `GET`/`PUT /finance/period-close-settings`; the Financial years screen lists before closing. Unreconciled bank lines joined with ACC-1 (2026-10-03), listed and never refusing. Tests in `tests/unit/test_period_close_checks.py`.
 
 #### ACC-6. Ageing buckets per firm; due lists (§74.1 row 16)
 - **What it is:** a firm chooses its ageing columns, and sees what falls due today and this week.

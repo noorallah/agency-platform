@@ -10,6 +10,7 @@ from app.api.dependencies.settings import get_settings
 from app.api.routers.dashboard import router as dashboard_router
 from app.api.routers.health import router as health_router
 from app.backups.api import router as backups_router
+from app.bank_reconciliation.api.router import router as bank_reconciliation_router
 from app.batch_serial.api import router as batch_serial_router
 from app.branches.api import router as branch_warehouse_router
 from app.business.api import router as business_framework_router
@@ -185,6 +186,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(debit_notes_router)
     application.include_router(party_adjustments_router)
     application.include_router(contra_router)
+    application.include_router(bank_reconciliation_router)
     application.include_router(einvoice_router)
     application.include_router(gst_returns_router)
     application.include_router(sales_orders_router)

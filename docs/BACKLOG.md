@@ -3442,6 +3442,8 @@ TCS, an audit trail, currency and exchange-rate fields, and a low-stock view.
 
 ### 42.2 Bank reconciliation, and bank feeds
 
+**Status, 2026-10-03: built** (ACC-1, A125): *Bank Reconciliation* under Accounts. Import the bank's statement file, auto-match it to the entries on the bank ledger, match the rest by hand, and print the reconciliation statement as on any date. Connected banking (bank feeds) is not built.
+
 - **Who has it:** TallyPrime (one-click auto reconciliation, and connected
   banking with four banks), BUSY (statement import, cleared and uncleared
   views, a reconciliation statement), Marg (auto reconciliation with 140+

@@ -328,6 +328,10 @@ RESET_ORDER: tuple[str, ...] = (
     "purchase_notes",
     "purchase_order_lines",
     "purchase_orders",
+    # A match RESTRICTs the posting it clears (ACC-1).
+    "bank_reconciliation_matches",
+    "bank_statement_lines",
+    "bank_statements",
     "gl_postings",
     "journal_lines",
     "journal_entries",

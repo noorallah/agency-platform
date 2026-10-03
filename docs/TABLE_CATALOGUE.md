@@ -60,6 +60,14 @@ timestamp, `version` for optimistic concurrency, and `is_deleted` /
 trigger each schema owns its own copy of.
 
 
+### `app/bank_reconciliation`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `bank_statements` | firm store ¹ | One bank statement file imported against one bank ledger account (ACC-1). | `ledger_accounts` |
+| `bank_statement_lines` | firm store ¹ | One line of it: a deposit or a withdrawal on a day, with the bank's reference and printed balance, and whether the books account for it. | `bank_statements` |
+| `bank_reconciliation_matches` | firm store ¹ | A statement line clearing one posting on the bank account, on the line's date; one live match per posting. | `bank_statement_lines`, `gl_postings` |
+
 ### `app/batch_serial`
 
 | Table | Store | Holds | Points at |

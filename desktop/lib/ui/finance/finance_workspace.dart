@@ -9,6 +9,7 @@ import '../resource_management_page.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/module_catalog.dart';
 import 'balance_sheet_page.dart';
+import 'bank_reconciliation_page.dart';
 import 'control_accounts_page.dart';
 import 'contra_voucher_page.dart';
 import 'bank_details_page.dart';
@@ -311,6 +312,12 @@ class _FinanceWorkspaceState extends State<FinanceWorkspace> {
               hasActiveFirm: widget.hasActiveFirm,
             ),
           'contra-vouchers' => ContraVoucherPage(
+              api: widget.api,
+              preferences: widget.preferences,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
+            ),
+          'bank-reconciliation' => BankReconciliationPage(
               api: widget.api,
               preferences: widget.preferences,
               permissions: widget.permissions,

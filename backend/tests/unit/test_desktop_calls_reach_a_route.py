@@ -67,6 +67,10 @@ _FAMILIES = {
     "/api/v1/sales-territories/geo/{}/{}": "geography -- see the level test",
     "/api/v1/quotations/{}/{}": "quotation lifecycle -- see the action test",
     "/api/v1/sales-returns/{}/{}": "sales return lifecycle -- see the action test",
+    "/api/v1/{}/{}/attachments": "settlement attachments: receipts or payments",
+    "/api/v1/{}/{}/attachments/{}": "settlement attachments: receipts or payments",
+    "/api/v1/post-dated-cheques/{}": "post-dated cheques: received or issued",
+    "/api/v1/purchases/requisitions/{}/{}": "requisition: submit, approve or cancel",
 }
 
 

@@ -259,7 +259,7 @@ void main() {
       expect(ids, contains('purchase-orders'));
     });
 
-    test('six entries, and no group called Orders', () {
+    test('the entries, and no group called Orders', () {
       final List<WorkspaceNavigationNode> nodes =
           ModuleCatalog.navigationChildren(AppModule.purchases, _tabIds());
 
@@ -269,8 +269,12 @@ void main() {
           'Dashboard',
           'Purchase Orders',
           'Debit Notes',
+          'Requisitions',
+          'Quality Inspection',
+          'Supplier Rebates',
           'Analytics',
           'Purchase Analysis',
+          'Rate Trend',
           'Settings',
         ],
       );

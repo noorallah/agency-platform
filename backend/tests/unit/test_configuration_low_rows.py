@@ -280,6 +280,7 @@ def test_every_print_service_reads_a_printable_type() -> None:
     from app.purchase.services import purchase_print_service
     from app.quotation.services import quotation_print_service
     from app.sales_invoice.services import invoice_print_service
+    from app.sales_order.services import order_print_service
     from app.sales_return.services import credit_note_print_service
 
     printed = {
@@ -289,6 +290,7 @@ def test_every_print_service_reads_a_printable_type() -> None:
             purchase_print_service,
             quotation_print_service,
             invoice_print_service,
+            order_print_service,
             credit_note_print_service,
         )
     }

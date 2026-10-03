@@ -74,7 +74,7 @@ MODULES: tuple[tuple[str, frozenset[str]], ...] = (
     ),
     (
         "Pricing and promotions",
-        frozenset({"price-lists", "promotions", "loyalty"}),
+        frozenset({"price-lists", "price-levels", "promotions", "loyalty"}),
     ),
     (
         "Selling",
@@ -103,13 +103,24 @@ MODULES: tuple[tuple[str, frozenset[str]], ...] = (
                 "purchase-returns",
                 "debit-notes",
                 "payments",
+                "payment-runs",
+                "supplier-rebates",
             }
         ),
     ),
     ("Stock", frozenset({"inventory", "batch-serial"})),
     (
         "Accounts",
-        frozenset({"finance", "expenses", "contra-vouchers", "party-adjustments"}),
+        frozenset(
+            {
+                "finance",
+                "expenses",
+                "contra-vouchers",
+                "party-adjustments",
+                "post-dated-cheques",
+                "bank-reconciliation",
+            }
+        ),
     ),
     (
         "GST and compliance",
@@ -121,7 +132,16 @@ MODULES: tuple[tuple[str, frozenset[str]], ...] = (
     ),
     (
         "Configuration and audit",
-        frozenset({"business-framework", "document-framework", "audit-logs", "search"}),
+        frozenset(
+            {
+                "business-framework",
+                "document-framework",
+                "audit-logs",
+                "search",
+                "notifications",
+                "report-layouts",
+            }
+        ),
     ),
 )
 
