@@ -62,7 +62,14 @@ class ReportDefinition {
     this.days,
     this.bandsKey,
     this.needsSupplier = false,
+    this.ownScreen = false,
   });
+
+  /// A report that has a screen of its own elsewhere (it needs a choice the
+  /// generic grid cannot ask for, a product for the purchase rate trend), so
+  /// the Reports picker does not list it. It stays here so the guard that
+  /// asks whether every report route is reachable can see it is.
+  final bool ownScreen;
 
   /// A report that is about one supplier and refuses to run without one
   /// (BUY-12's price trend). The workspace offers a Supplier picker, sends

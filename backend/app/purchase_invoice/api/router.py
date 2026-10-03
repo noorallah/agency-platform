@@ -60,6 +60,11 @@ from app.purchase_invoice.services.purchase_analysis import (
 )
 from app.purchase_invoice.services.vendor_ageing import VendorAgeingService
 from app.sales_invoice.api.router import SalesAnalysisResponse, analysis_response
+from app.sales_invoice.services.sales_analysis import (
+    SalesAnalysis,
+    shifted_a_year,
+    year_earlier,
+)
 
 router = APIRouter(
     prefix="/api/v1/purchase-invoices",
@@ -262,6 +267,45 @@ def _purchase_filters(**values: UUID | None) -> dict[str, UUID]:
     return {name: value for name, value in values.items() if value is not None}
 
 
+class RateTrendPoint(BaseModel):
+    """One bill's rate for a product (RPT-2)."""
+
+    bill_id: UUID
+    bill_number: str
+    bill_date: date
+    supplier_id: UUID
+    supplier_name: str
+    quantity: Decimal
+    rate: Decimal
+
+
+@router.get(
+    "/reports/rate-trend",
+    response_model=ApiResponse[list[RateTrendPoint]],
+)
+def purchase_rate_trend(
+    scope: PurchaseInvoiceReportScope,
+    product_id: UUID,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    supplier_id: UUID | None = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[RateTrendPoint]]:
+    """One product's billed rate, bill by bill, oldest first (RPT-2).
+
+    The period defaults to the last twelve months.
+    """
+    today = utc_now().date()
+    points = PurchaseAnalysisService(db).rate_trend(
+        scope.firm_id,
+        product_id=product_id,
+        from_date=from_date or year_earlier(today),
+        to_date=to_date or today,
+        supplier_id=supplier_id,
+    )
+    return ApiResponse(data=[RateTrendPoint(**vars(point)) for point in points])
+
+
 @router.get("/reports/analysis", response_model=ApiResponse[SalesAnalysisResponse])
 def purchase_analysis(
     scope: PurchaseInvoiceReportScope,
@@ -275,6 +319,8 @@ def purchase_analysis(
     supplier_id: UUID | None = None,
     supplier_category_id: UUID | None = None,
     branch_id: UUID | None = None,
+    basis: str = "billed",
+    compare_previous_year: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[SalesAnalysisResponse]:
     """Billed purchases by one or two dimensions, net of returns (backlog 66).
@@ -282,24 +328,43 @@ def purchase_analysis(
     ``rows`` and ``columns`` are each one of day, week, month, quarter, year,
     product, category, supplier, supplier_category, branch. The period
     defaults to this month. The response has the sales analysis's shape.
+
+    ``basis`` is ``billed`` (supplier bills), ``received`` (goods receipts)
+    or ``ordered`` (purchase orders placed); ``compare_previous_year`` adds
+    the same analysis a year earlier under ``previous`` (RPT-2).
     """
     today = utc_now().date()
-    result = PurchaseAnalysisService(db).analyse(
-        scope.firm_id,
-        rows=rows,
-        columns=columns,
-        from_date=from_date or today.replace(day=1),
-        to_date=to_date or today,
-        filters=_purchase_filters(
-            product_id=product_id,
-            category_id=category_id,
-            supplier_id=supplier_id,
-            supplier_category_id=supplier_category_id,
-            branch_id=branch_id,
-        ),
-        net_of_returns=net_of_returns,
+    first = from_date or today.replace(day=1)
+    last = to_date or today
+    service = PurchaseAnalysisService(db)
+    filters = _purchase_filters(
+        product_id=product_id,
+        category_id=category_id,
+        supplier_id=supplier_id,
+        supplier_category_id=supplier_category_id,
+        branch_id=branch_id,
     )
-    return ApiResponse(data=analysis_response(result))
+
+    def run(start: date, end: date) -> SalesAnalysis:
+        """Analyse one period with this request's dimensions and filters."""
+        return service.analyse(
+            scope.firm_id,
+            rows=rows,
+            columns=columns,
+            from_date=start,
+            to_date=end,
+            filters=filters,
+            net_of_returns=net_of_returns,
+            basis=basis,
+        )
+
+    result = run(first, last)
+    previous = (
+        shifted_a_year(run(year_earlier(first), year_earlier(last)), rows, columns)
+        if compare_previous_year
+        else None
+    )
+    return ApiResponse(data=analysis_response(result, previous=previous))
 
 
 @router.get(

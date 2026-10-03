@@ -38,6 +38,7 @@ class AnalysisFigures {
     this.net = 0,
     this.invoices = 0,
     this.averageBill,
+    this.averageRate,
     this.cost,
     this.margin,
     this.marginPercent,
@@ -53,6 +54,9 @@ class AnalysisFigures {
       invoices: _number(json['invoices']).round(),
       averageBill:
           json['average_bill'] == null ? null : _number(json['average_bill']),
+      averageRate: json['average_rate'] == null
+          ? null
+          : _number(json['average_rate']),
       cost: json['cost'] == null ? null : _number(json['cost']),
       margin: json['margin'] == null ? null : _number(json['margin']),
       marginPercent: json['margin_percent'] == null
@@ -67,6 +71,9 @@ class AnalysisFigures {
   final double net;
   final int invoices;
   final double? averageBill;
+
+  /// Taxable value per unit; null when no quantity.
+  final double? averageRate;
 
   /// Cost, margin and margin percent: non-null only when the caller may see
   /// cost and the basis is billed.
@@ -237,4 +244,35 @@ class ReportLayout {
   final String name;
   final Map<String, dynamic> settings;
   final int version;
+}
+
+/// One bill's rate for a product, a point of the rate trend.
+class RateTrendPoint {
+  const RateTrendPoint({
+    required this.billId,
+    required this.billNumber,
+    required this.billDate,
+    required this.supplierId,
+    required this.supplierName,
+    required this.quantity,
+    required this.rate,
+  });
+
+  factory RateTrendPoint.fromJson(Map<String, dynamic> json) => RateTrendPoint(
+        billId: (json['bill_id'] ?? '').toString(),
+        billNumber: (json['bill_number'] ?? '').toString(),
+        billDate: (json['bill_date'] ?? '').toString(),
+        supplierId: (json['supplier_id'] ?? '').toString(),
+        supplierName: (json['supplier_name'] ?? '').toString(),
+        quantity: _number(json['quantity']),
+        rate: _number(json['rate']),
+      );
+
+  final String billId;
+  final String billNumber;
+  final String billDate;
+  final String supplierId;
+  final String supplierName;
+  final double quantity;
+  final double rate;
 }

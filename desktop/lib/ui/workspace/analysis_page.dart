@@ -44,7 +44,15 @@ class AnalysisAdvanced {
     required this.listLayouts,
     required this.saveLayout,
     required this.deleteLayout,
+    this.bases = const {'billed': 'Billed', 'ordered': 'Orders booked'},
+    this.averageRateColumn = false,
   });
+
+  /// Basis code -> label, in menu order. Only `billed` can be drilled into.
+  final Map<String, String> bases;
+
+  /// Adds an "Avg rate" column (taxable value per unit) after the total.
+  final bool averageRateColumn;
 
   /// The `report_code` saved layouts are filed under.
   final String reportCode;
@@ -197,7 +205,9 @@ class _AnalysisPageState extends State<AnalysisPage> {
 
   AnalysisAdvanced? get _advanced => widget.config.advanced;
 
-  bool get _ordered => _advanced != null && _basis == 'ordered';
+  /// Whether the figures come from something other than bills, which have no
+  /// bills to open behind a cell.
+  bool get _ordered => _advanced != null && _basis != 'billed';
 
   bool get _canView =>
       widget.permissions.hasAnyPermission(widget.config.permissionCodes);
@@ -388,7 +398,12 @@ class _AnalysisPageState extends State<AnalysisPage> {
   List<String> _extraHeaders() => [
         if (_hasMargin) ...const ['Cost', 'Margin', 'Margin %'],
         if (_hasCompare) ...const ['Last year', 'Change %'],
+        if (_showAverageRate) 'Avg rate',
       ];
+
+  bool get _showAverageRate =>
+      (_advanced?.averageRateColumn ?? false) &&
+      _analysis.grandTotal.averageRate != null;
 
   String _money(double? value) => value?.toStringAsFixed(2) ?? '';
 
@@ -415,6 +430,7 @@ class _AnalysisPageState extends State<AnalysisPage> {
         _show(before ?? const AnalysisFigures()),
         change(),
       ],
+      if (_showAverageRate) _money(current?.averageRate),
     ];
   }
 
@@ -425,7 +441,7 @@ class _AnalysisPageState extends State<AnalysisPage> {
     if (advanced == null) return;
     final AnalysisOption? picked = await showDialog<AnalysisOption>(
       context: context,
-      builder: (context) => _OptionPickerDialog(
+      builder: (context) => AnalysisOptionPickerDialog(
         title: advanced.pickers[parameter] ?? parameter,
         search: (text) => advanced.options(parameter, text),
       ),
@@ -478,7 +494,9 @@ class _AnalysisPageState extends State<AnalysisPage> {
           ? s['rows'].toString()
           : widget.config.defaultRows;
       _columns = widget.config.dimensions.containsKey(columns) ? columns : null;
-      _basis = s['basis'] == 'ordered' ? 'ordered' : 'billed';
+      _basis = (_advanced?.bases.containsKey(s['basis']) ?? false)
+          ? s['basis'].toString()
+          : 'billed';
       _netOfReturns = s['net_of_returns'] != false;
       _compare = s['compare_previous_year'] == true;
       _filters
@@ -721,7 +739,7 @@ class _AnalysisPageState extends State<AnalysisPage> {
             label: 'Basis',
             width: 170,
             value: _basis,
-            options: const {'billed': 'Billed', 'ordered': 'Orders booked'},
+            options: _advanced!.bases,
             onChanged: (value) {
               if (value == null) return;
               setState(() => _basis = value);
@@ -798,7 +816,7 @@ class _AnalysisPageState extends State<AnalysisPage> {
         type: EmptyStateType.noRecords,
         title: widget.config.emptyTitle,
         message: 'No ${widget.config.noun} was '
-            '${_ordered ? 'booked' : 'billed'} between these dates for '
+            '${_ordered ? (_advanced!.bases[_basis] ?? _basis).toLowerCase() : 'billed'} between these dates for '
             'the filters chosen.',
       );
     }
@@ -970,17 +988,20 @@ String analysisCsv(List<String> headers, List<List<String>> rows) {
 
 /// Search and choose one record for a filter. Lookups are asked as the person
 /// types; a refusal is shown in the dialog rather than lost.
-class _OptionPickerDialog extends StatefulWidget {
-  const _OptionPickerDialog({required this.title, required this.search});
+class AnalysisOptionPickerDialog extends StatefulWidget {
+  const AnalysisOptionPickerDialog(
+      {super.key, required this.title, required this.search});
 
   final String title;
   final Future<List<AnalysisOption>> Function(String search) search;
 
   @override
-  State<_OptionPickerDialog> createState() => _OptionPickerDialogState();
+  State<AnalysisOptionPickerDialog> createState() =>
+      _AnalysisOptionPickerDialogState();
 }
 
-class _OptionPickerDialogState extends State<_OptionPickerDialog> {
+class _AnalysisOptionPickerDialogState
+    extends State<AnalysisOptionPickerDialog> {
   final TextEditingController _query = TextEditingController();
   List<AnalysisOption>? _options;
   String? _error;

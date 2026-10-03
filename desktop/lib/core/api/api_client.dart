@@ -6886,6 +6886,8 @@ class ApiClient {
     required String toDate,
     bool netOfReturns = true,
     Map<String, String> filters = const {},
+    String basis = 'billed',
+    bool comparePreviousYear = false,
   }) async =>
       SalesAnalysis.fromJson(_unwrapMap(await request(
         'GET',
@@ -6896,9 +6898,33 @@ class ApiClient {
           'from_date': fromDate,
           'to_date': toDate,
           'net_of_returns': netOfReturns ? 'true' : 'false',
+          'basis': basis,
+          if (comparePreviousYear) 'compare_previous_year': 'true',
           ...filters,
         },
       )));
+
+  /// What one product was bought at, bill by bill, oldest first.
+  Future<List<RateTrendPoint>> purchaseRateTrend({
+    required String productId,
+    String? supplierId,
+    String? fromDate,
+    String? toDate,
+  }) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/purchase-invoices/reports/rate-trend',
+          query: {
+            'product_id': productId,
+            if (supplierId != null && supplierId.isNotEmpty)
+              'supplier_id': supplierId,
+            if (fromDate != null && fromDate.isNotEmpty) 'from_date': fromDate,
+            if (toDate != null && toDate.isNotEmpty) 'to_date': toDate,
+          },
+        ),
+        RateTrendPoint.fromJson,
+      );
 
   /// The bills behind one cell of the purchase analysis.
   Future<List<AnalysisBill>> purchaseAnalysisBills({

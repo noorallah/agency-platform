@@ -478,6 +478,8 @@ class AnalysisFigures(BaseModel):
     margin: Decimal | None = None
     #: Margin as a percentage of the costed lines' taxable value.
     margin_percent: Decimal | None = None
+    #: Taxable value per unit (RPT-2); None where no quantity moved.
+    average_rate: Decimal | None = None
 
 
 class AnalysisHeading(BaseModel):
@@ -525,6 +527,9 @@ def _figures(cell: Cell, *, margin: bool = False) -> AnalysisFigures:
     paise = Decimal("0.01")
     margin_amount = cell.costed - cell.cost
     return AnalysisFigures(
+        average_rate=(
+            (cell.taxable / cell.quantity).quantize(paise) if cell.quantity else None
+        ),
         cost=cell.cost.quantize(paise) if margin else None,
         margin=margin_amount.quantize(paise) if margin else None,
         margin_percent=(
