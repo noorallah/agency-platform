@@ -1571,6 +1571,7 @@ class GoodsReceiptService(TransactionalDocumentService):
                 warehouse_id=line.warehouse_id or receipt.warehouse_id,
                 storage_node_id=line.storage_node_id,
                 batch_number=line.batch_number,
+                scheme_name=(line.scheme_name or "").strip() or None,
                 expiry_date=expiry_date,
                 manufacturing_date=line.manufacturing_date,
                 mrp=line.mrp,

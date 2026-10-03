@@ -76,6 +76,7 @@ from app.inventory.models import StockLedgerEntry
 from app.loyalty.services import LoyaltyService
 from app.messaging.services import MessagingDocument, stage_document_event
 from app.products.models import Product
+from app.products.services.free_issue import assert_not_sold_at_a_price
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales.services.document_preview import line_companions
 from app.sales.services.scope_resolution import (
@@ -2791,6 +2792,12 @@ class SalesInvoiceService(TransactionalDocumentService):
                 )
             )
 
+        # Promotional stock is given, never sold at a price (BUY-1).
+        assert_not_sold_at_a_price(
+            self._session,
+            firm_id,
+            [(item.source_line.product_id, item.unit_price) for item in priced],
+        )
         # The bill discount is split across the lines here, between pricing
         # them and taxing them. It has to reach a taxable value to reduce any
         # tax. `header_discount_amount` on a purchase order was subtracted

@@ -228,6 +228,7 @@ class Product {
     this.trackManufacturingDate = false,
     this.trackWarranty = false,
     this.notForSale = false,
+    this.freeIssueOnly = false,
     this.inspectionRequired = false,
     this.shelfLifeDays,
     this.issueRule = '',
@@ -313,6 +314,8 @@ class Product {
   final bool notForSale;
 
   /// Received goods wait in quarantine until passed (BUY-9).
+  /// Promotional stock: given away, never sold at a price (BUY-1).
+  final bool freeIssueOnly;
   final bool inspectionRequired;
 
   /// Days from manufacture to expiry (STK-18): a receipt typed with only a
@@ -393,6 +396,7 @@ class Product {
         trackWarranty: boolValue(json['track_warranty']),
         notForSale: boolValue(json['not_for_sale']),
         inspectionRequired: boolValue(json['inspection_required']),
+        freeIssueOnly: boolValue(json['free_issue_only']),
         issueRule: stringValue(json['issue_rule']),
         shelfLifeDays: json['shelf_life_days'] is num
             ? (json['shelf_life_days'] as num).toInt()

@@ -366,6 +366,7 @@ otherwise it is built as written.
 - **What it is:** promotional stock that can be received, given away and counted, but never sold at a price.
 - **What gets built:** migration: a *free issue only* flag on products and a scheme name on goods receipt lines; sales screens refuse a price on such a product; new stock issue reasons *Given free to customer* and *Sample* (beside `WriteOffReason` in `backend/app/inventory/schemas/inventory.py`) naming the customer and posting to a *Promotional expense* control purpose at cost. A report: received per supplier and scheme, given per customer, on hand. Tests as listed in §61.
 - **Depends on:** STK-7 if done first (the reason becomes a master row). **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A111): `products.free_issue_only`, `goods_receipt_lines.scheme_name`, `inventory_transactions.customer_id`, `PROMOTIONAL_EXPENSE` on 6940 (migration 0275); `app/products/services/free_issue.py` called by the sales order, quotation and invoice line writers; system reasons FREE_TO_CUSTOMER and SAMPLE; `app/inventory/services/free_goods.py` and `/inventory/reports/free-goods`. Desktop: the product flag, scheme on the receipt line, customer on the write-off, the report. Tests: `test_free_goods.py`, `free_goods_test.dart`.
 
 #### BUY-2. Supplier gifts register, journal, 194R (§61 items 2, 3)
 - **What it is:** a TV or gold coin from a supplier recorded once, with the right journal and the tax total.

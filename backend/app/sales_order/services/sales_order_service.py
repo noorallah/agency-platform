@@ -69,6 +69,7 @@ from app.messaging.services import MessagingDocument, stage_document_event
 from app.pricing.services.price_list_service import PriceListResolver
 from app.pricing.services.unit_price import UnitPriceResolver
 from app.products.models import Product
+from app.products.services.free_issue import assert_not_sold_at_a_price
 from app.products.services.trading_status import assert_product_takes_new_lines
 from app.promotions.schemas import (
     PromotionEvaluationRequest,
@@ -2086,6 +2087,12 @@ class SalesOrderService(TransactionalDocumentService):
         actor_id: UUID,
         entered: Mapping[int, EnteredRate] | None = None,
     ) -> dict[str, Decimal]:
+        # Promotional stock is given, never sold at a price (BUY-1).
+        assert_not_sold_at_a_price(
+            self._session,
+            row.firm_id,
+            [(line.product_id, line.unit_price) for line in lines],
+        )
         # ``entered`` is what was typed GST-inclusive on each line, by line
         # number, kept beside the pre-tax figures (backlog 64 row 4).
         #

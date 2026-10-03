@@ -979,6 +979,25 @@ const List<ReportDefinition> reportCatalog = [
     days: 180,
     columns: _slowStockColumns,
   ),
+  // Free goods (BUY-1): what came in free, what went out free, what is left.
+  ReportDefinition(
+    id: 'free-goods',
+    label: 'Free goods',
+    description: 'Goods received free from suppliers, goods given free to '
+        'customers, and promotional stock still on hand.',
+    path: '/api/v1/inventory/reports/free-goods',
+    needsPeriod: true,
+    permission: 'INVENTORY_VIEW',
+    area: ReportArea.operational,
+    columns: [
+      ReportColumn(key: 'section', label: 'Section'),
+      ReportColumn(key: 'party_name', label: 'Supplier / customer'),
+      ReportColumn(key: 'detail', label: 'Scheme / reason'),
+      ReportColumn(key: 'product_name', label: 'Product'),
+      ReportColumn(key: 'quantity', label: 'Quantity', numeric: true),
+      ReportColumn(key: 'value', label: 'Value', numeric: true),
+    ],
+  ),
   // The drawing-power statement a bank asks a distributor for every month
   // (backlog 70 row 6): opening, in, out and closing, each with its value.
   ReportDefinition(

@@ -572,6 +572,17 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
         ),
       ],
       DocumentField(
+        label: 'Scheme',
+        width: 258,
+        child: TextFormField(
+          key: ValueKey<String>('goods-receipt-scheme-${_order?.id}-$index'),
+          initialValue: line.schemeName,
+          readOnly: _saving,
+          decoration: documentBoxDecoration(context, hint: 'optional'),
+          onChanged: (value) => line.schemeName = value,
+        ),
+      ),
+      DocumentField(
         label: 'Line remarks',
         width: 258,
         child: TextFormField(

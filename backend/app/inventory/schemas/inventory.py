@@ -514,6 +514,9 @@ class StockWriteOffCreate(InventorySchema):
     #: A code from the firm's adjustment reasons (STK-7); the six in
     #: ``WriteOffReason`` are always there.
     reason: str = Field(min_length=2, max_length=40)
+    #: Who free goods or a sample went to (BUY-1); required for
+    #: FREE_TO_CUSTOMER.
+    customer_id: UUID | None = None
     quantity: Decimal = Field(gt=0, max_digits=18)
     entered_quantity: Decimal | None = Field(default=None, gt=0, max_digits=18)
     entered_uom_id: UUID | None = None

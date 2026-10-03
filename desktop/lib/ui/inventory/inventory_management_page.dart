@@ -8,6 +8,7 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/branch_warehouse.dart';
+import '../../models/customer.dart';
 import '../../models/entities.dart';
 import '../../models/file_import.dart';
 import '../../models/adjustment_reason.dart';
@@ -1680,6 +1681,15 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         available: double.tryParse(row.availableQuantity) ?? 0,
         quarantined: double.tryParse(row.quarantineQuantity) ?? 0,
         reasons: reasons,
+        searchCustomers: (String text) async => [
+          for (final Customer customer
+              in (await widget.api.customers(search: text, pageSize: 20))
+                  .items)
+            StockCustomerOption(
+              id: customer.id,
+              label: '${customer.code} - ${customer.name}',
+            ),
+        ],
         warehouses: [
           for (final WarehouseRecord warehouse in _warehouses)
             WarehouseOption(

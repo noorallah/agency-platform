@@ -4633,6 +4633,8 @@ new `PromotionField`, so none changes how existing offers price.
 
 ## 61. Free goods and gifts from suppliers: for customers, and for the firm
 
+**Status, 2026-10-03: item 1 built** (BUY-1, A111): free-issue products, scheme on the receipt line, *Given free to customer* and *Sample* at cost to promotional expense, the free goods report. Items 2 and 3 are BUY-2.
+
 Owner, 2026-09-28: suppliers send free items with a purchase delivery. Some
 are meant to be passed on free to customers; some are not for customers at
 all -- they are for the firm or its owner. How is each tracked?
