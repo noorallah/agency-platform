@@ -1596,6 +1596,7 @@ class InventoryService:
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        enforce_limit: bool = True,
     ) -> InventoryTransaction:
         """Take stock off the books, and record why.
 
@@ -1613,6 +1614,8 @@ class InventoryService:
             data: What is being written off, and why.
             firm_scope: The owning firm.
             actor_id: The user writing it off.
+            enforce_limit: False only where an approved request is posted
+                (STK-8): the approval already judged the value.
 
         Returns:
             The movement written.
@@ -1621,6 +1624,14 @@ class InventoryService:
             ValidationError: If the location does not hold that much.
 
         """
+        if enforce_limit:
+            from app.inventory.services.adjustment_approval import (
+                StockAdjustmentApprovalService,
+            )
+
+            StockAdjustmentApprovalService(self._session).assert_within_limit(
+                firm_scope, actor_id, product_id=data.product_id, quantity=data.quantity
+            )
         (
             base_quantity,
             entered_quantity,
@@ -2008,8 +2019,21 @@ class InventoryService:
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        enforce_limit: bool = True,
     ) -> InventoryTransaction:
-        """Post a stock adjustment movement, and commit it on its own."""
+        """Post a stock adjustment movement, and commit it on its own.
+
+        ``enforce_limit`` is False only where an approved request is posted
+        (STK-8): the approval already judged the value.
+        """
+        if enforce_limit:
+            from app.inventory.services.adjustment_approval import (
+                StockAdjustmentApprovalService,
+            )
+
+            StockAdjustmentApprovalService(self._session).assert_within_limit(
+                firm_scope, actor_id, product_id=data.product_id, quantity=data.quantity
+            )
         transaction = self.stage_adjustment(
             data, firm_scope=firm_scope, actor_id=actor_id
         )

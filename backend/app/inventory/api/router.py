@@ -39,6 +39,11 @@ from app.core.pagination import PaginationParams
 from app.core.pagination.reports import ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.core.utils.dates import utc_now
+from app.document_framework.schemas.bulk_actions import (
+    BulkActionResult,
+    BulkApproveRequest,
+)
+from app.document_framework.services.bulk_actions import run_each
 from app.imports.services import columns_for_kind, mapped_content, parse_mapping
 from app.inventory.models import InventoryTransaction, PhysicalCount
 from app.inventory.schemas import (
@@ -72,6 +77,14 @@ from app.inventory.schemas.inventory import (
     StockLedgerResponse,
 )
 from app.inventory.services import InventoryService, PhysicalCountService
+from app.inventory.services.adjustment_approval import (
+    StockAdjustmentApprovalService,
+    StockAdjustmentLimitItem,
+    StockAdjustmentLimitsWrite,
+    StockAdjustmentRejectWrite,
+    StockAdjustmentRequestResponse,
+    StockAdjustmentRequestWrite,
+)
 from app.inventory.services.adjustment_reasons import (
     AdjustmentReasonResponse,
     AdjustmentReasonService,
@@ -121,6 +134,10 @@ InventoryTransactionViewScope = Annotated[
 ]
 InventoryAdjustScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("INVENTORY_ADJUST")
+]
+#: The value limits on stock adjustments (STK-8).
+InventorySettingsScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("INVENTORY_MANAGE_SETTINGS")
 ]
 #: The reasons list and each reason's account (STK-7).
 InventoryReasonsScope = Annotated[
@@ -973,6 +990,143 @@ def write_off_stock(
     )
     return ApiResponse(
         data=service.transaction_response(row), message="Stock written off."
+    )
+
+
+@router.get(
+    "/adjustment-limits", response_model=ApiResponse[list[StockAdjustmentLimitItem]]
+)
+def list_adjustment_limits(
+    scope: InventoryViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[StockAdjustmentLimitItem]]:
+    """Return the largest adjustment each role may post (STK-8)."""
+    return ApiResponse(
+        data=[
+            StockAdjustmentLimitItem(role_code=row.role_code, max_value=row.max_value)
+            for row in StockAdjustmentApprovalService(db).limits(scope.firm_id)
+        ]
+    )
+
+
+@router.put(
+    "/adjustment-limits", response_model=ApiResponse[list[StockAdjustmentLimitItem]]
+)
+def replace_adjustment_limits(
+    data: StockAdjustmentLimitsWrite,
+    scope: InventorySettingsScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[StockAdjustmentLimitItem]]:
+    """Replace the whole list; a role left out has no limit (STK-8)."""
+    rows = StockAdjustmentApprovalService(db).replace_limits(
+        data.limits, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(
+        data=[
+            StockAdjustmentLimitItem(role_code=row.role_code, max_value=row.max_value)
+            for row in rows
+        ]
+    )
+
+
+@router.get(
+    "/adjustment-requests",
+    response_model=ApiResponse[list[StockAdjustmentRequestResponse]],
+)
+def list_adjustment_requests(
+    scope: InventoryAdjustScope,
+    status_filter: Annotated[
+        Literal["PENDING", "APPROVED", "REJECTED"], Query(alias="status")
+    ] = "PENDING",
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[StockAdjustmentRequestResponse]]:
+    """Return adjustments waiting for, or decided by, an approval (STK-8)."""
+    return ApiResponse(
+        data=StockAdjustmentApprovalService(db).list_requests(
+            scope.firm_id, status=status_filter
+        )
+    )
+
+
+@router.post(
+    "/adjustment-requests",
+    response_model=ApiResponse[StockAdjustmentRequestResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def submit_adjustment_request(
+    data: StockAdjustmentRequestWrite,
+    scope: InventoryAdjustScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[StockAdjustmentRequestResponse]:
+    """Submit an adjustment or write-off above your limit for approval."""
+    return ApiResponse(
+        data=StockAdjustmentApprovalService(db).submit(
+            data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        ),
+        message="Submitted for approval.",
+    )
+
+
+@router.post(
+    "/adjustment-requests/bulk-approve",
+    response_model=ApiResponse[BulkActionResult],
+)
+def bulk_approve_adjustment_requests(
+    data: BulkApproveRequest,
+    scope: InventoryAdjustScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BulkActionResult]:
+    """Approve the ticked requests, each on its own (STK-8)."""
+    service = StockAdjustmentApprovalService(db)
+    return ApiResponse(
+        data=run_each(
+            db,
+            data.items,
+            load=lambda request_id: service.get(request_id, firm_id=scope.firm_id),
+            act=lambda request_id: service.approve(
+                request_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+            ),
+            number=lambda row: f"{row.kind} {row.quantity.normalize():f}",
+        )
+    )
+
+
+@router.post(
+    "/adjustment-requests/{request_id}/approve",
+    response_model=ApiResponse[StockAdjustmentRequestResponse],
+)
+def approve_adjustment_request(
+    request_id: UUID,
+    scope: InventoryAdjustScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[StockAdjustmentRequestResponse]:
+    """Post a pending request, if your limit covers it (STK-8)."""
+    return ApiResponse(
+        data=StockAdjustmentApprovalService(db).approve(
+            request_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+        ),
+        message="Approved and posted.",
+    )
+
+
+@router.post(
+    "/adjustment-requests/{request_id}/reject",
+    response_model=ApiResponse[StockAdjustmentRequestResponse],
+)
+def reject_adjustment_request(
+    request_id: UUID,
+    data: StockAdjustmentRejectWrite,
+    scope: InventoryAdjustScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[StockAdjustmentRequestResponse]:
+    """Turn a pending request down, keeping why (STK-8)."""
+    return ApiResponse(
+        data=StockAdjustmentApprovalService(db).reject(
+            request_id,
+            data.reason,
+            firm_id=scope.firm_id,
+            actor_id=scope.actor_id,
+        )
     )
 
 

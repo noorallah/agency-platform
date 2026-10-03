@@ -1,6 +1,7 @@
 import 'package:file_selector/file_selector.dart' show XFile;
 import 'package:flutter/material.dart';
 
+import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/entities.dart';
 import '../workspace/desktop_framework.dart';
@@ -17,6 +18,10 @@ enum StockAction {
   /// Held back from sale, or let go again.
   quarantine,
 }
+
+/// Set on the value a [StockActionDialog] closes with when the movement was
+/// sent for approval instead of posted (STK-8).
+const String stockSubmittedForApprovalKey = '_submitted_for_approval';
 
 /// A write-off or adjustment reason, reduced to what a dropdown needs.
 class StockReasonOption {
@@ -105,8 +110,13 @@ class StockActionDialog extends StatefulWidget {
     required this.warehouses,
     this.reasons = fallbackStockReasons,
     this.onSave,
+    this.onSubmitForApproval,
     this.pickFiles,
   });
+
+  /// Sends the draft for approval when the server says it is above the
+  /// limit of whoever posts it (STK-8). Null: the refusal is only shown.
+  final Future<void> Function(Json draft)? onSubmitForApproval;
 
   /// Injected by tests; the platform's file chooser otherwise.
   final Future<List<XFile>> Function()? pickFiles;
@@ -150,6 +160,39 @@ class _StockActionDialogState extends State<StockActionDialog>
   String? _error;
   List<Json> _attachments = const [];
 
+  /// The draft the server refused as too large, kept so it can be sent for
+  /// approval as it stands (STK-8).
+  Json? _refused;
+
+  Future<void> _post(Json draft) async {
+    final Future<void> Function(Json draft)? onSave = widget.onSave;
+    if (onSave == null) {
+      Navigator.pop(context, draft);
+      return;
+    }
+    await saveAndClose<Json>(() async {
+      try {
+        await onSave(draft);
+      } on ApiException catch (error) {
+        _refused = error.needsApproval && widget.onSubmitForApproval != null
+            ? draft
+            : null;
+        rethrow;
+      }
+      _refused = null;
+      return draft;
+    });
+  }
+
+  Future<void> _submitForApproval() async {
+    final Json? draft = _refused;
+    if (draft == null) return;
+    await saveAndClose<Json>(() async {
+      await widget.onSubmitForApproval!(draft);
+      return <String, dynamic>{...draft, stockSubmittedForApprovalKey: true};
+    });
+  }
+
   @override
   void dispose() {
     _quantity.dispose();
@@ -182,7 +225,7 @@ class _StockActionDialogState extends State<StockActionDialog>
       setState(() => _error = problem);
       return;
     }
-    submit<Json>(<String, dynamic>{
+    _post(<String, dynamic>{
       'quantity': _quantity.text.trim(),
       if (_reference.text.trim().isNotEmpty)
         'reference_number': _reference.text.trim(),
@@ -196,7 +239,7 @@ class _StockActionDialogState extends State<StockActionDialog>
       // Photos and documents (STK-9); a hold or release takes none.
       if (widget.action != StockAction.quarantine && _attachments.isNotEmpty)
         'attachments': _attachments,
-    }, widget.onSave);
+    });
   }
 
   @override
@@ -217,6 +260,16 @@ class _StockActionDialogState extends State<StockActionDialog>
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               saveErrorBanner(),
+              if (_refused != null && !saving)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                  child: FilledButton.icon(
+                    key: const ValueKey('submit-for-approval'),
+                    onPressed: _submitForApproval,
+                    icon: const Icon(Icons.send_outlined),
+                    label: const Text('Submit for approval'),
+                  ),
+                ),
               if (_error != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: AppSpacing.md),

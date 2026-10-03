@@ -502,6 +502,7 @@ otherwise it is built as written.
 - **What it is:** above a value per role, an adjustment waits for a manager.
 - **What gets built:** role value limits on the same pattern as `role_discount_limits` and `approval_limit.py`; adjustments above it saved as pending, approved singly or in bulk. Migration yes. Tests.
 - **Depends on:** STK-7. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A108): `role_stock_adjustment_limits`, `stock_adjustment_requests`, `INVENTORY_MANAGE_SETTINGS` (migration 0272); `app/inventory/services/adjustment_approval.py`; `create_adjustment` and `write_off_stock` refuse above the limit (`enforce_limit`); `/inventory/adjustment-limits`, `/inventory/adjustment-requests` (submit, list, approve, reject, bulk-approve). Desktop: limits screen, *Submit for approval* on a refused post, the approvals tab. Tests: `test_adjustment_approval.py`, `adjustment_approval_test.dart`.
 
 #### STK-9. Evidence on adjustments (§70 row 13)
 - **What it is:** photos and documents attached to adjustments, write-offs, counts and transfers.

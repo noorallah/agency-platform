@@ -5,6 +5,7 @@ import 'dart:io';
 import '../../models/geography.dart';
 import '../../models/entities.dart';
 import '../../models/audit.dart';
+import '../../models/adjustment_approval.dart';
 import '../../models/bulk_action.dart';
 import '../../models/finance.dart';
 import '../../models/physical_count.dart';
@@ -103,6 +104,14 @@ class ApiException implements Exception {
   /// server accepts a write without one, so a caller that does not send the
   /// version it read never sees this and silently overwrites instead.
   bool get isConflict => statusCode == HttpStatus.conflict;
+
+  /// A stock movement above the poster's limit (STK-8): the server refuses the
+  /// direct post and says it can be submitted for approval instead.
+  bool get needsApproval {
+    final Object? d = details;
+    if (d is Map && d['needs_approval'] == true) return true;
+    return message.contains('Submit it for approval');
+  }
   @override
   String toString() => message;
 }
@@ -3491,6 +3500,79 @@ class ApiClient {
         ),
         AdjustmentReasonRecord.fromJson,
       );
+
+  /// The largest movement each role may post directly (STK-8). Readable by
+  /// any inventory viewer.
+  Future<List<RoleAdjustmentLimit>> adjustmentLimits() async => _unwrapList(
+        await request('GET', '/api/v1/inventory/adjustment-limits'),
+        RoleAdjustmentLimit.fromJson,
+      );
+
+  /// Replaces the whole list: a role left out has no limit. Needs
+  /// `INVENTORY_MANAGE_SETTINGS`.
+  Future<List<RoleAdjustmentLimit>> updateAdjustmentLimits(
+    List<RoleAdjustmentLimit> limits,
+  ) async =>
+      _unwrapList(
+        await request(
+          'PUT',
+          '/api/v1/inventory/adjustment-limits',
+          body: <String, dynamic>{
+            'limits': [for (final limit in limits) limit.toJson()],
+          },
+        ),
+        RoleAdjustmentLimit.fromJson,
+      );
+
+  /// Send a refused-as-too-large movement for approval (STK-8). [kind] is
+  /// `ADJUSTMENT` or `WRITE_OFF`; [body] is exactly what the direct post took.
+  Future<AdjustmentRequestRecord> submitAdjustmentRequest(
+    String kind,
+    Json body,
+  ) async =>
+      AdjustmentRequestRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/inventory/adjustment-requests',
+        body: <String, dynamic>{
+          'kind': kind,
+          'adjustment': kind == 'ADJUSTMENT' ? body : null,
+          'write_off': kind == 'WRITE_OFF' ? body : null,
+        },
+      )));
+
+  Future<List<AdjustmentRequestRecord>> adjustmentRequests({
+    String status = 'PENDING',
+  }) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/inventory/adjustment-requests',
+          query: {'status': status},
+        ),
+        AdjustmentRequestRecord.fromJson,
+      );
+
+  Future<AdjustmentRequestRecord> approveAdjustmentRequest(String id) async =>
+      AdjustmentRequestRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/inventory/adjustment-requests/$id/approve',
+      )));
+
+  Future<AdjustmentRequestRecord> rejectAdjustmentRequest(
+    String id,
+    String reason,
+  ) async =>
+      AdjustmentRequestRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/inventory/adjustment-requests/$id/reject',
+        body: <String, dynamic>{'reason': reason},
+      )));
+
+  /// Approve several requests in one call; each is judged on its own, so
+  /// some can be refused (over the approver's limit) while others go through.
+  Future<BulkActionResult> bulkApproveAdjustmentRequests(
+          List<BulkRow> rows) =>
+      _bulk('/api/v1/inventory/adjustment-requests/bulk-approve', rows);
 
   Future<InventoryTransactionRecord> createInventoryAdjustment(
           Json data) async =>
