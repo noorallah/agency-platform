@@ -2604,6 +2604,10 @@ class ApiClient {
             await request('GET', '/api/v1/batch-serial/batches/summary')),
       );
 
+  /// What needs doing in stock: counts and up to ten rows per kind (STK-14).
+  Future<Map<String, dynamic>> inventoryAlerts() async =>
+      _unwrapMap(await request('GET', '/api/v1/inventory/alerts'));
+
   Future<ExpiryDashboardRecord> expiryDashboard() async =>
       ExpiryDashboardRecord.fromJson(
         _unwrapMap(

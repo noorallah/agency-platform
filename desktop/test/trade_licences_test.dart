@@ -184,6 +184,9 @@ class _HomeSource implements HomeSource {
   Future<int> expiringLicences() async => expiring;
 
   @override
+  Future<Map<String, dynamic>> stockAlerts() async => const {};
+
+  @override
   Future<List<Map<String, dynamic>>> taxCalendar() async => const [];
 
   @override

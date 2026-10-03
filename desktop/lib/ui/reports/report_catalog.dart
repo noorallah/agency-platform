@@ -949,6 +949,9 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'days_91_180', label: '91-180', numeric: true),
       ReportColumn(key: 'days_over_180', label: 'Over 180', numeric: true),
       ReportColumn(key: 'last_receipt_date', label: 'Last received'),
+      ReportColumn(
+          key: 'issued_last_year', label: 'Issued (last year)', numeric: true),
+      ReportColumn(key: 'turnover', label: 'Turnover', numeric: true),
     ],
   ),
   // Stock that is not selling (55 S7): the Days box says over how long.
