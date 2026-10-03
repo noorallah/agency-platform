@@ -41,6 +41,9 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
   String _itcBasis = 'ALL';
   String _rule37 = 'REPORT';
   String _supplierIrn = 'WARN';
+  String _frequency = 'MONTHLY';
+  String? _quarterlyFrom;
+  String _qrmpMethod = 'FIXED_SUM';
   final TextEditingController _tolerance =
       TextEditingController(text: '1.00');
   final TextEditingController _ewayLimit =
@@ -92,6 +95,12 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
             ? settings.rule37Mode
             : 'REPORT';
         _supplierIrn = settings.supplierIrnCheck == 'OFF' ? 'OFF' : 'WARN';
+        _frequency =
+            settings.filingFrequency == 'QUARTERLY' ? 'QUARTERLY' : 'MONTHLY';
+        _quarterlyFrom = settings.quarterlyFrom;
+        _qrmpMethod = settings.qrmpPaymentMethod == 'SELF_ASSESSMENT'
+            ? 'SELF_ASSESSMENT'
+            : 'FIXED_SUM';
         _tolerance.text = settings.gstr2bTolerance;
         _ewayLimit.text = settings.ewayBillLimit;
         _isConfigured = settings.isConfigured;
@@ -123,6 +132,9 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
             ewayBillLimit: _ewayLimit.text.trim().isEmpty
                 ? '50000'
                 : _ewayLimit.text.trim(),
+            filingFrequency: _frequency,
+            quarterlyFrom: _frequency == 'QUARTERLY' ? _quarterlyFrom : null,
+            qrmpPaymentMethod: _qrmpMethod,
           ),
         );
         final EInvoiceSettings? filing = _filing;
@@ -152,6 +164,24 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
         'OFFLINE' => 'Offline: upload on the e-invoice portal',
         _ => code,
       };
+
+  /// Quarter starts to offer: the last four and the next two, plus whatever
+  /// the firm already has.
+  List<String> get _quarterStarts {
+    final DateTime now = DateTime.now();
+    final int current = (now.month - 1) ~/ 3;
+    final List<String> out = [
+      for (int offset = -4; offset <= 2; offset++)
+        _isoDate(DateTime(now.year, (current + offset) * 3 + 1)),
+    ];
+    final String? held = _quarterlyFrom;
+    if (held != null && !out.contains(held)) out.insert(0, held);
+    return out;
+  }
+
+  static String _isoDate(DateTime v) => '${v.year.toString().padLeft(4, '0')}-'
+      '${v.month.toString().padLeft(2, '0')}-'
+      '${v.day.toString().padLeft(2, '0')}';
 
   Future<void> _pickDate(String? current, ValueChanged<String?> onPicked) async {
     final DateTime? now = DateTime.tryParse(current ?? '');
@@ -411,6 +441,81 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
                             'and still count as matched.',
                       ),
                     ),
+                    const SizedBox(height: AppSpacing.lg),
+                    Text('Return filing', style: theme.textTheme.titleSmall),
+                    const SizedBox(height: AppSpacing.sm),
+                    DropdownButtonFormField<String>(
+                      key: const ValueKey('gst-filing-frequency'),
+                      isExpanded: true,
+                      initialValue: _frequency,
+                      decoration: const InputDecoration(
+                        labelText: 'Returns are filed',
+                        helperText: 'Quarterly (QRMP) files GSTR-1 and 3B '
+                            'once a quarter and deposits tax by PMT-06 in the '
+                            'first two months. Open to firms under 5 crore.',
+                        helperMaxLines: 3,
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                            value: 'MONTHLY', child: Text('Monthly')),
+                        DropdownMenuItem(
+                            value: 'QUARTERLY',
+                            child: Text('Quarterly (QRMP)')),
+                      ],
+                      onChanged: editable && !saving
+                          ? (value) =>
+                              setState(() => _frequency = value ?? _frequency)
+                          : null,
+                    ),
+                    if (_frequency == 'QUARTERLY') ...[
+                      const SizedBox(height: AppSpacing.md),
+                      DropdownButtonFormField<String?>(
+                        key: const ValueKey('gst-quarterly-from'),
+                        isExpanded: true,
+                        initialValue: _quarterlyFrom,
+                        decoration: const InputDecoration(
+                          labelText: 'Quarterly from',
+                          helperText: 'The quarter the firm started QRMP. '
+                              'Earlier periods stay monthly.',
+                          helperMaxLines: 2,
+                        ),
+                        items: [
+                          const DropdownMenuItem<String?>(
+                              value: null, child: Text('Every period')),
+                          for (final String start in _quarterStarts)
+                            DropdownMenuItem<String?>(
+                                value: start, child: Text(start)),
+                        ],
+                        onChanged: editable && !saving
+                            ? (value) => setState(() => _quarterlyFrom = value)
+                            : null,
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      DropdownButtonFormField<String>(
+                        key: const ValueKey('gst-qrmp-method'),
+                        isExpanded: true,
+                        initialValue: _qrmpMethod,
+                        decoration: const InputDecoration(
+                          labelText: 'PMT-06 deposit method',
+                          helperText: 'Fixed sum is 35% of the last '
+                              "quarter's cash paid; self-assessment deposits "
+                              'what the month actually owes.',
+                          helperMaxLines: 3,
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                              value: 'FIXED_SUM',
+                              child: Text('Fixed sum: 35% of last quarter')),
+                          DropdownMenuItem(
+                              value: 'SELF_ASSESSMENT',
+                              child: Text('Self-assessment')),
+                        ],
+                        onChanged: editable && !saving
+                            ? (value) => setState(
+                                () => _qrmpMethod = value ?? _qrmpMethod)
+                            : null,
+                      ),
+                    ],
                     const SizedBox(height: AppSpacing.md),
                     TextField(
                       key: const ValueKey('gst-eway-limit'),

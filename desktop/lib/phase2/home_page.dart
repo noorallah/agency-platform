@@ -135,6 +135,7 @@ class Phase2HomePage extends StatefulWidget {
   static const String tradeLicences = 'masters/trade-licences';
   static const String receipts = 'accounting/receipts';
   static const String gstPayment = 'sales/gst-payment';
+  static const String gstDeposits = 'sales/gst-deposits';
   static const String gstReturns = 'sales/gst-returns';
 
   /// The to-do list, in the order of a trading day.
@@ -754,8 +755,30 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
   static String _kindName(String kind) => switch (kind) {
         'GSTR1' => 'GSTR-1',
         'GSTR3B' => 'GSTR-3B',
+        'IFF' => 'IFF (optional)',
+        'PMT06' => 'PMT-06 deposit',
         _ => 'TCS deposit',
       };
+
+  /// The period a row covers: the month, or the quarter ("Jul-Sep 2026")
+  /// when a quarterly filer's return starts earlier than its own month.
+  static String _periodLabel(Map<String, dynamic> row) {
+    final String period = '${row['return_period']}';
+    final String from = '${row['period_from'] ?? ''}';
+    final String kind = '${row['kind']}';
+    if ((kind == 'GSTR1' || kind == 'GSTR3B') &&
+        from.length >= 7 &&
+        period.length >= 7 &&
+        from.substring(0, 7) != period.substring(0, 7)) {
+      final int? a = int.tryParse(from.substring(5, 7));
+      final int? b = int.tryParse(period.substring(5, 7));
+      if (a != null && b != null && a >= 1 && a <= 12 && b >= 1 && b <= 12) {
+        return '${_monthNames[a - 1]}-${_monthNames[b - 1]} '
+            '${period.substring(0, 4)}';
+      }
+    }
+    return _month(period);
+  }
 
   /// "2026-08" as "Aug 2026".
   static String _month(String period) {
@@ -777,6 +800,9 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
     if (status == 'DONE') {
       final bool paid = row['kind'] == 'GSTR3B' && row['reference'] != null;
       return ('${paid ? 'Paid' : 'Filed'} ${_dayMonth(row['done_on'])}', false);
+    }
+    if (status == 'OPTIONAL') {
+      return ('optional · by ${_dayMonth(row['due_date'])}', false);
     }
     if (status == 'LATE') {
       final int days = (row['days_late'] as num?)?.toInt() ?? 0;
@@ -824,15 +850,19 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
     final (String status, bool late) = _calendarStatus(row);
     final String? filingId = row['filing_id'] as String?;
     final bool canRecord =
-        kind != 'TCS' && widget.allowed(Phase2HomePage.gstReturns);
+        kind != 'TCS' &&
+        kind != 'PMT06' &&
+        widget.allowed(Phase2HomePage.gstReturns);
     final double amount = double.tryParse('${row['amount'] ?? 0}') ?? 0;
     final Color statusColour =
         late ? theme.colorScheme.error : theme.colorScheme.onSurfaceVariant;
     return InkWell(
       key: ValueKey('home-tax-$kind-$period'),
-      onTap: () => _open(kind == 'GSTR1'
+      onTap: () => _open(kind == 'GSTR1' || kind == 'IFF'
           ? Phase2HomePage.gstReturns
-          : Phase2HomePage.gstPayment),
+          : kind == 'PMT06'
+              ? Phase2HomePage.gstDeposits
+              : Phase2HomePage.gstPayment),
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
         decoration: BoxDecoration(
@@ -846,7 +876,7 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
             Row(children: [
               Expanded(
                 child: Text(
-                  '${_kindName(kind)} · ${_month(period)}',
+                  '${_kindName(kind)} · ${_periodLabel(row)}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodyMedium

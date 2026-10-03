@@ -14,7 +14,7 @@ import '../../models/entities.dart';
 import '../workspace/desktop_framework.dart';
 
 /// Which return is on screen.
-enum _ReturnView { gstr1, gstr3b }
+enum _ReturnView { gstr1, gstr3b, gstr1Quarter, iff }
 
 /// Show GSTR-1 section by section, and the outward half of GSTR-3B.
 class GstReturnPage extends StatefulWidget {
@@ -42,6 +42,10 @@ class _GstReturnPageState extends State<GstReturnPage> {
   _ReturnView _view = _ReturnView.gstr1;
   Json? _gstr1;
   Json? _gstr3b;
+  // Quarterly filers (GST-7): the quarter's GSTR-1 and the optional IFF.
+  bool _quarterly = false;
+  String? _qPeriod;
+  Json? _quarterData;
   String? _error;
   bool _loading = false;
 
@@ -65,7 +69,70 @@ class _GstReturnPageState extends State<GstReturnPage> {
   @override
   void initState() {
     super.initState();
-    if (widget.hasActiveFirm && _mayView) _load();
+    if (widget.hasActiveFirm && _mayView) {
+      _load();
+      _loadPlan();
+    }
+  }
+
+  Future<void> _loadPlan() async {
+    try {
+      final Json plan = await widget.api.gstFilingPlan();
+      if (!mounted) return;
+      setState(() => _quarterly = plan['filing_frequency'] == 'QUARTERLY');
+    } on ApiException {
+      // Without a plan the screen stays what a monthly filer sees.
+    }
+  }
+
+  /// Month options for the quarterly modes: quarter ends for GSTR-1, the
+  /// first two months of a quarter for the IFF. Newest first.
+  List<String> _quarterMonths() {
+    final DateTime now = DateTime.now();
+    final List<String> out = [];
+    for (int back = 0; back < 24; back++) {
+      final DateTime month = DateTime(now.year, now.month - back);
+      if ((month.month % 3 == 0) == (_view == _ReturnView.gstr1Quarter)) {
+        out.add('${month.year.toString().padLeft(4, '0')}-'
+            '${month.month.toString().padLeft(2, '0')}');
+      }
+    }
+    return out;
+  }
+
+  Future<void> _loadQuarter() async {
+    final List<String> options = _quarterMonths();
+    final String period =
+        options.contains(_qPeriod) ? _qPeriod! : options.first;
+    setState(() {
+      _qPeriod = period;
+      _loading = true;
+      _error = null;
+      _quarterData = null;
+    });
+    try {
+      final Json data = _view == _ReturnView.iff
+          ? await widget.api.gstIff(period)
+          : await widget.api.gstr1Quarterly(period);
+      if (!mounted) return;
+      setState(() {
+        _quarterData = data;
+        _loading = false;
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error.message;
+        _loading = false;
+      });
+    }
+  }
+
+  void _chooseView(_ReturnView view) {
+    setState(() => _view = view);
+    if (view == _ReturnView.gstr1Quarter || view == _ReturnView.iff) {
+      _loadQuarter();
+    }
   }
 
   @override
@@ -171,15 +238,51 @@ class _GstReturnPageState extends State<GstReturnPage> {
           ? null
           : 'Filing as ${stringValue(_gstr1!['gstin'])}. Derived from the '
               'documents on every read, never stored.',
-      viewBar: SegmentedButton<_ReturnView>(
-        segments: const [
-          ButtonSegment(value: _ReturnView.gstr1, label: Text('GSTR-1')),
-          ButtonSegment(value: _ReturnView.gstr3b, label: Text('GSTR-3B')),
+      viewBar: Wrap(
+        spacing: AppSpacing.md,
+        runSpacing: AppSpacing.sm,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          SegmentedButton<_ReturnView>(
+            segments: [
+              const ButtonSegment(
+                  value: _ReturnView.gstr1, label: Text('GSTR-1')),
+              const ButtonSegment(
+                  value: _ReturnView.gstr3b, label: Text('GSTR-3B')),
+              if (_quarterly) ...const [
+                ButtonSegment(
+                    value: _ReturnView.gstr1Quarter,
+                    label: Text('Quarterly GSTR-1')),
+                ButtonSegment(value: _ReturnView.iff, label: Text('IFF')),
+              ],
+            ],
+            selected: {_view},
+            showSelectedIcon: false,
+            onSelectionChanged: (selection) => _chooseView(selection.first),
+          ),
+          if (_view == _ReturnView.gstr1Quarter || _view == _ReturnView.iff)
+            SizedBox(
+              width: 150,
+              child: DropdownButtonFormField<String>(
+                key: const ValueKey('gst-quarter-period'),
+                initialValue: _qPeriod,
+                decoration: InputDecoration(
+                  labelText:
+                      _view == _ReturnView.iff ? 'IFF month' : 'Quarter ending',
+                  isDense: true,
+                ),
+                items: [
+                  for (final String month in _quarterMonths())
+                    DropdownMenuItem(value: month, child: Text(month)),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => _qPeriod = value);
+                  _loadQuarter();
+                },
+              ),
+            ),
         ],
-        selected: {_view},
-        showSelectedIcon: false,
-        onSelectionChanged: (selection) =>
-            setState(() => _view = selection.first),
       ),
       primaryContent: _content(),
       statusBar: WorkspaceStatusBar(
@@ -290,7 +393,11 @@ class _GstReturnPageState extends State<GstReturnPage> {
         message: _error!,
       );
     }
-    final Json? data = _view == _ReturnView.gstr1 ? _gstr1 : _gstr3b;
+    final Json? data = switch (_view) {
+      _ReturnView.gstr1 => _gstr1,
+      _ReturnView.gstr3b => _gstr3b,
+      _ => _quarterData,
+    };
     if (data == null) {
       return const WorkspaceEmptyState(
         title: 'Nothing yet',
@@ -298,7 +405,130 @@ class _GstReturnPageState extends State<GstReturnPage> {
       );
     }
     return SingleChildScrollView(
-      child: _view == _ReturnView.gstr1 ? _one(data) : _summary(data),
+      child: switch (_view) {
+        _ReturnView.gstr1 => _one(data),
+        _ReturnView.gstr3b => _summary(data),
+        _ReturnView.gstr1Quarter => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [_quarterNotes(data), _one(data)],
+          ),
+        _ReturnView.iff => _iffView(data),
+      },
+    );
+  }
+
+  /// What a quarter's GSTR-1 needs said: its due date and what was already
+  /// furnished through the IFF in months 1 and 2.
+  Widget _quarterNotes(Json data) {
+    final ThemeData theme = Theme.of(context);
+    final List<dynamic> furnished =
+        data['furnished_in_iff'] as List<dynamic>? ?? const [];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Quarter ${stringValue(data['quarter'])}, due '
+            '${stringValue(data['due_date'])}.',
+            key: const ValueKey('gst-quarter-due'),
+            style: theme.textTheme.titleSmall,
+          ),
+          if (furnished.isNotEmpty)
+            Text(
+              'Already furnished through the IFF for '
+              '${furnished.map(stringValue).join(', ')}; those invoices are '
+              'not repeated by the buyer, but stay in this return.',
+              key: const ValueKey('gst-quarter-furnished'),
+              style: theme.textTheme.bodySmall,
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// The invoice furnishing facility: B2B invoices and credit notes of month
+  /// 1 or 2, optional, with a limit on what it may carry.
+  Widget _iffView(Json data) {
+    final ThemeData theme = Theme.of(context);
+    final List<dynamic> b2b = data['b2b'] as List<dynamic>? ?? const [];
+    final List<dynamic> cdnr = data['cdnr'] as List<dynamic>? ?? const [];
+    final List<dynamic> unplaced =
+        data['unplaced_invoices'] as List<dynamic>? ?? const [];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+          child: Text(
+            'IFF for ${stringValue(data['return_period'])} '
+            '(${stringValue(data['from_date'])} to '
+            '${stringValue(data['to_date'])}), optional, by '
+            '${stringValue(data['due_date'])}. B2B value '
+            '${_money(data['b2b_value'])} of a ${_money(data['limit'])} limit.'
+            '${data['filed'] == true ? ' Marked filed.' : ''}',
+            key: const ValueKey('gst-iff-summary'),
+            style: theme.textTheme.titleSmall,
+          ),
+        ),
+        if (data['over_limit'] == true)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.md),
+            child: Text(
+              'Over the limit: the portal will not take more than '
+              '${_money(data['limit'])} of B2B value in one IFF. Leave some '
+              'invoices for the quarterly GSTR-1.',
+              key: const ValueKey('gst-iff-over-limit'),
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(color: theme.colorScheme.error),
+            ),
+          ),
+        _Section(
+          title: 'B2B — registered buyers, invoice by invoice',
+          headers: const [
+            'Invoice',
+            'Buyer GSTIN',
+            'Taxable',
+            'CGST',
+            'SGST',
+            'IGST',
+          ],
+          rows: [
+            for (final dynamic party in b2b)
+              for (final dynamic invoice
+                  in (party as Map)['invoices'] as List<dynamic>? ?? const [])
+                ([
+                  stringValue((invoice as Map)['invoice_number']),
+                  stringValue(party['gstin']),
+                  _money(invoice['taxable_value']),
+                  _money(invoice['central_tax']),
+                  _money(invoice['state_tax']),
+                  _money(invoice['integrated_tax']),
+                ]),
+          ],
+        ),
+        _Section(
+          title: 'CDNR — credit notes to registered buyers',
+          headers: const ['Note', 'Against', 'Taxable', 'CGST', 'SGST'],
+          rows: [
+            for (final dynamic row in cdnr)
+              ([
+                stringValue((row as Map)['note_number']),
+                stringValue(row['against_invoice']),
+                _money(row['taxable_value']),
+                _money(row['central_tax']),
+                _money(row['state_tax']),
+              ]),
+          ],
+        ),
+        _Section(
+          title: 'Invoices without a place of supply — named here, not filed',
+          headers: const ['Invoice'],
+          rows: [
+            for (final dynamic number in unplaced) [stringValue(number)],
+          ],
+        ),
+      ],
     );
   }
 

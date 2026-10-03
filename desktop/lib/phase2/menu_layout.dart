@@ -300,6 +300,7 @@ abstract final class MenuLayout {
         MenuItemSpec(AppModule.sales, 'rule37', 'Rule 37 (180 days)'),
         MenuItemSpec(AppModule.sales, 'gst-checks', 'GST checks'),
         MenuItemSpec(AppModule.sales, 'gst-payment', 'GST Payment'),
+        MenuItemSpec(AppModule.sales, 'gst-deposits', 'PMT-06 deposits'),
         MenuItemSpec(AppModule.sales, 'einvoice', 'E-Invoice'),
         MenuItemSpec(AppModule.sales, 'tcs', 'TCS'),
         MenuItemSpec(AppModule.accounting, 'tds-challans', 'TDS Challans'),

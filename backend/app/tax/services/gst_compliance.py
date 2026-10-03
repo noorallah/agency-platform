@@ -80,6 +80,9 @@ class GstComplianceService:
                 supplier_irn_check="WARN",
                 gstr2b_tolerance=Decimal("1.00"),
                 eway_bill_limit=DEFAULT_EWAY_BILL_LIMIT,
+                filing_frequency="MONTHLY",
+                quarterly_from=None,
+                qrmp_payment_method="FIXED_SUM",
                 is_configured=False,
             )
         return GstComplianceSettingsResponse(
@@ -92,6 +95,9 @@ class GstComplianceService:
             supplier_irn_check=stored.supplier_irn_check or "WARN",
             gstr2b_tolerance=Decimal(str(stored.gstr2b_tolerance)),
             eway_bill_limit=Decimal(str(stored.eway_bill_limit)),
+            filing_frequency=stored.filing_frequency or "MONTHLY",
+            quarterly_from=stored.quarterly_from,
+            qrmp_payment_method=stored.qrmp_payment_method or "FIXED_SUM",
             is_configured=True,
         )
 
@@ -120,6 +126,13 @@ class GstComplianceService:
             row.gstr2b_tolerance = data.gstr2b_tolerance
         if data.eway_bill_limit is not None:
             row.eway_bill_limit = data.eway_bill_limit
+        if data.filing_frequency is not None:
+            row.filing_frequency = data.filing_frequency
+            row.quarterly_from = (
+                data.quarterly_from if data.filing_frequency == "QUARTERLY" else None
+            )
+        if data.qrmp_payment_method is not None:
+            row.qrmp_payment_method = data.qrmp_payment_method
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -160,6 +173,11 @@ class GstComplianceService:
             "rule37_mode": row.rule37_mode,
             "supplier_irn_check": row.supplier_irn_check,
             "gstr2b_tolerance": str(row.gstr2b_tolerance),
+            "filing_frequency": row.filing_frequency,
+            "quarterly_from": (
+                row.quarterly_from.isoformat() if row.quarterly_from else None
+            ),
+            "qrmp_payment_method": row.qrmp_payment_method,
         }
 
     def dispatch_check(

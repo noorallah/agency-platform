@@ -57,7 +57,8 @@ class GstPayment(BaseEntity):
     )
 
     firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
-    #: The return month, ``YYYY-MM``.
+    #: The return month, ``YYYY-MM``; for a quarterly filer the quarter's
+    #: last month, and the row settles the whole quarter (GST-7).
     return_period: Mapped[str] = mapped_column(String(7), nullable=False)
     payment_date: Mapped[date] = mapped_column(Date, nullable=False)
     #: The bank or cash account the challan was paid from.
@@ -97,6 +98,12 @@ class GstPayment(BaseEntity):
     reverse_charge_cgst: Mapped[Decimal] = _money()
     reverse_charge_sgst: Mapped[Decimal] = _money()
     reverse_charge_cess: Mapped[Decimal] = _money()
+    # Of the cash, what the PMT-06 deposits of a quarter's first two months
+    # paid (GST-7): taken off the electronic cash ledger, not the bank.
+    cash_ledger_igst: Mapped[Decimal] = _money()
+    cash_ledger_cgst: Mapped[Decimal] = _money()
+    cash_ledger_sgst: Mapped[Decimal] = _money()
+    cash_ledger_cess: Mapped[Decimal] = _money()
     # Credit left, carried to the next month.
     carried_igst: Mapped[Decimal] = _money()
     carried_cgst: Mapped[Decimal] = _money()

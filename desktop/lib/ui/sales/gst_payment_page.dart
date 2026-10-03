@@ -316,6 +316,17 @@ class _GstPaymentPageState extends State<GstPaymentPage> {
               ' Cash to pay: ${preview.cashTotal}.',
               style: theme.textTheme.titleSmall,
             ),
+            if (preview.quarterLabel != null)
+              Text('Settles the quarter ${preview.quarterLabel}.',
+                  key: const ValueKey('gst-pay-quarter'),
+                  style: theme.textTheme.bodySmall),
+            if (preview.hasDeposits)
+              Text(
+                'Paid from PMT-06 deposits: ${preview.depositsTotal}. '
+                'From bank: ${preview.bankTotal}.',
+                key: const ValueKey('gst-pay-deposits'),
+                style: theme.textTheme.bodyMedium,
+              ),
             if (!preview.previousSettled) ...[
               const SizedBox(height: AppSpacing.sm),
               Text(
@@ -343,7 +354,7 @@ class _GstPaymentPageState extends State<GstPaymentPage> {
             const SizedBox(height: AppSpacing.sm),
             Phase2WideTable(
               table: DataTable(
-                columns: const [
+                columns: [
                   DataColumn(label: Text('Head')),
                   DataColumn(label: Text('Owed'), numeric: true),
                   DataColumn(label: Text('Credit b/f'), numeric: true),
@@ -357,6 +368,9 @@ class _GstPaymentPageState extends State<GstPaymentPage> {
                         child: Text('Reverse charge (cash)'),
                       ),
                       numeric: true),
+                  if (preview.hasDeposits)
+                    DataColumn(
+                        label: Text('Paid from deposits'), numeric: true),
                   DataColumn(label: Text('Credit carried'), numeric: true),
                 ],
                 rows: [
@@ -370,6 +384,8 @@ class _GstPaymentPageState extends State<GstPaymentPage> {
                       DataCell(Text(row.cash)),
                       DataCell(Text(row.reverseCharge,
                           key: ValueKey('gst-pay-rcm-${row.head}'))),
+                      if (preview.hasDeposits)
+                        DataCell(Text(row.paidFromDeposits)),
                       DataCell(Text(row.carriedForward)),
                     ]),
                 ],

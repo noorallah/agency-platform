@@ -445,6 +445,47 @@ void main() {
         findsOneWidget);
   });
 
+  testWidgets('tax calendar: IFF optional, PMT-06 and a quarter named (GST-7)',
+      (tester) async {
+    final _Source source = _Source();
+    source.calendar = [
+      {
+        'kind': 'GSTR1',
+        'return_period': '2026-09',
+        'period_from': '2026-07-01',
+        'due_date': '2026-10-13',
+        'amount': '0',
+        'status': 'DUE',
+      },
+      {
+        'kind': 'IFF',
+        'return_period': '2026-08',
+        'period_from': '2026-08-01',
+        'due_date': '2026-09-13',
+        'amount': '0',
+        'status': 'OPTIONAL',
+      },
+      {
+        'kind': 'PMT06',
+        'return_period': '2026-08',
+        'period_from': '2026-08-01',
+        'due_date': '2026-09-25',
+        'amount': '5000',
+        'status': 'DUE',
+      },
+    ];
+    await _pump(tester, allowed: _owner, source: source);
+    expect(find.text('GSTR-1 · Jul-Sep 2026'), findsOneWidget);
+    expect(find.text('IFF (optional) · Aug 2026'), findsOneWidget);
+    expect(find.text('PMT-06 deposit · Aug 2026'), findsOneWidget);
+    expect(find.textContaining('optional · by 13 Sep'), findsOneWidget);
+    // An IFF is marked filed like a GSTR-1; a deposit is not a filing.
+    expect(find.byKey(const ValueKey('home-tax-mark-IFF-2026-08')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('home-tax-mark-PMT06-2026-08')),
+        findsNothing);
+  });
+
   testWidgets('tax calendar: absent without the GST Payment screen',
       (tester) async {
     final _Source source = _Source();

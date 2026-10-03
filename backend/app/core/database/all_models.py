@@ -47,6 +47,7 @@ from app.finance.models import (  # noqa: F401
 from app.firms.models import firm  # noqa: F401
 from app.goods_receipt.models import goods_receipt  # noqa: F401
 from app.gst_returns.models import (
+    gst_cash_deposit,  # noqa: F401
     gst_payment,  # noqa: F401
     gst_return_filing,  # noqa: F401
     gstr2b,  # noqa: F401

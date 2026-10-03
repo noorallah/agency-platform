@@ -239,7 +239,8 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `gst_payments` | firm store ¹ | A month's GST liability, the credit set off, the cash paid by challan. | `ledger_accounts`, `journal_entries` |
+| `gst_cash_deposits` | firm store ¹ | A quarterly filer's PMT-06 deposit for month 1 or 2 of a quarter, per head (GST-7). | `ledger_accounts`, `journal_entries` |
+| `gst_payments` | firm store ¹ | A month's (or a quarterly filer's quarter's) GST liability, the credit set off, the cash paid by challan and from PMT-06 deposits. | `ledger_accounts`, `journal_entries` |
 | `gst_return_filings` | firm store ¹ | One return, for one month, filed on the portal. |  |
 | `gstr2b_documents` | firm store ¹ | One supplier document in a month's GSTR-2B, and what it matched. | `gstr2b_imports` |
 | `gstr2b_imports` | firm store ¹ | One month's GSTR-2B, imported once; a re-import replaces it. |  |

@@ -29,6 +29,8 @@ class GstHeadRow(GstSchema):
     #: Reverse charge on inward supplies (3.1(d)): paid in cash only, never
     #: by credit, on top of `cash` (backlog 68 row 8).
     reverse_charge: Decimal = Decimal("0")
+    #: Of the cash, what PMT-06 deposits paid rather than the bank (GST-7).
+    paid_from_deposits: Decimal = Decimal("0")
 
 
 class GstUtilisationRow(GstSchema):
@@ -53,6 +55,12 @@ class GstPaymentPreviewResponse(GstSchema):
     cash_total: Decimal
     heads: list[GstHeadRow]
     utilisation: list[GstUtilisationRow]
+    #: The first day covered: the month's, or the quarter's (GST-7).
+    period_from: date | None = None
+    #: What the PMT-06 deposits pay of ``cash_total``.
+    deposits_total: Decimal = Decimal("0")
+    #: What is left for the bank, before interest and late fee.
+    bank_total: Decimal = Decimal("0")
 
 
 class GstPaymentCreate(GstSchema):
@@ -94,6 +102,8 @@ class GstPaymentResponse(GstSchema):
     money_account_id: UUID
     heads: list[GstHeadRow]
     cash_total: Decimal
+    #: What the PMT-06 deposits paid of ``cash_total`` (GST-7).
+    deposits_total: Decimal = Decimal("0")
     interest_amount: Decimal
     late_fee_amount: Decimal
     narration: str | None
@@ -119,14 +129,15 @@ __all__ = [
 class TaxCalendarItemResponse(GstSchema):
     """One return or deposit a month owes, on Home's tax calendar (63.4)."""
 
-    #: ``GSTR1``, ``GSTR3B`` or ``TCS``.
+    #: ``GSTR1``, ``GSTR3B``, ``TCS``; for a quarterly filer's months 1 and
+    #: 2, ``IFF`` and ``PMT06`` (GST-7).
     kind: str
     return_period: str
     due_date: date
     #: GSTR-1: the month's output tax. GSTR-3B: the cash its payment works
     #: out to. TCS: what was collected.
     amount: Decimal
-    #: ``DONE``, ``DUE`` or ``LATE``.
+    #: ``DONE``, ``DUE`` or ``LATE``; ``OPTIONAL`` for an IFF not filed.
     status: str
     days_late: int
     done_on: date | None = None
@@ -134,12 +145,15 @@ class TaxCalendarItemResponse(GstSchema):
     reference: str | None = None
     #: The filed-return record behind a done item, which can be withdrawn.
     filing_id: UUID | None = None
+    #: The first day the item covers: its month's, or its quarter's (GST-7).
+    period_from: date | None = None
 
 
 class GstReturnFilingCreate(GstSchema):
     """Say a return was filed on the portal (63.4)."""
 
-    return_type: Literal["GSTR1", "GSTR3B"]
+    #: IFF only for month 1 or 2 of a quarter filed quarterly (GST-7).
+    return_type: Literal["GSTR1", "GSTR3B", "IFF"]
     return_period: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
     filed_on: date
     arn: str | None = Field(default=None, max_length=30)
@@ -258,3 +272,67 @@ class FilingChecksResponse(GstSchema):
     #: Rows by check, for the summary line.
     counts: dict[str, int]
     rows: list[FilingCheckRowResponse]
+
+
+class GstCashDepositCreate(GstSchema):
+    """Record a PMT-06 challan for month 1 or 2 of a quarter (GST-7)."""
+
+    return_period: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    deposit_date: date
+    money_account_id: UUID
+    #: FIXED_SUM or SELF_ASSESSMENT; the firm's setting when left out.
+    method: Literal["FIXED_SUM", "SELF_ASSESSMENT"] | None = None
+    amount_igst: Decimal = Field(default=Decimal("0"), ge=0, decimal_places=2)
+    amount_cgst: Decimal = Field(default=Decimal("0"), ge=0, decimal_places=2)
+    amount_sgst: Decimal = Field(default=Decimal("0"), ge=0, decimal_places=2)
+    amount_cess: Decimal = Field(default=Decimal("0"), ge=0, decimal_places=2)
+    challan_cpin: str | None = Field(default=None, max_length=20)
+    challan_cin: str | None = Field(default=None, max_length=30)
+    narration: str | None = Field(default=None, max_length=2000)
+
+
+class GstCashDepositResponse(GstSchema):
+    """One PMT-06 deposit."""
+
+    id: UUID
+    return_period: str
+    deposit_date: date
+    method: str
+    money_account_id: UUID
+    challan_cpin: str | None
+    challan_cin: str | None
+    amount_igst: Decimal
+    amount_cgst: Decimal
+    amount_sgst: Decimal
+    amount_cess: Decimal
+    total: Decimal
+    narration: str | None
+    status: str
+    journal_entry_id: UUID
+    reversal_journal_entry_id: UUID | None
+    reversal_reason: str | None
+    reversed_at: datetime | None
+    version: int
+
+
+class GstDepositSuggestionResponse(GstSchema):
+    """What a month's PMT-06 deposit should be, and why (GST-7)."""
+
+    return_period: str
+    method: str
+    due_date: date
+    heads: Rule37Heads
+    total: Decimal
+    basis: str
+    #: What standing deposits for the month already paid.
+    deposited: Rule37Heads
+
+
+class GstFilingPlanResponse(GstSchema):
+    """How the firm files, and the cash ledger's balance (GST-7)."""
+
+    filing_frequency: str
+    quarterly_from: date | None
+    qrmp_payment_method: str
+    #: PMT-06 deposits no settlement has used yet.
+    cash_ledger: Rule37Heads

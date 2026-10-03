@@ -52,6 +52,12 @@ class _ReturnsApi extends ApiClient {
     bool retrying = false,
     int? expectedVersion,
   }) async {
+    // The filing plan (GST-7) is asked beside the return; a monthly filer.
+    if (path.endsWith('/filing-plan')) {
+      return <String, dynamic>{
+        'data': {'filing_frequency': 'MONTHLY'},
+      };
+    }
     requested.add('$method $path?${query?['from_date']}');
     if (failWith != null && requested.length >= failFromCall) {
       throw ApiException(failWith!, statusCode: 400);

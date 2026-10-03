@@ -27,6 +27,9 @@ class GstReturnType(StrEnum):
 
     GSTR1 = "GSTR1"
     GSTR3B = "GSTR3B"
+    #: The Invoice Furnishing Facility: a quarterly filer's B2B invoices for
+    #: month 1 or 2 of the quarter, furnished early (GST-7).
+    IFF = "IFF"
 
 
 class GstReturnFiling(BaseEntity):
@@ -48,9 +51,10 @@ class GstReturnFiling(BaseEntity):
     )
 
     firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
-    #: ``GSTR1`` or ``GSTR3B``.
+    #: ``GSTR1``, ``GSTR3B`` or ``IFF``.
     return_type: Mapped[str] = mapped_column(String(10), nullable=False)
-    #: The return month, ``YYYY-MM``.
+    #: The return month, ``YYYY-MM``; a quarterly return is filed under the
+    #: quarter's last month (GST-7).
     return_period: Mapped[str] = mapped_column(String(7), nullable=False)
     filed_on: Mapped[date] = mapped_column(Date, nullable=False)
     #: The portal's acknowledgement reference number, where it was kept.

@@ -12,6 +12,7 @@ class GstHeadRow {
     required this.creditUsed,
     required this.carriedForward,
     this.reverseCharge = '0',
+    this.paidFromDeposits = '0',
   });
 
   final String head;
@@ -27,6 +28,9 @@ class GstHeadRow {
   /// of [cash], never by credit (backlog 68 row 8).
   final String reverseCharge;
 
+  /// Cash already deposited by PMT-06 for this head (quarterly filers).
+  final String paidFromDeposits;
+
   factory GstHeadRow.fromJson(Json json) => GstHeadRow(
         head: stringValue(json['head']),
         liability: stringValue(json['liability']),
@@ -39,6 +43,9 @@ class GstHeadRow {
         reverseCharge: json['reverse_charge'] == null
             ? '0'
             : stringValue(json['reverse_charge']),
+        paidFromDeposits: json['paid_from_deposits'] == null
+            ? '0'
+            : stringValue(json['paid_from_deposits']),
       );
 }
 
@@ -58,10 +65,37 @@ class GstPaymentPreview {
     required this.cashTotal,
     required this.heads,
     required this.utilisation,
+    this.periodFrom,
+    this.depositsTotal = '0',
+    this.bankTotal = '',
   });
 
   final String returnPeriod;
   final String dueDate;
+
+  /// First day covered when the settlement spans a quarter, else null.
+  final String? periodFrom;
+
+  /// Paid from PMT-06 deposits, and what is left to pay from the bank.
+  final String depositsTotal;
+  final String bankTotal;
+
+  bool get hasDeposits => (double.tryParse(depositsTotal) ?? 0) > 0;
+
+  /// The quarter covered, e.g. "Jul-Sep 2026", when it is not one month.
+  String? get quarterLabel {
+    final String? from = periodFrom;
+    if (from == null || from.length < 7 || returnPeriod.length < 7) return null;
+    if (from.substring(0, 7) == returnPeriod.substring(0, 7)) return null;
+    const List<String> names = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final int a = (int.tryParse(from.substring(5, 7)) ?? 1) - 1;
+    final int b = (int.tryParse(returnPeriod.substring(5, 7)) ?? 1) - 1;
+    if (a < 0 || a > 11 || b < 0 || b > 11) return null;
+    return '${names[a]}-${names[b]} ${returnPeriod.substring(0, 4)}';
+  }
 
   /// False on a firm's first month here: the credit brought forward is what
   /// was stated as the opening credit (the portal's credit ledger).
@@ -81,6 +115,13 @@ class GstPaymentPreview {
     return GstPaymentPreview(
       returnPeriod: stringValue(d['return_period']),
       dueDate: stringValue(d['due_date']),
+      periodFrom:
+          d['period_from'] == null ? null : stringValue(d['period_from']),
+      depositsTotal: d['deposits_total'] == null
+          ? '0'
+          : stringValue(d['deposits_total']),
+      bankTotal:
+          d['bank_total'] == null ? '' : stringValue(d['bank_total']),
       previousSettled: d['previous_settled'] == true,
       daysLate: (d['days_late'] as num?)?.toInt() ?? 0,
       suggestedInterest: stringValue(d['suggested_interest']),

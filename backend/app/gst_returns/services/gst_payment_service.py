@@ -63,7 +63,14 @@ from app.finance.services.control_accounts import (
 )
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine, JournalLineData
-from app.gst_returns.models import HEADS, GstPayment, GstPaymentStatus
+from app.gst_returns.models import (
+    HEADS,
+    GstCashDeposit,
+    GstCashDepositStatus,
+    GstPayment,
+    GstPaymentStatus,
+)
+from app.gst_returns.services.filing_frequency import FilingFrequencyService
 
 ZERO = Decimal("0.00")
 #: Section 50(1): 18% a year on tax paid late.
@@ -196,6 +203,13 @@ class GstPaymentPreview:
     reverse_charge: dict[str, Decimal] = field(
         default_factory=lambda: {head: ZERO for head in HEADS}
     )
+    #: Of the cash, what PMT-06 deposits already in the electronic cash
+    #: ledger pay, head by head (GST-7); the rest leaves the bank now.
+    from_deposits: dict[str, Decimal] = field(
+        default_factory=lambda: {head: ZERO for head in HEADS}
+    )
+    #: The first day the period covers: the month's, or the quarter's.
+    period_from: date | None = None
 
     def cash(self, head: str) -> Decimal:
         """Return the cash one head needs: what the set-off left, plus RCM."""
@@ -205,6 +219,16 @@ class GstPaymentPreview:
     def cash_total(self) -> Decimal:
         """Return all cash payable for tax, before interest and late fee."""
         return sum((self.cash(head) for head in HEADS), ZERO)
+
+    @property
+    def deposits_total(self) -> Decimal:
+        """Return the cash the PMT-06 deposits pay."""
+        return sum((self.from_deposits[head] for head in HEADS), ZERO)
+
+    @property
+    def bank_total(self) -> Decimal:
+        """Return the cash still to pay from the bank, before interest."""
+        return self.cash_total - self.deposits_total
 
 
 class GstPaymentService:
@@ -226,24 +250,61 @@ class GstPaymentService:
 
         Args:
             firm_id: The firm.
-            return_period: The month, ``YYYY-MM``.
+            return_period: The month, ``YYYY-MM``; for a quarterly filer the
+                quarter's last month, and the preview spans the quarter, its
+                cash paid first from the PMT-06 deposits (GST-7).
             payment_date: When the cash is or was paid, for the interest
-                suggestion. Today when left out.
+                suggestion -- on what the bank still pays. Today when left
+                out.
             opening_credit: Credit brought forward per head, used only when
                 no settlement of the month before is recorded -- a firm's
                 first month here, from the portal's credit ledger.
 
         """
+        plan = FilingFrequencyService(self._session).plan(firm_id)
+        plan.require_settlement_period(return_period)
+        first, last = plan.span(return_period)
+        preview = self.work_out(
+            firm_id,
+            return_period,
+            first=first,
+            last=last,
+            due=plan.gstr3b_due(return_period),
+            payment_date=payment_date,
+            opening_credit=opening_credit,
+        )
+        balance = cash_ledger_balance(self._session, firm_id)
+        preview.from_deposits = {
+            head: max(min(balance[head], preview.cash(head)), ZERO) for head in HEADS
+        }
+        preview.suggested_interest = _interest(preview.bank_total, preview.days_late)
+        return preview
+
+    def work_out(
+        self,
+        firm_id: UUID,
+        return_period: str,
+        *,
+        first: date,
+        last: date,
+        due: date,
+        payment_date: date | None = None,
+        opening_credit: dict[str, Decimal] | None = None,
+    ) -> GstPaymentPreview:
+        """Return the set-off over ``first``..``last``; writes nothing.
+
+        The credit brought forward is what the settlement of the period
+        ending the day before ``first`` carried, or ``opening_credit``.
+        """
         from app.gst_returns.services.gstr_service import GstReturnService
 
-        first, last = period_bounds(return_period)
         summary = GstReturnService(self._session).gstr3b(
             firm_scope=firm_id, from_date=first, to_date=last
         )
         outward = _heads(summary["outward_taxable_supplies"])
         net_itc = _heads(summary["net_itc"])
         reverse_charge = _heads(summary.get("inward_reverse_charge"))
-        previous = self._previous(firm_id, return_period)
+        previous = self._previous(firm_id, first)
         if previous is not None:
             brought = {head: getattr(previous, f"carried_{head}") for head in HEADS}
         else:
@@ -254,23 +315,21 @@ class GstPaymentService:
         credit = {head: brought[head] + net_itc[head] for head in HEADS}
         result = set_off(outward, credit)
         paid_on = payment_date or utc_now().date()
-        days_late = max((paid_on - due_date(return_period)).days, 0)
+        days_late = max((paid_on - due).days, 0)
         cash = sum(
             (result.cash(head) + max(reverse_charge[head], ZERO) for head in HEADS),
             ZERO,
         )
-        interest = (cash * INTEREST_RATE * days_late / Decimal(365)).quantize(
-            Decimal("1"), rounding=ROUND_HALF_UP
-        )
         return GstPaymentPreview(
             return_period=return_period,
-            due_date=due_date(return_period),
+            due_date=due,
             set_off=result,
             brought_forward=brought,
             previous_settled=previous is not None,
             days_late=days_late,
-            suggested_interest=quantize_ledger(interest),
+            suggested_interest=_interest(cash, days_late),
             reverse_charge=reverse_charge,
+            period_from=first,
         )
 
     def record(
@@ -360,7 +419,8 @@ class GstPaymentService:
 
         control = ControlAccountService(self._session)
         lines: list[JournalLineData] = []
-        first, last = period_bounds(return_period)
+        first = preview.period_from or period_bounds(return_period)[0]
+        _, last = period_bounds(return_period)
         for account_id, amount in self._output_debits(
             firm_id, result.liability, first=first, last=last
         ).items():
@@ -411,7 +471,19 @@ class GstPaymentService:
                     description=f"Late fee, GSTR-3B {return_period}",
                 )
             )
-        paid = cash_total + interest + late_fee
+        from_deposits = {h: preview.from_deposits[h] for h in HEADS}
+        deposits_used = sum(from_deposits.values(), ZERO)
+        if deposits_used > ZERO:
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=control.resolve(
+                        firm_id, ControlAccountPurpose.GST_CASH_LEDGER
+                    ),
+                    credit_amount=deposits_used,
+                    description=f"PMT-06 deposits used, {return_period}",
+                )
+            )
+        paid = cash_total - deposits_used + interest + late_fee
         if paid > ZERO:
             lines.append(
                 JournalLineData(
@@ -465,6 +537,7 @@ class GstPaymentService:
             setattr(row, f"cash_{head}", result.cash(head))
             setattr(row, f"carried_{head}", result.carried(head))
             setattr(row, f"reverse_charge_{head}", reverse_charge[head])
+            setattr(row, f"cash_ledger_{head}", from_deposits[head])
         self._session.add(row)
         self._session.flush()
         record_audit(
@@ -477,6 +550,7 @@ class GstPaymentService:
             after_data={
                 "return_period": return_period,
                 "cash": str(cash_total),
+                "from_deposits": str(deposits_used),
                 "interest": str(interest),
                 "late_fee": str(late_fee),
                 "challan_cpin": row.challan_cpin,
@@ -563,8 +637,8 @@ class GstPaymentService:
             )
         )
 
-    def _previous(self, firm_id: UUID, return_period: str) -> GstPayment | None:
-        first, _ = period_bounds(return_period)
+    def _previous(self, firm_id: UUID, first: date) -> GstPayment | None:
+        """Return the settlement of the period that ended the day before."""
         before = first - timedelta(days=1)
         return self._standing(firm_id, f"{before.year:04d}-{before.month:02d}")
 
@@ -658,6 +732,42 @@ class GstPaymentService:
                 f"The {what} must go to one of the firm's expense accounts."
             )
         return account.id
+
+
+def _interest(cash: Decimal, days_late: int) -> Decimal:
+    """Return section 50 interest on ``cash`` for ``days_late``, in rupees."""
+    interest = (cash * INTEREST_RATE * days_late / Decimal(365)).quantize(
+        Decimal("1"), rounding=ROUND_HALF_UP
+    )
+    return quantize_ledger(interest)
+
+
+def cash_ledger_balance(session: Session, firm_id: UUID) -> dict[str, Decimal]:
+    """Return the PMT-06 deposits not yet used by a settlement, per head.
+
+    Derived on every read: what the standing deposits put in, less what the
+    standing settlements took out. Never a stored balance.
+    """
+    balance = {head: ZERO for head in HEADS}
+    for deposit in session.scalars(
+        select(GstCashDeposit).where(
+            GstCashDeposit.firm_id == firm_id,
+            GstCashDeposit.is_deleted.is_(False),
+            GstCashDeposit.status == GstCashDepositStatus.POSTED.value,
+        )
+    ).all():
+        for head in HEADS:
+            balance[head] += Decimal(str(getattr(deposit, f"amount_{head}")))
+    for payment in session.scalars(
+        select(GstPayment).where(
+            GstPayment.firm_id == firm_id,
+            GstPayment.is_deleted.is_(False),
+            GstPayment.status == GstPaymentStatus.POSTED.value,
+        )
+    ).all():
+        for head in HEADS:
+            balance[head] -= Decimal(str(getattr(payment, f"cash_ledger_{head}")))
+    return {head: quantize_ledger(value) for head, value in balance.items()}
 
 
 def _heads(section: object) -> dict[str, Decimal]:

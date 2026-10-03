@@ -6133,6 +6133,64 @@ class ApiClient {
         query: {'from_date': fromDate, 'to_date': toDate},
       ));
 
+  // ---- quarterly filers, QRMP (GST-7) ----------------------------------
+
+  /// How the firm files (monthly or quarterly) and its cash ledger balance.
+  Future<Json> gstFilingPlan() async =>
+      _unwrapMap(await request('GET', '/api/v1/gst-returns/filing-plan'));
+
+  /// The PMT-06 deposits recorded, newest first.
+  Future<List<Json>> gstCashDeposits() async {
+    final Json response =
+        await request('GET', '/api/v1/gst-returns/cash-deposits');
+    final dynamic data = response['data'];
+    return data is List
+        ? data.whereType<Map>().map(Map<String, dynamic>.from).toList()
+        : const <Json>[];
+  }
+
+  /// What the month's PMT-06 deposit should be, by the chosen method.
+  Future<Json> gstCashDepositSuggestion({
+    required String returnPeriod,
+    String? method,
+  }) async =>
+      _unwrapMap(await request(
+        'GET',
+        '/api/v1/gst-returns/cash-deposits/suggestion',
+        query: {
+          'return_period': returnPeriod,
+          if (method != null) 'method': method,
+        },
+      ));
+
+  /// Record a PMT-06 deposit; posts the bank to cash-ledger journal.
+  Future<Json> recordGstCashDeposit(Json data) async => _unwrapMap(
+        await request('POST', '/api/v1/gst-returns/cash-deposits', body: data),
+      );
+
+  /// Take a PMT-06 deposit back with a mirror journal.
+  Future<Json> reverseGstCashDeposit(String id, String reason) async =>
+      _unwrapMap(await request(
+        'POST',
+        '/api/v1/gst-returns/cash-deposits/$id/reverse',
+        body: {'reason': reason},
+      ));
+
+  /// The optional invoice furnishing facility for a quarter's month 1 or 2.
+  Future<Json> gstIff(String returnPeriod) async => _unwrapMap(await request(
+        'GET',
+        '/api/v1/gst-returns/iff',
+        query: {'return_period': returnPeriod},
+      ));
+
+  /// A quarter's GSTR-1, named by its last month.
+  Future<Json> gstr1Quarterly(String returnPeriod) async =>
+      _unwrapMap(await request(
+        'GET',
+        '/api/v1/gst-returns/gstr1-quarterly',
+        query: {'return_period': returnPeriod},
+      ));
+
   /// The outward half of the summary return for the same period.
   Future<Json> gstr3b({
     required String fromDate,
