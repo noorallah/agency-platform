@@ -511,7 +511,9 @@ class StockWriteOffCreate(InventorySchema):
     storage_node_id: UUID | None = None
     product_id: UUID
     batch_id: UUID | None = None
-    reason: WriteOffReason
+    #: A code from the firm's adjustment reasons (STK-7); the six in
+    #: ``WriteOffReason`` are always there.
+    reason: str = Field(min_length=2, max_length=40)
     quantity: Decimal = Field(gt=0, max_digits=18)
     entered_quantity: Decimal | None = Field(default=None, gt=0, max_digits=18)
     entered_uom_id: UUID | None = None
@@ -615,6 +617,9 @@ class InventoryAdjustmentCreate(InventorySchema):
     #: Optional: left out, the movement is numbered from its series (D-QA-16).
     reference_number: str | None = Field(default=None, min_length=2, max_length=80)
     reference_type: str = Field(default="ADJUSTMENT", min_length=2, max_length=40)
+    #: Optional: a code from the firm's adjustment reasons (STK-7). Its
+    #: account takes the other side of the journal.
+    reason_code: str | None = Field(default=None, min_length=2, max_length=40)
     transaction_date: date
     remarks: str | None = None
     #: Photos or documents backing it, kept with the movement (STK-9).

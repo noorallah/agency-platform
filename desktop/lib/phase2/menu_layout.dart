@@ -453,6 +453,8 @@ abstract final class MenuLayout {
     MenuGroupSpec('Stock', [
       MenuItemSpec(
           AppModule.inventory, 'inventory-settings', 'Inventory Settings'),
+      MenuItemSpec(
+          AppModule.inventory, 'adjustment-reasons', 'Adjustment Reasons'),
       MenuItemSpec.setting(batchRulesRoute, 'Batch Rules',
           permission: 'INVENTORY_VIEW'),
       // Branch & Warehouse Settings is left out (MenuLayout.notOffered).

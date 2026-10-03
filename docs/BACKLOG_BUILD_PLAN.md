@@ -494,6 +494,7 @@ otherwise it is built as written.
 - **What it is:** the firm keeps its own list of reasons, each tied to an account.
 - **What gets built:** a reason table seeded with today's DAMAGE / EXPIRY / LOSS and the new ones (STK-3, BUY-1); every adjustment and write-off names one; the journal uses its account. Migration yes, with backfill. Settings > Stock screen. Tests.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A104): `stock_adjustment_reasons` and `INVENTORY_MANAGE_REASONS` (migration 0270); `app/inventory/services/adjustment_reasons.py` (seeded per firm on first read, `resolve`), `/inventory/adjustment-reasons` CRUD; `write_off_stock` resolves its reason and `stage_adjustment` an optional `reason_code`; `post_stock_adjustment(expense_account_id=...)`. Desktop: *Adjustment reasons* settings screen, the firm's reasons on the write-off and adjustment. Tests: `test_adjustment_reasons.py`, `adjustment_reasons_test.dart`.
 
 #### STK-8. Approval for large adjustments (§70 row 12)
 - **What it is:** above a value per role, an adjustment waits for a manager.

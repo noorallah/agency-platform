@@ -1660,11 +1660,16 @@ class InventoryService:
         reference = self._movement_reference(
             data, "WRITE_OFF", firm_id=firm_scope, actor_id=actor_id
         )
-        reason = data.reason.value
+        from app.inventory.services.adjustment_reasons import (
+            AdjustmentReasonService,
+        )
+
+        listed = AdjustmentReasonService(self._session).resolve(firm_scope, data.reason)
+        reason = listed.code
         narration = (
-            f"{reason.title()}: {data.remarks}"
+            f"{listed.name}: {data.remarks}"
             if data.remarks
-            else f"Stock written off as {reason.lower()}"
+            else f"Stock written off as {listed.name.lower()}"
         )
         transaction = self._stage_movement(
             inventory,
@@ -1706,6 +1711,7 @@ class InventoryService:
             expense_purpose=ISSUE_PURPOSES.get(
                 reason, ControlAccountPurpose.INVENTORY_ADJUSTMENT
             ),
+            expense_account_id=listed.ledger_account_id,
         )
         StockEvidenceService(self._session).stage_for_movement(
             transaction, data.attachments, actor_id=actor_id
@@ -2034,6 +2040,21 @@ class InventoryService:
                 )
             }
         )
+        listed = None
+        if data.reason_code:
+            from app.inventory.services.adjustment_reasons import (
+                AdjustmentReasonService,
+            )
+
+            listed = AdjustmentReasonService(self._session).resolve(
+                firm_scope, data.reason_code
+            )
+            update: dict[str, object] = {"reason_code": listed.code}
+            if data.reference_type == "ADJUSTMENT":
+                update["reference_type"] = listed.code
+            if not data.remarks:
+                update["remarks"] = listed.name
+            data = data.model_copy(update=update)
         transaction, value_delta = self.stage_adjustment_movement(
             data, firm_scope=firm_scope, actor_id=actor_id
         )
@@ -2047,6 +2068,14 @@ class InventoryService:
             value_delta=value_delta,
             actor_id=actor_id,
             remarks=data.remarks,
+            expense_purpose=(
+                ISSUE_PURPOSES.get(
+                    listed.code, ControlAccountPurpose.INVENTORY_ADJUSTMENT
+                )
+                if listed is not None
+                else ControlAccountPurpose.INVENTORY_ADJUSTMENT
+            ),
+            expense_account_id=None if listed is None else listed.ledger_account_id,
         )
         StockEvidenceService(self._session).stage_for_movement(
             transaction, data.attachments, actor_id=actor_id

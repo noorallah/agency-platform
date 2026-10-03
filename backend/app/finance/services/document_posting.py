@@ -813,6 +813,7 @@ class DocumentPostingService:
         expense_purpose: ControlAccountPurpose = (
             ControlAccountPurpose.INVENTORY_ADJUSTMENT
         ),
+        expense_account_id: UUID | None = None,
     ) -> JournalEntry | None:
         """Post a stock adjustment, which is the movement with no document.
 
@@ -842,6 +843,8 @@ class DocumentPostingService:
             expense_purpose: The account the other side lands in: the
                 inventory adjustment account, or for stock issued rather than
                 lost, its own expense (STK-3).
+            expense_account_id: The reason's own account, when it names one
+                (STK-7); it outranks ``expense_purpose``.
 
         Returns:
             The posted journal entry, or None when there was no value to post.
@@ -853,9 +856,18 @@ class DocumentPostingService:
         delta = quantize_ledger(quantize_money(value_delta))
         if delta == ZERO:
             return None
+        # A reason that names its own account (STK-7) takes the other side;
+        # otherwise the purpose's mapped account does.
         accounts = self._require_mapping(
-            firm_id, (ControlAccountPurpose.INVENTORY, expense_purpose)
+            firm_id,
+            (
+                (ControlAccountPurpose.INVENTORY,)
+                if expense_account_id is not None
+                else (ControlAccountPurpose.INVENTORY, expense_purpose)
+            ),
         )
+        if expense_account_id is not None:
+            accounts[expense_purpose] = expense_account_id
         context = self.context_for(firm_id, transaction_date)
         rising = delta > ZERO
         amount = delta if rising else -delta

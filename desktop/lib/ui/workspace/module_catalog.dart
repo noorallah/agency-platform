@@ -891,6 +891,7 @@ abstract final class ModuleCatalog {
         'INVENTORY_IMPORT',
         'INVENTORY_TRANSACTION_VIEW',
         'INVENTORY_ADJUST',
+        'INVENTORY_MANAGE_REASONS',
         'BATCH_VIEW',
         'SERIAL_VIEW',
       ],
@@ -945,6 +946,16 @@ abstract final class ModuleCatalog {
           id: 'inventory-settings',
           label: 'Settings',
           requiredPermissions: ['INVENTORY_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'adjustment-reasons',
+          label: 'Adjustment Reasons',
+          requiredPermissions: [
+            'INVENTORY_VIEW',
+            'INVENTORY_ADJUST',
+            'INVENTORY_MANAGE_REASONS',
+          ],
+          requiresAnyPermission: true,
         ),
         ModuleTabDefinition(
           id: 'batches',
@@ -1892,6 +1903,12 @@ abstract final class ModuleCatalog {
           label: 'Settings',
           path: 'inventory-settings',
           icon: Icons.settings_outlined,
+        ),
+      if (visibleTabIds.contains('adjustment-reasons'))
+        const WorkspaceNavigationNode(
+          label: 'Adjustment Reasons',
+          path: 'adjustment-reasons',
+          icon: Icons.rule_outlined,
         ),
     ];
   }

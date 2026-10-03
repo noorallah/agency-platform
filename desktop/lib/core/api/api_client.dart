@@ -29,6 +29,7 @@ import '../../models/commission.dart';
 import '../../models/credit_note.dart';
 import '../../models/customer_debit_note.dart';
 import '../../models/debit_note.dart';
+import '../../models/adjustment_reason.dart';
 import '../../models/party_adjustment.dart';
 import '../../models/contra_voucher.dart';
 import '../../models/tds_challan.dart';
@@ -3425,6 +3426,21 @@ class ApiClient {
       InventoryTransactionRecord.fromJson(
         _unwrapMap(
             await request('POST', '/api/v1/inventory/quarantine', body: data)),
+      );
+
+  /// The reasons a firm gives for taking stock off the books (STK-7). The six
+  /// system reasons are seeded on first read. Writes go through the generic
+  /// `create` / `update` / `delete` with `inventory/adjustment-reasons`.
+  Future<List<AdjustmentReasonRecord>> adjustmentReasons({
+    bool activeOnly = false,
+  }) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/inventory/adjustment-reasons',
+          query: {if (activeOnly) 'active_only': 'true'},
+        ),
+        AdjustmentReasonRecord.fromJson,
       );
 
   Future<InventoryTransactionRecord> createInventoryAdjustment(

@@ -18,6 +18,25 @@ enum StockAction {
   quarantine,
 }
 
+/// A write-off or adjustment reason, reduced to what a dropdown needs.
+class StockReasonOption {
+  const StockReasonOption({required this.code, required this.name});
+
+  final String code;
+  final String name;
+}
+
+/// The six reasons every firm has, offered when the firm's own list could not
+/// be read (STK-7) so a write-off is never blocked by a failed lookup.
+const List<StockReasonOption> fallbackStockReasons = [
+  StockReasonOption(code: 'DAMAGE', name: 'Damage'),
+  StockReasonOption(code: 'EXPIRY', name: 'Expiry'),
+  StockReasonOption(code: 'LOSS', name: 'Loss'),
+  StockReasonOption(code: 'INTERNAL_USE', name: 'Internal use'),
+  StockReasonOption(code: 'STAFF', name: 'Given to staff'),
+  StockReasonOption(code: 'DISPLAY', name: 'Display / sample / demo'),
+];
+
 /// A warehouse, reduced to what this dialog needs.
 class WarehouseOption {
   const WarehouseOption({required this.id, required this.name, this.code = ''});
@@ -84,6 +103,7 @@ class StockActionDialog extends StatefulWidget {
     required this.available,
     required this.quarantined,
     required this.warehouses,
+    this.reasons = fallbackStockReasons,
     this.onSave,
     this.pickFiles,
   });
@@ -107,6 +127,9 @@ class StockActionDialog extends StatefulWidget {
   final double quarantined;
   final List<WarehouseOption> warehouses;
 
+  /// What a write-off can be put down to: the firm's active reasons.
+  final List<StockReasonOption> reasons;
+
   @override
   State<StockActionDialog> createState() => _StockActionDialogState();
 }
@@ -117,7 +140,11 @@ class _StockActionDialogState extends State<StockActionDialog>
   final TextEditingController _reference = TextEditingController();
   final TextEditingController _remarks = TextEditingController();
   String _destination = '';
-  String _reason = 'DAMAGE';
+  late String _reason = widget.reasons.isEmpty
+      ? 'DAMAGE'
+      : widget.reasons.any((reason) => reason.code == 'DAMAGE')
+          ? 'DAMAGE'
+          : widget.reasons.first.code;
   bool _releasing = false;
   DateTime _when = DateTime.now();
   String? _error;
@@ -285,20 +312,12 @@ class _StockActionDialogState extends State<StockActionDialog>
               isExpanded: true,
               initialValue: _reason,
               decoration: const InputDecoration(labelText: 'Reason'),
-              items: const [
-                DropdownMenuItem<String>(
-                    value: 'DAMAGE', child: Text('Damage')),
-                DropdownMenuItem<String>(
-                    value: 'EXPIRY', child: Text('Expiry')),
-                DropdownMenuItem<String>(value: 'LOSS', child: Text('Loss')),
-                // Issued rather than lost (STK-3): each booked to its own
-                // expense, not to stock adjustment.
-                DropdownMenuItem<String>(
-                    value: 'INTERNAL_USE', child: Text('Internal use')),
-                DropdownMenuItem<String>(
-                    value: 'STAFF', child: Text('Given to staff')),
-                DropdownMenuItem<String>(
-                    value: 'DISPLAY', child: Text('Display / sample / demo')),
+              items: [
+                for (final StockReasonOption reason in widget.reasons)
+                  DropdownMenuItem<String>(
+                    value: reason.code,
+                    child: Text(reason.name, overflow: TextOverflow.ellipsis),
+                  ),
               ],
               onChanged: (value) => setState(() => _reason = value ?? 'DAMAGE'),
             ),

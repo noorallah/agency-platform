@@ -72,6 +72,11 @@ from app.inventory.schemas.inventory import (
     StockLedgerResponse,
 )
 from app.inventory.services import InventoryService, PhysicalCountService
+from app.inventory.services.adjustment_reasons import (
+    AdjustmentReasonResponse,
+    AdjustmentReasonService,
+    AdjustmentReasonWrite,
+)
 from app.inventory.services.opening_stock_import import OpeningStockFileImporter
 from app.inventory.services.opening_stock_import import (
     template_csv as opening_stock_template_csv,
@@ -116,6 +121,16 @@ InventoryTransactionViewScope = Annotated[
 ]
 InventoryAdjustScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("INVENTORY_ADJUST")
+]
+#: The reasons list and each reason's account (STK-7).
+InventoryReasonsScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("INVENTORY_MANAGE_REASONS")
+]
+InventoryReasonsViewScope = Annotated[
+    ResolvedFirmScope,
+    firm_any_permission_scope(
+        "INVENTORY_VIEW", "INVENTORY_ADJUST", "INVENTORY_MANAGE_REASONS"
+    ),
 ]
 
 
@@ -959,6 +974,72 @@ def write_off_stock(
     return ApiResponse(
         data=service.transaction_response(row), message="Stock written off."
     )
+
+
+@router.get(
+    "/adjustment-reasons",
+    response_model=ApiResponse[list[AdjustmentReasonResponse]],
+)
+def list_adjustment_reasons(
+    scope: InventoryReasonsViewScope,
+    active_only: bool = False,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[AdjustmentReasonResponse]]:
+    """Return the firm's adjustment and write-off reasons (STK-7)."""
+    return ApiResponse(
+        data=AdjustmentReasonService(db).list_reasons(
+            scope.firm_id, include_inactive=not active_only
+        )
+    )
+
+
+@router.post(
+    "/adjustment-reasons",
+    response_model=ApiResponse[AdjustmentReasonResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_adjustment_reason(
+    data: AdjustmentReasonWrite,
+    scope: InventoryReasonsScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[AdjustmentReasonResponse]:
+    """Add a reason of the firm's own (STK-7)."""
+    return ApiResponse(
+        data=AdjustmentReasonService(db).create(
+            data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
+
+
+@router.put(
+    "/adjustment-reasons/{reason_id}",
+    response_model=ApiResponse[AdjustmentReasonResponse],
+)
+def update_adjustment_reason(
+    reason_id: UUID,
+    data: AdjustmentReasonWrite,
+    scope: InventoryReasonsScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[AdjustmentReasonResponse]:
+    """Rename, retarget or deactivate a reason (STK-7)."""
+    return ApiResponse(
+        data=AdjustmentReasonService(db).update(
+            reason_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
+
+
+@router.delete("/adjustment-reasons/{reason_id}", response_model=ApiResponse[None])
+def delete_adjustment_reason(
+    reason_id: UUID,
+    scope: InventoryReasonsScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[None]:
+    """Remove a reason of the firm's own; a system one is refused (STK-7)."""
+    AdjustmentReasonService(db).delete(
+        reason_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=None, message="Reason deleted.")
 
 
 @router.post(

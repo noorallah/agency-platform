@@ -36,6 +36,7 @@ import 'customers/customer_statement_page.dart';
 import 'vendors/supplier_statement_page.dart';
 import 'customers/loyalty_settings_dialog.dart';
 import 'customers/loyalty_page.dart';
+import 'inventory/adjustment_reasons_page.dart';
 import 'inventory/inventory_management_page.dart';
 import 'inventory/inventory_details_dialog.dart';
 import 'inventory/batch_management_page.dart';
@@ -3443,6 +3444,10 @@ class _InventoryWorkspaceState extends State<_InventoryWorkspace> {
           section: InventorySection.settings,
           onNavigateToSection: navigateTo,
         ),
+      'adjustment-reasons' => AdjustmentReasonsPage(
+          api: widget.api,
+          permissions: widget.permissions,
+        ),
       'batches' => BatchManagementPage(
           api: widget.api,
           preferences: widget.preferences,
@@ -3488,6 +3493,7 @@ class _InventoryWorkspaceState extends State<_InventoryWorkspace> {
         'inventory-import' => 'Inventory Import',
         'inventory-export' => 'Inventory Export',
         'inventory-settings' => 'Inventory Settings',
+        'adjustment-reasons' => 'Adjustment Reasons',
         'batches' => 'Batch Management',
         'lots' => 'Lot Management',
         'serials' => 'Serial Number Management',
@@ -3513,6 +3519,8 @@ class _InventoryWorkspaceState extends State<_InventoryWorkspace> {
           'Copy inventory and ledger exports for reporting and analysis.',
         'inventory-settings' =>
           'Review inventory foundation settings and future extension points.',
+        'adjustment-reasons' =>
+          'Why stock is written off, and the ledger account each reason books to.',
         'batches' =>
           'Manage product batches with expiry tracking, quantities, and status.',
         'lots' =>

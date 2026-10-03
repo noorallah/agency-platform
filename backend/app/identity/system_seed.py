@@ -269,6 +269,9 @@ PERMISSION_GROUPS = {
         "INVENTORY_IMPORT",
         "INVENTORY_TRANSACTION_VIEW",
         "INVENTORY_ADJUST",
+        # The firm's list of adjustment reasons and the account each costs
+        # (STK-7): where a write-off lands is a control, not an adjustment.
+        "INVENTORY_MANAGE_REASONS",
     ),
     "uom_framework": (
         "UOM_VIEW",
