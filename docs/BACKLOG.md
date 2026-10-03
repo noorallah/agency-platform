@@ -5286,7 +5286,15 @@ lists", drawn from `menu_layout.dart` as built that day: inside the menus
 Items, Locations lists, all under CONFIGURATION) versus **apart, behind the
 gear** (option B, recommended): each drop-down keeps daily work and points to
 Settings, which gains a SET UP part, and Admin leaves the bar for Settings >
-Platform. Owner to choose. Screenshots 12-16 in `Branding wireframes -
+Platform. A third option was drawn the same day after the owner said the
+Sell drop-down fills half the screen and may feel heavy to a customer: a
+**light menu** (recommended) -- each drop-down shows only daily work (Sell 7
+items: Quotations, Sales Orders, Delivery Notes, Sales Invoices, Returns &
+notes, Receipts, Customer Statements; today 27), with "All Sell screens (20)"
+one click away, the set-up lists behind the gear, stages the firm switched off
+never shown, Approvals waiting on Home's to-do list, and favourites and Ctrl+K
+reaching everything. Same for Buy, Stock, Accounts and Masters. Owner to
+choose. Screenshots 12-21 in `Branding wireframes -
 screenshots\`.
 
 Owner, 2026-09-29: separate configuration from the menu items people use
