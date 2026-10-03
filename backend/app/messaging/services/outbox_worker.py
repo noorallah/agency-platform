@@ -631,3 +631,19 @@ class MessagingWorker:
                     )
             except Exception:  # noqa: BLE001
                 logger.exception("messaging pass failed")
+            # Stock held for orders that never shipped (STK-12) rides the
+            # same timer: the platform's one periodic pass.
+            try:
+                from app.sales_order.services.reservation_lapse import (
+                    lapse_every_firm,
+                )
+
+                lapsed = lapse_every_firm(self._firm_ids, self._open_store)
+                if lapsed.orders or lapsed.errors:
+                    logger.info(
+                        "reservation lapse: orders=%s errors=%s",
+                        lapsed.orders,
+                        len(lapsed.errors),
+                    )
+            except Exception:  # noqa: BLE001
+                logger.exception("reservation lapse pass failed")

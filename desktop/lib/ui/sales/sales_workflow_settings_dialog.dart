@@ -53,6 +53,9 @@ class _SalesWorkflowSettingsDialogState
   /// Backlog 59 item 3: the cap on one line's combined offer discount.
   final TextEditingController _capController = TextEditingController();
 
+  /// STK-12: days before an unshipped order's stock hold lapses; blank never.
+  final TextEditingController _lapseController = TextEditingController();
+
   bool get _mayManage =>
       widget.permissions.hasPermission('SALES_MANAGE_SETTINGS');
 
@@ -65,7 +68,19 @@ class _SalesWorkflowSettingsDialogState
   @override
   void dispose() {
     _capController.dispose();
+    _lapseController.dispose();
     super.dispose();
+  }
+
+  /// The lapse days as typed: blank is never, otherwise a whole 1 to 365.
+  String? get _lapseError {
+    final String text = _lapseController.text.trim();
+    if (text.isEmpty) return null;
+    final int? value = int.tryParse(text);
+    if (value == null || value < 1 || value > 365) {
+      return 'A whole number of days from 1 to 365, or blank for never.';
+    }
+    return null;
   }
 
   /// The cap as typed: blank is no cap, otherwise 0 to 100.
@@ -96,6 +111,7 @@ class _SalesWorkflowSettingsDialogState
       setState(() {
         _settings = settings;
         _capController.text = settings.maxLineDiscountPercent ?? '';
+        _lapseController.text = '${settings.reservationLapseDays ?? ''}';
         _read = true;
         _loading = false;
       });
@@ -115,9 +131,15 @@ class _SalesWorkflowSettingsDialogState
       setState(() => _error = _capError);
       return;
     }
+    if (_lapseError != null) {
+      setState(() => _error = _lapseError);
+      return;
+    }
     final String cap = _capController.text.trim();
+    final int? lapse = int.tryParse(_lapseController.text.trim());
     _settings = _settings.copyWith(
-        maxLineDiscountPercent: () => cap.isEmpty ? null : cap);
+        maxLineDiscountPercent: () => cap.isEmpty ? null : cap,
+        reservationLapseDays: () => lapse);
     setState(() {
       _saving = true;
       _error = null;
@@ -296,6 +318,24 @@ class _SalesWorkflowSettingsDialogState
                       () => _settings =
                           _settings.copyWith(newOutletsNeedApproval: value),
                     ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  // STK-12: stock held for an order nobody ships comes back.
+                  TextFormField(
+                    key: const ValueKey('sales-settings-reservation-lapse'),
+                    controller: _lapseController,
+                    enabled: _mayManage && _read && !_saving,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText:
+                          'Release stock held by unshipped orders after (days)',
+                      helperText: 'Blank is never. A lapsed order stays '
+                          'approved and can still be shipped; reserve it '
+                          'again to hold the stock once more.',
+                      helperMaxLines: 3,
+                      errorText: _lapseError,
+                    ),
+                    onChanged: (_) => setState(() {}),
                   ),
                   if (!_settings.deliveryNoteStage) ...[
                     const SizedBox(height: AppSpacing.md),

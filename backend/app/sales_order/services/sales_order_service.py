@@ -1074,6 +1074,53 @@ class SalesOrderService(TransactionalDocumentService):
         self._session.commit()
         return row
 
+    def lapse_reservation(self, row: SalesOrder, *, actor_id: UUID, days: int) -> None:
+        """Release an unshipped order's stock hold after ``days`` (STK-12).
+
+        The order stays as it is -- approved, dispatchable from free stock --
+        and is flagged so a person can reserve again. Unflushed: the pass
+        commits.
+        """
+        self._release_inventory(row, actor_id=actor_id)
+        row.reservation_lapsed_at = utc_now()
+        row.updated_by = actor_id
+        record_audit(
+            self._session,
+            action="sales_order.reservation_lapsed",
+            entity_type="sales_order",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=row.firm_id,
+            after_data={"order_number": row.order_number, "after_days": days},
+        )
+
+    def reserve_again(
+        self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> SalesOrder:
+        """Hold stock again for an order whose hold lapsed (STK-12).
+
+        Raises:
+            ValidationError: If its hold did not lapse.
+
+        """
+        row = self.get_order(order_id, firm_scope=firm_scope)
+        if row.reservation_lapsed_at is None:
+            raise ValidationError("This order's stock hold has not lapsed.")
+        self._reserve_inventory(row, actor_id=actor_id)
+        row.reservation_lapsed_at = None
+        row.updated_by = actor_id
+        record_audit(
+            self._session,
+            action="sales_order.reserved_again",
+            entity_type="sales_order",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            after_data={"order_number": row.order_number},
+        )
+        self._session.commit()
+        return row
+
     def release_order(
         self,
         order_id: UUID,
@@ -1383,6 +1430,7 @@ class SalesOrderService(TransactionalDocumentService):
             cancel_reason=row.cancel_reason,
             close_reason=row.close_reason,
             is_on_hold=row.is_on_hold,
+            reservation_lapsed_at=row.reservation_lapsed_at,
             hold_reason=row.hold_reason,
             held_at=row.held_at,
             released_at=row.released_at,

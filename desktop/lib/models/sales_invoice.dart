@@ -172,6 +172,7 @@ class SalesWorkflowSettings {
     this.maxLineDiscountPercent,
     this.rateIncludesTax = false,
     this.newOutletsNeedApproval = false,
+    this.reservationLapseDays,
   });
 
   final bool quotationStage;
@@ -199,6 +200,10 @@ class SalesWorkflowSettings {
   /// for approval -- it takes orders but cannot be billed until approved.
   final bool newOutletsNeedApproval;
 
+  /// STK-12: days after which an unshipped order's stock hold is released.
+  /// Null is never.
+  final int? reservationLapseDays;
+
   /// What a firm gets before anybody configures anything, and what the client
   /// falls back to when the settings cannot be read. Failing open matters: an
   /// unreachable endpoint must not hide screens a firm depends on.
@@ -225,6 +230,7 @@ class SalesWorkflowSettings {
         maxLineDiscountPercent: _orNull(json['max_line_discount_percent']),
         rateIncludesTax: boolValue(json['rate_includes_tax']),
         newOutletsNeedApproval: boolValue(json['new_outlets_need_approval']),
+        reservationLapseDays: (json['reservation_lapse_days'] as num?)?.toInt(),
       );
 
   /// The three switches only. No screen here edits the default branch or
@@ -239,6 +245,8 @@ class SalesWorkflowSettings {
         'max_line_discount_percent': maxLineDiscountPercent,
         'rate_includes_tax': rateIncludesTax,
         'new_outlets_need_approval': newOutletsNeedApproval,
+        // Shown on the same screen, so sent on every save: null is never.
+        'reservation_lapse_days': reservationLapseDays,
       };
 
   SalesWorkflowSettings copyWith({
@@ -249,6 +257,7 @@ class SalesWorkflowSettings {
     String? Function()? maxLineDiscountPercent,
     bool? rateIncludesTax,
     bool? newOutletsNeedApproval,
+    int? Function()? reservationLapseDays,
   }) =>
       SalesWorkflowSettings(
         quotationStage: quotationStage ?? this.quotationStage,
@@ -264,6 +273,9 @@ class SalesWorkflowSettings {
         rateIncludesTax: rateIncludesTax ?? this.rateIncludesTax,
         newOutletsNeedApproval:
             newOutletsNeedApproval ?? this.newOutletsNeedApproval,
+        reservationLapseDays: reservationLapseDays != null
+            ? reservationLapseDays()
+            : this.reservationLapseDays,
       );
 }
 
