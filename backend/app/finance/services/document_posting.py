@@ -1631,6 +1631,9 @@ class DocumentPostingService:
           the firm will not pay becomes other income.
         * ``SET_OFF`` -- Dr payable, Cr receivable: what the business owes the
           firm as a customer is settled by what the firm owes it as a supplier.
+        * ``SUPPLIER_REBATE`` -- Dr payable, Cr supplier rebates receivable:
+          the supplier's credit for an accrued volume rebate (BUY-13) set
+          against what the firm owes it.
 
         No tax leg, ever. Reducing the value of a supply is a credit or debit
         note, which reverses tax; this only says the balance will not be paid.
@@ -1665,6 +1668,10 @@ class DocumentPostingService:
                 ControlAccountPurpose.ACCOUNTS_PAYABLE,
                 ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
             ),
+            "SUPPLIER_REBATE": (
+                ControlAccountPurpose.ACCOUNTS_PAYABLE,
+                ControlAccountPurpose.SUPPLIER_REBATE_RECEIVABLE,
+            ),
         }
         if kind not in legs:
             raise ValidationError(f"{kind} is not a kind of party adjustment.")
@@ -1697,6 +1704,60 @@ class DocumentPostingService:
             ],
             source_module="party_adjustments",
             source_id=adjustment_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_supplier_rebate_accrual(
+        self,
+        *,
+        firm_id: UUID,
+        agreement_id: UUID,
+        agreement_code: str,
+        accrual_date: date,
+        amount: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Book a supplier's volume rebate earned over a period (BUY-13).
+
+        Dr supplier rebates receivable, Cr supplier incentives received: the
+        supplier owes the firm the rebate from the day the period closes,
+        whether its credit note comes that week or that quarter.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        receivable = ControlAccountPurpose.SUPPLIER_REBATE_RECEIVABLE
+        income = ControlAccountPurpose.SUPPLIER_INCENTIVE_INCOME
+        accounts = self._require_mapping(firm_id, (receivable, income))
+        context = self.context_for(firm_id, accrual_date)
+        value = quantize_ledger(quantize_money(amount))
+        describe = f"Volume rebate {agreement_code}"
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=accrual_date,
+            reference_number=f"REBATE-{agreement_code}",
+            description=describe,
+            lines=[
+                JournalLineData(
+                    ledger_account_id=accounts[receivable],
+                    debit_amount=value,
+                    credit_amount=ZERO,
+                    description=describe,
+                ),
+                JournalLineData(
+                    ledger_account_id=accounts[income],
+                    debit_amount=ZERO,
+                    credit_amount=value,
+                    description=describe,
+                ),
+            ],
+            source_module="supplier_rebates",
+            source_id=agreement_id,
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)

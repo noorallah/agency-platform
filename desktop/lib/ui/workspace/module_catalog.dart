@@ -845,6 +845,12 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['PURCHASE_VIEW', 'PURCHASE_INSPECT'],
           requiresAnyPermission: true,
         ),
+        // What a supplier gives back on a period's volume (BUY-13).
+        ModuleTabDefinition(
+          id: 'supplier-rebates',
+          label: 'Supplier Rebates',
+          requiredPermissions: ['PURCHASE_VIEW'],
+        ),
         ModuleTabDefinition(
           id: 'purchase-analytics',
           label: 'Analytics',
@@ -1860,6 +1866,12 @@ abstract final class ModuleCatalog {
           label: 'Quality Inspection',
           path: 'quality-inspection',
           icon: Icons.fact_check_outlined,
+        ),
+      if (visibleTabIds.contains('supplier-rebates'))
+        const WorkspaceNavigationNode(
+          label: 'Supplier Rebates',
+          path: 'supplier-rebates',
+          icon: Icons.savings_outlined,
         ),
       if (visibleTabIds.contains('purchase-analytics'))
         const WorkspaceNavigationNode(

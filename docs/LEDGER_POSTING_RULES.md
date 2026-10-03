@@ -378,6 +378,9 @@ A draft posts nothing and clears nothing. Approval posts:
 | Customer write-off | Bad Debts (`BAD_DEBTS`, 6800, indirect expense) | Receivables | `WRITE_OFF` row, outstanding down |
 | Supplier write-back | Payables | Balances Written Back (`BALANCES_WRITTEN_BACK`, 4300, other income) | -- |
 | Set-off | Payables | Receivables | `SET_OFF` row, outstanding down |
+| Supplier rebate (BUY-13) | Payables | Supplier Rebates Receivable (`SUPPLIER_REBATE_RECEIVABLE`, 1410) | -- |
+
+A **supplier volume rebate** (`app/supplier_rebates`) is accrued once its period is over: Dr Supplier Rebates Receivable, Cr Supplier Incentives Received (`SUPPLIER_INCENTIVE_INCOME`, 4320), dated on the period's last day, reference `REBATE-<code>`. The `SUPPLIER_REBATE` adjustment above is how it is settled, capped at what the accrual still has to settle; an accrual nothing has settled is reversed by its mirror.
 
 It may name open bills on either side
 (`party_adjustment_allocations`) or move the balance on account. **What a bill

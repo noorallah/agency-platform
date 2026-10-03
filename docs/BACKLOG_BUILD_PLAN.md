@@ -439,6 +439,7 @@ otherwise it is built as written.
 - **What it is:** "2% back on the year's purchases over 10 lakh", tracked and claimed.
 - **What gets built:** a rebate agreement (supplier, period, slabs); purchases counted from approved bills; at period end an accrual Dr rebate receivable / Cr purchase rebates; claimed by a supplier debit note (`backend/app/debit_note`). Migration yes. Phase 2 screen. Tests.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A124, migration `20261003_0286`): `app/supplier_rebates` at `/api/v1/supplier-rebates` (list, create, update, cancel, accrue, reverse-accrual); `DocumentPostingService.post_supplier_rebate_accrual`; control purpose `SUPPLIER_REBATE_RECEIVABLE` (1410) for new and existing firms; settled by party adjustment kind `SUPPLIER_REBATE` naming `rebate_agreement_id` rather than by a debit note, which must name one bill. Desktop: Buy > Supplier Rebates. Tests: `test_supplier_rebates.py`.
 
 #### BUY-14. Purchase budget (§69 row 9)
 - **What it is:** a spending budget by branch, category and month, shown and warned on the order.

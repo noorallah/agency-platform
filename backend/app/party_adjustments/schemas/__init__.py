@@ -22,6 +22,7 @@ class PartyAdjustmentKindEnum(StrEnum):
     CUSTOMER_WRITE_OFF = "CUSTOMER_WRITE_OFF"
     SUPPLIER_WRITE_BACK = "SUPPLIER_WRITE_BACK"
     SET_OFF = "SET_OFF"
+    SUPPLIER_REBATE = "SUPPLIER_REBATE"
 
 
 class PartyAdjustmentStatusEnum(StrEnum):
@@ -76,14 +77,21 @@ class PartyAdjustmentCreate(PartyAdjustmentSchema):
     #: Open bills it clears. Optional: what is not allocated moves the
     #: party's balance on account.
     allocations: list[PartyAdjustmentAllocationWrite] = Field(default_factory=list)
+    #: The volume rebate a ``SUPPLIER_REBATE`` settles, and only then.
+    rebate_agreement_id: UUID | None = None
 
     @model_validator(mode="after")
     def _shape(self) -> "PartyAdjustmentCreate":
-        """Refuse a reason of blanks and the same bill named twice."""
+        """Refuse a reason of blanks, the same bill twice, a stray agreement."""
         self.reason = self.reason.strip()
         if not self.reason:
             raise ValueError("Say why the balance is being adjusted.")
         _one_row_per_bill(self.allocations)
+        rebate = self.kind == PartyAdjustmentKindEnum.SUPPLIER_REBATE
+        if rebate and self.rebate_agreement_id is None:
+            raise ValueError("Name the rebate agreement this settles.")
+        if not rebate and self.rebate_agreement_id is not None:
+            raise ValueError("Only a rebate settlement names a rebate agreement.")
         return self
 
 
@@ -154,6 +162,7 @@ class PartyAdjustmentResponse(PartyAdjustmentSchema):
     cancel_reason: str | None
     allocations: list[PartyAdjustmentAllocationResponse]
     version: int
+    rebate_agreement_id: UUID | None = None
 
 
 class PartyAdjustmentOpenBills(PartyAdjustmentSchema):

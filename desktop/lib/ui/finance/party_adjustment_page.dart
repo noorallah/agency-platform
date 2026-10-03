@@ -685,11 +685,19 @@ class PartyAdjustmentDialog extends StatefulWidget {
 }
 
 class _PartyAdjustmentDialogState extends State<PartyAdjustmentDialog> {
-  static const List<(String, String)> _kinds = [
+  static const List<(String, String)> _startable = [
     ('CUSTOMER_WRITE_OFF', 'Write-off (bad debt)'),
     ('SUPPLIER_WRITE_BACK', 'Written back'),
     ('SET_OFF', 'Set-off'),
   ];
+
+  /// A rebate settlement starts from the Supplier Rebates screen, so it is not
+  /// a choice here; one already drafted is shown (its kind is fixed).
+  List<(String, String)> get _kinds => [
+        ..._startable,
+        if (_kind == 'SUPPLIER_REBATE')
+          ('SUPPLIER_REBATE', partyAdjustmentKindLabel('SUPPLIER_REBATE')),
+      ];
 
   final TextEditingController _amount = TextEditingController();
   final TextEditingController _reason = TextEditingController();
@@ -716,7 +724,8 @@ class _PartyAdjustmentDialogState extends State<PartyAdjustmentDialog> {
   String? _error;
 
   bool get _editing => widget.existing != null;
-  bool get _needsCustomer => _kind != 'SUPPLIER_WRITE_BACK';
+  bool get _needsCustomer =>
+      _kind != 'SUPPLIER_WRITE_BACK' && _kind != 'SUPPLIER_REBATE';
   bool get _needsVendor => _kind != 'CUSTOMER_WRITE_OFF';
 
   @override

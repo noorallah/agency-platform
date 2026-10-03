@@ -462,6 +462,13 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `report_layouts` | firm store ¹ | One person's named layout of an analysis screen (RPT-1); the settings are the screen's own JSON. | `users` (bare id) |
 
+### `app/supplier_rebates`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `supplier_rebate_agreements` | firm store ¹ | A supplier's volume rebate over one period, and what its accrual booked (BUY-13). | `vendors`, `journal_entries` |
+| `supplier_rebate_slabs` | firm store ¹ | One step of an agreement: from this volume, this rate on all of it. | `supplier_rebate_agreements` |
+
 ### `app/sales_targets`
 
 | Table | Store | Holds | Points at |

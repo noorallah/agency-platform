@@ -54,6 +54,7 @@ class PartyAdjustment {
     this.needsSecondApprover = false,
     this.journalEntryId = '',
     this.cancelReason = '',
+    this.rebateAgreementId = '',
     this.version = 0,
     this.allocations = const <PartyAdjustmentAllocation>[],
   });
@@ -62,8 +63,13 @@ class PartyAdjustment {
   final String adjustmentNumber;
   final String adjustmentDate;
 
-  /// `CUSTOMER_WRITE_OFF`, `SUPPLIER_WRITE_BACK` or `SET_OFF`.
+  /// `CUSTOMER_WRITE_OFF`, `SUPPLIER_WRITE_BACK`, `SET_OFF` or
+  /// `SUPPLIER_REBATE` (BUY-13, started from the rebate screen).
   final String kind;
+
+  /// The supplier rebate a `SUPPLIER_REBATE` adjustment settles; empty for
+  /// every other kind.
+  final String rebateAgreementId;
   final String status;
   final String customerId;
   final String customerName;
@@ -117,6 +123,7 @@ class PartyAdjustment {
         needsSecondApprover: json['needs_second_approver'] == true,
         journalEntryId: stringValue(json['journal_entry_id']),
         cancelReason: stringValue(json['cancel_reason']),
+        rebateAgreementId: stringValue(json['rebate_agreement_id']),
         version: (json['version'] as num?)?.toInt() ?? 0,
         allocations: [
           for (final dynamic row
@@ -132,6 +139,7 @@ String partyAdjustmentKindLabel(String kind) => switch (kind) {
       'CUSTOMER_WRITE_OFF' => 'Write-off (bad debt)',
       'SUPPLIER_WRITE_BACK' => 'Written back',
       'SET_OFF' => 'Set-off',
+      'SUPPLIER_REBATE' => 'Rebate settlement',
       _ => kind,
     };
 
