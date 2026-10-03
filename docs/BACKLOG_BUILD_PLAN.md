@@ -901,6 +901,7 @@ otherwise it is built as written.
 | §53.1 | 26Q FVU text file | Unblocked by ACC-7 (challans recorded). **Owner 2026-10-03: kept for later, last in the queue.** When taken up, Claude builds it and the CA validates with the free NSDL FVU utility |
 | A5, A8, A9, A20, A31 | Defaults to confirm | The firm's CA at hand-over |
 | A43, A44, A45 | Built 2026-10-02 | Owner's OK |
+| D-PERF-2 follow-up | Database connections, for later discussion (owner, 2026-10-03). Today one request holds up to three pooled connections, and #1058 only queues requests (5 at a time on the default pool of 5 + 10). Options discussed: (1) a request holds one connection at a time -- the platform check releases its connection before the firm work starts, and platform reads inside firm work are short or cached; (2) a small platform pool (~5) and one pool shared by every firm on the same server (~20); (3) size the pool to the server, about 2-4 x CPU cores (10 + 20 for a 4-core office server), never to PostgreSQL's 100, which also serves backups, migrations, jobs and admin tools -- keep the app under ~70%; (4) PgBouncer in transaction mode once a customer has many users. Measure 30-50 parallel requests at each size before raising it | Owner to take up the discussion |
 
 ### 5.2 Unclear -- resolved, with a recommendation
 
