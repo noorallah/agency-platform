@@ -73,7 +73,8 @@ class ThemeManager extends ChangeNotifier {
           _preferences.current.cachedThemeMode,
         ),
         _highContrast = _preferences.current.cachedHighContrast,
-        _density = _preferences.current.gridDensity;
+        _density = _preferences.current.gridDensity,
+        _textSize = _preferences.current.textSize;
 
   final DesktopPreferencesService _preferences;
 
@@ -84,6 +85,7 @@ class ThemeManager extends ChangeNotifier {
   ThemeMode _mode;
   bool _highContrast;
   GridDensity _density;
+  AppTextSize _textSize;
   Future<void> Function(String palette, String mode, bool highContrast)?
       _serverSync;
 
@@ -91,6 +93,7 @@ class ThemeManager extends ChangeNotifier {
   ThemeMode get mode => _mode;
   bool get highContrast => _highContrast;
   GridDensity get density => _density;
+  AppTextSize get textSize => _textSize;
 
   /// The light half of the pair. `MaterialApp.theme`.
   ThemeData get lightTheme => ThemeRegistry.themeFor(
@@ -137,6 +140,24 @@ class ThemeManager extends ChangeNotifier {
     notifyListeners();
     await _preferences.saveGridDensity(density);
   }
+
+  /// Change how large the text is, on this PC (My preferences).
+  Future<void> selectTextSize(AppTextSize size) async {
+    if (size == _textSize) return;
+    _textSize = size;
+    notifyListeners();
+    await _preferences.saveTextSize(size);
+  }
+
+  /// [media] with this PC's text size laid over the operating system's.
+  MediaQueryData scaleText(MediaQueryData media) =>
+      _textSize == AppTextSize.standard
+          ? media
+          : media.copyWith(
+              textScaler: TextScaler.linear(
+                media.textScaler.scale(1) * _textSize.factor,
+              ),
+            );
 
   /// Adopt the appearance stored on the server without echoing it back.
   Future<void> applyServerAppearance({

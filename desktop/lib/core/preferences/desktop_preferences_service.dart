@@ -93,6 +93,35 @@ extension GridDensityDetails on GridDensity {
       );
 }
 
+/// How large the interface writes its text (My preferences, backlog 73).
+///
+/// This PC's setting, not the person's: the server has no field for it,
+/// because the same person wants larger text on a laptop than on a monitor.
+enum AppTextSize { small, standard, large }
+
+extension AppTextSizeDetails on AppTextSize {
+  String get wireName => name;
+
+  String get label => switch (this) {
+        AppTextSize.small => 'Small',
+        AppTextSize.standard => 'Default',
+        AppTextSize.large => 'Large',
+      };
+
+  /// The factor applied on top of the operating system's own text scale.
+  double get factor => switch (this) {
+        AppTextSize.small => 0.9,
+        AppTextSize.standard => 1.0,
+        AppTextSize.large => 1.15,
+      };
+
+  static AppTextSize fromWireName(String? value) =>
+      AppTextSize.values.firstWhere(
+        (size) => size.wireName == value,
+        orElse: () => AppTextSize.standard,
+      );
+}
+
 /// Read the palette, honouring what an older build stored.
 ///
 /// The previous release kept one `cached_theme` string mixing palette and
@@ -150,6 +179,7 @@ class DesktopPreferences {
     this.workspaceState = const {},
     this.sidebarCollapsed = false,
     this.gridDensity = GridDensity.comfortable,
+    this.textSize = AppTextSize.standard,
     this.defaultLandingPage = 'dashboard',
   });
 
@@ -184,6 +214,7 @@ class DesktopPreferences {
   final Map<String, dynamic> workspaceState;
   final bool sidebarCollapsed;
   final GridDensity gridDensity;
+  final AppTextSize textSize;
   final String defaultLandingPage;
 
   factory DesktopPreferences.fromJson(Map<String, dynamic> json) {
@@ -232,6 +263,8 @@ class DesktopPreferences {
       sidebarCollapsed: json['sidebar_collapsed'] == true,
       gridDensity:
           GridDensityDetails.fromWireName(optionalString(json['grid_density'])),
+      textSize:
+          AppTextSizeDetails.fromWireName(optionalString(json['text_size'])),
       defaultLandingPage:
           optionalString(json['default_landing_page']) ?? 'dashboard',
     );
@@ -254,6 +287,7 @@ class DesktopPreferences {
         'workspace_state': workspaceState,
         'sidebar_collapsed': sidebarCollapsed,
         'grid_density': gridDensity.wireName,
+        'text_size': textSize.wireName,
         'default_landing_page': defaultLandingPage,
       };
 
@@ -275,6 +309,7 @@ class DesktopPreferences {
     Map<String, dynamic>? workspaceState,
     bool? sidebarCollapsed,
     GridDensity? gridDensity,
+    AppTextSize? textSize,
     String? defaultLandingPage,
   }) =>
       DesktopPreferences(
@@ -296,6 +331,7 @@ class DesktopPreferences {
         workspaceState: workspaceState ?? this.workspaceState,
         sidebarCollapsed: sidebarCollapsed ?? this.sidebarCollapsed,
         gridDensity: gridDensity ?? this.gridDensity,
+        textSize: textSize ?? this.textSize,
         defaultLandingPage: defaultLandingPage ?? this.defaultLandingPage,
       );
 }
@@ -422,6 +458,9 @@ class DesktopPreferencesService {
 
   Future<void> saveGridDensity(GridDensity density) =>
       _save(_preferences.copyWith(gridDensity: density));
+
+  Future<void> saveTextSize(AppTextSize size) =>
+      _save(_preferences.copyWith(textSize: size));
 
   Future<void> saveDefaultLandingPage(String page) =>
       _save(_preferences.copyWith(defaultLandingPage: page));

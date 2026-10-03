@@ -4,6 +4,7 @@ import '../core/design/design_tokens.dart';
 import '../models/customer.dart';
 import '../models/line_tax_rule.dart';
 import '../ui/workspace/workspace_components.dart';
+import 'display_dates.dart';
 import 'indian_format.dart';
 
 /// The pieces of a phase 2 sales document screen, as the owner approved it
@@ -617,9 +618,9 @@ List<Widget> documentTaxLines({
   ];
 }
 
-/// A date as the screens write it: 26-09-2026.
-String documentDate(DateTime day) => '${day.day.toString().padLeft(2, '0')}-'
-    '${day.month.toString().padLeft(2, '0')}-${day.year}';
+/// A date as the screens write it: 26-09-2026, or in the format the person
+/// chose in My preferences ([DisplayDates]).
+String documentDate(DateTime day) => DisplayDates.write(day);
 
 /// Which bill a line's last rate came from, and the discount it carried:
 /// `SI-12 on 09-03-2026 · 5% off` (backlog 55 G6). Said, never filled in --

@@ -7,6 +7,7 @@ import 'core/preferences/desktop_preferences_service.dart';
 import 'core/preferences/user_preferences.dart';
 import 'core/security/permission_service.dart';
 import 'core/theme/theme_manager.dart';
+import 'phase2/display_dates.dart';
 import 'ui/auth_screens.dart';
 import 'ui/desktop_shell.dart';
 import 'ui/server_connection_gate.dart';
@@ -118,12 +119,16 @@ class _AgencyAppState extends State<AgencyApp> {
     _session.restore();
   }
 
-  Future<void> _applyServerPreferences(UserPreferences preferences) =>
-      _themes.applyServerAppearance(
-        palette: preferences.preferredPalette,
-        mode: preferences.preferredThemeMode,
-        highContrast: preferences.preferredHighContrast,
-      );
+  Future<void> _applyServerPreferences(UserPreferences preferences) {
+    // Before the theme, whose change rebuilds the app: a screen built by
+    // that rebuild writes its dates in the format just saved.
+    DisplayDates.use(preferences.dateFormat);
+    return _themes.applyServerAppearance(
+      palette: preferences.preferredPalette,
+      mode: preferences.preferredThemeMode,
+      highContrast: preferences.preferredHighContrast,
+    );
+  }
 
   /// Re-resolve grants whenever the token or the selected firm changes.
   ///
@@ -153,6 +158,13 @@ class _AgencyAppState extends State<AgencyApp> {
           theme: _themes.lightTheme,
           darkTheme: _themes.darkTheme,
           themeMode: _themes.mode,
+          // This PC's text size (My preferences), over the operating
+          // system's own scale. A MediaQuery only, so nothing about the
+          // Navigator's overlay -- see the note on `home` -- is touched.
+          builder: (context, child) => MediaQuery(
+            data: _themes.scaleText(MediaQuery.of(context)),
+            child: child ?? const SizedBox.shrink(),
+          ),
           // Flutter's `Text` is not selectable, which is the opposite of the
           // web and of every other desktop application: nothing on screen could
           // be highlighted or copied unless somebody had happened to build that

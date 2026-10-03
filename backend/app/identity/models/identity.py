@@ -457,8 +457,10 @@ class UserPreferences(BaseEntity):
     language: Mapped[str] = mapped_column(
         String(16), nullable=False, default="en", server_default="en"
     )
+    #: How the desktop writes a date. ``dd-MM-yyyy`` since 2026-10-04
+    #: (``20261004_0299``), when My preferences first offered a choice.
     date_format: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="yyyy-MM-dd", server_default="yyyy-MM-dd"
+        String(32), nullable=False, default="dd-MM-yyyy", server_default="dd-MM-yyyy"
     )
     time_format: Mapped[str] = mapped_column(
         String(16), nullable=False, default="24h", server_default="24h"

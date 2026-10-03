@@ -99,6 +99,14 @@ const Map<String, List<String>> _synonyms = {
   ],
   MenuLayout.loyaltySchemeRoute: ['loyalty', 'reward points'],
   MenuLayout.workDefaultsRoute: ['usual branch', 'default warehouse', 'my defaults'],
+  MenuLayout.myPreferencesRoute: [
+    'theme',
+    'dark mode',
+    'text size',
+    'date format',
+    'start in firm',
+    'first screen',
+  ],
   MenuLayout.tcsSettingsRoute: ['tcs', 'tax collected at source', '206c'],
   MenuLayout.tds194qSettingsRoute: ['tds', '194q', 'tax deducted at source'],
   MenuLayout.gstDocumentsRoute: [

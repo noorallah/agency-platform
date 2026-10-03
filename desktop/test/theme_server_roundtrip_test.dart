@@ -36,7 +36,7 @@ Map<String, dynamic> _serverDocument({
       'preferred_theme_mode': mode,
       'preferred_high_contrast': highContrast,
       'language': 'en',
-      'date_format': 'yyyy-MM-dd',
+      'date_format': 'dd-MM-yyyy',
       'time_format': '24h',
       'number_format': '1,234.56',
       'currency_format': 'symbol',

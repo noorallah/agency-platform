@@ -471,6 +471,37 @@ class SessionController extends ChangeNotifier {
     }
   }
 
+  /// Save what My preferences changed (backlog 73): **one** request, carrying
+  /// only the fields that moved, and nothing at all when none did.
+  ///
+  /// The theme goes as the mode plus the legacy value an older server reads,
+  /// as [updatePreferredAppearance] sends it; palette and contrast are left
+  /// alone. The answer is applied the way a sign-in applies it, so the theme
+  /// and the date format change at once. A refusal is thrown for the dialog
+  /// to show -- unlike the quiet saves above, the person pressed Save.
+  Future<void> saveMyPreferences({
+    String? themeMode,
+    String? dateFormat,
+    Map<String, dynamic>? dashboardLayout,
+  }) async {
+    if (themeMode == null && dateFormat == null && dashboardLayout == null) {
+      return;
+    }
+    final UserPreferences? held = _serverPreferences;
+    final UserPreferences updated = await api.updateUserPreferences({
+      if (themeMode != null) 'preferred_theme_mode': themeMode,
+      if (themeMode != null)
+        'preferred_theme': _legacyThemeValue(
+            held?.preferredPalette ?? 'neutral',
+            themeMode,
+            held?.preferredHighContrast ?? false),
+      if (dateFormat != null) 'date_format': dateFormat,
+      if (dashboardLayout != null) 'dashboard_layout': dashboardLayout,
+    });
+    await _applyServerPreferences(updated);
+    notifyListeners();
+  }
+
   void registerActivity() {
     if (_accessToken == null) return;
     _sessionTimer?.cancel();
