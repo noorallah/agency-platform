@@ -5128,7 +5128,7 @@ return restock versus damaged / scrap quantities. What it adds:
 
 | # | Item | Today | The ask |
 | --- | --- | --- | --- |
-| 11 | **Adjustment reasons as a list the firm keeps** | Write-off reasons are fixed (damage, expiry, loss) and an adjustment takes free text | A reason master (count variance, found, theft, data correction, internal use, sample, other...) that administrators extend, each mapped to an account; every adjustment and write-off names one |
+| 11 | **Adjustment reasons as a list the firm keeps** -- **built 2026-10-03** (STK-7, A104): per-firm reasons, each with its account | Write-off reasons are fixed (damage, expiry, loss) and an adjustment takes free text | A reason master (count variance, found, theft, data correction, internal use, sample, other...) that administrators extend, each mapped to an account; every adjustment and write-off names one |
 | 12 | **Approval for large adjustments and write-offs** | Anyone with the permission posts any size | Above a quantity or value limit per role the movement waits for approval -- the same approval rules as §64 row 3 and §68 row 4, not a third mechanism |
 | 13 | **Evidence on adjustments** | Movements carry no attachments | **Built 2026-10-03 (STK-9, A64).** Photos and documents on adjustments, write-offs, counts and transfers, through the existing attachment storage |
 | 14 | **Incoming and outgoing on the availability figure** | Physical, reserved, available, blocked, damaged, quarantine, in transit | **Built 2026-10-03 (STK-10, A60).** **Incoming** (open purchase orders not yet received) and **outgoing** (open orders not yet reserved) beside available, on the stock screen and the order line, so a salesman can promise a date |

@@ -10,6 +10,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
 import '../../models/file_import.dart';
+import '../../models/adjustment_reason.dart';
 import '../../models/inventory.dart';
 import '../../models/product.dart';
 import 'inventory_details_dialog.dart';
@@ -1664,6 +1665,10 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
   Future<void> _openStockAction(StockAction action) async {
     final InventoryRecord? row = _selectedInventory;
     if (row == null) return;
+    final List<StockReasonOption> reasons = action == StockAction.writeOff
+        ? await _reasonOptions()
+        : fallbackStockReasons;
+    if (!mounted) return;
     final Json? draft = await showDialog<Json>(
       context: context,
       builder: (context) => StockActionDialog(
@@ -1674,6 +1679,7 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         sourceWarehouseId: row.warehouseId,
         available: double.tryParse(row.availableQuantity) ?? 0,
         quarantined: double.tryParse(row.quarantineQuantity) ?? 0,
+        reasons: reasons,
         warehouses: [
           for (final WarehouseRecord warehouse in _warehouses)
             WarehouseOption(
@@ -1715,10 +1721,32 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
     await _load(requestedPage: 1);
   }
 
+  /// The firm's active write-off reasons (STK-7); the six every firm has when
+  /// the read fails, so a lookup that fails never blocks a write-off.
+  Future<List<StockReasonOption>> _reasonOptions() async {
+    try {
+      final List<AdjustmentReasonRecord> rows =
+          await widget.api.adjustmentReasons(activeOnly: true);
+      if (rows.isEmpty) return fallbackStockReasons;
+      return [
+        for (final AdjustmentReasonRecord row in rows)
+          StockReasonOption(
+            code: row.code,
+            name: row.name.isEmpty ? row.code : row.name,
+          ),
+      ];
+    } on ApiException {
+      return fallbackStockReasons;
+    }
+  }
+
   Future<void> _openAdjustmentDialog() async {
-    final _AdjustmentDraft? draft = await showDialog<_AdjustmentDraft>(
+    final List<StockReasonOption> reasons = await _reasonOptions();
+    if (!mounted) return;
+    final StockAdjustmentDraft? draft = await showDialog<StockAdjustmentDraft>(
       context: context,
-      builder: (context) => _AdjustmentDialog(
+      builder: (context) => StockAdjustmentDialog(
+        reasons: reasons,
         branches: _branches,
         warehouses: _warehouses,
         products: _products,
@@ -1726,7 +1754,7 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         initialBranchId: _branchId,
         initialWarehouseId: _warehouseId,
         initialProductId: _productId,
-        onSave: (_AdjustmentDraft draft) =>
+        onSave: (StockAdjustmentDraft draft) =>
             widget.api.createInventoryAdjustment(draft.toJson()),
       ),
     );
@@ -2122,8 +2150,8 @@ num? _nullableNumber(String value) {
   return num.parse(text);
 }
 
-class _AdjustmentDraft {
-  const _AdjustmentDraft({
+class StockAdjustmentDraft {
+  const StockAdjustmentDraft({
     required this.branchId,
     required this.warehouseId,
     required this.storageNodeId,
@@ -2133,6 +2161,7 @@ class _AdjustmentDraft {
     required this.transactionDate,
     required this.remarks,
     this.attachments = const [],
+    this.reasonCode,
   });
 
   final String branchId;
@@ -2147,6 +2176,9 @@ class _AdjustmentDraft {
   /// Photos and documents to keep with the adjustment (STK-9).
   final List<Json> attachments;
 
+  /// Optional reason (STK-7); it picks the account the difference books to.
+  final String? reasonCode;
+
   Json toJson() => {
         'branch_id': branchId,
         'warehouse_id': warehouseId,
@@ -2157,12 +2189,15 @@ class _AdjustmentDraft {
         'reference_type': 'ADJUSTMENT',
         'transaction_date': transactionDate,
         if (remarks.trim().isNotEmpty) 'remarks': remarks.trim(),
+        if (reasonCode != null && reasonCode!.isNotEmpty)
+          'reason_code': reasonCode,
         if (attachments.isNotEmpty) 'attachments': attachments,
       };
 }
 
-class _AdjustmentDialog extends StatefulWidget {
-  const _AdjustmentDialog({
+class StockAdjustmentDialog extends StatefulWidget {
+  const StockAdjustmentDialog({
+    super.key,
     required this.branches,
     required this.warehouses,
     required this.products,
@@ -2171,11 +2206,12 @@ class _AdjustmentDialog extends StatefulWidget {
     this.initialWarehouseId,
     required this.onSave,
     this.initialProductId,
+    this.reasons = const [],
   });
 
   /// Posts the adjustment; throws [ApiException] on a refusal, which the
   /// dialog shows without closing.
-  final Future<void> Function(_AdjustmentDraft draft) onSave;
+  final Future<void> Function(StockAdjustmentDraft draft) onSave;
   final List<BranchRecord> branches;
   final List<WarehouseRecord> warehouses;
   final List<Product> products;
@@ -2184,17 +2220,21 @@ class _AdjustmentDialog extends StatefulWidget {
   final String? initialWarehouseId;
   final String? initialProductId;
 
+  /// The firm's active reasons; empty hides the Reason box.
+  final List<StockReasonOption> reasons;
+
   @override
-  State<_AdjustmentDialog> createState() => _AdjustmentDialogState();
+  State<StockAdjustmentDialog> createState() => _StockAdjustmentDialogState();
 }
 
-class _AdjustmentDialogState extends State<_AdjustmentDialog>
-    with SaveInDialog<_AdjustmentDialog> {
+class _StockAdjustmentDialogState extends State<StockAdjustmentDialog>
+    with SaveInDialog<StockAdjustmentDialog> {
   late String? _branchId = widget.initialBranchId ??
       (widget.branches.isEmpty ? null : widget.branches.first.id);
   late String? _warehouseId = widget.initialWarehouseId ??
       (_filteredWarehouses.isEmpty ? null : _filteredWarehouses.first.id);
   String? _storageNodeId;
+  String? _reasonCode;
   late String? _productId = widget.initialProductId ??
       (widget.products.isEmpty ? null : widget.products.first.id);
   final TextEditingController _quantity = TextEditingController();
@@ -2353,6 +2393,31 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog>
                         TextStyle(color: Theme.of(context).colorScheme.error),
                   ),
                 ],
+                if (widget.reasons.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    isExpanded: true,
+                    initialValue: _reasonCode,
+                    decoration: const InputDecoration(
+                      labelText: 'Reason (optional)',
+                      helperText: 'Decides the account the difference is '
+                          'booked to',
+                    ),
+                    items: [
+                      const DropdownMenuItem<String>(
+                        value: null,
+                        child: Text('None', overflow: TextOverflow.ellipsis),
+                      ),
+                      for (final StockReasonOption reason in widget.reasons)
+                        DropdownMenuItem<String>(
+                          value: reason.code,
+                          child: Text(reason.name,
+                              overflow: TextOverflow.ellipsis),
+                        ),
+                    ],
+                    onChanged: (value) => setState(() => _reasonCode = value),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 TextField(
                   controller: _reference,
@@ -2398,8 +2463,8 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog>
                   _date.text.trim().isEmpty) {
                 return;
               }
-              submit<_AdjustmentDraft>(
-                _AdjustmentDraft(
+              submit<StockAdjustmentDraft>(
+                StockAdjustmentDraft(
                   branchId: _branchId!,
                   warehouseId: _warehouseId!,
                   storageNodeId: _storageNodeId,
@@ -2409,6 +2474,7 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog>
                   transactionDate: _date.text.trim(),
                   remarks: _remarks.text.trim(),
                   attachments: _attachments,
+                  reasonCode: _reasonCode,
                 ),
                 widget.onSave,
               );
