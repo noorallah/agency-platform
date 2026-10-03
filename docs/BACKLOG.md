@@ -5220,7 +5220,7 @@ Branding, Help > About).
 | U5 | First-run setup step 1 "Your agency", pre-filled from the installer, skippable with a "Finish setting up" card on Home | phase 2, after the first administrator's first sign-in |
 | U6 | Owner 2026-10-03: **the menu bar starts with Home**; the **agency's logo, name and tagline get the top strip** (**option 1 chosen 2026-10-03**: in the window's own title bar -- no extra height); the **selected firm's name beside the agency, as plain text** ("agency > firm"; nothing when no firm is selected); **the firm switcher stays in the menu bar** as today; a practice/demo firm carries a "PRACTICE - not real books" mark (suggested); "Finish setting up" prompt there when not given; **our product at the right of the status line** (logo, version, by company; click = About); calm -- nothing blinks or animates | `desktop/lib/phase2/app_menu_bar.dart`, the shell |
 | U7 | Settings > Platform > Branding with preview; product and company shown read-only | phase 2 Settings |
-| U8 | Help > About: product, version, build, licensed to, maker, support details, "Copy details for support" | phase 2 Help menu |
+| U8 | Help > About: product, version, build, licensed to, maker, support details, "Copy details for support" -- **parked by the owner 2026-10-03, to decide later** (the Help menu and About screen are not yet reviewed) | phase 2 Help menu |
 
 **Today:** the phase 1 sign-in screen reads `config\branding.json` beside the
 executable -- `app_name`, `company_name`, `logo_path`, two colours. That file
