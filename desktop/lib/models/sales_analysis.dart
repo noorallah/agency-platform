@@ -38,6 +38,9 @@ class AnalysisFigures {
     this.net = 0,
     this.invoices = 0,
     this.averageBill,
+    this.cost,
+    this.margin,
+    this.marginPercent,
   });
 
   factory AnalysisFigures.fromJson(Map<String, dynamic>? json) {
@@ -50,6 +53,11 @@ class AnalysisFigures {
       invoices: _number(json['invoices']).round(),
       averageBill:
           json['average_bill'] == null ? null : _number(json['average_bill']),
+      cost: json['cost'] == null ? null : _number(json['cost']),
+      margin: json['margin'] == null ? null : _number(json['margin']),
+      marginPercent: json['margin_percent'] == null
+          ? null
+          : _number(json['margin_percent']),
     );
   }
 
@@ -59,6 +67,12 @@ class AnalysisFigures {
   final double net;
   final int invoices;
   final double? averageBill;
+
+  /// Cost, margin and margin percent: non-null only when the caller may see
+  /// cost and the basis is billed.
+  final double? cost;
+  final double? margin;
+  final double? marginPercent;
 }
 
 class AnalysisCell {
@@ -81,6 +95,7 @@ class SalesAnalysis {
     required this.rowTotals,
     required this.columnTotals,
     required this.grandTotal,
+    this.previous,
   });
 
   factory SalesAnalysis.fromJson(Map<String, dynamic> json) {
@@ -111,6 +126,9 @@ class SalesAnalysis {
       columnTotals: totals(json['column_totals']),
       grandTotal: AnalysisFigures.fromJson(
           json['grand_total'] as Map<String, dynamic>?),
+      previous: json['previous'] is Map<String, dynamic>
+          ? SalesAnalysis.fromJson(json['previous'] as Map<String, dynamic>)
+          : null,
     );
   }
 
@@ -129,6 +147,9 @@ class SalesAnalysis {
   final Map<String, AnalysisFigures> rowTotals;
   final Map<String, AnalysisFigures> columnTotals;
   final AnalysisFigures grandTotal;
+
+  /// The year before, keyed under this year's keys; null when not asked.
+  final SalesAnalysis? previous;
 
   bool get isEmpty => rows.isEmpty;
 
@@ -189,4 +210,31 @@ class AnalysisBill {
   final String invoiceDate;
   final String vendorId;
   final double net;
+}
+
+/// A saved arrangement of a report. `settings` is owned by the desktop.
+class ReportLayout {
+  const ReportLayout({
+    required this.id,
+    required this.reportCode,
+    required this.name,
+    required this.settings,
+    this.version = 0,
+  });
+
+  factory ReportLayout.fromJson(Map<String, dynamic> json) => ReportLayout(
+        id: (json['id'] ?? '').toString(),
+        reportCode: (json['report_code'] ?? '').toString(),
+        name: (json['name'] ?? '').toString(),
+        settings: json['settings'] is Map
+            ? Map<String, dynamic>.from(json['settings'] as Map)
+            : <String, dynamic>{},
+        version: _number(json['version']).round(),
+      );
+
+  final String id;
+  final String reportCode;
+  final String name;
+  final Map<String, dynamic> settings;
+  final int version;
 }

@@ -6815,6 +6815,8 @@ class ApiClient {
     required String toDate,
     bool netOfReturns = true,
     Map<String, String> filters = const {},
+    String basis = 'billed',
+    bool comparePreviousYear = false,
   }) async =>
       SalesAnalysis.fromJson(_unwrapMap(await request(
         'GET',
@@ -6825,9 +6827,38 @@ class ApiClient {
           'from_date': fromDate,
           'to_date': toDate,
           'net_of_returns': netOfReturns ? 'true' : 'false',
+          'basis': basis,
+          if (comparePreviousYear) 'compare_previous_year': 'true',
           ...filters,
         },
       )));
+
+  /// A firm's saved arrangements of one report.
+  Future<List<ReportLayout>> reportLayouts(String reportCode) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/report-layouts',
+          query: {'report_code': reportCode},
+        ),
+        ReportLayout.fromJson,
+      );
+
+  /// Saves an arrangement; the same name replaces.
+  Future<ReportLayout> saveReportLayout({
+    required String reportCode,
+    required String name,
+    required Json settings,
+  }) async =>
+      ReportLayout.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/report-layouts',
+        body: {'report_code': reportCode, 'name': name, 'settings': settings},
+      )));
+
+  Future<void> deleteReportLayout(String id) async {
+    await request('DELETE', '/api/v1/report-layouts/$id');
+  }
 
   /// The invoices behind one cell of the analysis.
   Future<List<AnalysisInvoice>> salesAnalysisInvoices({

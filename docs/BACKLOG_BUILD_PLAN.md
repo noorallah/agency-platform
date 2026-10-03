@@ -747,6 +747,7 @@ otherwise it is built as written.
 - **What it is:** filters on the screen, orders booked as a basis, margin, compare with last year, chart, export, saved layouts.
 - **What gets built:** filter pickers and the rest in `desktop/lib/ui/sales/sales_analysis_page.dart` (the server already takes the filters); an orders basis and a margin figure (cost from dispatches, behind a cost permission) in `backend/app/sales_invoice/services/sales_analysis.py`; saved layouts per user (migration). Home gadgets stay with §49 (parked). Tests.
 - **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A121, migration `20261003_0284`): `basis=ordered`, `compare_previous_year` (answer under `previous`, re-keyed by `shifted_a_year`), `cost` / `margin` / `margin_percent` on every figure with `PRODUCT_VIEW_COST_PRICE`; `report_layouts` and `/api/v1/report-layouts` (`app/report_layouts`). The shared `AnalysisPage` widget carries the new controls behind flags, so RPT-2 switches them on for purchases. Tests: `test_sales_analysis_rest.py`.
 
 #### RPT-2. Purchase analysis, the rest (§66)
 - **What it is:** the same for purchases, plus the received and ordered bases, average rate and a rate trend per product.

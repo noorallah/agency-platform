@@ -62,6 +62,8 @@ from app.sales_invoice.services.sales_analysis import (
     Cell,
     SalesAnalysis,
     SalesAnalysisService,
+    shifted_a_year,
+    year_earlier,
 )
 from app.sales_order.api.price_override import (
     PriceOverrideReason,
@@ -469,6 +471,13 @@ class AnalysisFigures(BaseModel):
     invoices: int
     #: Net sales per invoice; None where no invoice is counted.
     average_bill: Decimal | None
+    #: What the goods cost and the margin over it (RPT-1), from the billed
+    #: lines that recorded a cost. None unless the caller may see cost
+    #: (``PRODUCT_VIEW_COST_PRICE``) and the basis is billed sales.
+    cost: Decimal | None = None
+    margin: Decimal | None = None
+    #: Margin as a percentage of the costed lines' taxable value.
+    margin_percent: Decimal | None = None
 
 
 class AnalysisHeading(BaseModel):
@@ -497,6 +506,9 @@ class SalesAnalysisResponse(BaseModel):
     row_totals: dict[str, AnalysisFigures]
     column_totals: dict[str, AnalysisFigures]
     grand_total: AnalysisFigures
+    #: The same analysis a year earlier, filed under this year's keys
+    #: (RPT-1); present only when asked for.
+    previous: "SalesAnalysisResponse | None" = None
 
 
 class AnalysisInvoiceRecord(BaseModel):
@@ -509,9 +521,17 @@ class AnalysisInvoiceRecord(BaseModel):
     net: Decimal
 
 
-def _figures(cell: Cell) -> AnalysisFigures:
+def _figures(cell: Cell, *, margin: bool = False) -> AnalysisFigures:
     paise = Decimal("0.01")
+    margin_amount = cell.costed - cell.cost
     return AnalysisFigures(
+        cost=cell.cost.quantize(paise) if margin else None,
+        margin=margin_amount.quantize(paise) if margin else None,
+        margin_percent=(
+            (margin_amount * 100 / cell.costed).quantize(paise)
+            if margin and cell.costed
+            else None
+        ),
         quantity=cell.quantity,
         taxable=cell.taxable.quantize(paise),
         tax=cell.tax.quantize(paise),
@@ -525,18 +545,32 @@ def _figures(cell: Cell) -> AnalysisFigures:
     )
 
 
-def analysis_response(result: SalesAnalysis) -> SalesAnalysisResponse:
+def analysis_response(
+    result: SalesAnalysis,
+    *,
+    margin: bool = False,
+    previous: SalesAnalysis | None = None,
+) -> SalesAnalysisResponse:
     """Shape a pivot for the wire; the purchase analysis shares it (66)."""
     return SalesAnalysisResponse(
         rows=[AnalysisHeading(**vars(key)) for key in result.rows],
         columns=[AnalysisHeading(**vars(key)) for key in result.columns],
         cells=[
-            AnalysisCellRecord(row=row, column=column, figures=_figures(cell))
+            AnalysisCellRecord(
+                row=row, column=column, figures=_figures(cell, margin=margin)
+            )
             for (row, column), cell in result.cells.items()
         ],
-        row_totals={k: _figures(v) for k, v in result.row_totals.items()},
-        column_totals={k: _figures(v) for k, v in result.column_totals.items()},
-        grand_total=_figures(result.grand_total),
+        row_totals={
+            k: _figures(v, margin=margin) for k, v in result.row_totals.items()
+        },
+        column_totals={
+            k: _figures(v, margin=margin) for k, v in result.column_totals.items()
+        },
+        grand_total=_figures(result.grand_total, margin=margin),
+        previous=(
+            None if previous is None else analysis_response(previous, margin=margin)
+        ),
     )
 
 
@@ -588,37 +622,60 @@ def sales_analysis(
     branch_id: UUID | None = None,
     brand_id: UUID | None = None,
     principal_id: UUID | None = None,
+    basis: str = "billed",
+    compare_previous_year: bool = False,
 ) -> ApiResponse[SalesAnalysisResponse]:
     """Billed sales by one or two dimensions, net of returns (backlog 62).
 
     ``rows`` and ``columns`` are each one of day, week, month, quarter, year,
     product, category, brand, principal, customer, customer_group, salesman,
     territory, route, branch. The period defaults to this month.
+
+    ``basis`` is ``billed`` (invoices) or ``ordered`` (sales orders booked);
+    ``compare_previous_year`` adds the same analysis a year earlier under
+    ``previous``. Billed figures carry cost and margin for a caller who may
+    see cost (RPT-1).
     """
     today = utc_now().date()
     first = from_date or today.replace(day=1)
     last = to_date or today
-    result = SalesAnalysisService(db).analyse(
-        scope.firm_id,
-        rows=rows,
-        columns=columns,
-        from_date=first,
-        to_date=last,
-        filters=_analysis_filters(
-            product_id,
-            category_id,
-            customer_id,
-            customer_group_id,
-            salesman_id,
-            territory_id,
-            route_id,
-            branch_id,
-            brand_id,
-            principal_id,
-        ),
-        net_of_returns=net_of_returns,
+    service = SalesAnalysisService(db)
+    filters = _analysis_filters(
+        product_id,
+        category_id,
+        customer_id,
+        customer_group_id,
+        salesman_id,
+        territory_id,
+        route_id,
+        branch_id,
+        brand_id,
+        principal_id,
     )
-    return ApiResponse(data=analysis_response(result))
+
+    def run(start: date, end: date) -> SalesAnalysis:
+        """Analyse one period with this request's dimensions and filters."""
+        return service.analyse(
+            scope.firm_id,
+            rows=rows,
+            columns=columns,
+            from_date=start,
+            to_date=end,
+            filters=filters,
+            net_of_returns=net_of_returns,
+            basis=basis,
+        )
+
+    result = run(first, last)
+    previous = (
+        shifted_a_year(run(year_earlier(first), year_earlier(last)), rows, columns)
+        if compare_previous_year
+        else None
+    )
+    margin = basis == "billed" and scope.principal.has_permission(
+        "PRODUCT_VIEW_COST_PRICE"
+    )
+    return ApiResponse(data=analysis_response(result, margin=margin, previous=previous))
 
 
 @router.get(

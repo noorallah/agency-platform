@@ -10,6 +10,17 @@ returns** (the default) takes off the approved credit notes and completed
 sales returns dated in the same period, as GSTR-3B takes them off: a return
 reduces the month it happened in, not the month of the sale it returns.
 
+**Orders booked** (``basis="ordered"``, RPT-1) reads sales orders instead:
+every order approved or further on, cancelled ones left out, dated in the
+period -- what the field force booked, whether or not it has been billed.
+Nothing is netted off an order.
+
+**Margin** (RPT-1) is what billed lines fetched over what the goods cost, at
+the cost the dispatch recorded on the line. A line with no recorded cost is
+left out of the margin altogether -- NULL cost is not zero cost -- so the
+margin is measured on ``costed``, the taxable value of the lines that carry
+one. Returns and notes record no cost and do not move it.
+
 Grouped in SQL, so a year of a large firm is one query per document kind;
 time buckets are computed per dialect, and the financial-year quarter is the
 Indian one (April-June is Q1).
@@ -36,6 +47,7 @@ from app.products.models import Product, ProductCategory
 from app.products.models.brand import Brand, Principal
 from app.sales.models.territory import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
+from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_return.models import SalesReturn, SalesReturnLine
 
 ZERO = Decimal("0")
@@ -54,6 +66,10 @@ ENTITY_DIMENSIONS = (
 )
 DIMENSIONS = TIME_DIMENSIONS + ENTITY_DIMENSIONS
 BILLED = ("APPROVED", "CLOSED")
+BASES = ("billed", "ordered")
+#: An order is booked once approved; a draft is not yet a booking and a
+#: cancelled one never became one.
+UNBOOKED = ("DRAFT", "CANCELLED")
 RETURNED = ("COMPLETED", "CLOSED")
 
 
@@ -65,6 +81,10 @@ class Cell:
     taxable: Decimal = ZERO
     tax: Decimal = ZERO
     net: Decimal = ZERO
+    #: What the goods cost, from the lines that recorded a cost, and those
+    #: lines' taxable value -- the margin is `costed - cost`.
+    cost: Decimal = ZERO
+    costed: Decimal = ZERO
     #: Distinct invoices. Never summed across cells -- one invoice of two
     #: products sits in two cells of a row -- so totals take theirs from a
     #: query of their own.
@@ -76,6 +96,8 @@ class Cell:
         self.taxable += other.taxable
         self.tax += other.tax
         self.net += other.net
+        self.cost += other.cost
+        self.costed += other.costed
 
 
 @dataclass
@@ -234,14 +256,19 @@ class SalesAnalysisService:
         to_date: date,
         filters: AnalysisFilters | None = None,
         net_of_returns: bool = True,
+        basis: str = "billed",
     ) -> SalesAnalysis:
         """Return the pivot for the period.
 
         Raises:
-            ValidationError: For an unknown dimension, the same dimension on
-                both axes, or a period that runs backwards.
+            ValidationError: For an unknown dimension or basis, the same
+                dimension on both axes, or a period that runs backwards.
 
         """
+        if basis not in BASES:
+            raise ValidationError(
+                f"{basis} is not a basis. Use one of " + ", ".join(BASES) + "."
+            )
         for dimension in (rows, columns):
             if dimension is not None and dimension not in DIMENSIONS:
                 raise ValidationError(
@@ -258,7 +285,13 @@ class SalesAnalysisService:
         grouped: list[tuple[str, str, Cell]] = []
         # A debit note to a customer is more of a sale already made (backlog
         # 77 row 5), so it counts whether or not returns are netted off.
-        for kind in ("invoice", "debit_note", "credit_note", "sales_return"):
+        counted = "order" if basis == "ordered" else "invoice"
+        kinds: tuple[str, ...] = (
+            ("order",)
+            if basis == "ordered"
+            else ("invoice", "debit_note", "credit_note", "sales_return")
+        )
+        for kind in kinds:
             if kind in ("credit_note", "sales_return") and not net_of_returns:
                 continue
             grouped.extend(
@@ -278,15 +311,15 @@ class SalesAnalysisService:
             grand.add(cell)
         # Distinct invoices for the totals, each from its own grouping.
         for row_key, _, count in self._invoice_counts(
-            firm_id, rows, None, from_date, to_date, filters
+            firm_id, rows, None, from_date, to_date, filters, counted
         ):
             row_totals.setdefault(row_key, Cell()).invoices = count
         for _, column_key, count in self._invoice_counts(
-            firm_id, None, columns, from_date, to_date, filters
+            firm_id, None, columns, from_date, to_date, filters, counted
         ):
             column_totals.setdefault(column_key, Cell()).invoices = count
         for _, _, count in self._invoice_counts(
-            firm_id, None, None, from_date, to_date, filters
+            firm_id, None, None, from_date, to_date, filters, counted
         ):
             grand.invoices = count
 
@@ -352,8 +385,35 @@ class SalesAnalysisService:
             SalesInvoiceLine.is_deleted.is_(False),
         ]
 
+    def _order_scope(
+        self, firm_id: UUID, from_date: date, to_date: date
+    ) -> list[ColumnElement[bool]]:
+        return [
+            SalesOrder.firm_id == firm_id,
+            SalesOrder.is_deleted.is_(False),
+            SalesOrder.status.not_in(UNBOOKED),
+            SalesOrder.order_date >= from_date,
+            SalesOrder.order_date <= to_date,
+            SalesOrderLine.is_deleted.is_(False),
+        ]
+
     def _sources(self, kind: str) -> dict[str, Any]:
         """Return the columns each document kind contributes, under one set of names."""
+        if kind == "order":
+            return {
+                "date": SalesOrder.order_date,
+                "product": SalesOrderLine.product_id,
+                "customer": SalesOrder.customer_id,
+                "salesman": SalesOrder.salesman_id,
+                "territory": SalesOrder.territory_id,
+                "route": SalesOrder.route_id,
+                "branch": SalesOrder.branch_id,
+                "document": SalesOrder.id,
+                "quantity": SalesOrderLine.quantity,
+                "taxable": SalesOrderLine.net_amount - SalesOrderLine.tax_amount,
+                "tax": SalesOrderLine.tax_amount,
+                "net": SalesOrderLine.net_amount,
+            }
         if kind == "invoice":
             return {
                 "date": SalesInvoice.invoice_date,
@@ -478,8 +538,14 @@ class SalesAnalysisService:
             func.sum(source["tax"]),
             func.sum(source["net"]),
             func.count(func.distinct(source["document"])),
+            *self._cost_columns(kind),
         )
-        if kind == "invoice":
+        if kind == "order":
+            query = query.select_from(SalesOrder).join(
+                SalesOrderLine, SalesOrderLine.sales_order_id == SalesOrder.id
+            )
+            scope = self._order_scope(firm_id, from_date, to_date)
+        elif kind == "invoice":
             query = query.select_from(SalesInvoice).join(
                 SalesInvoiceLine, SalesInvoiceLine.sales_invoice_id == SalesInvoice.id
             )
@@ -536,7 +602,11 @@ class SalesAnalysisService:
             .where(*scope, *self._filter_clauses(kind, filters))
             .group_by(row_expr, column_expr)
         )
-        sign = Decimal("1") if kind in ("invoice", "debit_note") else Decimal("-1")
+        sign = (
+            Decimal("1")
+            if kind in ("order", "invoice", "debit_note")
+            else Decimal("-1")
+        )
         results: list[tuple[str, str, Cell]] = []
         for (
             row_key,
@@ -546,19 +616,41 @@ class SalesAnalysisService:
             tax,
             net,
             count,
+            cost,
+            costed,
         ) in self._session.execute(query).all():
             cell = Cell(
                 quantity=sign * Decimal(str(quantity or 0)),
                 taxable=sign * Decimal(str(taxable or 0)),
                 tax=sign * Decimal(str(tax or 0)),
                 net=sign * Decimal(str(net or 0)),
+                cost=Decimal(str(cost or 0)),
+                costed=Decimal(str(costed or 0)),
             )
             # Returns change the money but are not bills: the invoice count
-            # and the average bill count invoices only.
-            if kind == "invoice":
+            # and the average bill count invoices (or, booked, orders) only.
+            if kind in ("invoice", "order"):
                 cell.invoices = int(count or 0)
             results.append((str(row_key or ""), str(column_key or ""), cell))
         return results
+
+    def _cost_columns(self, kind: str) -> list[ColumnElement[Any]]:
+        """Return the summed cost and costed value; only invoice lines carry one."""
+        if kind != "invoice":
+            return [literal(0), literal(0)]
+        recorded = SalesInvoiceLine.cost_amount.is_not(None)
+        return [
+            func.sum(case((recorded, SalesInvoiceLine.cost_amount), else_=0)),
+            func.sum(
+                case(
+                    (
+                        recorded,
+                        SalesInvoiceLine.net_amount - SalesInvoiceLine.tax_amount,
+                    ),
+                    else_=0,
+                )
+            ),
+        ]
 
     def _invoice_counts(
         self,
@@ -568,10 +660,29 @@ class SalesAnalysisService:
         from_date: date,
         to_date: date,
         filters: AnalysisFilters,
+        kind: str = "invoice",
     ) -> list[tuple[str, str, int]]:
-        """Count distinct invoices per row, per column or overall."""
-        row_expr = self._dimension("invoice", rows).label("row_key")
-        column_expr = self._dimension("invoice", columns).label("column_key")
+        """Count distinct invoices (or orders) per row, per column or overall."""
+        row_expr = self._dimension(kind, rows).label("row_key")
+        column_expr = self._dimension(kind, columns).label("column_key")
+        if kind == "order":
+            order_query = (
+                select(row_expr, column_expr, func.count(func.distinct(SalesOrder.id)))
+                .select_from(SalesOrder)
+                .join(SalesOrderLine, SalesOrderLine.sales_order_id == SalesOrder.id)
+                .join(Product, Product.id == SalesOrderLine.product_id)
+                .outerjoin(Brand, Brand.id == Product.brand_id)
+                .join(Customer, Customer.id == SalesOrder.customer_id)
+                .where(
+                    *self._order_scope(firm_id, from_date, to_date),
+                    *self._filter_clauses("order", filters),
+                )
+                .group_by(row_expr, column_expr)
+            )
+            return [
+                (str(row or ""), str(column or ""), int(count or 0))
+                for row, column, count in self._session.execute(order_query).all()
+            ]
         query = (
             select(row_expr, column_expr, func.count(func.distinct(SalesInvoice.id)))
             .select_from(SalesInvoice)
@@ -691,3 +802,68 @@ class SalesAnalysisService:
         return {
             str(member.user_id): member.full_name or member.email for member in members
         }
+
+
+def year_earlier(day: date) -> date:
+    """Return the same date a year earlier; 29 February becomes the 28th."""
+    try:
+        return day.replace(year=day.year - 1)
+    except ValueError:
+        return day.replace(year=day.year - 1, day=28)
+
+
+def shift_key_a_year(dimension: str | None, key: str) -> str:
+    """Move a time bucket's key one year on, so last year's lands beside this.
+
+    Comparing with last year (RPT-1) runs the same analysis a year earlier and
+    files each of its buckets under the one it compares with: May 2025 under
+    May 2026. An entity key -- a product, a customer -- is the same both years.
+    """
+    if dimension not in TIME_DIMENSIONS or not key:
+        return key
+    if dimension == "quarter":
+        number, start = key.split(" ")
+        return f"{number} {int(start) + 1}"
+    if dimension == "year":
+        return str(int(key) + 1)
+    if dimension == "day":
+        day = date.fromisoformat(key)
+        try:
+            return day.replace(year=day.year + 1).isoformat()
+        except ValueError:
+            return day.replace(year=day.year + 1, day=28).isoformat()
+    year, rest = key.split("-", 1)  # month "2025-05", week "2025-W18"
+    return f"{int(year) + 1}-{rest}"
+
+
+def shifted_a_year(
+    result: SalesAnalysis, rows: str, columns: str | None
+) -> SalesAnalysis:
+    """File last year's pivot under this year's keys (RPT-1).
+
+    Cells and totals move to the key they compare with; the headings are
+    re-labelled so a bucket last year had and this year has not still reads
+    as this year's bucket beside an empty one.
+    """
+
+    def heading(dimension: str | None, item: AnalysisKey) -> AnalysisKey:
+        if dimension not in TIME_DIMENSIONS or dimension is None:
+            return item
+        return _time_key(dimension, shift_key_a_year(dimension, item.key))
+
+    def column(key: str) -> str:
+        return shift_key_a_year(columns, key)
+
+    return SalesAnalysis(
+        rows=[heading(rows, item) for item in result.rows],
+        columns=[heading(columns, item) for item in result.columns],
+        cells={
+            (shift_key_a_year(rows, row), column(col)): cell
+            for (row, col), cell in result.cells.items()
+        },
+        row_totals={
+            shift_key_a_year(rows, key): cell for key, cell in result.row_totals.items()
+        },
+        column_totals={column(key): cell for key, cell in result.column_totals.items()},
+        grand_total=result.grand_total,
+    )
