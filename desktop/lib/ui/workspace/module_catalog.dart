@@ -768,6 +768,7 @@ abstract final class ModuleCatalog {
         'PURCHASE_EXPORT',
         'PURCHASE_APPROVE',
         'PURCHASE_CANCEL',
+        'PURCHASE_INSPECT',
       ],
       requiresAnyPermission: true,
       tabs: [
@@ -797,6 +798,13 @@ abstract final class ModuleCatalog {
           id: 'debit-notes',
           label: 'Debit Notes',
           requiredPermissions: ['DEBIT_NOTE_VIEW'],
+        ),
+        // Goods held in quarantine until passed (BUY-9).
+        ModuleTabDefinition(
+          id: 'quality-inspection',
+          label: 'Quality Inspection',
+          requiredPermissions: ['PURCHASE_VIEW', 'PURCHASE_INSPECT'],
+          requiresAnyPermission: true,
         ),
         ModuleTabDefinition(
           id: 'purchase-analytics',
@@ -1740,6 +1748,12 @@ abstract final class ModuleCatalog {
           label: 'Debit Notes',
           path: 'debit-notes',
           icon: Icons.request_page_outlined,
+        ),
+      if (visibleTabIds.contains('quality-inspection'))
+        const WorkspaceNavigationNode(
+          label: 'Quality Inspection',
+          path: 'quality-inspection',
+          icon: Icons.fact_check_outlined,
         ),
       if (visibleTabIds.contains('purchase-analytics'))
         const WorkspaceNavigationNode(

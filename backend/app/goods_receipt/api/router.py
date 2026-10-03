@@ -32,6 +32,8 @@ from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.document_framework.schemas import DocumentLifecycleEventResponse
 from app.goods_receipt.schemas import (
+    GoodsInspectionResponse,
+    GoodsInspectionWrite,
     GoodsReceiptCreate,
     GoodsReceiptEwayBillWrite,
     GoodsReceiptImportRequest,
@@ -45,6 +47,7 @@ from app.goods_receipt.schemas import (
     GoodsReceiptUpdate,
 )
 from app.goods_receipt.services import GoodsReceiptService
+from app.goods_receipt.services.inspection_service import GoodsInspectionService
 from app.products.services.barcode_labels import (
     BarcodeLabelService,
     LabelLayout,
@@ -76,6 +79,14 @@ GoodsReceiptCreateScope = Annotated[
 ]
 GoodsReceiptUpdateScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PURCHASE_UPDATE")
+]
+#: Passing or rejecting goods held for inspection (BUY-9): whoever counted
+#: them in should not be the one who passes them.
+GoodsInspectionScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("PURCHASE_INSPECT")
+]
+GoodsInspectionViewScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("PURCHASE_VIEW", "PURCHASE_INSPECT")
 ]
 GoodsReceiptCancelScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PURCHASE_CANCEL")
@@ -303,6 +314,56 @@ def close_goods_receipt(
         reason=data.reason,
     )
     return ApiResponse(data=service.receipt_response(row))
+
+
+@router.get("/inspections", response_model=ApiResponse[list[GoodsInspectionResponse]])
+def list_goods_inspections(
+    scope: GoodsInspectionViewScope,
+    status: Literal["PENDING", "DONE"] = "PENDING",
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[GoodsInspectionResponse]]:
+    """Return received lines waiting for, or decided by, an inspection (BUY-9).
+
+    Newest receipt first, at most 500. Goods waiting are in quarantine: owned
+    and valued, but not sellable until passed.
+    """
+    rows = GoodsInspectionService(db).list_inspections(
+        firm_id=scope.firm_id, status=status
+    )
+    return ApiResponse(
+        data=[GoodsInspectionResponse.model_validate(row) for row in rows]
+    )
+
+
+@router.post(
+    "/{receipt_id}/lines/{line_id}/inspection",
+    response_model=ApiResponse[GoodsInspectionResponse],
+)
+def inspect_goods_receipt_line(
+    receipt_id: UUID,
+    line_id: UUID,
+    data: GoodsInspectionWrite,
+    scope: GoodsInspectionScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GoodsInspectionResponse]:
+    """Pass and/or reject what one received line holds in quarantine (BUY-9).
+
+    What passes is released to stock. What is rejected is written off now, or
+    kept in quarantine for a purchase return (condition QUARANTINE).
+    """
+    row = GoodsInspectionService(db).inspect(
+        receipt_id,
+        line_id,
+        passed_quantity=data.passed_quantity,
+        rejected_quantity=data.rejected_quantity,
+        rejected_action=data.rejected_action,
+        remarks=data.remarks,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(
+        data=GoodsInspectionResponse.model_validate(row), message="Inspection saved."
+    )
 
 
 @router.get("/{receipt_id}", response_model=ApiResponse[GoodsReceiptResponse])

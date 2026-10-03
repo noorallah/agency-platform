@@ -1,6 +1,8 @@
 """Goods receipt API schemas."""
 
 from app.goods_receipt.schemas.goods_receipt import (
+    GoodsInspectionResponse,
+    GoodsInspectionWrite,
     GoodsReceiptAttachmentResponse,
     GoodsReceiptAttachmentWrite,
     GoodsReceiptCreate,
@@ -21,6 +23,8 @@ from app.goods_receipt.schemas.goods_receipt import (
 )
 
 __all__ = [
+    "GoodsInspectionResponse",
+    "GoodsInspectionWrite",
     "GoodsReceiptAttachmentResponse",
     "GoodsReceiptAttachmentWrite",
     "GoodsReceiptCreate",

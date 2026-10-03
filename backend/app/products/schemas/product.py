@@ -70,6 +70,9 @@ class ProductCategoryCreate(ProductSchema):
     #: The trade licence its goods need (backlog 54). On an update, absent
     #: leaves it alone and an explicit null clears it.
     required_licence_type_id: UUID | None = None
+    #: Its goods wait in quarantine on receipt (BUY-9). On an update, absent
+    #: leaves it alone.
+    inspection_required: bool = False
 
     @field_validator("code", mode="before")
     @classmethod
@@ -94,6 +97,7 @@ class ProductCategoryResponse(ProductSchema):
     path: str
     is_active: bool
     required_licence_type_id: UUID | None = None
+    inspection_required: bool = False
     created_at: datetime
     updated_at: datetime
     #: The concurrency counter, echoed as `If-Match` on the next edit.
@@ -187,6 +191,8 @@ class ProductWrite(ProductSchema):
     track_warranty: bool = False
     allow_negative_stock: bool = False
     require_batch_on_receipt: bool = False
+    #: Received goods wait in quarantine until passed (BUY-9).
+    inspection_required: bool = False
     require_batch_on_issue: bool = False
     require_serial_on_receipt: bool = False
     require_serial_on_issue: bool = False
@@ -320,6 +326,7 @@ class ProductResponse(ProductSchema):
     track_warranty: bool
     allow_negative_stock: bool
     require_batch_on_receipt: bool
+    inspection_required: bool = False
     require_batch_on_issue: bool
     require_serial_on_receipt: bool
     require_serial_on_issue: bool

@@ -33,6 +33,7 @@ import '../../models/party_adjustment.dart';
 import '../../models/contra_voucher.dart';
 import '../../models/tds_challan.dart';
 import '../../models/post_dated_cheque.dart';
+import '../../models/quality_inspection.dart';
 import '../../models/bank_account_details.dart';
 import '../../models/einvoice.dart';
 import '../../models/proforma.dart';
@@ -7252,6 +7253,38 @@ class ApiClient {
         '${_pdcPath(issued)}/$id/cancel',
         body: {'reason': reason},
         expectedVersion: expectedVersion,
+      )));
+
+  // ---- quality inspection hold (BUY-9) ----------------------------------
+
+  /// Receipt lines held for inspection; [status] is `PENDING` or `DONE`.
+  Future<List<QualityInspection>> listQualityInspections({
+    String status = 'PENDING',
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/goods-receipts/inspections',
+      query: {'status': status},
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) =>
+            QualityInspection.fromJson(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
+  }
+
+  /// Pass and reject the quantity held on one receipt line.
+  Future<QualityInspection> inspectGoodsReceiptLine({
+    required String receiptId,
+    required String lineId,
+    required Json body,
+  }) async =>
+      QualityInspection.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/goods-receipts/$receiptId/lines/$lineId/inspection',
+        body: body,
       )));
 
   // ---- commission payouts ---------------------------------------------

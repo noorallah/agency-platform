@@ -870,6 +870,7 @@ class ProductService:
             path=path,
             is_active=data.is_active,
             required_licence_type_id=data.required_licence_type_id,
+            inspection_required=data.inspection_required,
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -957,6 +958,8 @@ class ProductService:
         if "required_licence_type_id" in data.model_fields_set:
             self._validate_licence_type(firm_scope, data.required_licence_type_id)
             row.required_licence_type_id = data.required_licence_type_id
+        if "inspection_required" in data.model_fields_set:
+            row.inspection_required = data.inspection_required
         row.updated_by = actor_id
         if row.path != old_path:
             self._repath_category_descendants(row)
@@ -1838,6 +1841,7 @@ class ProductService:
             "track_warranty": product.track_warranty,
             "allow_negative_stock": product.allow_negative_stock,
             "require_batch_on_receipt": product.require_batch_on_receipt,
+            "inspection_required": product.inspection_required,
             "require_batch_on_issue": product.require_batch_on_issue,
             "require_serial_on_receipt": product.require_serial_on_receipt,
             "require_serial_on_issue": product.require_serial_on_issue,

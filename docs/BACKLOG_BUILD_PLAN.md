@@ -407,6 +407,7 @@ otherwise it is built as written.
 - **What it is:** for pharma or food, received stock is unusable until checked.
 - **What gets built:** an *inspection required* flag on product / category (migration); `goods_receipt_service.py` posts such lines into quarantine (the quarantine hold already exists in inventory); an inspection screen to pass (release) or reject (return or write-off). Tests.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A100): `inspection_required` on products and categories, the inspection columns on `goods_receipt_lines`, `PURCHASE_INSPECT` (migration 0266). `InventoryService.stage_quarantine`; the receipt holds in `_hold_for_inspection` and a cancel releases in `_undo_inspection_holds`; `app/goods_receipt/services/inspection_service.py` with `GET /goods-receipts/inspections` and `POST /goods-receipts/{id}/lines/{line_id}/inspection`. Desktop: *Inspect on receipt* on the product and category editors, a *Quality inspection* screen. Tests: `test_inspection_hold.py`, `inspection_hold_test.dart`.
 
 #### BUY-10. Bill match tolerances holding the bill (§68 row 7)
 - **What it is:** a supplier bill priced or counted beyond the agreed tolerance waits for approval.

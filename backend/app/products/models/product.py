@@ -58,6 +58,11 @@ class ProductCategory(BaseEntity):
         UUIDType(), ForeignKey("product_categories.id", ondelete="RESTRICT")
     )
     level: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    #: Goods of this category wait in quarantine on receipt until passed
+    #: (BUY-9).
+    inspection_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     path: Mapped[str] = mapped_column(String(1000), nullable=False)
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
@@ -242,6 +247,11 @@ class Product(BaseEntity):
         Boolean, nullable=False, default=False, server_default="false"
     )
     require_batch_on_receipt: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    #: Received goods wait in quarantine until somebody passes them (BUY-9).
+    #: True on the product or on its category is enough.
+    inspection_required: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
     require_batch_on_issue: Mapped[bool] = mapped_column(

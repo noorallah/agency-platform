@@ -60,6 +60,7 @@ import 'sales/sales_workflow_settings_dialog.dart';
 import 'commission/commission_page.dart';
 import 'commission/sales_target_page.dart';
 import 'purchases/debit_note_page.dart';
+import 'purchases/quality_inspection_page.dart';
 import 'purchases/purchase_approval_limits_dialog.dart';
 import 'sales/credit_note_page.dart';
 import 'sales/customer_debit_note_page.dart';
@@ -3126,6 +3127,12 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
         ),
+      'quality-inspection' => QualityInspectionPage(
+          api: widget.api,
+          preferences: widget.preferences,
+          permissions: widget.permissions,
+          hasActiveFirm: hasActiveFirm,
+        ),
       'purchase-analytics' => PurchaseManagementPage(
           api: widget.api,
           preferences: widget.preferences,
@@ -3155,6 +3162,7 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
         'purchase-dashboard' => 'Purchase Dashboard',
         'purchase-orders' => 'Purchase Orders',
         'debit-notes' => 'Debit Notes',
+        'quality-inspection' => 'Quality Inspection',
         'purchase-analysis' => 'Purchase Analysis',
         'purchase-analytics' => 'Purchase Analytics',
         'purchase-settings' => 'Purchase Settings',
@@ -3170,6 +3178,9 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
               'difference found after the bill, a short supply. It takes the '
               'input tax off at the rate the bill charged; a purchase return '
               'is the one that moves stock.',
+        'quality-inspection' =>
+          'Received goods held in quarantine until they are passed; rejected '
+              'goods are written off or kept to return to the supplier.',
         'purchase-analysis' =>
           'Purchases by any one or two dimensions, net of returns. Click a '
               'figure to see the bills behind it.',
@@ -5626,6 +5637,12 @@ ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
         helperText: 'None: a product filed here needs no licence unless it '
             'or a category above it names one.',
       ),
+      FieldSpec(
+        key: 'inspection_required',
+        label: 'Inspect on receipt',
+        boolean: true,
+        helperText: 'Received goods wait in quarantine until passed',
+      ),
       FieldSpec(key: 'is_active', label: 'Active', boolean: true),
     ],
     initialValues: (ProductCategoryRecord? row) => row == null
@@ -5635,6 +5652,7 @@ ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
             'name': row.name,
             'parent_id': row.parentId,
             'required_licence_type_id': row.requiredLicenceTypeId,
+            'inspection_required': row.inspectionRequired,
             'is_active': row.isActive,
           },
     // The update replaces the node, so every field but the licence type is
@@ -5648,6 +5666,7 @@ ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
       if (licenceTypesLoaded)
         'required_licence_type_id':
             _blankToNull(values['required_licence_type_id']),
+      'inspection_required': values['inspection_required'] == true,
       'is_active': values['is_active'],
     },
   );

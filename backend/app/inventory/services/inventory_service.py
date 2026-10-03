@@ -1753,6 +1753,25 @@ class InventoryService:
             ValidationError: If there is not that much to hold or release.
 
         """
+        transaction = self.stage_quarantine(
+            data, firm_scope=firm_scope, actor_id=actor_id
+        )
+        self._commit()
+        self._session.refresh(transaction)
+        return transaction
+
+    def stage_quarantine(
+        self,
+        data: StockQuarantineCreate,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> InventoryTransaction:
+        """Hold or release stock without committing, for a composing caller.
+
+        A goods receipt holds what needs inspection in the same transaction
+        that brought it in (BUY-9).
+        """
         inventory = self._ensure_inventory_projection(
             firm_id=firm_scope,
             branch_id=data.branch_id,
@@ -1816,8 +1835,7 @@ class InventoryService:
                 "quantity": str(data.quantity),
             },
         )
-        self._commit()
-        self._session.refresh(transaction)
+        self._session.flush()
         return transaction
 
     def transfer_stock(

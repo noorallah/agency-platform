@@ -811,6 +811,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         'track_manufacturing_date': product.trackManufacturingDate,
         'track_warranty': product.trackWarranty,
         'not_for_sale': product.notForSale,
+        'inspection_required': product.inspectionRequired,
         'shelf_life_days': product.shelfLifeDays,
         'issue_rule': product.issueRule.isEmpty ? null : product.issueRule,
         'allow_negative_stock': product.allowNegativeStock,
@@ -1890,6 +1891,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   late bool _trackWarranty;
   late bool _allowNegativeStock;
   late bool _notForSale;
+  late bool _inspectionRequired;
   late bool _requireBatchOnReceipt;
   late bool _requireBatchOnIssue;
   late bool _requireSerialOnReceipt;
@@ -2014,6 +2016,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     _trackWarranty = product?.trackWarranty ?? false;
     _allowNegativeStock = product?.allowNegativeStock ?? false;
     _notForSale = product?.notForSale ?? false;
+    _inspectionRequired = product?.inspectionRequired ?? false;
     _issueRule = product?.issueRule ?? '';
     _requireBatchOnReceipt = product?.requireBatchOnReceipt ?? false;
     _requireBatchOnIssue = product?.requireBatchOnIssue ?? false;
@@ -2841,6 +2844,23 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                 : (value) => setState(() => _notForSale = value),
           ),
         ),
+        // Received goods wait in quarantine until passed (BUY-9).
+        SizedBox(
+          width: 360,
+          child: CheckboxListTile(
+            key: const ValueKey('product-inspection-required'),
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            title: const Text('Inspect on receipt'),
+            subtitle:
+                const Text('Received goods wait in quarantine until passed'),
+            value: _inspectionRequired,
+            onChanged: _readOnly
+                ? null
+                : (value) =>
+                    setState(() => _inspectionRequired = value ?? false),
+          ),
+        ),
         SizedBox(
           width: 360,
           child: SwitchListTile.adaptive(
@@ -3405,6 +3425,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       'track_manufacturing_date': _trackManufacturingDate,
       'track_warranty': _trackWarranty,
       'not_for_sale': _notForSale,
+      'inspection_required': _inspectionRequired,
       'shelf_life_days': int.tryParse(_shelfLife.text.trim()),
       'issue_rule': _issueRule.isEmpty ? null : _issueRule,
       'allow_negative_stock': _allowNegativeStock,
@@ -3452,6 +3473,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       _trackManufacturingDate = false;
       _trackWarranty = false;
       _notForSale = false;
+      _inspectionRequired = false;
       _allowNegativeStock = false;
       _requireBatchOnReceipt = false;
       _requireBatchOnIssue = false;
