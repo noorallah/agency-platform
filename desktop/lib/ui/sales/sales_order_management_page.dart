@@ -709,6 +709,7 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
               ? null
               : () => unawaited(held ? _release(selected) : _hold(selected)),
         ),
+        _reserveAgainCommand(),
         _command(DocumentToolbarAction.cancel, '/cancel'),
         _command(DocumentToolbarAction.close, '/close'),
               ],
@@ -818,10 +819,59 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
             ),
           _actionButton(DocumentToolbarAction.approve, '/approve'),
           _holdButton(),
+          _reserveAgainButton(),
           _actionButton(DocumentToolbarAction.cancel, '/cancel'),
           _actionButton(DocumentToolbarAction.close, '/close'),
         ],
       );
+
+  /// STK-12: the order's stock hold lapsed unshipped.
+  static bool _lapsed(Map<String, dynamic> item) =>
+      '${item['reservation_lapsed_at'] ?? ''}'.isNotEmpty;
+
+  VoidCallback? _reserveAgainAction() {
+    final Map<String, dynamic>? selected = _selected;
+    if (selected == null || _loading || !_mayApprove() || !_lapsed(selected)) {
+      return null;
+    }
+    return () => unawaited(_reserveAgain(selected));
+  }
+
+  ToolbarCommand _reserveAgainCommand() => ToolbarCommand(
+        id: 'reserve-again',
+        label: 'Reserve again',
+        icon: Icons.inventory_2_outlined,
+        onPressed: _reserveAgainAction(),
+      );
+
+  Widget _reserveAgainButton() => Padding(
+        padding: const EdgeInsets.only(left: 8),
+        child: OutlinedButton.icon(
+          onPressed: _reserveAgainAction(),
+          icon: const Icon(Icons.inventory_2_outlined, size: 18),
+          label: const Text('Reserve again'),
+        ),
+      );
+
+  Future<void> _reserveAgain(Map<String, dynamic> order) async {
+    try {
+      await widget.api.reserveSalesOrderAgain('${order['id']}');
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        'Stock is held again for ${order['order_number']}.',
+        kind: AppNotificationKind.success,
+      );
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
 
   /// One button that holds or releases, depending on where the order is.
   ///
@@ -1105,9 +1155,9 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
       // A hold rides on the status cell, so a held order never looks live.
       ChoosableColumn(
         column: const GridColumn(key: 'status', label: 'Status'),
-        cell: (item) => item['is_on_hold'] == true
-            ? '${item['status'] ?? ''} (on hold)'
-            : '${item['status'] ?? ''}',
+        cell: (item) => '${item['status'] ?? ''}'
+            '${item['is_on_hold'] == true ? ' (on hold)' : ''}'
+            '${_lapsed(item) ? ' (stock hold lapsed)' : ''}',
         shownByDefault: true,
       ),
       ChoosableColumn(

@@ -9534,6 +9534,10 @@ class ApiClient {
         body: <String, dynamic>{if (remarks != null) 'reason': remarks},
       );
 
+  /// STK-12: hold stock again for an approved order whose hold lapsed.
+  Future<Json> reserveSalesOrderAgain(String id) =>
+      request('POST', '/api/v1/sales-orders/$id/reserve-again');
+
   Future<Json> createSalesInvoice(Json body) =>
       request('POST', '/api/v1/sales-invoices', body: body);
 

@@ -532,6 +532,7 @@ otherwise it is built as written.
 - **What it is:** stock held for an order that never ships is released after N days.
 - **What gets built:** a firm setting (off by default); a pass on the server's existing timer (the messaging worker's loop in `backend/app/messaging/services/outbox_worker.py` shows the pattern) releases them and flags the order; audit row. Migration for the setting. Tests.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A115): `sales_workflow_settings.reservation_lapse_days`, `sales_orders.reservation_lapsed_at` (migration 0279); `app/sales_order/services/reservation_lapse.py` run from `MessagingWorker._run`; `SalesOrderService.lapse_reservation` / `reserve_again`, `POST /sales-orders/{id}/reserve-again`. Desktop: the setting, the badge and *Reserve again*. Tests: `test_lapsing_reservations.py`, `lapsing_reservations_test.dart`.
 
 #### STK-13. Returned goods held until checked (§70 row 17)
 - **What it is:** a customer return goes to quarantine until someone checks it.

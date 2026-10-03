@@ -133,6 +133,18 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
                     ),
                 ],
               ),
+              if (_reservationLapsedAt.isNotEmpty)
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: StatusBadge(
+                      key: ValueKey('sales-order-stock-hold-lapsed'),
+                      label: 'Stock hold lapsed',
+                      tone: StatusBadgeTone.warning,
+                    ),
+                  ),
+                ),
               if (_locked || _error != null)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),

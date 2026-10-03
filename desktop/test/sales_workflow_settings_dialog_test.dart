@@ -121,6 +121,7 @@ void main() {
       'max_line_discount_percent': null,
       'rate_includes_tax': false,
       'new_outlets_need_approval': false,
+      'reservation_lapse_days': null,
     });
   });
 

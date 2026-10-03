@@ -552,6 +552,22 @@ def hold_sales_order(
     )
 
 
+@router.post(
+    "/{order_id}/reserve-again", response_model=ApiResponse[SalesOrderResponse]
+)
+def reserve_sales_order_again(
+    order_id: UUID,
+    scope: SalesOrderApproveScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SalesOrderResponse]:
+    """Hold stock again for an order whose hold lapsed (STK-12)."""
+    service = SalesOrderService(db)
+    row = service.reserve_again(
+        order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=service.order_response(row), message="Stock held again.")
+
+
 @router.post("/{order_id}/release", response_model=ApiResponse[SalesOrderResponse])
 def release_sales_order(
     order_id: UUID,

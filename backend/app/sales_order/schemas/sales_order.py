@@ -361,6 +361,8 @@ class SalesOrderResponse(SalesOrderSchema):
     #: that is PARTIALLY_DELIVERED can be held, and releasing it has to put it
     #: back to PARTIALLY_DELIVERED rather than guess.
     is_on_hold: bool = False
+    #: When the stock hold lapsed unshipped (STK-12).
+    reservation_lapsed_at: datetime | None = None
     #: Kept after release, not cleared -- "why was this held" is the question
     #: asked afterwards.
     hold_reason: str | None = None
@@ -521,6 +523,8 @@ class SalesWorkflowSettingsResponse(SalesOrderSchema):
     rate_includes_tax: bool = False
     #: Whether a new outlet waits for approval before it is billed (SEL-15).
     new_outlets_need_approval: bool = False
+    #: Days before an unshipped order's stock hold lapses; null never (STK-12).
+    reservation_lapse_days: int | None = None
     is_configured: bool
 
 
@@ -554,6 +558,8 @@ class SalesWorkflowSettingsWrite(SalesOrderSchema):
     rate_includes_tax: bool | None = None
     #: Omitted is left as it is (SEL-15).
     new_outlets_need_approval: bool | None = None
+    #: Omitted is left as it is; an explicit null switches lapsing off.
+    reservation_lapse_days: int | None = Field(default=None, ge=1, le=365)
 
 
 class SalesOrderPreview(SalesOrderSchema):

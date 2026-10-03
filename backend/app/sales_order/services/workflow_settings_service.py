@@ -39,6 +39,7 @@ DEFAULT_SETTINGS = SalesWorkflowSettings(
     max_line_discount_percent=None,
     rate_includes_tax=False,
     new_outlets_need_approval=False,
+    reservation_lapse_days=None,
 )
 
 
@@ -81,6 +82,7 @@ class SalesWorkflowService:
             max_line_discount_percent=policy.max_line_discount_percent,
             rate_includes_tax=bool(policy.rate_includes_tax),
             new_outlets_need_approval=bool(policy.new_outlets_need_approval),
+            reservation_lapse_days=policy.reservation_lapse_days,
             is_configured=stored is not None,
         )
 
@@ -137,6 +139,8 @@ class SalesWorkflowService:
             row.rate_includes_tax = data.rate_includes_tax
         if data.new_outlets_need_approval is not None:
             row.new_outlets_need_approval = data.new_outlets_need_approval
+        if "reservation_lapse_days" in sent:
+            row.reservation_lapse_days = data.reservation_lapse_days
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -164,6 +168,7 @@ class SalesWorkflowService:
             max_line_discount_percent=row.max_line_discount_percent,
             rate_includes_tax=row.rate_includes_tax,
             new_outlets_need_approval=row.new_outlets_need_approval,
+            reservation_lapse_days=row.reservation_lapse_days,
             is_configured=True,
         )
 
@@ -231,6 +236,7 @@ class SalesWorkflowService:
             ),
             "rate_includes_tax": row.rate_includes_tax,
             "new_outlets_need_approval": row.new_outlets_need_approval,
+            "reservation_lapse_days": row.reservation_lapse_days,
             "quotation_stage": row.quotation_stage,
             "sales_order_stage": row.sales_order_stage,
             "delivery_note_stage": row.delivery_note_stage,

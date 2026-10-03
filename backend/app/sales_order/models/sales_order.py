@@ -183,6 +183,11 @@ class SalesOrder(BaseEntity):
     held_by: Mapped[UUID | None] = mapped_column(UUIDType())
     released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     released_by: Mapped[UUID | None] = mapped_column(UUIDType())
+    #: When its stock hold lapsed unshipped (STK-12); cleared by reserving
+    #: again. The order itself is untouched -- it can still be dispatched.
+    reservation_lapsed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     close_reason: Mapped[str | None] = mapped_column(Text)
 
 
@@ -423,6 +428,9 @@ class SalesWorkflowSettings(BaseEntity):
     new_outlets_need_approval: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    #: Days an approved order may hold stock before the hold lapses (STK-12).
+    #: Null: holds never lapse.
+    reservation_lapse_days: Mapped[int | None] = mapped_column(Integer)
     #: Whether a new counter bill reads a typed rate as including GST
     #: (backlog 64 row 4). Only the default: each bill carries its own switch.
     rate_includes_tax: Mapped[bool] = mapped_column(

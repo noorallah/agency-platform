@@ -290,6 +290,9 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   /// The order's status as it was read. Only a draft may be rewritten.
   String _status = 'DRAFT';
 
+  /// STK-12: when the order's stock hold lapsed unshipped, if it did.
+  String _reservationLapsedAt = '';
+
   bool get _editing => widget.orderId != null;
 
   bool get _locked => _editing && _status != 'DRAFT';
@@ -438,6 +441,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     _status = stringValue(order['status']).isEmpty
         ? 'DRAFT'
         : stringValue(order['status']);
+    _reservationLapsedAt = stringValue(order['reservation_lapsed_at']);
     _customerId = _blankToNull(stringValue(order['customer_id']));
     // The order's own address; the customer's default only for an order
     // saved before it recorded one.
