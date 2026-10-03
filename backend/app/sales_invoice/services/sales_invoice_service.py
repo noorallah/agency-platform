@@ -89,6 +89,7 @@ from app.sales_invoice.models import (
     SalesInvoiceLineTax,
     SalesInvoiceNote,
     SalesInvoiceSource,
+    SalesInvoiceTender,
 )
 from app.sales_invoice.schemas import (
     BillableDocument,
@@ -116,6 +117,7 @@ from app.sales_invoice.schemas import (
     SalesInvoiceSourceWrite,
     SalesInvoiceStatus,
     SalesInvoiceSummary,
+    SalesInvoiceTenderResponse,
 )
 from app.sales_invoice.services.output_tax import invoice_tax_by_component
 from app.sales_invoice.services.sales_chain_service import (
@@ -622,6 +624,8 @@ class SalesInvoiceService(TransactionalDocumentService):
         self._session.flush()
         for note in chain.raised_notes:
             note.raised_by_sales_invoice_id = row.id
+        if data.received_now_tenders:
+            self._replace_tenders(row, data, actor_id=actor_id)
         self._replace_sources(row, source_rows, firm_id=firm_id, actor_id=actor_id)
         line_totals = self._replace_lines(
             row,
@@ -801,6 +805,8 @@ class SalesInvoiceService(TransactionalDocumentService):
             row.received_now_method = data.received_now_method
         if "received_now_reference" in data.model_fields_set:
             row.received_now_reference = data.received_now_reference
+        if data.received_now_tenders is not None:
+            self._replace_tenders(row, data, actor_id=actor_id)
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
         row.updated_by = actor_id
@@ -1004,6 +1010,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         amount = Decimal(str(row.received_now_amount or 0))
         if amount <= Decimal("0") or row.received_now_settlement_id is not None:
             return
+        tenders = self._tenders_of(row.id)
         if amount > Decimal(str(row.grand_total)):
             raise ValidationError(
                 f"{amount} was received against a bill of {row.grand_total}. "
@@ -1013,9 +1020,41 @@ class SalesInvoiceService(TransactionalDocumentService):
             SettlementAllocationWrite,
             SettlementCreate,
             SettlementMethodEnum,
+            SettlementModeEnum,
         )
         from app.settlements.services import ReceiptService
 
+        if tenders:
+            # One receipt per tender (SEL-12): cash to the cash book, UPI and
+            # card to the bank, each allocated to this bill.
+            for tender in tenders:
+                cash = tender.mode == "CASH"
+                receipt = ReceiptService(self._session).create(
+                    SettlementCreate(
+                        party_id=row.customer_id,
+                        settlement_date=row.invoice_date,
+                        amount=Decimal(str(tender.amount)),
+                        method=(
+                            SettlementMethodEnum.CASH
+                            if cash
+                            else SettlementMethodEnum.BANK
+                        ),
+                        payment_mode=SettlementModeEnum(tender.mode),
+                        instrument_reference=tender.reference,
+                        narration=f"Received with {row.invoice_number}",
+                        allocations=[
+                            SettlementAllocationWrite(
+                                invoice_id=row.id, amount=Decimal(str(tender.amount))
+                            )
+                        ],
+                    ),
+                    firm_id=firm_scope,
+                    actor_id=actor_id,
+                )
+                tender.settlement_id = receipt.id
+                if row.received_now_settlement_id is None:
+                    row.received_now_settlement_id = receipt.id
+            return
         receipt = ReceiptService(self._session).create(
             SettlementCreate(
                 party_id=row.customer_id,
@@ -1032,6 +1071,61 @@ class SalesInvoiceService(TransactionalDocumentService):
             actor_id=actor_id,
         )
         row.received_now_settlement_id = receipt.id
+
+    def _replace_tenders(
+        self,
+        row: SalesInvoice,
+        data: SalesInvoiceCreate,
+        *,
+        actor_id: UUID,
+    ) -> None:
+        """Replace a draft bill's tenders; their sum is what was received.
+
+        Raises:
+            ValidationError: Once the bill's counter payment is recorded.
+
+        """
+        if row.received_now_settlement_id is not None:
+            raise ValidationError(
+                "The counter payment of this bill is already recorded."
+            )
+        tenders = data.received_now_tenders or []
+        for existing in self._tenders_of(row.id):
+            self._session.delete(existing)
+        self._session.flush()
+        for sequence, tender in enumerate(tenders, start=1):
+            self._session.add(
+                SalesInvoiceTender(
+                    firm_id=row.firm_id,
+                    sales_invoice_id=row.id,
+                    sequence=sequence,
+                    mode=tender.mode,
+                    amount=tender.amount,
+                    reference=(tender.reference or "").strip() or None,
+                    created_by=actor_id,
+                    updated_by=actor_id,
+                )
+            )
+        if tenders:
+            row.received_now_amount = self._q(
+                sum((tender.amount for tender in tenders), Decimal("0"))
+            )
+            row.received_now_method = None
+            row.received_now_reference = None
+        self._session.flush()
+
+    def _tenders_of(self, invoice_id: UUID) -> list[SalesInvoiceTender]:
+        """Return a bill's tenders in the order they were given."""
+        return list(
+            self._session.scalars(
+                select(SalesInvoiceTender)
+                .where(
+                    SalesInvoiceTender.sales_invoice_id == invoice_id,
+                    SalesInvoiceTender.is_deleted.is_(False),
+                )
+                .order_by(SalesInvoiceTender.sequence.asc())
+            ).all()
+        )
 
     def stage_approval(
         self,
@@ -2030,6 +2124,15 @@ class SalesInvoiceService(TransactionalDocumentService):
             received_now_method=row.received_now_method,
             received_now_reference=row.received_now_reference,
             received_now_settlement_id=row.received_now_settlement_id,
+            received_now_tenders=[
+                SalesInvoiceTenderResponse(
+                    mode=tender.mode,
+                    amount=tender.amount,
+                    reference=tender.reference,
+                    settlement_id=tender.settlement_id,
+                )
+                for tender in self._tenders_of(row.id)
+            ],
             rate_includes_tax=bool(row.rate_includes_tax),
             approved_at=row.approved_at,
             closed_at=row.closed_at,

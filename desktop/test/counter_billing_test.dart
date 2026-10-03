@@ -1,0 +1,452 @@
+// SEL-12: fast counter billing -- a barcode scan field above the lines, a
+// tender split under "Received now", and F9 to save, approve, print and open
+// the next bill.
+
+import 'package:agency_desktop/core/api/api_client.dart';
+import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/ui/sales/sales_invoice_editor_dialog.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
+    show Phase2Scope;
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+class _CounterApi extends ApiClient {
+  _CounterApi({this.grandTotal = '500', this.approveRefusal})
+      : super(
+          baseUrl: 'http://localhost:8000',
+          accessToken: () => null,
+          refreshAccessToken: () async => false,
+          activeFirmId: () => 'firm-1',
+        );
+
+  final String grandTotal;
+  final String? approveRefusal;
+
+  /// What the server was asked, in order: create, approve, pdf.
+  final List<String> calls = <String>[];
+  final List<Json> created = <Json>[];
+
+  @override
+  Future<List<int>> salesInvoicePdf(String id, {bool referenceCopy = false}) {
+    calls.add('pdf:$id');
+    return Future<List<int>>.value(<int>[1, 2, 3]);
+  }
+
+  @override
+  Future<Json> request(
+    String method,
+    String path, {
+    Json? body,
+    Map<String, String>? query,
+    bool authenticated = true,
+    bool retrying = false,
+    int? expectedVersion,
+  }) async {
+    if (path.contains('workflow-settings')) {
+      return <String, dynamic>{
+        'data': <String, dynamic>{
+          'quotation_stage': false,
+          'sales_order_stage': false,
+          'delivery_note_stage': false,
+          'default_warehouse_id': 'wh-main',
+          'is_configured': true,
+        },
+      };
+    }
+    if (path.endsWith('/batch-serial/sale-settings')) {
+      return <String, dynamic>{
+        'data': <String, dynamic>{'price_from_batch': false},
+      };
+    }
+    if (method == 'GET' && path.startsWith('/api/v1/customers')) {
+      return <String, dynamic>{
+        'data': <Json>[
+          <String, dynamic>{
+            'id': 'cust-1',
+            'code': 'C-1',
+            'name': 'Walk-in Customer',
+            'display_name': 'Walk-in Customer',
+          },
+        ],
+      };
+    }
+    if (method == 'GET' && path.startsWith('/api/v1/products')) {
+      return <String, dynamic>{
+        'data': <Json>[
+          <String, dynamic>{
+            'id': 'prod-1',
+            'code': 'P-1',
+            'name': 'Soap',
+            'barcode': '8901234567890',
+            'selling_price': '50',
+          },
+          <String, dynamic>{
+            'id': 'prod-2',
+            'code': 'P-2',
+            'name': 'Tea',
+            'barcode': '8900000000017',
+            'selling_price': '120',
+          },
+        ],
+      };
+    }
+    if (path.contains('billable')) return <String, dynamic>{'data': <Json>[]};
+    if (method == 'GET' && path.startsWith('/api/v1/sales-invoices/inv-')) {
+      // The saved draft, read back once a later step was refused.
+      return <String, dynamic>{
+        'data': <String, dynamic>{
+          'id': 'inv-1',
+          'status': 'DRAFT',
+          'invoice_date': '2026-08-14',
+          'customer_id': 'cust-1',
+          'customer_name': 'Walk-in Customer',
+          'branch_id': 'branch-1',
+          'version': 1,
+          'lines': <Json>[
+            <String, dynamic>{
+              'line_number': 1,
+              'source_document_type': 'DELIVERY_NOTE',
+              'source_document_id': 'dn-own',
+              'source_document_number': 'DN-1',
+              'source_document_line_id': 'dnl-1',
+              'product_id': 'prod-1',
+              'warehouse_id': 'wh-main',
+              'description': 'Soap',
+              'delivered_quantity': '1',
+              'current_invoice_quantity': '1',
+              'unit_price': '50',
+              'discount_percent': '0',
+            },
+          ],
+        },
+      };
+    }
+    if (method == 'POST' && path == '/api/v1/sales-invoices/preview') {
+      return <String, dynamic>{
+        'data': <String, dynamic>{
+          'interstate': false,
+          'invoice': <String, dynamic>{
+            'invoice_number': 'SI-1',
+            'subtotal': grandTotal,
+            'tax_total': '0',
+            'grand_total': grandTotal,
+            'lines': const <Json>[],
+          },
+          'lines': const <Json>[],
+        },
+      };
+    }
+    if (method == 'POST' && path == '/api/v1/sales-invoices') {
+      calls.add('create');
+      created.add(body!);
+      return <String, dynamic>{
+        'data': <String, dynamic>{
+          'id': 'inv-${created.length}',
+          'invoice_number': 'SI-${created.length}',
+          'status': 'DRAFT',
+          'version': 1,
+        },
+      };
+    }
+    if (method == 'POST' && path.endsWith('/approve')) {
+      calls.add('approve');
+      if (approveRefusal != null) {
+        throw ApiException(approveRefusal!, statusCode: 422);
+      }
+      return <String, dynamic>{'data': <String, dynamic>{}};
+    }
+    return <String, dynamic>{'data': const <Json>[]};
+  }
+}
+
+Future<List<String>> _pump(
+  WidgetTester tester,
+  _CounterApi api, {
+  bool mayApprove = true,
+  Size size = const Size(1600, 900),
+}) async {
+  final List<String> printed = <String>[];
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+  await tester.pumpWidget(MaterialApp(
+    home: Scaffold(
+      body: Phase2Scope(
+        child: SalesInvoiceEditorDialog(
+          api: api,
+          today: DateTime(2026, 8, 14),
+          mayApprove: mayApprove,
+          printer: (context, bytes, name) async {
+            api.calls.add('print:$name');
+            printed.add(name);
+          },
+        ),
+      ),
+    ),
+  ));
+  await tester.pumpAndSettle();
+  await tester.pump(const Duration(milliseconds: 400));
+  await tester.pumpAndSettle();
+  return printed;
+}
+
+Future<void> _scan(WidgetTester tester, String code) async {
+  await tester.enterText(
+      find.byKey(const ValueKey('counter-scan-field')), code);
+  await tester.testTextInput.receiveAction(TextInputAction.done);
+  await tester.pump(const Duration(milliseconds: 400));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _chooseCustomer(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey('sales-invoice-customer')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.textContaining('Walk-in Customer').last);
+  await tester.pumpAndSettle();
+}
+
+String _qty(WidgetTester tester, int line) => tester
+    .widget<EditableText>(find
+        .descendant(
+          of: find.byKey(ValueKey<String>('sales-invoice-direct-$line')),
+          matching: find.byType(EditableText),
+        )
+        .at(1))
+    .controller
+    .text;
+
+/// What the product box of a direct line shows.
+String _product(WidgetTester tester, int line) => tester
+    .widget<EditableText>(find
+        .descendant(
+          of: find.byKey(ValueKey<String>('sales-invoice-direct-$line')),
+          matching: find.byType(EditableText),
+        )
+        .first)
+    .controller
+    .text;
+
+Future<void> _split(WidgetTester tester) async {
+  await tester.ensureVisible(find.byKey(const ValueKey('received-now-split')));
+  await tester.tap(find.byKey(const ValueKey('received-now-split')));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _enter(WidgetTester tester, String key, String text) async {
+  final Finder box = find.byKey(ValueKey<String>(key));
+  await tester.ensureVisible(box);
+  await tester.enterText(box, text);
+  await tester.pump(const Duration(milliseconds: 400));
+  await tester.pumpAndSettle();
+}
+
+void main() {
+  testWidgets('the scan field is focused and a scan adds, then increments',
+      (tester) async {
+    final _CounterApi api = _CounterApi();
+    await _pump(tester, api);
+
+    // Focused as the counter bill opens, before anything is clicked.
+    final TextField field = tester.widget<TextField>(
+        find.byKey(const ValueKey('counter-scan-field')));
+    expect(field.focusNode!.hasFocus, isTrue);
+    await _chooseCustomer(tester);
+
+    await _scan(tester, '8901234567890');
+    expect(_product(tester, 0), contains('Soap'));
+    expect(_qty(tester, 0), '1');
+
+    await _scan(tester, '8901234567890');
+    expect(_qty(tester, 0), '2');
+    expect(find.byKey(const ValueKey('sales-invoice-direct-1')), findsNothing);
+
+    await _scan(tester, '8900000000017');
+    expect(_qty(tester, 0), '2');
+    expect(_qty(tester, 1), '1');
+    // The field is ready for the next scan.
+    expect(tester.widget<TextField>(
+            find.byKey(const ValueKey('counter-scan-field'))).focusNode!
+        .hasFocus, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('an unknown barcode says so and leaves the bill alone',
+      (tester) async {
+    final _CounterApi api = _CounterApi();
+    await _pump(tester, api);
+
+    await _scan(tester, '000');
+    expect(find.byKey(const ValueKey('counter-scan-message')), findsOneWidget);
+    expect(find.textContaining('No product has the barcode "000"'),
+        findsOneWidget);
+    final TextField field = tester.widget<TextField>(
+        find.byKey(const ValueKey('counter-scan-field')));
+    expect(field.controller!.text, isEmpty);
+    expect(field.focusNode!.hasFocus, isTrue);
+    expect(_qty(tester, 0), isEmpty);
+
+    // A good scan clears the message.
+    await _scan(tester, '8901234567890');
+    expect(find.byKey(const ValueKey('counter-scan-message')), findsNothing);
+  });
+
+  testWidgets('the tender split sends received_now_tenders with exact keys',
+      (tester) async {
+    final _CounterApi api = _CounterApi(grandTotal: '500');
+    await _pump(tester, api);
+    await _chooseCustomer(tester);
+    await _scan(tester, '8901234567890');
+
+    await _split(tester);
+    expect(find.byKey(const ValueKey('tender-row-0')), findsOneWidget);
+    await _enter(tester, 'tender-amount-0', '200');
+    await tester.tap(find.byKey(const ValueKey('tender-add')));
+    await tester.pumpAndSettle();
+    await _enter(tester, 'tender-amount-1', '300');
+    await _enter(tester, 'tender-reference-1', 'UTR1');
+
+    expect(find.text('Balance 0.00'), findsOneWidget);
+    expect(find.byKey(const ValueKey('tender-change')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+
+    final Json body = api.created.single;
+    expect(body.containsKey('received_now_amount'), isFalse);
+    expect(body['received_now_tenders'], <Map<String, dynamic>>[
+      <String, dynamic>{'mode': 'CASH', 'amount': '200'},
+      <String, dynamic>{
+        'mode': 'UPI',
+        'amount': '300',
+        'reference': 'UTR1',
+      },
+    ]);
+  });
+
+  testWidgets('cash over the bill is sent as the remainder and change shown',
+      (tester) async {
+    final _CounterApi api = _CounterApi(grandTotal: '500');
+    await _pump(tester, api);
+    await _chooseCustomer(tester);
+    await _scan(tester, '8901234567890');
+
+    await _split(tester);
+    await tester.tap(find.byKey(const ValueKey('tender-add')));
+    await tester.pumpAndSettle();
+    // 300 by card, then 500 in cash handed over for the 200 still owed.
+    await tester.tap(find.byKey(const ValueKey('tender-mode-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Card').last);
+    await tester.pumpAndSettle();
+    await _enter(tester, 'tender-amount-1', '300');
+    await _enter(tester, 'tender-amount-0', '500');
+
+    expect(find.text('Change to give 300.00'), findsOneWidget);
+    expect(find.text('Balance 0.00'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+
+    expect(api.created.single['received_now_tenders'],
+        <Map<String, dynamic>>[
+      <String, dynamic>{'mode': 'CASH', 'amount': '200.00'},
+      <String, dynamic>{'mode': 'CARD', 'amount': '300'},
+    ]);
+  });
+
+  testWidgets('without the split the single amount fields go as before',
+      (tester) async {
+    final _CounterApi api = _CounterApi();
+    await _pump(tester, api);
+    await _chooseCustomer(tester);
+    await _scan(tester, '8901234567890');
+    await _enter(tester, 'received-now-amount', '100');
+
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+
+    final Json body = api.created.single;
+    expect(body.containsKey('received_now_tenders'), isFalse);
+    expect(body['received_now_amount'], '100');
+    expect(body['received_now_method'], 'CASH');
+  });
+
+  testWidgets('F9 saves, approves, prints, then opens a fresh bill',
+      (tester) async {
+    final _CounterApi api = _CounterApi();
+    final List<String> printed = await _pump(tester, api);
+    await _chooseCustomer(tester);
+    await _scan(tester, '8901234567890');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.f9);
+    await tester.pumpAndSettle();
+
+    expect(api.calls, <String>['create', 'approve', 'pdf:inv-1', 'print:SI-1']);
+    expect(printed, <String>['SI-1']);
+    // A fresh bill for the same counter: no lines, same customer, scanning.
+    expect(_qty(tester, 0), isEmpty);
+    expect(_product(tester, 0), isEmpty);
+    expect(find.textContaining('Walk-in Customer'), findsWidgets);
+    expect(tester.widget<TextField>(
+            find.byKey(const ValueKey('counter-scan-field'))).focusNode!
+        .hasFocus, isTrue);
+
+    // The next customer is billed on a second invoice.
+    await _scan(tester, '8900000000017');
+    await tester.tap(find.byKey(const ValueKey('counter-save-print')));
+    await tester.pumpAndSettle();
+    expect(api.created, hasLength(2));
+    expect(api.calls.last, 'print:SI-2');
+  });
+
+  testWidgets('a user who may not approve saves and prints only',
+      (tester) async {
+    final _CounterApi api = _CounterApi();
+    await _pump(tester, api, mayApprove: false);
+    await _chooseCustomer(tester);
+    await _scan(tester, '8901234567890');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.f9);
+    await tester.pumpAndSettle();
+
+    expect(api.calls, <String>['create', 'pdf:inv-1', 'print:SI-1']);
+  });
+
+  testWidgets('a refused approval shows the message and keeps the bill',
+      (tester) async {
+    final _CounterApi api =
+        _CounterApi(approveRefusal: 'Stock is short for Soap.');
+    final List<String> printed = await _pump(tester, api);
+    await _chooseCustomer(tester);
+    await _scan(tester, '8901234567890');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.f9);
+    await tester.pumpAndSettle();
+
+    expect(api.calls, <String>['create', 'approve']);
+    expect(printed, isEmpty);
+    expect(find.textContaining('Stock is short for Soap.'), findsOneWidget);
+    // Still the saved bill, not a blank one and not a second create.
+    expect(api.created, hasLength(1));
+    // The saved draft is what stays open, so another F9 mends it instead of
+    // raising a second bill.
+    expect(find.byKey(const ValueKey('sales-invoice-line-0')), findsOneWidget);
+    expect(find.text('Soap'), findsWidgets);
+  });
+
+  testWidgets('the counter screen does not overflow at 1366x768 or 800x600',
+      (tester) async {
+    for (final Size size in const <Size>[Size(1366, 768), Size(800, 600)]) {
+      final _CounterApi api = _CounterApi();
+      await _pump(tester, api, size: size);
+      await _chooseCustomer(tester);
+      await _scan(tester, '8901234567890');
+      await _split(tester);
+      await tester.tap(find.byKey(const ValueKey('tender-add')));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: '$size');
+      await tester.pumpWidget(const SizedBox());
+    }
+  });
+}

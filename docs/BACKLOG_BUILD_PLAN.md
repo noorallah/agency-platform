@@ -337,6 +337,7 @@ otherwise it is built as written.
 - **What it is:** a counter bill where scanning adds the item, one key saves and prints, and the next bill opens.
 - **What gets built:** the phase 2 bill (`sales_invoice_editor_phase2.dart`) already finds a product by barcode; add a scan field that adds a line or adds 1, save-print-new on one key, the thermal print (`thermal_pdf.py`) as the counter's default, and a tender split (cash / UPI / card) on *Received now* (§64 row 5). A batch-tracked product takes FEFO as today. Widget tests with a simulated scanner (keystrokes ending in Enter).
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A90): `sales_invoice_tenders` (migration 0261) and `received_now_tenders` on the bill's write and response; `_stage_received_now` records one receipt per tender (CASH to the cash book, UPI / CARD / BANK_TRANSFER through the bank with that mode), each allocated to the bill, refused above the bill. Desktop: scan field (add or +1), *Save & print (F9)* (save, approve, thermal print, next bill), tender split with balance and change. Tests: `test_counter_tenders.py`, `counter_billing_test.dart`. To test with a firm: a USB barcode scanner in keyboard mode.
 
 #### SEL-13. Picking list and loading sheet (§55 G7)
 - **What it is:** what the storeman picks and what goes on each van, by route.

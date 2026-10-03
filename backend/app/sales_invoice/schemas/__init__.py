@@ -26,6 +26,8 @@ from app.sales_invoice.schemas.sales_invoice import (
     SalesInvoiceSourceWrite,
     SalesInvoiceStatus,
     SalesInvoiceSummary,
+    SalesInvoiceTenderResponse,
+    SalesInvoiceTenderWrite,
     SalesInvoiceUpdate,
 )
 
@@ -39,6 +41,8 @@ __all__ = [
     "SalesInvoiceSourceType",
     "SalesInvoiceAccountingEventType",
     "SalesInvoiceAttachmentWrite",
+    "SalesInvoiceTenderResponse",
+    "SalesInvoiceTenderWrite",
     "SalesInvoiceNoteWrite",
     "SalesInvoiceSourceWrite",
     "SalesInvoiceLineWrite",
