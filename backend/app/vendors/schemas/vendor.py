@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.core.validation import validate_email, validate_phone
+from app.finance.tds import TDS_SECTIONS
 from app.vendors.gst_registration import SupplierGstType
 
 
@@ -189,6 +190,23 @@ class VendorWrite(VendorSchema):
     msme_written_agreement: bool = False
     #: The supplier e-invoices, so its bills carry an IRN (backlog 78 row 5).
     issues_e_invoices: bool = False
+    #: The TDS section a payment to it is usually deducted under (ACC-7).
+    default_tds_section: str | None = Field(default=None, max_length=10)
+
+    @field_validator("default_tds_section", mode="before")
+    @classmethod
+    def _tds_section(cls, value: str | None) -> str | None:
+        """Accept a section the firm files under; blank is none."""
+        if value is None or not str(value).strip():
+            return None
+        normalized = str(value).strip().upper()
+        if normalized not in TDS_SECTIONS:
+            raise ValueError(
+                f"{normalized} is not a TDS section. Use one of "
+                + ", ".join(TDS_SECTIONS)
+                + "."
+            )
+        return normalized
 
     @field_validator("udyam_number", mode="before")
     @classmethod
@@ -461,6 +479,7 @@ class VendorResponse(VendorSchema):
     msme_category: str | None = None
     msme_written_agreement: bool = False
     issues_e_invoices: bool = False
+    default_tds_section: str | None = None
     license_number: str | None
     registration_number: str | None
     website: str | None

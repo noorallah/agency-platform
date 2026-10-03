@@ -55,6 +55,9 @@ class TdsRow:
     tds_amount: Decimal
     net_amount: Decimal
     status: str
+    #: The payment, expense or receipt the deduction was made on (ACC-7:
+    #: the return looks up the challan that paid it by this).
+    document_id: UUID | None = None
 
 
 class TdsRegisterService:
@@ -97,6 +100,7 @@ class TdsRegisterService:
                     gross=payment.amount,
                     tds=payment.tds_amount,
                     status=payment.status,
+                    document_id=payment.id,
                 )
             )
         expenses = self._session.scalars(
@@ -121,6 +125,7 @@ class TdsRegisterService:
                     gross=expense.amount,
                     tds=expense.tds_amount,
                     status=expense.status,
+                    document_id=expense.id,
                 )
             )
         return _ordered(rows)
@@ -159,6 +164,7 @@ class TdsRegisterService:
                     gross=receipt.amount,
                     tds=receipt.tds_amount,
                     status=receipt.status,
+                    document_id=receipt.id,
                 )
                 for receipt, customer in receipts
             ]
@@ -178,6 +184,7 @@ class TdsRegisterService:
         gross: Decimal,
         tds: Decimal,
         status: str,
+        document_id: UUID | None = None,
     ) -> TdsRow:
         code = section or ""
         return TdsRow(
@@ -195,6 +202,7 @@ class TdsRegisterService:
             tds_amount=tds,
             net_amount=gross - tds,
             status=status,
+            document_id=document_id,
         )
 
 

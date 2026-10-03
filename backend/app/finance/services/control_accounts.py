@@ -136,6 +136,10 @@ class ControlAccountPurpose(StrEnum):
     #: Stock put out on display or handed out as a sample or demo (STK-3):
     #: a selling cost.
     SAMPLES_AND_DISPLAY = "SAMPLES_AND_DISPLAY"
+    #: Interest for depositing TDS late (section 201(1A)) and the fee for a
+    #: late return (234E), paid on a TDS challan (ACC-7). A cost of its own,
+    #: never TDS payable: it was never deducted from anybody.
+    TDS_INTEREST_AND_FEES = "TDS_INTEREST_AND_FEES"
 
 
 INPUT_TAX_PURPOSE_BY_COMPONENT.update(
@@ -257,6 +261,7 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     ControlAccountPurpose.INTERNAL_USE: frozenset({"EXPENSE"}),
     ControlAccountPurpose.STAFF_WELFARE: frozenset({"EXPENSE"}),
     ControlAccountPurpose.SAMPLES_AND_DISPLAY: frozenset({"EXPENSE"}),
+    ControlAccountPurpose.TDS_INTEREST_AND_FEES: frozenset({"EXPENSE"}),
 }
 
 
@@ -322,6 +327,7 @@ PURPOSE_LABELS: dict[ControlAccountPurpose, str] = {
     ControlAccountPurpose.INTERNAL_USE: "Stock used in business",
     ControlAccountPurpose.STAFF_WELFARE: "Staff welfare",
     ControlAccountPurpose.SAMPLES_AND_DISPLAY: "Samples and display",
+    ControlAccountPurpose.TDS_INTEREST_AND_FEES: "Interest and fees on TDS",
 }
 
 

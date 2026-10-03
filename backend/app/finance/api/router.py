@@ -82,6 +82,12 @@ from app.finance.schemas.tds_194q import (
     Tds194QSettingsResponse,
     Tds194QSettingsWrite,
 )
+from app.finance.schemas.tds_challans import (
+    OpenDeductionRecord,
+    TdsChallanCancel,
+    TdsChallanCreate,
+    TdsChallanResponse,
+)
 from app.finance.services import (
     FinanceService,
     GeneralLedgerService,
@@ -100,6 +106,7 @@ from app.finance.services.opening_balances import (
     OpeningTrialBalanceService,
 )
 from app.finance.services.tds_194q import Tds194QService
+from app.finance.services.tds_challans import TdsChallanService
 from app.finance.services.tds_register import TdsRegisterService
 from app.finance.services.tds_return import (
     TdsReturnService,
@@ -1458,4 +1465,127 @@ def tds_26q_file(
         headers={
             "Content-Disposition": f'attachment; filename="{period.file_stem}.xlsx"'
         },
+    )
+
+
+# ---- TDS challans (ACC-7) ------------------------------------------------
+
+TdsChallanViewScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("ACCOUNT_VIEW", "JOURNAL_VIEW")
+]
+TdsChallanPostScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("JOURNAL_POST")
+]
+TdsChallanCancelScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("JOURNAL_REVERSE")
+]
+
+
+@router.get(
+    "/tds-challans/open-deductions",
+    response_model=ApiResponse[list[OpenDeductionRecord]],
+)
+def tds_open_deductions(
+    scope: TdsChallanViewScope,
+    section: Annotated[str | None, Query(max_length=10)] = None,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[OpenDeductionRecord]]:
+    """List the deductions no live challan has paid yet, oldest first."""
+    rows = TdsChallanService(db).open_deductions(
+        scope.firm_id,
+        section=section.strip().upper() if section else None,
+        date_from=from_date,
+        date_to=to_date,
+    )
+    return ApiResponse(data=rows)
+
+
+@router.get("/tds-challans", response_model=PaginatedResponse[TdsChallanResponse])
+def list_tds_challans(
+    scope: TdsChallanViewScope,
+    section: Annotated[str | None, Query(max_length=10)] = None,
+    status_filter: Annotated[
+        Literal["POSTED", "CANCELLED"] | None, Query(alias="status")
+    ] = None,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 50,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[TdsChallanResponse]:
+    """List the firm's TDS challans, newest deposit first."""
+    service = TdsChallanService(db)
+    rows, total = service.list_challans(
+        firm_id=scope.firm_id,
+        page=page,
+        page_size=page_size,
+        section=section.strip().upper() if section else None,
+        status=status_filter,
+        date_from=from_date,
+        date_to=to_date,
+    )
+    return PaginatedResponse(
+        data=service.responses(rows),
+        pagination=PaginationParams(page=page, page_size=page_size).metadata(total),
+    )
+
+
+@router.get(
+    "/tds-challans/{challan_id}", response_model=ApiResponse[TdsChallanResponse]
+)
+def get_tds_challan(
+    challan_id: UUID,
+    scope: TdsChallanViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[TdsChallanResponse]:
+    """Return one challan with the deductions it paid."""
+    service = TdsChallanService(db)
+    row = service.get(challan_id, firm_id=scope.firm_id)
+    return ApiResponse(data=service.responses([row])[0])
+
+
+@router.post(
+    "/tds-challans",
+    response_model=ApiResponse[TdsChallanResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_tds_challan(
+    payload: TdsChallanCreate,
+    scope: TdsChallanPostScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[TdsChallanResponse]:
+    """Record a TDS deposit, tie its deductions and post Dr TDS payable, Cr bank."""
+    service = TdsChallanService(db)
+    row = service.create(payload, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    db.commit()
+    return ApiResponse(
+        data=service.responses([row])[0],
+        message=f"Challan {row.challan_number} recorded.",
+    )
+
+
+@router.post(
+    "/tds-challans/{challan_id}/cancel",
+    response_model=ApiResponse[TdsChallanResponse],
+)
+def cancel_tds_challan(
+    challan_id: UUID,
+    payload: TdsChallanCancel,
+    scope: TdsChallanCancelScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[TdsChallanResponse]:
+    """Cancel a challan with a mirror journal; its deductions are open again."""
+    service = TdsChallanService(db)
+    row = service.cancel(
+        challan_id,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        reason=payload.reason,
+    )
+    db.commit()
+    return ApiResponse(
+        data=service.responses([row])[0],
+        message=f"Challan {row.challan_number} cancelled.",
     )

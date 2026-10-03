@@ -4187,6 +4187,9 @@ section on payments, receipts and expenses, and the *TDS deducted* and *TDS
 deducted by customers* registers; rules in `docs/LEDGER_POSTING_RULES.md`,
 "Tax deducted at source posts with the money". Left: a challan screen (today a
 journal), party defaults (a supplier's usual section), and a 26Q export file.
+**Built 2026-10-03 (ACC-7, A79):** the challan screen (Accounts > Tax filing >
+*TDS Challans*, `tds_challans`) and a supplier's usual section; the 26Q
+workbook names each deduction's challan. Left: the FVU text file.
 
 | When | What | Size |
 | --- | --- | --- |

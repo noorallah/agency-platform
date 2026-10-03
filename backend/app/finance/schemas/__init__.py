@@ -922,6 +922,10 @@ class Tds26qDeducteeRecord(BaseModel):
     higher_rate_reason: str
     document_type: str
     document_number: str
+    #: The live challan that paid it (ACC-7); blank where none is recorded.
+    challan_serial: str = ""
+    challan_bsr_code: str = ""
+    challan_date: date | None = None
 
 
 class DayBookRecord(BaseModel):

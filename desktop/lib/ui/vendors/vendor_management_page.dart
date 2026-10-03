@@ -13,6 +13,7 @@ import '../../models/entities.dart';
 import '../../models/firm_member.dart';
 import '../../models/vendor_rating.dart';
 import '../../models/file_import.dart';
+import '../../models/tds.dart';
 import '../../models/trade_licence.dart';
 import '../../models/vendor.dart';
 import '../../models/vendor_opening_bill.dart';
@@ -725,6 +726,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
   late final TextEditingController _udyam =
       TextEditingController(text: widget.vendor?.udyamNumber ?? '');
   late String _msmeCategory = widget.vendor?.msmeCategory ?? '';
+  late String _defaultTdsSection = widget.vendor?.defaultTdsSection ?? '';
   late bool _msmeAgreement = widget.vendor?.msmeWrittenAgreement ?? false;
   late bool _issuesEInvoices = widget.vendor?.issuesEInvoices ?? false;
   late final TextEditingController _email =
@@ -1346,6 +1348,29 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
               ),
             ],
           ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            key: const ValueKey('vendor-default-tds-section'),
+            isExpanded: true,
+            initialValue: _defaultTdsSection,
+            decoration: const InputDecoration(
+              labelText: 'Usual TDS section',
+              helperText: 'Prefills the section when paying this supplier',
+            ),
+            items: [
+              const DropdownMenuItem(value: '', child: Text('None')),
+              for (final MapEntry<String, String> entry in tdsSections.entries)
+                DropdownMenuItem(
+                  value: entry.key,
+                  child: Text(
+                    '${entry.key} - ${entry.value}',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+            onChanged: (value) =>
+                setState(() => _defaultTdsSection = value ?? ''),
+          ),
           if (_msmeCategory == 'MICRO' || _msmeCategory == 'SMALL')
             CheckboxListTile(
               contentPadding: EdgeInsets.zero,
@@ -1806,6 +1831,8 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
             ? null
             : _udyam.text.trim().toUpperCase(),
         'msme_category': _msmeCategory.isEmpty ? null : _msmeCategory,
+        'default_tds_section':
+            _defaultTdsSection.isEmpty ? null : _defaultTdsSection,
         'msme_written_agreement': _msmeAgreement,
         'issues_e_invoices': _issuesEInvoices,
         'email': _email.text.trim(),

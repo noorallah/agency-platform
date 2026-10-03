@@ -485,6 +485,8 @@ trigger each schema owns its own copy of.
 | `tcs_collections` | firm store ¹ | One receipt's worth of tax collected at source. | `customers`, `settlements`, `journal_entries` |
 | `tcs_settings` | firm store ¹ | One firm's 206C(1H) parameters. |  |
 | `tds_194q_settings` | firm store ¹ | One firm's 194Q switch, threshold and rates (ACC-8). |  |
+| `tds_challans` | firm store ¹ | One deposit of TDS under one section: CIN, tax, interest and fee, bank, journal (ACC-7). | `ledger_accounts`, `journal_entries` |
+| `tds_challan_items` | firm store ¹ | One deduction (a payment's or an expense's) a challan paid; one live challan each. | `tds_challans`, `settlements`, `expenses` |
 
 ### `app/trade_licences`
 

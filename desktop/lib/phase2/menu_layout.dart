@@ -298,6 +298,7 @@ abstract final class MenuLayout {
         MenuItemSpec(AppModule.sales, 'gst-payment', 'GST Payment'),
         MenuItemSpec(AppModule.sales, 'einvoice', 'E-Invoice'),
         MenuItemSpec(AppModule.sales, 'tcs', 'TCS'),
+        MenuItemSpec(AppModule.accounting, 'tds-challans', 'TDS Challans'),
       ]),
       MenuGroupSpec(
         'Structure',

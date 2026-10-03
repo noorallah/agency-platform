@@ -8,6 +8,7 @@ import '../../models/entities.dart';
 import '../../models/settlement.dart';
 import '../../models/tds.dart';
 import '../../models/settlement_direction.dart';
+import '../../models/vendor.dart';
 import '../workspace/desktop_framework.dart';
 
 /// Validate what is about to be sent, in the words a cashier would use.
@@ -117,6 +118,10 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   Json? _tds194q;
   bool _tdsTyped = false;
   bool _tdsPrefilled = false;
+
+  /// The section came from the supplier's usual one (ACC-7), not from the
+  /// person; it is cleared with the supplier, and 194Q replaces it.
+  bool _sectionDefaulted = false;
   String? _tdsNote;
   List<OutstandingInvoice> _invoices = const [];
 
@@ -233,6 +238,36 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
     }
   }
 
+  /// Prefill the section from the supplier's usual one. Only into an empty
+  /// box, so a section somebody chose is never overwritten, and the 194Q
+  /// prefill (which sets the section itself) wins where it applies.
+  Future<void> _loadDefaultTdsSection(PartyOption party) async {
+    String section = party.defaultTdsSection;
+    if (section.isEmpty) {
+      // The money screens' party list does not carry it, so read the
+      // supplier; a role without the vendor view code simply gets no hint.
+      try {
+        final PagedResult<Vendor> found = await widget.api.vendors(
+          search: party.code.isNotEmpty ? party.code : party.name,
+        );
+        section = found.items
+                .where((vendor) => vendor.id == party.id)
+                .firstOrNull
+                ?.defaultTdsSection ??
+            '';
+      } on Exception {
+        return;
+      }
+    }
+    if (!mounted || _partyId != party.id || section.isEmpty) return;
+    if (_tdsSection != null || _tdsTyped) return;
+    if (!tdsSections.containsKey(section)) return;
+    setState(() {
+      _tdsSection = section;
+      _sectionDefaulted = true;
+    });
+  }
+
   static double _figure(Object? value) =>
       double.tryParse('${value ?? ''}') ?? 0;
 
@@ -250,6 +285,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
     setState(() {
       _tds.text = deduct.toStringAsFixed(2);
       _tdsSection = '194Q';
+      _sectionDefaulted = false;
       _tdsPrefilled = true;
       _tdsNote = '194Q: ₹${_figure(position['purchases']).toStringAsFixed(2)}'
           ' bought this year, ₹${_figure(position['due']).toStringAsFixed(2)}'
@@ -596,7 +632,10 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
                 ),
               ),
           ],
-          onChanged: (value) => setState(() => _tdsSection = value),
+          onChanged: (value) => setState(() {
+            _tdsSection = value;
+            _sectionDefaulted = false;
+          }),
         ),
       ),
       const SizedBox(width: AppSpacing.md),
@@ -857,9 +896,14 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
         _tds.clear();
         _tdsSection = null;
         _tdsPrefilled = false;
+        _sectionDefaulted = false;
+      } else if (_sectionDefaulted) {
+        _tdsSection = null;
+        _sectionDefaulted = false;
       }
     });
     if (widget.direction == SettlementDirection.payment) {
+      unawaited(_loadDefaultTdsSection(party));
       unawaited(_loadTds194q());
     }
     if (widget.direction.allocates) unawaited(_loadInvoices(party.id));

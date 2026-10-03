@@ -299,6 +299,7 @@ class Vendor {
     this.paymentTermsDays = 0,
     this.udyamNumber = '',
     this.msmeCategory = '',
+    this.defaultTdsSection = '',
     this.msmeWrittenAgreement = false,
     this.issuesEInvoices = false,
     required this.licenseNumber,
@@ -375,6 +376,10 @@ class Vendor {
   /// and whether a written agreement allows up to 45 days (backlog 68 row 2).
   final String udyamNumber;
   final String msmeCategory;
+
+  /// The TDS section their payments usually come under (ACC-7); empty when
+  /// none is set. Prefills a payment's section, never forces it.
+  final String defaultTdsSection;
   final bool msmeWrittenAgreement;
 
   /// Whether their bills carry an IRN (backlog 78 row 5); a bill from one
@@ -425,6 +430,7 @@ class Vendor {
         paymentTermsDays: (json['payment_terms_days'] as num?)?.toInt() ?? 0,
         udyamNumber: stringValue(json['udyam_number']),
         msmeCategory: stringValue(json['msme_category']),
+        defaultTdsSection: stringValue(json['default_tds_section']),
         msmeWrittenAgreement: boolValue(json['msme_written_agreement']),
         issuesEInvoices: boolValue(json['issues_e_invoices']),
         licenseNumber: stringValue(json['license_number']),

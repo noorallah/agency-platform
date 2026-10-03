@@ -663,7 +663,9 @@ def test_the_26q_carries_the_quarters_deductions_as_the_return_lists_them() -> N
     assert set(left_out) == {"194C", "192"}
     assert "24Q" in left_out["192"]
     assert "reversed" in left_out["194C"]
-    assert len(tds_return.problems) == 1  # the deductee with no PAN
+    # The deductee with no PAN, and no challan recorded for any deduction yet.
+    assert len(tds_return.problems) == 2
+    assert "name no challan" in tds_return.problems[1]
 
 
 def test_the_26q_file_and_its_csv() -> None:

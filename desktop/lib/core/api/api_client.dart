@@ -31,6 +31,7 @@ import '../../models/customer_debit_note.dart';
 import '../../models/debit_note.dart';
 import '../../models/party_adjustment.dart';
 import '../../models/contra_voucher.dart';
+import '../../models/tds_challan.dart';
 import '../../models/einvoice.dart';
 import '../../models/proforma.dart';
 import '../../models/tcs.dart';
@@ -6730,6 +6731,90 @@ class ApiClient {
   Future<List<int>> contraVoucherPdf(String id) =>
       downloadBytes('/api/v1/contra-vouchers/$id/print');
 
+  // ---- TDS challans (ACC-7) -------------------------------------------
+
+  /// Deductions on posted payments and expenses that no live challan has
+  /// paid, oldest first.
+  Future<List<TdsOpenDeduction>> tdsOpenDeductions({
+    String? section,
+    String? fromDate,
+    String? toDate,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/finance/tds-challans/open-deductions',
+      query: {
+        if (section != null && section.isNotEmpty) 'section': section,
+        if (fromDate != null) 'from_date': fromDate,
+        if (toDate != null) 'to_date': toDate,
+      },
+    );
+    final dynamic data = response['data'];
+    return data is List
+        ? data
+            .whereType<Map>()
+            .map((item) =>
+                TdsOpenDeduction.fromJson(Map<String, dynamic>.from(item)))
+            .toList()
+        : const <TdsOpenDeduction>[];
+  }
+
+  Future<PagedResult<TdsChallan>> tdsChallans({
+    int page = 1,
+    int pageSize = 50,
+    String? section,
+    String? status,
+    String? fromDate,
+    String? toDate,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/finance/tds-challans',
+      query: {
+        'page': '$page',
+        'page_size': '$pageSize',
+        if (section != null && section.isNotEmpty) 'section': section,
+        if (status != null && status.isNotEmpty) 'status': status,
+        if (fromDate != null) 'from_date': fromDate,
+        if (toDate != null) 'to_date': toDate,
+      },
+    );
+    final dynamic data = response['data'];
+    return PagedResult<TdsChallan>(
+      items: data is List
+          ? data
+              .whereType<Map>()
+              .map((item) =>
+                  TdsChallan.fromJson(Map<String, dynamic>.from(item)))
+              .toList()
+          : const [],
+      total: _totalOf(response),
+    );
+  }
+
+  Future<TdsChallan> tdsChallan(String id) async => TdsChallan.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/finance/tds-challans/$id')),
+      );
+
+  /// Record a deposit and tick off the deductions it paid.
+  Future<TdsChallan> createTdsChallan(Json body) async => TdsChallan.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/finance/tds-challans', body: body)),
+      );
+
+  /// Reverse a challan; the deductions it paid become open again.
+  Future<TdsChallan> cancelTdsChallan(
+    String id,
+    String reason, {
+    int? expectedVersion,
+  }) async =>
+      TdsChallan.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/finance/tds-challans/$id/cancel',
+        body: {'reason': reason},
+        expectedVersion: expectedVersion,
+      )));
+
   // ---- commission payouts ---------------------------------------------
 
   Future<PagedResult<CommissionPayoutRecord>> commissionPayouts({
@@ -7573,6 +7658,7 @@ class ApiClient {
           id: stringValue(row['id']),
           code: stringValue(row['code']),
           name: stringValue(row['name']),
+          defaultTdsSection: stringValue(row['default_tds_section']),
         ),
     ];
   }
