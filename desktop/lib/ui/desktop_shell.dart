@@ -17,6 +17,7 @@ import '../core/diagnostics/diagnostics_share.dart';
 import '../core/navigation/workspace_router.dart';
 import '../core/notifications/notification_service.dart';
 import '../core/preferences/desktop_preferences_service.dart';
+import '../core/preferences/user_preferences.dart';
 import '../core/security/permission_service.dart';
 import '../core/theme/theme_manager.dart';
 import '../models/branch_warehouse.dart';
@@ -128,8 +129,10 @@ import '../phase2/command_box.dart';
 import '../phase2/favourites.dart';
 import '../phase2/backups_page.dart';
 import '../phase2/customer_groups_page.dart';
+import '../phase2/display_dates.dart';
 import '../phase2/home_page.dart';
 import '../phase2/menu_layout.dart';
+import '../phase2/my_preferences_dialog.dart';
 import '../phase2/set_up_page.dart';
 import 'theme_selector.dart';
 import 'workspace/module_catalog.dart';
@@ -414,9 +417,16 @@ class _DesktopShellState extends State<DesktopShell> {
   /// was last on a screen of their own: `dashboard` is phase 1's default
   /// landing page, the platform administrator's Dashboard, which in phase 2
   /// lives under Admin rather than being where everybody starts.
+  ///
+  /// A first screen chosen in My preferences (backlog 73) wins over the last
+  /// one; the router treats it as it treats the last, and a person who may no
+  /// longer open it is refused there as they would be from the last.
   String? _initialLocation() {
     final String? last = widget.session.lastWorkspace;
     if (!widget.phase2) return last;
+    final String chosen = MyPreferences.firstScreenIn(
+        widget.session.serverPreferences?.dashboardLayout);
+    if (chosen != MyPreferences.lastScreen) return chosen;
     return last == null || last == AppModule.dashboard.name
         ? MenuLayout.homeRoute
         : last;
@@ -560,7 +570,68 @@ class _DesktopShellState extends State<DesktopShell> {
           context: context,
           builder: (_) => WorkDefaultsDialog(api: api),
         );
+      case MenuLayout.myPreferencesRoute:
+        await _openMyPreferences();
     }
+  }
+
+  /// My preferences (backlog 73), from the user menu or Settings > This PC
+  /// and me. Opens from what sign-in already read -- no request -- and saves
+  /// with one preferences update of the changed fields, plus the primary
+  /// firm when Start in firm moved. Text size is this PC's and costs none.
+  Future<void> _openMyPreferences() async {
+    final UserPreferences? held = widget.session.serverPreferences;
+    final Map<String, dynamic> layout = {...?held?.dashboardLayout};
+    final ModuleVisibility visibility = _visibility;
+    final Set<String> seen = {};
+    final List<FirstScreenChoice> screens = [
+      for (final MenuAreaSpec area in MenuLayout.areas)
+        if (MenuLayout.visible(area, visibility) case final MenuAreaSpec shown)
+          for (final MenuItemSpec item in shown.items)
+            if (!item.isSetting && seen.add(item.path))
+              (
+                path: item.path,
+                label: item.label == area.label
+                    ? item.label
+                    : '${area.label} › ${item.label}',
+              ),
+    ];
+    final String? primary =
+        widget.session.firms.where((f) => f.isPrimary).firstOrNull?.id;
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => MyPreferencesDialog(
+        current: MyPreferences(
+          startInFirmId: primary,
+          firstScreen: MyPreferences.firstScreenIn(layout),
+          themeMode: widget.themes.mode.wireName,
+          textSize: widget.themes.textSize,
+          dateFormat: held?.dateFormat ?? DisplayDates.format,
+        ),
+        firms: widget.session.firms,
+        offerStartInFirm: widget.session.firms.length > 1 &&
+            !widget.session.canWorkWithoutAFirm,
+        screens: screens,
+        onSave: (change) async {
+          if (change.textSize != null) {
+            await widget.themes.selectTextSize(change.textSize!);
+          }
+          await widget.session.saveMyPreferences(
+            themeMode: change.themeMode,
+            dateFormat: change.dateFormat,
+            dashboardLayout: change.firstScreen == null
+                ? null
+                : {
+                    ...?widget.session.serverPreferences?.dashboardLayout,
+                    MyPreferences.layoutKey: change.firstScreen,
+                  },
+          );
+          if (change.startInFirmId != null) {
+            await widget.session.setPrimaryFirm(change.startInFirmId!);
+          }
+        },
+      ),
+    );
   }
 
   void _openFromMenu(MenuItemSpec item, {String? view}) {
@@ -1217,6 +1288,10 @@ class _DesktopShellState extends State<DesktopShell> {
             unawaited(_choosePrimaryFirm());
             return;
           }
+          if (value == 'my-preferences') {
+            unawaited(_openMyPreferences());
+            return;
+          }
           if (value == 'diagnostics') {
             unawaited(
               DiagnosticsReportDialog.show(
@@ -1254,10 +1329,23 @@ class _DesktopShellState extends State<DesktopShell> {
               title: Text('My profile'),
             ),
           ),
+          // Phase 2: the person's own settings in one dialog (backlog
+          // 73), Start in firm among them -- so Primary firm is not
+          // offered beside it.
+          if (widget.phase2)
+            const PopupMenuItem<String>(
+              value: 'my-preferences',
+              child: ListTile(
+                dense: true,
+                leading: Icon(Icons.tune),
+                title: Text('My preferences'),
+              ),
+            ),
           // Where the next session starts. Offered only to somebody
           // with a choice to make: one firm needs no primary, and a
           // platform administrator always starts on Platform.
-          if (widget.session.firms.length > 1 &&
+          if (!widget.phase2 &&
+              widget.session.firms.length > 1 &&
               !widget.session.canWorkWithoutAFirm)
             PopupMenuItem<String>(
               value: 'primary-firm',

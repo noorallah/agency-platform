@@ -60,7 +60,10 @@ class TokenResponse(ApiSchema):
 ThemeName = Literal["light", "dark", "blue", "green", "high_contrast"]
 ThemeModeName = Literal["system", "light", "dark"]
 PaletteName = Literal["neutral", "blue", "green"]
-DateFormat = Literal["yyyy-MM-dd", "dd/MM/yyyy", "MM/dd/yyyy"]
+# `dd-MM-yyyy` is how the phase 2 screens write a date and the default since
+# 2026-10-04; the ISO default before it was never anybody's choice, because
+# no screen offered one until My preferences.
+DateFormat = Literal["dd-MM-yyyy", "dd/MM/yyyy", "yyyy-MM-dd", "MM/dd/yyyy"]
 TimeFormat = Literal["12h", "24h"]
 NumberFormat = Literal["1,234.56", "1.234,56"]
 CurrencyFormat = Literal["symbol", "code"]

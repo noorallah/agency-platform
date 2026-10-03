@@ -32,7 +32,7 @@ Map<String, dynamic> _serverDocument({String landing = 'dashboard'}) => {
       'preferred_theme_mode': 'system',
       'preferred_high_contrast': false,
       'language': 'en',
-      'date_format': 'yyyy-MM-dd',
+      'date_format': 'dd-MM-yyyy',
       'time_format': '24h',
       'number_format': '1,234.56',
       'currency_format': 'symbol',

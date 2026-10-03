@@ -13,7 +13,8 @@ class MenuItemSpec {
       : route = null,
         gate = null,
         requiredPermission = null,
-        permission = null;
+        permission = null,
+        needsFirm = true;
 
   /// A module with no tabs of its own (Quotations, the Dashboard).
   const MenuItemSpec.module(AppModule this.module, this.label)
@@ -21,7 +22,8 @@ class MenuItemSpec {
         route = null,
         gate = null,
         requiredPermission = null,
-        permission = null;
+        permission = null,
+        needsFirm = true;
 
   /// A screen only the phase 2 app has, with no catalogue module behind it
   /// -- Home (4.9). Offered to everybody signed in; what it shows inside is
@@ -30,7 +32,8 @@ class MenuItemSpec {
       {this.gate, this.requiredPermission})
       : module = null,
         tab = null,
-        permission = null;
+        permission = null,
+        needsFirm = true;
 
   /// A setting that is a dialog rather than a screen (sales stages, credit
   /// control, the loyalty scheme, TCS): the Settings gear opens the same
@@ -39,7 +42,7 @@ class MenuItemSpec {
   /// owning screen already asks to read it; each dialog is read-only for
   /// somebody who may not change it.
   const MenuItemSpec.setting(String this.route, this.label,
-      {String this.permission = noPermission})
+      {String this.permission = noPermission, this.needsFirm = true})
       : module = null,
         tab = null,
         requiredPermission = null,
@@ -51,6 +54,11 @@ class MenuItemSpec {
 
   /// For a [MenuItemSpec.setting], the permission that offers it.
   final String? permission;
+
+  /// For a setting, whether it is offered only with a firm chosen. False for
+  /// what is the person's own wherever they are (My preferences), which a
+  /// platform administrator with no firm open must reach too.
+  final bool needsFirm;
 
   /// Whether this item opens a dialog rather than a screen.
   bool get isSetting => permission != null;
@@ -238,6 +246,10 @@ abstract final class MenuLayout {
   /// The person's own usual branch and warehouse (backlog 44): a dialog, and
   /// open to every member of a firm.
   static const String workDefaultsRoute = 'settings/my-branch-warehouse';
+
+  /// My preferences (backlog 73): also on the user menu, and open to
+  /// everybody signed in, with or without a firm.
+  static const String myPreferencesRoute = 'settings/my-preferences';
 
   static const MenuAreaSpec home = MenuAreaSpec('home', 'Home', [
     MenuGroupSpec('Home', [MenuItemSpec.phase2(MenuLayout.homeRoute, 'Home')]),
@@ -491,6 +503,10 @@ abstract final class MenuLayout {
 
   /// Behind the gear, by topic (4.13).
   static const MenuAreaSpec settings = MenuAreaSpec('settings', 'Settings', [
+    MenuGroupSpec('This PC and me', [
+      MenuItemSpec.setting(myPreferencesRoute, 'My Preferences',
+          needsFirm: false),
+    ]),
     MenuGroupSpec('Firm', [
       MenuItemSpec(AppModule.masters, 'firm-settings', 'Firm Settings'),
       MenuItemSpec(AppModule.masters, 'financial-years', 'Financial Years'),
@@ -679,7 +695,7 @@ abstract final class MenuLayout {
     final Map<AppModule, Set<String>> tabs = {};
     bool offered(MenuItemSpec item) {
       if (item.isSetting) {
-        return visibility.hasActiveFirm &&
+        return (visibility.hasActiveFirm || !item.needsFirm) &&
             (item.permission == MenuItemSpec.noPermission ||
                 visibility.permissions.hasPermission(item.permission!));
       }

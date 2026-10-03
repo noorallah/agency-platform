@@ -136,6 +136,35 @@ void main() {
     await _unmount(tester);
   });
 
+  testWidgets('My preferences opens from the user menu and from Settings',
+      (tester) async {
+    // A platform administrator with no firm open: My preferences is theirs
+    // too (backlog 73), and Start in firm is not offered -- they always
+    // start in none.
+    await _pumpShell(tester);
+
+    await tester.tap(find.byKey(const ValueKey('profile-avatar')));
+    await tester.pumpAndSettle();
+    expect(find.text('Primary firm'), findsNothing);
+    await tester.tap(find.text('My preferences'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('prefs-first-screen')), findsOneWidget);
+    expect(find.byKey(const ValueKey('prefs-start-in-firm')), findsNothing);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('menu-area-settings')));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester
+        .tap(find.byKey(const ValueKey('setup-card-settings/my-preferences')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('prefs-first-screen')), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await _unmount(tester);
+  });
+
   testWidgets('the Settings page search finds a setting in any section',
       (tester) async {
     await _pumpShell(tester);
