@@ -5302,7 +5302,21 @@ person's own list on Home and first in Ctrl+K, kept on the server (D-UI-3);
 routes, Account structure, Party lists, Item lists, Locations) and PLATFORM
 (Admin's People, Firms, System), each section a set of cards, with a search
 box; and **My preferences** (§73). View "Menu and Setup" of the phase 2
-wireframes is retired. Screenshots 12-21 in `Branding wireframes -
+wireframes is retired. **Owner approved Settings > Set up and My preferences
+on 2026-10-04, on one condition: fewer server calls, performance kept.**
+
+**Performance rules for the build** (owner, 2026-10-04):
+
+| What | Server calls |
+| --- | --- |
+| Light menu, "All ... screens", Returns & notes, Settings > Set up and its search | **None.** Built in the app from the menu catalogue, the permissions already held since sign-in, and the firm's stage switches read once when the firm is chosen and kept for the session. A list's data is read only when its tab opens, as today. |
+| Favourites on Home and in Ctrl+K | **None to read.** Kept in the existing preferences record (`dashboard_layout` JSON, a list of menu paths -- no new table or endpoint), which `GET /api/v1/me/preferences` already returns once at sign-in. |
+| Starring or un-starring | The screen changes at once; **one** `PUT /api/v1/me/preferences` saves, debounced about a second, so starring five screens is one call. A failed save says so and puts the stars back. |
+| Opening My preferences | **None.** The dialog opens from the copy already in memory. |
+| Saving My preferences | **One** `PUT`, changed fields only; theme, text size and date format apply at once without a reload. Text size stays a this-PC setting with no server field. |
+
+A test per row should count the requests (the desktop's fake API client
+already records them), so a later change cannot add a call unnoticed. Screenshots 12-21 in `Branding wireframes -
 screenshots\`.
 
 Owner, 2026-09-29: separate configuration from the menu items people use
