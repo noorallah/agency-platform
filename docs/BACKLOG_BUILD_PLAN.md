@@ -485,6 +485,7 @@ otherwise it is built as written.
 - **What it is:** turn one product into another -- a 25 kg bag into 25 packs -- carrying the cost and recording wastage.
 - **What gets built:** a repack document: consume lines and produce lines, cost carried in proportion, wastage to a loss account; one transaction through `inventory_service.py`. Migration yes. Phase 2 screen under Stock. Tests.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A114): `repacks` and `repack_lines` (migration 0278); `app/inventory/services/repacking.py`, `InventoryService.stage_repack_movement`; `/inventory/repacks` list, post, cancel. Desktop: Repacking under Stock. Tests: `test_repacking.py`, `repacking_test.dart`.
 
 #### STK-5. Expiry rules per product (§70 row 7)
 - **What it is:** per product: when to stop selling, when to alert, when to send back to the supplier.

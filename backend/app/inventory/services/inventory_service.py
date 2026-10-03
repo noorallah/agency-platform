@@ -2213,6 +2213,60 @@ class InventoryService:
         movement_value = Decimal(str(entry.total_cost or ZERO)) if entry else ZERO
         return transaction, movement_value if delta >= ZERO else -movement_value
 
+    def stage_repack_movement(
+        self,
+        *,
+        firm_scope: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        product_id: UUID,
+        batch_id: UUID | None,
+        quantity: Decimal,
+        unit_cost: Decimal | None,
+        reference_number: str,
+        transaction_date: date,
+        remarks: str,
+        actor_id: UUID,
+    ) -> tuple[InventoryTransaction, Decimal]:
+        """Move one repack line, unposted; return it and the value it moved.
+
+        STK-4. ``quantity`` is signed in the stock unit: negative consumes at
+        the moving average, positive produces at ``unit_cost``. No journal --
+        the repack posts its wastage alone.
+        """
+        inventory = self._ensure_inventory_projection(
+            firm_id=firm_scope,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            storage_node_id=None,
+            product_id=product_id,
+            actor_id=actor_id,
+            batch_id=batch_id,
+        )
+        transaction = self._stage_movement(
+            inventory,
+            actor_id=actor_id,
+            movement=_Movement(
+                transaction_type=InventoryTransactionType.ADJUSTMENT.value,
+                batch_id=batch_id,
+                reference_number=reference_number,
+                reference_type="REPACK",
+                transaction_date=transaction_date,
+                quantity=abs(quantity),
+                current_delta=quantity,
+                unit_cost=unit_cost,
+                remarks=remarks,
+            ),
+        )
+        self._session.flush()
+        entry = self._session.scalar(
+            select(StockLedgerEntry).where(
+                StockLedgerEntry.transaction_id == transaction.id
+            )
+        )
+        value = Decimal(str(entry.total_cost or ZERO)) if entry else ZERO
+        return transaction, value
+
     def record_goods_receipt(
         self,
         *,

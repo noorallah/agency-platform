@@ -98,6 +98,12 @@ from app.inventory.services.opening_stock_import import (
 from app.inventory.services.opening_stock_import import (
     template_workbook as opening_stock_template_workbook,
 )
+from app.inventory.services.repacking import (
+    RepackCancel,
+    RepackResponse,
+    RepackService,
+    RepackWrite,
+)
 from app.inventory.services.stock_ageing import StockAgeingService
 from app.inventory.services.stock_evidence import StockEvidenceService
 from app.inventory.services.stock_valuation import (
@@ -1212,6 +1218,47 @@ def delete_adjustment_reason(
         reason_id, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data=None, message="Reason deleted.")
+
+
+@router.get("/repacks", response_model=ApiResponse[list[RepackResponse]])
+def list_repacks(
+    scope: InventoryViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[RepackResponse]]:
+    """Return the firm's repacks, newest first (STK-4)."""
+    service = RepackService(db)
+    return ApiResponse(data=service.responses(service.list_rows(scope.firm_id)))
+
+
+@router.post(
+    "/repacks",
+    response_model=ApiResponse[RepackResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def post_repack(
+    data: RepackWrite,
+    scope: InventoryAdjustScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[RepackResponse]:
+    """Break or repack goods: consume, produce, write off wastage (STK-4)."""
+    service = RepackService(db)
+    row = service.post(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    return ApiResponse(data=service.responses([row])[0], message="Repack posted.")
+
+
+@router.post("/repacks/{repack_id}/cancel", response_model=ApiResponse[RepackResponse])
+def cancel_repack(
+    repack_id: UUID,
+    data: RepackCancel,
+    scope: InventoryAdjustScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[RepackResponse]:
+    """Reverse a repack's movements and wastage (STK-4)."""
+    service = RepackService(db)
+    row = service.cancel(
+        repack_id, data.reason, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=service.responses([row])[0])
 
 
 @router.post(
