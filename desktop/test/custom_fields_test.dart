@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:agency_desktop/core/api/api_client.dart';
@@ -137,6 +138,19 @@ void main() {
       expect(controller.canSend, isFalse);
       expect(controller.error, 'down');
       controller.dispose();
+    });
+
+    test('a form closed before the answer arrives is left alone', () async {
+      final Completer<ApplicableAttributesRecord> answer =
+          Completer<ApplicableAttributesRecord>();
+      final CustomFieldsController controller = CustomFieldsController(
+        load: () => answer.future,
+      );
+      final Future<void> started = controller.start();
+      controller.dispose();
+      answer.complete(_applicable());
+      await started;
+      expect(controller.loaded, isFalse);
     });
   });
 
