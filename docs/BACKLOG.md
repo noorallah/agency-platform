@@ -5293,8 +5293,8 @@ items: Quotations, Sales Orders, Delivery Notes, Sales Invoices, Returns &
 notes, Receipts, Customer Statements; today 27), with "All Sell screens (20)"
 one click away, the set-up lists behind the gear, stages the firm switched off
 never shown, Approvals waiting on Home's to-do list, and favourites and Ctrl+K
-reaching everything. Same for Buy, Stock, Accounts and Masters. Owner to
-choose. Screenshots 12-21 in `Branding wireframes -
+reaching everything. Same for Buy, Stock, Accounts and Masters. **Owner
+chose the light menu on 2026-10-03.** Screenshots 12-21 in `Branding wireframes -
 screenshots\`.
 
 Owner, 2026-09-29: separate configuration from the menu items people use
