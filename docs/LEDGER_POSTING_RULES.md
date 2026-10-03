@@ -914,3 +914,18 @@ journal balances, each non-cash account's credit less debit is its cash
 effect and the three sections sum to the change in the cash and bank
 accounts; `is_reconciled` fails only when an account the statement treats as
 cash is not, or the reverse -- the chart's groups decide. It posts nothing.
+
+## Bank reconciliation matches postings and posts nothing (ACC-1, 2026-10-03)
+
+`app/bank_reconciliation` ties a bank statement's lines to the **postings on
+the bank ledger account** -- not to receipts or payments as such -- so a
+contra voucher, an expense, a TDS challan or a hand journal reconciles the
+same way a receipt does. A deposit is a debit on the account, a withdrawal a
+credit. Matching writes no journal: the cleared date is the matched line's
+date and lives on the match, never on the posting. Bank charges and interest
+the books do not have yet are booked as ordinary journals or expenses and then
+matched; until then the reconciliation statement lists them as items the bank
+shows and the books do not. An entry and its reversal, both unmatched, net to
+nothing and are left out. A posting dated before the account's first imported
+statement and matched by no line is taken as cleared before reconciling began
+(decision A125).

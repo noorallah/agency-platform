@@ -43,6 +43,7 @@ from app.core.exceptions import BusinessRuleError, ValidationError
 from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
 from app.finance.models import GLPosting, LedgerAccount
+from app.finance.services.period_close_checks import PeriodCloseChecks
 from app.imports.services import IMPORT_KINDS
 from tests.unit.test_contra_vouchers import BANK, CASH, _account, _books, _move
 from tests.unit.test_settlements import WHEN, _Books
@@ -527,3 +528,23 @@ def test_removing_a_statement_frees_what_it_cleared() -> None:
         page_size=50,
     )
     assert total == 1 and entries[0].amount == Decimal("500.00")
+
+
+def test_closing_the_month_lists_lines_not_reconciled() -> None:
+    books = _books()
+    _deposit(books, "500", WHEN)
+    _import(books, HEADER + "21-04-2026,CASH,,,500,\n")
+    checks = PeriodCloseChecks(books.session)
+    april = (date(2026, 4, 1), date(2026, 4, 30))
+    items = {item.code: item for item in checks.run(books.firm.id, *april).items}
+    item = items["UNRECONCILED_BANK_LINES"]
+    assert (item.count, item.blocks) == (1, False)
+    assert item.examples == ["21-04-2026 CASH (500.00)"]
+    _service(books).auto_match(
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+        ledger_account_id=_bank(books).id,
+        statement_id=None,
+    )
+    codes = {item.code for item in checks.run(books.firm.id, *april).items}
+    assert "UNRECONCILED_BANK_LINES" not in codes

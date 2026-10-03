@@ -15,6 +15,9 @@ answers what is not:
   that the firm traded in, a GSTR-1 not marked filed and a GSTR-3B neither
   marked filed nor settled by a GST payment. Listed and never refusing: a
   month is usually closed before its returns fall due.
+* **Bank lines not reconciled** -- imported statement lines dated in the
+  month that no entry in the books accounts for yet (ACC-1). Listed and never
+  refusing: the bank's charges are often booked after the month is closed.
 
 A firm chooses what happens (`period_close_settings.close_check`): WARN, the
 default, lists and lets the month close; BLOCK refuses while any of the first
@@ -222,6 +225,7 @@ class PeriodCloseChecks:
             self._unposted_documents(firm_id, starts_on, ends_on),
             self._money_on_account(firm_id, starts_on, ends_on),
             self._returns_not_filed(firm_id, starts_on, ends_on),
+            self._unreconciled_bank_lines(firm_id, starts_on, ends_on),
         ]
         return CloseCheckResult(
             close_check=self.close_check(firm_id),
@@ -330,6 +334,42 @@ class PeriodCloseChecks:
             blocks=False,
             examples=[
                 f"{row[0]} ({Decimal(str(row[1])):.2f})" for row in rows[:EXAMPLES]
+            ],
+        )
+
+    def _unreconciled_bank_lines(
+        self, firm_id: UUID, starts_on: date, ends_on: date
+    ) -> CloseCheckItem:
+        """Count statement lines of the month the books do not account for."""
+        from app.bank_reconciliation.models import (
+            BankStatementLine,
+            StatementLineStatus,
+        )
+
+        rows = self._session.execute(
+            select(
+                BankStatementLine.line_date,
+                BankStatementLine.description,
+                BankStatementLine.deposit,
+                BankStatementLine.withdrawal,
+            )
+            .where(
+                BankStatementLine.firm_id == firm_id,
+                BankStatementLine.is_deleted.is_(False),
+                BankStatementLine.status == StatementLineStatus.UNMATCHED.value,
+                BankStatementLine.line_date.between(starts_on, ends_on),
+            )
+            .order_by(BankStatementLine.line_date, BankStatementLine.id)
+        ).all()
+        return CloseCheckItem(
+            code="UNRECONCILED_BANK_LINES",
+            label="Bank statement lines not matched to the books",
+            count=len(rows),
+            blocks=False,
+            examples=[
+                f"{on:%d-%m-%Y} {description or ''} "
+                f"({Decimal(str(deposit)) - Decimal(str(withdrawal)):.2f})"
+                for on, description, deposit, withdrawal in rows[:EXAMPLES]
             ],
         )
 
