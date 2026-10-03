@@ -580,7 +580,7 @@ class ApprovalChainService:
                     model.is_deleted.is_(False),
                     model.status.in_(kind.waiting),
                 )
-                .order_by(model.created_at)
+                .order_by(model.created_at, model.id.asc())
                 .limit(500)
             ).all():
                 total = quantize_ledger(Decimal(str(document.grand_total)))

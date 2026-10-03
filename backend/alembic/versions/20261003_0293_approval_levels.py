@@ -68,7 +68,10 @@ def upgrade() -> None:
             sa.Column("min_amount", sa.Numeric(18, 2), nullable=False),
             sa.Column("role_code", sa.String(100), nullable=False),
             sa.Column(
-                "is_active", sa.Boolean(), server_default=sa.text("true"), nullable=False
+                "is_active",
+                sa.Boolean(),
+                server_default=sa.text("true"),
+                nullable=False,
             ),
             sa.PrimaryKeyConstraint("id", name="PK_approval_rules"),
         )

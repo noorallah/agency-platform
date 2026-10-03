@@ -7,7 +7,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    ResolvedFirmScope,
+    firm_any_permission_scope,
+    firm_permission_scope,
+)
 from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -32,6 +36,11 @@ router = APIRouter(
 #: An enquiry is the step before a quotation, so it is read, raised and
 #: worked under the quotation's own codes rather than new ones nobody holds.
 EnquiryViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("SALES_VIEW")]
+#: A report opens to whoever may read the module or holds `REPORT_VIEW`
+#: (D-RPT-4).
+EnquiryReportScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("SALES_VIEW", "REPORT_VIEW")
+]
 EnquiryCreateScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("SALES_QUOTATION_CREATE")
 ]
@@ -78,7 +87,7 @@ def follow_ups_due(
 
 @router.get("/reports/lost", response_model=ApiResponse[list[LostReasonRow]])
 def lost_reasons(
-    scope: EnquiryViewScope,
+    scope: EnquiryReportScope,
     from_date: Annotated[date, Query()],
     to_date: Annotated[date, Query()],
     db: Session = Depends(get_db),

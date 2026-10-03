@@ -42,7 +42,9 @@ def _no_platform_store(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         SalesInvoicePrintService,
         "_seller",
-        lambda self, firm_scope: PartyBlock(name="Sri Ram & Sons", address_lines=[]),
+        lambda self, firm_scope, branch_id=None: PartyBlock(
+            name="Sri Ram & Sons", address_lines=[]
+        ),
     )
 
 
