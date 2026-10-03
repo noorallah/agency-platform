@@ -826,6 +826,34 @@ class PromotionService:
                         times = int(state.quantity // buy)
                         if times > 0:
                             state.free_quantity += free * times
+            elif kind == PromotionActionType.BUY_X_GET_Y_DISCOUNT.value:
+                buy = Decimal(str(params.get("buy_quantity", 0) or 0))
+                get = Decimal(str(params.get("free_quantity", 0) or 0))
+                rate = Decimal(str(params.get("percent", 0) or 0))
+                if buy <= ZERO or get <= ZERO or rate <= ZERO:
+                    continue
+                shares = []
+                for state in matched:
+                    # Whole groups only, per line, as FREE_QUANTITY counts:
+                    # three bought on "buy 1 get 1" is one group and a spare.
+                    times = int(state.quantity // (buy + get))
+                    if times <= 0 or state.quantity <= ZERO:
+                        shares.append(ZERO)
+                        continue
+                    # At what each unit has left after earlier benefits, so
+                    # stacked offers still cannot take more than the line.
+                    unit = state.remaining / state.quantity
+                    shares.append(
+                        min(
+                            quantize_money(get * times * unit * rate / HUNDRED),
+                            state.remaining,
+                        )
+                    )
+                cap = _cap(params)
+                if cap is not None and sum(shares, ZERO) > cap:
+                    shares = apportion(cap, shares)
+                for state, share in zip(matched, shares, strict=True):
+                    state.discount += share
             elif kind == PromotionActionType.FREE_PRODUCT.value:
                 gift_id = params.get("free_product_id")
                 free = Decimal(str(params.get("free_quantity", 0) or 0))

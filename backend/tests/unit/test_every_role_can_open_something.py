@@ -228,7 +228,16 @@ def test_a_cashier_sees_the_till_and_not_the_ledger() -> None:
         label for label, codes, any_of in finance[4] if _passes(codes, any_of, held)
     }
 
-    assert openable == {"Receipts", "Payments"}
+    # The till's own work since Wave 2: the cheques a cashier takes and
+    # hands over (ACC-2) and the firm's bank details its bills print, numbers
+    # masked (ACC-4). Still no ledger, journal or chart of accounts.
+    assert openable == {
+        "Receipts",
+        "Payments",
+        "Post-dated Cheques",
+        "Post-dated Cheques (Issued)",
+        "Bank details",
+    }
 
 
 @pytest.mark.skipif(not _CATALOG.exists(), reason="desktop tree not present")

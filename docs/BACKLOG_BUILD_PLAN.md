@@ -282,6 +282,7 @@ otherwise it is built as written.
 - **What it is:** "buy 2, the second at 50% off".
 - **What gets built:** a new `PromotionActionType` in `backend/app/promotions/schemas/promotion.py`, valued in `promotion_service.py` beside `FREE_QUANTITY`; no migration (actions are rows). Promotion dialog (`desktop/lib/ui/pricing/promotion_dialog.dart`) gains the benefit; *Try offers* shows it. Tests: pricing, best-offer valuation, the cap.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A94): `PromotionActionType.BUY_X_GET_Y_DISCOUNT` (buy_quantity, free_quantity, percent, optional max_amount), valued per line in `_apply` -- whole groups, at what each unit has left -- with the cap apportioned; no migration. Also widens `test_a_cashier_sees_the_till_and_not_the_ledger` for the post-dated cheque registers and bank details the cashier gained in ACC-2 / ACC-4. Desktop: the benefit in the offer editor. Tests: `test_buy_x_get_y_discount.py`, `promotion_buy_x_get_y_test.dart`.
 
 #### SEL-3. Offer: combo price (§60 row 5)
 - **What it is:** a set price for a set of products bought together.
