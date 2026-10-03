@@ -24,6 +24,7 @@ from app.common.file_import import (
     file_format_of,
     report_response,
 )
+from app.common.file_import import template_csv as columns_template_csv
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
@@ -61,6 +62,13 @@ from app.products.services.brands import (
     BrandWrite,
     PrincipalResponse,
     PrincipalWrite,
+)
+from app.products.services.price_revisions import COLUMNS as REVISION_COLUMNS
+from app.products.services.price_revisions import (
+    PriceRevisionFileImporter,
+    PriceRevisionResponse,
+    PriceRevisionService,
+    PriceRevisionWrite,
 )
 from app.products.services.product_import import template_csv, template_workbook
 from app.products.services.product_service import PRODUCT_DUTIES
@@ -481,6 +489,38 @@ def delete_brand(
     return ApiResponse(data=None, message="Brand deleted.")
 
 
+@router.get("/price-revisions/import-template")
+def price_revision_import_template(scope: ProductImportScope) -> StreamingResponse:
+    """Download the price revision template, as CSV (MST-2)."""
+    return StreamingResponse(
+        iter([columns_template_csv(REVISION_COLUMNS)]),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="price-revisions-template.csv"'
+        },
+    )
+
+
+@router.post(
+    "/price-revisions/import-file", response_model=ApiResponse[ImportReportResponse]
+)
+async def import_price_revisions(
+    scope: ProductImportScope,
+    file: Annotated[UploadFile, File()],
+    db: Session = Depends(get_db),
+    apply: Annotated[bool, Form()] = False,
+) -> ApiResponse[ImportReportResponse]:
+    """Check a file of new rates, and with ``apply`` import it whole (MST-2)."""
+    report = PriceRevisionFileImporter(db).run(
+        await file.read(),
+        file_format=file_format_of(file.filename),
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        apply=apply,
+    )
+    return ApiResponse(data=report_response(report))
+
+
 @router.get("/categories", response_model=ApiResponse[list[ProductCategoryResponse]])
 def list_categories(
     scope: ProductViewScope,
@@ -549,6 +589,56 @@ def delete_category(
         category_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/{product_id}/price-revisions",
+    response_model=ApiResponse[list[PriceRevisionResponse]],
+)
+def list_price_revisions(
+    product_id: UUID,
+    scope: ProductViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PriceRevisionResponse]]:
+    """Return a product's dated price revisions, newest first (MST-2)."""
+    return ApiResponse(
+        data=PriceRevisionService(db).list_for(product_id, firm_id=scope.firm_id)
+    )
+
+
+@router.post(
+    "/{product_id}/price-revisions",
+    response_model=ApiResponse[PriceRevisionResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def add_price_revision(
+    product_id: UUID,
+    data: PriceRevisionWrite,
+    scope: ProductUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PriceRevisionResponse]:
+    """Record new rates from a date (MST-2)."""
+    return ApiResponse(
+        data=PriceRevisionService(db).add(
+            product_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
+
+
+@router.delete(
+    "/{product_id}/price-revisions/{revision_id}", response_model=ApiResponse[None]
+)
+def delete_price_revision(
+    product_id: UUID,
+    revision_id: UUID,
+    scope: ProductUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[None]:
+    """Remove a revision typed in error (MST-2)."""
+    PriceRevisionService(db).delete(
+        product_id, revision_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=None, message="Revision deleted.")
 
 
 @router.get("/{product_id}", response_model=ApiResponse[ProductResponse])

@@ -48,6 +48,7 @@ class MasterImportDialog extends StatefulWidget {
     this.mappingApi,
     this.mappingKind,
     this.offersUpdate = true,
+    this.csvOnly = false,
     this.extraFields,
     this.pickFileOverride,
     this.saveBytesOverride,
@@ -84,6 +85,10 @@ class MasterImportDialog extends StatefulWidget {
   /// Whether "update existing" means anything for this import at all. Opening
   /// stock is posted once, so it has nothing to update and hides the option.
   final bool offersUpdate;
+
+  /// The server's template is a CSV only (price revisions): the Excel
+  /// template button is not offered.
+  final bool csvOnly;
 
   /// Fields the import needs besides the file -- the posting date of opening
   /// stock -- shown under the file. The owner keeps their values and reads
@@ -284,11 +289,12 @@ class _MasterImportDialogState extends State<MasterImportDialog> {
                 spacing: AppSpacing.md,
                 runSpacing: AppSpacing.sm,
                 children: [
-                  OutlinedButton.icon(
-                    onPressed: _busy ? null : () => _template('xlsx'),
-                    icon: const Icon(Icons.download_outlined),
-                    label: const Text('Template (Excel)'),
-                  ),
+                  if (!widget.csvOnly)
+                    OutlinedButton.icon(
+                      onPressed: _busy ? null : () => _template('xlsx'),
+                      icon: const Icon(Icons.download_outlined),
+                      label: const Text('Template (Excel)'),
+                    ),
                   OutlinedButton.icon(
                     onPressed: _busy ? null : () => _template('csv'),
                     icon: const Icon(Icons.download_outlined),

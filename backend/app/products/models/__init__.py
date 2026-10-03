@@ -1,6 +1,7 @@
 """Product persistence models."""
 
 from app.products.models.brand import Brand, Principal
+from app.products.models.price_revision import ProductPriceRevision
 from app.products.models.product import (
     Product,
     ProductAttributeValue,
@@ -11,6 +12,7 @@ from app.products.models.product import (
 __all__ = [
     "Brand",
     "Principal",
+    "ProductPriceRevision",
     "Product",
     "ProductAttributeValue",
     "ProductCategory",

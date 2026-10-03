@@ -22,6 +22,7 @@ import '../../models/backup.dart';
 import '../../models/diagnostics.dart';
 import '../../models/document_framework.dart';
 import '../../models/print_template.dart';
+import '../../models/price_revision.dart';
 import '../../models/product.dart';
 import '../../models/file_import.dart';
 import '../../models/quotation.dart';
@@ -3890,6 +3891,60 @@ class ApiClient {
         'apply': apply ? 'true' : 'false',
         if (mapping != null) 'mapping': jsonEncode(mapping),
       },
+      fileField: 'file',
+      fileName: fileName,
+      fileBytes: bytes,
+      fileContentType: fileName.toLowerCase().endsWith('.xlsx')
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'text/csv',
+    );
+    return FileImportReport.fromJson(_unwrapMap(response));
+  }
+
+  /// A product's dated price revisions, newest first (MST-2).
+  Future<List<PriceRevision>> productPriceRevisions(String productId) async =>
+      _unwrapList(
+        await request('GET', '/api/v1/products/$productId/price-revisions'),
+        PriceRevision.fromJson,
+      );
+
+  /// Record new rates from a date; the same date twice is refused (409).
+  Future<PriceRevision> addProductPriceRevision(
+    String productId,
+    Json body,
+  ) async =>
+      PriceRevision.fromJson(_unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/products/$productId/price-revisions',
+          body: body,
+        ),
+      ));
+
+  /// Remove a revision typed in error.
+  Future<void> deleteProductPriceRevision(
+    String productId,
+    String revisionId,
+  ) =>
+      request(
+        'DELETE',
+        '/api/v1/products/$productId/price-revisions/$revisionId',
+      );
+
+  /// The blank price revision import file, as CSV bytes.
+  Future<List<int>> productPriceRevisionImportTemplate() =>
+      downloadBytes('/api/v1/products/price-revisions/import-template');
+
+  /// Check (`apply: false`, writes nothing) or import a file of new rates.
+  Future<FileImportReport> checkProductPriceRevisionImportFile({
+    required String fileName,
+    required List<int> bytes,
+    required bool apply,
+  }) async {
+    final Json response = await multipartRequest(
+      'POST',
+      '/api/v1/products/price-revisions/import-file',
+      fields: {'apply': apply ? 'true' : 'false'},
       fileField: 'file',
       fileName: fileName,
       fileBytes: bytes,

@@ -11,7 +11,13 @@ extension _Phase2ProductForm on _ProductWorkspaceDialogState {
   /// The sections the record shows; audit and history are in the panel.
   List<String> get _pageSections => [
         for (final String tab in _visibleTabs)
-          if (tab != 'audit' && tab != 'history') tab,
+          if (tab != 'audit' && tab != 'history') ...[
+            tab,
+            if (tab == 'pricing' &&
+                widget.product != null &&
+                widget.priceRevisions != null)
+              'price_history',
+          ],
       ];
 
   Widget _phase2Page(BuildContext context) {
@@ -176,6 +182,11 @@ extension _Phase2ProductForm on _ProductWorkspaceDialogState {
         'general' => _generalSection(),
         'packaging' => _packagingSection(),
         'pricing' => _pricingSection(),
+        'price_history' => PriceRevisionsSection(
+            productId: widget.product!.id,
+            actions: widget.priceRevisions!,
+            canManage: widget.canManagePriceRevisions && !_readOnly,
+          ),
         'tax' => _taxSection(),
         'business_attributes' => _attributesSection(),
         'images' => _mediaSection(_imageRows, imageMode: true),

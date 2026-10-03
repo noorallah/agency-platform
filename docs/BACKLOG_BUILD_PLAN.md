@@ -705,6 +705,7 @@ otherwise it is built as written.
 - **What it is:** "new rates from the 1st", kept with history.
 - **What gets built:** a dated price table for selling and purchase price (migration); `pricing.py` reads the rate in force on the document date; a revision import by file; the product editor shows history. Tests at the changeover date.
 - **Depends on:** best with SEL-9 (levels carry dates too). **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A119): `product_price_revisions` (migration 0282); `app/products/services/price_revisions.py` (`price_in_force`, service, importer); `UnitPriceResolver` and the purchase order's blank price read the revision in force; `/products/{id}/price-revisions` and the revision import. Desktop: Price history on the product, the import. Tests: `test_price_revisions.py`, `price_revisions_test.dart`.
 
 #### MST-3. Duplicate check and merge (§75 row 8)
 - **What it is:** warn about a second "Sri Balaji Stores", and merge two records of one party.

@@ -54,6 +54,7 @@ class UnitPriceResolver:
         """Load the customer's lists and level for one document."""
         self._session = session
         self._firm_id = firm_id
+        self._on = on
         self._lists = PriceListResolver(
             session,
             firm_id=firm_id,
@@ -89,8 +90,20 @@ class UnitPriceResolver:
         )
 
     def _product_price(self, product_id: UUID) -> Decimal | None:
-        """Return the product's own selling price, read once."""
+        """Return the product's selling price in force on the date, read once.
+
+        A dated revision (MST-2) in force on the document's date wins over
+        the product's own price.
+        """
         if product_id not in self._products:
+            from app.products.services.price_revisions import price_in_force
+
+            revised = price_in_force(
+                self._session, product_id, "selling_price", on=self._on
+            )
+            if revised is not None:
+                self._products[product_id] = revised
+                return revised
             value = self._session.scalar(
                 select(Product.selling_price).where(
                     Product.id == product_id, Product.firm_id == self._firm_id
