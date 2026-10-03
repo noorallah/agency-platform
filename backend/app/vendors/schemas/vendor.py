@@ -2,6 +2,7 @@
 
 import re
 from datetime import date, datetime
+from decimal import Decimal
 from enum import StrEnum
 from typing import Literal
 from uuid import UUID
@@ -192,6 +193,11 @@ class VendorWrite(VendorSchema):
     issues_e_invoices: bool = False
     #: The TDS section a payment to it is usually deducted under (ACC-7).
     default_tds_section: str | None = Field(default=None, max_length=10)
+    #: What the supplier normally takes off a line (BUY-3); a purchase line
+    #: with no discount of its own starts at it.
+    standing_discount_percent: Decimal = Field(
+        default=Decimal("0"), ge=0, le=100, max_digits=9, decimal_places=4
+    )
 
     @field_validator("default_tds_section", mode="before")
     @classmethod
@@ -480,6 +486,7 @@ class VendorResponse(VendorSchema):
     msme_written_agreement: bool = False
     issues_e_invoices: bool = False
     default_tds_section: str | None = None
+    standing_discount_percent: Decimal = Decimal("0")
     license_number: str | None
     registration_number: str | None
     website: str | None

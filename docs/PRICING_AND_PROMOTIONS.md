@@ -540,3 +540,13 @@ at what each unit has left after earlier offers. `COMBO_PRICE` counts complete
 sets of its products across the document's lines and spreads the saving --
 one set's worth less its price, times the sets -- over the lines the sets used
 by value (`apportion`). Neither saves anything on a partial group or set.
+
+## Purchase prices from the supplier's terms (BUY-3, 2026-10-03)
+
+A supplier's price list (`price_lists.vendor_id`) and standing discount
+(`vendors.standing_discount_percent`) do on a purchase order line what a
+customer's do on a sale: a blank price takes the list's fixed rate at the
+line's quantity, else the product's `purchase_price`; a blank discount takes
+the list's rate, else the standing discount, through `resolve_line_discount`.
+`SupplierPriceResolver` reads only supplier lists; `PriceListResolver` reads
+only lists that name no supplier.

@@ -17,6 +17,8 @@ class PriceListRecord {
     this.customerName = '',
     this.territoryId = '',
     this.territoryName = '',
+    this.vendorId = '',
+    this.vendorName = '',
     this.effectiveTo = '',
     this.status = 'ACTIVE',
     this.items = const <PriceListItemRecord>[],
@@ -41,6 +43,10 @@ class PriceListRecord {
   final String territoryId;
   final String territoryName;
 
+  /// A supplier's list: what they charge the firm (BUY-3).
+  final String vendorId;
+  final String vendorName;
+
   final String effectiveFrom;
   final String effectiveTo;
   final String status;
@@ -53,6 +59,9 @@ class PriceListRecord {
     }
     if (territoryId.isNotEmpty) {
       return territoryName.isEmpty ? 'One territory' : territoryName;
+    }
+    if (vendorId.isNotEmpty) {
+      return vendorName.isEmpty ? 'One supplier' : 'Supplier: $vendorName';
     }
     return 'Everyone';
   }
@@ -82,6 +91,8 @@ class PriceListRecord {
         customerName: stringValue(json['customer_name']),
         territoryId: stringValue(json['territory_id']),
         territoryName: stringValue(json['territory_name']),
+        vendorId: stringValue(json['vendor_id']),
+        vendorName: stringValue(json['vendor_name']),
         effectiveFrom: stringValue(json['effective_from']),
         effectiveTo: stringValue(json['effective_to']),
         status: stringValue(json['status']).isEmpty

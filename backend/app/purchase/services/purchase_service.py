@@ -27,7 +27,11 @@ from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.chunks import chunks
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO
-from app.core.utils.pricing import apportion, resolve_bill_discount
+from app.core.utils.pricing import (
+    apportion,
+    resolve_bill_discount,
+    resolve_line_discount,
+)
 from app.document_framework.models import (
     DocumentTypeDefinition,
 )
@@ -1461,6 +1465,9 @@ class PurchaseService(TransactionalDocumentService):
         actor_id: UUID,
     ) -> dict[str, Decimal]:
         """Replace lines."""
+        data = data.model_copy(
+            update={"lines": self._priced_from_supplier(order, data.lines)}
+        )
         # Lines are matched on their line number and updated in place;
         # re-inserting them minted a new UUID per line on every save, and
         # downstream documents reference those ids with no foreign key.
@@ -1482,9 +1489,9 @@ class PurchaseService(TransactionalDocumentService):
         # and the input tax was overstated by the tax on it (D-BUY-19).
         taxables = [
             self._q(
-                self._q(line.ordered_quantity * line.unit_price)
+                self._q(line.ordered_quantity * (line.unit_price or ZERO))
                 - self._line_discount_amount(
-                    line, self._q(line.ordered_quantity * line.unit_price)
+                    line, self._q(line.ordered_quantity * (line.unit_price or ZERO))
                 )
             )
             for line in data.lines
@@ -1504,7 +1511,7 @@ class PurchaseService(TransactionalDocumentService):
                 purchase_date=order.purchase_date,
                 firm_id=order.firm_id,
             )
-            gross_amount = self._q(line.ordered_quantity * line.unit_price)
+            gross_amount = self._q(line.ordered_quantity * (line.unit_price or ZERO))
             discount_amount = self._line_discount_amount(line, gross_amount)
             bill_share = shares[idx - 1]
             taxable = self._q(gross_amount - discount_amount - bill_share)
@@ -1547,8 +1554,8 @@ class PurchaseService(TransactionalDocumentService):
                 ordered_quantity=self._q(line.ordered_quantity),
                 free_quantity=self._q(line.free_quantity),
                 base_quantity=conversion["converted"],
-                unit_price=self._q(line.unit_price),
-                discount_percent=self._q(line.discount_percent),
+                unit_price=self._q(line.unit_price or ZERO),
+                discount_percent=self._q(line.discount_percent or ZERO),
                 discount_amount=discount_amount,
                 bill_discount_amount=bill_share,
                 gross_amount=gross_amount,
@@ -1607,12 +1614,69 @@ class PurchaseService(TransactionalDocumentService):
             "grand_total": grand_total,
         }
 
+    def _priced_from_supplier(
+        self, order: PurchaseOrder, lines: list[PurchaseLineWrite]
+    ) -> list[PurchaseLineWrite]:
+        """Fill each blank price and discount from the supplier (BUY-3, A97).
+
+        A blank price takes the supplier's price list's fixed rate at the
+        line's quantity, else the product's purchase price; a blank discount
+        takes the list's rate, else the supplier's standing discount -- the
+        sales ranking, through the same ``resolve_line_discount``. A typed
+        value, zero included, stands.
+        """
+        if all(
+            line.unit_price is not None and line.discount_percent is not None
+            for line in lines
+        ):
+            return lines
+        from app.pricing.services.price_list_service import SupplierPriceResolver
+
+        vendor = self._session.get(Vendor, order.vendor_id)
+        standing = (
+            Decimal(str(vendor.standing_discount_percent or 0)) if vendor else ZERO
+        )
+        lists = SupplierPriceResolver(
+            self._session,
+            firm_id=order.firm_id,
+            vendor_id=order.vendor_id,
+            on=order.purchase_date,
+        )
+        priced: list[PurchaseLineWrite] = []
+        for line in lines:
+            update: dict[str, object] = {}
+            price = line.unit_price
+            if price is None:
+                fixed = lists.price_for(line.product_id, line.ordered_quantity)
+                if fixed is None:
+                    product = self._session.get(Product, line.product_id)
+                    fixed = Decimal(str(getattr(product, "purchase_price", 0) or 0))
+                price = fixed
+                update["unit_price"] = price
+            if line.discount_percent is None:
+                resolved = resolve_line_discount(
+                    gross=self._q(line.ordered_quantity * price),
+                    amount=line.discount_amount or None,
+                    price_list_percent=lists.rate_for(
+                        line.product_id, line.ordered_quantity
+                    ),
+                    customer_default=standing if standing > ZERO else None,
+                )
+                update["discount_percent"] = resolved.percent
+                update["discount_amount"] = (
+                    line.discount_amount if line.discount_amount else ZERO
+                )
+            priced.append(line.model_copy(update=update) if update else line)
+        return priced
+
     def _line_discount_amount(
         self, line: PurchaseLineWrite, gross_amount: Decimal
     ) -> Decimal:
         """Return a line's own discount: the typed amount, else the rate."""
         if line.discount_amount <= 0:
-            return self._q(gross_amount * line.discount_percent / Decimal("100"))
+            return self._q(
+                gross_amount * (line.discount_percent or ZERO) / Decimal("100")
+            )
         return self._q(line.discount_amount)
 
     def _replace_schedules(

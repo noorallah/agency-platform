@@ -2619,7 +2619,9 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
     if (widget.mode == PurchaseDialogMode.create) {
       _draft = _draft.copyWith(lines: [
         for (final PurchaseOrderLine line in _draft.lines)
-          line.productId.isEmpty ? line : _choose(line, line.productId),
+          line.productId.isEmpty
+              ? line
+              : _choose(line, line.productId, fresh: true),
       ]);
     }
     _schedulePreview();
@@ -3723,8 +3725,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
         _draft.lines.any(
           (line) =>
               line.productId.isEmpty ||
-              line.orderedQuantity.trim().isEmpty ||
-              line.unitPrice.trim().isEmpty,
+              line.orderedQuantity.trim().isEmpty,
         )) {
       setState(() {
         _error =

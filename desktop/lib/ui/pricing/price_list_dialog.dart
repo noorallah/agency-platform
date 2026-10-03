@@ -8,6 +8,7 @@ import '../../models/entities.dart';
 import '../../models/pricing.dart';
 import '../../models/product.dart';
 import '../../models/sales_territory.dart';
+import '../../models/vendor.dart';
 import '../workspace/paged_fetch.dart';
 
 /// Writing one arrangement.
@@ -16,7 +17,7 @@ import '../workspace/paged_fetch.dart';
 /// a list scoped to a customer *and* a territory at once has no defensible
 /// precedence against one scoped to only the first — the server refuses it,
 /// and offering it here would only produce a refusal somebody has to read.
-enum _Scope { everyone, customer, territory }
+enum _Scope { everyone, customer, territory, supplier }
 
 class PriceListDialog extends StatefulWidget {
   const PriceListDialog({
@@ -24,12 +25,16 @@ class PriceListDialog extends StatefulWidget {
     required this.api,
     required this.customers,
     required this.products,
+    this.vendors = const <Vendor>[],
     this.existing,
   });
 
   final ApiClient api;
   final List<Customer> customers;
   final List<Product> products;
+
+  /// The suppliers a supplier's list can be agreed with.
+  final List<Vendor> vendors;
 
   /// The list being revised, or null to agree a new one.
   final PriceListRecord? existing;
@@ -58,6 +63,9 @@ class _PriceListDialogState extends State<PriceListDialog> {
       widget.existing?.territoryId.isEmpty ?? true
           ? null
           : widget.existing!.territoryId;
+  late String? _vendorId = widget.existing?.vendorId.isEmpty ?? true
+      ? null
+      : widget.existing!.vendorId;
   late List<_RateDraft> _rates = [
     for (final PriceListItemRecord item in widget.existing?.items ?? const [])
       _RateDraft(
@@ -104,6 +112,7 @@ class _PriceListDialogState extends State<PriceListDialog> {
     if (row == null) return _Scope.everyone;
     if (row.customerId.isNotEmpty) return _Scope.customer;
     if (row.territoryId.isNotEmpty) return _Scope.territory;
+    if (row.vendorId.isNotEmpty) return _Scope.supplier;
     return _Scope.everyone;
   }
 
@@ -170,6 +179,7 @@ class _PriceListDialogState extends State<PriceListDialog> {
       // both either.
       'customer_id': _scope == _Scope.customer ? _customerId : null,
       'territory_id': _scope == _Scope.territory ? _territoryId : null,
+      'vendor_id': _scope == _Scope.supplier ? _vendorId : null,
       'effective_from': _from.text.trim(),
       'effective_to': _to.text.trim().isEmpty ? null : _to.text.trim(),
       'status': widget.existing?.status ?? 'ACTIVE',
@@ -333,6 +343,7 @@ class _PriceListDialogState extends State<PriceListDialog> {
               ButtonSegment(value: _Scope.everyone, label: Text('Everyone')),
               ButtonSegment(value: _Scope.customer, label: Text('One customer')),
               ButtonSegment(value: _Scope.territory, label: Text('One territory')),
+              ButtonSegment(value: _Scope.supplier, label: Text('One supplier')),
             ],
             selected: {_scope},
             onSelectionChanged: (choice) {
@@ -364,8 +375,52 @@ class _PriceListDialogState extends State<PriceListDialog> {
               ),
             ),
           if (_scope == _Scope.territory) _territoryChoice(theme),
+          if (_scope == _Scope.supplier) _supplierChoice(),
         ],
       );
+
+  /// A supplier's list is what they charge the firm, so it is read by
+  /// purchase documents and never by a sale.
+  Widget _supplierChoice() {
+    final bool known = _vendorId == null ||
+        widget.vendors.any((Vendor v) => v.id == _vendorId);
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.sm),
+      child: DropdownButtonFormField<String>(
+        key: const ValueKey<String>('price-list-supplier'),
+        initialValue: _vendorId,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Supplier',
+          helperText: 'What this supplier charges us; purchase orders read it.',
+          helperMaxLines: 2,
+        ),
+        items: [
+          if (!known)
+            DropdownMenuItem(
+              value: _vendorId,
+              child: Text(
+                (widget.existing?.vendorName.isNotEmpty ?? false)
+                    ? widget.existing!.vendorName
+                    : 'Current supplier',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          for (final Vendor item in widget.vendors)
+            DropdownMenuItem(
+              value: item.id,
+              child: Text(
+                  item.displayName.isEmpty ? item.name : item.displayName,
+                  overflow: TextOverflow.ellipsis),
+            ),
+        ],
+        validator: (value) => _scope == _Scope.supplier && value == null
+            ? 'Choose a supplier.'
+            : null,
+        onChanged: (value) => setState(() => _vendorId = value),
+      ),
+    );
+  }
 
   Widget _territoryChoice(ThemeData theme) {
     final PriceListRecord? existing = widget.existing;

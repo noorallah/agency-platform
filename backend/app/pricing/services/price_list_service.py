@@ -112,6 +112,8 @@ class PriceListResolver:
                 PriceList.effective_from <= on,
                 or_(PriceList.effective_to.is_(None), PriceList.effective_to >= on),
                 or_(*scope),
+                # A supplier's list prices purchases, never a sale (BUY-3).
+                PriceList.vendor_id.is_(None),
                 PriceListItem.is_deleted.is_(False),
             )
             .order_by(
@@ -191,3 +193,49 @@ class PriceListResolver:
             else:
                 break
         return best
+
+
+class SupplierPriceResolver(PriceListResolver):
+    """What the firm buys a product at from one supplier (BUY-3, A97).
+
+    The supplier's own lists -- ``price_lists.vendor_id`` -- live on the
+    date, with the same quantity breaks, fixed rates and "latest list wins"
+    as the sales side. Built once per purchase document.
+    """
+
+    def __init__(
+        self, session: Session, *, firm_id: UUID, vendor_id: UUID, on: date
+    ) -> None:
+        """Load the supplier's live rates for one document."""
+        self._rates = {}
+        self._prices = {}
+        rows = session.execute(
+            select(
+                PriceListItem.product_id,
+                PriceListItem.min_quantity,
+                PriceListItem.discount_percent,
+                PriceListItem.rate,
+            )
+            .join(PriceList, PriceList.id == PriceListItem.price_list_id)
+            .where(
+                PriceList.firm_id == firm_id,
+                PriceList.vendor_id == vendor_id,
+                PriceList.is_deleted.is_(False),
+                PriceList.status == "ACTIVE",
+                PriceList.effective_from <= on,
+                or_(PriceList.effective_to.is_(None), PriceList.effective_to >= on),
+                PriceListItem.is_deleted.is_(False),
+            )
+            .order_by(PriceList.effective_from.asc(), PriceListItem.min_quantity.asc())
+        ).all()
+        ladders: dict[UUID, dict[Decimal, Decimal]] = {}
+        prices: dict[UUID, dict[Decimal, Decimal | None]] = {}
+        for product_id, min_quantity, percent, rate in rows:
+            threshold = Decimal(str(min_quantity))
+            ladders.setdefault(product_id, {})[threshold] = Decimal(str(percent))
+            prices.setdefault(product_id, {})[threshold] = (
+                None if rate is None else Decimal(str(rate))
+            )
+        for product_id, ladder in ladders.items():
+            self._rates[product_id] = sorted(ladder.items())
+            self._prices[product_id] = sorted(prices[product_id].items())

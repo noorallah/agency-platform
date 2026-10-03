@@ -221,7 +221,10 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
     _addLine();
     final PurchaseOrderLine added = _draft.lines.last;
     if (added.productId.isNotEmpty) {
-      _updateLine(_draft.lines.length - 1, _choose(added, added.productId));
+      _updateLine(
+        _draft.lines.length - 1,
+        _choose(added, added.productId, fresh: true),
+      );
     }
     _setState(() => _current = _draft.lines.length - 1);
     _schedulePreview();
@@ -241,16 +244,23 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
     return null;
   }
 
-  /// A product chosen on a line brings its units and, where the rate was
-  /// not typed, its purchase price.
-  PurchaseOrderLine _choose(PurchaseOrderLine line, String productId) {
-    final Product? product = _product(productId);
+  /// A product chosen on a line brings its units. Its rate is left blank so
+  /// the server fills it (the supplier's list, else the product's purchase
+  /// price); a [fresh] line leaves the discount blank too, since nobody has
+  /// typed one. Only a figure the user types is sent (BUY-3).
+  PurchaseOrderLine _choose(
+    PurchaseOrderLine line,
+    String productId, {
+    bool fresh = false,
+  }) {
     final PurchaseOrderLine chosen = _withProduct(
       line.copyWith(purchaseUomId: '', inventoryUomId: ''),
       productId,
     );
-    final String price = product?.purchasePrice ?? '';
-    return price.isEmpty ? chosen : chosen.copyWith(unitPrice: price);
+    return chosen.copyWith(
+      unitPrice: '',
+      discountPercent: fresh ? '' : null,
+    );
   }
 
   Widget _dateBox(
@@ -1002,20 +1012,23 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
         ? _typedTaxable(line)
         : _number(priced.grossAmount) - _number(priced.discountAmount);
     final double tax = priced == null ? 0 : _number(priced.taxAmount);
-    final bool typedRate = product == null ||
-        _number(product.purchasePrice) != _number(line.unitPrice);
+    final bool blankRate = line.unitPrice.trim().isEmpty;
+    final bool blankDiscount = line.discountPercent.trim().isEmpty;
+    // A blank box shows what the server resolved for it.
+    final String shownRate = blankRate ? (priced?.unitPrice ?? '') : line.unitPrice;
+    final String shownDiscount =
+        blankDiscount ? (priced?.discountPercent ?? '') : line.discountPercent;
     final double discount = _number(line.discountAmount) > 0
         ? _number(line.discountAmount)
-        : _number(line.discountPercent);
+        : _number(shownDiscount);
     return DocumentSidePanel(children: [
       DocumentSideHeading('Line ${index + 1} · ${product?.name ?? ''}'),
-      DocumentSidePair('Rate', documentMoney(line.unitPrice)),
+      DocumentSidePair('Rate', shownRate.isEmpty ? '–' : documentMoney(shownRate)),
       DocumentSideNote(
-        product != null && product.purchasePrice.isEmpty
-            ? 'the product has no purchase price; type the rate'
-            : typedRate
-                ? 'as typed on this order'
-                : "the product's purchase price",
+        blankRate
+            ? "Blank: the supplier's list price, else the product's "
+                'purchase price'
+            : 'as typed on this order',
       ),
       if (companion != null && companion.lastPrice.isNotEmpty) ...[
         DocumentSidePair(
@@ -1026,7 +1039,9 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
           documentLastBilled(companion.lastInvoiceNumber,
               companion.lastInvoiceDate, companion.lastDiscountPercent),
         ),
-        if (!_locked && _number(companion.lastPrice) != _number(line.unitPrice))
+        if (!_locked &&
+            (blankRate ||
+                _number(companion.lastPrice) != _number(line.unitPrice)))
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton(
@@ -1048,7 +1063,13 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
             ? '–'
             : _number(line.discountAmount) > 0
                 ? documentMoney(line.discountAmount)
-                : '${trimDiscountRate(line.discountPercent)}%',
+                : '${trimDiscountRate(shownDiscount)}%',
+      ),
+      DocumentSideNote(
+        blankDiscount
+            ? "Blank: the supplier's list rate, else its standing discount; "
+                '0 means none'
+            : 'as typed on this order; 0 means none',
       ),
       if (_number(line.freeQuantity) > 0)
         DocumentSidePair(

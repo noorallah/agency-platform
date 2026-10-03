@@ -46,6 +46,8 @@ class PriceListWrite(PricingSchema):
     #: at once has no defensible precedence against one that is only the first.
     customer_id: UUID | None = None
     territory_id: UUID | None = None
+    #: A supplier's list (BUY-3); it names no customer or territory.
+    vendor_id: UUID | None = None
 
     effective_from: date
     effective_to: date | None = None
@@ -58,6 +60,10 @@ class PriceListWrite(PricingSchema):
         """Refuse a list scoped to a customer and a territory at once."""
         if self.customer_id is not None and self.territory_id is not None:
             raise ValueError("A price list names a customer or a territory, not both.")
+        if self.vendor_id is not None and (
+            self.customer_id is not None or self.territory_id is not None
+        ):
+            raise ValueError("A supplier's price list names no customer or territory.")
         return self
 
     @model_validator(mode="after")
@@ -93,6 +99,8 @@ class PriceListResponse(PricingSchema):
     customer_name: str | None = None
     territory_id: UUID | None
     territory_name: str | None = None
+    vendor_id: UUID | None = None
+    vendor_name: str | None = None
     effective_from: date
     effective_to: date | None
     status: str
@@ -106,5 +114,6 @@ class PriceListFilters(PricingSchema):
 
     customer_id: UUID | None = None
     territory_id: UUID | None = None
+    vendor_id: UUID | None = None
     status: str | None = None
     include_deleted: bool = False

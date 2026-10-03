@@ -54,6 +54,7 @@ class PriceList(BaseEntity):
         Index("IX_price_lists_firm_status", "firm_id", "status"),
         Index("IX_price_lists_customer", "firm_id", "customer_id"),
         Index("IX_price_lists_territory", "firm_id", "territory_id"),
+        Index("IX_price_lists_vendor", "firm_id", "vendor_id"),
     )
 
     firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
@@ -68,6 +69,12 @@ class PriceList(BaseEntity):
     #: Everyone on a round or under a branch of the hierarchy.
     territory_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("sales_territories.id", ondelete="RESTRICT")
+    )
+    #: A supplier's list (BUY-3): what the firm buys at from this supplier.
+    #: A list naming a supplier is never read on the sales side, and one
+    #: naming none never on the purchase side.
+    vendor_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("vendors.id", ondelete="RESTRICT")
     )
 
     effective_from: Mapped[date] = mapped_column(Date, nullable=False)

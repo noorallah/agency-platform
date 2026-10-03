@@ -5258,6 +5258,7 @@ class ApiClient {
     int page = 1,
     int pageSize = 20,
     String search = '',
+    String vendorId = '',
   }) async {
     final Json response = await request(
       'GET',
@@ -5266,6 +5267,7 @@ class ApiClient {
         'page': '$page',
         'page_size': '$pageSize',
         if (search.trim().isNotEmpty) 'search': search.trim(),
+        if (vendorId.isNotEmpty) 'vendor_id': vendorId,
       },
     );
     final dynamic data = response['data'];

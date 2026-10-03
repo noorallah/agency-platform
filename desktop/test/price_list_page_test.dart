@@ -102,6 +102,7 @@ class _PricingApi extends ApiClient {
     int page = 1,
     int pageSize = 20,
     String search = '',
+    String vendorId = '',
   }) async =>
       PagedResult<PriceListRecord>(items: rows, total: rows.length);
 

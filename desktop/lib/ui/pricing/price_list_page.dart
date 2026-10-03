@@ -10,6 +10,7 @@ import '../../models/customer.dart';
 import '../../models/entities.dart';
 import '../../models/pricing.dart';
 import '../../models/product.dart';
+import '../../models/vendor.dart';
 import '../../core/dialogs/app_dialogs.dart';
 import '../workspace/desktop_framework.dart';
 import 'price_list_dialog.dart';
@@ -46,6 +47,8 @@ class _PriceListPageState extends State<PriceListPage> {
   List<PriceListRecord> _rows = const [];
   List<Customer> _customers = const [];
   List<Product> _products = const [];
+  List<Vendor> _vendors = const [];
+  String _vendorFilter = '';
   PriceListRecord? _selected;
   int _total = 0;
   int _page = 1;
@@ -80,6 +83,7 @@ class _PriceListPageState extends State<PriceListPage> {
       final PagedResult<PriceListRecord> page = await widget.api.priceLists(
         page: _page,
         search: _search.text,
+        vendorId: _vendorFilter,
       );
       // The pickers need every customer and product, so they are paged
       // through rather than asked for in one over-cap page.
@@ -89,8 +93,20 @@ class _PriceListPageState extends State<PriceListPage> {
       final List<Product> products = _products.isNotEmpty
           ? _products
           : await fetchAllPages<Product>((p) => widget.api.products(page: p));
+      // The supplier picker and filter; a failed read leaves them empty
+      // rather than hiding the lists.
+      List<Vendor> vendors = _vendors;
+      if (vendors.isEmpty) {
+        try {
+          vendors = await fetchAllPages<Vendor>(
+              (p) => widget.api.vendors(page: p));
+        } on Object {
+          vendors = const [];
+        }
+      }
       if (!mounted) return;
       setState(() {
+        _vendors = vendors;
         _rows = page.items;
         _total = page.total;
         _customers = customers;
@@ -118,6 +134,7 @@ class _PriceListPageState extends State<PriceListPage> {
         api: widget.api,
         customers: _customers,
         products: _products,
+        vendors: _vendors,
         existing: existing,
       ),
     );
@@ -225,6 +242,33 @@ class _PriceListPageState extends State<PriceListPage> {
         controller: _search,
         hintText: 'Search by code or name...',
         onSearch: (_) => unawaited(_load(requestedPage: 1)),
+        filters: [
+          SizedBox(
+            width: 240,
+            child: DropdownButtonFormField<String>(
+              key: const ValueKey<String>('price-list-supplier-filter'),
+              initialValue: _vendorFilter,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Supplier',
+                isDense: true,
+              ),
+              items: [
+                const DropdownMenuItem(value: '', child: Text('All lists')),
+                for (final Vendor v in _vendors)
+                  DropdownMenuItem(
+                    value: v.id,
+                    child: Text(v.displayName.isEmpty ? v.name : v.displayName,
+                        overflow: TextOverflow.ellipsis),
+                  ),
+              ],
+              onChanged: (value) {
+                _vendorFilter = value ?? '';
+                unawaited(_load(requestedPage: 1));
+              },
+            ),
+          ),
+        ],
       ),
       // Phase 2 (option C, owner 2026-09-27): the picked list named on a bar
       // above the grid with its actions; its rates open in a window rather

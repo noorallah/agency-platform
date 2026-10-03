@@ -233,8 +233,11 @@ class PurchaseOrderLine {
         if (inventoryUomId.isNotEmpty) 'inventory_uom_id': inventoryUomId,
         'ordered_quantity': orderedQuantity.isEmpty ? '0' : orderedQuantity,
         'free_quantity': freeQuantity.isEmpty ? '0' : freeQuantity,
-        'unit_price': unitPrice.isEmpty ? '0' : unitPrice,
-        'discount_percent': discountPercent.isEmpty ? '0' : discountPercent,
+        // Blank is null, not zero: the server then takes the supplier's list
+        // or the product's price, and the supplier's discount (BUY-3).
+        'unit_price': unitPrice.trim().isEmpty ? null : unitPrice,
+        'discount_percent':
+            discountPercent.trim().isEmpty ? null : discountPercent,
         'discount_amount': discountAmount.isEmpty ? '0' : discountAmount,
         if (taxProfileId.isNotEmpty) 'tax_profile_id': taxProfileId,
         'batch_required': batchRequired,

@@ -36,6 +36,7 @@ def list_price_lists(
     search: Annotated[str, Query(max_length=200)] = "",
     customer_id: Annotated[UUID | None, Query()] = None,
     territory_id: Annotated[UUID | None, Query()] = None,
+    vendor_id: Annotated[UUID | None, Query()] = None,
     list_status: Annotated[str | None, Query(alias="status")] = None,
 ) -> PaginatedResponse[PriceListResponse]:
     """List the firm's price lists.
@@ -52,6 +53,7 @@ def list_price_lists(
         filters=PriceListFilters(
             customer_id=customer_id,
             territory_id=territory_id,
+            vendor_id=vendor_id,
             status=list_status,
         ),
     )
