@@ -24,7 +24,13 @@ PermissionService _permissions({List<String> perms = const ['SALES_VIEW']}) =>
       }));
 
 class _ReturnsApi extends ApiClient {
-  _ReturnsApi({this.one, this.summary, this.failWith, this.failFromCall = 1})
+  _ReturnsApi({
+    this.one,
+    this.summary,
+    this.failWith,
+    this.failFromCall = 1,
+    this.registrations = const <Json>[],
+  })
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -35,12 +41,14 @@ class _ReturnsApi extends ApiClient {
   final Json? one;
   final Json? summary;
   final String? failWith;
+  final List<Json> registrations;
 
   /// Which call starts failing, so a screen can be loaded successfully and
   /// *then* refused — the only way to see whether a failed refresh leaves the
   /// previous period's figures on screen.
   final int failFromCall;
   final List<String> requested = <String>[];
+  final List<String?> gstins = <String?>[];
 
   @override
   Future<Json> request(
@@ -58,7 +66,11 @@ class _ReturnsApi extends ApiClient {
         'data': {'filing_frequency': 'MONTHLY'},
       };
     }
+    if (path.endsWith('/registrations')) {
+      return <String, dynamic>{'data': registrations};
+    }
     requested.add('$method $path?${query?['from_date']}');
+    gstins.add(query?['gstin']);
     if (failWith != null && requested.length >= failFromCall) {
       throw ApiException(failWith!, statusCode: 400);
     }
@@ -282,5 +294,50 @@ void main() {
 
     expect(find.textContaining('view sales permission'), findsOneWidget);
     expect(find.text('SI-2026-0001'), findsNothing);
+  });
+
+  testWidgets('the GSTIN picker shows only with two or more registrations',
+      (tester) async {
+    final _ReturnsApi one = _ReturnsApi(registrations: <Json>[
+      <String, dynamic>{
+        'gstin': '29AAAAA0000A1Z5',
+        'state_code': '29',
+        'is_firm': true,
+        'branch_names': <String>[],
+      },
+    ]);
+    await _pump(tester, one);
+    expect(find.byKey(const ValueKey('gst-registration')), findsNothing);
+  });
+
+  testWidgets('choosing a registration files the return under it',
+      (tester) async {
+    final _ReturnsApi api = _ReturnsApi(
+      one: _gstr1(),
+      summary: _gstr3b(),
+      registrations: <Json>[
+        <String, dynamic>{
+          'gstin': '29AAAAA0000A1Z5',
+          'state_code': '29',
+          'is_firm': true,
+          'branch_names': <String>[],
+        },
+        <String, dynamic>{
+          'gstin': '27BBBBB0000B1Z5',
+          'state_code': '27',
+          'is_firm': false,
+          'branch_names': <String>['Pune'],
+        },
+      ],
+    );
+    await _pump(tester, api);
+    expect(api.gstins, everyElement(isNull));
+    expect(find.byKey(const ValueKey('gst-registration')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('gst-registration')));
+    await tester.pumpAndSettle();
+    expect(find.text('29AAAAA0000A1Z5 (firm)'), findsWidgets);
+    await tester.tap(find.text('27BBBBB0000B1Z5 (Pune)').last);
+    await tester.pumpAndSettle();
+    expect(api.gstins.last, '27BBBBB0000B1Z5');
   });
 }

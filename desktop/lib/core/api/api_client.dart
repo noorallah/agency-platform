@@ -15,6 +15,7 @@ import '../../models/settlement.dart';
 import '../../models/settlement_direction.dart';
 import '../../models/batch_serial.dart';
 import '../../models/branch_warehouse.dart';
+import '../../models/gst_registration.dart';
 import '../../models/customer.dart';
 import '../../models/customer_opening_bill.dart';
 import '../../models/customer_records.dart';
@@ -7061,15 +7062,37 @@ class ApiClient {
   ///
   /// Nothing is stored, so there is no id to hold on to: the answer is built
   /// from the invoices and credit notes on every read.
+  ///
+  /// [gstin] names the registration that files the return; omitted, it is the
+  /// firm's own.
   Future<Json> gstr1({
     required String fromDate,
     required String toDate,
+    String? gstin,
   }) async =>
       _unwrapMap(await request(
         'GET',
         '/api/v1/gst-returns/gstr1',
-        query: {'from_date': fromDate, 'to_date': toDate},
+        query: {
+          'from_date': fromDate,
+          'to_date': toDate,
+          if (gstin != null) 'gstin': gstin,
+        },
       ));
+
+  /// Every GSTIN the firm files under, the firm's own first.
+  Future<List<GstRegistration>> gstRegistrations() async {
+    final Json response =
+        await request('GET', '/api/v1/gst-returns/registrations');
+    final dynamic data = response['data'];
+    return data is List
+        ? data
+            .whereType<Map>()
+            .map((item) =>
+                GstRegistration.fromJson(Map<String, dynamic>.from(item)))
+            .toList()
+        : const <GstRegistration>[];
+  }
 
   // ---- quarterly filers, QRMP (GST-7) ----------------------------------
 
@@ -7133,11 +7156,16 @@ class ApiClient {
   Future<Json> gstr3b({
     required String fromDate,
     required String toDate,
+    String? gstin,
   }) async =>
       _unwrapMap(await request(
         'GET',
         '/api/v1/gst-returns/gstr3b',
-        query: {'from_date': fromDate, 'to_date': toDate},
+        query: {
+          'from_date': fromDate,
+          'to_date': toDate,
+          if (gstin != null) 'gstin': gstin,
+        },
       ));
 
   // ---- GSTR-2B matching (backlog 78 row 3) -----------------------------

@@ -244,6 +244,25 @@ void main() {
     expect(api.saved!['address_line1'], isNull);
   });
 
+  testWidgets('a branch GSTIN is upper-cased and sent, null when blank',
+      (tester) async {
+    final _BranchApi api = _BranchApi();
+    await _open(tester, api, BranchWarehouseSection.branches, 'HO');
+    // Blank on a branch that has none: cleared, not an empty string.
+    await _save(tester);
+    expect(api.saved!.containsKey('gstin'), isTrue);
+    expect(api.saved!['gstin'], isNull);
+
+    await _open(tester, api, BranchWarehouseSection.branches, 'HO');
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Branch GSTIN'),
+      '27abcde1234f1z5',
+    );
+    await tester.pumpAndSettle();
+    await _save(tester);
+    expect(api.saved!['gstin'], '27ABCDE1234F1Z5');
+  });
+
   testWidgets('a warehouse rename keeps its ten capability flags',
       (tester) async {
     final _BranchApi api = _BranchApi();

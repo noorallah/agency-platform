@@ -34,8 +34,8 @@ from app.delivery_note.models import (
 )
 from app.document_framework.services.print_support import (
     customer_party,
-    firm_party,
     load_template,
+    seller_party,
 )
 from app.products.models import Product
 from app.sales_invoice.services.invoice_pdf import (
@@ -304,7 +304,7 @@ class DeliveryChallanPrintService:
             due_date=None,
             place_of_supply=None,
             reverse_charge=False,
-            seller=self._firm(firm_scope),
+            seller=self._firm(firm_scope, note.branch_id),
             # A note whose customer has been removed still prints; the
             # goods left and the paperwork has to exist.
             buyer=self._customer(note, "BILLING")
@@ -341,9 +341,9 @@ class DeliveryChallanPrintService:
         """Return each line's batches -- chosen, or drawn at dispatch (79)."""
         return drawn_batches(self._session, line_ids)
 
-    def _firm(self, firm_scope: UUID) -> PartyBlock:
-        """Describe the dispatching firm."""
-        return firm_party(firm_scope)
+    def _firm(self, firm_scope: UUID, branch_id: UUID | None = None) -> PartyBlock:
+        """Describe the dispatching firm, under its branch's GSTIN (STK-2)."""
+        return seller_party(self._session, firm_scope, branch_id)
 
     def _customer(self, note: DeliveryNote, kind: str) -> PartyBlock | None:
         """Describe the customer, billing or shipping side."""

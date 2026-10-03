@@ -147,7 +147,7 @@ class NotePrintService:
             due_date=None,
             place_of_supply=invoice.place_of_supply,
             reverse_charge=False,
-            seller=party._seller(firm_scope),
+            seller=party._seller(firm_scope, invoice.branch_id),
             buyer=party._customer_block(invoice.customer_id, "BILLING")
             or PartyBlock(name="", address_lines=[]),
             ship_to=None,

@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.core.validation import validate_email, validate_phone
+from app.core.validation.common import gstin_problem
 
 
 class BranchStatus(StrEnum):
@@ -111,6 +112,9 @@ class BranchWrite(BranchWarehouseSchema):
     timezone: str | None = Field(default=None, max_length=100)
     currency_code: str | None = Field(default=None, max_length=3)
     gst_registration: bool = False
+    #: The branch's own GSTIN where it is registered in a state of its own
+    #: (STK-2); empty supplies under the firm's.
+    gstin: str | None = Field(default=None, max_length=15)
     pan: str | None = Field(default=None, max_length=32)
     license_number: str | None = Field(default=None, max_length=64)
     working_hours: dict[str, object] = Field(default_factory=dict)
@@ -120,7 +124,9 @@ class BranchWrite(BranchWarehouseSchema):
     #: omits them leaves them alone.
     attributes: list[AttributeValueInput] = Field(default_factory=list, max_length=300)
 
-    @field_validator("code", "pan", "license_number", "currency_code", mode="before")
+    @field_validator(
+        "code", "pan", "license_number", "currency_code", "gstin", mode="before"
+    )
     @classmethod
     def normalize_codes(cls, value: str | None) -> str | None:
         """Uppercase and trim an optional identifier code."""
@@ -128,6 +134,15 @@ class BranchWrite(BranchWarehouseSchema):
             return None
         normalized = value.strip().upper()
         return normalized or None
+
+    @field_validator("gstin")
+    @classmethod
+    def check_gstin(cls, value: str | None) -> str | None:
+        """Refuse a GSTIN that fails its shape, state code or check character."""
+        problem = gstin_problem(value)
+        if problem:
+            raise ValueError(problem)
+        return value
 
     @field_validator("name", "display_name", mode="before")
     @classmethod
@@ -335,6 +350,7 @@ class BranchResponse(BranchWarehouseSchema):
     timezone: str | None
     currency_code: str | None
     gst_registration: bool
+    gstin: str | None = None
     pan: str | None
     license_number: str | None
     working_hours: dict[str, object]

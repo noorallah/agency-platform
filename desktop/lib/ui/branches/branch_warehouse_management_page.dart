@@ -1130,6 +1130,8 @@ class _BranchDialogState extends State<_BranchDialog>
     stored: widget.current?.attributes ?? const [],
   );
   bool _gstRegistration = false;
+  late final TextEditingController _gstin =
+      TextEditingController(text: widget.current?.gstin ?? '');
 
   @override
   void initState() {
@@ -1172,6 +1174,7 @@ class _BranchDialogState extends State<_BranchDialog>
     _currency.dispose();
     _line1.dispose();
     _line2.dispose();
+    _gstin.dispose();
     super.dispose();
   }
 
@@ -1267,6 +1270,19 @@ class _BranchDialogState extends State<_BranchDialog>
                     ),
                   ],
                 ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _gstin,
+                  textCapitalization: TextCapitalization.characters,
+                  maxLength: 15,
+                  decoration: const InputDecoration(
+                    labelText: 'Branch GSTIN',
+                    helperText: "Leave blank to bill under the firm's GSTIN. "
+                        'Use only for a branch registered in another state.',
+                    helperMaxLines: 2,
+                    counterText: '',
+                  ),
+                ),
                 const Divider(height: 24),
                 const Align(
                   alignment: Alignment.centerLeft,
@@ -1343,6 +1359,8 @@ class _BranchDialogState extends State<_BranchDialog>
               'postal_code_id': _at(GeoLevel.postalCode),
               'locality_id': _at(GeoLevel.locality),
               'gst_registration': _gstRegistration,
+              // Null when blank, so clearing it on an edit really clears it.
+              'gstin': _text(_gstin)?.toUpperCase(),
               'is_default': _isDefault,
               // `working_hours` is deliberately absent: this form does not
               // edit it, and it used to send a fixed 09:00–18:00 that

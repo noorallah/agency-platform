@@ -49,6 +49,7 @@ from uuid import UUID
 from sqlalchemy import ColumnElement, Row, Select, func, select, true
 from sqlalchemy.orm import Session, lazyload, load_only
 
+from app.branches.services.registration import BranchRegistration, GstinScope
 from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ValidationError
 from app.core.utils.chunks import chunks, over_chunks
@@ -367,6 +368,9 @@ class GstReturnService:
         self._session = session
         self._firms = FirmMetadataReader(session)
         self._plans: dict[UUID, FilingPlan] = {}
+        #: The GSTIN a return is being filed under (STK-2). Unscoped until
+        #: ``gstr1`` or ``gstr3b`` names one.
+        self._gstin_scope = GstinScope(gstin="")
 
     def _gstr1_due(self, firm_id: UUID, invoice_date: date) -> date:
         """Return when the GSTR-1 declaring an invoice was due.
@@ -382,7 +386,12 @@ class GstReturnService:
         return plan.gstr1_due(plan.return_period(month_of(invoice_date)))
 
     def gstr1(
-        self, *, firm_scope: UUID, from_date: date, to_date: date
+        self,
+        *,
+        firm_scope: UUID,
+        from_date: date,
+        to_date: date,
+        gstin: str | None = None,
     ) -> dict[str, object]:
         """Return the outward supplies for a period, section by section.
 
@@ -390,6 +399,7 @@ class GstReturnService:
             firm_scope: The owning firm.
             from_date: First day of the period, inclusive.
             to_date: Last day, inclusive.
+            gstin: The GSTIN filing it; None for the firm's own (STK-2).
 
         Returns:
             The sections, each already summed the way the return wants them.
@@ -402,12 +412,10 @@ class GstReturnService:
 
         """
         _check_period(from_date, to_date)
-        firm = self._firms.get(firm_scope)
-        seller_gstin = (firm.gst_number or "").strip().upper()
-        if not seller_gstin:
-            raise ValidationError(
-                "This firm has no GST number, so it has no return to file."
-            )
+        # A return is filed by one GSTIN and reads only the documents of the
+        # branches supplying under it (STK-2); a firm with one GSTIN reads all.
+        self._gstin_scope = BranchRegistration(self._session).scope(firm_scope, gstin)
+        seller_gstin = self._gstin_scope.gstin
         seller_state = seller_gstin[:2]
 
         b2b: dict[str, dict[str, object]] = {}
@@ -574,7 +582,12 @@ class GstReturnService:
         }
 
     def gstr3b(
-        self, *, firm_scope: UUID, from_date: date, to_date: date
+        self,
+        *,
+        firm_scope: UUID,
+        from_date: date,
+        to_date: date,
+        gstin: str | None = None,
     ) -> dict[str, object]:
         """Return the outward half of the summary return.
 
@@ -596,6 +609,7 @@ class GstReturnService:
             firm_scope: The owning firm.
             from_date: First day of the period.
             to_date: Last day.
+            gstin: The GSTIN filing it; None for the firm's own (STK-2).
 
         Returns:
             Section 3.1(a), and what was taken off it.
@@ -607,12 +621,10 @@ class GstReturnService:
 
         """
         _check_period(from_date, to_date)
-        firm = self._firms.get(firm_scope)
-        seller_gstin = (firm.gst_number or "").strip().upper()
-        if not seller_gstin:
-            raise ValidationError(
-                "This firm has no GST number, so it has no return to file."
-            )
+        # A return is filed by one GSTIN and reads only the documents of the
+        # branches supplying under it (STK-2); a firm with one GSTIN reads all.
+        self._gstin_scope = BranchRegistration(self._session).scope(firm_scope, gstin)
+        seller_gstin = self._gstin_scope.gstin
 
         taxable = ZERO
         buckets = GstBuckets()
@@ -832,6 +844,7 @@ class GstReturnService:
             )
             .where(
                 PurchaseInvoice.firm_id == firm_scope,
+                self._gstin_scope.applies(PurchaseInvoice.branch_id),
                 PurchaseInvoice.is_deleted.is_(False),
                 PurchaseInvoice.status.in_(("APPROVED", "CLOSED")),
                 PurchaseInvoice.invoice_date >= from_date,
@@ -868,6 +881,7 @@ class GstReturnService:
             .select_from(PurchaseInvoice)
             .where(
                 PurchaseInvoice.firm_id == firm_scope,
+                self._gstin_scope.applies(PurchaseInvoice.branch_id),
                 PurchaseInvoice.is_deleted.is_(False),
                 PurchaseInvoice.status.in_(("APPROVED", "CLOSED")),
                 PurchaseInvoice.invoice_date >= from_date,
@@ -883,6 +897,7 @@ class GstReturnService:
         for purchase_return in self._session.scalars(
             select(PurchaseReturn).where(
                 PurchaseReturn.firm_id == firm_scope,
+                self._gstin_scope.applies(PurchaseReturn.branch_id),
                 PurchaseReturn.is_deleted.is_(False),
                 PurchaseReturn.status.in_(("COMPLETED", "CLOSED")),
                 PurchaseReturn.return_date >= from_date,
@@ -912,6 +927,7 @@ class GstReturnService:
         for note in self._session.scalars(
             select(DebitNote).where(
                 DebitNote.firm_id == firm_scope,
+                self._gstin_scope.applies(DebitNote.branch_id),
                 DebitNote.is_deleted.is_(False),
                 DebitNote.status == DebitNoteStatus.APPROVED.value,
                 DebitNote.debit_note_date >= from_date,
@@ -1139,6 +1155,7 @@ class GstReturnService:
             )
             .where(
                 PurchaseInvoice.firm_id == firm_scope,
+                self._gstin_scope.applies(PurchaseInvoice.branch_id),
                 PurchaseInvoice.is_deleted.is_(False),
                 PurchaseInvoice.status.in_(("APPROVED", "CLOSED")),
                 PurchaseInvoice.invoice_date >= from_date,
@@ -1163,6 +1180,7 @@ class GstReturnService:
             for return_id in self._session.scalars(
                 select(PurchaseReturn.id).where(
                     PurchaseReturn.firm_id == firm_scope,
+                    self._gstin_scope.applies(PurchaseReturn.branch_id),
                     PurchaseReturn.is_deleted.is_(False),
                     PurchaseReturn.status.in_(("COMPLETED", "CLOSED")),
                     PurchaseReturn.return_date >= from_date,
@@ -1175,6 +1193,7 @@ class GstReturnService:
             for note_id in self._session.scalars(
                 select(DebitNote.id).where(
                     DebitNote.firm_id == firm_scope,
+                    self._gstin_scope.applies(DebitNote.branch_id),
                     DebitNote.is_deleted.is_(False),
                     DebitNote.status == DebitNoteStatus.APPROVED.value,
                     DebitNote.debit_note_date >= from_date,
@@ -1226,13 +1245,17 @@ class GstReturnService:
         state: the same test ``gstr1`` applies to fill ``unplaced_invoices``.
         """
         _check_period(from_date, to_date)
-        seller_state = self._seller_state(firm_scope)
+        firm_state = self._seller_state(firm_scope)
+        registration = BranchRegistration(self._session)
         unplaced: set[UUID] = set()
         for invoice, customer, lines in self._invoices(
             firm_scope=firm_scope, from_date=from_date, to_date=to_date
         ):
             if (getattr(customer, "gst_number", None) or "").strip():
                 continue
+            # A branch with its own GSTIN supplies from its own state (STK-2).
+            own = registration.own_gstin(invoice.branch_id)
+            seller_state = own[:2] if own else firm_state
             taxed = [buckets for _t, buckets, _b, _q, kind in lines if kind == TAXABLE]
             if not taxed:
                 continue
@@ -1270,6 +1293,7 @@ class GstReturnService:
         """
         declared = (
             SalesInvoice.firm_id == firm_scope,
+            self._gstin_scope.applies(SalesInvoice.branch_id),
             SalesInvoice.is_deleted.is_(False),
             SalesInvoice.status.in_((*_LIVE_INVOICE_STATUSES, "CANCELLED")),
             SalesInvoice.invoice_date >= from_date,
@@ -1371,6 +1395,7 @@ class GstReturnService:
                 select(SalesInvoice)
                 .where(
                     SalesInvoice.firm_id == firm_scope,
+                    self._gstin_scope.applies(SalesInvoice.branch_id),
                     SalesInvoice.is_deleted.is_(False),
                     SalesInvoice.status == "CANCELLED",
                     SalesInvoice.id.in_(list(cancelled_in_period)),
@@ -1700,6 +1725,7 @@ class GstReturnService:
                 select(CreditNote)
                 .where(
                     CreditNote.firm_id == firm_scope,
+                    self._gstin_scope.applies(CreditNote.branch_id),
                     CreditNote.is_deleted.is_(False),
                     CreditNote.status == CreditNoteStatus.APPROVED.value,
                     CreditNote.credit_note_date >= from_date,
@@ -1781,6 +1807,7 @@ class GstReturnService:
                 select(CustomerDebitNote)
                 .where(
                     CustomerDebitNote.firm_id == firm_scope,
+                    self._gstin_scope.applies(CustomerDebitNote.branch_id),
                     CustomerDebitNote.is_deleted.is_(False),
                     CustomerDebitNote.status == CustomerDebitNoteStatus.APPROVED.value,
                     CustomerDebitNote.debit_note_date >= from_date,
@@ -1910,6 +1937,7 @@ class GstReturnService:
                 select(SalesReturn)
                 .where(
                     SalesReturn.firm_id == firm_scope,
+                    self._gstin_scope.applies(SalesReturn.branch_id),
                     SalesReturn.is_deleted.is_(False),
                     SalesReturn.status.in_(_CREDITED_RETURN_STATUSES),
                     SalesReturn.return_date >= from_date,
@@ -2127,6 +2155,7 @@ class GstReturnService:
                 SalesInvoice.invoice_date,
             ).where(
                 SalesInvoice.firm_id == firm_scope,
+                self._gstin_scope.applies(SalesInvoice.branch_id),
                 SalesInvoice.is_deleted.is_(False),
                 SalesInvoice.status.in_((*_LIVE_INVOICE_STATUSES, "CANCELLED")),
                 SalesInvoice.invoice_date >= from_date,

@@ -15,7 +15,8 @@ orders and Tally's delivery-note-to-branch work:
 
 Nothing else posts: the firm owns the goods the whole way, and there is one
 inventory account. A transfer between branches with their own GSTINs, which
-is a sale, is STK-2.
+is a sale, is refused here (STK-2): it is billed on a sales invoice to the
+other branch.
 """
 
 from datetime import date
@@ -27,6 +28,7 @@ from sqlalchemy import select
 
 from app.batch_serial.models.batch_serial import BatchRecord
 from app.branches.models.branch_warehouse import Warehouse
+from app.branches.services.registration import BranchRegistration
 from app.common.audit.services import record_audit
 from app.core.concurrency import assert_version
 from app.core.exceptions import ResourceNotFoundError, ValidationError
@@ -721,7 +723,19 @@ class StockTransferService(TransactionalDocumentService):
             raise ValidationError(
                 "The destination warehouse is not one of this firm's."
             )
-        return found[data.from_warehouse_id], found[data.to_warehouse_id]
+        source, destination = found[data.from_warehouse_id], found[data.to_warehouse_id]
+        registration = BranchRegistration(self._session)
+        sent_under = registration.gstin_for(firm_id, source.branch_id)
+        received_under = registration.gstin_for(firm_id, destination.branch_id)
+        if sent_under and received_under and sent_under != received_under:
+            # Between two GSTINs a transfer is a supply (CGST Act Schedule I,
+            # para 2): it is billed, and the other branch takes the credit.
+            raise ValidationError(
+                f"The goods would leave GSTIN {sent_under} for {received_under}; "
+                "between two registrations that is a supply, so raise a sales "
+                "invoice to the other branch instead of a transfer."
+            )
+        return source, destination
 
     def _check_lines(self, lines: list[StockTransferLineWrite], firm_id: UUID) -> None:
         """Refuse a product or batch that is not the firm's."""

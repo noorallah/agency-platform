@@ -26,6 +26,7 @@ class BranchRecord {
     this.localityId = '',
     required this.currencyCode,
     this.gstRegistration = false,
+    this.gstin = '',
     required this.status,
     required this.isDefault,
     required this.isDeleted,
@@ -65,6 +66,10 @@ class BranchRecord {
   final String localityId;
   final String currencyCode;
   final bool gstRegistration;
+
+  /// The branch's own GSTIN when it is registered in another state; empty
+  /// means it supplies under the firm's.
+  final String gstin;
   final String status;
   final bool isDefault;
   final bool isDeleted;
@@ -98,6 +103,7 @@ class BranchRecord {
         localityId: stringValue(json['locality_id']),
         currencyCode: stringValue(json['currency_code']),
         gstRegistration: boolValue(json['gst_registration']),
+        gstin: stringValue(json['gstin']),
         status: stringValue(json['status']),
         isDefault: boolValue(json['is_default']),
         isDeleted: boolValue(json['is_deleted']),

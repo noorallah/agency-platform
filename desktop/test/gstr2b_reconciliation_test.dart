@@ -172,11 +172,19 @@ class _Api extends ApiClient {
   }
 
   @override
-  Future<Json> gstr1({required String fromDate, required String toDate}) async =>
+  Future<Json> gstr1({
+    required String fromDate,
+    required String toDate,
+    String? gstin,
+  }) async =>
       {'gstin': '29AAAAA0000A1Z5'};
 
   @override
-  Future<Json> gstr3b({required String fromDate, required String toDate}) async =>
+  Future<Json> gstr3b({
+    required String fromDate,
+    required String toDate,
+    String? gstin,
+  }) async =>
       summary3b;
 }
 

@@ -269,7 +269,7 @@ first two; the **split** changes, and the split is what the GST return needs.
   when the buyer's state differs from the supplier's and the document's own
   type (`SALES_INVOICE`, `SALES_ORDER`, ...) otherwise -- the own type goes on
   as `additional_context.document_type`. The states are GST state codes: the
-  firm's GSTIN (or a GST-registered branch's own state), and the buyer's GSTIN
+  firm's GSTIN (or a branch's own GSTIN (STK-2), else a GST-registered branch's own state), and the buyer's GSTIN
   or, for an unregistered buyer, the billing address; an address abroad is
   inter-state (IGST Act s.7(5)(a)); an unknown side is never guessed.
   `app/tax/services/place_of_supply.py` is the one place this is decided.

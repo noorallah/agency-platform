@@ -1224,7 +1224,9 @@ def test_a_registered_credit_note_prints_against_its_invoice(
     monkeypatch.setattr(
         SalesInvoicePrintService,
         "_seller",
-        lambda self, firm_scope: PartyBlock(name="Seller Co", address_lines=[]),
+        lambda self, firm_scope, branch_id=None: PartyBlock(
+            name="Seller Co", address_lines=[]
+        ),
     )
     books = _Books(_session_factory()())
     note = _note(books, "CREDIT_NOTE")
@@ -1259,7 +1261,9 @@ def test_a_debit_note_prints_without_a_registration(
     monkeypatch.setattr(
         SalesInvoicePrintService,
         "_seller",
-        lambda self, firm_scope: PartyBlock(name="Seller Co", address_lines=[]),
+        lambda self, firm_scope, branch_id=None: PartyBlock(
+            name="Seller Co", address_lines=[]
+        ),
     )
     books = _Books(_session_factory()())
     note = _note(books, "DEBIT_NOTE")
@@ -1287,7 +1291,9 @@ def _plain_seller(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         SalesInvoicePrintService,
         "_seller",
-        lambda self, firm_scope: PartyBlock(name="Seller Co", address_lines=[]),
+        lambda self, firm_scope, branch_id=None: PartyBlock(
+            name="Seller Co", address_lines=[]
+        ),
     )
 
 

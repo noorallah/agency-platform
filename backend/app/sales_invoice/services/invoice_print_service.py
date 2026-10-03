@@ -20,8 +20,8 @@ from app.core.exceptions import ResourceNotFoundError
 from app.delivery_note.models import DeliveryNote
 from app.document_framework.services.print_support import (
     customer_party,
-    firm_party,
     load_template,
+    seller_party,
 )
 from app.products.models import Product
 from app.promotions.models import Promotion, PromotionRedemption
@@ -353,7 +353,7 @@ class SalesInvoicePrintService:
             place_of_supply=invoice.place_of_supply,
             reverse_charge=False,
             seller=replace(
-                self._seller(firm_scope),
+                self._seller(firm_scope, invoice.branch_id),
                 licences=tuple(
                     licences.valid_numbers(
                         firm_id=firm_scope,
@@ -509,9 +509,9 @@ class SalesInvoicePrintService:
                     per_line[line.id] = f" (note {line.source_document_number})"
         return rows, per_line
 
-    def _seller(self, firm_scope: UUID) -> PartyBlock:
-        """Describe the selling firm."""
-        return firm_party(firm_scope)
+    def _seller(self, firm_scope: UUID, branch_id: UUID | None = None) -> PartyBlock:
+        """Describe the selling firm, under the GSTIN of the branch (STK-2)."""
+        return seller_party(self._session, firm_scope, branch_id)
 
     def _customer_block(self, customer_id: UUID, kind: str) -> PartyBlock | None:
         """Return the customer as one side of the bill."""
