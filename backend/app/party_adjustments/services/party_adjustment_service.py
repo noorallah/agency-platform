@@ -785,11 +785,12 @@ class PartyAdjustmentService(TransactionalDocumentService):
     def _same_business(customer: Customer, vendor: Vendor) -> None:
         """Refuse a set-off between two businesses that are plainly different.
 
-        Decided by convention (2026-10-01): the masters do not link a customer
-        to a supplier, so the person setting off states that they are one
-        business. Where both carry a PAN -- recorded, or read off the GSTIN --
-        and the two differ, they are not, and settling one's debt with the
-        other's money is refused.
+        Decided by convention (2026-10-01): the person setting off states that
+        they are one business -- since ACC-11 the customer may name its
+        supplier record (``linked_vendor_id``), which the screen preselects,
+        but an unlinked pair is still allowed. Where both carry a PAN --
+        recorded, or read off the GSTIN -- and the two differ, they are not,
+        and settling one's debt with the other's money is refused.
         """
         ours = _pan_of(customer.pan_number, customer.gst_number)
         theirs = _pan_of(vendor.pan, vendor.gstin)

@@ -94,3 +94,38 @@ class CustomerAgeing(StatementSchema):
     charges_not_billed: Decimal
     buckets: list[AgeingBucket]
     invoices: list[OverdueInvoice]
+
+
+class CombinedStatementLine(StatementSchema):
+    """One movement on either account of a customer that is also a supplier."""
+
+    transaction_date: date
+    #: RECEIVABLE (the customer account) or PAYABLE (the supplier account).
+    account: str
+    transaction_type: str
+    reference_number: str | None = None
+    remarks: str | None = None
+    #: What the business owes the firm more of.
+    debit: Decimal
+    #: What it owes the firm less of.
+    credit: Decimal
+    #: Receivable less payable after this line: positive, it owes the firm.
+    net_balance: Decimal
+
+
+class CombinedStatementResponse(StatementSchema):
+    """Both accounts of one business over a period, and the net (ACC-11)."""
+
+    customer_id: UUID
+    customer_name: str
+    vendor_id: UUID
+    vendor_name: str
+    from_date: date
+    to_date: date
+    receivable_opening: Decimal
+    payable_opening: Decimal
+    net_opening: Decimal
+    receivable_closing: Decimal
+    payable_closing: Decimal
+    net_closing: Decimal
+    lines: list[CombinedStatementLine]

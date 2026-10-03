@@ -98,6 +98,17 @@ class Customer(BaseEntity):
         Index("IX_customers_firm_pan_number", "firm_id", "pan_number"),
         Index("IX_customers_firm_name", "firm_id", "name"),
         Index("IX_customers_firm_status", "firm_id", "status"),
+        # One supplier record is one customer's other side (ACC-11): two
+        # customers claiming it would each show its whole account as theirs.
+        Index(
+            "UQ_customers_linked_vendor_active",
+            "linked_vendor_id",
+            unique=True,
+            postgresql_where=text(
+                "linked_vendor_id IS NOT NULL AND is_deleted = false"
+            ),
+            sqlite_where=text("linked_vendor_id IS NOT NULL AND is_deleted = 0"),
+        ),
     )
 
     firm_id: Mapped[UUID] = mapped_column(
@@ -130,6 +141,12 @@ class Customer(BaseEntity):
     #: customer with no salesman of its own takes this one ahead of the
     #: territory's (`app/sales/services/scope_resolution.py`).
     salesman_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    #: The same business as a supplier (ACC-11, decision A86): a shop that
+    #: buys from the firm and sells to it. Read by the combined statement and
+    #: preselected by a set-off between the two.
+    linked_vendor_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("vendors.id", ondelete="RESTRICT")
+    )
     email: Mapped[str | None] = mapped_column(String(320))
     phone: Mapped[str | None] = mapped_column(String(20))
     alternate_phone: Mapped[str | None] = mapped_column(String(20))

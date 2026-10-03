@@ -70,12 +70,17 @@ from app.customers.schemas.records import (
     CustomerBankAccountResponse,
     CustomerBankAccountsWrite,
 )
+from app.customers.schemas.statement import (
+    CombinedStatementLine,
+    CombinedStatementResponse,
+)
 from app.customers.services import (
     CreditControlService,
     CustomerGroupService,
     CustomerService,
     CustomerStatementService,
 )
+from app.customers.services.combined_statement import CombinedStatementService
 from app.customers.services.customer_import import (
     CustomerFileImporter,
     template_csv,
@@ -1077,6 +1082,62 @@ def customer_statement(
             firm_scope=scope.firm_id,
             from_date=from_date,
             to_date=to_date,
+        )
+    )
+
+
+@router.get(
+    "/{customer_id}/combined-statement",
+    response_model=ApiResponse[CombinedStatementResponse],
+)
+def customer_combined_statement(
+    customer_id: UUID,
+    scope: CustomerViewScope,
+    from_date: Annotated[date, Query()],
+    to_date: Annotated[date, Query()],
+    db: Session = Depends(get_db),
+) -> ApiResponse[CombinedStatementResponse]:
+    """Return a customer's account and its linked supplier's, netted (ACC-11).
+
+    Both halves come from their own statements, interleaved in date order;
+    the net is receivable less payable. Reading the supplier half takes
+    VENDOR_VIEW as well, since it is the supplier's account.
+    """
+    if not scope.principal.has_permission("VENDOR_VIEW"):
+        raise AuthorizationError(
+            "The combined statement shows the supplier account too, which "
+            "needs the view suppliers permission (VENDOR_VIEW)."
+        )
+    found = CombinedStatementService(db).for_customer(
+        customer_id, firm_scope=scope.firm_id, from_date=from_date, to_date=to_date
+    )
+    return ApiResponse(
+        data=CombinedStatementResponse(
+            customer_id=found.customer_id,
+            customer_name=found.customer_name,
+            vendor_id=found.vendor_id,
+            vendor_name=found.vendor_name,
+            from_date=found.from_date,
+            to_date=found.to_date,
+            receivable_opening=found.receivable_opening,
+            payable_opening=found.payable_opening,
+            net_opening=found.net_opening,
+            receivable_closing=found.receivable_closing,
+            payable_closing=found.payable_closing,
+            net_closing=found.net_closing,
+            lines=[
+                CombinedStatementLine(
+                    transaction_date=line.transaction_date,
+                    account=line.account,
+                    transaction_type=line.transaction_type,
+                    reference_number=line.reference_number,
+                    remarks=line.remarks,
+                    debit=line.debit,
+                    credit=line.credit,
+                    net_balance=line.net_balance,
+                )
+                for line in found.lines
+            ],
         )
     )
 

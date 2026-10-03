@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/security/permission_service.dart';
+import '../../models/customer.dart';
 import '../../models/entities.dart';
 import '../../phase2/indian_format.dart';
 import '../workspace/balance_confirmation.dart';
@@ -20,7 +21,7 @@ import '../workspace/remind_dialog.dart';
 import '../workspace/whatsapp_share.dart';
 
 /// Which of the two questions is on screen.
-enum _View { statement, ageing }
+enum _View { statement, ageing, combined }
 
 /// Show one customer's account, and the firm's receivables ageing.
 class CustomerStatementPage extends StatefulWidget {
@@ -55,6 +56,11 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
   _View _view = _View.ageing;
   List<Json> _ageing = const [];
   Json? _statement;
+  Json? _combined;
+
+  /// Whether the customer on show is also a supplier (ACC-11): the combined
+  /// statement is offered only then.
+  bool _hasLinkedSupplier = false;
   String? _selectedCustomerId;
   String? _error;
   bool _loading = false;
@@ -116,6 +122,7 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
       // account below, so this is belt and braces rather than the thing that
       // stops one customer's figures appearing under another's name.
       _statement = null;
+      if (_selectedCustomerId != customerId) _hasLinkedSupplier = false;
       _selectedCustomerId = customerId;
       _view = _View.statement;
     });
@@ -128,6 +135,55 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
       if (!mounted) return;
       setState(() {
         _statement = answer;
+        _loading = false;
+      });
+      unawaited(_checkLinkedSupplier(customerId));
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error.message;
+        _loading = false;
+      });
+    }
+  }
+
+  /// Reads whether the customer has a linked supplier (ACC-11). Advisory:
+  /// anything unreadable leaves the combined statement off.
+  Future<void> _checkLinkedSupplier(String customerId) async {
+    // Never answers inside the caller's own setState.
+    await Future<void>.value();
+    bool linked = false;
+    if (widget.permissions.hasPermission('VENDOR_VIEW')) {
+      try {
+        final Customer customer = await widget.api.customer(customerId);
+        linked = customer.linkedVendorId.isNotEmpty;
+      } on Object {
+        linked = false;
+      }
+    }
+    if (!mounted || _selectedCustomerId != customerId) return;
+    setState(() => _hasLinkedSupplier = linked);
+  }
+
+  /// The customer's account and their supplier's, net of each other.
+  Future<void> _loadCombined() async {
+    final String? customerId = _selectedCustomerId;
+    if (customerId == null) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+      _combined = null;
+      _view = _View.combined;
+    });
+    try {
+      final Json answer = await widget.api.customerCombinedStatement(
+        customerId,
+        fromDate: _from.text.trim(),
+        toDate: _to.text.trim(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _combined = answer;
         _loading = false;
       });
     } on ApiException catch (error) {
@@ -196,6 +252,10 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
       _loadAgeing();
       return;
     }
+    if (_view == _View.combined) {
+      unawaited(_loadCombined());
+      return;
+    }
     final String? id = _selectedCustomerId;
     if (id != null) _loadStatement(id);
   }
@@ -234,7 +294,7 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
                           period.from == null ? '' : _iso(period.from!);
                       _to.text = period.to == null ? '' : _iso(period.to!);
                     });
-                    if (_view == _View.statement) _refresh();
+                    if (_view != _View.ageing) _refresh();
                   },
                 ),
               ],
@@ -251,6 +311,20 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
                         ? null
                         : () => unawaited(_remind()),
                   ),
+                // Offered when the customer is also a supplier (ACC-11).
+                ToolbarCommand(
+                  id: 'combined-statement',
+                  label: 'Combined statement',
+                  icon: Icons.compare_arrows,
+                  menuOnly: true,
+                  tooltip: _hasLinkedSupplier
+                      ? 'The customer and their supplier account on one page, '
+                          'net of each other'
+                      : 'Only for a customer who is also a supplier',
+                  onPressed: _selectedCustomerId == null || !_hasLinkedSupplier
+                      ? null
+                      : () => unawaited(_loadCombined()),
+                ),
                 ToolbarCommand(
                   id: 'balance-confirmation',
                   label: 'Balance confirmation',
@@ -298,7 +372,7 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
           ButtonSegment(value: _View.ageing, label: Text('Ageing')),
           ButtonSegment(value: _View.statement, label: Text('Statement')),
         ],
-        selected: {_view},
+        selected: {_view == _View.combined ? _View.statement : _view},
         showSelectedIcon: false,
         onSelectionChanged: (selection) {
           setState(() => _view = selection.first);
@@ -307,7 +381,11 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
       ),
       primaryContent: _content(),
       statusBar: WorkspaceStatusBar(
-        total: _view == _View.ageing ? _ageing.length : _lines().length,
+        total: _view == _View.ageing
+            ? _ageing.length
+            : _view == _View.combined
+                ? _combinedLines().length
+                : _lines().length,
         selected: false,
         message: _view == _View.ageing
             ? 'What each bill still owes, off the receipts against it.'
@@ -363,8 +441,13 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
           _gap(row),
         ];
       },
-      onSelect: (row) =>
-          setState(() => _selectedCustomerId = stringValue(row['customer_id'])),
+      onSelect: (row) => setState(() {
+        if (_selectedCustomerId != stringValue(row['customer_id'])) {
+          _hasLinkedSupplier = false;
+        }
+        _selectedCustomerId = stringValue(row['customer_id']);
+        unawaited(_checkLinkedSupplier(_selectedCustomerId!));
+      }),
       onOpen: (row) => _loadStatement(stringValue(row['customer_id'])),
       onPageChanged: (_) {},
     );
@@ -470,7 +553,89 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
         message: _error!,
       );
     }
+    if (_view == _View.combined) return _combinedView();
     return _view == _View.ageing ? _ageingView() : _statementView();
+  }
+
+  List<dynamic> _combinedLines() =>
+      _combined?['lines'] as List<dynamic>? ?? const <dynamic>[];
+
+  /// The customer and supplier accounts as one run of lines, with the net
+  /// balance after each. Positive is what they owe the firm.
+  Widget _combinedView() {
+    final Json? combined = _combined;
+    if (combined == null) {
+      return const WorkspaceEmptyState(
+        title: 'Nothing to show',
+        message: 'Choose a customer who is also a supplier.',
+      );
+    }
+    double amount(Object? value) => double.tryParse('${value ?? 0}') ?? 0;
+    String full(Object? value) => indianAmount(amount(value), full: true);
+    final List<dynamic> lines = _combinedLines();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SummaryCards(children: [
+          SummaryCount(
+            label: 'Opening net',
+            value: full(combined['net_opening']),
+          ),
+          SummaryCount(
+            label: 'They owe us',
+            value: full(combined['receivable_closing']),
+          ),
+          SummaryCount(
+            label: 'We owe them',
+            value: full(combined['payable_closing']),
+          ),
+          SummaryCount(
+            label: 'Closing net',
+            value: full(combined['net_closing']),
+          ),
+        ]),
+        Expanded(
+          child: lines.isEmpty
+              ? const WorkspaceEmptyState(
+                  title: 'Nothing moved',
+                  message: 'Neither account had activity in this period.',
+                )
+              : EnterpriseDataGrid<Map>(
+                  items: [for (final dynamic line in lines) line as Map],
+                  total: lines.length,
+                  pageOffset: 0,
+                  rowsPerPage: lines.length,
+                  availableRowsPerPage: [lines.length],
+                  columns: const [
+                    GridColumn(key: 'date', label: 'Date'),
+                    GridColumn(key: 'account', label: 'Account'),
+                    GridColumn(key: 'type', label: 'Type'),
+                    GridColumn(
+                        key: 'reference', label: 'Reference', priority: 1),
+                    GridColumn(key: 'debit', label: 'Debit', numeric: true),
+                    GridColumn(key: 'credit', label: 'Credit', numeric: true),
+                    GridColumn(
+                        key: 'net', label: 'Net balance', numeric: true),
+                  ],
+                  id: (line) => '${line['reference_number']}|'
+                      '${line['transaction_date']}|${line.hashCode}',
+                  cells: (line) => [
+                    stringValue(line['transaction_date']),
+                    stringValue(line['account']) == 'PAYABLE'
+                        ? 'Purchases'
+                        : 'Sales',
+                    statusInWords(stringValue(line['transaction_type'])),
+                    stringValue(line['reference_number']),
+                    _money(line['debit']),
+                    _money(line['credit']),
+                    _money(line['net_balance']),
+                  ],
+                  onSelect: (_) {},
+                  onPageChanged: (_) {},
+                ),
+        ),
+      ],
+    );
   }
 
   Widget _ageingView() {
