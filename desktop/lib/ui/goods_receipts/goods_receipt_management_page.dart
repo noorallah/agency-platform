@@ -16,8 +16,10 @@ import '../../models/document_framework.dart';
 import '../../models/goods_receipt.dart';
 import '../../models/product.dart';
 import '../../models/purchase.dart';
+import '../../models/supplier_gift.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../trade_licences/licence_check_dialog.dart';
+import '../vendors/supplier_gifts_page.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/label_print_dialog.dart';
 import '../document_framework/document_status_gate.dart';
@@ -344,6 +346,40 @@ class _GoodsReceiptManagementPageState
             : () => unawaited(_recordEwayBill()),
       );
 
+  /// A supplier's gift that came with this delivery (BUY-2): the same dialog
+  /// as the Supplier Gifts screen, with the supplier and receipt filled in.
+  ToolbarCommand _recordGiftCommand() => ToolbarCommand(
+        id: 'record-gift',
+        label: 'Record gift from this delivery',
+        icon: Icons.card_giftcard_outlined,
+        onPressed: _selected == null ||
+                _selected!.status == 'CANCELLED' ||
+                !widget.permissions.hasPermission('SUPPLIER_GIFT_MANAGE')
+            ? null
+            : () => unawaited(_recordGift()),
+      );
+
+  Future<void> _recordGift() async {
+    final GoodsReceiptRecord? selected = _selected;
+    if (selected == null) return;
+    final SupplierGift? saved = await showDialog<SupplierGift>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => RecordSupplierGiftDialog(
+        api: widget.api,
+        vendorId: selected.vendorId,
+        vendorName: selected.vendorName,
+        goodsReceiptId: selected.id,
+      ),
+    );
+    if (saved == null || !mounted) return;
+    NotificationService.show(
+      context,
+      'Gift ${saved.giftNumber} recorded against ${selected.grnNumber}.',
+      kind: AppNotificationKind.success,
+    );
+  }
+
   Future<void> _recordEwayBill() async {
     final GoodsReceiptRecord? selected = _selected;
     if (selected == null) return;
@@ -644,6 +680,7 @@ class _GoodsReceiptManagementPageState
                   DocumentToolbarAction.close,
                 ),
                 _recordEwayBillCommand(),
+                _recordGiftCommand(),
                 // One label per piece received (STK-16); nothing to label on
                 // a cancelled receipt.
                 ToolbarCommand(

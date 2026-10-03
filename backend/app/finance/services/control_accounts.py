@@ -139,6 +139,12 @@ class ControlAccountPurpose(StrEnum):
     #: Free goods given to customers and samples handed out (BUY-1), at
     #: what they cost: a selling expense.
     PROMOTIONAL_EXPENSE = "PROMOTIONAL_EXPENSE"
+    #: What a supplier's gift is worth (BUY-2): other income, never a
+    #: purchase discount.
+    SUPPLIER_INCENTIVE_INCOME = "SUPPLIER_INCENTIVE_INCOME"
+    #: What the owner takes out of the business -- a supplier's gift they
+    #: keep (BUY-2).
+    DRAWINGS = "DRAWINGS"
     #: Interest for depositing TDS late (section 201(1A)) and the fee for a
     #: late return (234E), paid on a TDS challan (ACC-7). A cost of its own,
     #: never TDS payable: it was never deducted from anybody.
@@ -272,6 +278,8 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     ControlAccountPurpose.STAFF_WELFARE: frozenset({"EXPENSE"}),
     ControlAccountPurpose.SAMPLES_AND_DISPLAY: frozenset({"EXPENSE"}),
     ControlAccountPurpose.PROMOTIONAL_EXPENSE: frozenset({"EXPENSE"}),
+    ControlAccountPurpose.SUPPLIER_INCENTIVE_INCOME: frozenset({"INCOME"}),
+    ControlAccountPurpose.DRAWINGS: frozenset({"EQUITY"}),
     ControlAccountPurpose.TDS_INTEREST_AND_FEES: frozenset({"EXPENSE"}),
     ControlAccountPurpose.CHEQUE_RETURN_CHARGES: frozenset({"INCOME"}),
     ControlAccountPurpose.GST_CASH_LEDGER: frozenset({"ASSET"}),
@@ -341,6 +349,8 @@ PURPOSE_LABELS: dict[ControlAccountPurpose, str] = {
     ControlAccountPurpose.STAFF_WELFARE: "Staff welfare",
     ControlAccountPurpose.SAMPLES_AND_DISPLAY: "Samples and display",
     ControlAccountPurpose.PROMOTIONAL_EXPENSE: "Promotional expenses",
+    ControlAccountPurpose.SUPPLIER_INCENTIVE_INCOME: "Supplier incentives received",
+    ControlAccountPurpose.DRAWINGS: "Drawings",
     ControlAccountPurpose.TDS_INTEREST_AND_FEES: "Interest and fees on TDS",
     ControlAccountPurpose.CHEQUE_RETURN_CHARGES: "Cheque return charges",
     ControlAccountPurpose.GST_CASH_LEDGER: "GST electronic cash ledger",

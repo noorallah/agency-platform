@@ -254,6 +254,7 @@ abstract final class MenuLayout {
         MenuItemSpec(AppModule.accounting, 'pdc-issued', 'Post-dated Cheques'),
         MenuItemSpec(
             AppModule.masters, 'supplier-statements', 'Supplier Statements'),
+        MenuItemSpec(AppModule.masters, 'supplier-gifts', 'Supplier Gifts'),
       ]),
       MenuGroupSpec('Insight', [
         MenuItemSpec(
