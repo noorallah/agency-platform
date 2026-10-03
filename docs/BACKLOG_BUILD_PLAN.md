@@ -106,7 +106,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | ACC-1 | §42.2 | Bank reconciliation from the bank's statement file | Nothing (a sample statement helps) | L | Claude alone |
 | ACC-2 | §42.3 | Post-dated cheque register: held, deposited, cleared, bounced | Nothing | M | Claude alone |
 | ACC-3 | §74.1 row 12 | How money moved: UPI, cheque, NEFT, card, cash, with number and date -- **built 2026-10-02** (A49) | Nothing | S | Claude alone |
-| ACC-4 | §74.1 row 13 | The firm's bank details printed on bills; account numbers masked | Nothing | M | Claude alone |
+| ACC-4 | §74.1 row 13 | The firm's bank details printed on bills; account numbers masked -- **built 2026-10-03** (A81) | Nothing | M | Claude alone |
 | ACC-5 | §74.1 row 14 | Checks before closing a month -- **built 2026-10-02** (A50) | Nothing | S | Claude alone |
 | ACC-6 | §74.1 row 16 | Ageing buckets set per firm; due today and this week -- **built 2026-10-03** (A51) | Nothing | S | Claude alone |
 | ACC-7 | §53.1 | TDS challan screen; a supplier's usual TDS section -- **built 2026-10-03** (A79) | Nothing | M | Claude alone |
@@ -565,6 +565,7 @@ otherwise it is built as written.
 - **What it is:** the firm's bank name, account and IFSC printed on bills; others' account numbers show only the last four digits.
 - **What gets built:** bank details on the firm's bank ledger accounts (migration) and a "pay to" block in `invoice_print_service.py`; masking in the vendor and customer bank responses unless the caller holds a paying permission. Tests that the full number never leaves the server otherwise.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A81): `bank_account_details`, one per bank ledger account (asset accounts only), at most one per firm marked *print on documents* (migration 0254, all stores). `app/finance/services/bank_details.py`; `GET /finance/bank-details[/{ledger_account_id}]` (ACCOUNT_VIEW or PAYMENT_CREATE), `PUT`/`DELETE` (ACCOUNT_MANAGE), saved whole and audited with the number masked. The full number goes to ACCOUNT_MANAGE or PAYMENT_CREATE; everybody else reads the last four. `load_template` (`print_support.py`) fills a template's empty bank block, and its empty UPI ID, from the printed account, so every document that shows a bank block prints it; text typed on a template still wins. Customer numbers were already masked (MST-4); a supplier's accounts stay withheld entirely without VENDOR_VIEW_FINANCIAL_DETAILS (D-MST-10), which is stricter than masking. `mask_account_number` moved to `app/core/utils/strings.py`. Desktop: *Bank details* under Accounts. Tests: `test_firm_bank_details.py`, `bank_details_test.dart`.
 
 #### ACC-5. Checks before closing a month (§74.1 row 14)
 - **What it is:** before a month closes, list what is unfinished.

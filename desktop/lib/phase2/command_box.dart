@@ -29,6 +29,12 @@ const Map<String, List<String>> _synonyms = {
   'accounting/journal-entries': ['journal', 'jv'],
   'accounting/expenses': ['expense', 'payment voucher', 'rent', 'fuel'],
   'accounting/ledgers': ['ledger', 'account book'],
+  'accounting/bank-details': [
+    'bank details',
+    'ifsc',
+    'bank account on invoice',
+    'upi'
+  ],
   'accounting/tds-challans': ['tds challan', 'itns 281', 'tds deposit'],
   'masters/customers': ['party', 'debtor', 'buyer', 'retailer'],
   'masters/vendors': ['supplier', 'creditor', 'party'],

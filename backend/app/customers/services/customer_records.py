@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
+from app.core.utils.strings import mask_account_number
 from app.customers.models import Customer
 from app.customers.models.customer_records import (
     CustomerAttachment,
@@ -29,11 +30,6 @@ from app.customers.schemas.records import (
     CustomerBankAccountInput,
     CustomerBankAccountResponse,
 )
-
-
-def mask_account_number(number: str) -> str:
-    """Return a number showing only its last four characters."""
-    return "X" * max(len(number) - 4, 0) + number[-4:]
 
 
 class CustomerRecordsService:

@@ -14,6 +14,7 @@ being printed.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from uuid import UUID
 
 from sqlalchemy import select
@@ -25,6 +26,7 @@ from app.document_framework.models import DocumentPrintTemplate
 from app.document_framework.services.printable_types import (
     PRINTABLE_DOCUMENT_TYPES as PRINTABLE_DOCUMENT_TYPES,
 )
+from app.finance.services.bank_details import BankDetailsService
 from app.firms.models import Firm
 from app.sales_invoice.services.invoice_pdf import PartyBlock, TemplateSettings
 
@@ -47,9 +49,48 @@ def load_template(
             wants neither a bank block nor a certification.
 
     Returns:
-        The saved settings, or the fallback where the firm has saved none.
+        The saved settings, or the fallback where the firm has saved none,
+        with the firm's printed bank account filled in (ACC-4).
 
     """
+    settings = _saved_template(
+        session, firm_scope=firm_scope, document_type=document_type, fallback=fallback
+    )
+    return with_bank_account(session, firm_scope=firm_scope, settings=settings)
+
+
+def with_bank_account(
+    session: Session, *, firm_scope: UUID, settings: TemplateSettings
+) -> TemplateSettings:
+    """Fill the bank block and UPI ID from the account marked to print (ACC-4).
+
+    Only where the template shows a bank block and leaves it empty: text typed
+    on a template is the more specific choice and wins. The UPI ID follows the
+    same rule, so an account's UPI prints its pay-by-scan code on a template
+    that names none.
+    """
+    if not settings.show_bank_details:
+        return settings
+    if settings.bank_details and settings.upi_id:
+        return settings
+    printed = BankDetailsService(session).printed(firm_scope)
+    if printed is None:
+        return settings
+    return replace(
+        settings,
+        bank_details=settings.bank_details or "\n".join(printed.lines),
+        upi_id=settings.upi_id or printed.upi_id,
+    )
+
+
+def _saved_template(
+    session: Session,
+    *,
+    firm_scope: UUID,
+    document_type: str,
+    fallback: TemplateSettings | None,
+) -> TemplateSettings:
+    """Return the template the firm saved, or the fallback."""
     row = session.scalar(
         select(DocumentPrintTemplate).where(
             DocumentPrintTemplate.firm_id == firm_scope,

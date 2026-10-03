@@ -33,6 +33,7 @@ import '../../models/party_adjustment.dart';
 import '../../models/contra_voucher.dart';
 import '../../models/tds_challan.dart';
 import '../../models/post_dated_cheque.dart';
+import '../../models/bank_account_details.dart';
 import '../../models/einvoice.dart';
 import '../../models/proforma.dart';
 import '../../models/tcs.dart';
@@ -6815,6 +6816,31 @@ class ApiClient {
         body: {'reason': reason},
         expectedVersion: expectedVersion,
       )));
+
+  // ---- firm bank details printed on bills (ACC-4) ----------------------
+
+  /// The firm's kept bank details, the printed one first.
+  Future<List<BankAccountDetails>> listBankDetails() async => _unwrapList(
+        await request('GET', '/api/v1/finance/bank-details'),
+        BankAccountDetails.fromJson,
+      );
+
+  /// Saved whole; saving one marked for printing moves the mark to it.
+  Future<BankAccountDetails> saveBankDetails(
+    String ledgerAccountId,
+    Json body,
+  ) async =>
+      BankAccountDetails.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/finance/bank-details/$ledgerAccountId',
+        body: body,
+      )));
+
+  /// Removes the details; the ledger account stays.
+  Future<void> removeBankDetails(String ledgerAccountId) => request(
+        'DELETE',
+        '/api/v1/finance/bank-details/$ledgerAccountId',
+      );
 
   // ---- post-dated cheques (ACC-2) --------------------------------------
 
