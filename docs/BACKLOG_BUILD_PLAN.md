@@ -766,6 +766,7 @@ otherwise it is built as written.
 - **What it is:** a bell on the phase 2 bar listing what waits for the user.
 - **What gets built:** a notifications table per store (migration) and `GET /me/notifications` with mark-read; written by approvals waiting, refused messages, stock alerts; the desktop polls each minute; a bell in `desktop/lib/phase2/app_menu_bar.dart`. Tests.
 - **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A123, migration `20261003_0285`): derived rather than written -- `NotificationService` (`app/notifications`) counts each source on read; only `notification_reads` is stored. Firm-scoped at `/api/v1/notifications` and `/notifications/read`, not under `/me`, because `/me` is a platform path and the documents live in the firm's store. Tests: `test_notifications.py`.
 
 #### PLT-3. Trigram search (§56 C)
 - **What it is:** the Ctrl+K search answering under a second on a large firm.

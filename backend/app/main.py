@@ -51,6 +51,7 @@ from app.loyalty.api import router as loyalty_router
 from app.messaging.api import router as messaging_router
 from app.messaging.services.outbox_worker import MessagingWorker
 from app.messaging.services.runtime import live_firm_ids, store_opener
+from app.notifications.api import router as notifications_router
 from app.party_adjustments.api.router import router as party_adjustments_router
 from app.pricing.api import router as pricing_router
 from app.pricing.api.price_levels_router import router as price_levels_router
@@ -167,6 +168,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(promotions_router)
     application.include_router(sales_targets_router)
     application.include_router(report_layouts_router)
+    application.include_router(notifications_router)
     application.include_router(trade_licences_router)
     application.include_router(products_router)
     application.include_router(proforma_router)

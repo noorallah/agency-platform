@@ -47,6 +47,7 @@ import '../../models/proforma.dart';
 import '../../models/tcs.dart';
 import '../../models/firm_member.dart';
 import '../../models/messaging.dart';
+import '../../models/notification_feed.dart';
 import '../../models/price_floor.dart';
 import '../../models/batch_sale_settings.dart';
 import '../../models/gst_documents.dart';
@@ -1627,6 +1628,18 @@ class ApiClient {
           if (status.isNotEmpty) 'status': status,
           if (channel.isNotEmpty) 'channel': channel,
         },
+      );
+
+  /// What is waiting for the signed-in person in the active firm (the bell).
+  Future<NotificationFeed> notifications() async => NotificationFeed.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/notifications')),
+      );
+
+  /// Marks [keys] (1 to 50 of them) read for the signed-in person.
+  Future<void> markNotificationsRead(List<String> keys) => request(
+        'POST',
+        '/api/v1/notifications/read',
+        body: {'keys': keys},
       );
 
   Future<void> resendMessagingMessage(String messageId) => request(

@@ -22,6 +22,7 @@ import '../core/theme/theme_manager.dart';
 import '../models/branch_warehouse.dart';
 import '../models/entities.dart';
 import '../models/inventory.dart';
+import '../models/notification_feed.dart';
 import '../models/purchase.dart';
 import '../models/uom_packaging.dart';
 import '../models/product.dart';
@@ -115,6 +116,7 @@ import 'settings/numbering_series_page.dart';
 import 'settings/settings_workspace.dart';
 import 'resource_management_page.dart';
 import '../phase2/app_menu_bar.dart';
+import '../phase2/notification_bell.dart';
 import '../phase2/command_box.dart';
 import '../phase2/backups_page.dart';
 import '../phase2/customer_groups_page.dart';
@@ -544,6 +546,36 @@ class _DesktopShellState extends State<DesktopShell> {
     setState(() {});
   }
 
+  /// Opens the screen a bell line is about, when this user is offered it;
+  /// otherwise the popup simply closes.
+  void _openNotification(NotificationItem notification) {
+    final ModuleVisibility visibility = _visibility;
+    MenuItemSpec? find(bool Function(MenuItemSpec item) test) {
+      for (final MenuAreaSpec area in [
+        ...MenuLayout.areas,
+        MenuLayout.settings,
+      ]) {
+        final MenuAreaSpec? shown = MenuLayout.visible(area, visibility);
+        if (shown == null) continue;
+        for (final MenuItemSpec item in shown.items) {
+          if (test(item)) return item;
+        }
+      }
+      return null;
+    }
+
+    final MenuItemSpec? target = switch (notification.kind) {
+      'purchase_order_approval' => find((i) => i.tab == 'purchase-orders'),
+      'requisition_approval' => find((i) => i.tab == 'purchase-requisitions'),
+      'stock_adjustment_approval' =>
+        find((i) => i.tab == 'adjustment-approvals'),
+      'message_failed' => find((i) => i.route == MenuLayout.messagingRoute),
+      'stock_alert' => MenuLayout.home.items.first,
+      _ => null,
+    };
+    if (target != null) _openFromMenu(target);
+  }
+
   void _showScreen(String path) {
     _viewRequest = null;
     if (_activeDocument != null) setState(() => _activeDocument = null);
@@ -864,6 +896,14 @@ class _DesktopShellState extends State<DesktopShell> {
             trailing: [
               SearchLauncher(onPressed: () => unawaited(_openCommandBox())),
               const SizedBox(width: 8),
+              NotificationBell(
+                enabled: widget.session.currentFirm != null,
+                firmKey: widget.session.currentFirm?.id,
+                load: widget.session.api.notifications,
+                markRead: widget.session.api.markNotificationsRead,
+                onOpen: _openNotification,
+              ),
+              const SizedBox(width: 4),
               _firmOnBar(),
               const SizedBox(width: 6),
               // Phase 1 kept it at the foot of the sidebar, which phase 2

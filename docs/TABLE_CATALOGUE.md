@@ -450,6 +450,12 @@ trigger each schema owns its own copy of.
 | `sales_return_sources` | firm store ¹ | Store the documents one return was raised against. | `sales_returns`, `firms`, `customers`, `branches` |
 | `sales_returns` | firm store ¹ | Store one customer return header. | `firms`, `customers`, `branches`, `warehouses`, `users`, `sales_territories`, `business_profiles`, `journal_entries` |
 
+### `app/notifications`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `notification_reads` | firm store ¹ | That one person has seen one bell notification (PLT-2); the notifications themselves are derived. | `users` (bare id) |
+
 ### `app/report_layouts`
 
 | Table | Store | Holds | Points at |
