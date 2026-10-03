@@ -283,6 +283,20 @@ class _SalesWorkflowSettingsDialogState
                           _settings.copyWith(rateIncludesTax: value),
                     ),
                   ),
+                  // SEL-15: a new outlet waits for office approval.
+                  _StageSwitch(
+                    key: const ValueKey('sales-settings-new-outlets-approval'),
+                    label: 'New outlets wait for approval',
+                    detail: 'A customer added by someone who cannot approve '
+                        'customers takes orders but cannot be billed until '
+                        'approved.',
+                    value: _settings.newOutletsNeedApproval,
+                    enabled: _mayManage && _read && !_saving,
+                    onChanged: (value) => setState(
+                      () => _settings =
+                          _settings.copyWith(newOutletsNeedApproval: value),
+                    ),
+                  ),
                   if (!_settings.deliveryNoteStage) ...[
                     const SizedBox(height: AppSpacing.md),
                     _Notice(

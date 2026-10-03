@@ -50,7 +50,7 @@ from app.customers.schemas import (
     CustomerSummary,
     CustomerUpdate,
 )
-from app.customers.schemas.customer import CustomerListFilters
+from app.customers.schemas.customer import CustomerListFilters, CustomerStatus
 from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
@@ -94,6 +94,7 @@ class CustomerService:
         firm_id: UUID,
         actor_id: UUID,
         may_set_standing_discount: bool = False,
+        may_approve: bool = True,
     ) -> Customer:
         """Create a firm-owned customer and all nested records.
 
@@ -105,6 +106,7 @@ class CustomerService:
         self._assert_may_set_standing_discount(
             [data], allowed=may_set_standing_discount
         )
+        data = self._held_for_approval(data, firm_id=firm_id, may_approve=may_approve)
         try:
             customer = self.stage_create(data, firm_id=firm_id, actor_id=actor_id)
         except IntegrityError as error:
@@ -120,6 +122,7 @@ class CustomerService:
         firm_id: UUID,
         actor_id: UUID,
         may_set_standing_discount: bool = False,
+        may_approve: bool = True,
     ) -> list[Customer]:
         """Create a validated customer batch in one transaction.
 
@@ -130,6 +133,10 @@ class CustomerService:
         self._assert_may_set_standing_discount(
             records, allowed=may_set_standing_discount
         )
+        records = [
+            self._held_for_approval(data, firm_id=firm_id, may_approve=may_approve)
+            for data in records
+        ]
         try:
             customers = [
                 self.stage_create(data, firm_id=firm_id, actor_id=actor_id)
@@ -243,6 +250,7 @@ class CustomerService:
         actor_id: UUID,
         may_change_credit_limit: bool = False,
         may_change_standing_discount: bool = False,
+        may_approve: bool = True,
     ) -> Customer:
         """Replace customer fields and reconcile addresses and contacts.
 
@@ -252,6 +260,16 @@ class CustomerService:
         one that resends the stored figure goes through.
         """
         customer = self.get(customer_id, firm_scope=firm_scope)
+        if (
+            customer.status == CustomerStatus.PENDING.value
+            and "status" in data.model_fields_set
+            and data.status != CustomerStatus.PENDING
+            and not may_approve
+        ):
+            raise AuthorizationError(
+                f"{customer.code} is waiting for approval. Approving a new outlet "
+                "needs the approve customers permission (CUSTOMER_APPROVE)."
+            )
         self.stage_update(
             customer,
             data,
@@ -1011,6 +1029,52 @@ class CustomerService:
                 f"{name} (PAN {ours}) and {vendor.name} (PAN {theirs}) are "
                 "different businesses, so they cannot be linked."
             )
+
+    def _held_for_approval(
+        self, data: CustomerCreate, *, firm_id: UUID, may_approve: bool
+    ) -> CustomerCreate:
+        """Start a new outlet PENDING where the firm wants it approved (SEL-15).
+
+        Only for a creator who cannot approve it themselves: the office adding
+        a customer is the approval.
+        """
+        if may_approve or data.status == CustomerStatus.PENDING:
+            return data
+        from app.sales_order.services.workflow_settings_service import (
+            SalesWorkflowService,
+        )
+
+        policy = SalesWorkflowService(self._session).settings_response(firm_id)
+        if not policy.new_outlets_need_approval:
+            return data
+        return data.model_copy(update={"status": CustomerStatus.PENDING})
+
+    def approve(self, customer_id: UUID, *, firm_id: UUID, actor_id: UUID) -> Customer:
+        """Approve a new outlet so it can be billed (SEL-15); the caller commits.
+
+        Raises:
+            ValidationError: If the customer is not waiting for approval.
+
+        """
+        customer = self.get(customer_id, firm_scope=firm_id)
+        if customer.status != CustomerStatus.PENDING.value:
+            raise ValidationError(
+                f"{customer.code} is not waiting for approval ({customer.status})."
+            )
+        customer.status = CustomerStatus.ACTIVE.value
+        customer.updated_by = actor_id
+        self._session.flush()
+        record_audit(
+            self._session,
+            action="customer.approved",
+            entity_type="customer",
+            entity_id=customer.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            before_data={"status": CustomerStatus.PENDING.value},
+            after_data={"status": customer.status},
+        )
+        return customer
 
     @staticmethod
     def _customer_values(

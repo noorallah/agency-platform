@@ -356,6 +356,7 @@ otherwise it is built as written.
 - **What it is:** a shop a salesman adds can take orders, but is not billed on credit until the office approves it.
 - **What gets built:** a `PENDING` member of `CustomerStatus` (`backend/app/customers/schemas/customer.py`) and a firm setting; invoice and credit sale refused for a pending customer by name; *Approve* single and bulk (`run_each` in `bulk_actions.py`); a permission seeded with its migration. Customer list filter. Tests.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A93): `CustomerStatus.PENDING`, `sales_workflow_settings.new_outlets_need_approval`, `CUSTOMER_APPROVE` (migration 0263). `CustomerService` starts a non-approver's new customer PENDING when the switch is on and refuses a non-approver moving it on; `approve`; `assert_customer_may_be_billed` in `trading_status.py`, called at bill creation and approval. `POST /customers/{id}/approve`, `POST /customers/bulk-approve`. Desktop: the switch, *Pending approval* badge and filter, Approve single and bulk. Tests: `test_pending_outlets.py`, `pending_outlets_test.dart`.
 
 ### Buying
 

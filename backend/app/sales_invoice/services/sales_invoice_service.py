@@ -52,6 +52,7 @@ from app.customers.schemas import (
 from app.customers.services import CreditControlService
 from app.customers.services.customer_service import CustomerService
 from app.customers.services.ship_to import resolve_ship_to, ship_to_is_valid
+from app.customers.services.trading_status import assert_customer_may_be_billed
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.delivery_note.rules import goods_have_left_clause, require_dispatched_note
 from app.delivery_note.schemas import DeliveryNoteBatchPick, DeliveryNoteStatus
@@ -571,6 +572,9 @@ class SalesInvoiceService(TransactionalDocumentService):
         # Read once for the two fields below; the customer's terms decide when
         # payment falls due and its billing address decides the place of supply.
         customer = self._session.get(Customer, customer_id)
+        if customer is not None:
+            # A new outlet waiting for the office takes orders, not bills.
+            assert_customer_may_be_billed(customer)
         shipping_address_id = self._ship_to(
             data.shipping_address_id,
             customer_id=customer_id,
@@ -1179,6 +1183,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             .execution_options(populate_existing=True)
         )
         if customer is not None:
+            assert_customer_may_be_billed(customer)
             CreditControlService(self._session).assert_within_limit(
                 customer, additional_amount=self._q(row.grand_total)
             )

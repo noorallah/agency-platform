@@ -66,6 +66,41 @@ extension _Phase2CustomerForm on _CustomerWorkspaceDialogState {
                     ),
                 ],
               ),
+              if (widget.customer?.status == 'PENDING')
+                Container(
+                  key: const ValueKey('customer-pending-banner'),
+                  margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: scheme.secondaryContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.hourglass_top_outlined,
+                          size: 18, color: scheme.onSecondaryContainer),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Waiting for office approval — orders allowed, '
+                          'billing blocked',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                              color: scheme.onSecondaryContainer),
+                        ),
+                      ),
+                      if (widget.onApprove != null) ...[
+                        const SizedBox(width: 8),
+                        FilledButton(
+                          key: const ValueKey('customer-approve'),
+                          onPressed:
+                              _saving ? null : () => unawaited(_approve()),
+                          child: const Text('Approve'),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               if (_error != null)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
@@ -111,6 +146,7 @@ extension _Phase2CustomerForm on _CustomerWorkspaceDialogState {
         'ACTIVE' => 'Active',
         'INACTIVE' => 'Inactive',
         'ON_HOLD' => 'On hold',
+        'PENDING' => 'Pending approval',
         _ => status,
       };
 

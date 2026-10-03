@@ -418,6 +418,11 @@ class SalesWorkflowSettings(BaseEntity):
     default_warehouse_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("warehouses.id", ondelete="RESTRICT")
     )
+    #: Whether a customer added by somebody without CUSTOMER_APPROVE starts
+    #: PENDING (SEL-15): it takes orders, but is not billed until approved.
+    new_outlets_need_approval: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     #: Whether a new counter bill reads a typed rate as including GST
     #: (backlog 64 row 4). Only the default: each bill carries its own switch.
     rate_includes_tax: Mapped[bool] = mapped_column(

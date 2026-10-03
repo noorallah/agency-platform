@@ -92,6 +92,11 @@ from app.customers.services.customer_records import CustomerRecordsService
 from app.customers.services.opening_bill_import import CustomerOpeningBillFileImporter
 from app.customers.services.opening_bill_service import CustomerOpeningBillService
 from app.customers.services.payment_terms import PaymentTermsService
+from app.document_framework.schemas.bulk_actions import (
+    BulkActionResult,
+    BulkApproveRequest,
+)
+from app.document_framework.services.bulk_actions import run_each
 from app.imports.services import columns_for_kind, mapped_content, parse_mapping
 
 router = APIRouter(
@@ -364,6 +369,9 @@ def create_customer(
         may_set_standing_discount=scope.principal.has_permission(
             "CUSTOMER_MANAGE_SETTINGS"
         ),
+        # A new outlet added by somebody who cannot approve it waits, where
+        # the firm asks for that (SEL-15).
+        may_approve=scope.principal.has_permission("CUSTOMER_APPROVE"),
     )
     return ApiResponse(
         data=_response(customer, db),
@@ -594,6 +602,40 @@ def customer_import_template(
         headers={
             "Content-Disposition": 'attachment; filename="customer-template.xlsx"'
         },
+    )
+
+
+#: Letting a new outlet be billed (SEL-15).
+CustomerApproveScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("CUSTOMER_APPROVE")
+]
+
+
+@router.post("/bulk-approve", response_model=ApiResponse[BulkActionResult])
+def bulk_approve_customers(
+    data: BulkApproveRequest,
+    scope: CustomerApproveScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BulkActionResult]:
+    """Approve the ticked new outlets, each on its own (SEL-15).
+
+    A customer not waiting for approval is reported by name and the rest go
+    ahead, as every bulk approval does.
+    """
+    service = CustomerService(db)
+
+    def act(customer_id: UUID) -> None:
+        service.approve(customer_id, firm_id=scope.firm_id, actor_id=scope.actor_id)
+        db.commit()
+
+    return ApiResponse(
+        data=run_each(
+            db,
+            data.items,
+            load=lambda customer_id: service.get(customer_id, firm_scope=scope.firm_id),
+            act=act,
+            number=lambda row: row.code,
+        )
     )
 
 
@@ -970,6 +1012,7 @@ def update_customer(
         may_change_standing_discount=scope.principal.has_permission(
             "CUSTOMER_MANAGE_SETTINGS"
         ),
+        may_approve=scope.principal.has_permission("CUSTOMER_APPROVE"),
     )
     set_etag(response, customer)
     return ApiResponse(
@@ -989,6 +1032,22 @@ def delete_customer(
         customer_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{customer_id}/approve", response_model=ApiResponse[CustomerResponse])
+def approve_customer(
+    customer_id: UUID,
+    scope: CustomerApproveScope,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CustomerResponse]:
+    """Approve a new outlet so its orders can be billed (SEL-15)."""
+    customer = CustomerService(db).approve(
+        customer_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    db.commit()
+    set_etag(response, customer)
+    return ApiResponse(data=_response(customer, db))
 
 
 @router.post("/{customer_id}/restore", response_model=ApiResponse[CustomerResponse])
