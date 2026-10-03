@@ -5919,6 +5919,23 @@ class ApiClient {
         },
       ));
 
+  /// The firm's 194Q policy: whether it deducts, and the threshold and rates.
+  Future<Json> tds194qSettings() async =>
+      _unwrapMap(await request('GET', '/api/v1/finance/tds-194q/settings'));
+
+  Future<Json> saveTds194qSettings(Json body) async => _unwrapMap(
+        await request('PUT', '/api/v1/finance/tds-194q/settings', body: body),
+      );
+
+  /// What this supplier has been bought from this Income-tax year, what is
+  /// due under 194Q, what is already deducted, and so what to deduct now.
+  Future<Json> tds194qSupplier(String vendorId, {required String on}) async =>
+      _unwrapMap(await request(
+        'GET',
+        '/api/v1/finance/tds-194q/suppliers/$vendorId',
+        query: <String, String>{'on': on},
+      ));
+
   // ---- customer statement and ageing -----------------------------------
 
   /// One customer's account movement over a period.

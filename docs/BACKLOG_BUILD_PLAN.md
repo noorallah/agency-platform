@@ -110,7 +110,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | ACC-5 | §74.1 row 14 | Checks before closing a month -- **built 2026-10-02** (A50) | Nothing | S | Claude alone |
 | ACC-6 | §74.1 row 16 | Ageing buckets set per firm; due today and this week -- **built 2026-10-03** (A51) | Nothing | S | Claude alone |
 | ACC-7 | §53.1 | TDS challan screen; a supplier's usual TDS section | Nothing | M | Claude alone |
-| ACC-8 | §42.4 | TDS 194Q worked out automatically past ₹50 lakh per supplier | Nothing (CA confirms the rate at hand-over) | M | Claude alone |
+| ACC-8 | §42.4 | TDS 194Q worked out automatically past ₹50 lakh per supplier -- **built 2026-10-03** (A78) | Nothing (CA confirms the rate at hand-over) | M | Claude alone |
 | ACC-9 | §74 row 5 | Cash flow statement | Nothing | M | Claude alone |
 | ACC-10 | §74 row 7 | Scanned bill or letter attached to a journal, receipt or payment | Nothing | M | Claude alone |
 | ACC-11 | §75 row 4 | A customer who is also a supplier, as one party | Nothing | M | Claude alone |
@@ -587,6 +587,7 @@ otherwise it is built as written.
 - **What it is:** past ₹50 lakh of purchases from one supplier in a year, the 0.1% TDS is suggested on the bill or payment.
 - **What gets built:** firm settings for the 194Q threshold and rate (migration); a running total per supplier per financial year summed from bills, never a counter; the payment and bill suggest the deduction on the excess with section 194Q; a register of 194Q per supplier. Tests at the threshold edge. Today a deduction is typed by hand (`backend/app/finance/tds.py`).
 - **Needs from the CA, at hand-over:** confirm the rate and threshold as the current Finance Act has them. **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A78): `tds_194q_settings` (migration 0251, all stores; off, 50 lakh, 0.1%, 5% without PAN). `app/finance/services/tds_194q.py` sums each supplier's approved bills without GST (`subtotal + additional_charges`) in the April-March year and the 194Q deducted on its posted payments, in two grouped reads; `due` is the rate on the excess, `to_deduct` the rest. `GET/PUT /finance/tds-194q/settings`, `GET /finance/tds-194q/suppliers/{id}?on=` (for the payment screen), `GET /finance/reports/tds-194q`. Desktop: *TDS on Purchases (194Q)* under Settings > Tax, the payment prefills section and amount (never over a typed figure), and the register in Reports. Tests: `test_tds_194q.py`, `tds_194q_test.dart`.
 
 #### ACC-9. Cash flow statement (§74 row 5)
 - **What it is:** where cash came from and went, for a bank loan file.

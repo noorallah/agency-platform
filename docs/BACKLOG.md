@@ -3464,6 +3464,8 @@ TCS, an audit trail, currency and exchange-rate fields, and a low-stock view.
 
 ### 42.4 TDS, and 194Q in particular
 
+**Status, 2026-10-03: built** (ACC-8, A78): 194Q is worked out per supplier per Income-tax year once the firm switches it on; the payment suggests the deduction and a register shows each supplier's position. The CA confirms the rate and threshold at hand-over.
+
 - **Who has it:** BUSY, TallyPrime, Zoho Books (calculation, Form 16A, return
   preparation).
 - **Here:** TCS under 206C(1H) (`app/tcs`); **no TDS at all**.

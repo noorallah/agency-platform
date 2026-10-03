@@ -1044,6 +1044,31 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'position', label: 'Position'),
     ],
   ),
+  // Section 194Q (ACC-8): what each supplier has been bought from this
+  // Income-tax year against the threshold, and what is still to deduct.
+  ReportDefinition(
+    id: 'tds-194q',
+    label: 'TDS on purchases (194Q)',
+    description: 'Each supplier bought from this Income-tax year: the '
+        'purchases, the part above the threshold, the TDS due on it, what '
+        'has been deducted, and what is still to deduct.',
+    path: '/api/v1/finance/reports/tds-194q',
+    permission: 'ACCOUNT_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    asOnDate: true,
+    onDateParam: 'on',
+    columns: [
+      ReportColumn(key: 'vendor_name', label: 'Supplier'),
+      ReportColumn(key: 'pan', label: 'PAN'),
+      ReportColumn(key: 'purchases', label: 'Bought', numeric: true),
+      ReportColumn(key: 'excess', label: 'Above threshold', numeric: true),
+      ReportColumn(key: 'rate_percent', label: 'Rate %', numeric: true),
+      ReportColumn(key: 'due', label: 'TDS due', numeric: true),
+      ReportColumn(key: 'deducted', label: 'Deducted', numeric: true),
+      ReportColumn(key: 'to_deduct', label: 'To deduct', numeric: true),
+    ],
+  ),
   // Collections (67 row 9): money received from customers, a receipt on its
   // date and a reversal on the reversal's, netted.
   ReportDefinition(
