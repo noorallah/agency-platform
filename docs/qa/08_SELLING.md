@@ -2,7 +2,7 @@
 
 Part of the QA test suite in `docs/qa/`. Read `00_README.md` first: it
 explains the preparations, the accounts and how to record results. Generated
-on 2026-09-25 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
+on 2026-10-03 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
 
@@ -153,30 +153,37 @@ promotion, or the customer's standing rate).
 - **Expect**
   - Step 1: "PF-… raised. Issue it when the customer needs it." then "PF-… issued."; a `PF` series number (never `PI`, which purchase invoices use); **nothing** posted; Outstanding unchanged; the pane says "Not a tax invoice — no input tax credit is available against this document."
   - Step 2: the proforma's lines and totals are unchanged — snapshotted when it was raised.
+---
+
 ### TC-SELL-018 — Why the goods go out, and dispatch before the invoice
 
-*Added 2026-10-02 (backlog 77 rows 1-3, A35).*
-
-- **Preconditions:** *sell-ready*: an approved sales order for 10 of `QA-S` with stock.
+- **Preconditions:** As *selling-firm*, plus the order described in the preparation table, approved.
+- **Also needs:** *sell-ready*: an approved sales order for 10 of `QA-S` with stock.
 - **Steps:** as the prepared **Firm admin**: Settings (gear) → Tax → **GST Documents**: leave *Dispatch of a sale before its invoice* at **Warn** → Save. Delivery Notes → **New** off the order for 2, **Reason** *Sale* → Save → Approve → **Dispatch**. Repeat with **Reason** *Supply on approval*. Then set the policy to **Block** and dispatch a *Sale* note. Then on another approved *Sale* note use **Dispatch and invoice**. Then a note with **Reason** *Other* and no words. Print one challan.
 - **Expect:** under Warn, Dispatch on a *Sale* note shows the GST message with **Dispatch and invoice / Dispatch anyway / Cancel**; *Dispatch anyway* dispatches and the audit trail keeps the warning. *Supply on approval* dispatches with no question. Under Block there is no *Dispatch anyway*. **Dispatch and invoice** dispatches the note and creates an **approved** invoice of it in one step ("Dispatched and invoiced as SI-…"); if the invoice is refused (e.g. price below its floor) nothing is dispatched. *Other* without words is refused ("Say why…"). The challan print shows **Reason**. *Van or route sale* dispatches freely unless **Van or route sales need the invoice** is switched on.
-
 ### TC-SELL-019 — Choosing batches on a delivery note
 
-*Added 2026-10-02 (backlog 79, A38).*
+*Added 2026-10-02 from the code and the QA suite; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
 
-- **Preconditions:** a batch-tracked product with three batches in one warehouse: one **expired** (expiry before today), one expiring within 30 days, one later -- 10 each (Stock → Opening stock, or goods receipts). An approved sales order for 8 of it.
+- **Preconditions:** A firm on the **Pharmacy** profile, with a batch-tracked product in two batches with different expiry dates, and two orders for it.
+- **Also needs:** the product `QA-AMX` in three batches of 10 as in TC-STOCK-005 (one expired, one within 30 days, one later); an approved sales order for 8 of it, and a second one.
 - **Steps:** Delivery Notes → **New** off the order. Look at the side panel's batch list. (a) Change nothing → Save → Approve → **Dispatch**. On a second order: (b) type 8 against the *later* batch and 0 against the earlier → Save → Approve → Dispatch. (c) Split 5 + 3 across the two in-date batches → dispatch → **Print** the challan. (d) Type only 6 in total → Save → Approve → Dispatch. (e) Edit a box, then **Use earliest expiry**.
-- **Expect:** every batch is listed nearest expiry first with expiry, days left and *can take*; the expired one is greyed with an **Expired** badge and cannot be typed into; the next one shows **Near expiry**; the boxes start at the earliest-expiry split. (a) ships the nearest in-date batch, exactly as before. (b) ships the later batch; the earlier one's stock is back to free; Settings → Audit trail shows **delivery_note.fefo_skipped** with both splits. (c) the challan prints **two rows** for the line -- batch and expiry columns shown, the second row without a line number, quantities 5 and 3, values adding up to the line. (d) the panel says *Chosen 6 of 8* in red, Save works, and Dispatch is refused ("the batches chosen add up to 6…"). (e) the boxes return to the earliest-expiry split.
-
+- **Expect:** every batch is listed nearest expiry first with expiry, days left and *can take*; the expired one is greyed and cannot be typed into; the next one is marked near expiry; the boxes start at the earliest-expiry split. (a) ships the nearest in-date batch, as before. (b) ships the later batch, the earlier one's stock is free again, and the audit trail shows **delivery_note.fefo_skipped** with both splits. (c) the challan prints **two rows** for the line, quantities 5 and 3, values adding up to the line. (d) the panel flags that 6 of 8 are chosen, Save works, and Dispatch is refused. (e) the boxes return to the earliest-expiry split. The near-expiry window is a fixed 30 days and no setting yet asks for a reason on a skip.
 ### TC-SELL-020 — Charging a customer more after the invoice
 
-*Added 2026-10-02 (backlog 77 row 5, A40).*
+*Added 2026-10-02 from the code and the QA suite; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
 
-- **Preconditions:** *sell-ready*: an approved sales invoice to a **registered** customer for 10 of `QA-S` at 100 + 18% GST (1,180.00), nothing received on it.
-- **Steps:** as the prepared **Sales manager**: Sell → **Debit Notes** → **New** → pick the invoice → reason *Price increase* → 100 on its line → watch the tax → **Save**. Try **Approve**. Sign in as the **Firm admin**: approve it. Then Sell → Receipts → New for the customer. Then Reports → GST → GSTR-1 and GSTR-3B for the month. Then try to cancel the **invoice**. Then record a receipt of 1,250.00 against the invoice and try to cancel the **debit note**.
-- **Expect:** the preview shows tax **18.00**, total **118.00** (the invoice line's rate). The sales manager can raise but is not offered **Approve**. After approval the customer's balance is **118.00** higher, and Record Receipt lists the invoice at **1,298.00** owing -- one row, not two. GSTR-1 CDNR shows the note with type **D**, against the invoice, taxable 100, CGST 9 + SGST 9; GSTR-3B 3.1(a) is 100 higher and *Debit notes added* reads 100 / 18. Cancelling the invoice is refused naming the debit note. With 1,250.00 received, cancelling the debit note is refused ("Reverse that receipt first"); after reversing the receipt it cancels and the balance drops back.
+- **Preconditions:** As *selling-delivered*, plus the first note billed and approved, as in the preparation table.
+- **Also needs:** an approved invoice to a **registered** customer for 10 at 100 + 18% GST (1,180.00), nothing received on it.
+- **Steps:** as a **Sales manager** (hire one if the preparation has none): Sales → **Debit Notes** → **New** → pick the invoice → reason *Price increase* → 100 on its line → watch the tax → **Save**. Try **Approve**. As the **Firm admin**: approve it. Then Sales → Receipts → New for the customer. Then GST Returns → GSTR-1 and GSTR-3B for the month. Then try to cancel the **invoice**. Then record a receipt of 1,250.00 against the invoice and try to cancel the **debit note**.
+- **Expect:** the preview shows tax **18.00**, total **118.00** (the invoice line's rate). The sales manager can raise but is not offered **Approve**. After approval the customer's balance is **118.00** higher, and Record Receipt lists the invoice at **1,298.00** owing, one row not two. GSTR-1 CDNR shows the note as type **D** against the invoice, taxable 100, CGST 9 + SGST 9; GSTR-3B 3.1(a) is 100 higher. Cancelling the invoice is refused naming the debit note. With 1,250.00 received, cancelling the debit note is refused ("Reverse that receipt first"); after reversing the receipt it cancels and the balance drops back. There is no print of a debit note yet.
+### TC-SELL-021 — Rate includes GST on an order and a quotation
 
+*Added 2026-10-02 from the code and the QA suite; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Steps:** as the prepared **Firm admin**, Quotations → **New** for `QA-C01`. Switch **Rate includes GST** on, type a rate of **118** on a line taxed at 18%, with quantity 10 → Save. Reopen it, then **Print**. Convert it to a sales order and open the order. Then Settings (gear) → Selling → **Sales Stages** → *Rates typed on a bill include GST* on → Save, and start another new sales order.
+- **Expect:** while the switch is on the Rate column is labelled as the shelf price and the totals show a taxable value of 1,000.00 with 180.00 tax, total 1,180.00. Reopening shows 118 as typed; the print shows both rates. The order opens with the switch **on** and the same typed rate, and the customer is billed what was quoted. A bill raised from the order prints only the pre-tax rate. A new order starts with the switch on only after the setting is saved; an order made by converting a quotation never reads the setting a second time.
 ### TC-SELL-022 — Batch rules: near expiry, a reason, and the price floor
 
 *Added 2026-10-02 (backlog 79 row 6, A2).*
@@ -184,7 +191,6 @@ promotion, or the customer's standing rate).
 - **Preconditions:** the shop from TC-SELL-019 (a batch expiring within 30 days and a later one, 10 each). The product's **minimum selling price** 150. Settings → Selling → **Price Floor**: *Block*.
 - **Steps:** Settings → Stock → **Batch Rules**: note the defaults, then set *A near-expiry batch leaving* to **Need a reason** → Save. (a) A sales order for 2 at **100** → Approve. (b) A sales order for 15 at 100 → Approve. (c) A delivery note off order (a), batches untouched → Save → Approve → **Dispatch**; cancel the reason prompt; Dispatch again and give *Short-dated stock cleared*. (d) Set *FEFO skip* to **Need a reason**; a note choosing the *later* batch → Dispatch. (e) Untick *may be sold below the price floor* → repeat (a).
 - **Expect:** the defaults read 30 days, Warn, Record, ticked. (a) approves although 100 is below 150; its timeline names the near-expiry batch. (b) is refused below the minimum price -- 15 takes the later batch too, which is fresh stock. (c) the prompt names the line and the near-expiry batch; cancelling dispatches nothing; with the reason it dispatches and Settings → Audit trail shows **delivery_note.near_expiry_dispatched** with the reason. (d) asks for a reason before dispatching; **delivery_note.fefo_skipped** keeps it. (e) is refused like (b).
-
 
 ### TC-SELL-023 — Choosing batches on a counter bill
 
@@ -219,6 +225,77 @@ promotion, or the customer's standing rate).
 - **Expect:** the batch screen shows B1 at MRP 120 / 95 and B2 at 100. The picker lists each batch's MRP. Choosing B1 fills the rate **95**. The printed bill has an **MRP** column, 120 on the B1 row. The B2 bill at 110 is refused: "charges 110.00 a unit with tax, above the MRP of 100.00 printed on the batch it ships".
 ---
 
+### TC-SELL-027 — Several delivery notes on one bill: customer first
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** As *selling-ordered*, plus the two delivery notes in the preparation table, dispatched.
+- **Also needs:** a second customer with one dispatched, unbilled delivery note; for the clash, a third dispatched note for Vijaya that names a **different salesman** from the notes of 5 and 7 (set the salesman on the order it came from). For the supplier half, `po-received` (receipts of 4 and 6).
+- **Steps:** as the prepared **Firm admin**: Sell → Documents → **Sales Invoices** → New → bill from delivery notes. (a) Look at the first question asked. Pick Vijaya. (b) Tick the notes of 5 and 7 → create the draft. (c) Start again and also try to tick the third note. (d) Start again and pick the second customer. Then Buy → Documents → **Purchase Invoices** → New → from receipts: pick the supplier and tick the receipts of 4 and 6.
+- **Expect:** (a) the editor asks for the **customer** first and lists only customers that have notes left to bill. Vijaya opens a tick list: number, date, order and the amount left to bill before tax. (b) the two notes can be ticked together and make one draft bill. (c) the third note cannot be ticked beside notes of another salesman, and says which field (salesman) and which note it clashes with; the same holds for branch, territory or route. (d) a customer with a single note has it ticked already, without being asked. The supplier bill asks for the **supplier** first and lists that supplier's receipts; the only field a receipt can clash on is the branch.
+### TC-SELL-028 — An enquiry becomes a customer and a quotation
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Also needs:** the product `QA-DET`; a role holding SALES_VIEW, SALES_QUOTATION_CREATE and SALES_UPDATE (the firm administrator does).
+- **Steps:** as the prepared **Firm admin**: Sell → Documents → **Enquiries** → New. Type a **prospect** (name, company, phone in the form +91…, email, city) instead of picking a customer; source, salesman, expected value, expected close date, next follow-up date; one line for `QA-DET` × 10 and a second line with a description only. Save. (a) Try **Convert to quotation**. (b) Give the second line a product and convert again. (c) Open the new quotation and convert it to a sales order. (d) Raise a second enquiry for a prospect, add a follow-up note with a new next date, then mark it **Lost** with a reason from the list. (e) Open the **Follow-ups due** view; then Reports → Operational → **Enquiries lost**.
+- **Expect:** the enquiry is numbered **ENQ-…** and opens as new. (a) conversion is refused while a line has no product. (b) a customer is created from the prospect (code from the customer series, the firm's currency) and a draft quotation with the lines; the enquiry shows the quotation and the customer. (c) once the order is made the enquiry reads **WON**. (d) the follow-up is kept with its date and the enquiry's next follow-up moves; Lost needs a reason chosen from a fixed list. (e) the due view lists enquiries whose next follow-up is today or earlier and not closed; the lost report counts the lost enquiries and totals their expected value by reason. There is no Home gadget and no reminder yet.
+### TC-SELL-029 — Counter billing with a barcode scanner and a split of tenders
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Also needs:** `QA-DET` given a barcode (Masters → Products → the product → barcode); a USB scanner in keyboard mode, or type the barcode and press Enter; a thermal printer or the PDF preview.
+- **Steps:** as the prepared **Firm admin**: Sell → Documents → **Sales Invoices** → New by product for Vijaya. Click the **scan field**, scan `QA-DET`, scan it again. Add a split of tenders: part **Cash**, the rest **UPI**; then give more cash than the balance. Press **Save & print (F9)**. Then try a tender total above the bill by editing it and saving.
+- **Expect:** the first scan adds a line, the second raises its quantity by 1. The tender panel shows the balance and, for cash over the balance, the change to give back. F9 saves, approves, prints the thermal bill and opens the next blank bill. The bill shows as paid: one receipt per tender is recorded, cash into the cash book, UPI through the bank with mode UPI, each allocated to the bill. A tender total above the bill is refused. Receipts appear under Sell → Money → **Receipts**.
+### TC-SELL-030 — Picking list and loading sheet
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** As *selling-ordered*, plus the two delivery notes in the preparation table, dispatched.
+- **Steps:** as the prepared **Firm admin**: Sell → Documents → **Delivery Notes**; tick both notes (5 and 7) → **Pick list**. Then with the same ticks → **Loading sheet**. Try the buttons with nothing ticked, and as a role without SALES_VIEW.
+- **Expect:** each button gives an A4 PDF. The pick list sums the ticked notes **by product** (12 of `QA-DET`, free goods included, in stock units), by batch where a note chose one and "earliest expiry first" where it left the batch to dispatch. The loading sheet has one drop per note in the order the round visits the customers, with the note's value and what its bills still owe. Nothing is written: the notes are unchanged. With nothing ticked the buttons are disabled or the request is refused by name.
+### TC-SELL-031 — Cash discount for early payment, and interest on overdue bills
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** As *selling-delivered*, plus the first note billed and approved, as in the preparation table.
+- **Also needs:** the invoice of 483.21 nothing has been received on; an invoice that is already past its due date (back-date one, or use the due date on the bill).
+- **Steps:** as the prepared **Firm admin**: Masters → Parties → **Customers** → Vijaya → terms → cash discount **2% within 10 days**. Settings (gear) → Selling → **Credit Control** → set an overdue interest rate (say 18% a year) and a grace of 5 days → Save. Sell → Money → **Receipts** → Record Receipt for Vijaya on the day of the invoice. Then open **Customer Statements** for a customer with an overdue bill and press **Raise interest debit note**. Then clear the customer's own discount days and look again.
+- **Expect:** Record Receipt prefills the discount allowed (2% of what the bill still owes) while the bill is inside its 10 days, and not after; accepting it posts the discount as *Discount Allowed* and leaves the bill's tax alone. A customer with no days of their own takes the firm's terms; zero days refuses a discount. The statement shows the interest accrued on each overdue bill at the yearly rate (365-day year) for the days past due once the grace days have run. *Raise interest debit note* makes a **draft** customer debit note with the reason *Late payment interest*, taxed at the bill's own rates; interest is only charged when somebody raises it. A receipt, credit note or return changes the figures at once. Raising the note needs CUSTOMER_DEBIT_NOTE_MANAGE.
+### TC-SELL-032 — A new outlet waits for office approval
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Also needs:** a **Field Sales** user (SALES_EXECUTIVE) beside the firm administrator.
+- **Steps:** as the **Firm admin**: Settings (gear) → Selling → **Sales Stages** → switch on *New outlets need approval* → Save. As the **Field Sales** user: Masters → Parties → **Customers** → New, save. Try to raise a quotation, an order, and a bill for it; try to change its status. Sign in as the **Firm admin**: filter the list by **Pending approval**, tick the new customer → **Approve**; also tick two more pending ones → **Approve** (bulk). Switch the setting off and create another customer as the field user.
+- **Expect:** the field user's new customer is saved with status **Pending approval** (badge in the list; a filter finds it) and bills for it are refused when created or approved, naming the reason; the field user cannot move it on. The administrator's Approve (single and bulk) activates it, after which it can be billed. With the setting off a non-approver's new customer starts active. Approving needs CUSTOMER_APPROVE.
+### TC-SELL-033 — Named price levels, and a customer's own level
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Steps:** as the prepared **Firm admin**: Sell → Pricing → **Price Levels** → New *Dealer* and *Retail*. Masters → Products → `QA-DET` → price levels → Dealer 70, Retail 90. Masters → Parties → Customers → Anand → Price level *Dealer* (and, separately, a customer **group** with level *Retail*, Vijaya in it). Sell → Documents → **Quotations** → New for Anand: add DET and leave **Unit price** blank. Repeat for Vijaya. Then add a price list that has a **Rate** for DET and repeat for Anand.
+- **Expect:** the blank price is filled with the customer's level rate (Dealer 70 for Anand, the group's Retail 90 for Vijaya — the customer's own level wins over the group's) before the GST-inclusive conversion; lines the server filled are not converted again. A price list **Rate** wins over the level, and the level wins over the product's own price. The same holds on a sales order. A typed unit price is kept as typed.
+### TC-SELL-034 — A UPI QR on the invoice, and sharing it on WhatsApp by hand
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** As *selling-delivered*, plus the first note billed and approved, as in the preparation table.
+- **Also needs:** the approved invoice of 483.21 for Vijaya, who has a phone number; a browser or WhatsApp installed for the wa.me link. No messaging account is needed.
+- **Steps:** as the prepared **Firm admin**: Sell → Documents → **Sales Invoices** → Print settings → UPI ID `shop@upi` → Save; try `shop` alone. Print the approved invoice (A4, then the 80 mm roll). Receive part of the bill, print again; receive the rest, print again. Select the approved invoice → **WhatsApp**. Look at Vijaya's timeline.
+- **Expect:** the UPI ID must look like `name@handle`. A bill that stands and still owes money prints *Scan to pay by UPI*: a QR with the payee, the amount still owing, INR and the bill number, plus the amount and the UPI ID beside it, in the A4 footer and under the total on the roll. A part-paid bill asks only for the rest; a paid one prints none; a draft or cancelled bill prints none. *WhatsApp* saves the PDF in Downloads, opens the folder with the file selected and opens WhatsApp web (wa.me) with the covering note (and the UPI line); the bill's timeline reads *WhatsApp shared by hand to …* and never "sent".
+### TC-SELL-035 — Payment reminders and other documents sent by hand
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** As *selling-delivered*, plus the first note billed and approved, as in the preparation table.
+- **Also needs:** Settings → Firm → **Messaging** switched on with an email account for the firm (see the messaging setup guide) for the email halves; a customer who owes nothing; a customer set to *No reminders*; a quotation, a sales order, a receipt and a purchase order.
+- **Steps:** as the prepared **Firm admin**: Sell → Money → **Customer Statements** → Vijaya → **Remind**; choose email. Then select the approved invoice → **Remind** → WhatsApp. Try Remind for the customer who owes nothing and for the *No reminders* customer. Then use **Send** (email) on a quotation, a sales order, a receipt and a purchase order; print the order and the receipt.
+- **Expect:** the reminder sends the customer's **statement of account** as a PDF: the movement from the oldest unpaid bill to today, the closing balance, the unpaid bills with days overdue, and the UPI line where it applies. Email queues an outbox row and the worker sends it; WhatsApp opens WhatsApp web (wa.me) as in TC-SELL-034 and is recorded in the customer's audit trail. A customer who owes nothing and one marked *No reminders* are refused by name on both roads. The five documents send by email with a covering note and the PDF rendered at send time; a cancelled document or a reversed receipt is refused. The order and the receipt each have a Print (the receipt on A5).
+
 ## Screen checks
 
 One standard check for every screen in this area. Run it once per screen as the firm administrator, then confirm the access line with a role that lacks the code. Where a detailed case above already covers an action, the check only asks that the screen behaves consistently with it.
@@ -232,7 +309,6 @@ One standard check for every screen in this area. Run it once per screen as the 
 | 08-S05 | **Sales Returns** | Offered to any role holding `SALES_VIEW` or `SALES_RETURN` or `SALES_UPDATE` or `SALES_APPROVE` or `SALES_CANCEL`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
 | 08-S06 | **Sales → Proforma** | Offered to any role holding `PROFORMA_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
 | 08-S07 | **Sales → Credit Notes** | Offered to any role holding `CREDIT_NOTE_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 08-S08 | **Sales → Debit Notes** | Offered to any role holding `CUSTOMER_DEBIT_NOTE_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. **New** refuses a save with no invoice or no amount; **Approve** and **Cancel** are offered only with `CUSTOMER_DEBIT_NOTE_APPROVE`. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
 
 ## Results summary
 

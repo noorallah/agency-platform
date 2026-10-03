@@ -2,7 +2,7 @@
 
 Part of the QA test suite in `docs/qa/`. Read `00_README.md` first: it
 explains the preparations, the accounts and how to record results. Generated
-on 2026-09-25 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
+on 2026-10-03 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
 
@@ -135,7 +135,6 @@ warehouse rename its capability flags.
 - **Preconditions:** A firm administrator of QA01, and a product `QA-PM` *Slot Check*: category *Shelf*, tax profile group GST_18_LOCAL, base, inventory and sales unit PIECE, purchase unit BOX, and a *Case* barcode. (`QA-PM` has a **Case** level of 12 pieces with the barcode the preparation printed.)
 - **Steps:** as the prepared **Firm admin**, Administration → Configuration → UOM & Packaging → **Packaging Levels** (or Ctrl+K and the screen's name) → product `QA-PM` → type the barcode into "Scan or type a code" → **Look up**.
 - **Expect:** resolves to **Slot Check qa**, level **Case**, **12** base units. No scanner needed: a scanner only types the digits and presses Enter.
-
 ### TC-MAST-009 — One company, two customer accounts
 
 *Added 2026-10-02 (decision A7).*
@@ -151,6 +150,54 @@ warehouse rename its capability flags.
 - **Preconditions:** a CSV with the headings `Account No`, `Ledger Name`, `GSTIN/UIN`, `Remarks` and two customer rows (as a Tally ledger export might be).
 - **Steps:** Masters → Customers → "..." → **Import** → choose the file. Look at the mapping table. Leave `Account No` as *Not imported* and press **Check**. Then map `Account No` → **Code**, `Remarks` → *Not imported* → **Save mapping as...** "Tally ledgers" → **Check** → **Import**. Close, open Import again with the same file, choose *Saved mappings* → "Tally ledgers".
 - **Expect:** the table shows each heading with sample values; `Ledger Name` is already mapped to **Name** and `GSTIN/UIN` to **GSTIN**; `Account No` starts *Not imported*. With Code unmapped, Check is held back with a warning that the required **Code** column is not mapped. Mapped, the check is clean and the import creates both customers. The saved mapping fills the table the same way on the second open.
+---
+
+### TC-MAST-011 — Principals and brands, and a price revision with an effective date
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A firm administrator of QA01, and a product `QA-PM` *Slot Check*: category *Shelf*, tax profile group GST_18_LOCAL, base, inventory and sales unit PIECE, purchase unit BOX, and a *Case* barcode.
+- **Steps:** as the prepared **Firm admin**: Masters → Configuration → Items → **Principals** → New *Acme Foods*; **Brands** → New *Acme Gold* under it. Masters → Items → Products → `QA-PM` → pick the brand → Save. Sell → Insight → **Sales Analysis** → group by Brand, then by Principal; filter by one. Back on the product open **Price history** → add a revision with a price **dated next week** and another dated yesterday; import revisions from a file (one bad row). Quote the product today and with next week's date.
+- **Expect:** principals and brands are masters with their own screens; the product carries a brand (text brands that existed are carried over); sales analysis offers Brand and Principal as dimensions and filters. A price revision is the price **in force on the document's date**: today's quote takes yesterday's revision, a quote dated next week takes the later one; the unit-price resolver and a blank price on a purchase order read it. The import checks every row and writes nothing if one is bad.
+### TC-MAST-012 — A duplicate warning, and merging two customers
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A firm administrator and a salesperson of QA01, and a customer `QA-CM` *Master Check* fully described: one billing address, one contact, credit limit 50,000, payment terms 30 days, standing discount 7.5%, segment `QA-RET`, phone +919800000100.
+- **Also needs:** a second customer *Master Check Stores* (same name once trade words are set aside) with the same GSTIN or the same last ten digits of phone, carrying an approved invoice and a receipt; the same for two vendors; a user holding CUSTOMER_DELETE and VENDOR_DELETE.
+- **Steps:** as the prepared **Firm admin**: Masters → Parties → **Customers** → New, type the name *M/s Master Check Traders* and the same phone → before Save read the warning. Open the list, select the **duplicate** → **Merge into...** → pick `QA-CM` (the survivor) → confirm. Open the survivor's statement and balances. Repeat for vendors. Then try to merge a duplicate that has an invoice dated in a **closed financial year**.
+- **Expect:** the warning (not a block) names customers sharing a GSTIN, the last ten digits of a phone, or the same name once punctuation and words like stores, traders, pvt, ltd and M/s are set aside. The merge re-points every document and ledger row that named the duplicate in **one transaction**; where a unique key would collide the survivor's row is kept (per-period ledger amounts are added); stored balances are summed; the duplicate is soft-deleted and records which customer it was merged into. A duplicate with an invoice or settlement in a locked financial year is refused. Without CUSTOMER_DELETE (VENDOR_DELETE) the merge is refused.
+### TC-MAST-013 — A customer's bank accounts and files
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A firm administrator and a salesperson of QA01, and a customer `QA-CM` *Master Check* fully described: one billing address, one contact, credit limit 50,000, payment terms 30 days, standing discount 7.5%, segment `QA-RET`, phone +919800000100.
+- **Also needs:** a sales manager and an accountant; a PDF.
+- **Steps:** as the prepared **Firm admin**: Masters → Parties → Customers → `QA-CM` → **Bank accounts** → add an account (name, number `1234567890123456`, IFSC) → Save. Open **Files** → add the PDF; delete it. Sign in as the **Sales manager** and open the same tabs. Look at the customer's audit trail.
+- **Expect:** the list of accounts is replaced as a whole on save. The administrator sees the number whole; the sales manager and accountant, who do not hold CUSTOMER_MANAGE_BANK_DETAILS, see only the last four digits; the audit trail shows it masked. Files are references (name, type, path, caption); a delete is soft and audited.
+### TC-MAST-014 — A customer who is also a supplier
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A firm administrator and a salesperson of QA01, and a customer `QA-CM` *Master Check* fully described: one billing address, one contact, credit limit 50,000, payment terms 30 days, standing discount 7.5%, segment `QA-RET`, phone +919800000100.
+- **Also needs:** a vendor with the **same PAN** as the customer, and another vendor with a different PAN; an approved sales invoice to the customer and a supplier bill from the vendor.
+- **Steps:** as the prepared **Firm admin**: Masters → Parties → Customers → `QA-CM` → **Also a supplier** → pick the same-PAN vendor → Save; try the different-PAN vendor and a vendor already linked to another customer. Open **Combined statement**. On the vendor open **Also a customer**. Accounts → Books → **Party Adjustments** → set-off.
+- **Expect:** a link is accepted only for the firm's own live, unclaimed vendor with the same PAN; the others are refused by name. The combined statement merges the customer and supplier statements in date order with a running **net**; it needs CUSTOMER_VIEW plus VENDOR_VIEW. The supplier editor shows the link back. The set-off dialog preselects the linked party.
+### TC-MAST-015 — Codes issued from a series
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
+- **Steps:** as the prepared **Firm admin**: Masters → Parties → Customers → New and look at the Code box; leave it blank and save. Do the same for a vendor and a product. Then create a customer typing the code `CUS-00009` and another with a blank code.
+- **Expect:** the editor says *Blank: issued on save*. The saved codes come from the series — **CUS**, **SUP**, **PRD** — five digits, with no financial year in them and no yearly reset. A typed code stands and the counter steps over it, so the next blank one does not collide with it.
+### TC-MAST-016 — Customer and supplier PAN reports
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A firm administrator and a salesperson of QA01, and a customer `QA-CM` *Master Check* fully described: one billing address, one contact, credit limit 50,000, payment terms 30 days, standing discount 7.5%, segment `QA-RET`, phone +919800000100.
+- **Also needs:** one customer with no PAN and one with a malformed PAN (import it through the customer import); a vendor with the same two faults.
+- **Steps:** as the prepared **Firm admin**: Reports → Financial → **Customer PAN check**; then **Supplier PAN check**. As a role without CUSTOMER_VIEW open the first.
+- **Expect:** each report lists the live parties whose PAN is missing or fails the format, with six columns; a party with a good PAN is not listed. The customer report needs CUSTOMER_VIEW and the supplier report VENDOR_VIEW.
 ---
 
 ## Screen checks

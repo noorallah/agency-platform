@@ -2,7 +2,7 @@
 
 Part of the QA test suite in `docs/qa/`. Read `00_README.md` first: it
 explains the preparations, the accounts and how to record results. Generated
-on 2026-09-25 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
+on 2026-10-03 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
 
@@ -308,11 +308,17 @@ name.
 
 *Added 2026-10-02 from the code; not yet driven. Drive it and correct the expectation before relying on it.*
 
-- **Preconditions:** any firm with the GST template.
+- **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
 - **Steps:** as the prepared **Firm admin**, Settings (gear) → Tax → **GST Documents**. Read the banner. Choose **Block** for *Dispatch of a sale before its invoice*, set *E-invoicing applies from* to a date, and set *30-day reporting limit applies from* to a day **before** it → Save. Correct that, set *Claim input credit* to *Only bills matched to GSTR-2B*, set the matching tolerance → Save, close and reopen. Then open it as a user who holds Tax view but not the manage-tax-settings permission.
 - **Expect:** a firm that has never saved sees that it is using the default shown, and saving makes it the firm's own. The 30-day date earlier than the e-invoicing date (or with none) is refused with the server's message and the dialog stays open with what was typed. After the second save the values come back on reopening. The read-only user sees the values, a disabled Save and "Changing the GST document settings needs the manage tax settings permission."
-- **Leaves:** the firm's GST documents settings.
+### TC-CONF-008 — A feature or module made at runtime reaches every store
 
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** The platform administrator (`platform-admin@agency.local`), who belongs to no firm.
+- **Also needs:** at least two provisioned firms in different stores (QA01 and QA02).
+- **Steps:** as the prepared **Platform admin**: Admin → Firms → Business Profiles → **Feature Management** → New feature `QA_RUNTIME_FEAT`, then edit its name; **Module Configuration** → New module and edit it. Read the answer after each save. Delete the feature and the module.
+- **Expect:** each create, update and delete answers with the list of **stores** it reached and a warning for any it could not; the new feature and module exist in every firm's store, so a profile can use them. Deleting returns the per-store list rather than an empty answer. The pages are the generic resource pages; nothing new is on screen.
 ---
 
 ## Custom fields — how a profile reaches a record
@@ -495,6 +501,21 @@ other case that saves a customer or a product.
   2. Switch into **QASH2** → Dynamic Attributes.
   3. Delete it.
 - **Expect:** step 2 — **it is there.** `attribute_definitions` carries no `firm_id`, so every firm in `firm_shared` — QASH1, QASH2, MEDI01 and FOOD01 — edits one set. A firm in its own schema, like `ready-firm`'s, does not have this. It is the reason `docs/BACKLOG.md` §16 exists.
+### TC-FIELD-015 — Extra fields on documents, carried down the chain and printed
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Steps:** as the prepared **Firm admin**: Settings (gear) → Firm → **Custom Fields** → New: name *PO reference*, type Text, entity type **Sales order** (also add one for **Quotation** with the same name), **Show on print** on. Sell → Documents → **Quotations** → New: fill *Additional details* → Save → convert to a sales order → open the order. Create a delivery note and a bill from it. Print the quotation, order and invoice. Edit the order saving without touching *Additional details*, then clear the field and save. Repeat for a purchase order → supplier bill.
+- **Expect:** the six document editors — quotation, sales order, delivery note, sales invoice, purchase order, supplier bill — show *Additional details* from the firm's definitions. Values carry down the chain matched on the field's **name** (quotation → order at conversion, order → delivery note, notes/orders → sales invoice, purchase order → supplier bill) and are printed as references where *Show on print* is on. Saving without sending `attributes` leaves the values alone; sending an empty list clears them. Goods receipts, returns, notes, line-level fields and list filters on a document field are not covered yet.
+### TC-FIELD-016 — A firm keeps its own custom fields, in the shared store too
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** Two SHARED firms, QASH1 and QASH2, each with its own firm administrator.
+- **Steps:** as the **Firm admin of QASH1**: Settings (gear) → Firm → **Custom Fields** → New *Dock number* on Customer; Settings → **Custom Field Rules** → make it mandatory for a category. Try a code that already exists in the shared catalogue. Edit and delete the field; try to delete it after a customer holds a value. As the **Firm admin of QASH2**: open Customer → New and the field list. As the platform administrator open Attribute Definitions.
+- **Expect:** the field is **QASH1's own**: offered on its forms and on no other firm's. The shared catalogue rows (existing before this change) are listed read-only to the firms. A firm's code is unique among its own and the shared live rows. A held type cannot change and a held field cannot be deleted. The platform's Attribute Definitions list shows the shared rows only.
+---
 
 ## Screen checks
 

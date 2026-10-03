@@ -102,8 +102,15 @@ about (e.g. *System* roles), and name your rows by their suffix.
 Every expectation below was **driven against the running backend** before it
 was written, and the sidebar lists were taken from the desktop's own
 `ModuleVisibility` logic rather than inferred from permission codes.
-**Exception:** the cases added on 2026-10-02 say in their own text that they
-were written from the code and not yet driven.
+**Exception:** the cases added on 2026-10-02 and 2026-10-03 say in their own
+text that they were written from the code and not yet driven. The 2026-10-03
+cases cover the backlog items built in Waves 1 to 3 (`docs/BACKLOG_BUILD_PLAN.md`);
+each names its backlog id and decision number under **Covers**. Nineteen cases
+that had been added to `docs/qa/` by hand on 2026-10-02 (TC-MAST-009 and 010,
+TC-BUY-017 and 018, TC-SELL-022 to 026, TC-TERR-006 and TC-COMP-009 to 019) were
+brought back into this file on 2026-10-03, in the wording of the QA suite
+(a *Preconditions* line instead of a *Fixture* line), so that regenerating the
+suite no longer drops them.
 
 ### 5. Accounts
 
@@ -540,6 +547,88 @@ warehouse rename its capability flags.
 - **Data (HTTP):** `GET /api/v1/uom-framework/barcode-lookup?code=<barcode>` → `product_code`, `level_name: Case`, `base_quantity: 12`, `matched_field: barcode`. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §14.10 for the packaging level the code hangs on, and §16.15 for the difference between that and `products.barcode`, the loose single code; the lookup writes nothing.
 - **Leaves:** unchanged.
 
+### TC-MAST-009 — One company, two customer accounts
+
+*Added 2026-10-02 (decision A7).*
+
+- **Preconditions:** a customer `QA-HO` with GSTIN `29AAACP1234C1Z5`.
+- **Steps:** Masters → Customers → **New**: code `QA-KA2`, GSTIN `29AAACP1234C1Z5` → Save; on the question, **Cancel**; then Save again → **Save anyway**. New again: code `QA-TN`, GSTIN `33AAACP1234C1Z9` → Save → Save anyway. Then New with code `QA-HO` again.
+- **Expect:** the first save asks "Same GSTIN or PAN on another customer", naming **QA-HO** for both the GSTIN and the PAN; Cancel keeps everything typed and saves nothing; Save anyway saves. `QA-TN` is asked about the PAN only, and its PAN box holds `AAACP1234C` (filled from the GSTIN, no longer left blank). A second `QA-HO` is refused: "Customer code QA-HO already exists in this firm."
+
+### TC-MAST-010 — Mapping another software's export on import
+
+*Added 2026-10-02 (decision B3).*
+
+- **Preconditions:** a CSV with the headings `Account No`, `Ledger Name`, `GSTIN/UIN`, `Remarks` and two customer rows (as a Tally ledger export might be).
+- **Steps:** Masters → Customers → "..." → **Import** → choose the file. Look at the mapping table. Leave `Account No` as *Not imported* and press **Check**. Then map `Account No` → **Code**, `Remarks` → *Not imported* → **Save mapping as...** "Tally ledgers" → **Check** → **Import**. Close, open Import again with the same file, choose *Saved mappings* → "Tally ledgers".
+- **Expect:** the table shows each heading with sample values; `Ledger Name` is already mapped to **Name** and `GSTIN/UIN` to **GSTIN**; `Account No` starts *Not imported*. With Code unmapped, Check is held back with a warning that the required **Code** column is not mapped. Mapped, the check is clean and the import creates both customers. The saved mapping fills the table the same way on the second open.
+---
+
+### TC-MAST-011 — Principals and brands, and a price revision with an effective date
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog MST-1 (A118), MST-2 (A119)
+- **Fixture:** `product-master`
+- **Steps:** as the fixture's **Firm admin**: Masters → Configuration → Items → **Principals** → New *Acme Foods*; **Brands** → New *Acme Gold* under it. Masters → Items → Products → `<SUFFIX>-PM` → pick the brand → Save. Sell → Insight → **Sales Analysis** → group by Brand, then by Principal; filter by one. Back on the product open **Price history** → add a revision with a price **dated next week** and another dated yesterday; import revisions from a file (one bad row). Quote the product today and with next week's date.
+- **Expect:** principals and brands are masters with their own screens; the product carries a brand (text brands that existed are carried over); sales analysis offers Brand and Principal as dimensions and filters. A price revision is the price **in force on the document's date**: today's quote takes yesterday's revision, a quote dated next week takes the later one; the unit-price resolver and a blank price on a purchase order read it. The import checks every row and writes nothing if one is bad.
+- **Leaves:** a principal, a brand, revisions.
+
+### TC-MAST-012 — A duplicate warning, and merging two customers
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog MST-3, A136
+- **Fixture:** `customer-master`
+- **Also needs:** a second customer *Master Check Stores* (same name once trade words are set aside) with the same GSTIN or the same last ten digits of phone, carrying an approved invoice and a receipt; the same for two vendors; a user holding CUSTOMER_DELETE and VENDOR_DELETE.
+- **Steps:** as the fixture's **Firm admin**: Masters → Parties → **Customers** → New, type the name *M/s Master Check Traders* and the same phone → before Save read the warning. Open the list, select the **duplicate** → **Merge into...** → pick `QA-CM` (the survivor) → confirm. Open the survivor's statement and balances. Repeat for vendors. Then try to merge a duplicate that has an invoice dated in a **closed financial year**.
+- **Expect:** the warning (not a block) names customers sharing a GSTIN, the last ten digits of a phone, or the same name once punctuation and words like stores, traders, pvt, ltd and M/s are set aside. The merge re-points every document and ledger row that named the duplicate in **one transaction**; where a unique key would collide the survivor's row is kept (per-period ledger amounts are added); stored balances are summed; the duplicate is soft-deleted and records which customer it was merged into. A duplicate with an invoice or settlement in a locked financial year is refused. Without CUSTOMER_DELETE (VENDOR_DELETE) the merge is refused.
+- **Leaves:** a merged customer, a merged vendor.
+
+### TC-MAST-013 — A customer's bank accounts and files
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog MST-4, A68
+- **Fixture:** `customer-master`
+- **Also needs:** a sales manager and an accountant; a PDF.
+- **Steps:** as the fixture's **Firm admin**: Masters → Parties → Customers → `QA-CM` → **Bank accounts** → add an account (name, number `1234567890123456`, IFSC) → Save. Open **Files** → add the PDF; delete it. Sign in as the **Sales manager** and open the same tabs. Look at the customer's audit trail.
+- **Expect:** the list of accounts is replaced as a whole on save. The administrator sees the number whole; the sales manager and accountant, who do not hold CUSTOMER_MANAGE_BANK_DETAILS, see only the last four digits; the audit trail shows it masked. Files are references (name, type, path, caption); a delete is soft and audited.
+- **Leaves:** a bank account, a file reference.
+
+### TC-MAST-014 — A customer who is also a supplier
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog ACC-11, A86
+- **Fixture:** `customer-master`
+- **Also needs:** a vendor with the **same PAN** as the customer, and another vendor with a different PAN; an approved sales invoice to the customer and a supplier bill from the vendor.
+- **Steps:** as the fixture's **Firm admin**: Masters → Parties → Customers → `QA-CM` → **Also a supplier** → pick the same-PAN vendor → Save; try the different-PAN vendor and a vendor already linked to another customer. Open **Combined statement**. On the vendor open **Also a customer**. Accounts → Books → **Party Adjustments** → set-off.
+- **Expect:** a link is accepted only for the firm's own live, unclaimed vendor with the same PAN; the others are refused by name. The combined statement merges the customer and supplier statements in date order with a running **net**; it needs CUSTOMER_VIEW plus VENDOR_VIEW. The supplier editor shows the link back. The set-off dialog preselects the linked party.
+- **Leaves:** a party link.
+
+### TC-MAST-015 — Codes issued from a series
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog MST-5, A67
+- **Fixture:** `firm-admin`
+- **Steps:** as the fixture's **Firm admin**: Masters → Parties → Customers → New and look at the Code box; leave it blank and save. Do the same for a vendor and a product. Then create a customer typing the code `CUS-00009` and another with a blank code.
+- **Expect:** the editor says *Blank: issued on save*. The saved codes come from the series — **CUS**, **SUP**, **PRD** — five digits, with no financial year in them and no yearly reset. A typed code stands and the counter steps over it, so the next blank one does not collide with it.
+- **Leaves:** a customer, a vendor, a product.
+
+### TC-MAST-016 — Customer and supplier PAN reports
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog PLT-11, A53
+- **Fixture:** `customer-master`
+- **Also needs:** one customer with no PAN and one with a malformed PAN (import it through the customer import); a vendor with the same two faults.
+- **Steps:** as the fixture's **Firm admin**: Reports → Financial → **Customer PAN check**; then **Supplier PAN check**. As a role without CUSTOMER_VIEW open the first.
+- **Expect:** each report lists the live parties whose PAN is missing or fails the format, with six columns; a party with a good PAN is not listed. The customer report needs CUSTOMER_VIEW and the supplier report VENDOR_VIEW.
+- **Leaves:** unchanged.
+
+
 ---
 
 ## Configuration — numbering, profiles, tax and units
@@ -631,6 +720,18 @@ name.
 - **Steps:** as the fixture's **Firm admin**, Settings (gear) → Tax → **GST Documents**. Read the banner. Choose **Block** for *Dispatch of a sale before its invoice*, set *E-invoicing applies from* to a date, and set *30-day reporting limit applies from* to a day **before** it → Save. Correct that, set *Claim input credit* to *Only bills matched to GSTR-2B*, set the matching tolerance → Save, close and reopen. Then open it as a user who holds Tax view but not the manage-tax-settings permission.
 - **Expect:** a firm that has never saved sees that it is using the default shown, and saving makes it the firm's own. The 30-day date earlier than the e-invoicing date (or with none) is refused with the server's message and the dialog stays open with what was typed. After the second save the values come back on reopening. The read-only user sees the values, a disabled Save and "Changing the GST document settings needs the manage tax settings permission."
 - **Leaves:** the firm's GST documents settings.
+
+### TC-CONF-008 — A feature or module made at runtime reaches every store
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog MST-7, A69
+- **Fixture:** `platform-admin`
+- **Also needs:** at least two provisioned firms in different stores (TEST01 and TEST02).
+- **Steps:** as the fixture's **Platform admin**: Admin → Firms → Business Profiles → **Feature Management** → New feature `QA_RUNTIME_FEAT`, then edit its name; **Module Configuration** → New module and edit it. Read the answer after each save. Delete the feature and the module.
+- **Expect:** each create, update and delete answers with the list of **stores** it reached and a warning for any it could not; the new feature and module exist in every firm's store, so a profile can use them. Deleting returns the per-store list rather than an empty answer. The pages are the generic resource pages; nothing new is on screen.
+- **Leaves:** nothing, if deleted.
+
 
 ---
 
@@ -820,6 +921,133 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Expect:** after the first bill the header reads *Part billed*, and the side panel's *Received and billed* block says Received 10, Billed 6, Pending 0, **To bill 4**. The draft bill changes nothing (only approved bills count). After approving it: *Billed*, **Complete**, To bill 0. After the return of 2: Returned 2, **To bill 0** still (the return is set against what was kept), and Complete stays. A draft order shows none of the block and no billing chip. Nothing in the editor lets the figures be typed, and saving the order does not send them.
 - **Leaves:** what the steps made.
 
+### TC-BUY-017 — A debit note on a bill already paid
+
+*Added 2026-10-02 (decision A4).*
+
+- **Preconditions:** an approved supplier bill of 1,180.00 (1,000 + 18% GST), **paid in full**, and a second approved bill of the same supplier for 500.00.
+- **Steps:** Buy → **Debit Notes** → New against the paid bill: 100 on its line, reason *Price difference* → Save → **Approve**. Pay → New payment for the supplier: look at the supplier credits. Set the debit note's credit against the second bill. Then cancel the debit note. Then raise and approve it again, record a supplier **refund** of 50 against its credit, and try to cancel it.
+- **Expect:** approval succeeds (it used to refuse "still owes only 0"). The payment screen lists a credit of **118.00** marked as a debit note; set against the second bill, that bill owes **382.00**. Cancelling the debit note withdraws it -- the second bill owes 500.00 again and the credit is gone. With the refund standing, the cancel is refused ("Reverse that refund…").
+
+### TC-BUY-018 — Reorder orders from the preferred supplier
+
+*Added 2026-10-02 (decision A18).*
+
+- **Preconditions:** two active suppliers, `QA-V1` (who billed the product last, at 100) and `QA-V2` (never billed it); the product below its reorder level; its purchase price 90.
+- **Steps:** Masters → Products → open the product → **Preferred supplier** `QA-V2` → Save. Purchase Orders → "..." → **Below reorder level...**. Then mark `QA-V2` inactive and open the dialog again. Then open the product as a role that cannot see suppliers.
+- **Expect:** with `QA-V2` preferred the row names **QA-V2** at **90.00** (the last bill's 100 was QA-V1's, so it does not carry over); **Raise draft orders** raises a draft to QA-V2. With QA-V2 inactive the row falls back to **QA-V1** at 100. Saving the product with QA-V2 inactive and the supplier untouched still works. Choosing an inactive supplier is refused ("Preferred supplier not found, or not active.").
+---
+
+### TC-BUY-019 — Supplier rates, catalogue, order multiples and lead times
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog BUY-3 (A97), BUY-4 (A101), BUY-5 (A103), BUY-6 (A105)
+- **Fixture:** `po-received`
+- **Also needs:** a price list scoped to the vendor `<SUFFIX>-V` with a rate for `<SUFFIX>-B`; one completed receipt of the order of 10 (the fixture has two).
+- **Steps:** as the fixture's **Firm admin**: Masters → Parties → **Vendors** → `<SUFFIX>-V` → **Standing discount %** 5 → Save. Sell → Pricing → **Price Lists** → New, scope *Supplier* `<SUFFIX>-V`, rate 90 for `-B`. Vendors → `<SUFFIX>-V` → **Catalogue** tab → add `-B`: supplier code `SK-1`, price 80, minimum order 20, **order multiple 10**, pack size, lead time 7 days; also import a catalogue file (Import → *supplier catalogue*). Settings (gear) → Buying → **Purchase Settings** → order quantity policy **Warn**, then **Refuse**. Buy → Documents → **Purchase Orders** → New for `<SUFFIX>-V`: add `-B` with the price and discount boxes blank, quantity 25; use the hint's **Use N**; save. Look at the expected date, then the vendor's lead-time summary. Reports → Operational → Below reorder level (From sales).
+- **Expect:** a blank price and discount are filled from the supplier's terms: the catalogue price ranks between the supplier price list and the product's purchase price, and the supplier code is filled; the standing discount fills a blank discount. Quantity 25 against minimum 20 and multiple 10 shows a hint "use 30"; under Warn the order saves, under Refuse it is refused naming the multiple. The expected date is the order date plus the catalogue lead time. The vendor shows quoted lead time and what the deliveries actually took (average days, late receipts, on-time share), derived from completed receipts; a cancelled receipt stops counting. The reorder planner rounds its suggestion to the multiple and uses the lead time for the sales-based reorder point. Sales price lists ignore supplier-scoped lists. An explicit price or discount of 0 typed on the line is kept.
+- **Leaves:** a catalogue row, a supplier price list, a draft order.
+
+### TC-BUY-020 — A requisition becomes orders, and an approved order is amended
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog BUY-7 (A109), BUY-8 (A102)
+- **Fixture:** `po-approved`
+- **Also needs:** a second vendor and a second product with a preferred supplier; a role holding PURCHASE_REQUISITION_CREATE but not PURCHASE_APPROVE.
+- **Steps:** as the **Purchasing** user: Buy → Documents → **Requisitions** → New with two lines (one naming a supplier, one with only a product that has a preferred supplier, then one with neither) → Save → Submit. Try Approve. As the **Firm admin**: Approve → **Convert to orders**. Separately Reports → Below reorder level → **Raise requisition**. Then open the approved purchase order → **Amend**: change a quantity → Save; open **Revisions**; print.
+- **Expect:** a requisition is numbered in its own **PR** series; a line with neither a supplier nor a preferred supplier is refused by name; only an approver sees Approve. Converting raises **one draft purchase order per supplier** priced from the supplier's terms; the requisition becomes ORDERED and is history. Raise requisition from the reorder screen makes a requisition rather than orders. Amend on the approved order keeps it approved, bumps the **revision number**, and keeps the earlier version listed under Revisions; the print titles it as an amendment.
+- **Leaves:** a requisition, two draft orders, a revised order.
+
+### TC-BUY-021 — Goods held for inspection on receipt
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog BUY-9, A100
+- **Fixture:** `po-approved`
+- **Also needs:** a user holding PURCHASE_INSPECT.
+- **Steps:** as the fixture's **Firm admin**: Masters → Items → Products → `<SUFFIX>-B` → switch on **Inspect on receipt** → Save (or the same on its category). Buy → Documents → Goods Receipts → receive 10 and complete. Open Stock → Stock → **Inventory**. Then Buy → Documents → **Quality Inspection**: pass 6, reject 4 (once written off, once left in quarantine for a return). Cancel a second receipt that is still on hold.
+- **Expect:** completing the receipt puts the goods in **quarantine** — owned and valued as received but not sellable or issuable. The Quality Inspection screen lists the held lines; passing releases that quantity to stock; rejecting either writes it off at once or leaves it in quarantine for a purchase return (condition Quarantine). Cancelling a receipt whose lines are still held releases the holds with it. Without PURCHASE_INSPECT the decision is refused.
+- **Leaves:** a receipt, inspections, a write-off.
+
+### TC-BUY-022 — A supplier bill outside tolerance, and an order over budget
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog BUY-10 (A99), BUY-14 (A106)
+- **Fixture:** `po-received`
+- **Also needs:** a user with the approval right on purchases and a firm administrator; PURCHASE_APPROVE_OVER_TOLERANCE and PURCHASE_APPROVE_OVER_BUDGET held by the administrator only.
+- **Steps:** as the **Firm admin**: Settings (gear) → Buying → **Purchase Settings** → **Bill matching**: price tolerance 2% and amount tolerance 50 → Save. Buy → Documents → Purchase Invoices → New for the receipt of 6 with the rate 10% above the order → Save → Approve as the **Purchasing manager**, then as the administrator. Next Settings → Buying → **Purchase Budgets** → New for this month, category of `-B`, amount 500; set the policy on Purchase Settings to **Warn**, then **Block**. Raise and approve a purchase order of 10 × 100 as the manager, then as the administrator; open the order's budget panel.
+- **Expect:** the bill is **held** at approval and refused naming the breach (price over tolerance) for a user without the over-tolerance right — single and bulk approve alike; the administrator may approve it. The budget is a month, optionally one branch and one category; what it has used is the value before tax of approved orders in that month, derived on every read. Under Warn the approval proceeds with a warning; under Block it is refused for a user without PURCHASE_APPROVE_OVER_BUDGET. The order's budget panel shows budget, used and what the order adds.
+- **Leaves:** settings, a bill, a budget.
+
+### TC-BUY-023 — A payment run and its bank file
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog BUY-11, A110
+- **Fixture:** `po-invoiced`
+- **Also needs:** a second approved supplier bill for another vendor with a bank account saved; a cashier user (CASHIER cannot approve a run).
+- **Steps:** as the fixture's **Firm admin**: Buy → Money → **Payment Runs** → New → *Propose* bills falling due by today plus 30 days. Untick one bill; lower another amount; try an amount above what the bill owes. Save the draft. As the **cashier** try Approve. As the administrator: Approve. Download the **bank file**. Cancel a second draft run.
+- **Expect:** the proposal lists every supplier bill still owing that falls due by the date. A draft holds the chosen bills and amounts, never more than a bill still owes. Approving needs PAYMENT_RUN_APPROVE (the cashier is refused), records **one payment per supplier** by bank transfer allocated to that supplier's bills, all in one commit: a run that cannot pay every supplier pays none. The bank file is a generic NEFT CSV with one row per supplier from its primary bank account (no bank-specific layout yet). A cancelled draft pays nothing.
+- **Leaves:** payments and a run.
+
+### TC-BUY-024 — Supplier performance, price trend and ratings
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog BUY-12 (A107), BUY-15 (A74)
+- **Fixture:** `po-received`
+- **Also needs:** the receipts made on different days from the order's expected date (one late); two users with PURCHASE_VIEW or VENDOR_VIEW.
+- **Steps:** as the fixture's **Firm admin**: Reports → Operational → **Supplier performance**, then **Supplier price trend**. Masters → Parties → Vendors → `<SUFFIX>-V` → **Ratings** → rate each criterion 1-5 → Save; change it and save again; try 0 and 6. Sign in as a second user and rate; open the tab again; **Delete** your own rating.
+- **Expect:** the performance report has a row per supplier with receipts, **On time %**, **Rejected %**, **Returned %** and **Short %**; the trend shows month, quantity and **Average rate**. A rating criterion outside 1-5 is refused. The tab shows the averages per criterion, the overall figure, every rating and the reader's own; one live rating per person per supplier — the earlier ones stay as history and the audit row keeps the earlier scores. Deleting removes only your own.
+- **Leaves:** ratings.
+
+### TC-BUY-025 — Supplier volume rebates
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog BUY-13, A124
+- **Fixture:** `po-invoiced`
+- **Steps:** as the fixture's **Firm admin**: Buy → Money → **Supplier Rebates** → New for `<SUFFIX>-V`: a period covering the bill of 708.00 (600 before tax) and two slabs (for example from 0 at 1%, from 500 at 2%). Save. Open it and read the volume, the slab reached and the amount. **Accrue**. Accrue again. **Reverse accrual**. Accrue once more, then Accounts → Books → **Party Adjustments** → New of kind *Supplier rebate* naming the agreement. Cancel a second agreement.
+- **Expect:** the volume is derived on every read: the supplier's approved bills dated in the period at taxable value, less its completed purchase returns in the period; the **highest slab reached** sets the rate on the **whole** volume (600 at 2% = 12.00). Accrual snapshots the volume, rate and amount with the journal that booked them (Dr *Supplier Rebate Receivable*), and a second accrual of the same period is refused; nothing re-reads the bills afterwards. Reversing the accrual takes the journal off. The rebate is settled by an approved **party adjustment of kind Supplier rebate** that names the agreement (not a debit note, which has to name one bill); what has been settled is the sum of those. The control account exists for new and existing firms.
+- **Leaves:** an agreement, journals.
+
+### TC-BUY-026 — Landed cost spread over received goods
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog BUY-16, A129
+- **Fixture:** `po-received`
+- **Also needs:** a freight bill from a transporter (a second vendor) of 1,000; part of the goods already sold so that on hand is less than received (deliver 4 of the 10).
+- **Steps:** as the fixture's **Firm admin**: Buy → Money → **Landed Costs** → New: pick the two completed receipts, add a charge (freight, the transporter as billing party, its bill number, 1,000), apportion **by value**. Preview and post. Open the voucher and read each product's split. Then try **by quantity**, **by weight**, and cancel a voucher. Check Accounts → Statements → Balance Sheet and the stock valuation.
+- **Expect:** the charge's own bill is booked to *Expenses Included in Valuation*; the voucher spreads the total over the receipts' lines by taxable value (or quantity, or weight; the rounding residual goes to the largest line) and splits each share by the product's quantity still on hand: that part **revalues the stock** through a zero-quantity *Landed cost* movement (new average cost), and the rest goes to **cost of goods sold**. Journal: Dr Inventory, Dr Cost of Goods Sold, Cr Expenses Included in Valuation. Cancelling reverses the journal and takes the on-hand value back off at today's quantity. Reading needs PURCHASE_VIEW, posting PURCHASE_APPROVE.
+- **Leaves:** a landed cost voucher and journals.
+
+### TC-BUY-027 — Supplier credit set against an opening bill
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog BUY-17, A52
+- **Fixture:** `buy-ready`
+- **Also needs:** an opening supplier bill for `<SUFFIX>-V` (Accounts → Books → Opening Balances) of 500, and a supplier credit of 200 (a purchase return refunded as credit, as in TC-BUY-011).
+- **Steps:** as the fixture's **Firm admin**: apply the supplier credit — the apply dialog lists bills and opening bills (marked "(opening)") — to the opening bill for 200. Open Buy → Money → **Payments** → Record Payment for the supplier. Open the opening bill list. Try to delete the supplier. Then cancel the opening bill.
+- **Expect:** the credit is accepted against the opening bill (it used to refuse it). Record Payment shows the opening bill owing **300**; the opening bill list shows the credit counted; the supplier cannot be deleted while it holds an application. Cancelling the opening bill withdraws the credit set against it and the 200 is available again.
+- **Leaves:** a credit application.
+
+### TC-BUY-028 — Free goods to customers, and gifts from a supplier
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog BUY-1 (A111), BUY-2 (A112)
+- **Fixture:** `po-approved`
+- **Also needs:** a customer; a user holding SUPPLIER_GIFT_MANAGE; the firm's TDS 194R rules are described in the compliance notes.
+- **Steps:** as the fixture's **Firm admin**: Masters → Items → Products → `<SUFFIX>-B` → switch **Free issue only** on; try to put it on a quotation or an invoice line with a price. Receive 5 units on a goods receipt with a **Scheme** name on the line. Stock → Stock → Inventory → Write off 2 with reason *Free to customer* and the customer, and 1 with reason *Sample*. Reports → Operational → **Free goods**. Then Buy → Money → **Supplier Gifts** → record a gift from the supplier (a fridge, value 20,000, to the firm, then one taken for personal use). Open the **194R summary**. Cancel one.
+- **Expect:** a free-issue-only product is refused on a priced sales line by name. The receipt line keeps the scheme; the write-offs post to *Promotional Expense* (not Inventory Adjustment) and carry the customer; the Free goods report shows what came in free, what went out free and what is left. A supplier gift posts Dr the asset or expense account named (or *Drawings* when the owner kept it) and Cr *Supplier Incentives Received*, with no input tax; the gift register links to the receipt line marked "gift, not stock"; the 194R summary totals gifts per supplier; cancelling reverses the journal. Managing gifts needs SUPPLIER_GIFT_MANAGE.
+- **Leaves:** write-offs, a register row, journals.
+
+
 ## Stock
 
 Everything here lives under **Inventory**, in two groups that must be clicked
@@ -927,6 +1155,137 @@ the fixture builds (a minute or two).
 - **Expect:** five rows, status AVAILABLE, Warranty End a year from today, warehouse MAIN. The detail is titled "Serial: <SUFFIX>-MIX-0001" with warranty start and end and the warehouse. The Status filter keeps all five.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §10.9, in schema `fx_<suffix>_e` — five `serial_numbers` rows with `warranty_start`/`warranty_end`, `inventory_id` and `batch_id` null, audit action `CREATE`; the screen writes nothing. No movement ever names a serial, so a serial's status never moves on its own (D-STK-4).
 - **Leaves:** unchanged.
+
+### TC-STOCK-009 — A stock transfer as a document: dispatch, in transit, receive
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog STK-1, A126
+- **Fixture:** `stock-ready`
+- **Steps:** as the fixture's **Firm admin**: Stock → Movements → **Stock Transfers** → New from MAIN to the second warehouse, 20 of the product → Save. Open Stock → Stock → Stock Summary and Accounts → Journal Entries. **Dispatch**. Look at the two warehouses' stock and the valuation. Print the **challan**. **Receive** with 18 arrived, of which 3 damaged (the other 2 never arrived). Create a second transfer and **Cancel** it after dispatch; create a third and cancel it as a draft. Try to cancel the received one. Try to dispatch more than is free.
+- **Expect:** the transfer is numbered **TO-…** with a timeline. Dispatch takes the quantity off MAIN at the moving average and puts it **in transit at the destination**, still owned at that figure: no journal is posted and the firm's valuation does not move; the destination's summary shows the goods on their way. The challan is a delivery challan without values. On receipt, each line says what arrived and what of it was damaged: 15 go on the shelf, **3 arrive blocked from sale** (as on a goods receipt), and the 2 that never arrived are written off to the inventory adjustment account at the average. Cancelling a dispatched transfer brings the goods back; a draft cancels freely; a received transfer is final. Dispatching more than is free is refused. The one-step Transfer on the Inventory tab still moves stock within a building. Batches travel as themselves; serial numbers are not carried yet.
+- **Leaves:** transfers and one write-off journal.
+
+### TC-STOCK-010 — Why stock is issued: internal use, staff, display, and the firm's own reasons
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog STK-3 (A61), STK-7 (A104)
+- **Fixture:** `stock-ready`
+- **Also needs:** a user holding INVENTORY_MANAGE_REASONS (the administrator).
+- **Steps:** as the fixture's **Firm admin**: Stock → Stock → Inventory → select the product → **Write off** 2 with reason *Internal use*; again with *Staff* and *Display*; and once with *Damage*. Accounts → Books → Ledgers: read the expense accounts. Settings (gear) → Stock → **Adjustment Reasons**: add a reason *Festival gift* with its own expense account; deactivate another. Write off 1 with the new reason. Post an adjustment with a reason code.
+- **Expect:** the three new reasons post to their own expense accounts — *Stock Used in Business*, *Staff Welfare*, *Samples and Display* — and damage, expiry and loss stay on *Inventory Adjustment*. The reasons list is the firm's own (seeded on first read); the write-off and adjustment dialogs offer exactly the firm's active reasons and post to the reason's account. Without INVENTORY_MANAGE_REASONS the screen is read-only.
+- **Leaves:** write-off journals, a reason.
+
+### TC-STOCK-011 — Repacking and bulk breaking
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog STK-4, A114
+- **Fixture:** `stock-ready`
+- **Also needs:** a second product (the repacked pack) with a purchase price.
+- **Steps:** as the fixture's **Firm admin**: Stock → Movements → **Repacking** → New: consume 10 of the bulk product, produce 40 of the small pack, wastage 1. Post. Read the ledger and journals. Post another with no wastage. **Cancel** one.
+- **Expect:** every consume line leaves stock at the product's moving average; the value consumed less the wastage share is spread over the produce lines in proportion to what each is worth at its purchase price (by quantity where none has a price) and the pack arrives **at that cost**; wastage is written off to inventory adjustment. With no wastage the books do not move. Cancelling reverses every movement and the wastage journal.
+- **Leaves:** repack documents.
+
+### TC-STOCK-012 — A kit is assembled, sold as itself, and dispatched by assembling
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog STK-15, A134 (D-STK-16)
+- **Fixture:** `selling-firm`
+- **Also needs:** a product `<SUFFIX>-KIT` of type **Bundle**; DET (100 in MAIN) and a second product as components.
+- **Steps:** as the fixture's **Firm admin**: Masters → Items → Products → the kit → **Components**: DET × 2 and the other × 1 → Save. Then **Assemble** 5 kits; check stock of components and of the kit and the kit's cost. **Disassemble** 1. Raise an order for 8 kits, approve, create the delivery note and **Dispatch**. Try a kit inside the kit.
+- **Expect:** Assemble is a repack: components leave at their average and the kit arrives carrying their cost (10 DET and 5 of the other for 5 kits). Disassemble returns components. The kit is stocked and sold as itself — reservation, cost of goods sold, invoice cost and returns work as for any product. Dispatching 8 with only 4 assembled **assembles the shortfall from the components inside the dispatch's own transaction**; the dispatch gate counts the line's own reservation (D-STK-16). A kit inside a kit is not supported. Assemble and Disassemble need INVENTORY_ADJUST.
+- **Leaves:** repacks, a dispatched order.
+
+### TC-STOCK-013 — Expiry rules, shelf life and the issue rule on the product
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog STK-5 (A113), STK-11 (A63), STK-18 (A59)
+- **Fixture:** `pharma-firm`
+- **Also needs:** `<SUFFIX>-AMX` in three batches as in TC-STOCK-005; a goods receipt line to type.
+- **Steps:** as the fixture's **Firm admin**: Masters → Items → Products → `<SUFFIX>-AMX` → **Stop selling N days before expiry** 20, **alert** 45, **return to supplier** 60; **Shelf life (days)** 365; **Batch issue rule** *FIFO*. Dispatch an order, then set *FEFO*, *PICK* and dispatch again. Receive a new batch giving only a manufacturing date; then one giving an expiry too. Stock → Tracking → **Expiry Monitor** → *Return to supplier now*. Set the same three counts on the category and clear them on the product.
+- **Expect:** a batch within the stop-sale days of expiry is refused at dispatch (and in a delivery note's chosen-batch check); the picker uses the product's alert window; the monitor lists batches inside the return window (a product with no rule is never listed). A receipt line with a manufacturing date and no expiry is stored with expiry = manufacturing date + 365; a typed expiry stands; nothing is filled where the profile does not enable expiry tracking, and the batch keeps its manufacturing date and shelf life. FIFO ranks batches by when they were received; FEFO by expiry (the default); **PICK** keeps expiry order for holds but dispatch refuses by name until the line names its batches. Product, then category, then firm: the nearest set rule wins.
+- **Leaves:** product settings.
+
+### TC-STOCK-014 — Count plans, ABC classes and blind sheets
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog STK-6, A117
+- **Fixture:** `stock-ready`
+- **Steps:** as the fixture's **Firm admin**: Stock → Movements → **Physical Count** → *Count plans* → New: warehouse MAIN, ABC class **A**, every 30 days, **Blind**. Draw the **sheet**. Open it: count a few lines, post. Look at the plan's next-due date. Try a posted variance above the limit if one is set.
+- **Expect:** ABC class is worked out from the last year's dispatch value (the products making the first 80% are A, the next 15% B, the rest and anything not dispatched C). The sheet counts exactly what the plan covers; a **blind** sheet hides the system quantity until it is posted. The plan's next count falls due its interval after the last sheet it drew was posted. The adjustment limits (TC-STOCK-016) apply on posting.
+- **Leaves:** a plan, a count sheet.
+
+### TC-STOCK-015 — Evidence attached to adjustments and counts
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog STK-9, A64
+- **Fixture:** `stock-ready`
+- **Also needs:** a photo or PDF file; the ATTACHMENTS feature enabled for the firm's profile.
+- **Steps:** as the fixture's **Firm admin**: Stock → Stock → Inventory → **Adjust** (and then **Write off** and **Transfer**), pick a file in the dialog and save. Open the movement in Stock → Stock → **Transactions** → **Evidence**. On a posted count sheet add another file. Delete one file.
+- **Expect:** files named in the dialog are saved in the same transaction as the movement; a transfer's files sit on its outbound leg and are readable from either leg. The Evidence viewer lists name, type and caption for a movement or a count sheet; a posted sheet still takes files. Delete is soft and audited. Without the ATTACHMENTS feature the picker is not offered.
+- **Leaves:** attachment references.
+
+### TC-STOCK-016 — Large adjustments need approval
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog STK-8, A108
+- **Fixture:** `stock-ready`
+- **Also needs:** a user with INVENTORY_ADJUST but a low limit (a Warehouse job), and the administrator with INVENTORY_MANAGE_SETTINGS.
+- **Steps:** as the **Firm admin**: Settings (gear) → Stock → **Adjustment Limits** → Warehouse role limit **500** → Save. As the **Warehouse** user: write off stock worth 2,000 at cost. Press **Submit for approval**. As the administrator: Stock → Movements → **Adjustment Approvals** → Approve; submit and **Reject** another with a reason; bulk-approve two.
+- **Expect:** an adjustment or write-off worth more than the role's limit (quantity at the product's average cost) is refused when posted directly, naming the limit, and offers *Submit for approval*. A person whose own limit covers it approves the request and it posts unchanged through the same service; a rejection keeps its reason. A firm with no limits behaves as before.
+- **Leaves:** requests, a posted adjustment.
+
+### TC-STOCK-017 — Incoming and outgoing on availability
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog STK-10, A60
+- **Fixture:** `po-approved`
+- **Also needs:** a sales order for the product approved for 6 and partly delivered.
+- **Steps:** as the fixture's **Firm admin**: Stock → Stock → **Stock Summary** → the *Product stock* table and *Warehouse stock*. Receive part of the purchase order and look again. Open the order editor's side panel under Stock.
+- **Expect:** **Incoming** is approved purchase orders less completed receipts (stock units); **Outgoing** is the approved or partly delivered sales order lines less what has left less what is still reserved; **Projected** = available + incoming - outgoing. A product with no stock row but open orders is listed in the product table. The order editor shows incoming and outgoing for the warehouse it ships from. Reorder planning uses the same incoming figure.
+- **Leaves:** unchanged.
+
+### TC-STOCK-018 — Reservations lapse, and returned goods are held until checked
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog STK-12 (A115), STK-13 (A62)
+- **Fixture:** `selling-ordered`
+- **Also needs:** the sales order of 12 approved and reserved; a delivered and invoiced sale to return.
+- **Steps:** as the fixture's **Firm admin**: Settings (gear) → Selling → **Sales Stages** → *Reservation lapses after* 7 days → Save; back-date the order's approval (or wait) and let the server's timer run; open the order. Press **Reserve again**. Then Settings (gear) → Stock → **Batch Rules** → *Hold returned goods for checking* on. Complete a sales return with some good, some damaged. Open Inventory. Select the quarantined row → **Release**. Cancel a second return.
+- **Expect:** the order is flagged *Reservation lapsed* (not cancelled), its stock goes back to free, and it can still be dispatched from free stock; **Reserve again** holds it once more. Off by default. With the batch rule on, completing the return puts the **sellable** part in quarantine (still owned and valued), the damaged and scrapped parts as before; *Release* puts the checked goods on the shelf; cancelling the return takes it back out of quarantine.
+- **Leaves:** a flagged order, quarantined stock.
+
+### TC-STOCK-019 — Stock alerts on Home and turnover in the ageing
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog STK-14, A116
+- **Fixture:** `stock-ready`
+- **Also needs:** one product below reorder level, one out of stock, one over its maximum.
+- **Steps:** as the fixture's **Firm admin**: open Home and read the to-do. Reports → Operational → Stock ageing.
+- **Expect:** Home lists stock lines to attend to, each counted with the worst rows: at or below reorder level, out of stock, over the maximum, batches near expiry, goods in transit, open count sheets. The ageing report carries *issued last year* and *turnover* columns. Nothing is stored; the figures change as the stock does.
+- **Leaves:** unchanged.
+
+### TC-STOCK-020 — Barcode labels, and the product's selling status
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog STK-16 (A65), STK-17 (A58)
+- **Fixture:** `selling-firm`
+- **Also needs:** a printer or the PDF preview; a goods receipt that stocked pieces.
+- **Steps:** as the fixture's **Firm admin**: Masters → Items → Products → tick two products → **Print labels**: sheet 65-up, then 24-up, then the 50 × 25 mm roll; copies 2; used positions 1-3; price switch. On a goods receipt selection press **Print labels**. Try a cancelled receipt. Then set `<SUFFIX>-DET` to **Discontinued**; raise a quotation and an order; raise a purchase order. Reorder report. Set **Not for sale** on another product and try a quotation, an order and a purchase order.
+- **Expect:** labels are Code 128 with name, barcode, MRP, our price, batch and expiry (the product code stands in for a missing barcode; an unencodable value is refused by product name); `skip` leaves used positions blank; the receipt's labels use the delivery's MRP and price, one per piece stocked, and a cancelled receipt is refused. A **Discontinued** product still sells but is refused on a purchase order by name and is not suggested by reorder planning (only active products are). **Not for sale** refuses the product on every new sales line whatever its status but it can still be bought.
+- **Leaves:** product settings.
+
 
 ### Known defects found while writing these cases
 
@@ -1191,6 +1550,145 @@ promotion, or the customer's standing rate).
 - **Expect:** while the switch is on the Rate column is labelled as the shelf price and the totals show a taxable value of 1,000.00 with 180.00 tax, total 1,180.00. Reopening shows 118 as typed; the print shows both rates. The order opens with the switch **on** and the same typed rate, and the customer is billed what was quoted. A bill raised from the order prints only the pre-tax rate. A new order starts with the switch on only after the setting is saved; an order made by converting a quotation never reads the setting a second time.
 - **Leaves:** what the steps made.
 
+### TC-SELL-022 — Batch rules: near expiry, a reason, and the price floor
+
+*Added 2026-10-02 (backlog 79 row 6, A2).*
+
+- **Preconditions:** the shop from TC-SELL-019 (a batch expiring within 30 days and a later one, 10 each). The product's **minimum selling price** 150. Settings → Selling → **Price Floor**: *Block*.
+- **Steps:** Settings → Stock → **Batch Rules**: note the defaults, then set *A near-expiry batch leaving* to **Need a reason** → Save. (a) A sales order for 2 at **100** → Approve. (b) A sales order for 15 at 100 → Approve. (c) A delivery note off order (a), batches untouched → Save → Approve → **Dispatch**; cancel the reason prompt; Dispatch again and give *Short-dated stock cleared*. (d) Set *FEFO skip* to **Need a reason**; a note choosing the *later* batch → Dispatch. (e) Untick *may be sold below the price floor* → repeat (a).
+- **Expect:** the defaults read 30 days, Warn, Record, ticked. (a) approves although 100 is below 150; its timeline names the near-expiry batch. (b) is refused below the minimum price -- 15 takes the later batch too, which is fresh stock. (c) the prompt names the line and the near-expiry batch; cancelling dispatches nothing; with the reason it dispatches and Settings → Audit trail shows **delivery_note.near_expiry_dispatched** with the reason. (d) asks for a reason before dispatching; **delivery_note.fefo_skipped** keeps it. (e) is refused like (b).
+
+### TC-SELL-023 — Choosing batches on a counter bill
+
+*Added 2026-10-02 (backlog 79 row 2).*
+
+- **Preconditions:** a firm with the delivery note stage **off** (Settings → Selling → Sales Stages). A batch-tracked product with two in-date batches, an earlier and a later expiry, 10 each, in the default warehouse.
+- **Steps:** Sell → **Counter bill** (New sales invoice): the product, quantity 4. Open the line's batches: note the pre-fill. Put 4 on the **later** batch → Save → reopen the draft and look at the batches → change to 1 earlier + 3 later → Save → **Approve**. Then a second bill of 4 with the batches untouched → Approve.
+- **Expect:** the picker lists both batches with expiry and days left, the earlier one pre-filled with 4. The saved draft shows 4 on the later batch. After approval, stock of the earlier batch is down by 1 and the later by 3 (Stock → by batch), and Settings → Audit trail shows **delivery_note.fefo_skipped**. The untouched bill draws 4 from the earlier batch, as before.
+
+### TC-SELL-024 — A customer's minimum shelf life
+
+*Added 2026-10-02 (backlog 79 row 6).*
+
+- **Preconditions:** a firm whose business profile has expiry tracking. A batch-tracked product with a batch expiring in about 4 months and one in about 9 months, 10 each. A customer with **Minimum shelf life** 180 days (Masters → Customers → edit). An approved sales order of 8 for that customer.
+- **Steps:** (a) Delivery Notes → New off the order, batches untouched → Save → Approve → **Dispatch**. (b) A second order and note: open the batch picker. (c) Put 8 on the 4-month batch → Save → Approve → Dispatch. (d) Settings → Stock → **Batch Rules**: *short of the customer's minimum shelf life* → **Warn** → Save, and dispatch (c) again.
+- **Expect:** (a) ships the **9-month** batch -- the 4-month one is passed over without anybody choosing. (b) the 4-month batch carries **Too short for customer** and the pre-fill is on the 9-month one. (c) Dispatch is refused with a message naming the batch and the customer's minimum; no reason prompt is offered. (d) it dispatches, and Settings → Audit trail shows **delivery_note.short_shelf_life_dispatched**.
+
+### TC-SELL-025 — Pinning the batch a customer asked for
+
+*Added 2026-10-02 (backlog 79 row 4).*
+
+- **Preconditions:** a batch-tracked product with an earlier and a later in-date batch, 10 each, and one expired batch with stock.
+- **Steps:** Sales Orders → New: 5 of the product, **Batch** = the later batch → Save → Approve. Stock → by batch. Delivery Notes → New off the order → look at the batch picker → Approve → Dispatch. Then an order for 12 pinning the later batch → Approve. Then an order pinning the expired batch → Approve.
+- **Expect:** approval holds 5 of the **later** batch and nothing of the earlier. The note opens with 5 on the later batch, and dispatch ships it (audit trail: **delivery_note.fefo_skipped**). The order for 12 holds 10 of the later batch and leaves 2 as a back order -- the earlier batch stays free. Pinning the expired batch is refused at approval naming it.
+
+### TC-SELL-026 — A batch's own MRP
+
+*Added 2026-10-02 (backlog 79 row 7, A41).*
+
+- **Preconditions:** a batch-tracked product; the delivery note stage off (counter bills).
+- **Steps:** Goods Receipt for the product: batch `B1`, **MRP** 120, **Selling price** 95; a second line batch `B2`, MRP 100. Complete it. Settings → Stock → Batch Rules: tick *Take a line's rate from its batch's selling price*. Counter bill: the product, 4, choose `B1` → look at the rate → Save → Approve → **Print**. Then a counter bill of 4 from `B2` at rate **110** (no tax) → Approve.
+- **Expect:** the batch screen shows B1 at MRP 120 / 95 and B2 at 100. The picker lists each batch's MRP. Choosing B1 fills the rate **95**. The printed bill has an **MRP** column, 120 on the B1 row. The B2 bill at 110 is refused: "charges 110.00 a unit with tax, above the MRP of 100.00 printed on the batch it ships".
+---
+
+### TC-SELL-027 — Several delivery notes on one bill: customer first
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog SEL-1, A54 (D-SELL-44)
+- **Fixture:** `selling-delivered`
+- **Also needs:** a second customer with one dispatched, unbilled delivery note; for the clash, a third dispatched note for Vijaya that names a **different salesman** from the notes of 5 and 7 (set the salesman on the order it came from). For the supplier half, `po-received` (receipts of 4 and 6).
+- **Steps:** as the fixture's **Firm admin**: Sell → Documents → **Sales Invoices** → New → bill from delivery notes. (a) Look at the first question asked. Pick Vijaya. (b) Tick the notes of 5 and 7 → create the draft. (c) Start again and also try to tick the third note. (d) Start again and pick the second customer. Then Buy → Documents → **Purchase Invoices** → New → from receipts: pick the supplier and tick the receipts of 4 and 6.
+- **Expect:** (a) the editor asks for the **customer** first and lists only customers that have notes left to bill. Vijaya opens a tick list: number, date, order and the amount left to bill before tax. (b) the two notes can be ticked together and make one draft bill. (c) the third note cannot be ticked beside notes of another salesman, and says which field (salesman) and which note it clashes with; the same holds for branch, territory or route. (d) a customer with a single note has it ticked already, without being asked. The supplier bill asks for the **supplier** first and lists that supplier's receipts; the only field a receipt can clash on is the branch.
+- **Leaves:** a draft bill.
+
+### TC-SELL-028 — An enquiry becomes a customer and a quotation
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog SEL-10, A133
+- **Fixture:** `selling-firm`
+- **Also needs:** the product `<SUFFIX>-DET`; a role holding SALES_VIEW, SALES_QUOTATION_CREATE and SALES_UPDATE (the firm administrator does).
+- **Steps:** as the fixture's **Firm admin**: Sell → Documents → **Enquiries** → New. Type a **prospect** (name, company, phone in the form +91…, email, city) instead of picking a customer; source, salesman, expected value, expected close date, next follow-up date; one line for `<SUFFIX>-DET` × 10 and a second line with a description only. Save. (a) Try **Convert to quotation**. (b) Give the second line a product and convert again. (c) Open the new quotation and convert it to a sales order. (d) Raise a second enquiry for a prospect, add a follow-up note with a new next date, then mark it **Lost** with a reason from the list. (e) Open the **Follow-ups due** view; then Reports → Operational → **Enquiries lost**.
+- **Expect:** the enquiry is numbered **ENQ-…** and opens as new. (a) conversion is refused while a line has no product. (b) a customer is created from the prospect (code from the customer series, the firm's currency) and a draft quotation with the lines; the enquiry shows the quotation and the customer. (c) once the order is made the enquiry reads **WON**. (d) the follow-up is kept with its date and the enquiry's next follow-up moves; Lost needs a reason chosen from a fixed list. (e) the due view lists enquiries whose next follow-up is today or earlier and not closed; the lost report counts the lost enquiries and totals their expected value by reason. There is no Home gadget and no reminder yet.
+- **Leaves:** a customer, a quotation, an order, two enquiries.
+
+### TC-SELL-029 — Counter billing with a barcode scanner and a split of tenders
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog SEL-12, A90
+- **Fixture:** `selling-firm`
+- **Also needs:** `<SUFFIX>-DET` given a barcode (Masters → Products → the product → barcode); a USB scanner in keyboard mode, or type the barcode and press Enter; a thermal printer or the PDF preview.
+- **Steps:** as the fixture's **Firm admin**: Sell → Documents → **Sales Invoices** → New by product for Vijaya. Click the **scan field**, scan `<SUFFIX>-DET`, scan it again. Add a split of tenders: part **Cash**, the rest **UPI**; then give more cash than the balance. Press **Save & print (F9)**. Then try a tender total above the bill by editing it and saving.
+- **Expect:** the first scan adds a line, the second raises its quantity by 1. The tender panel shows the balance and, for cash over the balance, the change to give back. F9 saves, approves, prints the thermal bill and opens the next blank bill. The bill shows as paid: one receipt per tender is recorded, cash into the cash book, UPI through the bank with mode UPI, each allocated to the bill. A tender total above the bill is refused. Receipts appear under Sell → Money → **Receipts**.
+- **Leaves:** an approved, paid bill and its receipts.
+
+### TC-SELL-030 — Picking list and loading sheet
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog SEL-13, A92
+- **Fixture:** `selling-delivered`
+- **Steps:** as the fixture's **Firm admin**: Sell → Documents → **Delivery Notes**; tick both notes (5 and 7) → **Pick list**. Then with the same ticks → **Loading sheet**. Try the buttons with nothing ticked, and as a role without SALES_VIEW.
+- **Expect:** each button gives an A4 PDF. The pick list sums the ticked notes **by product** (12 of `<SUFFIX>-DET`, free goods included, in stock units), by batch where a note chose one and "earliest expiry first" where it left the batch to dispatch. The loading sheet has one drop per note in the order the round visits the customers, with the note's value and what its bills still owe. Nothing is written: the notes are unchanged. With nothing ticked the buttons are disabled or the request is refused by name.
+- **Leaves:** unchanged.
+
+### TC-SELL-031 — Cash discount for early payment, and interest on overdue bills
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog SEL-14, A91
+- **Fixture:** `selling-invoiced`
+- **Also needs:** the invoice of 483.21 nothing has been received on; an invoice that is already past its due date (back-date one, or use the due date on the bill).
+- **Steps:** as the fixture's **Firm admin**: Masters → Parties → **Customers** → Vijaya → terms → cash discount **2% within 10 days**. Settings (gear) → Selling → **Credit Control** → set an overdue interest rate (say 18% a year) and a grace of 5 days → Save. Sell → Money → **Receipts** → Record Receipt for Vijaya on the day of the invoice. Then open **Customer Statements** for a customer with an overdue bill and press **Raise interest debit note**. Then clear the customer's own discount days and look again.
+- **Expect:** Record Receipt prefills the discount allowed (2% of what the bill still owes) while the bill is inside its 10 days, and not after; accepting it posts the discount as *Discount Allowed* and leaves the bill's tax alone. A customer with no days of their own takes the firm's terms; zero days refuses a discount. The statement shows the interest accrued on each overdue bill at the yearly rate (365-day year) for the days past due once the grace days have run. *Raise interest debit note* makes a **draft** customer debit note with the reason *Late payment interest*, taxed at the bill's own rates; interest is only charged when somebody raises it. A receipt, credit note or return changes the figures at once. Raising the note needs CUSTOMER_DEBIT_NOTE_MANAGE.
+- **Leaves:** a receipt with a discount, a draft debit note.
+
+### TC-SELL-032 — A new outlet waits for office approval
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog SEL-15, A93
+- **Fixture:** `selling-firm`
+- **Also needs:** a **Field Sales** user (SALES_EXECUTIVE) beside the firm administrator.
+- **Steps:** as the **Firm admin**: Settings (gear) → Selling → **Sales Stages** → switch on *New outlets need approval* → Save. As the **Field Sales** user: Masters → Parties → **Customers** → New, save. Try to raise a quotation, an order, and a bill for it; try to change its status. Sign in as the **Firm admin**: filter the list by **Pending approval**, tick the new customer → **Approve**; also tick two more pending ones → **Approve** (bulk). Switch the setting off and create another customer as the field user.
+- **Expect:** the field user's new customer is saved with status **Pending approval** (badge in the list; a filter finds it) and bills for it are refused when created or approved, naming the reason; the field user cannot move it on. The administrator's Approve (single and bulk) activates it, after which it can be billed. With the setting off a non-approver's new customer starts active. Approving needs CUSTOMER_APPROVE.
+- **Leaves:** customers and a changed sales setting.
+
+### TC-SELL-033 — Named price levels, and a customer's own level
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog SEL-9, A89
+- **Fixture:** `selling-firm`
+- **Steps:** as the fixture's **Firm admin**: Sell → Pricing → **Price Levels** → New *Dealer* and *Retail*. Masters → Products → `<SUFFIX>-DET` → price levels → Dealer 70, Retail 90. Masters → Parties → Customers → Anand → Price level *Dealer* (and, separately, a customer **group** with level *Retail*, Vijaya in it). Sell → Documents → **Quotations** → New for Anand: add DET and leave **Unit price** blank. Repeat for Vijaya. Then add a price list that has a **Rate** for DET and repeat for Anand.
+- **Expect:** the blank price is filled with the customer's level rate (Dealer 70 for Anand, the group's Retail 90 for Vijaya — the customer's own level wins over the group's) before the GST-inclusive conversion; lines the server filled are not converted again. A price list **Rate** wins over the level, and the level wins over the product's own price. The same holds on a sales order. A typed unit price is kept as typed.
+- **Leaves:** two levels, rates on one product.
+
+### TC-SELL-034 — A UPI QR on the invoice, and sharing it on WhatsApp by hand
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog MSG-2 (A55), MSG-1 (A56)
+- **Fixture:** `selling-invoiced`
+- **Also needs:** the approved invoice of 483.21 for Vijaya, who has a phone number; a browser or WhatsApp installed for the wa.me link. No messaging account is needed.
+- **Steps:** as the fixture's **Firm admin**: Sell → Documents → **Sales Invoices** → Print settings → UPI ID `shop@upi` → Save; try `shop` alone. Print the approved invoice (A4, then the 80 mm roll). Receive part of the bill, print again; receive the rest, print again. Select the approved invoice → **WhatsApp**. Look at Vijaya's timeline.
+- **Expect:** the UPI ID must look like `name@handle`. A bill that stands and still owes money prints *Scan to pay by UPI*: a QR with the payee, the amount still owing, INR and the bill number, plus the amount and the UPI ID beside it, in the A4 footer and under the total on the roll. A part-paid bill asks only for the rest; a paid one prints none; a draft or cancelled bill prints none. *WhatsApp* saves the PDF in Downloads, opens the folder with the file selected and opens WhatsApp web (wa.me) with the covering note (and the UPI line); the bill's timeline reads *WhatsApp shared by hand to …* and never "sent".
+- **Leaves:** a print template with a UPI ID, a timeline entry.
+
+### TC-SELL-035 — Payment reminders and other documents sent by hand
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog MSG-3 (A57), MSG-4 (A95)
+- **Fixture:** `selling-invoiced`
+- **Also needs:** Settings → Firm → **Messaging** switched on with an email account for the firm (see the messaging setup guide) for the email halves; a customer who owes nothing; a customer set to *No reminders*; a quotation, a sales order, a receipt and a purchase order.
+- **Steps:** as the fixture's **Firm admin**: Sell → Money → **Customer Statements** → Vijaya → **Remind**; choose email. Then select the approved invoice → **Remind** → WhatsApp. Try Remind for the customer who owes nothing and for the *No reminders* customer. Then use **Send** (email) on a quotation, a sales order, a receipt and a purchase order; print the order and the receipt.
+- **Expect:** the reminder sends the customer's **statement of account** as a PDF: the movement from the oldest unpaid bill to today, the closing balance, the unpaid bills with days overdue, and the UPI line where it applies. Email queues an outbox row and the worker sends it; WhatsApp opens WhatsApp web (wa.me) as in TC-SELL-034 and is recorded in the customer's audit trail. A customer who owes nothing and one marked *No reminders* are refused by name on both roads. The five documents send by email with a covering note and the PDF rendered at send time; a cancelled document or a reversed receipt is refused. The order and the receipt each have a Print (the receipt on A5).
+- **Leaves:** outbox rows, audit entries.
+
+
 ## Pricing, promotions and incentives
 
 Price Lists, Promotions, Commission and Targets are under **Sales**; Loyalty
@@ -1301,6 +1799,49 @@ commission uses `commission-firm`:
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §17.13 and §17.14 — the three refusals write nothing. `COMMISSION_PAY` is its own code and `SALES_MANAGER` holds neither it nor `COMMISSION_MANAGE`; `ACCOUNTANT` and `FIRM_ADMIN` hold both, and nothing compares the actor with the payout's own salesperson (D-TER-4).
 - **Leaves:** unchanged.
 
+### TC-INCENT-009 — Buy X get Y at a discount, and a combo price
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog SEL-2 (A94), SEL-3 (A96)
+- **Fixture:** `selling-firm`
+- **Also needs:** a second product `<SUFFIX>-Q` priced like DET (create one), so a combo has two items.
+- **Steps:** as the fixture's **Firm admin**: Sell → Pricing → **Promotions** → New. (a) Benefit *Buy X get Y at a discount*: buy 2, get 1 at **50%**, optional cap amount. Save and activate. Quotations → New for Vijaya → `<SUFFIX>-DET` × 3, then × 6, then × 1. (b) New promotion, benefit *Combo price*: pick DET and `-Q` in the product pick, amount **150** for the set. Activate. A quotation with DET × 2 and Q × 2, then DET × 2 and Q × 1.
+- **Expect:** (a) the discount is on **whole groups only**: 3 units make one group (the third unit at half price of what that unit has left after other discounts), 6 make two, 1 makes none; a cap limits the total and is shared across the lines in proportion. (b) each **complete set** across the lines sells for the combo amount and the saving (the sets' normal value less 150) is spread across the lines by value; DET × 2 with Q × 2 is two sets, DET × 2 with Q × 1 is one set and the leftover DET is at its normal price. The offer editor shows the benefit and its fields.
+- **Leaves:** two promotions, quotations.
+
+### TC-INCENT-010 — Bonus loyalty points, customer history and day-and-time conditions
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog SEL-4 (A73), SEL-6 (A98), SEL-7 (A72)
+- **Fixture:** `loyalty-points`
+- **Steps:** as the fixture's **Firm admin**: Sell → Pricing → **Promotions** → New *Bonus loyalty points* with a multiplier of **3** (the benefit stands alone on its offer), dated today. Raise and approve a bill for Vijaya and read her balance (Masters → Loyalty). Try a multiplier of 11 or 0. Next, New promotion with a 5% discount and the condition **Customer order count** = 0 (first order), another with **Days since last order** = 30. Then New promotion 5% with **Days of the week** = Sat and Sun, and another with **Time of day** between 16:00 and 18:00. Try a time window crossing midnight, and a weekday outside 1-7 through the API. Quote a bill on a weekday morning, on a Saturday, and inside the window.
+- **Expect:** an approved bill earns points at the scheme's rate **times the largest multiplier** among the live points offers whose conditions hold on the bill's date; the audit row names the offer and the multiplier; the offer is passed over by the discount engine with a trace note. A multiplier outside 1-10 is refused. Order-count and days-since-last-order conditions are tested against the customer's approved and closed bills on or before the date (a customer with none has count 0). Weekend-only and time-window offers apply only inside their day or window (time is India time, taken from the quotation's or order's own creation time); a window that crosses midnight and a weekday outside 1-7 are refused when the condition is written.
+- **Leaves:** promotions, points earned.
+
+### TC-INCENT-011 — Bulk coupon codes, and copying an offer with new dates
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog SEL-5 (A70), SEL-8 (A71)
+- **Fixture:** `selling-firm`
+- **Steps:** as the fixture's **Firm admin**: Sell → Pricing → **Promotions** → open the coupon-only offer **WELCOME** → coupons → **Generate codes**: count 50, prefix `DIWALI`, a description and a window → Generate; then ask for 6,000. **Export codes**. Use one code on a quotation twice, and for a second customer. Back on the grid select WELCOME → **Copy with new dates...** with a code suffix `-NOV` and a new window.
+- **Expect:** 50 random codes `DIWALI-XXXXXXXX` are made from an alphabet without look-alike characters, each usable **once** and once per customer, all or nothing; 6,000 is refused (limit 5,000). The export is a CSV of the offer's codes with their uses. A code already used cannot be redeemed again. The copy is a **DRAFT** at version one with code `…-NOV`, the same conditions and benefits and the new window; its coupons are **not** copied; the audit trail has *promotion.copied* naming the source. The grid selects one offer at a time (the API takes up to 100).
+- **Leaves:** 50 coupons, a draft offer.
+
+### TC-INCENT-012 — Claims to the principal
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog SEL-11, A128
+- **Fixture:** `selling-invoiced`
+- **Also needs:** a principal (Masters → Items → Principals) and a brand under it on `<SUFFIX>-DET`; a promotion the principal funds (principal and **share %** on the promotion editor) that was claimed on an approved bill; an expiry write-off of a DET batch; a sales return of DET completed with damaged goods. A vendor to be the principal's supplier account.
+- **Steps:** as the fixture's **Firm admin**: Buy → Money → **Principal Claims** → New → pick the principal and the period → Preview. Raise the claim. Raise it again for the same period. Then record the principal's **credit note** (Accounts → Party Adjustments, kind *Principal claim*) against it, and a payment into the bank for the rest. Reverse one receipt. Cancel the claim in a second run and raise it again. Print.
+- **Expect:** the preview gathers each source **once**: scheme redemptions (at the principal's share of the benefit), expiry write-offs of its products (at book value) and damaged or scrapped lines of completed sales returns (at the taxable rate credited). Raising posts Dr *Claims Receivable from Principals* and Cr promotional expense (schemes) or inventory adjustment (stock). A second claim over the same sources is refused or empty (one live claim per source). Settlement by credit note and by bank payment moves the status RAISED → PART_SETTLED → SETTLED; reversing a receipt moves it back. Cancelling frees the sources to be claimed again. Reading needs PURCHASE_VIEW, writing PURCHASE_APPROVE. Free quantity on a bill line is not claimed yet.
+- **Leaves:** a claim and its postings.
+
+
 ---
 
 ## Territory, routes and beats
@@ -1376,6 +1917,15 @@ admin**.
 - **Expect:** Bala is refused in the editor's banner: "The selected salesperson is not assigned to this territory." — nothing saved. Asha saves. Blank saves and, reopened, the salesman is **Asha**, supplied by the customer's route.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §17.8 — `resolve_sales_scope` writes `territory_id`, `route_id` and `salesman_id` on the order and nothing else; the refusal writes nothing. A blank route is judged on the order's own date; a route the caller names is kept as sent (D-TER-9), and a derived salesperson is not checked for membership (D-TER-11).
 - **Leaves:** two draft orders.
+
+### TC-TERR-006 — Loading places from India Post (B6)
+
+*Added 2026-10-02 (decision B6).*
+
+- **Preconditions:** signed in as the platform administrator with a firm selected. Since migration `20261002_0231` every firm store already holds the seven southern states' places: first open a customer address on a fresh install and type PIN **600001** (Chennai) -- it must fill without any loading. Then delete nothing and continue.
+- **Steps:** open the geography screen → **Load places from India Post...**. Look at which states are ticked. Untick all but **Lakshadweep** and **Load**. Then open a customer address and type PIN **682554**. Run the load again for Lakshadweep.
+- **Expect:** the seven southern states are ticked by default, each showing its PIN codes and post offices; the source line names India Post and data.gov.in. The Lakshadweep load reports 1 district, 9 towns, 9 PIN codes and 10 localities. PIN 682554 offers town **Chetlat**, district **Lakshadweep District**, state Lakshadweep, and localities Bithra and Chetlat. The second load adds nothing and the counts stay the same.
+
 
 ### Known defects found while writing these cases
 
@@ -1482,6 +2032,171 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Steps:** as the fixture's **Firm admin**, Home → **Tax calendar**. On a GSTR-1 row choose to record it as filed, with a date and an acknowledgement number. Then withdraw it (Undo). Record a GST payment for the month and look again.
 - **Expect:** one row per return per finished month (GSTR-1 due the 11th, GSTR-3B the 20th; a TCS deposit row only for a month that collected tax at source), each reading due in N days, N days late or Filed on a date. Marking GSTR-1 filed turns its row to Filed and nothing else moves; Undo puts it back. GSTR-3B closes once a GST payment is recorded for the month. A TCS row has no record button. A role that may not open GST Payment does not see the card.
 - **Leaves:** a filing record, unless withdrawn.
+
+### TC-COMP-009 — Filing e-invoices offline (no GSP)
+
+*Added 2026-10-02 (decision A42).*
+
+- **Preconditions:** a GST-registered firm with two approved B2B invoices to registered buyers, not yet registered.
+- **Steps:** Settings → Tax → **GST Documents** → *E-invoice filing* → **Offline** → Save. Accounts → Tax filing → E-Invoice → **Export for portal** → tick both → save the JSON file. Open it. Then **Import portal result** with a JSON file shaped like the portal's answer (for each invoice: `DocDtls.No` the invoice number, `Irn`, `AckNo`, `AckDt`, `SignedQRCode`; give the second invoice no `Irn` and an `ErrorDetails` text). Then try **Register** on a third approved invoice.
+- **Expect:** the export holds one object per invoice in the portal's schema (`Version`, `TranDtls`, `DocDtls`, `SellerDtls`, `BuyerDtls`, `ItemList`, `ValDtls`), and both invoices show **PENDING**, mode **LIVE**, route **OFFLINE**. After the import the first is **REGISTERED** with that IRN and acknowledgement, the second **FAILED** with the error text, and the message counts 1 registered, 1 refused. Register on the third comes back refused with directions to export it instead.
+
+### TC-COMP-010 — E-way bills without an IRN, on a challan, and by hand
+
+*Added 2026-10-02 (backlog 77 rows 9-10).*
+
+- **Preconditions:** a firm with no *e-invoicing applies* date; Settings → Tax → GST Documents → *E-way bill needed above* **1,000**. An approved invoice worth more than 1,000 without an e-way bill; an approved **Job work** delivery note that no invoice bills; a second approved invoice.
+- **Steps:** Accounts → Tax filing → E-Invoice → **E-way bills due**. Raise the first invoice's e-way bill (distance 120, road, a vehicle). Raise the job-work note's. On the second invoice choose **Record e-way bill...**: number `3510 1234 5678`. Then set an *e-invoicing applies* date in the past and try to raise an e-way bill on a new, unregistered B2B invoice. Dispatch a delivery note worth more than 1,000.
+- **Expect:** the due list shows the invoices and the note with the limit 1,000. The first invoice's bill is raised without an IRN; the note's bill carries supply type **Job work**; the recorded one shows `351012345678`, marked as entered by hand. Each leaves the due list. With e-invoicing on, the unregistered invoice is refused: "Register the invoice before raising its e-way bill". Dispatching the note prompts to raise its e-way bill.
+
+### TC-COMP-011 — Registering a credit note and a debit note
+
+*Added 2026-10-02 (backlog 77 row 4).*
+
+- **Preconditions:** a GST-registered firm on the **Sandbox** route; an approved, registered B2B invoice of 1,000 + 18% GST; an approved credit note of 200 + 36 against it, and an approved debit note to the customer of 100 + 18.
+- **Steps:** Sell → Credit Notes → the note → **E-invoice** → **Register**. The same on the debit note. Accounts → Tax filing → E-Invoice: look at the list. Switch the firm to **Offline**, raise another credit note, and **Export for portal** with an invoice and that note ticked; open the file.
+- **Expect:** each note registers with an `SBX` IRN and shows mode **SANDBOX**; the list shows them as *Credit note* and *Debit note* with their own numbers. The exported file holds the invoice (`Typ` INV) and the note (`Typ` CRN) whose `RefDtls` names the invoice it corrects, CGST and SGST each 18.00 on the 200.
+---
+
+### TC-COMP-012 — The IRN and QR on the printed documents
+
+*Added 2026-10-02 (backlog 77 row 11).*
+
+- **Preconditions:** TC-COMP-011 done: a registered invoice, a registered credit note and a registered debit note; plus one approved invoice never registered.
+- **Steps:** Print each of the four. Withdraw the invoice's registration (inside 24 hours) and print it again.
+- **Expect:** the three registered documents carry an **E-INVOICE** box under the title with the IRN, Ack No. and Ack Date and a QR code; scanning the QR returns the signed text. The credit note is titled **CREDIT NOTE**, names "Against invoice" with the invoice number and date and the reason, and splits its tax into CGST and SGST as the invoice did. The unregistered invoice and the withdrawn one print with no box.
+
+### TC-COMP-013 — Rule 37: a bill unpaid 180 days
+
+*Added 2026-10-02 (backlog 78 row 4).*
+
+- **Preconditions:** an approved supplier bill of 400 + 18% local GST (CGST 36, SGST 36) dated more than 180 days ago, nothing paid; Settings > Tax > GST Documents, *180-day unpaid bills* on **Report and post**.
+- **Steps:** Accounts → Tax filing → Rule 37 (180 days), as of today. **Post reversals and reclaims.** Open the trial balance and GSTR-3B for this month. Pay the bill in full. Back to Rule 37, post again; GSTR-3B for that month.
+- **Expect:** the bill is listed to REVERSE CGST 36 and SGST 36. After posting the list is empty, input tax is down 72 and *Input Tax Not Claimable* up 72, and 3B shows 72 in 4(B)(2), "of which rule 37" 72. After payment the bill is listed to RECLAIM 72; once posted the books are back, and that month's 3B shows the 72 in 4(A)(5) and in 4(D)(1). With the setting on **Report only**, the list shows but posting is refused with the reason.
+
+### TC-COMP-014 — The supplier's IRN on a bill
+
+*Added 2026-10-02 (backlog 78 row 5).*
+
+- **Preconditions:** a supplier with a GSTIN; Settings > Tax > GST Documents, *Supplier bill without an IRN* on **Warn** (the default).
+- **Steps:** Open the supplier, tick **Supplier e-invoices**, save. Enter a bill from it with no IRN and save. Type `IRN-123` in the IRN box. Then type a 64-character IRN (e.g. 64 `a`s) and save. Approve it; **Record IRN** on the approved bill, clear it, record it again. Enter a second bill from the same supplier carrying the same IRN. Set the setting to **Off** and reopen a bill with no IRN.
+- **Expect:** the first save shows the warning that the supplier e-invoices and the bill has no IRN (rule 48(4)); `IRN-123` is refused as not 64 letters and digits; with the IRN the warning goes. On the approved bill the IRN can be recorded and cleared, and the audit trail shows each change. The second bill warns that the first bill already carries this IRN. With the setting Off the missing-IRN warning is not shown (the duplicate warning still is).
+
+### TC-COMP-015 — The e-way bill on a goods receipt
+
+*Added 2026-10-02 (backlog 78 row 6).*
+
+- **Preconditions:** Settings > Tax > GST Documents, e-way bill limit **50,000**; an approved purchase order worth more than 50,000 from a supplier with a GSTIN, and a second from a supplier with none.
+- **Steps:** Receive the first order with no e-way bill number and save. Type `EWB-1` in the e-way bill box. Type `3312 3456 7890` and a date, and save. Complete the receipt; **Record e-way bill**, clear it, record it again. Receive the second order with no number.
+- **Expect:** the first save warns that goods worth more than 50,000 need an e-way bill and none is recorded (rule 138), asking for the supplier's number; `EWB-1` is refused as not 12 digits; with the number the warning goes and it is stored as `331234567890`. On the completed receipt the number can be recorded and cleared, and the audit trail shows each change. The unregistered supplier's receipt warns that the e-way bill is yours to raise. A receipt under 50,000 shows no warning.
+
+### TC-COMP-016 — No print or email of a B2B invoice without its IRN
+
+*Added 2026-10-02 (backlog 77 row 6, decision A43).*
+
+- **Preconditions:** a GST-registered firm on the **Sandbox** route with *E-invoicing applies from* set to a day in the past (Settings → Tax → GST Documents). An approved invoice dated on or after that day to a buyer **with** a GSTIN, not registered; an approved invoice to a buyer **without** a GSTIN; an approved credit note against the first invoice, not registered. Messaging switched on with an email channel that can send.
+- **Steps:** (a) Sell → Sales Invoices → the B2B invoice → **Print**. Read the dialog, choose **Cancel**; Print again and choose **Print reference copy**. (b) **Send** it by email. (c) Print the consumer's invoice. (d) Print the credit note. (e) Accounts → Tax filing → E-Invoice → register the B2B invoice, then Print and Send it again.
+- **Expect:** (a) a *No IRN yet* dialog: "<number> has no IRN yet. The firm e-invoices from <date> and the buyer is registered for GST, so it is not a valid tax invoice until it is registered on the portal (CGST rule 48(4)). Register it under E-invoice first, or print a reference copy marked not valid." Cancel prints nothing; the reference copy prints with **NO IRN YET - NOT A VALID TAX INVOICE** across its top. (b) the email is refused with the same sentence. (c) the consumer's bill prints as before, with no dialog. (d) the credit note is refused the same way, naming its own number. (e) once registered the invoice prints with its IRN box and no banner, and the email is accepted. A WhatsApp or SMS send is never held.
+
+### TC-COMP-017 — The automatic invoice email waits for the IRN
+
+*Added 2026-10-02 (backlog 77 row 6, decision A43).*
+
+- **Preconditions:** TC-COMP-016's firm; Settings → Messaging → *Events*: *Invoice approved* on, by email; a B2B customer with an email address.
+- **Steps:** Approve a new invoice to that customer. After the next messaging pass, Settings → Messaging → **Message log**. Then Accounts → Tax filing → E-Invoice → register the invoice; wait at least five minutes and look at the log again.
+- **Expect:** the row stays **Queued** with the Reason "Waiting for <number>'s IRN: it goes out on the first pass after the invoice is registered on the portal." Nothing is sent and Tries does not climb. After registration the row is sent on the next pass (looked at again every 5 minutes) with the registered invoice attached -- one email, not two. Other queued messages keep going out while it waits.
+
+### TC-COMP-018 — The 30-day limit and the To register list
+
+*Added 2026-10-02 (backlog 77 row 7, decision A44).*
+
+- **Preconditions:** TC-COMP-016's firm, *30-day reporting limit applies from* set to a day in the past (not before the e-invoicing date). Three approved B2B invoices, not registered: one dated 35 days ago, one dated 27 days ago, one dated today.
+- **Steps:** Accounts → Tax filing → E-Invoice → **To register**. Choose **Register** on the 27-day-old invoice. Try to register the 35-day-old one from **Register an invoice** (and, on the Offline route, by **Export for portal**). Clear the *30-day reporting limit* date, Save, and open **To register** again.
+- **Expect:** the list shows every approved B2B document without an IRN, oldest first, with Document, Number, Date, Customer, Amount, **Last day** (date + 30), **Days left** and Status: the 35-day-old one **Late**, with no Register button and the note "A late document cannot be registered: cancel it and raise it again under today's date."; the 27-day-old one "3 days left" (due soon, within 5 days); today's **Open**. Register on the 27-day-old one registers it and it leaves the list. Registering or exporting the late one is refused: "<number> is dated <date>; the last day to register it was <date>. The IRP refuses a document more than 30 days old ... Cancel it and raise it again under today's date." With the date cleared the list still shows the pending documents, says "The 30-day limit does not apply to this firm (Settings > Tax > GST Documents).", and has no Last day or Days left columns.
+
+### TC-COMP-019 — A sales return's credit note on the IRP
+
+*Added 2026-10-02 (D-TAX-2, decision A45).*
+
+- **Preconditions:** TC-COMP-016's firm on the **Sandbox** route. A B2B customer with two approved invoices for the same product; a sales return of goods from **both** invoices, completed; a second completed return of goods that were only delivered, never invoiced.
+- **Steps:** Sell → Sales Returns → the first return → **Print credit note**. Accounts → Tax filing → E-Invoice → **To register**: find it and **Register**. Print its credit note again. Switch to **Offline**, raise and complete another return of billed goods, **Export for portal** with it ticked, and open the file. Look for the second return in **To register**.
+- **Expect:** before registration the credit note print is refused with the no-IRN sentence and offers a reference copy. The return is listed as **Sales return**; it registers with an `SBX` IRN, and its credit note then prints with the E-INVOICE box. The exported entry is a `CRN` whose `RefDtls` names **each** invoice it returns goods from. The return of goods never invoiced is not listed and is never registered ("... returns goods no invoice billed, so it credits no tax invoice and is not registered.").
+
+### TC-COMP-020 — The 30 November limits and 16-character document numbers
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog GST-1 (A46), GST-2 (A47, D-TAX-3), GST-3 (A48)
+- **Fixture:** `compliance-firm`
+- **Also needs:** an approved invoice dated in the **previous GST year** (April to March); a supplier bill dated in the previous GST year; a numbering series for the sales invoice with a long prefix.
+- **Steps:** as the fixture's **Firm admin**: raise a **credit note** (and a sales return) against the old invoice dated after 30 November that follows that year's end; read the screen after saving. Raise one dated earlier. Open the old **supplier bill** after 30 November following its year. Then Settings (gear) → Firm → **Numbering Series** → the sales invoice series: set a prefix that makes the number longer than 16 characters; try a space or an underscore in the prefix. Look at the default series of a new firm for invoice, credit note, sales return, debit note, delivery challan.
+- **Expect:** a credit note or sales return dated after 30 November following the supply's GST year carries a **time-limit warning** (a warning, not a refusal: the firm may have filed its annual return earlier); the same warning appears on a supplier bill for input credit claimed after that date (s.16(4)). One dated before it shows none. The GST year is April to March whatever the firm's own year. A series for the six GST documents (invoice, credit note, sales return, customer debit note, delivery challan, reverse-charge self-invoice) is refused when its numbers can exceed **16 characters** or use characters other than letters, digits, hyphen and slash; the default series use a **short financial year** so they fit. Quotations, orders, proformas and vouchers keep any length.
+- **Leaves:** documents carrying warnings.
+
+### TC-COMP-021 — GST checks before filing
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog GST-5, A82
+- **Fixture:** `compliance-firm`
+- **Also needs:** an invoice to a buyer whose GSTIN has a wrong check character; a product with no HSN; an approved invoice to a registered buyer for a firm that e-invoices but with no IRN; a credit note dated late; a credit note on a cancelled invoice; a supplier bill with a bad GSTIN.
+- **Steps:** as the fixture's **Firm admin**: Accounts → Tax filing → **GST checks** → choose the month → Run. Read each finding. Click a row. Fix one problem and run again. As a role without SALES_VIEW open the screen.
+- **Expect:** findings are named by code and each row names its document (type, number, date, party): GSTIN_INVALID (the firm's own, a buyer's on invoices and notes, a supplier's on bills as a **warning**), HSN_MISSING and HSN_SHORT (six digits once the firm e-invoices, four below), PLACE_OF_SUPPLY_MISSING, IRN_MISSING, CREDIT_NOTE_LATE (after 30 November following the supply's year) and CREDIT_NOTE_ON_CANCELLED_INVOICE. The checks read the same invoices GSTR-1 declares. *Open document* is disabled (the desktop cannot open a sales invoice by id yet). After fixing, the finding is gone on the next run. Needs SALES_VIEW.
+- **Leaves:** unchanged.
+
+### TC-COMP-022 — A filed return is kept, and a change becomes an amendment
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog GST-6, A130
+- **Fixture:** `compliance-firm`
+- **Also needs:** invoices in last month and this month (back-date as needed).
+- **Steps:** as the fixture's **Firm admin**: Accounts → Tax filing → **GST Returns** → GSTR-1 for last month → **Mark filed**. Then add or edit a document in last month (a new invoice dated last month, a credit note, a changed GSTIN or rate on one) and reopen last month, then open GSTR-1 for **this** month and GSTR-3B for this month. Withdraw the filing (Undo) and look again.
+- **Expect:** a filed period shows the figures **as filed** (a banner says filed; recomputing is possible but the snapshot is what is shown). Any other period's GSTR-1 carries an **Amendments** section: every earlier filed period is recomputed and compared with what was declared — B2BA (invoice by number; the GSTIN may change), B2CLA, CDNRA, B2CSA (a row gone to nothing too) and documents added to a filed period after filing. GSTR-3B carries *amendments to earlier returns*, the net change (credit notes negative). Withdrawing the filing drops its snapshot and the period is live again. One snapshot per filing under the firm's GSTIN; per-branch filing is open.
+- **Leaves:** a filing record unless withdrawn.
+
+### TC-COMP-023 — A quarterly (QRMP) filer
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog GST-7, A83
+- **Fixture:** `compliance-firm`
+- **Steps:** as the fixture's **Firm admin**: Settings (gear) → Tax → **GST Documents** → **Return filing**: frequency *Quarterly*, from a quarter's start, payment method *fixed sum* (then *self-assessed*). Accounts → Tax filing → **PMT-06 deposits** → take the suggested amount → record the deposit; reverse it. Open **GST Returns**: the quarterly GSTR-1 and the **IFF** view for month 1 or 2; Mark filed the IFF. Home → Tax calendar. Then GST Payment for a quarter and for month 1.
+- **Expect:** the filing plan says which months are quarterly, the period each month files under and every due date (3B on the 22nd or 24th by the GSTIN's state). The calendar shows IFF (optional) and PMT-06 for months 1-2 and the quarter's GSTR-1 and 3B. A deposit is Dr *GST Electronic Cash Ledger* / Cr bank, reversible while the quarter is unsettled. The quarterly GSTR-1 leaves out what a filed IFF already furnished. GST payment spans the quarter, refuses months 1-2, and pays from the cash-ledger deposits before the bank. A cancellation's "after the return was due" reads the quarterly date too.
+- **Leaves:** deposits, filings.
+
+### TC-COMP-024 — Common credit reversal, rule 42
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog GST-4, A84
+- **Fixture:** `compliance-firm`
+- **Also needs:** taxable and exempt sales and eligible input credit in the month and later months of the year.
+- **Steps:** as the fixture's **Firm admin**: Settings (gear) → Tax → **GST Documents** → *Rule 42 mode* on. Accounts → Tax filing → **Rule 42** → the month → work out; post. Open GSTR-3B. Run the annual true-up and post it; reverse a posting.
+- **Expect:** per period the reversal is D1 = C2 × E / F from GSTR-3B's own figures (every eligible credit taken as common), posting Dr *Input Tax Not Claimable* / Cr input tax; the year's true-up is summed month by month against what was posted and a true-up reclaim posts the mirror. GSTR-3B carries *itc reversed rule 42* (4(B)(1)) and *itc reclaimed rule 42* (4(A)(5)) in net ITC. Reversing a posting undoes it. Rule 43 (capital goods) and credit used only for taxable or only for exempt supplies are not done.
+- **Leaves:** reversal journals.
+
+### TC-COMP-025 — A branch with its own GSTIN
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog STK-2, A127
+- **Fixture:** `compliance-firm`
+- **Also needs:** a second branch in another state with a warehouse; a valid GSTIN for that state (and one with a wrong check character).
+- **Steps:** as the fixture's **Firm admin**: Masters → Organisation → **Branches** → the second branch → **Branch GSTIN**: the wrong one, one of another state, then the valid one → Save. Raise and approve an invoice from that branch; print it; e-invoice it. Accounts → Tax filing → **GST Returns**: choose each GSTIN. Try a stock transfer (document or one-step) between the two branches' warehouses.
+- **Expect:** the GSTIN is checked for shape and check character and must match the branch's state; a GSTIN makes the branch GST-registered. The branch's own GSTIN (else the firm's) decides the supplier state in place of supply, the seller block on every print, the e-invoice seller details and the e-way bill consignor. GSTR-1 and 3B take a GSTIN and read only that GSTIN's branches (the firm's own GSTIN also takes branches without one); a firm with one GSTIN is not scoped. A transfer between two GSTINs is refused, naming the sales invoice to the other branch as the way.
+- **Leaves:** a branch GSTIN, an invoice.
+
+### TC-COMP-026 — The tax rule is kept on each line
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog GST-8, A85
+- **Fixture:** `selling-firm`
+- **Steps:** as the fixture's **Firm admin**: Sell → Documents → **Quotations** → New with a DET line; open the line's tax detail. Save, convert and bill. Open the invoice line's tax detail. Settings (gear) → Tax → **Rule Simulator** and simulate the same line. Open an old document made before this change; open a credit note.
+- **Expect:** the line's tax detail names the **rule code and version** that taxed it, and the simulator answers with the same matched rule code and version. Lines saved before this change show none; credit and debit notes copy their tax from the invoice and are left out.
+- **Leaves:** documents.
+
 
 ## Finance, reports and the rest of the platform
 
@@ -1608,6 +2323,158 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Expect:** Desktop: the UnexpectedTermination count one higher than before; occurrences / first seen / last seen / versions chips; the newest occurrence shows Firm, User and "Leading up to it" breadcrumbs ("Previous session started at … ended without a clean exit…") — no Request and no stack trace. Server: **Request <request_id>** and the stack trace.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §18.8 (and §12.13) — one `platform.error_reports` row per report, `source` CLIENT for the desktop (the screen's Desktop) and SERVER for the server, no audit row; its query counts them by source and type.
 - **Leaves:** one more crash report.
+
+### TC-FIN-012 — Bank reconciliation against a statement
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog ACC-1, A125
+- **Fixture:** `selling-paid`
+- **Also needs:** a bank statement file for the bank ledger account in the layout the import expects (date, narration, reference, debit, credit, balance), with lines matching the firm's postings (one by amount and date within 3 days, one by cheque number or UTR, two postings that tie, one that sums two entries) and one line with nothing behind it; a user holding JOURNAL_POST.
+- **Steps:** as the fixture's **Firm admin**: Accounts → Books → **Bank Reconciliation** → pick the bank account → **Import statement**; import it again. Press **Auto-match**. Match a tied line by hand; match one line to **two** entries summing to it; **Unmatch** one; remove a statement. Open the *reconciliation statement* as on a date with the statement's printed closing balance. Then Settings (gear) → Firm → Financial Years → the month's close checks.
+- **Expect:** lines are matched to **postings on the bank ledger** (receipts, payments, contra vouchers, expenses and journals alike). A line already imported on the account is refused. Auto-match pairs on amount, journal date within 3 days and reference; ties are left for a person. A manual match of one line to several entries must sum to the line. The reconciliation statement shows the book balance, unmatched entries and unmatched statement lines, and checks against the printed closing balance. The cleared date is the matched line's date. Reading needs LEDGER_VIEW, importing and matching JOURNAL_POST. The month's close checklist lists the unmatched lines (never refusing).
+- **Leaves:** a statement and matches.
+
+### TC-FIN-013 — Post-dated cheques: hold, deposit, clear, bounce
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog ACC-2, A80
+- **Fixture:** `selling-invoiced`
+- **Also needs:** a bank account; the invoice of 483.21 for Vijaya; a supplier bill for the issued side.
+- **Steps:** as the fixture's **Firm admin**: Sell → Money → **Post-dated Cheques** → New: Vijaya, 483.21, cheque number, cheque date a week ahead → Save (held). Try **Deposit** today. Filter *due today*. On the cheque date **Deposit**; then **Clear**. Take a second cheque, deposit it and **Bounce** it with charges 100. Cancel a third while held. Then Buy → Money → **Post-dated Cheques** → issue one to a supplier and run through hold and deposit.
+- **Expect:** holding posts nothing; deposit records the receipt (payment on the issued side) through the settlement service, mode Cheque, and is **not allowed before the cheque's date**; clearing posts nothing. A bounce reverses the settlement on the day returned and posts the return charges (Dr bank charges / Cr bank, and Dr receivable / Cr cheque-return charges on the customer's account); a cheque can be cancelled while held. The received side needs the receipt grants and the issued side the payment grants.
+- **Leaves:** cheques, receipts, a bounce journal.
+
+### TC-FIN-014 — Payment mode and instrument date on receipts and payments
+
+*Added 2026-10-02 from the code; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog ACC-3, A49
+- **Fixture:** `selling-invoiced`
+- **Steps:** as the fixture's **Firm admin**: Sell → Money → **Receipts** → Record Receipt for Vijaya with mode **Cheque**, an instrument number and instrument date; again with **UPI** and **Cash**. Buy → Money → **Payments** → the same for a supplier. Open the cash book and the bank book. Reports → Financial → collections by mode.
+- **Expect:** each receipt and payment stores its mode and instrument date; the cash and bank books gain **Mode** and **Instrument** columns; collections by mode read the mode on each receipt.
+- **Leaves:** receipts.
+
+### TC-FIN-015 — Bank details on documents, and printing a cheque
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog ACC-4 (A81), ACC-12 (A66)
+- **Fixture:** `selling-invoiced`
+- **Also needs:** a bank ledger account; a payment to a supplier by cheque; a cashier user (PAYMENT_CREATE) and an accountant (ACCOUNT_VIEW only); a sheet of paper or the PDF preview.
+- **Steps:** as the fixture's **Firm admin**: Accounts → Tax filing → **Bank Details** → the bank account → name, number, IFSC, branch, UPI ID; mark **print on documents**; try marking a second account. Print an invoice and a quotation. As the accountant open the screen. Then Buy → Money → **Payments** → the cheque payment → **Cheque layout** → adjust the offsets → **Test print**; **Print cheque** with a payee override. Try a cash payment, a bank-transfer payment and a reversed one.
+- **Expect:** one set of details per bank ledger account (asset accounts only) and at most one marked to print: its details fill an empty bank block, and an empty UPI ID, on every print that has one (text typed on a template still wins). The full number is shown to ACCOUNT_MANAGE or PAYMENT_CREATE; everybody else reads the last four; the audit entry masks it. The cheque leaf is a CTS-2010 layout — date boxes, payee, amount in words on two lines, `**12,34,567.00/-`, A/c Payee crossing — moved by the bank account's offsets and dated on the cheque's own date; cash, non-cheque and reversed payments are refused.
+- **Leaves:** bank details, a cheque layout.
+
+### TC-FIN-016 — Checks before closing a month, and the ageing bands
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog ACC-5 (A50), ACC-6 (A51)
+- **Fixture:** `selling-paid`
+- **Also needs:** a draft document dated in the month, an unmatched bank statement line (TC-FIN-012) and an overdue sales and purchase bill.
+- **Steps:** as the fixture's **Firm admin**: Settings (gear) → Firm → **Financial Years** → open the month → **Close**: read the checklist first. Change the close-check settings and run again. Then in the same screen set the **ageing bands** (for example 0-15, 16-45, 46-90, 90+). Reports → Financial → customer ageing and vendor ageing. Reports → **Due** lists: the sales invoices due today and the purchase invoices due in 7 days.
+- **Expect:** closing a month lists what is not finished (per the firm's settings, including unmatched bank lines); the list never refuses by itself. Both ageing reports use the firm's bands (the vendor row carries a `buckets` list instead of four fixed columns). The due reports list sales bills due, and purchase bills due within the days asked (0 today, 7 the week ahead).
+- **Leaves:** ageing settings.
+
+### TC-FIN-017 — TDS challans and TDS on purchases (194Q)
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog ACC-7 (A79), ACC-8 (A78)
+- **Fixture:** `po-invoiced`
+- **Also needs:** payments with TDS deducted (194C or similar) and expense postings with TDS; a supplier whose approved bills this year exceed 50 lakh (or lower the threshold in the settings); the supplier's PAN.
+- **Steps:** as the fixture's **Firm admin**: Masters → Parties → Vendors → the supplier → *Usual TDS section* 194C. Buy → Money → Payments → Record Payment and look at the section. Accounts → Tax filing → **TDS Challans** → *Open deductions* → New: select one section's deductions, enter BSR code, challan serial, date, interest and fees → Save. Create a second challan with the same CIN. Cancel the first. Open the TDS return and *Challans due*. Then Settings (gear) → Tax → **TDS on Purchases (194Q)** → switch on, threshold 50 lakh, 0.1%, 5% without PAN → Save. Open Record Payment for the over-threshold supplier. Reports → Financial → 194Q register.
+- **Expect:** the payment prefills the supplier's usual section. The challan carries one section; its tax is the sum of the deductions chosen; one live challan per CIN; it posts Dr TDS payable, Dr TDS interest and fees, Cr bank. Cancelling posts a mirror journal and frees the deductions. The TDS return fills each deductee row's challan serial, BSR code and date, and *Challans due* shows deposited and still to deposit. The 194Q figure is the rate on the **excess** over the threshold of the supplier's approved bills without GST in the April-March year, less 194Q already deducted on posted payments; the payment prefills section and amount and never overwrites a figure you typed.
+- **Leaves:** challans, settings.
+
+### TC-FIN-018 — Cash flow statement
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog ACC-9, A87
+- **Fixture:** `selling-paid`
+- **Steps:** as the fixture's **Firm admin**: Accounts → Statements → **Cash Flow** → choose the period range; compare with Profit & Loss and Balance Sheet for the same periods. As a role without PROFIT_LOSS_VIEW open it.
+- **Expect:** sections are built from the account groups — current assets and liabilities are operating, other assets investing, other liabilities and equity financing; cash is the cash and bank accounts. The statement shows opening and closing cash and says whether it **reconciles** (the movement equals the change in cash). Needs PROFIT_LOSS_VIEW.
+- **Leaves:** unchanged.
+
+### TC-FIN-019 — Files attached to journals, receipts and payments
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog ACC-10, A88
+- **Fixture:** `selling-paid`
+- **Also needs:** a PDF; the ATTACHMENTS feature enabled.
+- **Steps:** as the fixture's **Firm admin**: Accounts → Books → **Journal Entries** → open an entry → **Files** → add the PDF; delete it. Do the same on a receipt (Sell → Money → Receipts) and a payment (Buy → Money → Payments).
+- **Expect:** each file is a reference (name, type, path, caption) held against exactly one of a journal entry or a settlement; deleting is soft and audited. Without the ATTACHMENTS feature the control is not offered.
+- **Leaves:** file references.
+
+### TC-FIN-020 — Export to Tally
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog MSG-5, A135
+- **Fixture:** `selling-paid`
+- **Also needs:** TallyPrime to import into (the build notes say a CA should import a sample before release).
+- **Steps:** as the fixture's **Firm admin**: Accounts → Books → **Export to Tally** → the mappings: give two accounts their Tally names and groups → Save. Choose the dates → **Export**. Open the XML; import it into a Tally company.
+- **Expect:** every posted journal of the period is one voucher typed by its source (Sales, Purchase, Credit Note, Debit Note, Contra, Receipt or Payment for settlements, otherwise Journal). Lines on the receivable or payable control accounts name the party of the document, so the masters carry a ledger per customer and supplier under Sundry Debtors/Creditors with its GSTIN; other accounts go out under their mapped name and group (or their own name in the group their purpose suggests). GST travels as the tax ledgers. Tally accepts the file and its trial balance agrees with the platform's.
+- **Leaves:** ledger mappings.
+
+### TC-FIN-021 — Approvals by level, and bulk reject
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog PLT-1, A131
+- **Fixture:** `selling-firm`
+- **Also needs:** three users: a **Sales** user, a **Sales manager** and the **Firm admin**.
+- **Steps:** as the **Firm admin**: Settings (gear) → Firm → **Approval Levels** → New rule: document type *Sales order*, level 1 from 0 role Sales Manager; level 2 from 10,000 role Firm Administrator. Save. As the **Sales** user raise an order of 20,000 and a small one of 500. As the **Sales manager**: Sell → Documents → **Approvals** → pending → **Sign off** the big order; try **Approve** on the order itself. As the administrator open Approvals and **Sign off** level 2. Raise another and **Reject** with a reason; reject two at once (bulk). Also try an order of 500 and a purchase order. Home bell.
+- **Expect:** with no rule for the total nothing changes. Otherwise levels are signed in order, one level per person, and Approve goes through only when the approver can sign the last open level; anyone else is refused naming the level and roles. *Sign off* records the next level and the **last** sign-off approves the document through its own service (if the module refuses, the signature stays). A sign-off counts while the total is no more than it was signed at. *Reject* needs a reason, clears the sign-offs and returns a submitted purchase order to draft; bulk reject is per row. An order the chain raised itself is not gated. Platform administrators are not limited. The bell shows *Documents awaiting the next sign-off*. Applies to sales orders, sales invoices, purchase orders and purchase invoices.
+- **Leaves:** rules, sign-offs, approved or rejected orders.
+
+### TC-FIN-022 — The notification bell, and one search box on the audit trail
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog PLT-2 (A123), PLT-8 (A77)
+- **Fixture:** `selling-firm`
+- **Also needs:** a purchase order awaiting approval, a requisition waiting, a stock adjustment request waiting and a failed email; a user who may approve and a user who may not.
+- **Steps:** as the **Firm admin**: look at the bell on Home. Open it and mark it read; make another item wait and look again. As the user who may **not** approve open the bell. Then Admin → System → **Audit Logs** → type a person's name or email in the search box; then an action name; then a record type.
+- **Expect:** the bell is derived from the documents — it counts approvals waiting (purchase orders, the multi-level chain, requisitions, stock adjustment requests), failed messages of the last 7 days and stock alerts — and is offered only to someone who could act on each. Reading marks what has been seen; a change in count makes it new again. The audit search matches action, record type, the actor's name or email, and, for user rows, the subject, on both stores of a firm's merged trail.
+- **Leaves:** read marks.
+
+### TC-FIN-023 — Sales and purchase analysis: compare years, basis, margin, saved layouts
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog RPT-1 (A121), RPT-2 (A122)
+- **Fixture:** `selling-paid`
+- **Also needs:** orders and invoices in the same period of the previous year (back-dated), a user with PRODUCT_VIEW_COST_PRICE and one without.
+- **Steps:** as the fixture's **Firm admin**: Sell → Insight → **Sales Analysis** → basis *Ordered* then *Invoiced*; switch on **Compare with last year**; read cost, margin and margin %; **Save layout**, reopen it. Sign in as the user without cost-price rights. Buy → Insight → **Purchase Analysis** → basis *Received*/*Ordered*, compare, average rate. Open **Rate Trend**.
+- **Expect:** the ordered basis counts approved orders instead of invoices; the previous-year column is the same period shifted one year; cost, margin and margin percent appear only with PRODUCT_VIEW_COST_PRICE. Layouts are saved per user and report. The purchase analysis has the same controls plus average rate on every figure (sales too); the rate trend shows the rate by month.
+- **Leaves:** a saved layout.
+
+### TC-FIN-024 — Search at volume, and nightly retention
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog PLT-3 (A75), PLT-4, PLT-6 (A76)
+- **Fixture:** `selling-firm`
+- **Also needs:** for retention, an installed server with its scheduled backup task; for speed, PERF01 loaded if you want the volume figures (the expected timings are in the performance notes).
+- **Steps:** as the fixture's **Firm admin**: press Ctrl+K and type part of an invoice number (for example the middle digits); type part of a customer name. Open GSTR-1 and GSTR-3B for the month and Customer Outstanding. On the server, run the nightly backup task and read its log; set the retention switch off and run again.
+- **Expect:** a fragment of a number or name finds the document (on a large firm through the trigram index). The returns and the outstanding report give the same answers as before and are quicker (the month's GSTR-1 about 3.7 s and 3B 2.9 s on the 110,000-invoice test firm; a quarter is still slower). The nightly backup task also runs retention (`purge-retention --yes --scheduled`); with the platform-wide switch off it returns at once; a retention failure is logged and never fails the backup.
+- **Leaves:** a backup.
+
+### TC-FIN-025 — Phase 1 leftovers: price list counts, territory picker, return pickers
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog PLT-9
+- **Fixture:** `selling-firm`
+- **Steps:** as the fixture's **Firm admin**: Sell → Pricing → **Price Lists** → open the grid, read the count column for a list with 3 breaks of one product; New list with scope **One territory**. Sell → Documents → **Sales Returns** → New and open the picker of returnable lines for a line with no description.
+- **Expect:** the price list grid counts **distinct products** ("1 (3 rates)"); the *One territory* scope has a territory picker; a returnable line with no description is labelled by product code and name, and "Line N" only when nothing is known.
+- **Leaves:** a price list.
+
 
 ---
 
@@ -3732,6 +4599,27 @@ Recorded for the owner, **not fixed** — this pass changes documents only.
 - **D-27-2 — A mandatory PRODUCT definition blocked every product on the desktop. Fixed 2026-09-16.** The server refused a product without it ("Required attributes are missing.") while the form, per D-27-1, had no box to fill — so once a firm marked one definition mandatory, no product could be created from the desktop at all. The metadata now offers what the save demands, before a category is chosen as well as after, because the server demands it either way. Plan 27.31.
 - **D-27-3 — An "inert" rule was not inert on the desktop. Fixed 2026-09-16.** `mandatory_ids` in `AttributeService` intersects rules with what applies; `_category_attribute_ids` did not, so `/products/metadata` listed a rule naming another profile's field as *required*. The form then refused an empty box, and a filled one was refused by the server as "do not apply" — a category nobody could save. Two implementations of one question, now one: the metadata reads `mandatory_ids`. Plan 27.33 said the rule is not an error, and it is not.
 - **D-27-4 — A value removed from a field's allowed list could not be saved back. Fixed 2026-09-16.** `_coerce` validated every value sent, changed or not, so editing anything else on a product still holding a retired choice was refused — and the form deliberately keeps a stored value selectable, so the screen showed it as valid while the save refused it. `replace_values` now passes the record's own stored text into `_coerce`, which accepts it unchanged; a different value off the list is still refused, and so is the retired one on a record that never held it. The same reasoning as the retained definitions. Plan 27.36d3 expected it to save unchanged. `test_a_choice_withdrawn_from_the_list_can_still_be_saved_back` in `tests/unit/test_entity_attributes.py`.
+
+### TC-FIELD-015 — Extra fields on documents, carried down the chain and printed
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog MST-6, A132
+- **Fixture:** `selling-firm`
+- **Steps:** as the fixture's **Firm admin**: Settings (gear) → Firm → **Custom Fields** → New: name *PO reference*, type Text, entity type **Sales order** (also add one for **Quotation** with the same name), **Show on print** on. Sell → Documents → **Quotations** → New: fill *Additional details* → Save → convert to a sales order → open the order. Create a delivery note and a bill from it. Print the quotation, order and invoice. Edit the order saving without touching *Additional details*, then clear the field and save. Repeat for a purchase order → supplier bill.
+- **Expect:** the six document editors — quotation, sales order, delivery note, sales invoice, purchase order, supplier bill — show *Additional details* from the firm's definitions. Values carry down the chain matched on the field's **name** (quotation → order at conversion, order → delivery note, notes/orders → sales invoice, purchase order → supplier bill) and are printed as references where *Show on print* is on. Saving without sending `attributes` leaves the values alone; sending an empty list clears them. Goods receipts, returns, notes, line-level fields and list filters on a document field are not covered yet.
+- **Leaves:** a definition and documents carrying it.
+
+### TC-FIELD-016 — A firm keeps its own custom fields, in the shared store too
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog MST-8, A120
+- **Fixture:** `shared-pair`
+- **Steps:** as the **Firm admin of TESTSH1**: Settings (gear) → Firm → **Custom Fields** → New *Dock number* on Customer; Settings → **Custom Field Rules** → make it mandatory for a category. Try a code that already exists in the shared catalogue. Edit and delete the field; try to delete it after a customer holds a value. As the **Firm admin of TESTSH2**: open Customer → New and the field list. As the platform administrator open Attribute Definitions.
+- **Expect:** the field is **TESTSH1's own**: offered on its forms and on no other firm's. The shared catalogue rows (existing before this change) are listed read-only to the firms. A firm's code is unique among its own and the shared live rows. A held type cannot change and a held field cannot be deleted. The platform's Attribute Definitions list shows the shared rows only.
+- **Leaves:** a firm-owned field.
+
 
 ---
 

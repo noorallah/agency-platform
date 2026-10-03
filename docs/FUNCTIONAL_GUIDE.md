@@ -12,6 +12,11 @@ in, which is **not** the code-dependency order in
 [`LEARNING_PATH.md`](LEARNING_PATH.md): you cannot raise an invoice before
 there is a tax rate, and you cannot set a tax rate before there is a firm.
 
+The backlog build of 2026-10-02 and 2026-10-03 (96 items in three waves) is
+folded in as **What shipped on 2026-10-02 and 2026-10-03** below the module
+table, with each item pointed at the section it extends; `BACKLOG_BUILD_PLAN.md`
+section 4 holds the full record of each.
+
 The eight sections finished on 2026-09-16 -- vendors, proforma invoices, credit
 notes, TCS, GST returns, e-invoicing, inventory operations, and the reports /
 search / audit / diagnostics group -- were written against the running system
@@ -109,6 +114,152 @@ A ninth module followed on 2026-10-02: `customer_debit_note` (more charged to a
 customer on an invoice already raised, **Sales › Debit Notes**). It is folded
 into module 18 beside the credit note it mirrors. The same day's GST work for
 the sales and purchase chains is folded into modules 15, 16, 18 and 25.
+
+## What shipped on 2026-10-02 and 2026-10-03
+
+Ninety-six backlog items were built in three waves. Eight are new backend
+packages, each with its own screen; the rest extend a module above. None of
+the new packages is a business-profile capability (as with the eight above),
+and a firm that does not use one simply never opens its screen. Route counts
+are in `MODULE_STATUS.md`.
+
+| Module | What it does | Where it surfaces | Main tables |
+| --- | --- | --- | --- |
+| `enquiry` | Leads and enquiries with follow-ups; **convert** stages the customer from the prospect and a quotation and commits once; won when the quotation becomes an order; lost with a reason from a fixed list. Numbered `ENQ`; the quotation's own permissions | Sell › Enquiries | `enquiries`, `enquiry_lines`, `enquiry_follow_ups` |
+| `approvals` | Up to three sign-off levels by document type, amount and role, over sales orders, sales invoices, purchase orders and purchase bills; bulk reject | Sell/Buy › Approvals; Settings › Firm › Approval Levels | `approval_rules`, `approval_decisions` |
+| `principal_claims` | What a principal owes: scheme redemptions at its share, expiry write-offs and damaged returns, each source claimed once; settled by its credit note or payment | Buy › Money › Principal Claims | `principal_claims`, `principal_claim_lines`, `principal_claim_receipts` |
+| `landed_costs` | Freight, duty and handling spread over completed receipts by value, quantity or weight; the on-hand share revalues stock, the rest goes to cost of goods sold | Buy › Money › Landed Costs | `landed_cost_vouchers`, `landed_cost_charges`, `landed_cost_allocations` |
+| `supplier_rebates` | Volume rebate agreements, accrued and reversed, settled by a party adjustment of kind `SUPPLIER_REBATE` | Buy › Money › Supplier Rebates | `supplier_rebate_agreements`, `supplier_rebate_slabs` |
+| `bank_reconciliation` | Statements imported on the shared importer, matched to postings on the bank ledger, a reconciliation statement as on a date | Accounts › Books › Bank Reconciliation | `bank_statements`, `bank_statement_lines`, `bank_reconciliation_matches` |
+| `notifications` | The bell: derived on read, only what was read is stored | Menu bar | `notification_reads` |
+| `report_layouts` | A person's saved layouts of the analysis screens | Sales and Purchase Analysis | `report_layouts` |
+
+The settlements package also gained the **post-dated cheque** registers
+(`post_dated_cheques`), **payment runs** (`payment_runs`) and **cheque
+printing** (`cheque_layouts`); the finance package gained the **Tally export**
+(`tally_ledger_mappings`), **TDS challans** (`tds_challans`), **TDS 194Q**,
+**bank details** (`bank_account_details`), **ledger attachments**, the **cash
+flow statement** and the **period-close checks**; purchase gained
+**requisitions** (`purchase_requisitions`), **budgets** (`purchase_budgets`) and
+**order revisions** (`purchase_order_revisions`); inventory gained **stock
+transfers** (`stock_transfers`), **repacking** (`repacks`), **count plans**
+(`count_plans`), **adjustment reasons and limits**
+(`stock_adjustment_reasons`, `role_stock_adjustment_limits`,
+`stock_adjustment_requests`) and **evidence files** (`stock_attachments`).
+
+### Where each item sits in the sections below
+
+**Section 10 (Customers).** A new outlet saves as `PENDING` when the firm
+switches `new_outlets_need_approval` on and the person lacks `CUSTOMER_APPROVE`,
+and nothing can be billed to it until it is approved (single or bulk).
+Cash-discount days and percent sit on the customer, and the credit policy holds
+the firm's terms, `overdue_interest_rate` and grace days, with a *Raise interest
+debit note* action (`CUSTOMER_DEBIT_NOTE_MANAGE`; a draft, reason late-payment
+interest). A **linked supplier** (`customers.linked_vendor_id`, same PAN, one
+link each) gives a combined statement with a running net. Bank accounts are
+masked to the last four and files are kept (`CUSTOMER_MANAGE_BANK_DETAILS`, held
+by the firm administrator and not the sales manager or accountant). A duplicate
+warning (same GSTIN, same last ten digits of phone, same name once punctuation
+and trade words are set aside) precedes a save, and **merge** re-points every
+column naming the duplicate in one transaction (refused when the duplicate has a
+document in a locked financial year). Codes are issued from the `CUS`, `SUP` and
+`PRD` series when left blank. A PAN check report lists missing or malformed PANs.
+
+**Section 11 (Vendors).** A standing discount; the **catalogue** (their code,
+price, pack size, minimum order, order multiple and lead time; importable); the
+lead-time summary and its use in the expected date and in the sales-based
+reorder point; a usual TDS section; ratings by people (1-5 per criterion, one
+live rating per person, earlier ones kept); the **gifts** register
+(`supplier_gifts`, `SUPPLIER_GIFT_MANAGE`) with the 194R summary; the linked
+customer; the same duplicate warning and merge.
+
+**Section 13 (Price lists).** **Price levels** (`price_levels`,
+`product_price_levels`; a level on a customer or a group): the resolver reads
+the list rate, then the level, then the product price, with the list's quantity
+break. A price list can be scoped to a supplier, and product price revisions with
+an effective date (`product_price_revisions`) are read from their date.
+
+**Section 14 (Promotions).** The actions `BUY_X_GET_Y_DISCOUNT` and
+`COMBO_PRICE`; festival **bonus points** (the largest multiplier that applies);
+the conditions customer order count, days since last order, weekday and time of
+day; **bulk coupon codes** (up to 5,000 single-use codes, all or none, with a
+CSV export); **copy with new dates**; and the funding principal and its share,
+which feed the principal claims.
+
+**Section 15 (Buying).** Requisitions (`PURCHASE_REQUISITION_CREATE`, converted
+to orders, raised from the below-reorder report); amendment of an approved order
+with a revision list; supplier rates filling a blank price and discount; order
+multiples and the policy that decides what a wrong multiple does; **quality
+inspection** holding received goods in quarantine until decided
+(`PURCHASE_INSPECT`); bill **tolerances** (`PURCHASE_APPROVE_OVER_TOLERANCE`);
+**budgets** checked at approval (`PURCHASE_APPROVE_OVER_BUDGET`); free goods and
+schemes on a receipt line; several receipts on one bill; a supplier's credit
+applied against an opening bill; **payment runs** (approval needs
+`PAYMENT_RUN_APPROVE`, which the cashier does not hold; one payment per supplier
+by bank transfer, all or none; a generic NEFT file); and the supplier
+performance and price-trend reports.
+
+**Section 16 (Selling).** Several delivery notes on one bill, with a clash on
+branch, salesman, territory or route refused by name; counter billing with a
+scanner, split tenders (`sales_invoice_tenders`) and *Save & print*; the UPI QR
+on a bill that still owes money; pick list and loading sheet from delivery
+notes; reservation lapse and *Reserve again*; multi-level approval; WhatsApp
+share by hand, reminders by statement of account, and sending other documents
+by email (the messaging switches apply, except the hand share, which needs
+none).
+
+**Section 19 (Receipts, payments and refunds).** Payment mode and instrument
+date on every settlement; the post-dated cheque registers (held, deposited,
+cleared, bounced with return charges, cancelled while held); cheque printing.
+
+**Section 23 (Journals, ledgers and financial reports).** The cash flow
+statement; bank reconciliation; Tally export; firm bank details (the full number
+to account managers and payment makers, the last four to everybody else); TDS
+challans and 194Q; ageing bands per firm and the close checklist (listed, never
+refusing); files on journals, receipts and payments. New control purposes:
+`LANDED_COST_CLEARING`, `SUPPLIER_REBATE_RECEIVABLE`,
+`PRINCIPAL_CLAIM_RECEIVABLE`, `CHEQUE_RETURN_CHARGES`, `TDS_INTEREST_AND_FEES`,
+`GST_CASH_LEDGER`, `INTERNAL_USE`, `STAFF_WELFARE`, `SAMPLES_AND_DISPLAY` and
+`PROMOTIONAL_EXPENSE`.
+
+**Section 25 (GST returns).** A filed GSTR-1 is kept as a snapshot
+(`gst_return_snapshots`) and later changes appear as amendments (B2BA, B2CLA,
+CDNRA, B2CSA, documents added after filing), with 3B carrying the net; quarterly
+(QRMP) filers get the IFF, PMT-06 deposits (`gst_cash_deposits`) and the
+quarter's payment; the **GST checks** run before filing; rule 42
+(`itc_common_reversals`; rule 43 is open); a **GSTIN per branch** scopes both
+returns; warnings for a credit note after 30 November, a bill after its credit's
+last date and a number longer than sixteen characters; and the tax rule is kept
+on each line.
+
+**Section 27 (Inventory operations).** Stock transfers as a document with
+in-transit stock (dispatch, receive with damaged and missing, challan; refused
+between two GSTINs); repacking; kits (`product_kit_components`: assemble,
+disassemble, and assembled from components at dispatch); count plans by ABC
+class with blind sheets; reasons, role limits and approval for large
+adjustments; evidence files; incoming, outgoing and projected on availability;
+the issue rule per product; expiry rules and returns due; reservations that
+lapse; returns held until checked; stock alerts on Home; barcode labels;
+discontinued and not-for-sale products; shelf life; internal-use, staff and
+display issues.
+
+**Section 28 (Reports, search, audit).** One search box on the audit trail;
+trigram indexes behind search; sales analysis on an ordered basis, against last
+year and with margin; purchase analysis with average rate and a rate-trend
+screen; the PAN checks; the due lists; nightly retention after the backup.
+
+**Section 9 (Products) and sections 2 and 5.** Principals and brands, price
+history, kits, labels and the expiry, shelf-life and issue fields; **extra
+fields on six documents** (quotation, order, delivery note, invoice, purchase
+order, goods receipt), matched on the field's name as they carry forward and
+printed when marked *Show on print*; a firm's own custom fields; features and
+modules created at runtime reach every store (section 2); and the branch GSTIN
+(section 5).
+
+**Not built.** The 26Q FVU text file (the owner kept it for last), live
+e-invoice and e-way bill through NIC or a GSP, real messaging sends, payment
+links, a bank's own payment-run layout, rule 43, and the licence and installer
+items; `BACKLOG_BUILD_PLAN.md` section 5.1 says what unblocks each.
 
 ---
 

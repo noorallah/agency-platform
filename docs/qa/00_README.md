@@ -4,7 +4,7 @@ The complete manual test suite for an **installed** copy of the Agency
 Platform, one file per module area. Each file stands alone, so QA can take
 one module at a time, and each has a PDF beside the installer.
 
-Generated on 2026-09-25 from the product's own sources. The detailed cases
+Generated on 2026-10-03 from the product's own sources. The detailed cases
 come from `docs/INDEPENDENT_TEST_CASES.md`, whose every expectation was
 driven against a running server. The screen checks and the role matrix come
 from the application's screen catalogue and role seed. The files are
@@ -14,12 +14,35 @@ in the source.
 **Cases added on 2026-10-02** (the return outcome and supplier refunds, a
 return off a paid bill, input credit and supplier GST type, GSTR-2B, the
 dispatch policy, choosing batches, reorder from sales, the debit note to a
-customer, the tax calendar, one quantity picture per order line and the GST
-Documents settings) were written from the code and have not all been driven
-against a running server; those that say so in their own text have not.
-Treat a failure in one of them as possibly the case's mistake, and correct the
-case once it is settled. *Rate includes GST* on orders and quotations
-(TC-SELL-021) is so far in `docs/INDEPENDENT_TEST_CASES.md` only.
+customer, the tax calendar, one quantity picture per order line, the GST
+Documents settings and rate-includes-GST on orders and quotations) were
+written from the code and have not all been driven against a running server;
+those that say so in their own text have not.
+
+**Cases added on 2026-10-03** cover the 95 backlog items built in Waves 1 to
+3, so that one manual pass reaches every one of them: enquiries to
+quotations, counter billing, picking and loading sheets, early-payment
+discount and overdue interest, pending outlets, price levels, the new offer
+kinds, bulk coupons, principal claims and sharing documents by hand
+(`08_SELLING`, `09_PRICING_AND_INCENTIVES`); supplier rates and catalogue,
+requisitions, amended orders, inspection, bill tolerance and budgets, payment
+runs, supplier ratings and rebates, landed cost and free goods
+(`06_PURCHASING`); stock transfers as documents, repacking, kits, expiry
+rules, count plans, adjustment approval, evidence, lapsing reservations and
+labels (`07_INVENTORY`); principals and brands, merging duplicates, customer
+bank accounts, linked parties and codes from a series (`05_MASTERS`); GST
+checks, filed returns and amendments, quarterly filing, rule 42, branch GSTINs
+and the rule on each line (`11_COMPLIANCE`); bank reconciliation,
+post-dated cheques, cheque printing, TDS challans and 194Q, the cash flow
+statement, Tally export, approvals by level and the bell
+(`12_FINANCE_AND_REPORTS`); and firm-owned and document custom fields
+(`04_FIRMS_AND_CONFIGURATION`). **All of them were written from the code and
+the build notes and none has been driven against a running server**; say so in
+the result notes, and treat a failure as possibly the case's mistake until it
+is settled. Nineteen cases that had been added to these files by hand on
+2026-10-02 (TC-MAST-009 and 010, TC-BUY-017 and 018, TC-SELL-022 to 026,
+TC-TERR-006, TC-COMP-009 to 019) are now also in
+`docs/INDEPENDENT_TEST_CASES.md`, so regenerating no longer drops them.
 
 ## Start with the sanity check
 
@@ -36,22 +59,22 @@ If it fails, the cases below cannot be trusted until the failure is fixed.
 
 | File | Area | Detailed cases | Screen checks |
 | --- | --- | --- | --- |
-| `01_ROLES_AND_ACCESS` | What each of the 11 job templates may reach and do | 11 jobs, 353 screen rows | |
+| `01_ROLES_AND_ACCESS` | What each of the 11 job templates may reach and do | 11 jobs, 579 screen rows | |
 | `02_SIGN_IN_AND_ACCOUNTS` | Sign-in, lockout, sessions, your own account, platform mode | 27 | |
 | `03_USERS_AND_ROLES` | Users, hiring, job templates, roles in two tiers | 52 | 5 |
-| `04_FIRMS_AND_CONFIGURATION` | Creating and finishing a firm, isolation, numbering, profiles, tax, units, custom fields | 42 | 19 |
-| `05_MASTERS` | Customers, vendors, products, branches, warehouses | 14 | 14 |
-| `06_PURCHASING` | Purchase order to supplier payment, returns, GST on purchases | 16 | 7 |
-| `07_INVENTORY` | Stock, transfers, write-offs, counts, batches, serials | 8 | 14 |
-| `08_SELLING` | Quotation to cash, holds, returns, credit notes, debit notes, proforma | 20 | 8 |
-| `09_PRICING_AND_INCENTIVES` | Price lists, promotions, loyalty, commission, targets | 8 | 5 |
-| `10_TERRITORY` | Territories, routes, beat plans, call lists | 5 | 7 |
-| `11_COMPLIANCE` | GSTR-1, GSTR-3B, e-invoice and e-way bill sandbox, TCS, the tax calendar | 8 | 3 |
-| `12_FINANCE_AND_REPORTS` | Ledger, journals, statements, periods, reports, audit, diagnostics | 21 | 17 |
+| `04_FIRMS_AND_CONFIGURATION` | Creating and finishing a firm, isolation, numbering, profiles, tax, units, custom fields | 45 | 19 |
+| `05_MASTERS` | Customers, vendors, products, branches, warehouses, principals and brands, merging duplicates, codes from a series | 22 | 14 |
+| `06_PURCHASING` | Purchase order to supplier payment, returns, GST on purchases, requisitions, supplier terms, payment runs, landed cost | 28 | 16 |
+| `07_INVENTORY` | Stock, transfer documents, write-offs, repacking, kits, counts, batches, serials | 20 | 18 |
+| `08_SELLING` | Enquiry and quotation to cash, holds, returns, credit notes, debit notes, proforma, counter billing, price levels | 35 | 7 |
+| `09_PRICING_AND_INCENTIVES` | Price lists, promotions, coupons, loyalty, commission, targets, principal claims | 12 | 5 |
+| `10_TERRITORY` | Territories, routes, beat plans, call lists | 6 | 7 |
+| `11_COMPLIANCE` | GSTR-1, GSTR-3B, e-invoice and e-way bill sandbox, TCS, the tax calendar, filing checks, amendments, quarterly filing | 26 | 3 |
+| `12_FINANCE_AND_REPORTS` | Ledger, journals, statements, periods, reports, bank reconciliation, cheques, TDS, Tally export, approvals, audit, diagnostics | 35 | 29 |
 | `13_CROSS_CUTTING` | Permissions enforced by the server, two people editing one record | 17 | |
 | `14_TEST_DATA` | The values to type for every firm, person, master and case (written by hand) | | |
 
-In all: **238 detailed cases, 99 screen checks and 11 role checks**. The
+In all: **325 detailed cases, 123 screen checks and 11 role checks**. The
 installation itself is tested separately by `docs/INSTALLER_QA_CHECKLIST.md`,
 and `docs/QA_FUNCTIONAL_WALKTHROUGH.md` is a one-day end-to-end run that
 makes a good first pass before this suite.

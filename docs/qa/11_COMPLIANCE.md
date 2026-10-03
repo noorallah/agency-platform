@@ -2,7 +2,7 @@
 
 Part of the QA test suite in `docs/qa/`. Read `00_README.md` first: it
 explains the preparations, the accounts and how to record results. Generated
-on 2026-09-25 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
+on 2026-10-03 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
 
@@ -39,7 +39,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 
 - **Preconditions:** The GST-registered firm described in this section's preparation table, with its three invoices.
 - **Steps:** GST Returns → **GSTR-3B**, same month. Add GSTR-1's B2B, B2CS and CDNR taxable values by hand.
-- **Expect:** **3.1(a)** taxable **1,800.00**, CGST 162.00, SGST 162.00 — equal to GSTR-1's sum; credit notes deducted 0; the inward side (table 4, input credit) reads zero here because this preparation has no purchase bills -- with bills it is derived from them, line by line. 3B is aggregated from the documents, not parsed out of GSTR-1.
+- **Expect:** **3.1(a)** taxable **1,800.00**, CGST 162.00, SGST 162.00 — equal to GSTR-1's sum; credit notes deducted 0; the inward side reads "Not derived: the purchase side files this." 3B is aggregated from the documents, not parsed out of GSTR-1.
 ### TC-COMP-004 — The e-invoice screen says it is a rehearsal
 
 - **Preconditions:** The GST-registered firm described in this section's preparation table, with its three invoices.
@@ -69,13 +69,16 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
   - The banner reads "Collecting under section 206C(1H) • (the threshold, 0) per buyer per year, then 0.100% (1.000% without a PAN)"; the register lists the two receipts from Vijaya — **2.42** and **3.42**, rate **1.000%** (no PAN), **COLLECTED**.
   - Settings: **Collect under section 206C(1H)** on; preceding year turnover 150,000,000; threshold 0; rate 0.1; without a PAN 1.0.
   - Journal: `TCS-RC-…` entries separate from the receipts' own; View reads **Dr 1100 Trade Receivables / Cr 2500 TCS Payable** — 2500, not Output Tax.
+---
+
 ### TC-COMP-008 — The tax calendar on Home, and marking a return filed
 
-- **Preconditions:** The GST-registered firm described in this section's preparation table. Its invoices are dated this month, so the calendar's rows are for the month just gone only if the firm traded then; if the list reads "Nothing due.", take a firm with last month's invoices.
-- **Steps:** as the prepared **Firm admin**, Home → **Tax calendar**. On a GSTR-1 row choose to record it as filed, with a date. Then withdraw it.
-- **Expect:** one row per return per finished month (GSTR-1 due the 11th, GSTR-3B the 20th; a TCS deposit row only for a month that collected tax at source), each reading "due in N days", "N days late" or "Filed <day> <month>". Marking GSTR-1 filed turns its row to "Filed" and nothing else moves; withdrawing it puts it back. GSTR-3B turns to "Paid" once a GST payment is recorded for the month. A TCS row has no record button.
+*Added 2026-10-02 from the code and the QA suite; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
 
-
+- **Preconditions:** The GST-registered firm described in this section's preparation table, with its three invoices.
+- **Also needs:** the prepared invoices are dated this month, so the calendar's rows are for the month just gone only if the firm traded then; if the list reads "Nothing due.", use a firm with last month's invoices.
+- **Steps:** as the prepared **Firm admin**, Home → **Tax calendar**. On a GSTR-1 row choose to record it as filed, with a date and an acknowledgement number. Then withdraw it (Undo). Record a GST payment for the month and look again.
+- **Expect:** one row per return per finished month (GSTR-1 due the 11th, GSTR-3B the 20th; a TCS deposit row only for a month that collected tax at source), each reading due in N days, N days late or Filed on a date. Marking GSTR-1 filed turns its row to Filed and nothing else moves; Undo puts it back. GSTR-3B closes once a GST payment is recorded for the month. A TCS row has no record button. A role that may not open GST Payment does not see the card.
 ### TC-COMP-009 — Filing e-invoices offline (no GSP)
 
 *Added 2026-10-02 (decision A42).*
@@ -100,26 +103,6 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Steps:** Sell → Credit Notes → the note → **E-invoice** → **Register**. The same on the debit note. Accounts → Tax filing → E-Invoice: look at the list. Switch the firm to **Offline**, raise another credit note, and **Export for portal** with an invoice and that note ticked; open the file.
 - **Expect:** each note registers with an `SBX` IRN and shows mode **SANDBOX**; the list shows them as *Credit note* and *Debit note* with their own numbers. The exported file holds the invoice (`Typ` INV) and the note (`Typ` CRN) whose `RefDtls` names the invoice it corrects, CGST and SGST each 18.00 on the 200.
 ---
-
-## Screen checks
-
-One standard check for every screen in this area. Run it once per screen as the firm administrator, then confirm the access line with a role that lacks the code. Where a detailed case above already covers an action, the check only asks that the screen behaves consistently with it.
-
-| ID | Screen | Expected | Result | Notes |
-| --- | --- | --- | --- | --- |
-| 11-S01 | **Accounts → Tax filing → E-Invoice** | Offered to any role holding `EINVOICE_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 11-S02 | **Sales → GST Returns** | Offered to any role holding `SALES_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 11-S03 | **Sales → TCS** | Offered to any role holding `TCS_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-
-## Results summary
-
-| | |
-| --- | --- |
-| Tester | |
-| Date | |
-| Installed version | |
-| Cases passed / failed / blocked | |
-| Worst problem found | |
 
 ### TC-COMP-012 — The IRN and QR on the printed documents
 
@@ -184,3 +167,78 @@ One standard check for every screen in this area. Run it once per screen as the 
 - **Preconditions:** TC-COMP-016's firm on the **Sandbox** route. A B2B customer with two approved invoices for the same product; a sales return of goods from **both** invoices, completed; a second completed return of goods that were only delivered, never invoiced.
 - **Steps:** Sell → Sales Returns → the first return → **Print credit note**. Accounts → Tax filing → E-Invoice → **To register**: find it and **Register**. Print its credit note again. Switch to **Offline**, raise and complete another return of billed goods, **Export for portal** with it ticked, and open the file. Look for the second return in **To register**.
 - **Expect:** before registration the credit note print is refused with the no-IRN sentence and offers a reference copy. The return is listed as **Sales return**; it registers with an `SBX` IRN, and its credit note then prints with the E-INVOICE box. The exported entry is a `CRN` whose `RefDtls` names **each** invoice it returns goods from. The return of goods never invoiced is not listed and is never registered ("... returns goods no invoice billed, so it credits no tax invoice and is not registered.").
+
+### TC-COMP-020 — The 30 November limits and 16-character document numbers
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** The GST-registered firm described in this section's preparation table, with its three invoices.
+- **Also needs:** an approved invoice dated in the **previous GST year** (April to March); a supplier bill dated in the previous GST year; a numbering series for the sales invoice with a long prefix.
+- **Steps:** as the prepared **Firm admin**: raise a **credit note** (and a sales return) against the old invoice dated after 30 November that follows that year's end; read the screen after saving. Raise one dated earlier. Open the old **supplier bill** after 30 November following its year. Then Settings (gear) → Firm → **Numbering Series** → the sales invoice series: set a prefix that makes the number longer than 16 characters; try a space or an underscore in the prefix. Look at the default series of a new firm for invoice, credit note, sales return, debit note, delivery challan.
+- **Expect:** a credit note or sales return dated after 30 November following the supply's GST year carries a **time-limit warning** (a warning, not a refusal: the firm may have filed its annual return earlier); the same warning appears on a supplier bill for input credit claimed after that date (s.16(4)). One dated before it shows none. The GST year is April to March whatever the firm's own year. A series for the six GST documents (invoice, credit note, sales return, customer debit note, delivery challan, reverse-charge self-invoice) is refused when its numbers can exceed **16 characters** or use characters other than letters, digits, hyphen and slash; the default series use a **short financial year** so they fit. Quotations, orders, proformas and vouchers keep any length.
+### TC-COMP-021 — GST checks before filing
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** The GST-registered firm described in this section's preparation table, with its three invoices.
+- **Also needs:** an invoice to a buyer whose GSTIN has a wrong check character; a product with no HSN; an approved invoice to a registered buyer for a firm that e-invoices but with no IRN; a credit note dated late; a credit note on a cancelled invoice; a supplier bill with a bad GSTIN.
+- **Steps:** as the prepared **Firm admin**: Accounts → Tax filing → **GST checks** → choose the month → Run. Read each finding. Click a row. Fix one problem and run again. As a role without SALES_VIEW open the screen.
+- **Expect:** findings are named by code and each row names its document (type, number, date, party): GSTIN_INVALID (the firm's own, a buyer's on invoices and notes, a supplier's on bills as a **warning**), HSN_MISSING and HSN_SHORT (six digits once the firm e-invoices, four below), PLACE_OF_SUPPLY_MISSING, IRN_MISSING, CREDIT_NOTE_LATE (after 30 November following the supply's year) and CREDIT_NOTE_ON_CANCELLED_INVOICE. The checks read the same invoices GSTR-1 declares. *Open document* is disabled (the desktop cannot open a sales invoice by id yet). After fixing, the finding is gone on the next run. Needs SALES_VIEW.
+### TC-COMP-022 — A filed return is kept, and a change becomes an amendment
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** The GST-registered firm described in this section's preparation table, with its three invoices.
+- **Also needs:** invoices in last month and this month (back-date as needed).
+- **Steps:** as the prepared **Firm admin**: Accounts → Tax filing → **GST Returns** → GSTR-1 for last month → **Mark filed**. Then add or edit a document in last month (a new invoice dated last month, a credit note, a changed GSTIN or rate on one) and reopen last month, then open GSTR-1 for **this** month and GSTR-3B for this month. Withdraw the filing (Undo) and look again.
+- **Expect:** a filed period shows the figures **as filed** (a banner says filed; recomputing is possible but the snapshot is what is shown). Any other period's GSTR-1 carries an **Amendments** section: every earlier filed period is recomputed and compared with what was declared — B2BA (invoice by number; the GSTIN may change), B2CLA, CDNRA, B2CSA (a row gone to nothing too) and documents added to a filed period after filing. GSTR-3B carries *amendments to earlier returns*, the net change (credit notes negative). Withdrawing the filing drops its snapshot and the period is live again. One snapshot per filing under the firm's GSTIN; per-branch filing is open.
+### TC-COMP-023 — A quarterly (QRMP) filer
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** The GST-registered firm described in this section's preparation table, with its three invoices.
+- **Steps:** as the prepared **Firm admin**: Settings (gear) → Tax → **GST Documents** → **Return filing**: frequency *Quarterly*, from a quarter's start, payment method *fixed sum* (then *self-assessed*). Accounts → Tax filing → **PMT-06 deposits** → take the suggested amount → record the deposit; reverse it. Open **GST Returns**: the quarterly GSTR-1 and the **IFF** view for month 1 or 2; Mark filed the IFF. Home → Tax calendar. Then GST Payment for a quarter and for month 1.
+- **Expect:** the filing plan says which months are quarterly, the period each month files under and every due date (3B on the 22nd or 24th by the GSTIN's state). The calendar shows IFF (optional) and PMT-06 for months 1-2 and the quarter's GSTR-1 and 3B. A deposit is Dr *GST Electronic Cash Ledger* / Cr bank, reversible while the quarter is unsettled. The quarterly GSTR-1 leaves out what a filed IFF already furnished. GST payment spans the quarter, refuses months 1-2, and pays from the cash-ledger deposits before the bank. A cancellation's "after the return was due" reads the quarterly date too.
+### TC-COMP-024 — Common credit reversal, rule 42
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** The GST-registered firm described in this section's preparation table, with its three invoices.
+- **Also needs:** taxable and exempt sales and eligible input credit in the month and later months of the year.
+- **Steps:** as the prepared **Firm admin**: Settings (gear) → Tax → **GST Documents** → *Rule 42 mode* on. Accounts → Tax filing → **Rule 42** → the month → work out; post. Open GSTR-3B. Run the annual true-up and post it; reverse a posting.
+- **Expect:** per period the reversal is D1 = C2 × E / F from GSTR-3B's own figures (every eligible credit taken as common), posting Dr *Input Tax Not Claimable* / Cr input tax; the year's true-up is summed month by month against what was posted and a true-up reclaim posts the mirror. GSTR-3B carries *itc reversed rule 42* (4(B)(1)) and *itc reclaimed rule 42* (4(A)(5)) in net ITC. Reversing a posting undoes it. Rule 43 (capital goods) and credit used only for taxable or only for exempt supplies are not done.
+### TC-COMP-025 — A branch with its own GSTIN
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** The GST-registered firm described in this section's preparation table, with its three invoices.
+- **Also needs:** a second branch in another state with a warehouse; a valid GSTIN for that state (and one with a wrong check character).
+- **Steps:** as the prepared **Firm admin**: Masters → Organisation → **Branches** → the second branch → **Branch GSTIN**: the wrong one, one of another state, then the valid one → Save. Raise and approve an invoice from that branch; print it; e-invoice it. Accounts → Tax filing → **GST Returns**: choose each GSTIN. Try a stock transfer (document or one-step) between the two branches' warehouses.
+- **Expect:** the GSTIN is checked for shape and check character and must match the branch's state; a GSTIN makes the branch GST-registered. The branch's own GSTIN (else the firm's) decides the supplier state in place of supply, the seller block on every print, the e-invoice seller details and the e-way bill consignor. GSTR-1 and 3B take a GSTIN and read only that GSTIN's branches (the firm's own GSTIN also takes branches without one); a firm with one GSTIN is not scoped. A transfer between two GSTINs is refused, naming the sales invoice to the other branch as the way.
+### TC-COMP-026 — The tax rule is kept on each line
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Steps:** as the prepared **Firm admin**: Sell → Documents → **Quotations** → New with a DET line; open the line's tax detail. Save, convert and bill. Open the invoice line's tax detail. Settings (gear) → Tax → **Rule Simulator** and simulate the same line. Open an old document made before this change; open a credit note.
+- **Expect:** the line's tax detail names the **rule code and version** that taxed it, and the simulator answers with the same matched rule code and version. Lines saved before this change show none; credit and debit notes copy their tax from the invoice and are left out.
+
+## Screen checks
+
+One standard check for every screen in this area. Run it once per screen as the firm administrator, then confirm the access line with a role that lacks the code. Where a detailed case above already covers an action, the check only asks that the screen behaves consistently with it.
+
+| ID | Screen | Expected | Result | Notes |
+| --- | --- | --- | --- | --- |
+| 11-S01 | **Sales → E-Invoice** | Offered to any role holding `EINVOICE_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 11-S02 | **Sales → GST Returns** | Offered to any role holding `SALES_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 11-S03 | **Sales → TCS** | Offered to any role holding `TCS_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+
+## Results summary
+
+| | |
+| --- | --- |
+| Tester | |
+| Date | |
+| Installed version | |
+| Cases passed / failed / blocked | |
+| Worst problem found | |

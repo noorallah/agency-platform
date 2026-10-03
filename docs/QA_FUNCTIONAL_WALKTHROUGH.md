@@ -19,6 +19,11 @@ screens: the list screens now keep everything on one line and show a bar for
 the picked row (below), and section 15 checks what is new in 1.0.2. The
 figures and expected totals of sections 1 to 14 are unchanged.
 
+**Updated 2026-10-03 for the features built in backlog Waves 1 to 3**: section
+16 walks the important new flows on the same firm. Its steps are written from
+the code and have not yet been driven; sections 1 to 15 are unchanged. The
+detailed cases for each feature are in `INDEPENDENT_TEST_CASES.md` and `qa/`.
+
 **Where to run it.** Install or upgrade with `AgencyPlatform-1.0.2-Setup.exe`
 (the *Installer QA checklist*, sections A, B and E), then open *Agency
 Platform* from the Start menu. Sections 1 to 9 do not depend on how it was
@@ -345,6 +350,38 @@ longer history helps.
 | N15 | Record rent as a journal (P&L guide, section 3): debit 6000 Rent 5,000, credit 1010 Bank 5,000, and post it | Profit & Loss shows Rent 5,000 among the expenses; the bank balance falls by 5,000 | Not run | |
 | N16 | Admin → Audit Logs: pick an entry, then Open | A grid; the entry's field changes open in a window, not in a side pane | Not run | |
 | N17 | Resize the window to 1366 × 768 and repeat N1 and N2 on Purchase Invoices | Everything fits on the line (steps fold under … when short); the bar's steps stay reachable | Not run | |
+
+## 16. What was added in Waves 1 to 3 (2026-10-03)
+
+Run after sections 1 to 14, on QA01, as the firm administrator unless a step
+names another login. Each step is the shortest walk through one new feature;
+the case named in the last column of the step has the full set of checks. The
+expected figures follow from the same numbers as before (cost 100, price 150,
+GST 18% within the state). **Written from the code, not yet driven:** where a
+figure depends on stock left over from earlier sections, the step says what to
+read rather than a number.
+
+| ID | Step | Expected | Result | Notes |
+| --- | --- | --- | --- | --- |
+| X1 | Sell → **Enquiries** → **+ New**: a prospect *QA Walk-in* with phone `+919800000201` and city, source *Walk-in*, expected value 1,500, next follow-up tomorrow; one line `QA-P1` × 10. Save | Numbered `ENQ-…`, status open, listed under *Follow-ups due* tomorrow (TC-SELL-028) | Not run | |
+| X2 | On it choose **Convert to quotation** | A customer *QA Walk-in* is created from the prospect (code from the customer series) and a **draft quotation** for 10 × 150 = taxable **1,500.00** plus 18% GST is made; the enquiry names both | Not run | |
+| X3 | Open the quotation, **Convert to sales order**; look at the enquiry again | The enquiry now reads **WON**. A second enquiry marked **Lost** with a reason appears in Reports → Operational → *Enquiries lost* | Not run | |
+| X4 | Settings (gear) → Firm → **Approval Levels** → New: *Sales order*, level 1, from **5,000**, role *Firm Administrator*. As the **field salesperson** raise an order for QA-C1 of 40 × 150 (total 7,080.00) and try **Approve** | Refused, naming the level and the role that may sign it (TC-FIN-021) | Not run | |
+| X5 | As the administrator, Sell → Documents → **Approvals**, find the order and **Sign off** (or Approve it on the order) | The last open level is signed, so the order is **Approved**. An order of 10 × 150 (1,770.00) approves with no sign-off | Not run | |
+| X6 | Buy → **Requisitions** → **+ New**: `QA-P1` × 20, supplier QA-V1 → Submit → Approve → **Convert to orders** | A draft purchase order for QA-V1 is made (taxable 2,000.00, tax 360.00, total 2,360.00), priced from the supplier's terms; the requisition reads Ordered (TC-BUY-020) | Not run | |
+| X7 | Stock → **Stock Transfers** → **+ New**: MAIN to STORE2, QA-P1 × 4. Note MAIN's quantity, then **Dispatch** | MAIN falls by 4; the 4 are **in transit** at STORE2 (Stock Summary shows them as incoming there). No journal is posted: Accounts → Journal Entries has nothing new (TC-STOCK-009) | Not run | |
+| X8 | **Receive** the transfer with all 4 arrived, then print the **challan** | STORE2 holds 4 more, none damaged; the challan has no values; the transfer is final | Not run | |
+| X9 | Masters → Products → **+ New** `QA-KIT` *QA Gift Pack*, type **Bundle**; **Components**: `QA-P1` × 2. Then **Assemble** 2 kits | `QA-P1` falls by **4**, `QA-KIT` holds **2**, carrying a cost of 200 each (the components' cost) (TC-STOCK-012) | Not run | |
+| X10 | Buy → Money → **Landed Costs** → **+ New**: the two goods receipts of section 3, a freight charge of **1,000** from QA-V1 with its bill number, spread **by value**. Post | The 600 and 400 shares go to the receipts' lines; the part that belongs to goods still on hand **raises the stock's average cost**, and the part belonging to goods already sold goes to cost of goods sold. Journal: Dr Inventory and Cost of Goods Sold, Cr *Expenses Included in Valuation* (TC-BUY-026) | Not run | |
+| X11 | Sell → Documents → **Sales Invoices** → **+ New** by product for QA-C1 (counter bill): give `QA-P1` a barcode first, type it into the **scan field** twice, split the tender **Cash 100 / UPI** for the rest, press **Save & print (F9)** | Quantity 2 on one line; the bill is approved, printed and a new blank bill opens; two receipts exist (cash and UPI), both allocated to the bill, which shows paid (TC-SELL-029) | Not run | |
+| X12 | Sell → Money → **Post-dated Cheques** → **+ New**: QA-C1, 500.00, a cheque dated tomorrow. Try **Deposit** today; then **Bounce** it after depositing on the date (or back-date) with charges 50 | Deposit is refused before the cheque's date; a bounce reverses the receipt and posts the charges to QA-C1's account (TC-FIN-013) | Not run | |
+| X13 | Accounts → Books → **Bank Reconciliation**: import a statement file for the bank account with a line for the 1,180.00 payment of W28, then **Auto-match** | The line is matched to the payment's posting (amount, date within 3 days, reference); the reconciliation statement shows only the lines left unmatched and checks against the statement's closing balance (TC-FIN-012) | Not run | |
+| X14 | Masters → Customers → **+ New** `QA-C7` *QA Retail Stores* with the same phone number as QA-C1 | Before saving, a **duplicate warning** names QA-C1 (it does not block). Save anyway, then select `QA-C7` → **Merge into...** → QA-C1 (TC-MAST-012) | Not run | |
+| X15 | Open QA-C1's statement, then the customer list | `QA-C7` is gone from the list; anything raised for it now sits on QA-C1, and QA-C1's balances are the sum of both | Not run | |
+| X16 | Accounts → Tax filing → **GST checks** for this month | The findings are listed by code with the document they are about. A made-up GSTIN such as `33ABCDE1234F1Z5` may be flagged for its check character; that is the check working, not a fault (TC-COMP-021) | Not run | |
+| X17 | Accounts → Books → **Export to Tally**: today's month, **Export** | An XML file is saved; every posted journal of the period is a voucher typed by its source, with a ledger per customer and supplier (TC-FIN-020) | Not run | |
+| X18 | Accounts → Statements → **Cash Flow** for the same periods as Profit & Loss | Operating, investing and financing sections, opening and closing cash, and a line saying whether it reconciles (TC-FIN-018) | Not run | |
+| X19 | Home: open the bell | Lists what waits for you (for example the purchase order awaiting approval from X6, stock alerts), each counted (TC-FIN-022) | Not run | |
 
 ## Results summary
 
