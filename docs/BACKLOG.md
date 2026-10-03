@@ -5169,6 +5169,50 @@ view 8 of `dist\windows\Design\UI phase 2 wireframes.html`, in **three
 layouts** (A, B, C) that follow Home's frame and colours; switch "not yet set"
 / "configured" to see both branding states. **Layout: owner to choose.**
 
+**Current state, 2026-10-03 -- read this first; it supersedes the 09-28 text
+below where they differ.** Wireframes: `dist\windows\Design\Branding
+wireframes.html` (six steps; screenshots in `Branding wireframes -
+screenshots\`); proposal: `docs/BRANDING_AND_NAMES.md`. **Kept in the backlog
+by the owner to build later** (B9: after the Jugnix trademark is filed).
+
+Decided by the owner on 2026-10-03:
+
+- **Installer approved.** Six pages; page 3 **Branding** appears on a server
+  install only and takes the agency's name, tagline and logo (all optional)
+  into the server's branding record. Our product name, company and product
+  logo come from the package and are **locked** (no reseller white-label).
+- **Sign-in layout B** -- Home's frame, the dark bar carrying the agency's
+  logo and name, one sign-in card in the middle.
+- **The sign-in screen must say whose product it is**: the window title
+  "<product> - Sign in", and the product's mark (logo, name, "by <company>",
+  tagline) on the screen.
+- **Our support contact on the sign-in screen**, in the space beside the card:
+  a night-blue panel "Stuck? We'll light the way." with support phone (call or
+  WhatsApp, hours), email, help website, a "Copy details for support" button
+  (version, server address, PC name) and "Forgot your password? Your
+  administrator resets it."
+- Product and company show as `[Product name]` / `[Company name]` /
+  placeholder logo until the trademark is filed; then Jugnix Trade by Jugnix,
+  "Many lights. One glow."
+
+Still open with the owner: where the product mark sits on sign-in -- in the
+card's foot (recommended), at the right of the top bar, or a night-blue band
+at the foot; and a review of steps 3-6 (first-run setup, main app, Settings >
+Branding, Help > About).
+
+**UI changes to build** (on top of rows 1-5 of the table below):
+
+| # | Change | Where |
+| --- | --- | --- |
+| U1 | Installer page 3 Branding (server install only), writing the server's branding record; client installs skip it | `packaging/AgencyPlatform.iss` + a first-start hand-off to the backend |
+| U2 | Product identity from one place: product name, company, tagline, product logo/icon, support phone/email/website/hours; placeholders until the trademark is filed | `desktop/config/branding.json` (package-built, not customer-edited), `Runner.rc`, `.iss` display strings only -- keep the ProgramData folder, service names and AppId |
+| U3 | Phase 2 sign-in, layout B: agency logo + name + tagline in the dark bar and the card head; window title "<product> - Sign in"; product mark (placement pending); status line with server state, version, "Powered by <product>" | phase 2 sign-in screen |
+| U4 | Support panel beside the sign-in card, with "Copy details for support" | phase 2 sign-in screen |
+| U5 | First-run setup step 1 "Your agency", pre-filled from the installer, skippable with a "Finish setting up" card on Home | phase 2, after the first administrator's first sign-in |
+| U6 | Agency logo + name at the left of the menu bar on every screen (logo only below 820 px); window title "<firm> - <agency>"; product and company at the right of the status line | `desktop/lib/phase2/app_menu_bar.dart`, the shell |
+| U7 | Settings > Platform > Branding with preview; product and company shown read-only | phase 2 Settings |
+| U8 | Help > About: product, version, build, licensed to, maker, support details, "Copy details for support" | phase 2 Help menu |
+
 **Today:** the phase 1 sign-in screen reads `config\branding.json` beside the
 executable -- `app_name`, `company_name`, `logo_path`, two colours. That file
 is per PC and edited by hand, so ten PCs mean ten edits, Setup overwrites it
@@ -5216,7 +5260,9 @@ documents.
 | **Our company** (the maker) | Fixed at build time (`AppPublisher` in `packaging/AgencyPlatform.iss`, `CompanyName` in `Runner.rc`, the product constants); **never editable by a customer** | Installer and Windows Apps list as publisher; exe properties; sign-in footer "Powered by Agency Platform"; the status line's right end "Agency Platform 1.0.2 - <maker>"; Help > About (version, build, maker, support email, phone, website, copyright, "Copy details for support"). **Not** on the customer's printed invoices |
 
 **The installer asks nothing about branding** -- a name typed there would sit
-on one PC, and the server record is what every PC reads.
+on one PC, and the server record is what every PC reads. *(Superseded
+2026-10-03: the server installer now takes it and writes the server's record,
+so every PC still reads one place -- see "Current state" above.)*
 
 **Owner owes:** the company's legal name, support email, phone and website
 (the wireframe shows "Your Company Pvt Ltd"), and the product `.ico` (§47).
