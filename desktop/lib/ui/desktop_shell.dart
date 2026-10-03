@@ -68,6 +68,7 @@ import 'commission/sales_target_page.dart';
 import 'purchases/debit_note_page.dart';
 import 'purchases/purchase_requisition_page.dart';
 import 'purchases/quality_inspection_page.dart';
+import 'purchases/supplier_rebates_page.dart';
 import 'purchases/purchase_approval_limits_dialog.dart';
 import 'purchases/purchase_budgets_dialog.dart';
 import 'sales/credit_note_page.dart';
@@ -3260,6 +3261,12 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
         ),
+      'supplier-rebates' => SupplierRebatesPage(
+          api: widget.api,
+          preferences: widget.preferences,
+          permissions: widget.permissions,
+          hasActiveFirm: hasActiveFirm,
+        ),
       'purchase-analytics' => PurchaseManagementPage(
           api: widget.api,
           preferences: widget.preferences,
@@ -3291,6 +3298,7 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
         'debit-notes' => 'Debit Notes',
         'purchase-requisitions' => 'Purchase Requisitions',
         'quality-inspection' => 'Quality Inspection',
+        'supplier-rebates' => 'Supplier Rebates',
         'purchase-analysis' => 'Purchase Analysis',
         'purchase-rate-trend' => 'Rate Trend',
         'purchase-analytics' => 'Purchase Analytics',
@@ -3313,6 +3321,9 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
         'quality-inspection' =>
           'Received goods held in quarantine until they are passed; rejected '
               'goods are written off or kept to return to the supplier.',
+        'supplier-rebates' =>
+          'Volume rebates agreed with suppliers: progress up the ladder, '
+              'accrual once the period ends, and settlement against open bills.',
         'purchase-analysis' =>
           'Purchases by any one or two dimensions, net of returns. Click a '
               'figure to see the bills behind it.',

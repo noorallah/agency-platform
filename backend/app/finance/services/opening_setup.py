@@ -379,6 +379,15 @@ CHART: tuple[SeedAccount, ...] = (
         ControlAccountPurpose.TDS_RECEIVABLE,
     ),
     SeedAccount(
+        # A supplier's volume rebate accrued and not yet credited (BUY-13).
+        # Migration 20261003_0286 gives existing firms the same account.
+        "1410",
+        "Supplier Rebates Receivable",
+        AccountTypeEnum.ASSET,
+        "CA",
+        ControlAccountPurpose.SUPPLIER_REBATE_RECEIVABLE,
+    ),
+    SeedAccount(
         "5700",
         "Loyalty Expense",
         AccountTypeEnum.EXPENSE,

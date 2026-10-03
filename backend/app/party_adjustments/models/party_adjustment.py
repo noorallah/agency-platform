@@ -12,6 +12,9 @@ every kind, and two copies would drift.
 * **Set-off** -- a customer and a supplier who are the same business: what
   they owe the firm is settled by what the firm owes them. Dr payable, Cr
   receivable.
+* **Supplier rebate** -- a volume rebate the firm accrued (BUY-13), credited
+  by the supplier and set against its bills. Dr payable, Cr supplier rebates
+  receivable. Names the agreement it settles.
 
 **None of them touches tax.** Reducing the value of a supply is a credit note
 or a debit note, which reverses the tax charged on it; an adjustment only says
@@ -57,6 +60,7 @@ class PartyAdjustmentKind(StrEnum):
     CUSTOMER_WRITE_OFF = "CUSTOMER_WRITE_OFF"
     SUPPLIER_WRITE_BACK = "SUPPLIER_WRITE_BACK"
     SET_OFF = "SET_OFF"
+    SUPPLIER_REBATE = "SUPPLIER_REBATE"
 
 
 class PartyAdjustmentStatus(StrEnum):
@@ -87,7 +91,8 @@ class PartyAdjustment(BaseEntity):
             "AND vendor_id IS NULL) OR (kind = 'SUPPLIER_WRITE_BACK' "
             "AND vendor_id IS NOT NULL AND customer_id IS NULL) OR "
             "(kind = 'SET_OFF' AND customer_id IS NOT NULL "
-            "AND vendor_id IS NOT NULL)",
+            "AND vendor_id IS NOT NULL) OR (kind = 'SUPPLIER_REBATE' "
+            "AND vendor_id IS NOT NULL AND customer_id IS NULL)",
             name="CK_party_adjustments_parties_match_kind",
         ),
         Index("IX_party_adjustments_firm_date", "firm_id", "adjustment_date"),
@@ -128,6 +133,12 @@ class PartyAdjustment(BaseEntity):
     #: on cancel. No foreign key, as `tcs_collections` holds it: the row is the
     #: customer module's.
     receivable_transaction_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    #: The volume rebate a ``SUPPLIER_REBATE`` settles (BUY-13).
+    rebate_agreement_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey("supplier_rebate_agreements.id", ondelete="RESTRICT"),
+        index=True,
+    )
     approved_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     approved_by: Mapped[UUID | None] = mapped_column(UUIDType())
     cancelled_at: Mapped[datetime | None] = mapped_column(UTCDateTime)

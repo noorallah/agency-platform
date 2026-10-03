@@ -102,12 +102,16 @@ _KIND_NAMES = {
     PartyAdjustmentKind.CUSTOMER_WRITE_OFF.value: "write-off",
     PartyAdjustmentKind.SUPPLIER_WRITE_BACK.value: "write-back",
     PartyAdjustmentKind.SET_OFF.value: "set-off",
+    PartyAdjustmentKind.SUPPLIER_REBATE.value: "rebate settlement",
 }
 
 
 def _has_customer(kind: str) -> bool:
     """Say whether a kind names a customer."""
-    return kind != PartyAdjustmentKind.SUPPLIER_WRITE_BACK.value
+    return kind not in (
+        PartyAdjustmentKind.SUPPLIER_WRITE_BACK.value,
+        PartyAdjustmentKind.SUPPLIER_REBATE.value,
+    )
 
 
 def _has_vendor(kind: str) -> bool:
@@ -325,6 +329,7 @@ class PartyAdjustmentService(TransactionalDocumentService):
             vendor_id=data.vendor_id,
             amount=amount,
             allocations=data.allocations,
+            rebate_agreement_id=data.rebate_agreement_id,
         )
         number = self._issue_number(
             numbering_rule,
@@ -349,6 +354,7 @@ class PartyAdjustmentService(TransactionalDocumentService):
             amount=amount,
             reason=data.reason,
             status=PartyAdjustmentStatus.DRAFT.value,
+            rebate_agreement_id=data.rebate_agreement_id,
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -489,6 +495,7 @@ class PartyAdjustmentService(TransactionalDocumentService):
             vendor_id=row.vendor_id,
             amount=quantize_ledger(row.amount),
             allocations=self._as_writes(row),
+            rebate_agreement_id=row.rebate_agreement_id,
         )
         before = self._snapshot(row)
         entry = self._posting.post_party_adjustment(
@@ -675,6 +682,7 @@ class PartyAdjustmentService(TransactionalDocumentService):
         vendor_id: UUID | None,
         amount: Decimal,
         allocations: Sequence[PartyAdjustmentAllocationWrite],
+        rebate_agreement_id: UUID | None = None,
     ) -> None:
         """Refuse an adjustment that does not fit its parties and bills.
 
@@ -706,6 +714,20 @@ class PartyAdjustmentService(TransactionalDocumentService):
             raise ValidationError(f"A {name} names no supplier.")
         if customer is not None and vendor is not None:
             self._same_business(customer, vendor)
+        if kind == PartyAdjustmentKind.SUPPLIER_REBATE.value:
+            # Imported here: the rebate service reads these adjustments.
+            from app.supplier_rebates.services import SupplierRebateService
+
+            if vendor is None or rebate_agreement_id is None:
+                raise ValidationError("Name the rebate agreement this settles.")
+            due = SupplierRebateService(self._session).to_settle(
+                rebate_agreement_id, firm_id=firm_id, vendor_id=vendor.id
+            )
+            if amount > due:
+                raise ValidationError(
+                    f"The rebate has {due} still to settle, so {amount} cannot "
+                    "be set against the supplier's bills."
+                )
 
         sides: dict[PartyAdjustmentSideEnum, list[PartyAdjustmentAllocationWrite]] = {
             PartyAdjustmentSideEnum.CUSTOMER: [],
@@ -1062,6 +1084,7 @@ class PartyAdjustmentService(TransactionalDocumentService):
                     cancel_reason=row.cancel_reason,
                     allocations=lines,
                     version=row.version,
+                    rebate_agreement_id=row.rebate_agreement_id,
                 )
             )
         return answer

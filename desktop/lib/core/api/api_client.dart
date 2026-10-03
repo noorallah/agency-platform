@@ -37,6 +37,7 @@ import '../../models/contra_voucher.dart';
 import '../../models/tds_challan.dart';
 import '../../models/payment_run.dart';
 import '../../models/supplier_gift.dart';
+import '../../models/supplier_rebate.dart';
 import '../../models/post_dated_cheque.dart';
 import '../../models/purchase_requisition.dart';
 import '../../models/repack.dart';
@@ -8037,6 +8038,83 @@ class ApiClient {
         ),
         SupplierGiftSummary.fromJson,
       );
+
+  // ---- supplier volume rebates (BUY-13) ---------------------------------
+
+  /// A firm's rebate agreements; [vendorId] and [status] narrow the list.
+  Future<List<SupplierRebate>> supplierRebates({
+    String? vendorId,
+    String? status,
+  }) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/supplier-rebates',
+          query: {
+            if (vendorId != null && vendorId.isNotEmpty) 'vendor_id': vendorId,
+            if (status != null && status.isNotEmpty) 'status': status,
+          },
+        ),
+        SupplierRebate.fromJson,
+      );
+
+  Future<SupplierRebate> supplierRebate(String id) async =>
+      SupplierRebate.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/supplier-rebates/$id')),
+      );
+
+  Future<SupplierRebate> createSupplierRebate(Json body) async =>
+      SupplierRebate.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/supplier-rebates', body: body)),
+      );
+
+  /// Changes an ACTIVE rebate; send only keys the server declares.
+  Future<SupplierRebate> updateSupplierRebate(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) async =>
+      SupplierRebate.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/supplier-rebates/$id',
+        body: body,
+        expectedVersion: expectedVersion,
+      )));
+
+  Future<SupplierRebate> cancelSupplierRebate(
+    String id, {
+    int? expectedVersion,
+  }) async =>
+      SupplierRebate.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/supplier-rebates/$id/cancel',
+        expectedVersion: expectedVersion,
+      )));
+
+  /// Books what the period earned; refused until the period has ended.
+  Future<SupplierRebate> accrueSupplierRebate(
+    String id, {
+    String? accrualDate,
+    int? expectedVersion,
+  }) async =>
+      SupplierRebate.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/supplier-rebates/$id/accrue',
+        body: {if (accrualDate != null) 'accrual_date': accrualDate},
+        expectedVersion: expectedVersion,
+      )));
+
+  /// Takes the accrual off again; refused once anything is settled.
+  Future<SupplierRebate> reverseSupplierRebateAccrual(
+    String id, {
+    int? expectedVersion,
+  }) async =>
+      SupplierRebate.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/supplier-rebates/$id/reverse-accrual',
+        expectedVersion: expectedVersion,
+      )));
 
   // ---- quality inspection hold (BUY-9) ----------------------------------
 
