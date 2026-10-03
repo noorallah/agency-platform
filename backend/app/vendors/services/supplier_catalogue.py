@@ -253,6 +253,7 @@ class SupplierCatalogueService:
                 unit_price=row.unit_price,
                 pack_size=row.pack_size,
                 minimum_order_quantity=row.minimum_order_quantity,
+                order_multiple=row.order_multiple,
                 lead_time_days=row.lead_time_days,
                 effective_from=row.effective_from,
                 remarks=row.remarks,
@@ -327,6 +328,13 @@ COLUMNS: tuple[Column, ...] = (
         "20",
     ),
     Column(
+        "OrderMultiple",
+        ("multiple", "ordermultiple", "packmultiple"),
+        False,
+        "They ship only in multiples of this.",
+        "10",
+    ),
+    Column(
         "LeadTimeDays",
         ("leadtime", "deliverydays"),
         False,
@@ -349,6 +357,7 @@ _HEADINGS = {
     "unit_price": "Price",
     "pack_size": "PackSize",
     "minimum_order_quantity": "MinimumOrder",
+    "order_multiple": "OrderMultiple",
     "lead_time_days": "LeadTimeDays",
     "effective_from": "EffectiveFrom",
 }
@@ -420,6 +429,7 @@ class SupplierCatalogueFileImporter(FileImporter[SupplierProduct]):
             "unit_price": reader.number("Price"),
             "pack_size": reader.number("PackSize"),
             "minimum_order_quantity": reader.number("MinimumOrder"),
+            "order_multiple": reader.number("OrderMultiple"),
             "lead_time_days": reader.whole("LeadTimeDays"),
             "effective_from": effective,
         }

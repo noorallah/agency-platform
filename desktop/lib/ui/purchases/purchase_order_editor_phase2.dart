@@ -1111,6 +1111,42 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
   String _qty(String value) =>
       value.trim().isEmpty ? '—' : documentQuantity(value);
 
+  /// Lines off the supplier's minimum or multiple, each with a button that
+  /// sets the quantity to the nearest one that satisfies them (BUY-5).
+  List<Widget> _quantityHints(BuildContext context) {
+    final List<QuantityHint> hints =
+        _preview?.quantityHints ?? const <QuantityHint>[];
+    final List<Widget> out = <Widget>[];
+    for (final QuantityHint hint in hints) {
+      final int index = hint.lineNumber - 1;
+      if (index < 0 ||
+          index >= _draft.lines.length ||
+          _draft.lines[index].productId != hint.productId) {
+        continue;
+      }
+      if (out.isEmpty) out.add(const DocumentSideHeading('Supplier terms'));
+      out.add(DocumentSideNote('Line ${hint.lineNumber}: ${hint.message}'));
+      if (!_locked && hint.suggestedQuantity.isNotEmpty) {
+        out.add(Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(
+            key: ValueKey<String>('purchase-order-use-qty-${hint.lineNumber}'),
+            onPressed: () {
+              _setState(() => _lineEpoch++);
+              _changeLine(
+                index,
+                _draft.lines[index]
+                    .copyWith(orderedQuantity: hint.suggestedQuantity),
+              );
+            },
+            child: Text('Use ${hint.suggestedQuantity}'),
+          ),
+        ));
+      }
+    }
+    return out;
+  }
+
   Widget _orderSidePanel(BuildContext context) {
     final int index = _current.clamp(0, _draft.lines.length - 1);
     final PurchaseOrderLine line = _draft.lines[index];
@@ -1132,6 +1168,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
         ? _number(line.discountAmount)
         : _number(shownDiscount);
     return DocumentSidePanel(children: [
+      ..._quantityHints(context),
       DocumentSideHeading('Line ${index + 1} · ${product?.name ?? ''}'),
       DocumentSidePair('Rate', shownRate.isEmpty ? '–' : documentMoney(shownRate)),
       DocumentSideNote(

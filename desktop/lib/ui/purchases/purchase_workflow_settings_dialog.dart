@@ -292,6 +292,28 @@ class _PurchaseWorkflowSettingsDialogState
                       border: OutlineInputBorder(),
                     ),
                   ),
+                  const SizedBox(height: AppSpacing.lg),
+                  Text('Order quantities', style: theme.textTheme.titleSmall),
+                  const SizedBox(height: AppSpacing.sm),
+                  DropdownButtonFormField<String>(
+                    key: const ValueKey('order-quantity-policy'),
+                    initialValue: _settings.orderQuantityPolicy,
+                    decoration: const InputDecoration(
+                      labelText: "Order quantities off the supplier's terms",
+                      helperText: "Quantities under a supplier's minimum or "
+                          'off its multiple: warn on the order, or refuse it.',
+                      helperMaxLines: 2,
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'WARN', child: Text('Warn')),
+                      DropdownMenuItem(value: 'REFUSE', child: Text('Refuse')),
+                    ],
+                    onChanged: _mayManage && _read && !_saving
+                        ? (value) => setState(() => _settings = _settings
+                            .copyWith(orderQuantityPolicy: value))
+                        : null,
+                  ),
                   if (_toleranceError != null) ...[
                     const SizedBox(height: AppSpacing.sm),
                     Text(

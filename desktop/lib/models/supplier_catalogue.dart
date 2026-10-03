@@ -15,6 +15,7 @@ class SupplierCatalogueRow {
     required this.unitPrice,
     required this.packSize,
     required this.minimumOrderQuantity,
+    this.orderMultiple = '',
     required this.leadTimeDays,
     required this.effectiveFrom,
     required this.remarks,
@@ -31,6 +32,9 @@ class SupplierCatalogueRow {
   final String unitPrice;
   final String packSize;
   final String minimumOrderQuantity;
+
+  /// Orders go in whole multiples of this (BUY-5); blank means any quantity.
+  final String orderMultiple;
   final String leadTimeDays;
   final String effectiveFrom;
   final String remarks;
@@ -47,6 +51,7 @@ class SupplierCatalogueRow {
         unitPrice: stringValue(json['unit_price']),
         packSize: stringValue(json['pack_size']),
         minimumOrderQuantity: stringValue(json['minimum_order_quantity']),
+        orderMultiple: stringValue(json['order_multiple']),
         leadTimeDays: stringValue(json['lead_time_days']),
         effectiveFrom: stringValue(json['effective_from']),
         remarks: stringValue(json['remarks']),

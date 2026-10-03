@@ -220,6 +220,7 @@ class _SupplierCatalogueSectionState extends State<SupplierCatalogueSection> {
                 DataColumn(label: Text('Price'), numeric: true),
                 DataColumn(label: Text('Pack'), numeric: true),
                 DataColumn(label: Text('Min order'), numeric: true),
+                DataColumn(label: Text('Multiple'), numeric: true),
                 DataColumn(label: Text('Lead days'), numeric: true),
                 DataColumn(label: Text('From')),
                 DataColumn(label: Text('Status')),
@@ -238,6 +239,7 @@ class _SupplierCatalogueSectionState extends State<SupplierCatalogueSection> {
                       DataCell(Text(row.unitPrice)),
                       DataCell(Text(row.packSize)),
                       DataCell(Text(row.minimumOrderQuantity)),
+                      DataCell(Text(row.orderMultiple)),
                       DataCell(Text(row.leadTimeDays)),
                       DataCell(Text(row.effectiveFrom)),
                       DataCell(Text(row.isCurrent ? 'In force' : 'Past')),
@@ -268,6 +270,7 @@ class _AddCatalogueRowDialogState extends State<_AddCatalogueRowDialog>
   final TextEditingController _price = TextEditingController();
   final TextEditingController _pack = TextEditingController();
   final TextEditingController _minimum = TextEditingController();
+  final TextEditingController _multiple = TextEditingController();
   final TextEditingController _lead = TextEditingController();
   final TextEditingController _remarks = TextEditingController();
   List<Product> _products = const <Product>[];
@@ -299,6 +302,7 @@ class _AddCatalogueRowDialogState extends State<_AddCatalogueRowDialog>
     _price.dispose();
     _pack.dispose();
     _minimum.dispose();
+    _multiple.dispose();
     _lead.dispose();
     _remarks.dispose();
     super.dispose();
@@ -336,6 +340,7 @@ class _AddCatalogueRowDialogState extends State<_AddCatalogueRowDialog>
     put('unit_price', _price);
     put('pack_size', _pack);
     put('minimum_order_quantity', _minimum);
+    put('order_multiple', _multiple);
     put('lead_time_days', _lead);
     put('remarks', _remarks);
     unawaited(saveAndClose<bool>(() async {
@@ -401,6 +406,8 @@ class _AddCatalogueRowDialogState extends State<_AddCatalogueRowDialog>
                 _field('catalogue-price', 'Unit price', _price, number: true),
                 _field('catalogue-pack', 'Pack size', _pack, number: true),
                 _field('catalogue-minimum', 'Minimum order', _minimum,
+                    number: true),
+                _field('catalogue-multiple', 'Order multiple', _multiple,
                     number: true),
                 _field('catalogue-lead', 'Lead time (days)', _lead,
                     number: true),

@@ -117,6 +117,7 @@ void main() {
       'goods_receipt_stage': false,
       'bill_price_tolerance_percent': null,
       'bill_tolerance_amount': null,
+      'order_quantity_policy': 'WARN',
     });
   });
 

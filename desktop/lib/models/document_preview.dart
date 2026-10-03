@@ -101,11 +101,15 @@ class PurchaseOrderPreviewRecord {
     required this.order,
     required this.interstate,
     required this.lines,
+    this.quantityHints = const <QuantityHint>[],
   });
 
   final PurchaseOrder order;
   final bool interstate;
   final List<DocumentPreviewLine> lines;
+
+  /// Lines off the supplier's minimum or multiple (BUY-5).
+  final List<QuantityHint> quantityHints;
 
   factory PurchaseOrderPreviewRecord.fromJson(Map<String, dynamic> json) =>
       PurchaseOrderPreviewRecord(
@@ -114,7 +118,43 @@ class PurchaseOrderPreviewRecord {
         ),
         interstate: json['interstate'] == true,
         lines: _previewLines(json['lines']),
+        quantityHints: <QuantityHint>[
+          for (final dynamic item in json['quantity_hints'] as List? ?? const [])
+            if (item is Map) QuantityHint.fromJson(Map<String, dynamic>.from(item)),
+        ],
       );
+}
+
+/// What a supplier's minimum order quantity and order multiple say about one
+/// order line (BUY-5), with the nearest quantity that satisfies them.
+class QuantityHint {
+  const QuantityHint({
+    required this.lineNumber,
+    required this.productId,
+    required this.suggestedQuantity,
+    required this.message,
+  });
+
+  final int lineNumber;
+  final String productId;
+  final String suggestedQuantity;
+  final String message;
+
+  factory QuantityHint.fromJson(Map<String, dynamic> json) => QuantityHint(
+        lineNumber: int.tryParse('${json['line_number'] ?? ''}') ?? 0,
+        productId: '${json['product_id'] ?? ''}',
+        suggestedQuantity: _plainNumber('${json['suggested_quantity'] ?? ''}'),
+        message: '${json['message'] ?? ''}',
+      );
+}
+
+/// "120.0000" reads as "120"; anything else is left as the server wrote it.
+String _plainNumber(String value) {
+  final double? number = double.tryParse(value);
+  if (number == null) return value;
+  return number == number.roundToDouble()
+      ? number.toStringAsFixed(0)
+      : value.replaceFirst(RegExp(r'0+$'), '');
 }
 
 /// A supplier bill priced exactly as saving it would, from

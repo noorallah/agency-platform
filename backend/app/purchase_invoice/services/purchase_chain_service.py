@@ -151,6 +151,7 @@ class PurchaseChainService:
             ),
             firm_id=firm_id,
             actor_id=actor_id,
+            check_quantities=False,
         )
         orders.stage_submit(order.id, firm_scope=firm_id, actor_id=actor_id)
         # Nobody typed this order, so no approval limit governs it (68 row 4).

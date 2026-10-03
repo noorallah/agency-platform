@@ -64,6 +64,9 @@ from app.purchase.schemas import (
 )
 from app.purchase_invoice.models import PurchaseInvoice, PurchaseInvoiceLine
 from app.vendors.models import Vendor
+from app.vendors.models.supplier_product import SupplierProduct
+from app.vendors.services.order_quantities import rounded_quantity
+from app.vendors.services.supplier_catalogue import current_rows
 
 ZERO = Decimal("0")
 QUANTUM = Decimal("0.0001")
@@ -273,6 +276,7 @@ class ReorderService:
                 )
             ).all()
         }
+        terms = self._supplier_terms(firm_id, suppliers)
         result: list[ReorderRow] = []
         for entry in stock:
             warehouse, product_id = entry.warehouse_id, entry.product_id
@@ -294,6 +298,14 @@ class ReorderService:
             ).quantize(QUANTUM)
             branch = entry.branch_id
             supplier, rate = suppliers.get(product_id, (None, None))
+            # The supplier's minimum and multiple round it up (BUY-5).
+            listed = terms.get(product_id)
+            if listed is not None and suggested > ZERO:
+                suggested = rounded_quantity(
+                    suggested,
+                    minimum=listed.minimum_order_quantity,
+                    multiple=listed.order_multiple,
+                ).quantize(QUANTUM)
             result.append(
                 ReorderRow(
                     branch_id=branch,
@@ -529,6 +541,30 @@ class ReorderService:
             ).items()
             if key[0] in warehouse_ids
         }
+
+    def _supplier_terms(
+        self, firm_id: UUID, suppliers: dict[UUID, tuple[UUID, Decimal | None]]
+    ) -> dict[UUID, SupplierProduct]:
+        """Return each product's catalogue row with its chosen supplier.
+
+        One read per supplier, not per product (BUY-5).
+        """
+        by_supplier: dict[UUID, list[UUID]] = {}
+        for product_id, (supplier, _) in suppliers.items():
+            by_supplier.setdefault(supplier, []).append(product_id)
+        today = utc_now().date()
+        found: dict[UUID, SupplierProduct] = {}
+        for supplier, product_ids in by_supplier.items():
+            found.update(
+                current_rows(
+                    self._session,
+                    firm_id=firm_id,
+                    vendor_id=supplier,
+                    product_ids=product_ids,
+                    on=today,
+                )
+            )
+        return found
 
     def _suppliers(
         self, firm_id: UUID, products: dict[UUID, Product]

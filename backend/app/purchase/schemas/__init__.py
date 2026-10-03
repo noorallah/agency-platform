@@ -27,6 +27,7 @@ from app.purchase.schemas.purchase import (
     PurchaseOrderSentRequest,
     PurchaseOrderStatus,
     PurchaseOrderUpdate,
+    PurchaseQuantityHint,
     PurchaseSummary,
     PurchaseType,
     PurchaseWorkflowSettingsResponse,
@@ -38,6 +39,7 @@ from app.purchase.schemas.purchase import (
 
 __all__ = [
     "PurchaseOrderPreview",
+    "PurchaseQuantityHint",
     "PurchaseAttachmentResponse",
     "PurchaseAttachmentWrite",
     "PurchaseDeliveryScheduleResponse",

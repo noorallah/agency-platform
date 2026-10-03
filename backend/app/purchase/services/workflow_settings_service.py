@@ -41,6 +41,7 @@ DEFAULT_SETTINGS = PurchaseWorkflowSettings(
     default_warehouse_id=None,
     bill_price_tolerance_percent=None,
     bill_tolerance_amount=None,
+    order_quantity_policy="WARN",
 )
 
 
@@ -120,6 +121,8 @@ class PurchaseWorkflowService:
             row.bill_price_tolerance_percent = data.bill_price_tolerance_percent
         if "bill_tolerance_amount" in sent:
             row.bill_tolerance_amount = data.bill_tolerance_amount
+        if data.order_quantity_policy is not None:
+            row.order_quantity_policy = data.order_quantity_policy
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -203,6 +206,7 @@ class PurchaseWorkflowService:
             default_warehouse_id=row.default_warehouse_id,
             bill_price_tolerance_percent=row.bill_price_tolerance_percent,
             bill_tolerance_amount=row.bill_tolerance_amount,
+            order_quantity_policy=row.order_quantity_policy or "WARN",
             is_configured=is_configured,
         )
 
@@ -228,4 +232,5 @@ class PurchaseWorkflowService:
                 if row.bill_tolerance_amount is None
                 else str(row.bill_tolerance_amount)
             ),
+            "order_quantity_policy": row.order_quantity_policy,
         }

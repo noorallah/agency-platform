@@ -507,6 +507,18 @@ class PurchaseOrderByProductRecord(PurchaseSchema):
     order_count: int
 
 
+class PurchaseQuantityHint(PurchaseSchema):
+    """One order line off the supplier's minimum or multiple (BUY-5)."""
+
+    line_number: int
+    product_id: UUID
+    quantity: Decimal
+    minimum_order_quantity: Decimal | None
+    order_multiple: Decimal | None
+    suggested_quantity: Decimal
+    message: str
+
+
 class PurchaseOrderPreview(PurchaseSchema):
     """A purchase order priced exactly as saving it would, without saving it.
 
@@ -517,6 +529,9 @@ class PurchaseOrderPreview(PurchaseSchema):
     order: PurchaseOrderResponse
     interstate: bool
     lines: list[DocumentPreviewLine]
+    #: Lines off the supplier's minimum or multiple, with the quantity that
+    #: would do (BUY-5).
+    quantity_hints: list[PurchaseQuantityHint] = Field(default_factory=list)
 
 
 class PurchaseWorkflowSettingsResponse(PurchaseSchema):
@@ -529,6 +544,8 @@ class PurchaseWorkflowSettingsResponse(PurchaseSchema):
     #: How far a bill may run over its order before it waits (BUY-10).
     bill_price_tolerance_percent: Decimal | None = None
     bill_tolerance_amount: Decimal | None = None
+    #: ``WARN`` or ``REFUSE`` an order line off the supplier's terms (BUY-5).
+    order_quantity_policy: str = "WARN"
     is_configured: bool
 
 
@@ -553,6 +570,8 @@ class PurchaseWorkflowSettingsWrite(PurchaseSchema):
     bill_tolerance_amount: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=2
     )
+    #: Absent keeps the firm's own (BUY-5).
+    order_quantity_policy: Literal["WARN", "REFUSE"] | None = None
 
 
 class RolePurchaseApprovalLimitItem(PurchaseSchema):

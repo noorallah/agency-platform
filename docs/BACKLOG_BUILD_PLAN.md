@@ -388,6 +388,7 @@ otherwise it is built as written.
 - **What it is:** ordering 115 against a minimum of 100 in multiples of 20 warns and suggests 120.
 - **What gets built:** check in `backend/app/purchase/services/purchase_service.py` from the catalogue row; a firm setting warn / refuse; reorder rounding (`reorder.py`) uses it; the order editor shows the suggestion. Tests.
 - **Depends on:** BUY-4. **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A103): `supplier_products.order_multiple` and `purchase_workflow_settings.order_quantity_policy` (migration 0269); `app/vendors/services/order_quantities.py` (`rounded_quantity`, `quantity_hints`); `PurchaseService._assert_order_quantities` on create, edit and amend (not on an order a bill raises); `quantity_hints` on the order preview; `ReorderService._supplier_terms` rounds the suggestion. Desktop: the multiple on the catalogue, the policy on the purchase settings, the hint with *Use N* in the order editor. Tests: `test_order_multiples.py`, `order_multiples_test.dart`.
 
 #### BUY-6. Lead time used and measured (§69 row 3)
 - **What it is:** the expected date fills from the supplier's lead time, and actual delays are recorded.
