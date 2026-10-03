@@ -888,3 +888,17 @@ is paid the reclaim posts the mirror. Each is its own journal, referenced
 a column; what the bill owes comes from `PaymentService.outstanding_invoices`.
 Only eligible, recoverable, non-reverse-charge credit is ever reversed -- the
 credit 4(A)(5) claimed.
+
+## Rule 42 common credit (GST-4, 2026-10-03)
+
+A firm with exempt, nil-rated or non-GST sales gives back the share of its
+common credit they take: D1 = C2 x E / F per head, each return period, worked
+from GSTR-3B's own figures (`app/gst_returns/services/rule42.py`). Posting it
+(`rule42_mode` POST) is **Dr Input Tax Not Claimable, Cr input tax per head**,
+dated inside the period, referenced `R42-M-<yyyymm>-<n>`, a row in
+`itc_common_reversals`. The year's true-up, posted after 31 March, is the
+difference between the year worked whole and what the periods posted: a
+positive head posts the same way, a negative one the mirror (`R42-Y-...`).
+GSTR-3B reports the reversal in 4(B)(1) and a reclaim in 4(A)(5), each in the
+return its movement date falls in. A period cannot be taken back while its
+year's true-up stands.

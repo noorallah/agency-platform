@@ -5,7 +5,7 @@
 // with Other); dispatching asks the server's dispatch check first, offers
 // three choices under WARN and no "Dispatch anyway" under BLOCK; "Dispatch and
 // invoice" calls its own route; and the GST documents settings load and PUT
-// exactly the twelve keys the server declares.
+// exactly the thirteen keys the server declares.
 
 import 'dart:convert';
 import 'dart:io';
@@ -436,7 +436,7 @@ void main() {
   });
 
   group('the GST documents settings', () {
-    testWidgets('load, and save exactly the twelve keys', (tester) async {
+    testWidgets('load, and save exactly the thirteen keys', (tester) async {
       final _GstApi api = _GstApi();
       await _pumpSettings(tester, api, ['TAX_VIEW', 'TAX_MANAGE_SETTINGS']);
       expect(tester.takeException(), isNull);
@@ -483,6 +483,7 @@ void main() {
         'filing_frequency': 'MONTHLY',
         'quarterly_from': null,
         'qrmp_payment_method': 'FIXED_SUM',
+        'rule42_mode': 'REPORT',
       });
     });
 

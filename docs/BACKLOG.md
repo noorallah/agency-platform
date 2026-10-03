@@ -5561,7 +5561,7 @@ decisions OWNER_DECISIONS A36. Rows, numbered as there:
 | 6 | E-way bill number on the goods receipt above the firm's limit -- **built 2026-10-02** (#944) | P2 |
 | 7 | Warn on a bill entered after its credit's last date (30 November) -- **built 2026-10-02** (GST-3, A48) | P3 |
 | 8 | Import bill of entry (§68) | P3 |
-| 9 | Common credit reversal for a firm with exempt sales (rules 42/43) | P3 |
+| 9 | Common credit reversal for a firm with exempt sales (rules 42/43) -- **rule 42 built 2026-10-03** (GST-4, A84); rule 43 (capital goods) open | P3 |
 
 **Order:** 1 → 2 → 3 → 4, 5, 6 → 7-9, interleaved with §77 by priority.
 

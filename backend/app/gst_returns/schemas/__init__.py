@@ -336,3 +336,68 @@ class GstFilingPlanResponse(GstSchema):
     qrmp_payment_method: str
     #: PMT-06 deposits no settlement has used yet.
     cash_ledger: Rule37Heads
+
+
+class Rule42RecordResponse(GstSchema):
+    """One posted rule 42 reversal, or a year's true-up (GST-4)."""
+
+    id: UUID
+    #: MONTHLY (a return period) or ANNUAL (the true-up).
+    kind: str
+    period_from: date
+    period_to: date
+    movement_date: date
+    exempt_turnover: Decimal
+    total_turnover: Decimal
+    common: Rule37Heads
+    #: Given back; a negative head on a true-up is credit claimed back.
+    reversed: Rule37Heads
+    status: str
+    journal_entry_id: UUID
+    reversal_journal_entry_id: UUID | None
+    reversal_reason: str | None
+    reversed_at: datetime | None
+    version: int
+
+
+class Rule42Response(GstSchema):
+    """A period's rule 42 arithmetic: D1 = C2 x E / F (GST-4)."""
+
+    #: OFF, REPORT or POST (Settings > Tax > GST Documents).
+    mode: str
+    period_from: date
+    period_to: date
+    #: E: nil-rated, exempt and non-GST turnover.
+    exempt_turnover: Decimal
+    #: F: all turnover.
+    total_turnover: Decimal
+    #: E / F, to six places.
+    exempt_share: Decimal
+    #: C2: the common credit.
+    common: Rule37Heads
+    #: D1: what the period gives back.
+    reversal: Rule37Heads
+    #: The standing posted reversal of the period, if any.
+    posted: Rule42RecordResponse | None = None
+
+
+class Rule42AnnualResponse(Rule42Response):
+    """A year worked out whole, against what its periods gave back."""
+
+    already_reversed: Rule37Heads
+    #: Positive: reverse more. Negative: claim back.
+    difference: Rule37Heads
+
+
+class Rule42PeriodPost(GstSchema):
+    """Post a period's reversal, dated inside it (its last day if absent)."""
+
+    return_period: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    posting_date: date | None = None
+
+
+class Rule42AnnualPost(GstSchema):
+    """Post a year's true-up, dated after the year."""
+
+    financial_year: str = Field(pattern=r"^\d{4}-\d{2}$")
+    posting_date: date

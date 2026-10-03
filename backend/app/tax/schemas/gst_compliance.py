@@ -14,6 +14,7 @@ Rule37Mode = Literal["OFF", "REPORT", "POST"]
 SupplierIrnCheck = Literal["OFF", "WARN"]
 FilingFrequency = Literal["MONTHLY", "QUARTERLY"]
 QrmpPaymentMethod = Literal["FIXED_SUM", "SELF_ASSESSMENT"]
+Rule42Mode = Literal["OFF", "REPORT", "POST"]
 
 
 class GstComplianceSettingsResponse(TaxFrameworkSchema):
@@ -39,6 +40,8 @@ class GstComplianceSettingsResponse(TaxFrameworkSchema):
     quarterly_from: date | None = None
     #: How a quarterly filer's monthly PMT-06 deposit is suggested.
     qrmp_payment_method: QrmpPaymentMethod = "FIXED_SUM"
+    #: Rule 42, common credit given back for exempt supplies (GST-4).
+    rule42_mode: Rule42Mode = "REPORT"
     is_configured: bool
 
 
@@ -68,6 +71,8 @@ class GstComplianceSettingsWrite(TaxFrameworkSchema):
     #: Sent with ``filing_frequency``; null there means every period.
     quarterly_from: date | None = None
     qrmp_payment_method: QrmpPaymentMethod | None = None
+    #: Absent keeps the firm's own (GST-4).
+    rule42_mode: Rule42Mode | None = None
 
     @model_validator(mode="after")
     def _quarter_starts_a_quarter(self) -> "GstComplianceSettingsWrite":

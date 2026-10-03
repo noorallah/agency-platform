@@ -401,6 +401,11 @@ class GstComplianceSettings(BaseEntity):
     qrmp_payment_method: Mapped[str] = mapped_column(
         String(20), nullable=False, default="FIXED_SUM", server_default="FIXED_SUM"
     )
+    #: OFF, REPORT or POST: rule 42, common credit given back for exempt
+    #: supplies (GST-4). REPORT works it out; POST also lets the firm post it.
+    rule42_mode: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="REPORT", server_default="REPORT"
+    )
 
 
 class TaxRule(BaseEntity):
