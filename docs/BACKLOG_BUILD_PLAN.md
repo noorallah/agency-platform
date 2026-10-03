@@ -796,6 +796,7 @@ otherwise it is built as written.
 - **What it is:** some screens are slower than their target on a two-year firm.
 - **What gets built:** re-time on an idle machine first (the run had 1.4 GB free); then the worst: `firm-profile-assignments` (15 s), `geo/localities` (9 s), `gst-returns/calendar` (4.8 s), `delivery-notes` (3.9 s), `balance-confirmations`, `control-accounts`, `goods-receipts`; `account-summaries` has no screen. Each fixed by grouping in SQL or paging; `quick-check` again.
 - **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (D-PERF-1 closed): re-timed all 404 WHOLE01 timings; only `geo/localities` (5.7 s cold, 43,470 rows unfiltered) and a cold `goods-receipts` were over. Localities and PIN codes now select columns rather than entities. The other 36 had been fixed since or were the 1.4 GB run. The 52 FAILs of the run were the dev server running code older than the tree (404s and literal paths read as ids) and the platform-only `/business-framework` routes -- not findings.
 
 #### PLT-8. One search box on the audit trail (§31.17, rest)
 - **What it is:** type part of a name or action and find the entries.

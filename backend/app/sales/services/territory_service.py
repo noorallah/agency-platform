@@ -620,7 +620,15 @@ class SalesTerritoryService:
     def list_postal_codes(
         self, *, city_id: UUID | None = None
     ) -> list[GeoPostalCodeResponse]:
-        statement = select(GeoPostalCode).where(GeoPostalCode.is_deleted.is_(False))
+        # The five columns shown, not the entity: the whole country is
+        # about 19,000 PIN codes (PLT-7).
+        statement = select(
+            GeoPostalCode.id,
+            GeoPostalCode.version,
+            GeoPostalCode.city_id,
+            GeoPostalCode.postal_code,
+            GeoPostalCode.is_active,
+        ).where(GeoPostalCode.is_deleted.is_(False))
         if city_id is not None:
             statement = statement.where(GeoPostalCode.city_id == city_id)
         return [
@@ -631,8 +639,8 @@ class SalesTerritoryService:
                 postal_code=row.postal_code,
                 is_active=row.is_active,
             )
-            for row in self._session.scalars(
-                statement.order_by(GeoPostalCode.postal_code.asc())
+            for row in self._session.execute(
+                statement.order_by(GeoPostalCode.postal_code.asc(), GeoPostalCode.id)
             )
         ]
 
@@ -660,7 +668,16 @@ class SalesTerritoryService:
     def list_localities(
         self, *, postal_code_id: UUID | None = None
     ) -> list[GeoLocalityResponse]:
-        statement = select(GeoLocality).where(GeoLocality.is_deleted.is_(False))
+        # The five columns shown, not the entity: the whole country is
+        # 43,470 localities, and building each as an entity took 5.7 s on
+        # the geography screen with no PIN code chosen (PLT-7).
+        statement = select(
+            GeoLocality.id,
+            GeoLocality.version,
+            GeoLocality.postal_code_id,
+            GeoLocality.name,
+            GeoLocality.is_active,
+        ).where(GeoLocality.is_deleted.is_(False))
         if postal_code_id is not None:
             statement = statement.where(GeoLocality.postal_code_id == postal_code_id)
         return [
@@ -671,7 +688,9 @@ class SalesTerritoryService:
                 name=row.name,
                 is_active=row.is_active,
             )
-            for row in self._session.scalars(statement.order_by(GeoLocality.name.asc()))
+            for row in self._session.execute(
+                statement.order_by(GeoLocality.name.asc(), GeoLocality.id)
+            )
         ]
 
     def create_locality(
