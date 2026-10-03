@@ -34,6 +34,7 @@ import '../../models/debit_note.dart';
 import '../../models/adjustment_reason.dart';
 import '../../models/party_adjustment.dart';
 import '../../models/contra_voucher.dart';
+import '../../models/bank_reconciliation.dart';
 import '../../models/tds_challan.dart';
 import '../../models/payment_run.dart';
 import '../../models/supplier_gift.dart';
@@ -7722,6 +7723,184 @@ class ApiClient {
   /// The voucher as a PDF.
   Future<List<int>> contraVoucherPdf(String id) =>
       downloadBytes('/api/v1/contra-vouchers/$id/print');
+
+  // ---- bank reconciliation (ACC-1) --------------------------------------
+
+  /// The firm's bank accounts, each with the statement lines left to match.
+  Future<List<ReconBankAccount>> bankReconciliationAccounts() async =>
+      _unwrapList(
+        await request('GET', '/api/v1/bank-reconciliation/accounts'),
+        ReconBankAccount.fromJson,
+      );
+
+  /// The blank statement file, as bytes: xlsx (with notes) or csv.
+  Future<List<int>> bankStatementImportTemplate({String format = 'xlsx'}) =>
+      downloadBytes(
+        '/api/v1/bank-reconciliation/import-template',
+        query: {'format': format},
+      );
+
+  /// Check (`apply: false`, writes nothing) or import a statement against one
+  /// bank account; the server writes the whole file or none of it.
+  Future<FileImportReport> checkBankStatementFile({
+    required String ledgerAccountId,
+    required String fileName,
+    required List<int> bytes,
+    required bool apply,
+    String? name,
+    Map<String, String?>? mapping,
+  }) async {
+    final Json response = await multipartRequest(
+      'POST',
+      '/api/v1/bank-reconciliation/statements/import-file',
+      fields: {
+        'ledger_account_id': ledgerAccountId,
+        'apply': apply ? 'true' : 'false',
+        if (name != null && name.isNotEmpty) 'name': name,
+        if (mapping != null) 'mapping': jsonEncode(mapping),
+      },
+      fileField: 'file',
+      fileName: fileName,
+      fileBytes: bytes,
+      fileContentType: fileName.toLowerCase().endsWith('.xlsx')
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'text/csv',
+    );
+    return FileImportReport.fromJson(_unwrapMap(response));
+  }
+
+  /// The imported statements of one account, latest first.
+  Future<PagedResult<BankStatement>> bankStatements({
+    required String ledgerAccountId,
+    int page = 1,
+    int pageSize = 50,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/bank-reconciliation/statements',
+      query: {
+        'ledger_account_id': ledgerAccountId,
+        'page': '$page',
+        'page_size': '$pageSize',
+      },
+    );
+    return PagedResult<BankStatement>(
+      items: _unwrapList(response, BankStatement.fromJson),
+      total: _totalOf(response),
+    );
+  }
+
+  /// Takes a statement off with its lines; what it cleared goes back to
+  /// uncleared.
+  Future<void> deleteBankStatement(String statementId) =>
+      request('DELETE', '/api/v1/bank-reconciliation/statements/$statementId');
+
+  /// Statement lines in the bank's order. [status] is `UNMATCHED` or
+  /// `MATCHED`; null reads both.
+  Future<PagedResult<BankStatementLine>> bankStatementLines({
+    required String ledgerAccountId,
+    String? statementId,
+    String? status,
+    String? dateFrom,
+    String? dateTo,
+    int page = 1,
+    int pageSize = 100,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/bank-reconciliation/lines',
+      query: {
+        'ledger_account_id': ledgerAccountId,
+        'page': '$page',
+        'page_size': '$pageSize',
+        if (statementId != null && statementId.isNotEmpty)
+          'statement_id': statementId,
+        if (status != null && status.isNotEmpty) 'status': status,
+        if (dateFrom != null) 'date_from': dateFrom,
+        if (dateTo != null) 'date_to': dateTo,
+      },
+    );
+    return PagedResult<BankStatementLine>(
+      items: _unwrapList(response, BankStatementLine.fromJson),
+      total: _totalOf(response),
+    );
+  }
+
+  /// Undoes a line's match; the entries it cleared go back to uncleared.
+  Future<BankStatementLine> unmatchBankLine(String statementLineId) async =>
+      BankStatementLine.fromJson(_unwrapMap(await request(
+        'DELETE',
+        '/api/v1/bank-reconciliation/lines/$statementLineId/matches',
+      )));
+
+  /// Postings on the bank account no statement line accounts for yet.
+  Future<PagedResult<BookEntry>> bankBookEntries({
+    required String ledgerAccountId,
+    String? dateFrom,
+    String? dateTo,
+    int page = 1,
+    int pageSize = 100,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/bank-reconciliation/book-entries',
+      query: {
+        'ledger_account_id': ledgerAccountId,
+        'page': '$page',
+        'page_size': '$pageSize',
+        if (dateFrom != null) 'date_from': dateFrom,
+        if (dateTo != null) 'date_to': dateTo,
+      },
+    );
+    return PagedResult<BookEntry>(
+      items: _unwrapList(response, BookEntry.fromJson),
+      total: _totalOf(response),
+    );
+  }
+
+  /// Matches every unmatched line that has exactly one good entry.
+  Future<AutoMatchResult> autoMatchBankLines(
+    String ledgerAccountId, {
+    String? statementId,
+  }) async =>
+      AutoMatchResult.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/bank-reconciliation/auto-match',
+        body: {
+          'ledger_account_id': ledgerAccountId,
+          if (statementId != null && statementId.isNotEmpty)
+            'statement_id': statementId,
+        },
+      )));
+
+  /// Ties one line to the entries it accounts for; the server refuses when
+  /// they do not add up to it.
+  Future<BankStatementLine> matchBankLine(
+    String statementLineId,
+    List<String> glPostingIds,
+  ) async =>
+      BankStatementLine.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/bank-reconciliation/matches',
+        body: {
+          'statement_line_id': statementLineId,
+          'gl_posting_ids': glPostingIds,
+        },
+      )));
+
+  /// The bank reconciliation statement as on [asOn] (`yyyy-mm-dd`).
+  Future<BankReconciliationStatement> bankReconciliationStatement(
+    String ledgerAccountId, {
+    String? asOn,
+  }) async =>
+      BankReconciliationStatement.fromJson(_unwrapMap(await request(
+        'GET',
+        '/api/v1/bank-reconciliation/statement',
+        query: {
+          'ledger_account_id': ledgerAccountId,
+          if (asOn != null) 'as_on': asOn,
+        },
+      )));
 
   // ---- TDS challans (ACC-7) -------------------------------------------
 

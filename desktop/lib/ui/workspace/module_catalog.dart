@@ -1156,6 +1156,13 @@ abstract final class ModuleCatalog {
           label: 'Contra Vouchers',
           requiredPermissions: ['JOURNAL_VIEW'],
         ),
+        // The bank's statement tied to the books, and what still stands
+        // between the two (ACC-1).
+        ModuleTabDefinition(
+          id: 'bank-reconciliation',
+          label: 'Bank Reconciliation',
+          requiredPermissions: ['LEDGER_VIEW'],
+        ),
         // Tax deducted at source paid to the government, one challan at a
         // time, against the deductions it covers (ACC-7).
         ModuleTabDefinition(
