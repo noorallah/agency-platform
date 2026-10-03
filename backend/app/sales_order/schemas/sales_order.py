@@ -8,6 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.sales.schemas.document_preview import DocumentPreviewLine
 
 
@@ -94,6 +95,10 @@ class SalesOrderLineWrite(SalesOrderSchema):
 
 class SalesOrderCreate(SalesOrderSchema):
     """Create one sales order."""
+
+    #: The firm's own fields on the document (MST-6). Replaced whole when
+    #: sent; an update that omits them leaves them alone.
+    attributes: list[AttributeValueInput] = Field(default_factory=list, max_length=100)
 
     customer_id: UUID
     salesman_id: UUID | None = None
@@ -294,6 +299,9 @@ class SalesOrderAdvanceSummary(SalesOrderSchema):
 
 class SalesOrderResponse(SalesOrderSchema):
     """Return one sales order."""
+
+    #: The firm's own fields on the document (MST-6).
+    attributes: list[AttributeValueResponse] = Field(default_factory=list)
 
     id: UUID
     #: The optimistic-concurrency version, published so a client can send

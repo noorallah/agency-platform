@@ -197,6 +197,14 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
                                 },
                               ),
                             ),
+                            AdditionalDetailsSection(
+                              controller: _customFields,
+                              noun: 'sales orders',
+                              readOnly: _locked,
+                              maxHeight: 132,
+                              padding:
+                                  const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                            ),
                             _orderTerms(context),
                             _orderTotals(),
                           ],

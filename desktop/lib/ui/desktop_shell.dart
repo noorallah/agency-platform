@@ -6465,7 +6465,21 @@ ResourceDefinition<AttributeDefinitionRecord> firmCustomFieldDefinition(
           'WAREHOUSE',
           'TAX_PROFILE',
           'UOM',
+          'QUOTATION',
+          'SALES_ORDER',
+          'DELIVERY_NOTE',
+          'SALES_INVOICE',
+          'PURCHASE_ORDER',
+          'PURCHASE_INVOICE',
         ],
+        choiceLabels: {
+          'QUOTATION': 'Quotation',
+          'SALES_ORDER': 'Sales order',
+          'DELIVERY_NOTE': 'Delivery note',
+          'SALES_INVOICE': 'Sales invoice',
+          'PURCHASE_ORDER': 'Purchase order',
+          'PURCHASE_INVOICE': 'Purchase invoice',
+        },
         helperText: 'Which record carries this field.',
       ),
       FieldSpec(
@@ -6485,6 +6499,12 @@ ResourceDefinition<AttributeDefinitionRecord> firmCustomFieldDefinition(
             'empty for free text.',
       ),
       FieldSpec(key: 'mandatory', label: 'Mandatory', boolean: true),
+      FieldSpec(
+        key: 'show_on_print',
+        label: 'Show on print',
+        boolean: true,
+        helperText: 'Print this field on the document when it has a value.',
+      ),
       FieldSpec(key: 'is_active', label: 'Active', boolean: true),
       FieldSpec(
         key: 'applicable_category',
@@ -6502,6 +6522,7 @@ ResourceDefinition<AttributeDefinitionRecord> firmCustomFieldDefinition(
           ? {
               'mandatory': false,
               'is_active': true,
+              'show_on_print': false,
               'entity_type': 'PRODUCT',
               'data_type': 'TEXT',
             }
@@ -6512,6 +6533,7 @@ ResourceDefinition<AttributeDefinitionRecord> firmCustomFieldDefinition(
               'data_type': field.dataType,
               'applicable_category': field.applicableCategory,
               'mandatory': field.mandatory,
+              'show_on_print': field.showOnPrint,
               'description': field.description,
               'default_value': field.defaultValue,
               'allowed_values': field.allowedValues.join(', '),
@@ -6529,6 +6551,7 @@ ResourceDefinition<AttributeDefinitionRecord> firmCustomFieldDefinition(
           ? null
           : _blankToNull(editing?.applicableBusinessProfileId),
       'mandatory': values['mandatory'],
+      'show_on_print': values['show_on_print'] == true,
       'description': _blankToNull(values['description']),
       'default_value': _blankToNull(values['default_value']),
       'is_active': values['is_active'],

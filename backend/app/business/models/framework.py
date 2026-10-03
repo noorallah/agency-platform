@@ -154,6 +154,14 @@ class AttributeEntityType(StrEnum):
     #: Units are a shared catalogue: one row serves every firm in a shared
     #: store, so unlike the others its values must be read firm-scoped.
     UOM = "UOM"
+    #: Documents (MST-6): a firm's own fields on its orders, notes and
+    #: invoices -- a site name, the buyer's PO reference.
+    QUOTATION = "QUOTATION"
+    SALES_ORDER = "SALES_ORDER"
+    DELIVERY_NOTE = "DELIVERY_NOTE"
+    SALES_INVOICE = "SALES_INVOICE"
+    PURCHASE_ORDER = "PURCHASE_ORDER"
+    PURCHASE_INVOICE = "PURCHASE_INVOICE"
 
 
 class AttributeDataType(StrEnum):
@@ -210,6 +218,10 @@ class AttributeDefinition(BaseEntity):
     )
     data_type: Mapped[str] = mapped_column(String(50), nullable=False)
     mandatory: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    #: Whether the field prints on a document it is filled on (MST-6).
+    show_on_print: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
     default_value: Mapped[str | None] = mapped_column(Text)

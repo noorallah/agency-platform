@@ -151,6 +151,13 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             _billHeader(context),
+                            AdditionalDetailsSection(
+                              controller: _customFields,
+                              noun: 'purchase invoices',
+                              maxHeight: 132,
+                              padding:
+                                  const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                            ),
                             Expanded(
                               child: _direct
                                   ? _directLinesTable(context)

@@ -4092,6 +4092,8 @@ for payments.
 
 ## 52. Extra fields on documents, not only on masters
 
+**Status, 2026-10-03: built** (MST-6, A132) for quotations, sales orders, delivery notes, sales invoices, purchase orders and purchase invoices: a firm's own fields in an *Additional details* section, carried down the chain by field name, printed when marked *Show on print*. Goods receipts, returns, line-level fields and list filters are not built.
+
 Owner, 2026-09-27: the system must stay open to change -- tax, prices, and
 collecting extra information -- without a new release. Tax (versioned rules
 with effective dates) and prices (dated price lists and promotions) already

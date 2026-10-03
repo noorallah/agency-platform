@@ -35,6 +35,8 @@ from app.batch_serial.services.serial_trail_service import (
 )
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.business.gating import assert_feature_fields
+from app.business.models.framework import AttributeEntityType
+from app.business.services import document_attributes
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader, platform_reader
 from app.common.report_names import (
@@ -370,6 +372,25 @@ class DeliveryNoteService(TransactionalDocumentService):
     ) -> DeliveryNote:
         """Create one delivery note and commit it."""
         row = self.stage_note(data, firm_id=firm_id, actor_id=actor_id)
+        if data.attributes:
+            document_attributes.store(
+                self._session,
+                AttributeEntityType.DELIVERY_NOTE,
+                row.id,
+                data.attributes,
+                firm_id=row.firm_id,
+                actor_id=actor_id,
+            )
+        # The order's fields carry to its note (MST-6).
+        document_attributes.carry(
+            self._session,
+            AttributeEntityType.SALES_ORDER,
+            row.sales_order_id,
+            AttributeEntityType.DELIVERY_NOTE,
+            row.id,
+            firm_id=row.firm_id,
+            actor_id=actor_id,
+        )
         self._session.commit()
         return row
 
@@ -617,6 +638,15 @@ class DeliveryNoteService(TransactionalDocumentService):
             },
         )
         self._flush_or_conflict("Delivery note number already exists in this firm.")
+        if "attributes" in data.model_fields_set:
+            document_attributes.store(
+                self._session,
+                AttributeEntityType.DELIVERY_NOTE,
+                row.id,
+                data.attributes,
+                firm_id=row.firm_id,
+                actor_id=actor_id,
+            )
         self._session.commit()
         return row
 
@@ -1286,7 +1316,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         batch_picks = self.batch_picks([line.id for line in every_line])
         names = customer_labels(self._session, (row.customer_id for row in rows))
         warnings = self._duplicate_warnings(rows)
-        return [
+        answer = [
             self._note_response_from(
                 row,
                 lines=lines[row.id],
@@ -1300,6 +1330,13 @@ class DeliveryNoteService(TransactionalDocumentService):
             )
             for row in rows
         ]
+        # The firm's own fields, one read for the page (MST-6).
+        fields = document_attributes.responses_for_many(
+            self._session, AttributeEntityType.DELIVERY_NOTE, [r.id for r in rows]
+        )
+        for response in answer:
+            response.attributes = fields.get(response.id, [])
+        return answer
 
     def _note_response_from(
         self,

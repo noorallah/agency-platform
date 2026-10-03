@@ -17,6 +17,7 @@ import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../sales/ship_to_field.dart';
 import '../workspace/batch_picker_panel.dart';
+import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 
 part 'delivery_note_editor_phase2.dart';
@@ -269,6 +270,24 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
 
   void _setState(VoidCallback change) => setState(change);
 
+  /// The firm's own fields on a delivery note (MST-6), sent only once the
+  /// definitions arrived.
+  late final CustomFieldsController _customFields = CustomFieldsController(
+    load: () => widget.api.applicableAttributeDefinitions('DELIVERY_NOTE'),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_customFields.start());
+  }
+
+  @override
+  void dispose() {
+    _customFields.dispose();
+    super.dispose();
+  }
+
   static String _today() => DateTime.now().toIso8601String().split('T').first;
 
   String get _orderNumber => stringValue(_order?['order_number']);
@@ -515,7 +534,7 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
   }
 
   Future<void> _save() async {
-    final String? problem = _validation();
+    final String? problem = _validation() ?? _customFields.validate();
     if (problem != null) {
       setState(() => _error = problem);
       return;
@@ -550,6 +569,8 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
         if (_vehicle.trim().isNotEmpty) 'vehicle': _vehicle.trim(),
         if (_driver.trim().isNotEmpty) 'driver': _driver.trim(),
         if (_remarks.trim().isNotEmpty) 'remarks': _remarks.trim(),
+        // Only once the definitions arrived: absent leaves the values alone.
+        if (_customFields.hasFields) 'attributes': _customFields.payload(),
         'lines': [
           for (int index = 0; index < sending.length; index++)
             {...sending[index].toJson(), 'line_number': index + 1},
@@ -622,6 +643,10 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
               ),
               const SizedBox(height: AppSpacing.md),
               _headerFields(),
+              AdditionalDetailsSection(
+                controller: _customFields,
+                noun: 'delivery notes',
+              ),
               const SizedBox(height: AppSpacing.xl),
               SectionHeader(
                 title: 'Items Going Out',

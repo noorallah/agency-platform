@@ -226,6 +226,13 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                                       ],
                                     ),
                             ),
+                            AdditionalDetailsSection(
+                              controller: _customFields,
+                              noun: 'sales invoices',
+                              maxHeight: 132,
+                              padding:
+                                  const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                            ),
                             _invoiceTerms(context),
                             _invoiceTotals(),
                           ],

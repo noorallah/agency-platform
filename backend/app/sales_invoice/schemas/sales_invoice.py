@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.batch_serial.schemas import PickedSerial
+from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.delivery_note.schemas.delivery_note import DeliveryNoteBatchPick
 from app.sales.schemas.document_preview import DocumentPreviewLine
 
@@ -247,6 +248,10 @@ class SalesInvoiceTenderResponse(SalesInvoiceSchema):
 
 class SalesInvoiceCreate(SalesInvoiceSchema):
     """Create one sales invoice."""
+
+    #: The firm's own fields on the document (MST-6). Replaced whole when
+    #: sent; an update that omits them leaves them alone.
+    attributes: list[AttributeValueInput] = Field(default_factory=list, max_length=100)
 
     customer_id: UUID | None = None
     branch_id: UUID | None = None
@@ -495,6 +500,9 @@ class SalesInvoiceLineResponse(SalesInvoiceSchema):
 
 class SalesInvoiceResponse(SalesInvoiceSchema):
     """Return one sales invoice."""
+
+    #: The firm's own fields on the document (MST-6).
+    attributes: list[AttributeValueResponse] = Field(default_factory=list)
 
     id: UUID
     firm_id: UUID

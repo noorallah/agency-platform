@@ -24,6 +24,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.business.gating import assert_feature_fields
+from app.business.models.framework import AttributeEntityType
+from app.business.services import document_attributes
 from app.common.audit.services import record_audit
 from app.common.report_names import customer_names, customers_matching
 from app.core.database.batch import children_by_parent
@@ -318,6 +320,15 @@ class QuotationService(TransactionalDocumentService):
     ) -> SalesQuotation:
         """Create one quotation in draft."""
         row = self._stage_quotation(data, firm_id=firm_id, actor_id=actor_id)
+        if data.attributes:
+            document_attributes.store(
+                self._session,
+                AttributeEntityType.QUOTATION,
+                row.id,
+                data.attributes,
+                firm_id=row.firm_id,
+                actor_id=actor_id,
+            )
         self._session.commit()
         return row
 
@@ -563,6 +574,15 @@ class QuotationService(TransactionalDocumentService):
             },
         )
         self._flush_or_conflict("Quotation number already exists in this firm.")
+        if "attributes" in data.model_fields_set:
+            document_attributes.store(
+                self._session,
+                AttributeEntityType.QUOTATION,
+                row.id,
+                data.attributes,
+                firm_id=row.firm_id,
+                actor_id=actor_id,
+            )
         self._session.commit()
         return row
 
@@ -806,6 +826,16 @@ class QuotationService(TransactionalDocumentService):
             actor_id=actor_id,
         )
         row.converted_sales_order_id = order.id
+        # The quotation's fields carry to the order (MST-6).
+        document_attributes.carry(
+            self._session,
+            AttributeEntityType.QUOTATION,
+            row.id,
+            AttributeEntityType.SALES_ORDER,
+            order.id,
+            firm_id=row.firm_id,
+            actor_id=actor_id,
+        )
         row.converted_sales_order_number = order.order_number
         row.converted_at = utc_now()
         converted = self._move(
@@ -1736,7 +1766,7 @@ class QuotationService(TransactionalDocumentService):
                 )
             )
         }
-        return [
+        answer = [
             self._quotation_response(
                 row,
                 lines=lines[row.id],
@@ -1746,6 +1776,13 @@ class QuotationService(TransactionalDocumentService):
             )
             for row in rows
         ]
+        # The firm's own fields, one read for the page (MST-6).
+        fields = document_attributes.responses_for_many(
+            self._session, AttributeEntityType.QUOTATION, [r.id for r in rows]
+        )
+        for response in answer:
+            response.attributes = fields.get(response.id, [])
+        return answer
 
     def _quotation_response(
         self,

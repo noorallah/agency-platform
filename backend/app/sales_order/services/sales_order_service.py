@@ -17,6 +17,8 @@ from sqlalchemy.orm import InstrumentedAttribute, Session
 from app.batch_serial.models import BatchRecord
 from app.branches.models import Branch, Warehouse
 from app.business.gating import assert_feature_fields
+from app.business.models.framework import AttributeEntityType
+from app.business.services import document_attributes
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader, platform_reader
 from app.common.report_names import (
@@ -346,6 +348,15 @@ class SalesOrderService(TransactionalDocumentService):
     ) -> SalesOrder:
         """Create one sales order and commit it."""
         row = self.stage_order(data, firm_id=firm_id, actor_id=actor_id)
+        if data.attributes:
+            document_attributes.store(
+                self._session,
+                AttributeEntityType.SALES_ORDER,
+                row.id,
+                data.attributes,
+                firm_id=row.firm_id,
+                actor_id=actor_id,
+            )
         self._session.commit()
         return row
 
@@ -668,6 +679,15 @@ class SalesOrderService(TransactionalDocumentService):
             after_data={"order_number": row.order_number, "status": row.status},
         )
         self._flush_or_conflict("Sales order number already exists in this firm.")
+        if "attributes" in data.model_fields_set:
+            document_attributes.store(
+                self._session,
+                AttributeEntityType.SALES_ORDER,
+                row.id,
+                data.attributes,
+                firm_id=row.firm_id,
+                actor_id=actor_id,
+            )
         self._session.commit()
         return row
 
@@ -1372,7 +1392,7 @@ class SalesOrderService(TransactionalDocumentService):
             live_only=False,
         )
         names = customer_labels(self._session, (row.customer_id for row in rows))
-        return [
+        answer = [
             self._order_response(
                 row,
                 lines=lines[row.id],
@@ -1382,6 +1402,13 @@ class SalesOrderService(TransactionalDocumentService):
             )
             for row in rows
         ]
+        # The firm's own fields, one read for the page (MST-6).
+        fields = document_attributes.responses_for_many(
+            self._session, AttributeEntityType.SALES_ORDER, [r.id for r in rows]
+        )
+        for response in answer:
+            response.attributes = fields.get(response.id, [])
+        return answer
 
     def _order_response(
         self,

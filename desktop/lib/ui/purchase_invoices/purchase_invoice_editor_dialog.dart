@@ -15,6 +15,7 @@ import '../../models/line_tax_rule.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../../phase2/source_tick_dialog.dart';
+import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import 'supplier_irn_dialog.dart';
 
@@ -274,9 +275,22 @@ class _PurchaseInvoiceEditorDialogState
     _phase2 = Phase2Scope.of(context);
   }
 
+  /// The firm's own fields on a purchase invoice (MST-6), sent only once the
+  /// definitions arrived.
+  late final CustomFieldsController _customFields = CustomFieldsController(
+    load: () => widget.api.applicableAttributeDefinitions('PURCHASE_INVOICE'),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_customFields.start());
+  }
+
   @override
   void dispose() {
     _previewTimer?.cancel();
+    _customFields.dispose();
     super.dispose();
   }
 
@@ -679,6 +693,10 @@ class _PurchaseInvoiceEditorDialogState
           ? null
           : _supplierIrn.trim(),
       if (_remarks.trim().isNotEmpty) 'remarks': _remarks.trim(),
+      // Only once the definitions arrived, and never while merely pricing:
+      // absent leaves the stored values alone.
+      if (!pricing && _customFields.hasFields)
+        'attributes': _customFields.payload(),
       // An order or a list of products raises its own receipt, which the
       // server records as the source; only a typed receipt is named here.
       if (_mode == PurchaseBillMode.receipt)
@@ -704,7 +722,7 @@ class _PurchaseInvoiceEditorDialogState
   }
 
   Future<void> _save() async {
-    final String? problem = _validation();
+    final String? problem = _validation() ?? _customFields.validate();
     if (problem != null) {
       setState(() => _error = problem);
       return;
@@ -783,6 +801,10 @@ class _PurchaseInvoiceEditorDialogState
                 ),
                 const SizedBox(height: AppSpacing.md),
                 _headerFields(),
+                AdditionalDetailsSection(
+                  controller: _customFields,
+                  noun: 'purchase invoices',
+                ),
                 const SizedBox(height: AppSpacing.xl),
                 SectionHeader(
                   title: 'Items Billed',

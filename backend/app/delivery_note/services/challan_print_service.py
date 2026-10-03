@@ -26,6 +26,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.batch_serial.models.batch_serial import BatchRecord
+from app.business.models.framework import AttributeEntityType
+from app.business.services import document_attributes
 from app.core.exceptions import ResourceNotFoundError
 from app.delivery_note.models import (
     DeliveryNote,
@@ -324,7 +326,13 @@ class DeliveryChallanPrintService:
             charges=note.additional_charges,
             round_off=note.round_off,
             grand_total=note.grand_total,
-            references=tuple(references),
+            references=(
+                *references,
+                # The firm's own fields marked to print (MST-6).
+                *document_attributes.printed(
+                    self._session, AttributeEntityType.DELIVERY_NOTE, note.id
+                ),
+            ),
             party_labels=("CONSIGNEE", "SHIP TO"),
             # A challan is not a tax invoice: it states the value of what is
             # moving and leaves the tax breakup to the bill that follows.

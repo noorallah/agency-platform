@@ -17,6 +17,7 @@ import '../../models/product.dart';
 import '../../models/document_preview.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
+import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import 'ship_to_field.dart';
 
@@ -162,6 +163,12 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   final TextEditingController _reference = TextEditingController();
   final TextEditingController _coupon = TextEditingController();
   final TextEditingController _remarks = TextEditingController();
+
+  /// The firm's own fields on a sales order (MST-6), sent only once the
+  /// definitions arrived.
+  late final CustomFieldsController _customFields = CustomFieldsController(
+    load: () => widget.api.applicableAttributeDefinitions('SALES_ORDER'),
+  );
 
   /// A deal struck on the whole order. The server takes it off what the lines
   /// discounted to and splits it back across them, so the tax falls with it.
@@ -321,6 +328,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   @override
   void dispose() {
     _previewTimer?.cancel();
+    _customFields.dispose();
     for (final _LineDraft line in _lines) {
       line.dispose();
     }
@@ -402,6 +410,8 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
         }
         if (_lines.isEmpty) _lines.add(_newLine());
       });
+      // After the order, so a correction opens with its stored values.
+      unawaited(_customFields.start());
       // Phase 2 prices what was loaded straight away.
       _schedulePreview();
     } on ApiException catch (error) {
@@ -461,6 +471,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     _paymentTermsDays.text = stringValue(order['payment_terms_days']);
     _rateIncludesTax = order['rate_includes_tax'] == true;
     _remarks.text = stringValue(order['remarks']);
+    _customFields.seed(attributeValuesFrom(order['attributes']));
     // Blank rather than '0' where there was none, so the box reads as empty
     // and the payload omits it.
     // Only what somebody typed comes back into the boxes. An order saved
@@ -800,6 +811,9 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
       // is a code that matches nothing rather than the absence of one.
       if (_coupon.text.trim().isNotEmpty) 'coupon_code': _coupon.text.trim(),
       if (_remarks.text.trim().isNotEmpty) 'remarks': _remarks.text.trim(),
+      // Only once the definitions arrived: absent leaves the stored values
+      // alone, and an empty list would clear them.
+      if (_customFields.hasFields) 'attributes': _customFields.payload(),
       // Omitted when blank: absent is what tells the server there is no
       // discount on the order, and an empty string is a schema error.
       if (_billDiscountPercent.text.trim().isNotEmpty)
@@ -847,6 +861,11 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   }
 
   Future<void> _save() async {
+    final String? customField = _customFields.validate();
+    if (customField != null) {
+      setState(() => _error = customField);
+      return;
+    }
     final Json? payload = _payload();
     if (payload == null) {
       setState(() => _error = 'Check the fields marked below.');
@@ -1477,6 +1496,11 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
                 enabled: !_locked,
                 decoration: const InputDecoration(labelText: 'Remarks'),
                 maxLines: 2,
+              ),
+              AdditionalDetailsSection(
+                controller: _customFields,
+                noun: 'sales orders',
+                readOnly: _locked,
               ),
             ],
           ),

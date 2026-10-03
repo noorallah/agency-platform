@@ -1,5 +1,6 @@
 import 'entities.dart';
 import 'line_tax_rule.dart';
+import 'product.dart' show AttributeValueRecord, ProductAttributeValueRecord;
 
 /// The largest purchase order one role may approve (backlog 68 row 4): the
 /// order's grand total, tax included.
@@ -601,7 +602,18 @@ class PurchaseOrder {
     required this.deliverySchedules,
     required this.attachments,
     required this.notes,
+    this.attributes = const [],
+    this.attributeInputs,
   });
+
+  /// The firm's own fields on this order as stored (MST-6); empty on a
+  /// response from before they existed.
+  final List<AttributeValueRecord> attributes;
+
+  /// The `attributes` to send on a save, set by the editor only once the
+  /// firm's definitions have been read. Null means "leave the stored values
+  /// alone"; an empty list would clear them.
+  final List<Json>? attributeInputs;
 
   final String id;
   final String firmId;
@@ -764,6 +776,9 @@ class PurchaseOrder {
             .map(PurchaseAttachment.fromJson)
             .toList(),
         notes: _objects(json['notes']).map(PurchaseNote.fromJson).toList(),
+        attributes: _objects(json['attributes'])
+            .map(ProductAttributeValueRecord.fromJson)
+            .toList(),
       );
 
   PurchaseOrder copyWith({
@@ -797,9 +812,12 @@ class PurchaseOrder {
     List<PurchaseDeliverySchedule>? deliverySchedules,
     List<PurchaseAttachment>? attachments,
     List<PurchaseNote>? notes,
+    List<Json>? attributeInputs,
   }) =>
       PurchaseOrder(
         id: id ?? this.id,
+        attributes: attributes,
+        attributeInputs: attributeInputs ?? this.attributeInputs,
         firmId: firmId,
         branchId: branchId ?? this.branchId,
         warehouseId: warehouseId ?? this.warehouseId,
@@ -882,6 +900,7 @@ class PurchaseOrder {
             deliverySchedules.map((item) => item.toWriteJson()).toList(),
         'attachments': attachments.map((item) => item.toWriteJson()).toList(),
         'notes': notes.map((item) => item.toWriteJson()).toList(),
+        if (attributeInputs != null) 'attributes': attributeInputs,
       };
 
   /// The same body as a create, without the status.

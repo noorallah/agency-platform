@@ -193,6 +193,9 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
         today: widget.today ?? DateTime.now(),
         existing: existing,
         rateIncludesTax: rateIncludesTax,
+        // The firm's own fields on a quotation (MST-6).
+        loadAttributes: () =>
+            widget.api.applicableAttributeDefinitions('QUOTATION'),
         // Phase 2's screen prices the offer as it is typed.
         preview: Phase2Scope.of(context) ? widget.api.previewQuotation : null,
         // ...and shows what this customer is charged, and why.

@@ -19,6 +19,7 @@ import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../../phase2/source_tick_dialog.dart';
 import '../workspace/batch_picker_panel.dart';
+import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/printed_document.dart';
 import 'ship_to_field.dart';
@@ -79,6 +80,18 @@ class SalesInvoiceEditorDialog extends StatefulWidget {
 class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   final GlobalKey<FormState> _form = GlobalKey<FormState>();
   final TextEditingController _reference = TextEditingController();
+
+  /// The firm's own fields on a sales invoice (MST-6), sent only once the
+  /// definitions arrived.
+  late final CustomFieldsController _customFields = CustomFieldsController(
+    load: () => widget.api.applicableAttributeDefinitions('SALES_INVOICE'),
+  );
+
+  /// The `attributes` key, or nothing while the definitions are unread:
+  /// absent leaves the stored values alone, an empty list clears them.
+  Map<String, dynamic> _attributeFields() => _customFields.hasFields
+      ? <String, dynamic>{'attributes': _customFields.payload()}
+      : const <String, dynamic>{};
 
   /// A coupon the customer presents, on a bill that names products. Only a
   /// new direct bill takes one: the server refuses a coupon on a bill whose
@@ -279,6 +292,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   @override
   void dispose() {
     _previewTimer?.cancel();
+    _customFields.dispose();
     _reference.dispose();
     _coupon.dispose();
     _billDiscount.dispose();
@@ -361,6 +375,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
           _choose(rows.first);
         }
       });
+      // After the invoice, so a correction opens with its stored values.
+      unawaited(_customFields.start());
       _schedulePreview();
     } on ApiException catch (error) {
       if (!mounted) return;
@@ -382,6 +398,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   /// contributes how much *more* of each source line is available, so a
   /// correction can go up as well as down.
   void _adoptExisting(Json invoice) {
+    _customFields.seed(attributeValuesFrom(invoice['attributes']));
     final List<dynamic> lines =
         invoice['lines'] is List ? invoice['lines'] as List : const [];
     if (lines.isEmpty) return;
@@ -819,6 +836,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       if (_freight.text.trim().isNotEmpty)
         'freight_amount': _freight.text.trim(),
       ..._receivedFields(),
+      ..._attributeFields(),
       'lines': lines,
     };
   }
@@ -878,6 +896,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       if (_freight.text.trim().isNotEmpty)
         'freight_amount': _freight.text.trim(),
       ..._receivedFields(),
+      ..._attributeFields(),
       'lines': lines,
     };
   }
@@ -885,6 +904,11 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   /// Save the bill; with [print], hand the saved bill to the printer before
   /// the screen closes -- what a counter does with every bill.
   Future<void> _save({bool print = false}) async {
+    final String? customField = _customFields.validate();
+    if (customField != null) {
+      setState(() => _error = customField);
+      return;
+    }
     final Json? payload = _payload();
     if (payload == null) {
       setState(() => _error = 'Bill at least one line.');
@@ -1085,6 +1109,11 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   /// next bill. A step the server refuses stops the run, shows its message
   /// and leaves the bill on screen.
   Future<void> _saveApprovePrint() async {
+    final String? customField = _customFields.validate();
+    if (customField != null) {
+      setState(() => _error = customField);
+      return;
+    }
     final Json? payload = _payload();
     if (payload == null) {
       setState(() => _error = 'Bill at least one line.');

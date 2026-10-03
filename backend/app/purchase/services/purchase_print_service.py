@@ -20,6 +20,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.branches.models import Warehouse
+from app.business.models.framework import AttributeEntityType
+from app.business.services import document_attributes
 from app.core.exceptions import ResourceNotFoundError
 from app.document_framework.services.print_support import (
     load_template,
@@ -182,7 +184,13 @@ class PurchaseOrderPrintService:
             charges=order.additional_charges,
             round_off=order.round_off,
             grand_total=order.grand_total,
-            references=tuple(references),
+            references=(
+                *references,
+                # The firm's own fields marked to print (MST-6).
+                *document_attributes.printed(
+                    self._session, AttributeEntityType.PURCHASE_ORDER, order.id
+                ),
+            ),
             # An order is placed, not billed.
             party_labels=("SUPPLIER", "DELIVER TO"),
             show_tax_summary=False,

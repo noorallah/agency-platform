@@ -199,6 +199,7 @@ void main() {
       'applicable_category': null,
       'applicable_business_profile_id': null,
       'mandatory': false,
+      'show_on_print': false,
       'description': null,
       'default_value': null,
       'is_active': true,

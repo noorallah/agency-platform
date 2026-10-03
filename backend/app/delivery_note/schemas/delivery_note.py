@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.batch_serial.schemas import PickedSerial
+from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.core.validation.common import normalize_gstin
 
 #: How goods can travel, as an e-way bill names it.
@@ -112,6 +113,10 @@ class DeliveryNoteLineWrite(DeliveryNoteSchema):
 
 class DeliveryNoteCreate(DeliveryNoteSchema):
     """Create one delivery note."""
+
+    #: The firm's own fields on the document (MST-6). Replaced whole when
+    #: sent; an update that omits them leaves them alone.
+    attributes: list[AttributeValueInput] = Field(default_factory=list, max_length=100)
 
     sales_order_id: UUID
     delivery_date: date
@@ -316,6 +321,9 @@ class DeliveryNoteLineResponse(DeliveryNoteSchema):
 
 class DeliveryNoteResponse(DeliveryNoteSchema):
     """Return one delivery note."""
+
+    #: The firm's own fields on the document (MST-6).
+    attributes: list[AttributeValueResponse] = Field(default_factory=list)
 
     id: UUID
     #: The optimistic-concurrency version, published so a client can send
