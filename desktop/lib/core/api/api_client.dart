@@ -34,6 +34,7 @@ import '../../models/adjustment_reason.dart';
 import '../../models/party_adjustment.dart';
 import '../../models/contra_voucher.dart';
 import '../../models/tds_challan.dart';
+import '../../models/payment_run.dart';
 import '../../models/post_dated_cheque.dart';
 import '../../models/purchase_requisition.dart';
 import '../../models/quality_inspection.dart';
@@ -7580,6 +7581,63 @@ class ApiClient {
         body: {'reason': reason},
         expectedVersion: expectedVersion,
       )));
+
+  // ---- payment runs (BUY-11) --------------------------------------------
+
+  /// Supplier bills owing on or before [dueBy], for a run to pick from.
+  Future<List<PaymentRunBill>> paymentRunProposal({
+    required String dueBy,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/payment-runs/proposal',
+      query: {'due_by': dueBy},
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) => PaymentRunBill.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<List<PaymentRun>> listPaymentRuns() async {
+    final Json response = await request('GET', '/api/v1/payment-runs');
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) => PaymentRun.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<PaymentRun> createPaymentRun(Json body) async => PaymentRun.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/payment-runs', body: body)),
+      );
+
+  /// Records one bank payment per supplier, all or none.
+  Future<PaymentRun> approvePaymentRun(String id, {int? expectedVersion}) async =>
+      PaymentRun.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/payment-runs/$id/approve',
+        expectedVersion: expectedVersion,
+      )));
+
+  Future<PaymentRun> cancelPaymentRun(
+    String id, {
+    required String reason,
+    int? expectedVersion,
+  }) async =>
+      PaymentRun.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/payment-runs/$id/cancel',
+        body: {'reason': reason},
+        expectedVersion: expectedVersion,
+      )));
+
+  /// The bank's bulk-payment CSV for a run.
+  Future<List<int>> paymentRunBankFile(String id) =>
+      downloadBytes('/api/v1/payment-runs/$id/bank-file');
 
   // ---- quality inspection hold (BUY-9) ----------------------------------
 

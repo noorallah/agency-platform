@@ -250,6 +250,7 @@ abstract final class MenuLayout {
       ]),
       MenuGroupSpec('Money', [
         MenuItemSpec(AppModule.accounting, 'payments', 'Payments'),
+        MenuItemSpec(AppModule.accounting, 'payment-runs', 'Payment Runs'),
         MenuItemSpec(AppModule.accounting, 'pdc-issued', 'Post-dated Cheques'),
         MenuItemSpec(
             AppModule.masters, 'supplier-statements', 'Supplier Statements'),

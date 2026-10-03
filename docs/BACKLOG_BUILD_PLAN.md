@@ -425,6 +425,7 @@ otherwise it is built as written.
 - **What gets built:** a payment-run document (date, chosen bills, approval) that records one payment each through `backend/app/settlements/services/settlement_service.py`; export of a bank file from `vendor_bank_accounts` in a generic NEFT layout, mapped to a bank's columns with the import field mapping (`backend/app/imports`). Migration yes. Phase 2 screen under Buy > Money. Tests.
 - **Needs from the firm, to finish:** its bank's bulk-upload format.
 - **Depends on:** ACC-4 (masking: only a paying role sees full numbers). **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A110): `payment_runs` and lines, `PAYMENT_RUN_APPROVE` (migration 0274); `app/settlements/services/payment_runs.py`; `/payment-runs` proposal, CRUD, approve, cancel, bank-file (generic NEFT CSV). Still open: the firm's own bank layout, when it shares one. Desktop: Payment runs under Buy > Money. Tests: `test_payment_runs.py`, `payment_runs_test.dart`.
 
 #### BUY-12. Supplier performance (§68 row 11)
 - **What it is:** which supplier delivers late, short or bad, and at what price trend.
