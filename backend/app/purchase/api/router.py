@@ -66,6 +66,8 @@ from app.purchase.schemas import (
     RolePurchaseApprovalLimitItem,
     RolePurchaseApprovalLimitsResponse,
     RolePurchaseApprovalLimitsWrite,
+    SupplierPerformanceRecord,
+    SupplierPriceTrendPoint,
 )
 from app.purchase.services import PurchaseService
 from app.purchase.services.approval_limit import PurchaseApprovalLimitService
@@ -77,6 +79,10 @@ from app.purchase.services.reorder import (
     PlanningSettings,
     ReorderPick,
     ReorderService,
+)
+from app.purchase.services.supplier_performance import (
+    supplier_performance,
+    supplier_price_trend,
 )
 from app.purchase.services.workflow_settings_service import PurchaseWorkflowService
 
@@ -408,6 +414,49 @@ def purchase_orders_by_vendor(
     window = ReportWindow(from_date, to_date, page, page_size)
     return window.respond(
         PurchaseService(db).by_vendor_report(firm_scope=scope.firm_id, window=window)
+    )
+
+
+@router.get(
+    "/reports/supplier-performance",
+    response_model=PaginatedResponse[SupplierPerformanceRecord],
+)
+def supplier_performance_report(
+    scope: PurchaseReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[SupplierPerformanceRecord]:
+    """Return on-time, rejected, returned and short figures per supplier (BUY-12)."""
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        supplier_performance(db, firm_id=scope.firm_id, window=window)
+    )
+
+
+@router.get(
+    "/reports/supplier-price-trend",
+    response_model=ApiResponse[list[SupplierPriceTrendPoint]],
+)
+def supplier_price_trend_report(
+    vendor_id: UUID,
+    scope: PurchaseReportScope,
+    product_id: UUID | None = None,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[SupplierPriceTrendPoint]]:
+    """Return a supplier's average billed rate per month (BUY-12)."""
+    return ApiResponse(
+        data=supplier_price_trend(
+            db,
+            firm_id=scope.firm_id,
+            vendor_id=vendor_id,
+            product_id=product_id,
+            window=ReportWindow(from_date, to_date),
+        )
     )
 
 

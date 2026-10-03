@@ -11,6 +11,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/finance.dart';
 import '../../models/report.dart';
+import '../../models/vendor.dart';
 import '../finance/journal_entry_view_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/module_catalog.dart';
@@ -86,6 +87,24 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
   final TextEditingController _days = TextEditingController();
   String? _daysFor;
 
+  // The supplier a supplier report is asked about (BUY-12), and the
+  // suppliers to choose from, read once when such a report is first opened.
+  String? _vendorId;
+  List<Vendor> _vendors = const [];
+  bool _vendorsRead = false;
+
+  Future<void> _readVendors() async {
+    if (_vendorsRead) return;
+    _vendorsRead = true;
+    try {
+      final PagedResult<Vendor> result = await widget.api.vendors();
+      if (mounted) setState(() => _vendors = result.items);
+    } on ApiException catch (exception) {
+      _vendorsRead = false;
+      if (mounted) setState(() => _error = exception.message);
+    }
+  }
+
   @override
   void dispose() {
     _horizontal.dispose();
@@ -98,6 +117,7 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
 
   /// A dated or quarterly report is paged; a snapshot is not.
   static bool _paged(ReportDefinition report) =>
+      !report.needsSupplier &&
       (report.needsPeriod && report.onDateParam == null) || report.quarterly;
 
   static String _iso(DateTime value) =>
@@ -178,6 +198,18 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
     final ReportDefinition? report = _selected;
     if (report == null || !widget.hasActiveFirm || !_canRead(report)) return;
     final int load = ++_loads;
+    if (report.needsSupplier) {
+      unawaited(_readVendors());
+      if (_vendorId == null) {
+        // Nothing to ask until a supplier is chosen.
+        setState(() {
+          _rows = const [];
+          _total = 0;
+          _loading = false;
+        });
+        return;
+      }
+    }
     final int? days = report.days;
     if (days != null && _daysFor != report.id) {
       _days.text = '$days';
@@ -190,7 +222,13 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
     try {
       final ReportPage result = await widget.api.reportRows(
         report.path,
-        query: report.quarterly
+        query: report.needsSupplier
+            ? {
+                'vendor_id': _vendorId!,
+                'from_date': _from.text.trim(),
+                'to_date': _to.text.trim(),
+              }
+            : report.quarterly
             ? {
                 'financial_year': _financialYear.text.trim(),
                 'quarter': 'Q$_quarter',
@@ -576,6 +614,31 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
             dateBox(report.asOnDate ? 'As on' : 'To',
                 const ValueKey<String>('report-to'), _to),
           ],
+          if (report.needsSupplier)
+            SizedBox(
+              height: 32,
+              width: 240,
+              child: DropdownButton<String>(
+                key: const ValueKey<String>('report-supplier'),
+                value: _vendorId,
+                isExpanded: true,
+                isDense: true,
+                hint: const Text('Choose a supplier'),
+                underline: const SizedBox.shrink(),
+                style: theme.textTheme.bodyMedium?.copyWith(fontSize: 13),
+                items: [
+                  for (final Vendor vendor in _vendors)
+                    DropdownMenuItem(
+                      value: vendor.id,
+                      child: Text(vendor.name, overflow: TextOverflow.ellipsis),
+                    ),
+                ],
+                onChanged: (value) {
+                  setState(() => _vendorId = value);
+                  unawaited(_load());
+                },
+              ),
+            ),
           if (report.days != null)
             dateBox('Days', const ValueKey<String>('report-days'), _days),
           // One return quarter (53.1): the year it falls in, and which.

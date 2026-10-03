@@ -632,3 +632,33 @@ class PurchaseBudgetCheckRow(PurchaseSchema):
     this_order: Decimal
     available: Decimal
     exceeded: bool
+
+
+class SupplierPerformanceRecord(PurchaseSchema):
+    """How one supplier delivered over a window (BUY-12)."""
+
+    vendor_id: UUID
+    vendor_name: str
+    receipts: int
+    on_time_receipts: int
+    receipts_with_expected_date: int
+    on_time_percent: Decimal | None
+    received_quantity: Decimal
+    #: Rejected and damaged together.
+    rejected_quantity: Decimal
+    rejected_percent: Decimal | None
+    returned_quantity: Decimal
+    returned_percent: Decimal | None
+    #: On finished orders (received in full, or closed) dated in the window.
+    ordered_quantity: Decimal
+    short_quantity: Decimal
+    short_percent: Decimal | None
+
+
+class SupplierPriceTrendPoint(PurchaseSchema):
+    """A supplier's average billed rate in one month (BUY-12)."""
+
+    #: ``YYYY-MM``.
+    month: str
+    quantity: Decimal
+    average_rate: Decimal

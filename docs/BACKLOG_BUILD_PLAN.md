@@ -428,6 +428,7 @@ otherwise it is built as written.
 #### BUY-12. Supplier performance (§68 row 11)
 - **What it is:** which supplier delivers late, short or bad, and at what price trend.
 - **What gets built:** a report grouped in SQL over receipts and order lines (`line_quantities.py` already derives received / rejected / returned per line): on time %, short %, rejected %, average rate by month. Entry in `desktop/lib/ui/reports/report_catalog.dart`. No migration.
+- **Built 2026-10-03** (A107, no migration): `app/purchase/services/supplier_performance.py`; `/purchases/reports/supplier-performance` and `/purchases/reports/supplier-price-trend`. Desktop: both in the report catalogue. Tests: `test_supplier_performance.py`, `supplier_performance_report_test.dart`.
 - **Depends on:** BUY-6 makes on-time sharper (works on the order's expected date without it). **Effort / Who:** M, Claude alone.
 
 #### BUY-13. Supplier volume rebates (§69 row 8)

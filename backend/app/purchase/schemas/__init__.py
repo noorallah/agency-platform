@@ -38,12 +38,16 @@ from app.purchase.schemas.purchase import (
     RolePurchaseApprovalLimitItem,
     RolePurchaseApprovalLimitsResponse,
     RolePurchaseApprovalLimitsWrite,
+    SupplierPerformanceRecord,
+    SupplierPriceTrendPoint,
 )
 
 __all__ = [
     "PurchaseBudgetCheckRow",
     "PurchaseBudgetResponse",
     "PurchaseBudgetWrite",
+    "SupplierPerformanceRecord",
+    "SupplierPriceTrendPoint",
     "PurchaseOrderPreview",
     "PurchaseQuantityHint",
     "PurchaseAttachmentResponse",
