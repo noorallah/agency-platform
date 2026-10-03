@@ -1150,6 +1150,12 @@ class SalesInvoiceService(TransactionalDocumentService):
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status != SalesInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft sales invoices can be approved.")
+        # Levels of sign-off the firm's rules call for (PLT-1).
+        from app.approvals.services import ApprovalChainService
+
+        ApprovalChainService(self._session).assert_cleared(
+            firm_scope, "SALES_INVOICE", row.id, row.grand_total, actor_id
+        )
         # Checked again here, not only when the draft is saved: a draft saved
         # before the save refused an undispatched note would otherwise still
         # post revenue for goods that never left (D-SELL-3). A bill that

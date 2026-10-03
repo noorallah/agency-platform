@@ -69,6 +69,7 @@ class NotificationService:
             (("INVENTORY_ADJUST",), self._adjustments_awaiting_approval),
             (("DOCUMENT_SEND", "SETTINGS_VIEW"), self._failed_messages),
             (("INVENTORY_VIEW",), self._stock_alerts),
+            (("SALES_APPROVE", "PURCHASE_APPROVE"), self._chains_awaiting_sign_off),
         ]
         found = [
             item
@@ -151,6 +152,32 @@ class NotificationService:
             _plural(count, "order is", "orders are") + " waiting for approval.",
             count,
             newest,
+        )
+
+    def _chains_awaiting_sign_off(self, firm_id: UUID) -> Notification | None:
+        """Documents signed at one level and waiting for the next (PLT-1)."""
+        from app.approvals.models import ApprovalDecision
+        from app.approvals.services import ApprovalChainService
+
+        count = ApprovalChainService(self._session).awaiting_count(firm_id)
+        if not count:
+            return None
+        newest = self._session.scalar(
+            select(func.max(ApprovalDecision.decided_at)).where(
+                ApprovalDecision.firm_id == firm_id,
+                ApprovalDecision.is_deleted.is_(False),
+            )
+        )
+        at = as_utc(newest) if newest is not None else None
+        kind = "approval_chain"
+        return Notification(
+            self._key(kind, count, at),
+            kind,
+            "Documents awaiting the next sign-off",
+            _plural(count, "document is", "documents are")
+            + " signed at one level and waiting for the next.",
+            count,
+            at,
         )
 
     def _requisitions_awaiting_approval(self, firm_id: UUID) -> Notification | None:

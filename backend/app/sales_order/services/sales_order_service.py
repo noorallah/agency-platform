@@ -724,6 +724,14 @@ class SalesOrderService(TransactionalDocumentService):
         row = self.get_order(order_id, firm_scope=firm_scope)
         if row.status != SalesOrderStatus.DRAFT.value:
             raise ValidationError("Only draft sales orders can be approved.")
+        # An order the chain raises nobody typed; its bill is judged.
+        if check_licences:
+            # Levels of sign-off the firm's rules call for (PLT-1).
+            from app.approvals.services import ApprovalChainService
+
+            ApprovalChainService(self._session).assert_cleared(
+                firm_scope, "SALES_ORDER", row.id, row.grand_total, actor_id
+            )
         # Before anything is reserved: a refused licence leaves nothing held.
         licence_remark, licence_details = (
             LicenceCheckService(self._session).approve_sale(

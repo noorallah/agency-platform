@@ -60,6 +60,13 @@ timestamp, `version` for optimistic concurrency, and `is_deleted` /
 trigger each schema owns its own copy of.
 
 
+### `app/approvals`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `approval_rules` | firm store ¹ | A role's sign-off at a level (1-3) for a document type from an amount up (PLT-1). |  |
+| `approval_decisions` | firm store ¹ | A sign-off or rejection of one document at one level, with the total it was decided at. |  |
+
 ### `app/bank_reconciliation`
 
 | Table | Store | Holds | Points at |

@@ -69,6 +69,8 @@ import 'commission/sales_target_page.dart';
 import 'purchases/debit_note_page.dart';
 import 'purchases/purchase_requisition_page.dart';
 import 'purchases/quality_inspection_page.dart';
+import 'approvals/approval_rules_dialog.dart';
+import 'approvals/approvals_page.dart';
 import 'purchases/landed_costs_page.dart';
 import 'purchases/principal_claims_page.dart';
 import 'purchases/supplier_rebates_page.dart';
@@ -455,6 +457,14 @@ class _DesktopShellState extends State<DesktopShell> {
         await showDialog<bool>(
           context: context,
           builder: (_) => BatchSaleSettingsDialog(
+            api: api,
+            permissions: widget.permissions,
+          ),
+        );
+      case MenuLayout.approvalRulesRoute:
+        await showDialog<bool>(
+          context: context,
+          builder: (_) => ApprovalRulesDialog(
             api: api,
             permissions: widget.permissions,
           ),
@@ -2908,6 +2918,12 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           api: widget.api,
           permissions: widget.permissions,
         ),
+      'approvals' => ApprovalsPage(
+          api: widget.api,
+          preferences: widget.preferences,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+        ),
       'route-builder' => RouteBuilderPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -3032,6 +3048,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
       'coverage' => (
           'Coverage',
           'How much ground each salesperson carries, and who carries none.',
+        ),
+      'approvals' => (
+          'Approvals',
+          'Documents waiting for your sign-off: sign the next level, reject '
+              'with a reason, or reject several together.',
         ),
       'route-builder' => (
           'Route Builder',
@@ -3270,6 +3291,12 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
         ),
+      'approvals' => ApprovalsPage(
+          api: widget.api,
+          preferences: widget.preferences,
+          permissions: widget.permissions,
+          hasActiveFirm: hasActiveFirm,
+        ),
       'principal-claims' => PrincipalClaimsPage(
           api: widget.api,
           preferences: widget.preferences,
@@ -3314,6 +3341,7 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
         'purchase-requisitions' => 'Purchase Requisitions',
         'quality-inspection' => 'Quality Inspection',
         'supplier-rebates' => 'Supplier Rebates',
+        'approvals' => 'Approvals',
         'principal-claims' => 'Principal Claims',
         'landed-costs' => 'Landed Costs',
         'purchase-analysis' => 'Purchase Analysis',
@@ -3341,6 +3369,9 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
         'supplier-rebates' =>
           'Volume rebates agreed with suppliers: progress up the ladder, '
               'accrual once the period ends, and settlement against open bills.',
+        'approvals' =>
+          'Documents waiting for your sign-off: sign the next level, reject '
+              'with a reason, or reject several together.',
         'principal-claims' =>
           'What a principal owes for the schemes it funded, expired stock and '
               'breakage: preview, raise, then settle by credit note or payment.',

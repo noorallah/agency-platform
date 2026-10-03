@@ -133,6 +133,10 @@ abstract final class MenuLayout {
   static const String priceFloorRoute = 'settings/price-floor';
   static const String discountLimitsRoute = 'settings/discount-limits';
 
+  /// Approval in up to three levels by amount (PLT-1). A dialog, under Firm,
+  /// because it covers sales and purchase documents alike.
+  static const String approvalRulesRoute = 'settings/approval-rules';
+
   /// Batch rules (backlog 79 row 6): near-expiry window, what dispatch needs
   /// when a batch is left behind or skipped, and the below-floor allowance. A
   /// dialog, under Stock.
@@ -191,6 +195,7 @@ abstract final class MenuLayout {
             AppModule.salesInvoices, 'sales-invoices', 'Sales Invoices'),
         MenuItemSpec.module(AppModule.salesReturns, 'Sales Returns'),
         MenuItemSpec(AppModule.sales, 'proforma-invoices', 'Proforma'),
+        MenuItemSpec(AppModule.sales, 'approvals', 'Approvals'),
         MenuItemSpec(AppModule.sales, 'credit-notes', 'Credit Notes'),
         MenuItemSpec(AppModule.sales, 'customer-debit-notes', 'Debit Notes'),
       ]),
@@ -244,6 +249,7 @@ abstract final class MenuLayout {
         MenuItemSpec(AppModule.goodsReceipts, 'receipts', 'Goods Receipts'),
         MenuItemSpec.module(AppModule.purchaseInvoices, 'Purchase Invoices'),
         MenuItemSpec.module(AppModule.purchaseReturns, 'Purchase Returns'),
+        MenuItemSpec(AppModule.purchases, 'approvals', 'Approvals'),
         MenuItemSpec(AppModule.purchases, 'debit-notes', 'Debit Notes'),
         MenuItemSpec(
             AppModule.purchases, 'quality-inspection', 'Quality Inspection'),
@@ -457,6 +463,8 @@ abstract final class MenuLayout {
           'Custom Field Rules'),
       MenuItemSpec.setting(workDefaultsRoute, 'My Branch and Warehouse'),
       MenuItemSpec.setting(messagingRoute, 'Messaging',
+          permission: 'SETTINGS_VIEW'),
+      MenuItemSpec.setting(approvalRulesRoute, 'Approval Levels',
           permission: 'SETTINGS_VIEW'),
     ]),
     MenuGroupSpec('Selling', [

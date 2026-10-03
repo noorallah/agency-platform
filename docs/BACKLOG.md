@@ -4462,7 +4462,7 @@ Tally, BUSY, Marg, Vyapar, Zoho, Odoo and ERPNext do it. **The design is
 
 | Stream | First | Then | Later |
 | --- | --- | --- | --- |
-| A. Bulk approval | Framework + sales and purchase orders | Invoices, credit notes, returns, journals | Approval rules, multi-level, notifications |
+| A. Bulk approval | Framework + sales and purchase orders | Invoices, credit notes, returns, journals | Approval rules, multi-level, notifications -- **built 2026-10-03** (PLT-1, A131): rules by amount in three levels, sign-off, reject and bulk reject, the Approvals queue and the bell |
 | B. Import and migration | Framework + products, customers, vendors (§46) | Opening bills, opening trial balance, *Opening balances* on Set up (§36) | Tally XML |
 | C. Performance | Large test firm and timings; the Inventory list's history loading, stock sums, `journal_entries` date index, unpaged reports | Current-year default on lists (§37); set-based balance update; retention on by default | Year-end close; partition `audit_logs` if needed |
 

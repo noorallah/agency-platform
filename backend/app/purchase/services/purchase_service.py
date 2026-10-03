@@ -1092,6 +1092,14 @@ class PurchaseService(TransactionalDocumentService):
                 "Only submitted purchase orders can be approved. "
                 "Submit the order first."
             )
+        # An order a supplier bill raised nobody typed or submitted.
+        if enforce_limit:
+            # Levels of sign-off the firm's rules call for (PLT-1).
+            from app.approvals.services import ApprovalChainService
+
+            ApprovalChainService(self._session).assert_cleared(
+                firm_scope, "PURCHASE_ORDER", row.id, row.grand_total, actor_id
+            )
         # Warns only: whether the vendor may supply the goods (backlog 54).
         licence_remark, licence_details = LicenceCheckService(
             self._session

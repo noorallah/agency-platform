@@ -676,6 +676,12 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status != PurchaseInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft purchase invoices can be approved.")
+        # Levels of sign-off the firm's rules call for (PLT-1).
+        from app.approvals.services import ApprovalChainService
+
+        ApprovalChainService(self._session).assert_cleared(
+            firm_scope, "PURCHASE_INVOICE", row.id, row.grand_total, actor_id
+        )
         if not may_exceed_tolerance:
             self._assert_within_tolerance(row, firm_id=firm_scope)
         # A bill that raised its own receipt brings the goods in now: its
