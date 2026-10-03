@@ -66,10 +66,13 @@ const Map<String, String> _accepted = <String, String>{
   'importPurchaseOrdersJson':
       'the JSON twin of importPurchaseOrdersFile, which the import dialog uses '
           '-- a screen posting rows it parsed itself would be a second parser',
-  'searchTerritories':
-      'the territory workspace searches through `territories(search:)`, the '
-          'list endpoint every other master screen uses -- /search is a second '
-          'way to ask one question',
+  'supplierRebate': 'as batchRecord; the agreements list carries every field '
+      'the rebate editor opens with (BUY-13)',
+  'customerOverdueInterest': 'the customer statement carries the same '
+      'figures in `overdue_interest`, and raising the debit note from it is '
+      'raiseOverdueInterestDebitNote (SEL-14)',
+  'sendSalesInvoiceMessage': 'a typed convenience over sendDocumentMessage, '
+      'which the send dialog calls for every document kind',
   'resetUserPreferences':
       'every preference it resets is already settable from the control that '
           'owns it -- the appearance chooser and the firm switcher -- so it is '
@@ -110,7 +113,10 @@ const Map<String, String> _accepted = <String, String>{
 ///
 /// A new entry here is a feature somebody shipped without a way in. Put it
 /// here rather than in `_accepted`, and take it out by wiring it.
-const Map<String, String> _knownGaps = <String, String>{};
+const Map<String, String> _knownGaps = <String, String>{
+  'abcClasses': 'STK-6: the ABC class of each product by value moved; count plans '
+      'select by class on the server, but no screen shows a product its class',
+};
 
 /// Every method name referenced from anywhere in `lib/` but the client itself.
 ///

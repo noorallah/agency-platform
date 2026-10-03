@@ -4303,20 +4303,25 @@ class WorkspaceEmptyState extends StatelessWidget {
   final IconData icon;
   final Widget? action;
   @override
+  // Scrolls rather than overflowing when a workspace's toolbars leave it
+  // less height than the icon, title and message need (800x600).
   Widget build(BuildContext context) => Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(icon, size: 48, color: Theme.of(context).colorScheme.primary),
-            const SizedBox(height: 12),
-            Text(title, style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Text(message, textAlign: TextAlign.center),
-            if (action != null) ...[
-              const SizedBox(height: AppSpacing.lg),
-              action!,
-            ],
-          ]),
+        child: SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Icon(icon,
+                  size: 48, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(height: 12),
+              Text(title, style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 8),
+              Text(message, textAlign: TextAlign.center),
+              if (action != null) ...[
+                const SizedBox(height: AppSpacing.lg),
+                action!,
+              ],
+            ]),
+          ),
         ),
       );
 }
