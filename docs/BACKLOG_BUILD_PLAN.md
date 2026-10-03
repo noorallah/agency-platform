@@ -382,6 +382,7 @@ otherwise it is built as written.
 - **What it is:** per supplier and product: their name and code, price with history, pack size, minimum order, lead time.
 - **What gets built:** a new supplier-product table (dated rows, never overwritten); the purchase order line fills supplier code, rate and pack from it; *Catalogue* tab on the vendor editor and import through `app/common/file_import.py`. Migration yes. Tests.
 - **Depends on:** BUY-3. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A101): `supplier_products` (migration 0267), `app/vendors/services/supplier_catalogue.py` (`current_rows`, `SupplierCatalogueService`, `SupplierCatalogueFileImporter`), `/vendors/{id}/catalogue` list/add/delete/import, the `supplier-catalogue` import kind; `PurchaseService._priced_from_supplier` fills the supplier code and ranks the catalogue price between the price list and the product's purchase price. Pack size, minimum order and lead time are stored for BUY-5 and BUY-6. Desktop: *Catalogue* tab on the supplier. Tests: `test_supplier_catalogue.py`, `supplier_catalogue_test.dart`.
 
 #### BUY-5. Minimum order quantity and order multiple (§69 row 2)
 - **What it is:** ordering 115 against a minimum of 100 in multiples of 20 warns and suggests 120.

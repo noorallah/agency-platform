@@ -18,12 +18,14 @@ extension _Phase2VendorForm on _VendorEditorDialogState {
     'Custom fields',
     'Licences',
     'Opening bills',
+    'Catalogue',
     'Ratings',
   ];
 
   bool _sectionVisible(String section) => switch (section) {
         'Licences' => widget.loadLicences != null,
         'Opening bills' => widget.loadOpeningBills != null,
+        'Catalogue' => widget.showCatalogue && widget.vendor != null,
         'Ratings' => widget.loadRatings != null || widget.vendor == null,
         _ => true,
       };
@@ -228,6 +230,16 @@ extension _Phase2VendorForm on _VendorEditorDialogState {
               _heading(context, 'Opening bills',
                   'what this supplier was owed on the firm\'s first day here'),
               _openingBillsTab(),
+            ],
+            if (widget.showCatalogue && widget.vendor != null) ...[
+              _heading(context, 'Catalogue',
+                  'what this supplier sells, at what price'),
+              SupplierCatalogueSection(
+                api: widget.api,
+                vendorId: widget.vendor!.id,
+                canManage: widget.canManageCatalogue,
+                canImport: widget.canImportCatalogue,
+              ),
             ],
             if (widget.loadRatings != null || widget.vendor == null) ...[
               _heading(

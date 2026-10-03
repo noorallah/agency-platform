@@ -87,4 +87,9 @@ from app.tax.models import tax_framework  # noqa: F401
 from app.tcs.models import tcs  # noqa: F401
 from app.trade_licences.models import trade_licence  # noqa: F401
 from app.uom.models import uom  # noqa: F401
-from app.vendors.models import opening_bill, vendor, vendor_rating  # noqa: F401
+from app.vendors.models import (  # noqa: F401
+    opening_bill,
+    supplier_product,
+    vendor,
+    vendor_rating,
+)

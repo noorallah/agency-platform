@@ -53,6 +53,7 @@ import '../../models/tax_framework.dart';
 import '../../models/uom_packaging.dart';
 import '../../models/inventory.dart';
 import '../../models/vendor.dart';
+import '../../models/supplier_catalogue.dart';
 import '../../models/vendor_opening_bill.dart';
 import '../../models/vendor_rating.dart';
 import '../../models/report.dart';
@@ -2013,6 +2014,75 @@ class ApiClient {
           body: {'reason': reason},
         ),
       ));
+
+  /// A supplier's catalogue (BUY-4): the rows in force today, or every row
+  /// with [history].
+  Future<List<SupplierCatalogueRow>> supplierCatalogue(
+    String vendorId, {
+    bool history = false,
+  }) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/vendors/$vendorId/catalogue',
+          query: {'history': history ? 'true' : 'false'},
+        ),
+        SupplierCatalogueRow.fromJson,
+      );
+
+  /// Add one catalogue row; a change is a new row from a later date.
+  Future<SupplierCatalogueRow> addSupplierCatalogueRow(
+    String vendorId,
+    Json data,
+  ) async =>
+      SupplierCatalogueRow.fromJson(_unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/vendors/$vendorId/catalogue',
+          body: data,
+        ),
+      ));
+
+  /// Remove a catalogue row typed in error.
+  Future<void> deleteSupplierCatalogueRow(String vendorId, String rowId) =>
+      request('DELETE', '/api/v1/vendors/$vendorId/catalogue/$rowId');
+
+  /// The blank catalogue import file, as bytes: xlsx or csv.
+  Future<List<int>> supplierCatalogueImportTemplate(
+    String vendorId, {
+    String format = 'xlsx',
+  }) =>
+      downloadBytes(
+        '/api/v1/vendors/$vendorId/catalogue/import-template',
+        query: {'format': format},
+      );
+
+  /// Check (`apply: false`, writes nothing) or import a catalogue file.
+  Future<FileImportReport> checkSupplierCatalogueImportFile(
+    String vendorId, {
+    required String fileName,
+    required List<int> bytes,
+    required bool updateExisting,
+    required bool apply,
+    Map<String, String?>? mapping,
+  }) async {
+    final Json response = await multipartRequest(
+      'POST',
+      '/api/v1/vendors/$vendorId/catalogue/import-file',
+      fields: {
+        'existing': updateExisting ? 'update' : 'refuse',
+        'apply': apply ? 'true' : 'false',
+        if (mapping != null) 'mapping': jsonEncode(mapping),
+      },
+      fileField: 'file',
+      fileName: fileName,
+      fileBytes: bytes,
+      fileContentType: fileName.toLowerCase().endsWith('.xlsx')
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'text/csv',
+    );
+    return FileImportReport.fromJson(_unwrapMap(response));
+  }
 
   Future<int> bulkDeleteVendors(List<String> ids) async {
     final Json response = await request(

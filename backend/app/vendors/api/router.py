@@ -18,6 +18,7 @@ from app.common.file_import import (
     ImportReportResponse,
     file_format_of,
     report_response,
+    template_csv,
 )
 from app.common.pan_report import PanReportRow, vendor_pan_report
 from app.common.scope import (
@@ -60,10 +61,21 @@ from app.vendors.schemas.rating import (
     VendorRatingWrite,
 )
 from app.vendors.schemas.statement import SupplierStatement
+from app.vendors.schemas.supplier_product import (
+    SupplierProductResponse,
+    SupplierProductWrite,
+)
 from app.vendors.services import VendorService
 from app.vendors.services.opening_bill_import import VendorOpeningBillFileImporter
 from app.vendors.services.opening_bill_service import VendorOpeningBillService
 from app.vendors.services.statement_service import SupplierStatementService
+from app.vendors.services.supplier_catalogue import (
+    COLUMNS as CATALOGUE_COLUMNS,
+)
+from app.vendors.services.supplier_catalogue import (
+    SupplierCatalogueFileImporter,
+    SupplierCatalogueService,
+)
 from app.vendors.services.vendor_import import VendorFileImporter
 from app.vendors.services.vendor_import import template_csv as vendor_template_csv
 from app.vendors.services.vendor_import import (
@@ -1112,3 +1124,111 @@ def bulk_profile_vendors(
         actor_id=scope.actor_id,
     )
     return ApiResponse(data={"affected": affected})
+
+
+@router.get(
+    "/{vendor_id}/catalogue",
+    response_model=ApiResponse[list[SupplierProductResponse]],
+)
+def list_supplier_catalogue(
+    vendor_id: UUID,
+    scope: VendorViewScope,
+    history: bool = False,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[SupplierProductResponse]]:
+    """Return the supplier's catalogue rows in force today (BUY-4).
+
+    ``history`` returns every dated row, so a buyer can read how the price
+    moved.
+    """
+    return ApiResponse(
+        data=SupplierCatalogueService(db).list_rows(
+            vendor_id, firm_id=scope.firm_id, history=history
+        )
+    )
+
+
+@router.post(
+    "/{vendor_id}/catalogue",
+    response_model=ApiResponse[SupplierProductResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def add_supplier_catalogue_row(
+    vendor_id: UUID,
+    data: SupplierProductWrite,
+    scope: VendorUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SupplierProductResponse]:
+    """Add one dated catalogue row; a change is a new row (BUY-4)."""
+    return ApiResponse(
+        data=SupplierCatalogueService(db).add(
+            vendor_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        ),
+        message="Catalogue row added.",
+    )
+
+
+@router.delete("/{vendor_id}/catalogue/{row_id}", response_model=ApiResponse[None])
+def delete_supplier_catalogue_row(
+    vendor_id: UUID,
+    row_id: UUID,
+    scope: VendorUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[None]:
+    """Remove one catalogue row typed in error (BUY-4)."""
+    SupplierCatalogueService(db).delete(
+        vendor_id, row_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=None, message="Catalogue row deleted.")
+
+
+@router.get("/{vendor_id}/catalogue/import-template")
+def supplier_catalogue_import_template(
+    vendor_id: UUID,
+    scope: VendorImportScope,
+) -> StreamingResponse:
+    """Download the supplier catalogue template, as CSV (BUY-4)."""
+    return StreamingResponse(
+        iter([template_csv(CATALOGUE_COLUMNS)]),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": (
+                'attachment; filename="supplier-catalogue-template.csv"'
+            )
+        },
+    )
+
+
+@router.post(
+    "/{vendor_id}/catalogue/import-file",
+    response_model=ApiResponse[ImportReportResponse],
+)
+async def import_supplier_catalogue_file(
+    vendor_id: UUID,
+    scope: VendorImportScope,
+    file: Annotated[UploadFile, File()],
+    db: Session = Depends(get_db),
+    existing: Annotated[Literal["refuse", "update"], Form()] = "refuse",
+    apply: Annotated[bool, Form()] = False,
+    mapping: Annotated[str | None, Form()] = None,
+) -> ApiResponse[ImportReportResponse]:
+    """Check a supplier's catalogue file, and with ``apply`` import it whole.
+
+    BUY-4. A product already listed is refused unless ``existing`` is
+    ``update``, which adds a new dated row for it.
+    """
+    content, file_format = mapped_content(
+        await file.read(),
+        file_format_of(file.filename),
+        parse_mapping(mapping),
+        columns_for_kind(db, "supplier-catalogue"),
+    )
+    report = SupplierCatalogueFileImporter(db, vendor_id).run(
+        content,
+        file_format=file_format,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        existing=existing,
+        apply=apply,
+    )
+    return ApiResponse(data=report_response(report))
