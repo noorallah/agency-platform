@@ -1,0 +1,7 @@
+route,kind,window,median_ms,rows,status,detail
+/api/v1/gst-returns/gstr1,report,month,7207.8,-,SLOW,
+/api/v1/gst-returns/gstr1,report,year,36.4,-,FAIL,"422 A return covers at most 3 calendar months -- a month, or a quarter under QRMP. Ask for each period separately."
+/api/v1/gst-returns/gstr1-quarterly,list,-,,-,SKIP,needs return_period
+/api/v1/gst-returns/gstr2b/reconciliation,list,-,,-,SKIP,needs return_period
+/api/v1/gst-returns/gstr3b,report,month,6370.7,-,SLOW,
+/api/v1/gst-returns/gstr3b,report,year,35.0,-,FAIL,"422 A return covers at most 3 calendar months -- a month, or a quarter under QRMP. Ask for each period separately."
