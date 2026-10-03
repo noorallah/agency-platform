@@ -111,6 +111,11 @@ class PromotionActionType(StrEnum):
     #: passes over it and the loyalty scheme reads it. An offer carrying it
     #: carries nothing else.
     LOYALTY_MULTIPLIER = "LOYALTY_MULTIPLIER"
+    #: "Buy 2, the second at 50% off" (SEL-2): on each matched line, every
+    #: complete group of ``buy_quantity`` + ``free_quantity`` units takes
+    #: ``percent`` off ``free_quantity`` of them, at the line's own rate. A
+    #: discount on units already on the line, so tax stays per line.
+    BUY_X_GET_Y_DISCOUNT = "BUY_X_GET_Y_DISCOUNT"
 
 
 class PromotionConditionWrite(PromotionSchema):
@@ -238,6 +243,7 @@ class PromotionActionWrite(PromotionSchema):
         percent_actions = {
             PromotionActionType.LINE_DISCOUNT_PERCENT,
             PromotionActionType.BILL_DISCOUNT_PERCENT,
+            PromotionActionType.BUY_X_GET_Y_DISCOUNT,
         }
         amount_actions = {
             PromotionActionType.LINE_DISCOUNT_AMOUNT,
@@ -253,6 +259,13 @@ class PromotionActionWrite(PromotionSchema):
             self.buy_quantity is None or self.free_quantity is None
         ):
             raise ValueError("Free goods need a buy quantity and a free quantity.")
+        if self.action_type is PromotionActionType.BUY_X_GET_Y_DISCOUNT and (
+            self.buy_quantity is None or self.free_quantity is None
+        ):
+            raise ValueError(
+                "Say how many are bought at full price and how many at the "
+                "discount, such as buy 1, get 1 at 50%."
+            )
         if self.action_type is PromotionActionType.FREE_PRODUCT:
             if self.free_product_id is None:
                 raise ValueError("Say which product is given away.")

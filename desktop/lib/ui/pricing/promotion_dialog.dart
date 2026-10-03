@@ -37,6 +37,7 @@ class _PromotionDialogState extends State<PromotionDialog> {
     'BILL_DISCOUNT_AMOUNT': 'Amount off the whole bill',
     'FREE_QUANTITY': 'Free goods (buy X, get Y)',
     'FREE_PRODUCT': 'A free product (buy X, get another)',
+    'BUY_X_GET_Y_DISCOUNT': 'Buy X, get Y at a discount',
     'FREE_SHIPPING': 'Free delivery',
     'LOYALTY_MULTIPLIER': 'Bonus loyalty points',
   };
@@ -504,6 +505,7 @@ class _PromotionDialogState extends State<PromotionDialog> {
     final bool isPercent = action.actionType.endsWith('_PERCENT');
     final bool isFree = action.actionType == 'FREE_QUANTITY';
     final bool isGift = action.actionType == 'FREE_PRODUCT';
+    final bool isDiscounted = action.actionType == 'BUY_X_GET_Y_DISCOUNT';
     final bool isShipping = action.actionType == 'FREE_SHIPPING';
     final bool isBonus = action.actionType == 'LOYALTY_MULTIPLIER';
     return Padding(
@@ -606,6 +608,53 @@ class _PromotionDialogState extends State<PromotionDialog> {
                         : null,
               ),
             ),
+          ] else if (isDiscounted) ...[
+            Expanded(
+              child: TextFormField(
+                key: ValueKey('promotion-action-buy-$index'),
+                controller: action.buyQuantity,
+                decoration: const InputDecoration(
+                  labelText: 'Buy',
+                  helperText: 'At full price',
+                ),
+                keyboardType: TextInputType.number,
+                validator: (value) =>
+                    (double.tryParse((value ?? '').trim()) ?? 0) <= 0
+                        ? 'How many?'
+                        : null,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: TextFormField(
+                key: ValueKey('promotion-action-get-$index'),
+                controller: action.freeQuantity,
+                decoration: const InputDecoration(
+                  labelText: 'Get',
+                  helperText: 'At the discount',
+                ),
+                keyboardType: TextInputType.number,
+                validator: (value) =>
+                    (double.tryParse((value ?? '').trim()) ?? 0) <= 0
+                        ? 'How many?'
+                        : null,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: TextFormField(
+                key: ValueKey('promotion-action-off-$index'),
+                controller: action.percent,
+                decoration: const InputDecoration(labelText: '% off'),
+                keyboardType: TextInputType.number,
+                validator: (value) {
+                  final double? parsed = double.tryParse((value ?? '').trim());
+                  return parsed == null || parsed <= 0 || parsed > 100
+                      ? 'Over 0, up to 100.'
+                      : null;
+                },
+              ),
+            ),
           ] else if (isFree) ...[
             Expanded(
               child: TextFormField(
@@ -636,7 +685,7 @@ class _PromotionDialogState extends State<PromotionDialog> {
               ),
             ),
           // "20% off, up to 500": the cap on the whole document (60 item 1).
-          if (isPercent) ...[
+          if (isPercent || isDiscounted) ...[
             const SizedBox(width: AppSpacing.sm),
             SizedBox(
               width: 120,
@@ -1176,18 +1225,26 @@ class _ActionDraft {
   Json toJson(int sequence) => PromotionActionRecord(
         actionType: actionType,
         sequence: sequence,
-        percent: actionType.endsWith('_PERCENT') ? percent.text : '',
+        percent: actionType.endsWith('_PERCENT') ||
+                actionType == 'BUY_X_GET_Y_DISCOUNT'
+            ? percent.text
+            : '',
         amount: actionType.endsWith('_AMOUNT') ? amount.text : '',
-        buyQuantity:
-            actionType == 'FREE_QUANTITY' || actionType == 'FREE_PRODUCT'
-                ? buyQuantity.text
-                : '',
-        freeQuantity:
-            actionType == 'FREE_QUANTITY' || actionType == 'FREE_PRODUCT'
-                ? freeQuantity.text
-                : '',
+        buyQuantity: actionType == 'FREE_QUANTITY' ||
+                actionType == 'FREE_PRODUCT' ||
+                actionType == 'BUY_X_GET_Y_DISCOUNT'
+            ? buyQuantity.text
+            : '',
+        freeQuantity: actionType == 'FREE_QUANTITY' ||
+                actionType == 'FREE_PRODUCT' ||
+                actionType == 'BUY_X_GET_Y_DISCOUNT'
+            ? freeQuantity.text
+            : '',
         freeProductId: actionType == 'FREE_PRODUCT' ? freeProductId : '',
-        maxAmount: actionType.endsWith('_PERCENT') ? maxAmount.text : '',
+        maxAmount: actionType.endsWith('_PERCENT') ||
+                actionType == 'BUY_X_GET_Y_DISCOUNT'
+            ? maxAmount.text
+            : '',
         multiplier: actionType == 'LOYALTY_MULTIPLIER' ? multiplier.text : '',
       ).toJson();
 }

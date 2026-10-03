@@ -375,6 +375,14 @@ class PromotionCrudService:
             PromotionActionType.BILL_DISCOUNT_AMOUNT,
         }:
             return {"amount": str(getattr(action, "amount", None))}
+        if kind is PromotionActionType.BUY_X_GET_Y_DISCOUNT:
+            cap = getattr(action, "max_amount", None)
+            return {
+                "buy_quantity": str(getattr(action, "buy_quantity", None)),
+                "free_quantity": str(getattr(action, "free_quantity", None)),
+                "percent": str(getattr(action, "percent", None)),
+                **({} if cap is None else {"max_amount": str(cap)}),
+            }
         if kind is PromotionActionType.LOYALTY_MULTIPLIER:
             return {"multiplier": str(getattr(action, "multiplier", None))}
         if kind is PromotionActionType.FREE_PRODUCT:

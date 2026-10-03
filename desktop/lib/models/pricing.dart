@@ -594,6 +594,11 @@ class PromotionActionRecord {
 String bonusPointsLabel(String multiplier) =>
     '${_plainNumber(multiplier)}x loyalty points';
 
+/// "Buy 1, get 1 at 50% off" for a `BUY_X_GET_Y_DISCOUNT` benefit.
+String buyXGetYDiscountLabel(String buy, String get, String percent) =>
+    'Buy ${_plainNumber(buy)}, get ${_plainNumber(get)} at '
+    '${_plainNumber(percent)}% off';
+
 /// A code a customer presents to claim an offer.
 ///
 /// The benefit, the conditions and the stacking rule all live on the promotion
