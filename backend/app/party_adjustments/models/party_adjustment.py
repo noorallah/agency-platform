@@ -61,6 +61,8 @@ class PartyAdjustmentKind(StrEnum):
     SUPPLIER_WRITE_BACK = "SUPPLIER_WRITE_BACK"
     SET_OFF = "SET_OFF"
     SUPPLIER_REBATE = "SUPPLIER_REBATE"
+    #: A principal's credit note settling a claim (SEL-11).
+    PRINCIPAL_CLAIM = "PRINCIPAL_CLAIM"
 
 
 class PartyAdjustmentStatus(StrEnum):
@@ -92,7 +94,9 @@ class PartyAdjustment(BaseEntity):
             "AND vendor_id IS NOT NULL AND customer_id IS NULL) OR "
             "(kind = 'SET_OFF' AND customer_id IS NOT NULL "
             "AND vendor_id IS NOT NULL) OR (kind = 'SUPPLIER_REBATE' "
-            "AND vendor_id IS NOT NULL AND customer_id IS NULL)",
+            "AND vendor_id IS NOT NULL AND customer_id IS NULL) OR "
+            "(kind = 'PRINCIPAL_CLAIM' AND vendor_id IS NOT NULL "
+            "AND customer_id IS NULL)",
             name="CK_party_adjustments_parties_match_kind",
         ),
         Index("IX_party_adjustments_firm_date", "firm_id", "adjustment_date"),
@@ -137,6 +141,12 @@ class PartyAdjustment(BaseEntity):
     rebate_agreement_id: Mapped[UUID | None] = mapped_column(
         UUIDType(),
         ForeignKey("supplier_rebate_agreements.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    #: The claim on a principal a ``PRINCIPAL_CLAIM`` settles (SEL-11).
+    principal_claim_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey("principal_claims.id", ondelete="RESTRICT"),
         index=True,
     )
     approved_at: Mapped[datetime | None] = mapped_column(UTCDateTime)

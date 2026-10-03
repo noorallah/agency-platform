@@ -257,6 +257,8 @@ abstract final class MenuLayout {
         MenuItemSpec(AppModule.masters, 'supplier-gifts', 'Supplier Gifts'),
         MenuItemSpec(
             AppModule.purchases, 'supplier-rebates', 'Supplier Rebates'),
+        MenuItemSpec(
+            AppModule.purchases, 'principal-claims', 'Principal Claims'),
       ]),
       MenuGroupSpec('Insight', [
         MenuItemSpec(

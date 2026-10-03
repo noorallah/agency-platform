@@ -1634,6 +1634,8 @@ class DocumentPostingService:
         * ``SUPPLIER_REBATE`` -- Dr payable, Cr supplier rebates receivable:
           the supplier's credit for an accrued volume rebate (BUY-13) set
           against what the firm owes it.
+        * ``PRINCIPAL_CLAIM`` -- Dr payable, Cr claims receivable: a
+          principal's credit note settling a claim (SEL-11).
 
         No tax leg, ever. Reducing the value of a supply is a credit or debit
         note, which reverses tax; this only says the balance will not be paid.
@@ -1671,6 +1673,10 @@ class DocumentPostingService:
             "SUPPLIER_REBATE": (
                 ControlAccountPurpose.ACCOUNTS_PAYABLE,
                 ControlAccountPurpose.SUPPLIER_REBATE_RECEIVABLE,
+            ),
+            "PRINCIPAL_CLAIM": (
+                ControlAccountPurpose.ACCOUNTS_PAYABLE,
+                ControlAccountPurpose.PRINCIPAL_CLAIM_RECEIVABLE,
             ),
         }
         if kind not in legs:
@@ -1758,6 +1764,127 @@ class DocumentPostingService:
             ],
             source_module="supplier_rebates",
             source_id=agreement_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_principal_claim(
+        self,
+        *,
+        firm_id: UUID,
+        claim_id: UUID,
+        claim_number: str,
+        claim_date: date,
+        scheme_amount: Decimal,
+        stock_amount: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Book what a principal owes on a claim (SEL-11).
+
+        Dr claims receivable for the whole claim. The other side gives back
+        the cost where the firm carried it: a scheme's share to promotional
+        expense, expired and broken stock to the inventory adjustment account
+        their write-off and return were charged to.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        receivable = ControlAccountPurpose.PRINCIPAL_CLAIM_RECEIVABLE
+        promotion = ControlAccountPurpose.PROMOTIONAL_EXPENSE
+        stock = ControlAccountPurpose.INVENTORY_ADJUSTMENT
+        scheme = quantize_ledger(quantize_money(scheme_amount))
+        loss = quantize_ledger(quantize_money(stock_amount))
+        wanted = [receivable]
+        if scheme > ZERO:
+            wanted.append(promotion)
+        if loss > ZERO:
+            wanted.append(stock)
+        accounts = self._require_mapping(firm_id, tuple(wanted))
+        context = self.context_for(firm_id, claim_date)
+        describe = f"Claim {claim_number} on the principal"
+        lines = [
+            JournalLineData(
+                ledger_account_id=accounts[receivable],
+                debit_amount=scheme + loss,
+                credit_amount=ZERO,
+                description=describe,
+            )
+        ]
+        for purpose, value in ((promotion, scheme), (stock, loss)):
+            if value > ZERO:
+                lines.append(
+                    JournalLineData(
+                        ledger_account_id=accounts[purpose],
+                        debit_amount=ZERO,
+                        credit_amount=value,
+                        description=describe,
+                    )
+                )
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=claim_date,
+            reference_number=f"CLAIM-{claim_number}",
+            description=describe,
+            lines=lines,
+            source_module="principal_claims",
+            source_id=claim_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_principal_claim_receipt(
+        self,
+        *,
+        firm_id: UUID,
+        settlement_id: UUID,
+        reference_number: str,
+        received_on: date,
+        amount: Decimal,
+        money_account_id: UUID,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Book money a principal paid against a claim (SEL-11).
+
+        Dr the cash or bank account it arrived in, Cr claims receivable. No
+        party ledger moves: the claim was never on the principal's account.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        receivable = ControlAccountPurpose.PRINCIPAL_CLAIM_RECEIVABLE
+        accounts = self._require_mapping(firm_id, (receivable,))
+        context = self.context_for(firm_id, received_on)
+        value = quantize_ledger(quantize_money(amount))
+        describe = f"Claim payment {reference_number}"
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=received_on,
+            reference_number=reference_number,
+            description=describe,
+            lines=[
+                JournalLineData(
+                    ledger_account_id=money_account_id,
+                    debit_amount=value,
+                    credit_amount=ZERO,
+                    description=describe,
+                ),
+                JournalLineData(
+                    ledger_account_id=accounts[receivable],
+                    debit_amount=ZERO,
+                    credit_amount=value,
+                    description=describe,
+                ),
+            ],
+            source_module="principal_claims",
+            source_id=settlement_id,
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)

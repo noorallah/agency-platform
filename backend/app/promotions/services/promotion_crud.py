@@ -16,7 +16,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
-from app.core.exceptions import ConflictError, ResourceNotFoundError
+from app.core.exceptions import (
+    ConflictError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.customers.models import Customer
 from app.products.models import Product, ProductCategory
 from app.promotions.models import (
@@ -106,11 +110,22 @@ class PromotionCrudService:
             raise ResourceNotFoundError("Promotion not found.")
         return row
 
+    def _check_principal(self, data: PromotionWrite, firm_id: UUID) -> None:
+        """Refuse a funding principal that is not the firm's (SEL-11)."""
+        if data.principal_id is None:
+            return
+        from app.products.models.brand import Principal
+
+        principal = self._session.get(Principal, data.principal_id)
+        if principal is None or principal.is_deleted or principal.firm_id != firm_id:
+            raise ValidationError("That principal is not one of this firm's.")
+
     def create_promotion(
         self, data: PromotionWrite, *, firm_id: UUID, actor_id: UUID
     ) -> Promotion:
         """Record a new promotion at version one."""
         self._assert_code_is_free(data.code, firm_id=firm_id)
+        self._check_principal(data, firm_id)
         row = Promotion(
             firm_id=firm_id,
             code=data.code.strip().upper(),
@@ -124,6 +139,8 @@ class PromotionCrudService:
             requires_coupon=data.requires_coupon,
             max_redemptions=data.max_redemptions,
             max_redemptions_per_customer=data.max_redemptions_per_customer,
+            principal_id=data.principal_id,
+            principal_share_percent=data.principal_share_percent,
             version_group_id=uuid4(),
             version_number=1,
             created_by=actor_id,
@@ -157,6 +174,7 @@ class PromotionCrudService:
         The same rule the tax engine follows: a live promotion is never
         rewritten, because documents priced under it have to stay explicable.
         """
+        self._check_principal(data, firm_scope)
         row = self.get_promotion(promotion_id, firm_scope=firm_scope)
         if row.status == PromotionStatus.DRAFT.value:
             row.name = data.name
@@ -169,6 +187,8 @@ class PromotionCrudService:
             row.requires_coupon = data.requires_coupon
             row.max_redemptions = data.max_redemptions
             row.max_redemptions_per_customer = data.max_redemptions_per_customer
+            row.principal_id = data.principal_id
+            row.principal_share_percent = data.principal_share_percent
             row.updated_by = actor_id
             self._replace_children(row, data, actor_id=actor_id)
             record_audit(
@@ -196,6 +216,8 @@ class PromotionCrudService:
             requires_coupon=data.requires_coupon,
             max_redemptions=data.max_redemptions,
             max_redemptions_per_customer=data.max_redemptions_per_customer,
+            principal_id=data.principal_id,
+            principal_share_percent=data.principal_share_percent,
             version_group_id=row.version_group_id,
             version_number=row.version_number + 1,
             supersedes_promotion_id=row.id,
@@ -524,6 +546,8 @@ class PromotionCrudService:
             requires_coupon=row.requires_coupon,
             max_redemptions=row.max_redemptions,
             max_redemptions_per_customer=row.max_redemptions_per_customer,
+            principal_id=row.principal_id,
+            principal_share_percent=row.principal_share_percent,
             version_group_id=row.version_group_id,
             version_number=row.version_number,
             supersedes_promotion_id=row.supersedes_promotion_id,

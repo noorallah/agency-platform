@@ -250,6 +250,8 @@ class PromotionRecord {
     this.effectiveFrom = '',
     this.effectiveTo = '',
     this.versionNumber = 1,
+    this.principalId = '',
+    this.principalSharePercent = '100',
     this.conditions = const <PromotionConditionRecord>[],
     this.actions = const <PromotionActionRecord>[],
   });
@@ -281,6 +283,11 @@ class PromotionRecord {
 
   /// The offer's published revision, which is not the concurrency counter.
   final int versionNumber;
+
+  /// The principal funding the scheme (SEL-11); empty for the firm's own
+  /// offer. [principalSharePercent] is the part of the cost they bear.
+  final String principalId;
+  final String principalSharePercent;
   final List<PromotionConditionRecord> conditions;
   final List<PromotionActionRecord> actions;
 
@@ -300,6 +307,10 @@ class PromotionRecord {
         effectiveFrom: stringValue(json['effective_from']),
         effectiveTo: stringValue(json['effective_to']),
         versionNumber: (json['version_number'] as num?)?.toInt() ?? 1,
+        principalId: stringValue(json['principal_id']),
+        principalSharePercent: stringValue(json['principal_share_percent']).isEmpty
+            ? '100'
+            : stringValue(json['principal_share_percent']),
         conditions: json['conditions'] is List
             ? (json['conditions'] as List)
                 .whereType<Map>()

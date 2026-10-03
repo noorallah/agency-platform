@@ -145,6 +145,9 @@ class ControlAccountPurpose(StrEnum):
     #: A supplier's volume rebate accrued and not yet credited (BUY-13): an
     #: asset until the supplier's credit note is set against its bills.
     SUPPLIER_REBATE_RECEIVABLE = "SUPPLIER_REBATE_RECEIVABLE"
+    #: What a principal owes the firm on a claim raised for its schemes,
+    #: expired and broken stock (SEL-11), until its credit note or payment.
+    PRINCIPAL_CLAIM_RECEIVABLE = "PRINCIPAL_CLAIM_RECEIVABLE"
     #: What the owner takes out of the business -- a supplier's gift they
     #: keep (BUY-2).
     DRAWINGS = "DRAWINGS"
@@ -283,6 +286,7 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     ControlAccountPurpose.PROMOTIONAL_EXPENSE: frozenset({"EXPENSE"}),
     ControlAccountPurpose.SUPPLIER_INCENTIVE_INCOME: frozenset({"INCOME"}),
     ControlAccountPurpose.SUPPLIER_REBATE_RECEIVABLE: frozenset({"ASSET"}),
+    ControlAccountPurpose.PRINCIPAL_CLAIM_RECEIVABLE: frozenset({"ASSET"}),
     ControlAccountPurpose.DRAWINGS: frozenset({"EQUITY"}),
     ControlAccountPurpose.TDS_INTEREST_AND_FEES: frozenset({"EXPENSE"}),
     ControlAccountPurpose.CHEQUE_RETURN_CHARGES: frozenset({"INCOME"}),
@@ -355,6 +359,9 @@ PURPOSE_LABELS: dict[ControlAccountPurpose, str] = {
     ControlAccountPurpose.PROMOTIONAL_EXPENSE: "Promotional expenses",
     ControlAccountPurpose.SUPPLIER_INCENTIVE_INCOME: "Supplier incentives received",
     ControlAccountPurpose.SUPPLIER_REBATE_RECEIVABLE: "Supplier rebates receivable",
+    ControlAccountPurpose.PRINCIPAL_CLAIM_RECEIVABLE: (
+        "Claims receivable from principals"
+    ),
     ControlAccountPurpose.DRAWINGS: "Drawings",
     ControlAccountPurpose.TDS_INTEREST_AND_FEES: "Interest and fees on TDS",
     ControlAccountPurpose.CHEQUE_RETURN_CHARGES: "Cheque return charges",

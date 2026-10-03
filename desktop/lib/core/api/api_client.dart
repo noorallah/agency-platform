@@ -39,6 +39,7 @@ import '../../models/bank_reconciliation.dart';
 import '../../models/tds_challan.dart';
 import '../../models/payment_run.dart';
 import '../../models/supplier_gift.dart';
+import '../../models/principal_claim.dart';
 import '../../models/supplier_rebate.dart';
 import '../../models/post_dated_cheque.dart';
 import '../../models/purchase_requisition.dart';
@@ -8402,6 +8403,69 @@ class ApiClient {
         '/api/v1/supplier-rebates/$id/reverse-accrual',
         expectedVersion: expectedVersion,
       )));
+
+  // ---- claims on a principal (SEL-11) -----------------------------------
+
+  /// A firm's claims on principals; [principalId] narrows the list.
+  Future<List<PrincipalClaim>> principalClaims({String? principalId}) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/principal-claims',
+          query: {
+            if (principalId != null && principalId.isNotEmpty)
+              'principal_id': principalId,
+          },
+        ),
+        PrincipalClaim.fromJson,
+      );
+
+  Future<PrincipalClaim> principalClaim(String id) async =>
+      PrincipalClaim.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/principal-claims/$id')),
+      );
+
+  /// What a claim would hold; writes nothing.
+  Future<PrincipalClaimPreview> previewPrincipalClaim(Json body) async =>
+      PrincipalClaimPreview.fromJson(_unwrapMap(await request(
+          'POST', '/api/v1/principal-claims/preview',
+          body: body)));
+
+  /// Raises the claim and posts it.
+  Future<PrincipalClaim> raisePrincipalClaim(Json body) async =>
+      PrincipalClaim.fromJson(_unwrapMap(
+          await request('POST', '/api/v1/principal-claims', body: body)));
+
+  Future<PrincipalClaim> cancelPrincipalClaim(String id, String reason) async =>
+      PrincipalClaim.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/principal-claims/$id/cancel',
+        body: {'reason': reason},
+      )));
+
+  /// Records money received from the principal against the claim.
+  Future<PrincipalClaim> receivePrincipalClaimPayment(
+    String id,
+    Json body,
+  ) async =>
+      PrincipalClaim.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/principal-claims/$id/receipts',
+        body: body,
+      )));
+
+  Future<PrincipalClaim> reversePrincipalClaimPayment(
+    String id,
+    String receiptId,
+  ) async =>
+      PrincipalClaim.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/principal-claims/$id/receipts/$receiptId/reverse',
+      )));
+
+  /// The claim statement as a PDF.
+  Future<List<int>> principalClaimStatement(String id) =>
+      downloadBytes('/api/v1/principal-claims/$id/print');
 
   // ---- quality inspection hold (BUY-9) ----------------------------------
 

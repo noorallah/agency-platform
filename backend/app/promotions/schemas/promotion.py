@@ -326,6 +326,11 @@ class PromotionWrite(PromotionSchema):
     #: Null is no limit, which is a different answer from zero.
     max_redemptions: int | None = Field(default=None, ge=1)
     max_redemptions_per_customer: int | None = Field(default=None, ge=1)
+    #: The principal funding the scheme, whose share is claimed back (SEL-11).
+    principal_id: UUID | None = None
+    principal_share_percent: Decimal = Field(
+        default=Decimal("100"), gt=0, le=100, max_digits=7, decimal_places=4
+    )
     conditions: list[PromotionConditionWrite] = Field(
         default_factory=list, max_length=50
     )
@@ -404,6 +409,8 @@ class PromotionResponse(PromotionSchema):
     requires_coupon: bool
     max_redemptions: int | None
     max_redemptions_per_customer: int | None
+    principal_id: UUID | None = None
+    principal_share_percent: Decimal = Decimal("100")
     version_group_id: UUID
     version_number: int
     supersedes_promotion_id: UUID | None

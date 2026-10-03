@@ -69,6 +69,7 @@ import 'commission/sales_target_page.dart';
 import 'purchases/debit_note_page.dart';
 import 'purchases/purchase_requisition_page.dart';
 import 'purchases/quality_inspection_page.dart';
+import 'purchases/principal_claims_page.dart';
 import 'purchases/supplier_rebates_page.dart';
 import 'purchases/purchase_approval_limits_dialog.dart';
 import 'purchases/purchase_budgets_dialog.dart';
@@ -3268,6 +3269,12 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
         ),
+      'principal-claims' => PrincipalClaimsPage(
+          api: widget.api,
+          preferences: widget.preferences,
+          permissions: widget.permissions,
+          hasActiveFirm: hasActiveFirm,
+        ),
       'purchase-analytics' => PurchaseManagementPage(
           api: widget.api,
           preferences: widget.preferences,
@@ -3300,6 +3307,7 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
         'purchase-requisitions' => 'Purchase Requisitions',
         'quality-inspection' => 'Quality Inspection',
         'supplier-rebates' => 'Supplier Rebates',
+        'principal-claims' => 'Principal Claims',
         'purchase-analysis' => 'Purchase Analysis',
         'purchase-rate-trend' => 'Rate Trend',
         'purchase-analytics' => 'Purchase Analytics',
@@ -3325,6 +3333,9 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
         'supplier-rebates' =>
           'Volume rebates agreed with suppliers: progress up the ladder, '
               'accrual once the period ends, and settlement against open bills.',
+        'principal-claims' =>
+          'What a principal owes for the schemes it funded, expired stock and '
+              'breakage: preview, raise, then settle by credit note or payment.',
         'purchase-analysis' =>
           'Purchases by any one or two dimensions, net of returns. Click a '
               'figure to see the bills behind it.',
