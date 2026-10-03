@@ -255,6 +255,9 @@ PERMISSION_GROUPS = {
         # Approving an order past a purchase budget where the firm requires
         # it (BUY-14): the purchase manager's call, not the executive's.
         "PURCHASE_APPROVE_OVER_BUDGET",
+        # Raising a purchase requisition (BUY-7): asking for goods, which a
+        # storeman does without being able to order them.
+        "PURCHASE_REQUISITION_CREATE",
         "PURCHASE_IMPORT",
         "PURCHASE_EXPORT",
         # Which of purchase order and goods receipt this firm raises by hand.
@@ -700,7 +703,7 @@ _SEEDED_ROLE_PERMISSION_CODES = {
     "INVENTORY_MANAGER": (
         _codes("inventory", "batch_serial") - frozenset({"INVENTORY_MANAGE_SETTINGS"})
     )
-    | frozenset({"PURCHASE_INSPECT"}),
+    | frozenset({"PURCHASE_INSPECT", "PURCHASE_REQUISITION_CREATE"}),
     "CASHIER": frozenset(
         # A cashier who can record money and not look at what they recorded
         # cannot do the job; the view codes went in with the receipts and

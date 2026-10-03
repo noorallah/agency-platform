@@ -17,9 +17,17 @@ import '../workspace/save_in_dialog.dart';
 /// A row no supplier has billed yet cannot be ticked: nobody has said who
 /// sells it. Its suggestion is still shown, so the buyer knows it is short.
 class ReorderDialog extends StatefulWidget {
-  const ReorderDialog({super.key, required this.api});
+  const ReorderDialog({
+    super.key,
+    required this.api,
+    this.canRaiseRequisition = false,
+  });
 
   final ApiClient api;
+
+  /// Offer **Raise requisition** (BUY-7): the same picks as a request to buy
+  /// that someone approves, instead of draft orders.
+  final bool canRaiseRequisition;
 
   @override
   State<ReorderDialog> createState() => _ReorderDialogState();
@@ -111,7 +119,7 @@ class _ReorderDialogState extends State<ReorderDialog>
         : number.toString();
   }
 
-  Future<void> _raise() async {
+  Future<void> _raise({bool requisition = false}) async {
     final List<Json> items = [
       for (final int index in _ticked.toList()..sort())
         <String, dynamic>{
@@ -120,7 +128,9 @@ class _ReorderDialogState extends State<ReorderDialog>
           'quantity': _quantities[index].text.trim(),
         },
     ];
-    await saveAndClose<Json>(() => widget.api.raiseReorderDrafts(items));
+    await saveAndClose<Json>(() => requisition
+        ? widget.api.raiseReorderRequisitions(items)
+        : widget.api.raiseReorderDrafts(items));
   }
 
   @override
@@ -166,6 +176,12 @@ class _ReorderDialogState extends State<ReorderDialog>
           onPressed: saving ? null : () => Navigator.pop(context),
           child: const Text('Close'),
         ),
+        if (widget.canRaiseRequisition)
+          OutlinedButton(
+            key: const ValueKey('reorder-requisition'),
+            onPressed: canRaise ? () => _raise(requisition: true) : null,
+            child: const Text('Raise requisition'),
+          ),
         FilledButton(
           key: const ValueKey('reorder-raise'),
           onPressed: canRaise ? _raise : null,

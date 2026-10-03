@@ -63,6 +63,7 @@ import 'sales/sales_workflow_settings_dialog.dart';
 import 'commission/commission_page.dart';
 import 'commission/sales_target_page.dart';
 import 'purchases/debit_note_page.dart';
+import 'purchases/purchase_requisition_page.dart';
 import 'purchases/quality_inspection_page.dart';
 import 'purchases/purchase_approval_limits_dialog.dart';
 import 'purchases/purchase_budgets_dialog.dart';
@@ -3147,6 +3148,12 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
         ),
+      'purchase-requisitions' => PurchaseRequisitionPage(
+          api: widget.api,
+          preferences: widget.preferences,
+          permissions: widget.permissions,
+          hasActiveFirm: hasActiveFirm,
+        ),
       'quality-inspection' => QualityInspectionPage(
           api: widget.api,
           preferences: widget.preferences,
@@ -3182,6 +3189,7 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
         'purchase-dashboard' => 'Purchase Dashboard',
         'purchase-orders' => 'Purchase Orders',
         'debit-notes' => 'Debit Notes',
+        'purchase-requisitions' => 'Purchase Requisitions',
         'quality-inspection' => 'Quality Inspection',
         'purchase-analysis' => 'Purchase Analysis',
         'purchase-analytics' => 'Purchase Analytics',
@@ -3198,6 +3206,9 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
               'difference found after the bill, a short supply. It takes the '
               'input tax off at the rate the bill charged; a purchase return '
               'is the one that moves stock.',
+        'purchase-requisitions' =>
+          'Requests to buy: raised by whoever sees the need, approved, then '
+              'converted into draft purchase orders per supplier.',
         'quality-inspection' =>
           'Received goods held in quarantine until they are passed; rejected '
               'goods are written off or kept to return to the supplier.',

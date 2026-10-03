@@ -1614,13 +1614,17 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     final Object? raised = await showDialog<Object>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => ReorderDialog(api: widget.api),
+      builder: (_) => ReorderDialog(
+        api: widget.api,
+        canRaiseRequisition:
+            widget.permissions.hasPermission('PURCHASE_REQUISITION_CREATE'),
+      ),
     );
     if (!mounted || raised is! Map) return;
     final String message = stringValue(raised['message']);
     NotificationService.show(
       context,
-      message.isEmpty ? 'Draft purchase orders raised.' : message,
+      message.isEmpty ? 'Raised.' : message,
       kind: AppNotificationKind.success,
     );
     await _load();

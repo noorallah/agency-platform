@@ -35,6 +35,7 @@ import '../../models/party_adjustment.dart';
 import '../../models/contra_voucher.dart';
 import '../../models/tds_challan.dart';
 import '../../models/post_dated_cheque.dart';
+import '../../models/purchase_requisition.dart';
 import '../../models/quality_inspection.dart';
 import '../../models/bank_account_details.dart';
 import '../../models/einvoice.dart';
@@ -4653,6 +4654,79 @@ class ApiClient {
         '/api/v1/purchases/reorder-drafts',
         body: <String, dynamic>{'items': items},
       );
+
+  /// Raise requisitions (one per warehouse) for the ticked reorder rows
+  /// instead of orders (BUY-7). Same items as [raiseReorderDrafts].
+  Future<Json> raiseReorderRequisitions(List<Json> items) async =>
+      await request(
+        'POST',
+        '/api/v1/purchases/requisitions/from-reorder',
+        body: <String, dynamic>{'items': items},
+      );
+
+  // ---- purchase requisitions (BUY-7) ------------------------------------
+
+  Future<List<PurchaseRequisition>> listPurchaseRequisitions({
+    String? status,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/purchases/requisitions',
+      query: {if (status != null && status.isNotEmpty) 'status': status},
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) =>
+            PurchaseRequisition.fromJson(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
+  }
+
+  Future<PurchaseRequisition> createPurchaseRequisition(Json body) async =>
+      PurchaseRequisition.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/purchases/requisitions',
+        body: body,
+      )));
+
+  Future<PurchaseRequisition> updatePurchaseRequisition(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) async =>
+      PurchaseRequisition.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/purchases/requisitions/$id',
+        body: body,
+        expectedVersion: expectedVersion,
+      )));
+
+  /// `action` is `submit`, `approve` or `cancel` (which needs a [reason]).
+  Future<PurchaseRequisition> actOnPurchaseRequisition(
+    String id,
+    String action, {
+    String? reason,
+  }) async =>
+      PurchaseRequisition.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/purchases/requisitions/$id/$action',
+        body: reason == null ? null : {'reason': reason},
+      )));
+
+  /// Turn an approved requisition into draft orders, one per supplier.
+  /// Answers the orders raised.
+  Future<List<Json>> convertPurchaseRequisition(String id) async {
+    final Json response = await request(
+      'POST',
+      '/api/v1/purchases/requisitions/$id/convert',
+    );
+    final dynamic data = response['data'];
+    return [
+      for (final dynamic order in data is List ? data : const [])
+        if (order is Map) Map<String, dynamic>.from(order),
+    ];
+  }
 
   /// Approve several purchase orders in one call. Rows are acted on one by
   /// one, so some can be refused while others succeed.

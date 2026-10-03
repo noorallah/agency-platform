@@ -799,6 +799,13 @@ abstract final class ModuleCatalog {
           label: 'Debit Notes',
           requiredPermissions: ['DEBIT_NOTE_VIEW'],
         ),
+        // A request to buy, approved before it becomes orders (BUY-7).
+        ModuleTabDefinition(
+          id: 'purchase-requisitions',
+          label: 'Requisitions',
+          requiredPermissions: ['PURCHASE_VIEW', 'PURCHASE_REQUISITION_CREATE'],
+          requiresAnyPermission: true,
+        ),
         // Goods held in quarantine until passed (BUY-9).
         ModuleTabDefinition(
           id: 'quality-inspection',
@@ -1764,6 +1771,12 @@ abstract final class ModuleCatalog {
           label: 'Debit Notes',
           path: 'debit-notes',
           icon: Icons.request_page_outlined,
+        ),
+      if (visibleTabIds.contains('purchase-requisitions'))
+        const WorkspaceNavigationNode(
+          label: 'Requisitions',
+          path: 'purchase-requisitions',
+          icon: Icons.playlist_add_check_outlined,
         ),
       if (visibleTabIds.contains('quality-inspection'))
         const WorkspaceNavigationNode(

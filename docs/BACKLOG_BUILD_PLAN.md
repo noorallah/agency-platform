@@ -400,6 +400,7 @@ otherwise it is built as written.
 - **What it is:** a branch or storeman asks for goods; once approved it becomes one or more orders.
 - **What gets built:** a requisition document (lines, needed by, approval) in `backend/app/purchase` or its own module, numbered by the document framework; *Convert to orders* grouping by preferred supplier (`products.preferred_vendor_id`); the reorder screen can raise one. Migration yes. Phase 2 list and editor under Buy. Tests.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A109): `purchase_requisitions` and lines, `PURCHASE_REQUISITION_CREATE` (migration 0273); `app/purchase/services/requisitions.py` (`PurchaseRequisitionService` on the shared document base, PR series); `/purchases/requisitions` CRUD, submit, approve, cancel, convert, from-reorder; `ReorderService.raise_requisitions`. Desktop: Requisitions list and editor, *Raise requisition* on Below reorder level. Tests: `test_purchase_requisitions.py`, `purchase_requisitions_test.dart`.
 
 #### BUY-8. Purchase order amendment (§68 row 5)
 - **What it is:** change an approved order formally: revision number, what changed, reprinted as "Amendment 1".
