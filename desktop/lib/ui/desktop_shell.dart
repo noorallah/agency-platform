@@ -42,6 +42,7 @@ import 'inventory/adjustment_approvals_page.dart';
 import 'inventory/adjustment_limits_dialog.dart';
 import 'inventory/adjustment_reasons_page.dart';
 import 'inventory/repacking_page.dart';
+import 'inventory/stock_transfers_page.dart';
 import 'inventory/inventory_management_page.dart';
 import 'inventory/inventory_details_dialog.dart';
 import 'inventory/batch_management_page.dart';
@@ -3597,6 +3598,10 @@ class _InventoryWorkspaceState extends State<_InventoryWorkspace> {
           api: widget.api,
           permissions: widget.permissions,
         ),
+      'stock-transfers' => StockTransfersPage(
+          api: widget.api,
+          permissions: widget.permissions,
+        ),
       'adjustment-reasons' => AdjustmentReasonsPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -3648,6 +3653,7 @@ class _InventoryWorkspaceState extends State<_InventoryWorkspace> {
         'inventory-settings' => 'Inventory Settings',
         'adjustment-approvals' => 'Adjustment Approvals',
         'repacking' => 'Repacking',
+        'stock-transfers' => 'Stock Transfers',
         'adjustment-reasons' => 'Adjustment Reasons',
         'batches' => 'Batch Management',
         'lots' => 'Lot Management',
@@ -3678,6 +3684,8 @@ class _InventoryWorkspaceState extends State<_InventoryWorkspace> {
           'Large adjustments and write-offs waiting for someone with a high enough limit.',
         'repacking' =>
           'Break bulk into packs, or make packs up into a larger one, in one document.',
+        'stock-transfers' =>
+          'Move stock between warehouses: dispatch with a challan, then receive what arrived.',
         'adjustment-reasons' =>
           'Why stock is written off, and the ledger account each reason books to.',
         'batches' =>

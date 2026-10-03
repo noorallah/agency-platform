@@ -113,6 +113,14 @@ from app.inventory.services.repacking import (
 from app.inventory.services.stock_ageing import StockAgeingService
 from app.inventory.services.stock_alerts import stock_alerts
 from app.inventory.services.stock_evidence import StockEvidenceService
+from app.inventory.services.stock_transfers import (
+    StockTransferCancel,
+    StockTransferDispatch,
+    StockTransferReceive,
+    StockTransferResponse,
+    StockTransferService,
+    StockTransferWrite,
+)
 from app.inventory.services.stock_valuation import (
     StockStatementService,
     StockValuationService,
@@ -1310,6 +1318,150 @@ def cancel_repack(
         repack_id, data.reason, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data=service.responses([row])[0])
+
+
+@router.get("/stock-transfers", response_model=ApiResponse[list[StockTransferResponse]])
+def list_stock_transfers(
+    scope: InventoryViewScope,
+    db: Session = Depends(get_db),
+    status_filter: Annotated[str | None, Query(alias="status", max_length=20)] = None,
+) -> ApiResponse[list[StockTransferResponse]]:
+    """Return the firm's transfer documents, newest first (STK-1)."""
+    service = StockTransferService(db)
+    return ApiResponse(
+        data=service.responses(service.list_rows(scope.firm_id, status=status_filter))
+    )
+
+
+@router.post(
+    "/stock-transfers",
+    response_model=ApiResponse[StockTransferResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_stock_transfer(
+    data: StockTransferWrite,
+    scope: InventoryAdjustScope,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> ApiResponse[StockTransferResponse]:
+    """Save a draft transfer (STK-1)."""
+    service = StockTransferService(db)
+    row = service.create(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    set_etag(response, row)
+    return ApiResponse(data=service.responses([row])[0], message="Transfer saved.")
+
+
+@router.get(
+    "/stock-transfers/{transfer_id}",
+    response_model=ApiResponse[StockTransferResponse],
+)
+def get_stock_transfer(
+    transfer_id: UUID,
+    scope: InventoryViewScope,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> ApiResponse[StockTransferResponse]:
+    """Return one transfer document and its lines (STK-1)."""
+    service = StockTransferService(db)
+    row = service.get(transfer_id, firm_id=scope.firm_id)
+    set_etag(response, row)
+    return ApiResponse(data=service.responses([row])[0])
+
+
+@router.put(
+    "/stock-transfers/{transfer_id}",
+    response_model=ApiResponse[StockTransferResponse],
+)
+def update_stock_transfer(
+    transfer_id: UUID,
+    data: StockTransferWrite,
+    scope: InventoryAdjustScope,
+    response: Response,
+    db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
+) -> ApiResponse[StockTransferResponse]:
+    """Rewrite a draft transfer (STK-1)."""
+    service = StockTransferService(db)
+    row = service.update(
+        transfer_id,
+        data,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        expected_version=expected_version,
+    )
+    set_etag(response, row)
+    return ApiResponse(data=service.responses([row])[0], message="Transfer saved.")
+
+
+@router.post(
+    "/stock-transfers/{transfer_id}/dispatch",
+    response_model=ApiResponse[StockTransferResponse],
+)
+def dispatch_stock_transfer(
+    transfer_id: UUID,
+    data: StockTransferDispatch,
+    scope: InventoryAdjustScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[StockTransferResponse]:
+    """Send the goods: off the source and in transit (STK-1)."""
+    service = StockTransferService(db)
+    row = service.dispatch(
+        transfer_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=service.responses([row])[0], message="Dispatched.")
+
+
+@router.post(
+    "/stock-transfers/{transfer_id}/receive",
+    response_model=ApiResponse[StockTransferResponse],
+)
+def receive_stock_transfer(
+    transfer_id: UUID,
+    data: StockTransferReceive,
+    scope: InventoryAdjustScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[StockTransferResponse]:
+    """Take the goods in, with damage and shortage (STK-1)."""
+    service = StockTransferService(db)
+    row = service.receive(
+        transfer_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=service.responses([row])[0], message="Received.")
+
+
+@router.post(
+    "/stock-transfers/{transfer_id}/cancel",
+    response_model=ApiResponse[StockTransferResponse],
+)
+def cancel_stock_transfer(
+    transfer_id: UUID,
+    data: StockTransferCancel,
+    scope: InventoryAdjustScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[StockTransferResponse]:
+    """Withdraw a draft, or bring dispatched goods back (STK-1)."""
+    service = StockTransferService(db)
+    row = service.cancel(
+        transfer_id, data.reason, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=service.responses([row])[0], message="Cancelled.")
+
+
+@router.get("/stock-transfers/{transfer_id}/challan", response_class=StreamingResponse)
+def print_stock_transfer_challan(
+    transfer_id: UUID,
+    scope: InventoryViewScope,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Render the delivery challan that travels with the goods (STK-1)."""
+    pdf, filename = StockTransferService(db).render_challan(
+        transfer_id, firm_id=scope.firm_id
+    )
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @router.post(

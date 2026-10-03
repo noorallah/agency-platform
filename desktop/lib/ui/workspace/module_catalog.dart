@@ -1003,6 +1003,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['INVENTORY_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'stock-transfers',
+          label: 'Stock Transfers',
+          requiredPermissions: ['INVENTORY_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'adjustment-reasons',
           label: 'Adjustment Reasons',
           requiredPermissions: [
@@ -2035,6 +2040,12 @@ abstract final class ModuleCatalog {
           label: 'Repacking',
           path: 'repacking',
           icon: Icons.inventory_2_outlined,
+        ),
+      if (visibleTabIds.contains('stock-transfers'))
+        const WorkspaceNavigationNode(
+          label: 'Stock Transfers',
+          path: 'stock-transfers',
+          icon: Icons.local_shipping_outlined,
         ),
       if (visibleTabIds.contains('adjustment-reasons'))
         const WorkspaceNavigationNode(

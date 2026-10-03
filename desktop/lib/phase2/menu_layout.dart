@@ -282,6 +282,7 @@ abstract final class MenuLayout {
         MenuItemSpec(
             AppModule.inventory, 'adjustment-approvals', 'Adjustment Approvals'),
         MenuItemSpec(AppModule.inventory, 'repacking', 'Repacking'),
+        MenuItemSpec(AppModule.inventory, 'stock-transfers', 'Stock Transfers'),
       ]),
       MenuGroupSpec('Tracking', [
         MenuItemSpec(AppModule.inventory, 'batches', 'Batches'),

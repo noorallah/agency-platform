@@ -94,6 +94,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
     'SALES_RETURN_REVERSAL': 'Sales return cancelled',
     'TRANSFER_OUT': 'Transfer out',
     'TRANSFER_IN': 'Transfer in',
+    'TRANSFER_OUT_REVERSAL': 'Transfer cancelled (back at source)',
+    'TRANSFER_IN_REVERSAL': 'Transfer cancelled (out of transit)',
     'WRITE_OFF': 'Write-off',
     'QUARANTINE_HOLD': 'Quarantine hold',
     'QUARANTINE_HOLD_REVERSAL': 'Inspection hold undone',

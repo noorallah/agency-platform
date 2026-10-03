@@ -64,6 +64,7 @@ from app.inventory.models import (
     inventory,  # noqa: F401
     physical_count,  # noqa: F401
     repack,  # noqa: F401
+    stock_transfer,  # noqa: F401
     stock_attachment,  # noqa: F401
 )
 from app.loyalty.models import loyalty  # noqa: F401
