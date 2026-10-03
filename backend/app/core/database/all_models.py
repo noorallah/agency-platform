@@ -92,6 +92,7 @@ from app.trade_licences.models import trade_licence  # noqa: F401
 from app.uom.models import uom  # noqa: F401
 from app.vendors.models import (  # noqa: F401
     opening_bill,
+    supplier_gift,
     supplier_product,
     vendor,
     vendor_rating,

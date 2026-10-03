@@ -33,6 +33,7 @@ import '../models/vendor.dart';
 import 'customers/customer_management_page.dart';
 import 'customers/credit_settings_dialog.dart';
 import 'customers/customer_statement_page.dart';
+import 'vendors/supplier_gifts_page.dart';
 import 'vendors/supplier_statement_page.dart';
 import 'customers/loyalty_settings_dialog.dart';
 import 'customers/loyalty_page.dart';
@@ -2555,6 +2556,12 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
         ),
+      'supplier-gifts' => SupplierGiftsPage(
+          api: widget.api,
+          preferences: widget.preferences,
+          permissions: widget.permissions,
+          hasActiveFirm: hasActiveFirm,
+        ),
       'loyalty' => LoyaltyPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -2656,6 +2663,7 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
         'customers' => 'Customer Management',
         'customer-statements' => 'Customer Statements',
         'supplier-statements' => 'Supplier Statements',
+        'supplier-gifts' => 'Supplier Gifts',
         'loyalty' => 'Loyalty',
         'products' => 'Product Management',
         'product-categories' => 'Product Categories',
@@ -2681,6 +2689,9 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           'What each account did over a period, and what of it is overdue.',
         'supplier-statements' =>
           'What the firm owes each supplier, and what moved it, over a period.',
+        'supplier-gifts' =>
+          'What suppliers gave the firm, how it was booked, and who is past '
+              'the 194R limit.',
         'loyalty' =>
           'Credit a customer earns on what they buy, and spends on what they '
               'buy next. Spending it settles a bill; it does not discount one.',

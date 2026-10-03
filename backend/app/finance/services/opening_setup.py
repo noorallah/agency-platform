@@ -411,6 +411,22 @@ CHART: tuple[SeedAccount, ...] = (
         ControlAccountPurpose.BALANCES_WRITTEN_BACK,
     ),
     SeedAccount(
+        # A supplier's gift (BUY-2): other income. Migration 20261003_0276
+        # gives existing firms the same account and Drawings beside it.
+        "4320",
+        "Supplier Incentives Received",
+        AccountTypeEnum.INCOME,
+        "REV",
+        ControlAccountPurpose.SUPPLIER_INCENTIVE_INCOME,
+    ),
+    SeedAccount(
+        "3100",
+        "Drawings",
+        AccountTypeEnum.EQUITY,
+        "EQ",
+        ControlAccountPurpose.DRAWINGS,
+    ),
+    SeedAccount(
         # What a customer is charged for a cheque that bounced (ACC-2): other
         # income, outside GST. Migration 20261003_0253 gives existing firms
         # the same account.

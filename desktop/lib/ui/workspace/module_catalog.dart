@@ -408,6 +408,12 @@ abstract final class ModuleCatalog {
           label: 'Supplier Statements',
           requiredPermissions: ['VENDOR_VIEW'],
         ),
+        // What suppliers gave the firm, with the 194R summary (BUY-2).
+        ModuleTabDefinition(
+          id: 'supplier-gifts',
+          label: 'Supplier Gifts',
+          requiredPermissions: ['VENDOR_VIEW'],
+        ),
         ModuleTabDefinition(
           id: 'loyalty',
           label: 'Loyalty',
@@ -1602,6 +1608,12 @@ abstract final class ModuleCatalog {
           label: 'Supplier Statements',
           path: 'supplier-statements',
           icon: Icons.receipt_long_outlined,
+        ),
+      if (visibleTabIds.contains('supplier-gifts'))
+        const WorkspaceNavigationNode(
+          label: 'Supplier Gifts',
+          path: 'supplier-gifts',
+          icon: Icons.card_giftcard_outlined,
         ),
       if (visibleTabIds.contains('loyalty'))
         const WorkspaceNavigationNode(

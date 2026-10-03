@@ -901,6 +901,85 @@ class DocumentPostingService:
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
 
+    def post_supplier_gift(
+        self,
+        *,
+        firm_id: UUID,
+        gift_id: UUID,
+        reference_number: str,
+        gift_date: date,
+        value: Decimal,
+        debit_account_id: UUID | None,
+        actor_id: UUID,
+        narration: str,
+    ) -> JournalEntry:
+        """Post a supplier's gift (BUY-2): Dr asset, expense or drawings.
+
+        ``debit_account_id`` is the asset or expense account named; None means
+        the owner kept it, and *Drawings* takes the debit. The credit is always
+        *Supplier Incentives Received*. No input tax: a gift is not bought.
+
+        Raises:
+            ValidationError: If an account mapping or an open period is missing.
+
+        """
+        purposes = (ControlAccountPurpose.SUPPLIER_INCENTIVE_INCOME,) + (
+            () if debit_account_id is not None else (ControlAccountPurpose.DRAWINGS,)
+        )
+        accounts = self._require_mapping(firm_id, purposes)
+        debit = (
+            debit_account_id
+            if debit_account_id is not None
+            else accounts[ControlAccountPurpose.DRAWINGS]
+        )
+        amount = quantize_ledger(quantize_money(value))
+        context = self.context_for(firm_id, gift_date)
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=gift_date,
+            reference_number=reference_number,
+            description=f"Supplier gift {reference_number}",
+            lines=[
+                JournalLineData(
+                    ledger_account_id=debit,
+                    debit_amount=amount,
+                    credit_amount=ZERO,
+                    description=narration,
+                ),
+                JournalLineData(
+                    ledger_account_id=accounts[
+                        ControlAccountPurpose.SUPPLIER_INCENTIVE_INCOME
+                    ],
+                    debit_amount=ZERO,
+                    credit_amount=amount,
+                    description=narration,
+                ),
+            ],
+            source_module="supplier_gifts",
+            source_id=gift_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def reverse_supplier_gift(
+        self,
+        *,
+        firm_id: UUID,
+        journal_entry_id: UUID,
+        reference_number: str,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Reverse a gift's journal line for line (BUY-2)."""
+        return self._journals.reverse_entry(
+            journal_entry_id,
+            firm_id=firm_id,
+            reference_number=reference_number,
+            actor_id=actor_id,
+        )
+
     def post_physical_count(
         self,
         *,

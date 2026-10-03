@@ -61,6 +61,12 @@ from app.vendors.schemas.rating import (
     VendorRatingWrite,
 )
 from app.vendors.schemas.statement import SupplierStatement
+from app.vendors.schemas.supplier_gift import (
+    SupplierGift194RRecord,
+    SupplierGiftCancel,
+    SupplierGiftResponse,
+    SupplierGiftWrite,
+)
 from app.vendors.schemas.supplier_product import (
     SupplierProductResponse,
     SupplierProductWrite,
@@ -78,6 +84,7 @@ from app.vendors.services.supplier_catalogue import (
     SupplierCatalogueFileImporter,
     SupplierCatalogueService,
 )
+from app.vendors.services.supplier_gifts import SupplierGiftService
 from app.vendors.services.vendor_import import VendorFileImporter
 from app.vendors.services.vendor_import import template_csv as vendor_template_csv
 from app.vendors.services.vendor_import import (
@@ -133,6 +140,11 @@ VendorRestoreScope = Annotated[
 ]
 VendorExportScope = Annotated[ResolvedFirmScope, firm_permission_scope("VENDOR_EXPORT")]
 VendorImportScope = Annotated[ResolvedFirmScope, firm_permission_scope("VENDOR_IMPORT")]
+#: The supplier gifts register (BUY-2): reading it takes the supplier view,
+#: recording it -- which posts a journal -- its own code.
+SupplierGiftScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SUPPLIER_GIFT_MANAGE")
+]
 VendorBankManageScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("VENDOR_MANAGE_BANK_DETAILS")
 ]
@@ -531,6 +543,69 @@ def create_vendor_opening_bill(
     service = VendorOpeningBillService(db)
     row = service.create(vendor_id, data, firm_id=firm_id, actor_id=scope.actor_id)
     return ApiResponse(data=service.response_for(row, firm_id=firm_id))
+
+
+@router.get("/gifts", response_model=ApiResponse[list[SupplierGiftResponse]])
+def list_supplier_gifts(
+    scope: VendorViewScope,
+    vendor_id: UUID | None = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[SupplierGiftResponse]]:
+    """Return the supplier gifts register, newest first (BUY-2)."""
+    service = SupplierGiftService(db)
+    return ApiResponse(
+        data=service.responses(service.list_rows(scope.firm_id, vendor_id=vendor_id))
+    )
+
+
+@router.post(
+    "/gifts",
+    response_model=ApiResponse[SupplierGiftResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def record_supplier_gift(
+    data: SupplierGiftWrite,
+    scope: SupplierGiftScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SupplierGiftResponse]:
+    """Record a supplier's gift and post its journal by who keeps it (BUY-2)."""
+    service = SupplierGiftService(db)
+    row = service.create(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    return ApiResponse(data=service.responses([row])[0], message="Gift recorded.")
+
+
+@router.get(
+    "/gifts/194r-summary",
+    response_model=ApiResponse[list[SupplierGift194RRecord]],
+)
+def supplier_gifts_194r_summary(
+    scope: VendorViewScope,
+    on: date | None = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[SupplierGift194RRecord]]:
+    """Total each supplier's gifts in the April-March year against 194R (BUY-2)."""
+    return ApiResponse(
+        data=SupplierGiftService(db).summary_194r(
+            scope.firm_id, on=on or utc_now().date()
+        )
+    )
+
+
+@router.post(
+    "/gifts/{gift_id}/cancel", response_model=ApiResponse[SupplierGiftResponse]
+)
+def cancel_supplier_gift(
+    gift_id: UUID,
+    data: SupplierGiftCancel,
+    scope: SupplierGiftScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SupplierGiftResponse]:
+    """Take a gift entry back and reverse its journal (BUY-2)."""
+    service = SupplierGiftService(db)
+    row = service.cancel(
+        gift_id, data.reason, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=service.responses([row])[0])
 
 
 @router.get("/import-template")

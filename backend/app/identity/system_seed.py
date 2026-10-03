@@ -362,6 +362,9 @@ PERMISSION_GROUPS = {
         # Approving a payment run books every payment in it (BUY-11): the
         # accountant's call, not the cashier's who records single payments.
         "PAYMENT_RUN_APPROVE",
+        # Recording or taking back a supplier's gift (BUY-2): it posts a
+        # journal, so it sits with the books.
+        "SUPPLIER_GIFT_MANAGE",
         "RECEIPT_CREATE",
         "RECEIPT_VIEW",
         "LEDGER_VIEW",

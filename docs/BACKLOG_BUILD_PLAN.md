@@ -372,6 +372,7 @@ otherwise it is built as written.
 - **What it is:** a TV or gold coin from a supplier recorded once, with the right journal and the tax total.
 - **What gets built:** a new register table (date, supplier, item, value, kept by firm / used up / owner, linked purchase); saving posts one journal by who keeps it through `document_posting.py`; a third receipt line kind *Gift, not stock* creating a register row instead of stock; a per-supplier, per-year total against ₹20,000 with any 194R TDS (`backend/app/finance/tds.py` already lists 194R). Migration yes. Phase 2 screen under Buy. Tests.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A112): `supplier_gifts`, purposes `SUPPLIER_INCENTIVE_INCOME` (4320) and `DRAWINGS` (3100), `SUPPLIER_GIFT_MANAGE` (migration 0276); `app/vendors/services/supplier_gifts.py`; `DocumentPostingService.post_supplier_gift` / `reverse_supplier_gift`; `/vendors/gifts` list, record, cancel, 194r-summary. The "gift, not stock" receipt line is the register row linked to the receipt. Desktop: Supplier gifts register and 194R summary. Tests: `test_supplier_gifts.py`, `supplier_gifts_test.dart`.
 
 #### BUY-3. Supplier rates (§65 row 4)
 - **What it is:** a supplier's standing discount and price list fill the order line.

@@ -35,6 +35,7 @@ import '../../models/party_adjustment.dart';
 import '../../models/contra_voucher.dart';
 import '../../models/tds_challan.dart';
 import '../../models/payment_run.dart';
+import '../../models/supplier_gift.dart';
 import '../../models/post_dated_cheque.dart';
 import '../../models/purchase_requisition.dart';
 import '../../models/quality_inspection.dart';
@@ -7638,6 +7639,49 @@ class ApiClient {
   /// The bank's bulk-payment CSV for a run.
   Future<List<int>> paymentRunBankFile(String id) =>
       downloadBytes('/api/v1/payment-runs/$id/bank-file');
+
+  // ---- supplier gifts (BUY-2) -------------------------------------------
+
+  /// The register of gifts suppliers gave, newest first; [vendorId] narrows it.
+  Future<List<SupplierGift>> supplierGifts({String? vendorId}) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/vendors/gifts',
+          query: {if (vendorId != null) 'vendor_id': vendorId},
+        ),
+        SupplierGift.fromJson,
+      );
+
+  /// Records a gift and posts its journal.
+  Future<SupplierGift> createSupplierGift(Json body) async =>
+      SupplierGift.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/vendors/gifts', body: body)),
+      );
+
+  /// Takes a gift back: the journal is reversed and the reason kept.
+  Future<SupplierGift> cancelSupplierGift(
+    String id, {
+    required String reason,
+    int? expectedVersion,
+  }) async =>
+      SupplierGift.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/vendors/gifts/$id/cancel',
+        body: {'reason': reason},
+        expectedVersion: expectedVersion,
+      )));
+
+  /// Each supplier's gifts for the year [on] falls in, against the 194R line.
+  Future<List<SupplierGiftSummary>> supplierGiftSummary({String? on}) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/vendors/gifts/194r-summary',
+          query: {if (on != null) 'on': on},
+        ),
+        SupplierGiftSummary.fromJson,
+      );
 
   // ---- quality inspection hold (BUY-9) ----------------------------------
 
