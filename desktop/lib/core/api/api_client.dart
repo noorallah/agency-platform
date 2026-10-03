@@ -3369,6 +3369,58 @@ class ApiClient {
         ),
       );
 
+  // Cycle-count plans (STK-6): which stock is counted, how often, and whether
+  // the counter sees the system quantity.
+
+  Future<List<CountPlan>> countPlans() async => _unwrapList(
+        await request('GET', '/api/v1/inventory/count-plans'),
+        CountPlan.fromJson,
+      );
+
+  Future<CountPlan> createCountPlan(Json data) async => CountPlan.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/inventory/count-plans', body: data),
+        ),
+      );
+
+  Future<CountPlan> updateCountPlan(String id, Json data) async =>
+      CountPlan.fromJson(
+        _unwrapMap(
+          await request('PUT', '/api/v1/inventory/count-plans/$id',
+              body: data),
+        ),
+      );
+
+  Future<void> deleteCountPlan(String id) =>
+      request('DELETE', '/api/v1/inventory/count-plans/$id');
+
+  /// Draw the plan's next sheet; the server refuses a plan that covers no stock.
+  Future<PhysicalCountSheet> drawCountPlanSheet(
+    String id, {
+    required String countDate,
+  }) async =>
+      PhysicalCountSheet.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/inventory/count-plans/$id/sheet',
+            query: {'count_date': countDate},
+          ),
+        ),
+      );
+
+  /// Every product's ABC class by value moved; a product not listed is C.
+  Future<Map<String, String>> abcClasses() async {
+    final Json response =
+        await request('GET', '/api/v1/inventory/abc-classes');
+    final dynamic data = response['data'];
+    if (data is! Map) return const {};
+    return {
+      for (final MapEntry<dynamic, dynamic> e in data.entries)
+        e.key.toString(): e.value.toString(),
+    };
+  }
+
   Future<PhysicalCountSheet> cancelPhysicalCount(String id) async =>
       PhysicalCountSheet.fromJson(
         _unwrapMap(

@@ -34,6 +34,7 @@ class _OpenCountDialogState extends State<OpenCountDialog> {
   String _warehouseId = '';
   DateTime _when = DateTime.now();
   String _remarks = '';
+  bool _blind = false;
   String? _error;
 
   @override
@@ -53,6 +54,7 @@ class _OpenCountDialogState extends State<OpenCountDialog> {
       'warehouse_id': _warehouseId,
       'count_date': _when.toIso8601String().substring(0, 10),
       if (_remarks.trim().isNotEmpty) 'remarks': _remarks.trim(),
+      'is_blind': _blind,
     });
   }
 
@@ -148,6 +150,15 @@ class _OpenCountDialogState extends State<OpenCountDialog> {
                 ),
               ),
             ]),
+            SwitchListTile(
+              key: const ValueKey<String>('open-count-blind'),
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Blind count'),
+              subtitle: const Text(
+                  'Hide the system quantity from the counter until posted.'),
+              value: _blind,
+              onChanged: (value) => setState(() => _blind = value),
+            ),
           ],
         ),
       );
@@ -397,14 +408,30 @@ class _PhysicalCountSheetDialogState extends State<PhysicalCountSheetDialog> {
                 ],
               ),
             ),
+          if (_sheet.hidesExpected)
+            const Padding(
+              padding: EdgeInsets.only(bottom: AppSpacing.md),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: StatusBadge(
+                  key: ValueKey<String>('blind-count-badge'),
+                  label: 'Blind count',
+                  tone: StatusBadgeTone.warning,
+                ),
+              ),
+            ),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: Text(
-                  'Expected is what the system held when the sheet was drawn '
-                  'up. The difference is measured again when it is posted, '
-                  'because stock moves while a warehouse is being counted.',
+                  _sheet.hidesExpected
+                      ? 'This is a blind count: the system quantity and the '
+                          'difference show once the sheet is posted.'
+                      : 'Expected is what the system held when the sheet was '
+                          'drawn up. The difference is measured again when it '
+                          'is posted, because stock moves while a warehouse '
+                          'is being counted.',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
@@ -424,17 +451,21 @@ class _PhysicalCountSheetDialogState extends State<PhysicalCountSheetDialog> {
     );
   }
 
-  Widget _table(BuildContext context, bool editable) => SingleChildScrollView(
+  Widget _table(BuildContext context, bool editable) {
+    final bool blind = _sheet.hidesExpected;
+    return SingleChildScrollView(
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: DataTable(
-            columns: const [
-              DataColumn(label: Text('#')),
-              DataColumn(label: Text('Product')),
-              DataColumn(label: Text('Location')),
-              DataColumn(label: Text('Expected'), numeric: true),
-              DataColumn(label: Text('Counted'), numeric: true),
-              DataColumn(label: Text('Difference'), numeric: true),
+            columns: [
+              const DataColumn(label: Text('#')),
+              const DataColumn(label: Text('Product')),
+              const DataColumn(label: Text('Location')),
+              if (!blind)
+                const DataColumn(label: Text('Expected'), numeric: true),
+              const DataColumn(label: Text('Counted'), numeric: true),
+              if (!blind)
+                const DataColumn(label: Text('Difference'), numeric: true),
             ],
             rows: [
               for (final PhysicalCountLine line in _sheet.lines)
@@ -460,7 +491,7 @@ class _PhysicalCountSheetDialogState extends State<PhysicalCountSheetDialog> {
                       ),
                     ),
                   ),
-                  DataCell(Text(line.expectedQuantity)),
+                  if (!blind) DataCell(Text(line.expectedQuantity)),
                   DataCell(
                     SizedBox(
                       width: 120,
@@ -476,16 +507,18 @@ class _PhysicalCountSheetDialogState extends State<PhysicalCountSheetDialog> {
                   ),
                   // Shown while the sheet is filled in, so a fat-fingered
                   // digit is visible before it posts rather than after.
-                  DataCell(Text(
-                    _sheet.isPosted
-                        ? line.varianceQuantity
-                        : _draftDifference(line),
-                  )),
+                  if (!blind)
+                    DataCell(Text(
+                      _sheet.isPosted
+                          ? line.varianceQuantity
+                          : _draftDifference(line),
+                    )),
                 ]),
             ],
           ),
         ),
       );
+  }
 
   String _draftDifference(PhysicalCountLine line) {
     final String typed = _counted[line.id]?.text.trim() ?? '';

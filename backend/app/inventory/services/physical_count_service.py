@@ -218,6 +218,7 @@ class PhysicalCountService(TransactionalDocumentService):
             count_date=data.count_date,
             status=PhysicalCountStatus.DRAFT.value,
             remarks=data.remarks,
+            is_blind=data.is_blind,
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -349,6 +350,7 @@ class PhysicalCountService(TransactionalDocumentService):
                 f"{row.count_number} has no counted line; record at least one "
                 "counted quantity before posting it."
             )
+        self._assert_within_limit(row, sheet, firm_id=firm_id, actor_id=actor_id)
         adjusted = 0
         differences: list[tuple[str, Decimal]] = []
         for line in sheet:
@@ -428,6 +430,48 @@ class PhysicalCountService(TransactionalDocumentService):
         )
         self._session.flush()
         return row
+
+    def _assert_within_limit(
+        self,
+        row: PhysicalCount,
+        sheet: list[PhysicalCountLine],
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> None:
+        """Refuse posting differences worth more than the poster's limit (STK-6).
+
+        The limit is the stock adjustment limit (STK-8); the sheet stays a
+        draft for somebody allowed more to post.
+
+        Raises:
+            ValidationError: Naming the value and the limit.
+
+        """
+        from app.inventory.services.adjustment_approval import (
+            StockAdjustmentApprovalService,
+        )
+
+        approvals = StockAdjustmentApprovalService(self._session)
+        limit = approvals.limit_for(firm_id, actor_id)
+        if limit is None:
+            return
+        value = ZERO
+        for line in sheet:
+            if line.counted_quantity is None:
+                continue
+            on_hand = self._on_hand(
+                firm_id=firm_id, warehouse_id=row.warehouse_id, key=self._key(line)
+            )
+            variance = Decimal(str(line.counted_quantity)) - on_hand
+            if variance != ZERO:
+                value += approvals.estimate(firm_id, line.product_id, variance)
+        if value > limit:
+            raise ValidationError(
+                f"{row.count_number} differs from the books by stock worth "
+                f"{value}, above your limit of {limit}. It stays a draft for "
+                "somebody allowed more to post."
+            )
 
     def cancel(self, count_id: UUID, *, firm_id: UUID, actor_id: UUID) -> PhysicalCount:
         """Abandon a sheet that will not be posted."""

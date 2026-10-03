@@ -497,6 +497,7 @@ otherwise it is built as written.
 - **What it is:** cycle counts on a schedule, blind counts, and approval of large differences.
 - **What gets built:** ABC class on inventory (computed from sales value), a count plan (class or bin, frequency), a blind option hiding system quantity on the sheet, and a variance limit needing approval in `physical_count_service.py`. Migration yes. `physical_count_page.dart`. Tests.
 - **Depends on:** STK-8 for the approval rule. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A117): `count_plans`, `physical_counts.count_plan_id` and `is_blind` (migration 0280); `app/inventory/services/count_planning.py` (`abc_classes`, `CountPlanService`); `PhysicalCountService._assert_within_limit`; `/inventory/abc-classes`, `/inventory/count-plans` CRUD and `/sheet`. Desktop: Count plans, blind sheets. Tests: `test_count_planning.py`, `count_planning_test.dart`.
 
 #### STK-7. Adjustment reasons as a master (§70 row 11)
 - **What it is:** the firm keeps its own list of reasons, each tied to an account.

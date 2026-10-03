@@ -11,6 +11,7 @@ import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
 import '../../models/physical_count.dart';
 import '../workspace/desktop_framework.dart';
+import 'count_plans_dialog.dart';
 import 'physical_count_sheet_dialog.dart';
 
 /// Counting a warehouse.
@@ -152,6 +153,24 @@ class _PhysicalCountPageState extends State<PhysicalCountPage> {
     }
   }
 
+  /// Count plans (STK-6). A plan that draws a sheet closes the dialog with it,
+  /// and the sheet opens for counting straight away.
+  Future<void> _plans() async {
+    final PhysicalCountSheet? drawn = await showDialog<PhysicalCountSheet>(
+      context: context,
+      builder: (_) => CountPlansDialog(api: widget.api, canManage: _canCount),
+    );
+    if (drawn == null || !mounted) return;
+    NotificationService.show(
+      context,
+      '${drawn.countNumber} drawn over ${drawn.lines.length} lines.',
+      kind: AppNotificationKind.success,
+    );
+    await _load(requestedPage: 1);
+    if (!mounted) return;
+    await _editSheet(drawn);
+  }
+
   Future<void> _editSheet(PhysicalCountSheet sheet) async {
     // Re-read it: the list carries what was loaded minutes ago, and somebody
     // else may have been counting the same sheet in the meantime.
@@ -209,6 +228,13 @@ class _PhysicalCountPageState extends State<PhysicalCountPage> {
                   ),
                   onSubmitted: (_) => _load(requestedPage: 1),
                 ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              OutlinedButton.icon(
+                key: const ValueKey<String>('count-plans-open'),
+                onPressed: () => unawaited(_plans()),
+                icon: const Icon(Icons.event_repeat_outlined),
+                label: const Text('Count plans'),
               ),
               const SizedBox(width: AppSpacing.md),
               if (_canCount)
@@ -301,6 +327,12 @@ class _PhysicalCountPageState extends State<PhysicalCountPage> {
           },
           // Period right after the search, then Columns (owner).
           trailing: [
+            OutlinedButton.icon(
+              key: const ValueKey<String>('count-plans-open'),
+              onPressed: () => unawaited(_plans()),
+              icon: const Icon(Icons.event_repeat_outlined, size: 18),
+              label: const Text('Count plans'),
+            ),
             DateRangeFilter(
               value: _period,
               onChanged: (period) {
@@ -417,7 +449,7 @@ class _PhysicalCountPageState extends State<PhysicalCountPage> {
       ),
       ChoosableColumn(
         column: const GridColumn(key: 'status', label: 'Status'),
-        cell: (item) => item.status,
+        cell: (item) => item.isBlind ? '${item.status} (blind)' : item.status,
         shownByDefault: true,
       ),
       ChoosableColumn(

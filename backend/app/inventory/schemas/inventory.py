@@ -665,6 +665,8 @@ class PhysicalCountCreate(InventorySchema):
     #: which is what a counter walks out with. Naming lines explicitly is for
     #: counting part of a warehouse.
     lines: list[PhysicalCountLineWrite] = Field(default_factory=list)
+    #: Hide what the system holds until the sheet is posted (STK-6).
+    is_blind: bool = False
 
 
 class PhysicalCountUpdate(InventorySchema):
@@ -690,7 +692,8 @@ class PhysicalCountLineResponse(InventorySchema):
     storage_node_id: UUID | None = None
     storage_node_code: str | None = None
     storage_node_name: str | None = None
-    expected_quantity: Decimal
+    #: Null on a blind sheet until it is posted (STK-6).
+    expected_quantity: Decimal | None
     counted_quantity: Decimal | None
     variance_quantity: Decimal | None
     transaction_id: UUID | None
@@ -710,5 +713,8 @@ class PhysicalCountResponse(InventorySchema):
     status: str
     remarks: str | None
     posted_at: datetime | None
+    #: Blind: what the system holds is hidden until posted (STK-6).
+    is_blind: bool = False
+    count_plan_id: UUID | None = None
     lines: list[PhysicalCountLineResponse]
     version: int
