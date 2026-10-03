@@ -2035,6 +2035,16 @@ class SalesInvoiceService(TransactionalDocumentService):
             SalesInvoiceAccountingEvent.sales_invoice_id,
             ids,
         )
+        # The tenders a counter bill was paid with (SEL-12), read once for
+        # the page: one read per bill is what made the list cost grow with
+        # its length.
+        tenders = children_by_parent(
+            self._session,
+            SalesInvoiceTender,
+            SalesInvoiceTender.sales_invoice_id,
+            ids,
+            SalesInvoiceTender.sequence.asc(),
+        )
         warnings = self._duplicate_warnings(rows)
         # One query for every product on the page rather than one per line.
         # `description` is nullable and the seeded documents leave it null, so
@@ -2065,6 +2075,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 attachments=attachments[row.id],
                 notes=notes[row.id],
                 accounting_events=accounting_events[row.id],
+                tenders=tenders[row.id],
                 warning=warnings.get(row.id),
                 customer_name=names.get(row.customer_id, ""),
             )
@@ -2084,6 +2095,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         attachments: list[SalesInvoiceAttachment],
         notes: list[SalesInvoiceNote],
         accounting_events: list[SalesInvoiceAccountingEvent],
+        tenders: list[SalesInvoiceTender],
         warning: str | None,
         customer_name: str,
     ) -> SalesInvoiceResponse:
@@ -2136,7 +2148,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                     reference=tender.reference,
                     settlement_id=tender.settlement_id,
                 )
-                for tender in self._tenders_of(row.id)
+                for tender in tenders
             ],
             rate_includes_tax=bool(row.rate_includes_tax),
             approved_at=row.approved_at,
