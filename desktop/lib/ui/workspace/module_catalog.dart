@@ -1059,6 +1059,14 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['ACCOUNT_VIEW', 'JOURNAL_VIEW'],
           requiresAnyPermission: true,
         ),
+        // The firm's bank particulars; the marked one prints on its bills
+        // (ACC-4).
+        ModuleTabDefinition(
+          id: 'bank-details',
+          label: 'Bank details',
+          requiredPermissions: ['ACCOUNT_VIEW', 'PAYMENT_CREATE'],
+          requiresAnyPermission: true,
+        ),
         ModuleTabDefinition(
           id: 'ledgers',
           label: 'Ledgers',

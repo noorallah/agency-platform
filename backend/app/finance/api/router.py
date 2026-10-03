@@ -77,6 +77,10 @@ from app.finance.schemas import (
     VoucherTypeCreate,
     VoucherTypeResponse,
 )
+from app.finance.schemas.bank_details import (
+    BankAccountDetailsResponse,
+    BankAccountDetailsWrite,
+)
 from app.finance.schemas.tds_194q import (
     Supplier194QRecord,
     Tds194QSettingsResponse,
@@ -93,6 +97,10 @@ from app.finance.services import (
     GeneralLedgerService,
     JournalEntryEngine,
     JournalLineData,
+)
+from app.finance.services.bank_details import (
+    UNMASKING_PERMISSIONS,
+    BankDetailsService,
 )
 from app.finance.services.books_register import BooksRegisterService
 from app.finance.services.control_accounts import (
@@ -1589,3 +1597,81 @@ def cancel_tds_challan(
         data=service.responses([row])[0],
         message=f"Challan {row.challan_number} cancelled.",
     )
+
+
+# ---- The firm's bank details (ACC-4) ---------------------------------------
+
+BankDetailsViewScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("ACCOUNT_VIEW", "PAYMENT_CREATE")
+]
+
+
+def _may_see_bank_numbers(scope: ResolvedFirmScope) -> bool:
+    """Return whether the caller reads the firm's account numbers whole."""
+    return any(scope.principal.has_permission(c) for c in UNMASKING_PERMISSIONS)
+
+
+@router.get(
+    "/bank-details", response_model=ApiResponse[list[BankAccountDetailsResponse]]
+)
+def list_bank_details(
+    scope: BankDetailsViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[BankAccountDetailsResponse]]:
+    """Return the firm's bank accounts' details, the one bills print first.
+
+    The number is whole for ``ACCOUNT_MANAGE`` or ``PAYMENT_CREATE`` and the
+    last four for everybody else.
+    """
+    rows = BankDetailsService(db).list_details(
+        scope.firm_id, unmasked=_may_see_bank_numbers(scope)
+    )
+    return ApiResponse(data=rows)
+
+
+@router.get(
+    "/bank-details/{ledger_account_id}",
+    response_model=ApiResponse[BankAccountDetailsResponse],
+)
+def get_bank_details(
+    ledger_account_id: UUID,
+    scope: BankDetailsViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BankAccountDetailsResponse]:
+    """Return one bank ledger account's details."""
+    row = BankDetailsService(db).get(
+        ledger_account_id,
+        firm_id=scope.firm_id,
+        unmasked=_may_see_bank_numbers(scope),
+    )
+    return ApiResponse(data=row)
+
+
+@router.put(
+    "/bank-details/{ledger_account_id}",
+    response_model=ApiResponse[BankAccountDetailsResponse],
+)
+def save_bank_details(
+    ledger_account_id: UUID,
+    payload: BankAccountDetailsWrite,
+    scope: MasterManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BankAccountDetailsResponse]:
+    """Store a bank ledger account's bank, number and IFSC, whole."""
+    row = BankDetailsService(db).save(
+        ledger_account_id, payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=row, message="Bank details saved.")
+
+
+@router.delete("/bank-details/{ledger_account_id}", response_model=ApiResponse[None])
+def remove_bank_details(
+    ledger_account_id: UUID,
+    scope: MasterManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[None]:
+    """Drop a bank ledger account's details; the account itself stays."""
+    BankDetailsService(db).remove(
+        ledger_account_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=None, message="Bank details removed.")

@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.document_framework.models import DocumentPrintTemplate
+from app.finance.models.bank_details import BankAccountDetails
 from app.sales_invoice.services.invoice_pdf import (
     InvoiceDocument,
     InvoiceLineBlock,
@@ -199,6 +200,8 @@ def test_a_firm_that_has_saved_no_print_settings_gets_the_statutory_copies() -> 
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
     DocumentPrintTemplate.__table__.create(engine)
+    # The template reads the firm's printed bank account too (ACC-4).
+    BankAccountDetails.__table__.create(engine)
     session = Session(engine)
     firm_id = uuid4()
 
