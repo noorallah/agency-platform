@@ -8335,6 +8335,25 @@ class ApiClient {
   Future<List<int>> paymentRunBankFile(String id) =>
       downloadBytes('/api/v1/payment-runs/$id/bank-file');
 
+  // ---- export to Tally (MSG-5) ------------------------------------------
+
+  /// Every account with the name and group Tally will know it by.
+  Future<List<Json>> tallyMappings() async => _unwrapList(
+        await request('GET', '/api/v1/finance/tally/mappings'),
+        (Json row) => row,
+      );
+
+  /// Replace the whole mapping; the server refuses a name used twice.
+  Future<void> replaceTallyMappings(Json body) async {
+    await request('PUT', '/api/v1/finance/tally/mappings', body: body);
+  }
+
+  /// The period's ledgers and vouchers as a TallyPrime import file.
+  Future<List<int>> tallyExport(String from, String to) => downloadBytes(
+        '/api/v1/finance/tally/export',
+        query: {'from_date': from, 'to_date': to},
+      );
+
   // ---- supplier gifts (BUY-2) -------------------------------------------
 
   /// The register of gifts suppliers gave, newest first; [vendorId] narrows it.

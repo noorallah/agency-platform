@@ -48,6 +48,7 @@ from app.finance.models import (  # noqa: F401
     bank_details,
     finance,
     ledger_attachment,
+    tally,
     tds_194q,
     tds_challan,
 )

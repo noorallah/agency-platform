@@ -1200,6 +1200,13 @@ abstract final class ModuleCatalog {
           label: 'Bank Reconciliation',
           requiredPermissions: ['LEDGER_VIEW'],
         ),
+        // The period's ledgers and vouchers as a TallyPrime import file, and
+        // the names the accounts carry there (MSG-5).
+        ModuleTabDefinition(
+          id: 'tally-export',
+          label: 'Export to Tally',
+          requiredPermissions: ['LEDGER_VIEW'],
+        ),
         // Tax deducted at source paid to the government, one challan at a
         // time, against the deductions it covers (ACC-7).
         ModuleTabDefinition(
