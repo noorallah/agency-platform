@@ -814,6 +814,9 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         'inspection_required': product.inspectionRequired,
         'free_issue_only': product.freeIssueOnly,
         'shelf_life_days': product.shelfLifeDays,
+        'expiry_stop_sale_days': product.expiryStopSaleDays,
+        'expiry_alert_days': product.expiryAlertDays,
+        'expiry_return_days': product.expiryReturnDays,
         'issue_rule': product.issueRule.isEmpty ? null : product.issueRule,
         'allow_negative_stock': product.allowNegativeStock,
         'require_batch_on_receipt': product.requireBatchOnReceipt,
@@ -1860,6 +1863,9 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   late final TextEditingController _mrp;
   late final TextEditingController _minimumSellingPrice;
   late final TextEditingController _shelfLife;
+  late final TextEditingController _expiryStopSale;
+  late final TextEditingController _expiryAlert;
+  late final TextEditingController _expiryReturn;
   String _issueRule = '';
   late final TextEditingController _remarks;
   late String _productType;
@@ -1981,6 +1987,12 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         TextEditingController(text: product?.minimumSellingPrice ?? '');
     _shelfLife = TextEditingController(
         text: product?.shelfLifeDays == null ? '' : '${product!.shelfLifeDays}');
+    _expiryStopSale = TextEditingController(
+        text: product?.expiryStopSaleDays?.toString() ?? '');
+    _expiryAlert =
+        TextEditingController(text: product?.expiryAlertDays?.toString() ?? '');
+    _expiryReturn = TextEditingController(
+        text: product?.expiryReturnDays?.toString() ?? '');
     _remarks = TextEditingController(text: product?.remarks ?? '');
     _productType = product?.productType.isNotEmpty == true
         ? product!.productType
@@ -2067,6 +2079,9 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         _mrp,
         _minimumSellingPrice,
         _shelfLife,
+        _expiryStopSale,
+        _expiryAlert,
+        _expiryReturn,
         _remarks,
       ];
 
@@ -2779,6 +2794,8 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
           width: 320,
           helper: "Fills a batch's expiry from its manufacturing date",
         ),
+        // STK-5: expiry rules; blank inherits.
+        _expiryGroup(),
         // STK-11: which batch the goods leave from.
         SizedBox(
           width: 320,
@@ -3216,6 +3233,43 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     return match?.name ?? '';
   }
 
+  /// The product's own expiry windows (STK-5); blank inherits.
+  Widget _expiryGroup() => Column(
+        key: const ValueKey('product-expiry-rules'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Expiry rules',
+              style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 8),
+          Wrap(spacing: 16, runSpacing: 12, children: [
+            _expiryBox(_expiryStopSale, 'product-expiry-stop-sale',
+                'Stop selling (days before expiry)'),
+            _expiryBox(_expiryAlert, 'product-expiry-alert',
+                'Alert (days before expiry)'),
+            _expiryBox(_expiryReturn, 'product-expiry-return',
+                'Return to supplier (days before expiry)'),
+          ]),
+        ],
+      );
+
+  Widget _expiryBox(
+          TextEditingController controller, String key, String label) =>
+      SizedBox(
+        width: 320,
+        child: TextField(
+          key: ValueKey(key),
+          controller: controller,
+          readOnly: _readOnly,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          decoration: InputDecoration(
+            labelText: label,
+            helperText: "Blank takes the category's, then the firm's",
+            helperMaxLines: 2,
+          ),
+        ),
+      );
+
   Widget _field(
     TextEditingController controller,
     String label, {
@@ -3447,6 +3501,9 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       'inspection_required': _inspectionRequired,
       'free_issue_only': _freeIssueOnly,
       'shelf_life_days': int.tryParse(_shelfLife.text.trim()),
+      'expiry_stop_sale_days': int.tryParse(_expiryStopSale.text.trim()),
+      'expiry_alert_days': int.tryParse(_expiryAlert.text.trim()),
+      'expiry_return_days': int.tryParse(_expiryReturn.text.trim()),
       'issue_rule': _issueRule.isEmpty ? null : _issueRule,
       'allow_negative_stock': _allowNegativeStock,
       'require_batch_on_receipt': _requireBatchOnReceipt,
@@ -3507,6 +3564,9 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       _mrp.clear();
       _minimumSellingPrice.clear();
       _shelfLife.clear();
+      _expiryStopSale.clear();
+      _expiryAlert.clear();
+      _expiryReturn.clear();
       _issueRule = '';
       _remarks.clear();
       for (final AttributeFieldController controller

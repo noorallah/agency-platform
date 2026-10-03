@@ -31,7 +31,9 @@ from app.batch_serial.schemas import (
     SerialStatus,
     SerialUpdate,
 )
+from app.batch_serial.schemas.batch_serial import ReturnDueResponse
 from app.batch_serial.services import BatchSalePolicyService, BatchSerialService
+from app.batch_serial.services.expiry_rules import expiry_rules, returns_due
 from app.business.gating import require_feature
 from app.common.scope import (
     ResolvedFirmScope,
@@ -168,6 +170,13 @@ def batch_availability(
     """
     on = as_of or utc_now().date()
     policy = BatchSalePolicyService(db)
+    # The product's own rules (STK-5): its alert window, and its stop-selling
+    # window as a date the batch must outlast, beside the customer's.
+    rule = expiry_rules(db, scope.firm_id, {product_id}).get(product_id)
+    keep_until = policy.keep_until(customer_id, on=on)
+    stop_at = rule.sell_until(on) if rule else None
+    if stop_at is not None and (keep_until is None or stop_at > keep_until):
+        keep_until = stop_at
     rows = BatchSerialService(db).batch_availability(
         firm_scope=scope.firm_id,
         product_id=product_id,
@@ -179,11 +188,29 @@ def batch_availability(
         near_expiry_days=(
             near_expiry_days
             if near_expiry_days is not None
-            else policy.near_expiry_days(scope.firm_id)
+            else (rule.alert_days if rule else policy.near_expiry_days(scope.firm_id))
         ),
-        keep_until=policy.keep_until(customer_id, on=on),
+        keep_until=keep_until,
     )
     return ApiResponse(data=rows)
+
+
+@router.get("/batches/returns-due", response_model=ApiResponse[list[ReturnDueResponse]])
+def batch_returns_due(
+    scope: BatchViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[ReturnDueResponse]]:
+    """Return the batches in stock due back to their supplier now (STK-5).
+
+    A batch within its product's return window -- the product's, else its
+    category's; a product with no rule is never listed.
+    """
+    return ApiResponse(
+        data=[
+            ReturnDueResponse.model_validate(record, from_attributes=True)
+            for record in returns_due(db, scope.firm_id, on=utc_now().date())
+        ]
+    )
 
 
 @router.get("/sale-settings", response_model=ApiResponse[BatchSaleSettingsResponse])

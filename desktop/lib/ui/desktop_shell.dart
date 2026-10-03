@@ -5699,6 +5699,21 @@ ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
         boolean: true,
         helperText: 'Received goods wait in quarantine until passed',
       ),
+      FieldSpec(
+        key: 'expiry_stop_sale_days',
+        label: 'Stop selling (days before expiry)',
+        helperText: "Blank takes the firm's",
+      ),
+      FieldSpec(
+        key: 'expiry_alert_days',
+        label: 'Alert (days before expiry)',
+        helperText: "Blank takes the firm's",
+      ),
+      FieldSpec(
+        key: 'expiry_return_days',
+        label: 'Return to supplier (days before expiry)',
+        helperText: "Blank takes the firm's",
+      ),
       FieldSpec(key: 'is_active', label: 'Active', boolean: true),
     ],
     initialValues: (ProductCategoryRecord? row) => row == null
@@ -5709,6 +5724,9 @@ ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
             'parent_id': row.parentId,
             'required_licence_type_id': row.requiredLicenceTypeId,
             'inspection_required': row.inspectionRequired,
+            'expiry_stop_sale_days': row.expiryStopSaleDays?.toString() ?? '',
+            'expiry_alert_days': row.expiryAlertDays?.toString() ?? '',
+            'expiry_return_days': row.expiryReturnDays?.toString() ?? '',
             'is_active': row.isActive,
           },
     // The update replaces the node, so every field but the licence type is
@@ -5723,6 +5741,13 @@ ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
         'required_licence_type_id':
             _blankToNull(values['required_licence_type_id']),
       'inspection_required': values['inspection_required'] == true,
+      // STK-5: blank inherits, so blank is sent as null.
+      'expiry_stop_sale_days':
+          int.tryParse('${values['expiry_stop_sale_days'] ?? ''}'.trim()),
+      'expiry_alert_days':
+          int.tryParse('${values['expiry_alert_days'] ?? ''}'.trim()),
+      'expiry_return_days':
+          int.tryParse('${values['expiry_return_days'] ?? ''}'.trim()),
       'is_active': values['is_active'],
     },
   );

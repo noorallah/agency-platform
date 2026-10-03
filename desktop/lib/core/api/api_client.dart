@@ -2610,6 +2610,12 @@ class ApiClient {
         ),
       );
 
+  /// Batches inside their product's return-to-supplier window (STK-5).
+  Future<List<ReturnDueRecord>> batchesReturnsDue() async => _unwrapList(
+        await request('GET', '/api/v1/batch-serial/batches/returns-due'),
+        ReturnDueRecord.fromJson,
+      );
+
   Future<PagedResult<LotRecord>> lots({
     int page = 1,
     int pageSize = 20,

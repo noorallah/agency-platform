@@ -3115,6 +3115,14 @@ class InventoryService:
                 "batch: pick the batches on the line before dispatching it."
             )
         rows, expired, held_expired = self._without_expired(rows, as_of=as_of)
+        # The product's own stop-selling window (STK-5) is a date its goods
+        # must outlast, like a customer's minimum shelf life.
+        from app.batch_serial.services.expiry_rules import expiry_rules
+
+        rule = expiry_rules(self._session, firm_scope, {product_id}).get(product_id)
+        stop_at = rule.sell_until(as_of or utc_now().date()) if rule else None
+        if stop_at is not None and (keep_until is None or stop_at > keep_until):
+            keep_until = stop_at
         short: dict[UUID, tuple[str, date]] = {}
         if keep_until is not None:
             short = self._expired_batches(
