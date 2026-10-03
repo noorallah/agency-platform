@@ -92,6 +92,13 @@ def _vendor_bills(session: Session) -> tuple[Column, ...]:
     return VendorOpeningBillFileImporter(session).columns
 
 
+def _supplier_catalogue(_: Session) -> tuple[Column, ...]:
+    """Return the supplier catalogue import's columns (BUY-4)."""
+    from app.vendors.services.supplier_catalogue import COLUMNS
+
+    return COLUMNS
+
+
 def _opening_stock(_: Session) -> tuple[Column, ...]:
     """Return the opening-stock import's columns."""
     from app.inventory.services.opening_stock_import import COLUMNS
@@ -110,6 +117,9 @@ IMPORT_KINDS: dict[str, ImportKind] = {
         "Supplier opening bills", "VENDOR_IMPORT", _vendor_bills
     ),
     "opening-stock": ImportKind("Opening stock", "INVENTORY_IMPORT", _opening_stock),
+    "supplier-catalogue": ImportKind(
+        "Supplier catalogue", "VENDOR_IMPORT", _supplier_catalogue
+    ),
 }
 
 #: Rows shown on the mapping screen.

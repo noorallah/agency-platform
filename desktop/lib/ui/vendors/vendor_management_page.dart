@@ -22,6 +22,7 @@ import '../workspace/desktop_framework.dart';
 import '../workspace/opening_bill_import_dialog.dart';
 import '../workspace/reason_prompt.dart';
 import '../workspace/trade_licence_quick_add.dart';
+import 'supplier_catalogue_section.dart';
 import 'vendor_ratings_section.dart';
 import '../../phase2/document_page.dart';
 
@@ -212,6 +213,12 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
                   : null,
               canManageOpeningBills:
                   widget.permissions.hasPermission('VENDOR_UPDATE'),
+              showCatalogue: vendor != null &&
+                  widget.permissions.hasPermission('VENDOR_VIEW'),
+              canManageCatalogue:
+                  widget.permissions.hasPermission('VENDOR_UPDATE'),
+              canImportCatalogue:
+                  widget.permissions.hasPermission('VENDOR_IMPORT'),
               loadRatings: vendor != null &&
                       (widget.permissions.hasPermission('VENDOR_VIEW') ||
                           widget.permissions.hasPermission('PURCHASE_VIEW'))
@@ -617,6 +624,9 @@ class _VendorEditorDialog extends StatefulWidget {
     this.onAddLicence,
     this.loadOpeningBills,
     this.canManageOpeningBills = false,
+    this.showCatalogue = false,
+    this.canManageCatalogue = false,
+    this.canImportCatalogue = false,
     this.loadRatings,
     this.onRate,
     this.onWithdrawRating,
@@ -655,6 +665,13 @@ class _VendorEditorDialog extends StatefulWidget {
   /// Whether the user holds `VENDOR_UPDATE`, so "Add opening bill" and
   /// "Cancel" show.
   final bool canManageOpeningBills;
+
+  /// The supplier's catalogue (BUY-4), phase 2 only: shown for a saved
+  /// supplier to somebody holding `VENDOR_VIEW`; adding and deleting rows
+  /// needs `VENDOR_UPDATE` and the file import `VENDOR_IMPORT`.
+  final bool showCatalogue;
+  final bool canManageCatalogue;
+  final bool canImportCatalogue;
 
   /// What people think of this supplier (BUY-15). Null hides the section for
   /// a user who can read neither `VENDOR_VIEW` nor `PURCHASE_VIEW`; a new
@@ -793,6 +810,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
       'Custom fields',
       'Licences',
       'Opening bills',
+      'Catalogue',
       'Ratings',
     ])
       section: GlobalKey(),

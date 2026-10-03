@@ -1620,17 +1620,47 @@ class PurchaseService(TransactionalDocumentService):
         """Fill each blank price and discount from the supplier (BUY-3, A97).
 
         A blank price takes the supplier's price list's fixed rate at the
-        line's quantity, else the product's purchase price; a blank discount
-        takes the list's rate, else the supplier's standing discount -- the
+        line's quantity, else the supplier's catalogue price (BUY-4), else the
+        product's purchase price; a blank supplier code takes the catalogue's;
+        a blank discount takes the list's rate, else the supplier's standing
+        discount -- the
         sales ranking, through the same ``resolve_line_discount``. A typed
         value, zero included, stands.
         """
+        from app.pricing.services.price_list_service import SupplierPriceResolver
+        from app.vendors.services.supplier_catalogue import current_rows
+
+        # The supplier's catalogue (BUY-4): their code on a line that names
+        # none, and their price below a price list's fixed rate.
+        catalogue = current_rows(
+            self._session,
+            firm_id=order.firm_id,
+            vendor_id=order.vendor_id,
+            product_ids=[line.product_id for line in lines],
+            on=order.purchase_date,
+        )
+        if catalogue:
+            lines = [
+                (
+                    line.model_copy(
+                        update={
+                            "vendor_product_code": catalogue[
+                                line.product_id
+                            ].supplier_product_code
+                        }
+                    )
+                    if not line.vendor_product_code
+                    and line.product_id in catalogue
+                    and catalogue[line.product_id].supplier_product_code
+                    else line
+                )
+                for line in lines
+            ]
         if all(
             line.unit_price is not None and line.discount_percent is not None
             for line in lines
         ):
             return lines
-        from app.pricing.services.price_list_service import SupplierPriceResolver
 
         vendor = self._session.get(Vendor, order.vendor_id)
         standing = (
@@ -1648,6 +1678,13 @@ class PurchaseService(TransactionalDocumentService):
             price = line.unit_price
             if price is None:
                 fixed = lists.price_for(line.product_id, line.ordered_quantity)
+                listed = catalogue.get(line.product_id)
+                if (
+                    fixed is None
+                    and listed is not None
+                    and listed.unit_price is not None
+                ):
+                    fixed = Decimal(str(listed.unit_price))
                 if fixed is None:
                     product = self._session.get(Product, line.product_id)
                     fixed = Decimal(str(getattr(product, "purchase_price", 0) or 0))

@@ -550,3 +550,8 @@ line's quantity, else the product's `purchase_price`; a blank discount takes
 the list's rate, else the standing discount, through `resolve_line_discount`.
 `SupplierPriceResolver` reads only supplier lists; `PriceListResolver` reads
 only lists that name no supplier.
+
+The supplier's catalogue (BUY-4, `supplier_products`) sits between the two
+price sources: a blank price takes the list's fixed rate, else the catalogue
+row in force on the order's date, else the product's purchase price. A blank
+supplier code takes the catalogue's.
