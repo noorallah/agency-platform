@@ -41,23 +41,38 @@ class DocumentPageBand extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
         child: Row(children: [
-          Text(
-            title,
-            style: theme.textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(width: 12),
-          for (final String chip in chips)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Text(
-                chip,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontSize: 13,
-                  color: scheme.onSurfaceVariant,
+          // The title and chips shorten before the buttons are pushed off a
+          // narrow window.
+          Flexible(
+            flex: 3,
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Flexible(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
-            ),
+              const SizedBox(width: 12),
+              for (final String chip in chips)
+                Flexible(
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Text(
+                      chip,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontSize: 13,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ),
+            ]),
+          ),
           // The key hints give way first on a narrow window.
           Expanded(
             child: Align(
@@ -359,7 +374,16 @@ class DocumentTerms extends StatelessWidget {
         ),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-          child: Wrap(spacing: 14, runSpacing: 8, children: children),
+          // Scrolls rather than squeezing the lines out on a short window,
+          // where a tender split or a long note makes the terms tall.
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.25,
+            ),
+            child: SingleChildScrollView(
+              child: Wrap(spacing: 14, runSpacing: 8, children: children),
+            ),
+          ),
         ),
       );
 }
@@ -400,23 +424,33 @@ class DocumentTotalsBar extends StatelessWidget {
                 ?.copyWith(color: scheme.onSurfaceVariant),
           ),
         ),
-        for (int i = 0; i < figures.length; i++)
-          Padding(
-            padding: const EdgeInsets.only(left: 24),
-            child: Text.rich(TextSpan(children: [
-              TextSpan(
-                text: '${figures[i].$1}  ',
-                style: theme.textTheme.bodyMedium?.copyWith(fontSize: 13),
-              ),
-              TextSpan(
-                text: indianAmount(figures[i].$2, full: true),
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  fontSize: i == figures.length - 1 ? 18 : 16,
+        // Scaled down rather than pushed off a narrow window.
+        Flexible(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerRight,
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              for (int i = 0; i < figures.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(left: 24),
+                  child: Text.rich(TextSpan(children: [
+                    TextSpan(
+                      text: '${figures[i].$1}  ',
+                      style:
+                          theme.textTheme.bodyMedium?.copyWith(fontSize: 13),
+                    ),
+                    TextSpan(
+                      text: indianAmount(figures[i].$2, full: true),
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        fontSize: i == figures.length - 1 ? 18 : 16,
+                      ),
+                    ),
+                  ])),
                 ),
-              ),
-            ])),
+            ]),
           ),
+        ),
       ]),
     );
   }

@@ -228,6 +228,23 @@ class SalesInvoiceLineWrite(SalesInvoiceSchema):
         return self
 
 
+class SalesInvoiceTenderWrite(SalesInvoiceSchema):
+    """One way a counter bill is paid (SEL-12)."""
+
+    mode: Literal["CASH", "UPI", "CARD", "BANK_TRANSFER"]
+    amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
+    reference: str | None = Field(default=None, max_length=120)
+
+
+class SalesInvoiceTenderResponse(SalesInvoiceSchema):
+    """One tender as recorded, with the receipt it became."""
+
+    mode: str
+    amount: Decimal
+    reference: str | None = None
+    settlement_id: UUID | None = None
+
+
 class SalesInvoiceCreate(SalesInvoiceSchema):
     """Create one sales invoice."""
 
@@ -289,6 +306,13 @@ class SalesInvoiceCreate(SalesInvoiceSchema):
     )
     received_now_method: Literal["CASH", "BANK"] | None = None
     received_now_reference: str | None = Field(default=None, max_length=120)
+    #: The counter payment split by how it was paid (SEL-12): cash, UPI,
+    #: card. When sent it replaces ``received_now_amount`` with its sum and
+    #: each tender becomes its own receipt at approval. Absent leaves the
+    #: tenders alone; an empty list clears them.
+    received_now_tenders: list[SalesInvoiceTenderWrite] | None = Field(
+        default=None, max_length=5
+    )
     #: Whether a ``unit_price`` (and a ``discount_amount``) typed on a bare
     #: line includes GST (backlog 64 row 4). The line stores the pre-tax rate
     #: it derives to; a line continuing an order or a note keeps the price it
@@ -526,6 +550,7 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     received_now_method: str | None = None
     received_now_reference: str | None = None
     received_now_settlement_id: UUID | None = None
+    received_now_tenders: list[SalesInvoiceTenderResponse] = Field(default_factory=list)
     #: Whether the rates typed on this bill include GST (backlog 64 row 4).
     rate_includes_tax: bool = False
     approved_at: datetime | None

@@ -418,6 +418,33 @@ class SalesInvoiceLineTax(BaseEntity):
     )
 
 
+class SalesInvoiceTender(BaseEntity):
+    """One way a counter bill was paid: cash, UPI or card (SEL-12, A90).
+
+    A counter bill is often paid partly in cash and partly by UPI. Each tender
+    becomes its own receipt when the bill is approved -- cash to the cash
+    account, UPI or card to the bank -- so the cash book and the bank book each
+    read only what reached them. Replaced whole while the bill is a draft.
+    """
+
+    __tablename__ = "sales_invoice_tenders"
+    __table_args__ = (Index("IX_sales_invoice_tenders_invoice", "sales_invoice_id"),)
+
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    sales_invoice_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("sales_invoices.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: CASH, UPI, CARD or BANK_TRANSFER.
+    mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    reference: Mapped[str | None] = mapped_column(String(120))
+    #: The receipt approval recorded for this tender.
+    settlement_id: Mapped[UUID | None] = mapped_column(UUIDType())
+
+
 class SalesInvoiceAttachment(BaseEntity):
     """Store sales invoice attachments."""
 

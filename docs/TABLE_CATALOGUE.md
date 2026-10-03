@@ -424,6 +424,7 @@ trigger each schema owns its own copy of.
 | `sales_invoice_lines` | firm store ¹ | Store one sales invoice line. | `sales_invoices`, `firms`, `products`, `tax_profiles`, `packaging_types`, `uoms`, `warehouses`, `warehouse_storage_nodes` |
 | `sales_invoice_notes` | firm store ¹ | Store sales invoice notes. | `sales_invoices`, `firms` |
 | `sales_invoice_sources` | firm store ¹ | Store customer invoice source document references. | `sales_invoices`, `firms`, `customers`, `branches` |
+| `sales_invoice_tenders` | firm store ¹ | One way a counter bill was paid -- cash, UPI, card -- each recorded as its own receipt at approval (SEL-12). | `sales_invoices` |
 | `sales_invoices` | firm store ¹ | Store one customer invoice header. | `firms`, `customers`, `users`, `sales_territories`, `territory_route_profiles`, `branches`, `business_profiles` |
 
 ### `app/sales_order`

@@ -121,6 +121,9 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
         const SingleActivator(LogicalKeyboardKey.keyP, control: true): () {
           if (!_saving) unawaited(_save(print: true));
         },
+        const SingleActivator(LogicalKeyboardKey.f9): () {
+          if (!_saving) unawaited(_saveApprovePrint());
+        },
         const SingleActivator(LogicalKeyboardKey.enter, control: true): () {
           if (!_direct) return;
           _setState(() => _directLines.add(_DirectLine()));
@@ -141,8 +144,8 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                   'Draft',
                 ],
                 hint: _direct
-                    ? 'Ctrl+Enter new line  ·  Ctrl+S save  ·  Ctrl+P print'
-                    : 'Enter next field  ·  Ctrl+S save  ·  Ctrl+P print',
+                    ? 'F9 save & print  ·  Ctrl+Enter new line  ·  Ctrl+S save'
+                    : 'F9 save & print  ·  Enter next field  ·  Ctrl+S save',
                 actions: [
                   TextButton(
                     onPressed:
@@ -151,11 +154,18 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                   ),
                   // A draft prints marked "not a tax invoice" until it is
                   // approved; the list prints the final copy.
-                  OutlinedButton(
-                    key: const ValueKey('sales-invoice-save-print'),
+                  if (!_direct)
+                    OutlinedButton(
+                      key: const ValueKey('sales-invoice-save-print'),
+                      onPressed:
+                          _saving ? null : () => unawaited(_save(print: true)),
+                      child: const Text('Save & print'),
+                    ),
+                  FilledButton.tonal(
+                    key: const ValueKey('counter-save-print'),
                     onPressed:
-                        _saving ? null : () => unawaited(_save(print: true)),
-                    child: const Text('Save & print'),
+                        _saving ? null : () => unawaited(_saveApprovePrint()),
+                    child: const Text('Save & print (F9)'),
                   ),
                   FilledButton(
                     key: const ValueKey('sales-invoice-save'),
@@ -187,6 +197,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             _invoiceHeader(context),
+                            if (_direct) _scanBar(context),
                             Expanded(
                               child: _direct
                                   ? DocumentLineTable(
@@ -670,6 +681,50 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     );
   }
 
+  /// SEL-12: the field a barcode scanner types into, above the lines. A
+  /// scanner is a keyboard that ends each code with Enter.
+  Widget _scanBar(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 2, 12, 2),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 300,
+            height: 32,
+            child: TextField(
+              key: const ValueKey('counter-scan-field'),
+              controller: _scan,
+              focusNode: _scanFocus,
+              autofocus: true,
+              style: theme.textTheme.bodyMedium?.copyWith(fontSize: 13),
+              decoration: const InputDecoration(
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(vertical: 6),
+                prefixIcon: Icon(Icons.qr_code_scanner, size: 18),
+                hintText: 'Scan a barcode',
+                border: OutlineInputBorder(),
+              ),
+              onSubmitted: _scanned,
+            ),
+          ),
+          const SizedBox(width: 12),
+          if (_scanMessage != null)
+            Expanded(
+              child: Text(
+                _scanMessage!,
+                key: const ValueKey('counter-scan-message'),
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _directRow(BuildContext context, int index) {
     final ThemeData theme = Theme.of(context);
     final _DirectLine line = _directLines[index];
@@ -694,7 +749,9 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            DropdownMenu<String>(
+            KeyedSubtree(
+              key: ValueKey<String>('scan-$index-${line.refresh}'),
+              child: DropdownMenu<String>(
               key: ValueKey<String>('sales-invoice-direct-product-$index'),
               initialSelection: line.productId,
               expandedInsets: EdgeInsets.zero,
@@ -716,31 +773,8 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                         '${item.barcode.isEmpty ? '' : '  ${item.barcode}'}',
                   ),
               ],
-              onSelected: (value) {
-                _setState(() {
-                  line.productId = value;
-                  // Units of the last product are not units of this one.
-                  line.serialIds.clear();
-                  line.batchPicks = null;
-                  // The product's selling price, where nobody typed one --
-                  // not on a bill whose rates include GST: that price is
-                  // before tax, and blank takes it as such.
-                  if (line.price.text.trim().isEmpty && !_rateIncludesTax) {
-                    final Product? chosen = _product(value);
-                    final double price =
-                        double.tryParse(chosen?.sellingPrice ?? '') ?? 0;
-                    if (price > 0) {
-                      line.price.text = chosen!.sellingPrice;
-                      line.autoPrice = chosen.sellingPrice;
-                    }
-                  }
-                  _current = index;
-                });
-                if (value != null && _isSerialised(value)) {
-                  _loadSerials(value, _directWarehouse);
-                }
-                _schedulePreview();
-              },
+              onSelected: (value) => _pickProduct(index, value),
+            ),
             ),
             if (companion != null)
               Text(
@@ -873,6 +907,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     }
     final double typed = double.tryParse(_receivedNow.text.trim()) ?? 0;
     final bool over = typed > 0 && _billTotal > 0 && typed > _billTotal;
+    if (_splitTender) return _tenderSplit(context);
     return DocumentField(
       label: 'Received now',
       width: 420,
@@ -926,6 +961,23 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                 ),
             ],
           ),
+          if (_direct)
+            TextButton(
+              key: const ValueKey('received-now-split'),
+              onPressed: () {
+                _setState(() {
+                  _splitTender = true;
+                  if (_tenders.isEmpty) {
+                    _tenders.add(_TenderRow(
+                      mode: _receivedMethod == 'BANK' ? 'BANK_TRANSFER' : 'CASH',
+                      amount: _receivedNow.text.trim(),
+                    ));
+                  }
+                });
+                _schedulePreview();
+              },
+              child: const Text('Split payment'),
+            ),
           const SizedBox(height: 2),
           if (over)
             Text(
@@ -938,6 +990,159 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
           else
             const DocumentSideNote(
               'Recorded as a receipt when the bill is approved.',
+            ),
+        ],
+      ),
+    );
+  }
+
+  static const Map<String, String> _tenderModes = <String, String>{
+    'CASH': 'Cash',
+    'UPI': 'UPI',
+    'CARD': 'Card',
+    'BANK_TRANSFER': 'Bank transfer',
+  };
+
+  /// SEL-12: the counter payment as rows of mode, amount and reference, with
+  /// what is still owed and the change to give back.
+  Widget _tenderSplit(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    double paid = 0;
+    for (final _TenderRow row in _tenders) {
+      paid += row.value;
+    }
+    final double total = _billTotal;
+    final double change = _changeToGive;
+    final double balance = total - paid;
+    final bool nonCashOver = change <= 0 && total > 0 && paid > total + 0.004;
+    return DocumentField(
+      label: 'Received now',
+      width: 460,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (int i = 0; i < _tenders.length; i++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: Wrap(
+                key: ValueKey<String>('tender-row-$i'),
+                spacing: 6,
+                runSpacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 130,
+                    child: DropdownButtonFormField<String>(
+                      key: ValueKey<String>('tender-mode-$i'),
+                      isExpanded: true,
+                      initialValue: _tenders[i].mode,
+                      decoration: documentBoxDecoration(context),
+                      items: [
+                        for (final MapEntry<String, String> mode
+                            in _tenderModes.entries)
+                          DropdownMenuItem<String>(
+                            value: mode.key,
+                            child: Text(mode.value),
+                          ),
+                      ],
+                      onChanged: (String? value) {
+                        if (value == null) return;
+                        _setState(() => _tenders[i].mode = value);
+                        _schedulePreview();
+                      },
+                    ),
+                  ),
+                  SizedBox(
+                    width: 100,
+                    child: TextFormField(
+                      key: ValueKey<String>('tender-amount-$i'),
+                      controller: _tenders[i].amount,
+                      keyboardType: TextInputType.number,
+                      decoration: documentBoxDecoration(context)
+                          .copyWith(hintText: 'Amount'),
+                      onChanged: (_) {
+                        _setState(() {});
+                        _schedulePreview();
+                      },
+                    ),
+                  ),
+                  SizedBox(
+                    width: 120,
+                    child: TextFormField(
+                      key: ValueKey<String>('tender-reference-$i'),
+                      controller: _tenders[i].reference,
+                      maxLength: 120,
+                      decoration: documentBoxDecoration(context).copyWith(
+                        hintText: 'Reference',
+                        counterText: '',
+                      ),
+                      onChanged: (_) => _schedulePreview(),
+                    ),
+                  ),
+                  IconButton(
+                    key: ValueKey<String>('tender-remove-$i'),
+                    tooltip: 'Remove',
+                    icon: const Icon(Icons.close, size: 16),
+                    onPressed: () {
+                      _setState(() {
+                        _tenders.removeAt(i).dispose();
+                        if (_tenders.isEmpty) _splitTender = false;
+                      });
+                      _schedulePreview();
+                    },
+                  ),
+                ],
+              ),
+            ),
+          Wrap(
+            spacing: 8,
+            runSpacing: 0,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              if (_tenders.length < 5)
+                TextButton(
+                  key: const ValueKey('tender-add'),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  onPressed: () =>
+                      _setState(() => _tenders.add(_TenderRow(mode: 'UPI'))),
+                  child: const Text('Add payment'),
+                ),
+              TextButton(
+                key: const ValueKey('received-now-single'),
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                ),
+                onPressed: () {
+                  _setState(() => _splitTender = false);
+                  _schedulePreview();
+                },
+                child: const Text('One amount'),
+              ),
+              Text(
+                'Balance ${indianAmount(balance > 0 ? balance : 0, full: true)}',
+                key: const ValueKey('tender-balance'),
+                style: theme.textTheme.bodySmall,
+              ),
+              if (change > 0)
+                Text(
+                  'Change to give ${indianAmount(change, full: true)}',
+                  key: const ValueKey('tender-change'),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+            ],
+          ),
+          if (nonCashOver)
+            Text(
+              'More than the bill, and not in cash -- there is no change to '
+              'hand back',
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontSize: 11,
+                color: theme.colorScheme.error,
+              ),
             ),
         ],
       ),

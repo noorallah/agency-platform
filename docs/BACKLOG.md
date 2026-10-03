@@ -4403,7 +4403,7 @@ strike it with the reason).
 | G4 | Export to Tally (vouchers and masters, XML) | **High** | The firm's CA keeps the books in Tally |
 | G5 | Batch-wise MRP and rates (PTR, PTS) | **High** for pharma and FMCG | `products.mrp` is one value per product |
 | M9 | Day book, cash book, bank book; drill-down to the voucher | **High** | Goes with §50 (period ranges) |
-| M10 | Fast counter billing with barcode | High for counters | UI_PHASE_2_DESIGN 4.6 |
+| M10 | Fast counter billing with barcode -- **built 2026-10-03** (SEL-12, A90): scan to add, F9 save-print-next, tender split | High for counters | UI_PHASE_2_DESIGN 4.6 |
 | M2 | Live e-invoice and e-way bill through a GSP | High above the threshold | A GSP contract first |
 | G6 | Last rate while billing (sale and purchase) | Medium, small | |
 | G7 | Picking list and loading sheet, by van or route | Medium, small | |

@@ -588,7 +588,11 @@ class _SalesInvoiceManagementPageState
       context,
       title: 'New invoice',
       builder: (_) =>
-          SalesInvoiceEditorDialog(api: widget.api, today: DateTime.now()),
+          SalesInvoiceEditorDialog(
+        api: widget.api,
+        today: DateTime.now(),
+        mayApprove: _mayApprove(),
+      ),
     );
     if (created != true) return;
     if (!mounted) return;
@@ -609,6 +613,7 @@ class _SalesInvoiceManagementPageState
         api: widget.api,
         today: DateTime.now(),
         invoiceId: invoice['id'] as String,
+        mayApprove: _mayApprove(),
       ),
     );
     if (saved != true) return;

@@ -43,6 +43,8 @@ class SalesInvoiceEditorDialog extends StatefulWidget {
     required this.api,
     required this.today,
     this.invoiceId,
+    this.mayApprove = false,
+    this.printer,
   });
 
   final ApiClient api;
@@ -56,6 +58,18 @@ class SalesInvoiceEditorDialog extends StatefulWidget {
   /// /api/v1/sales-invoices/{id}` existed and nothing in the desktop called
   /// it, so a mistyped quantity cost the document.
   final String? invoiceId;
+
+  /// Whether the signed-in user holds SALES_APPROVE: F9 at the counter
+  /// approves the bill it saved only when they do (SEL-12).
+  final bool mayApprove;
+
+  /// Hands a rendered receipt to the printer; null uses the system print
+  /// dialog. Passed in so the counter flow is testable.
+  final Future<void> Function(
+    BuildContext context,
+    List<int> bytes,
+    String documentName,
+  )? printer;
 
   @override
   State<SalesInvoiceEditorDialog> createState() =>
@@ -78,6 +92,26 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   final TextEditingController _receivedNow = TextEditingController();
   final TextEditingController _receivedRef = TextEditingController();
   String _receivedMethod = 'CASH';
+
+  /// SEL-12: the counter payment split by how it was paid. Used only once
+  /// the person opens the split; otherwise the single amount above is sent
+  /// exactly as before.
+  bool _splitTender = false;
+
+  /// Whether the draft being edited already carries tenders, so that turning
+  /// the split off sends an empty list to clear them.
+  bool _hadTenders = false;
+  final List<_TenderRow> _tenders = <_TenderRow>[];
+
+  /// SEL-12: the scan field above a counter bill's lines.
+  final TextEditingController _scan = TextEditingController();
+  final FocusNode _scanFocus = FocusNode();
+  String? _scanMessage;
+
+  /// Set once a counter bill has been created by F9 and a later step was
+  /// refused: the screen then carries on with that saved draft rather than
+  /// creating a second one.
+  String? _draftId;
 
   /// Phase 2, backlog 64 row 4: whether the rates typed on this bill include
   /// GST. A new bill starts from the firm's setting; a draft keeps its own.
@@ -163,7 +197,9 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   /// otherwise be subtracted from the number the user is allowed to keep.
   final Map<String, double> _ownQuantities = <String, double>{};
 
-  bool get _editing => widget.invoiceId != null;
+  String? get _invoiceId => _draftId ?? widget.invoiceId;
+
+  bool get _editing => _invoiceId != null;
 
   /// Which stages this firm types. A firm that types neither the order nor the
   /// delivery note has nothing to pick from, so it names products instead and
@@ -249,6 +285,11 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     _freight.dispose();
     _receivedNow.dispose();
     _receivedRef.dispose();
+    _scan.dispose();
+    _scanFocus.dispose();
+    for (final _TenderRow row in _tenders) {
+      row.dispose();
+    }
     for (final TextEditingController controller in _quantities.values) {
       controller.dispose();
     }
@@ -266,7 +307,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       } on ApiException {
         stages = SalesWorkflowSettings.wholeChain;
       }
-      final bool direct = stages.billsDirectly && widget.invoiceId == null;
+      final bool direct = stages.billsDirectly && _invoiceId == null;
       final List<BillableDocument> rows =
           direct ? const [] : await widget.api.billableDocuments();
       // Every customer and product, not the first hundred by name: a counter
@@ -284,7 +325,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       // An edit of a counter bill reads them too: which lines are
       // batch-tracked decides whether its picker is offered.
       final bool wantProducts =
-          direct || (widget.invoiceId != null && stages.billsDirectly);
+          direct || (_invoiceId != null && stages.billsDirectly);
       List<Product> products = const [];
       if (wantProducts) {
         try {
@@ -302,7 +343,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
           if (direct) rethrow;
         }
       }
-      final String? id = widget.invoiceId;
+      final String? id = _invoiceId;
       final Json? existing =
           id == null ? null : _unwrap(await widget.api.salesInvoice(id));
       if (!mounted) return;
@@ -383,6 +424,21 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         ? 'BANK'
         : 'CASH';
     _receivedRef.text = '${invoice['received_now_reference'] ?? ''}';
+    for (final _TenderRow row in _tenders) {
+      row.dispose();
+    }
+    _tenders.clear();
+    for (final dynamic item
+        in (invoice['received_now_tenders'] as List?) ?? const []) {
+      if (item is! Map) continue;
+      _tenders.add(_TenderRow(
+        mode: '${item['mode']}',
+        amount: '${item['amount']}',
+        reference: '${item['reference'] ?? ''}',
+      ));
+    }
+    _hadTenders = _tenders.isNotEmpty;
+    _splitTender = _hadTenders;
     _rateIncludesTax = invoice['rate_includes_tax'] == true;
   }
 
@@ -390,6 +446,9 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   /// omitted field is left alone by an update, so a cleared box must say 0.
   Map<String, dynamic> _receivedFields() {
     if (!_phase2) return const <String, dynamic>{};
+    if (_splitTender) {
+      return <String, dynamic>{'received_now_tenders': _tendersPayload()};
+    }
     final String typed = _receivedNow.text.trim();
     final double amount = double.tryParse(typed) ?? 0;
     if (typed.isNotEmpty && double.tryParse(typed) == null) {
@@ -397,6 +456,9 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     }
     if (amount < 0) return const <String, dynamic>{};
     return <String, dynamic>{
+      // A draft that held tenders and has been put back to one amount must
+      // say so: an absent list leaves the tenders alone.
+      if (_hadTenders) 'received_now_tenders': const <Json>[],
       'received_now_amount': amount > 0 ? typed : '0',
       if (amount > 0) 'received_now_method': _receivedMethod,
       if (amount > 0 &&
@@ -404,6 +466,55 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
           _receivedRef.text.trim().isNotEmpty)
         'received_now_reference': _receivedRef.text.trim(),
     };
+  }
+
+  /// The tenders as the server takes them. Cash is sent as what the bill
+  /// still needs after the other modes -- never more than the bill, because
+  /// change is handed back and is not a receipt.
+  List<Json> _tendersPayload() {
+    final double total = _billTotal;
+    double nonCash = 0;
+    for (final _TenderRow row in _tenders) {
+      if (row.mode != 'CASH') nonCash += row.value;
+    }
+    double room = total > 0 ? (total - nonCash) : double.infinity;
+    if (room < 0) room = 0;
+    final List<Json> sent = <Json>[];
+    for (final _TenderRow row in _tenders) {
+      double amount = row.value;
+      if (amount <= 0) continue;
+      String text = row.amount.text.trim();
+      if (row.mode == 'CASH') {
+        if (amount > room) amount = room;
+        room -= amount;
+        if (amount <= 0) continue;
+        if (amount != row.value) text = amount.toStringAsFixed(2);
+      }
+      final String reference = row.reference.text.trim();
+      sent.add(<String, dynamic>{
+        'mode': row.mode,
+        'amount': text,
+        if (reference.isNotEmpty) 'reference': reference,
+      });
+    }
+    return sent;
+  }
+
+  /// Cash handed over beyond what the bill needed: the change to give back.
+  double get _changeToGive {
+    if (_billTotal <= 0) return 0;
+    double typedCash = 0;
+    double sentCash = 0;
+    for (final _TenderRow row in _tenders) {
+      if (row.mode == 'CASH') typedCash += row.value;
+    }
+    for (final Json tender in _tendersPayload()) {
+      if (tender['mode'] == 'CASH') {
+        sentCash += double.tryParse('${tender['amount']}') ?? 0;
+      }
+    }
+    final double change = typedCash - sentCash;
+    return change > 0.004 ? change : 0;
   }
 
   /// One source document of a draft, rebuilt from the draft's own lines.
@@ -789,7 +900,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       _error = null;
     });
     try {
-      final String? id = widget.invoiceId;
+      final String? id = _invoiceId;
       final Json response;
       if (id == null) {
         response = await widget.api.createSalesInvoice(payload);
@@ -840,6 +951,222 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
             saveFailureMessage(error, 'invoice', changesKept: true);
         _saving = false;
       });
+    }
+  }
+
+  // ── Counter billing (SEL-12) ───────────────────────────────────────────
+
+  /// Give a direct line its product: the product's own price where nobody
+  /// typed one, and its serials where it is serial-tracked.
+  void _pickProduct(int index, String? value) {
+    final _DirectLine line = _directLines[index];
+    _setState(() {
+      line.productId = value;
+      // Units of the last product are not units of this one.
+      line.serialIds.clear();
+      line.batchPicks = null;
+      // The product's selling price, where nobody typed one -- not on a bill
+      // whose rates include GST: that price is before tax, and blank takes
+      // it as such.
+      if (line.price.text.trim().isEmpty && !_rateIncludesTax) {
+        final Product? chosen = _product(value);
+        final double price = double.tryParse(chosen?.sellingPrice ?? '') ?? 0;
+        if (price > 0) {
+          line.price.text = chosen!.sellingPrice;
+          line.autoPrice = chosen.sellingPrice;
+        }
+      }
+      _current = index;
+    });
+    if (value != null && _isSerialised(value)) {
+      _loadSerials(value, _directWarehouse);
+    }
+    _schedulePreview();
+  }
+
+  /// Take what the scanner typed: a barcode, ending in Enter. A product
+  /// already on the bill gains one; a new one gets a line of quantity 1.
+  void _scanned(String raw) {
+    final String code = raw.trim();
+    _scan.clear();
+    if (code.isEmpty) {
+      _refocusScan();
+      return;
+    }
+    final String wanted = code.toLowerCase();
+    Product? found;
+    for (final Product item in _products) {
+      if (item.barcode.isNotEmpty && item.barcode.toLowerCase() == wanted) {
+        found = item;
+        break;
+      }
+    }
+    if (found == null) {
+      for (final Product item in _products) {
+        if (item.code.toLowerCase() == wanted) {
+          found = item;
+          break;
+        }
+      }
+    }
+    if (found == null) {
+      _setState(() => _scanMessage = 'No product has the barcode "$code".');
+      _refocusScan();
+      return;
+    }
+    final Product product = found;
+    int index = _directLines.indexWhere((l) => l.productId == product.id);
+    if (index >= 0) {
+      final _DirectLine line = _directLines[index];
+      final double next =
+          (double.tryParse(line.quantity.text.trim()) ?? 0) + 1;
+      _setState(() {
+        line.quantity.text =
+            next == next.roundToDouble() ? next.toStringAsFixed(0) : '$next';
+        _current = index;
+        _scanMessage = null;
+      });
+      _schedulePreview();
+    } else {
+      index = _directLines.indexWhere((l) => l.productId == null);
+      _setState(() {
+        if (index < 0) {
+          _directLines.add(_DirectLine());
+          index = _directLines.length - 1;
+        }
+        final _DirectLine line = _directLines[index];
+        line.refresh++;
+        line.quantity.text = '1';
+        _scanMessage = null;
+      });
+      _pickProduct(index, product.id);
+    }
+    _refocusScan();
+  }
+
+  void _refocusScan() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _scanFocus.requestFocus();
+    });
+  }
+
+  /// A fresh bill for the same counter: the customer stays, everything the
+  /// last sale typed goes.
+  void _newCounterBill() {
+    _previewTimer?.cancel();
+    _previewSerial++;
+    _setState(() {
+      _directLines
+        ..clear()
+        ..add(_DirectLine());
+      _current = 0;
+      _preview = null;
+      _error = null;
+      _scanMessage = null;
+      _reference.clear();
+      _coupon.clear();
+      _billDiscount.clear();
+      _freight.clear();
+      _receivedNow.clear();
+      _receivedRef.clear();
+      _receivedMethod = 'CASH';
+      _splitTender = false;
+      _hadTenders = false;
+      for (final _TenderRow row in _tenders) {
+        row.dispose();
+      }
+      _tenders.clear();
+      _saving = false;
+    });
+    _refocusScan();
+  }
+
+  /// F9: save, approve where the user may, print the receipt and open the
+  /// next bill. A step the server refuses stops the run, shows its message
+  /// and leaves the bill on screen.
+  Future<void> _saveApprovePrint() async {
+    final Json? payload = _payload();
+    if (payload == null) {
+      setState(() => _error = 'Bill at least one line.');
+      return;
+    }
+    final String? short = _serialShortfall();
+    if (short != null) {
+      setState(() => _error = short);
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    final bool freshCounterBill = _direct && _invoiceId == null;
+    String? savedId = _invoiceId;
+    try {
+      final Json response;
+      if (savedId == null) {
+        response = await widget.api.createSalesInvoice(payload);
+      } else {
+        response = await widget.api.updateSalesInvoice(
+          savedId,
+          payload,
+          expectedVersion: (_existing?['version'] as num?)?.toInt(),
+        );
+      }
+      final dynamic saved = response['data'];
+      if (saved is Map && stringValue(saved['id']).isNotEmpty) {
+        savedId = stringValue(saved['id']);
+      }
+      final String number =
+          saved is Map ? stringValue(saved['invoice_number']) : 'invoice';
+      final String status = saved is Map ? '${saved['status'] ?? ''}' : '';
+      final String billId = savedId ?? '';
+      if (billId.isEmpty) {
+        throw const ApiException('The server did not return the saved bill.');
+      }
+      if (widget.mayApprove && status != 'APPROVED') {
+        await widget.api.documentAction('sales-invoices', billId, '/approve');
+      }
+      if (!mounted) return;
+      final List<int>? pdf = await fetchPrintablePdf(
+        context,
+        ({bool referenceCopy = false}) =>
+            widget.api.salesInvoicePdf(billId, referenceCopy: referenceCopy),
+      );
+      if (!mounted) return;
+      if (pdf != null) {
+        final printer = widget.printer;
+        if (printer != null) {
+          await printer(context, pdf, number);
+        } else {
+          await printDocument(context, bytes: pdf, documentName: number);
+        }
+      }
+      if (!mounted) return;
+      if (freshCounterBill) {
+        _newCounterBill();
+      } else {
+        Navigator.of(context).pop(true);
+      }
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      final String message =
+          saveFailureMessage(error, 'invoice', changesKept: true);
+      if (savedId != null && savedId != _invoiceId) {
+        // The bill was saved before the refusal: carry on with that draft so
+        // another F9 mends it rather than raising a second bill.
+        setState(() {
+          _draftId = savedId;
+          _loading = true;
+          _saving = false;
+        });
+        await _load();
+        if (mounted) setState(() => _error = message);
+      } else {
+        setState(() {
+          _error = message;
+          _saving = false;
+        });
+      }
     }
   }
 
@@ -1432,6 +1759,10 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
 class _DirectLine {
   String? productId;
 
+  /// Bumped when a scan fills the line, so its product box is rebuilt to
+  /// show the product (a box otherwise takes its selection only once).
+  int refresh = 0;
+
   /// The units picked for a serial-tracked product, by serial id.
   final List<String> serialIds = <String>[];
   final TextEditingController quantity = TextEditingController();
@@ -1453,5 +1784,23 @@ class _DirectLine {
     return text.isEmpty ||
         (double.tryParse(text) ?? 0) == 0 ||
         text == autoPrice;
+  }
+}
+
+/// One way of paying on a counter bill (SEL-12): mode, amount, reference.
+class _TenderRow {
+  _TenderRow({this.mode = 'CASH', String amount = '', String reference = ''})
+      : amount = TextEditingController(text: amount),
+        reference = TextEditingController(text: reference);
+
+  String mode;
+  final TextEditingController amount;
+  final TextEditingController reference;
+
+  double get value => double.tryParse(amount.text.trim()) ?? 0;
+
+  void dispose() {
+    amount.dispose();
+    reference.dispose();
   }
 }
