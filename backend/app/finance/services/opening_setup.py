@@ -165,6 +165,15 @@ CHART: tuple[SeedAccount, ...] = (
         ControlAccountPurpose.INPUT_TAX_SGST,
     ),
     SeedAccount(
+        # PMT-06 deposits a quarterly filer has not yet used (GST-7).
+        # Migration 20261003_0255 gives existing firms the same account.
+        "1340",
+        "GST Electronic Cash Ledger",
+        AccountTypeEnum.ASSET,
+        "CA",
+        ControlAccountPurpose.GST_CASH_LEDGER,
+    ),
+    SeedAccount(
         "2100",
         "Trade Payables",
         AccountTypeEnum.LIABILITY,

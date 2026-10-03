@@ -61,6 +61,9 @@ class GstComplianceSettings {
     this.ewayBillLimit = '50000',
     this.rule37Mode = 'REPORT',
     this.supplierIrnCheck = 'WARN',
+    this.filingFrequency = 'MONTHLY',
+    this.quarterlyFrom,
+    this.qrmpPaymentMethod = 'FIXED_SUM',
   });
 
   /// ISO dates (`2026-04-01`), or null when not set.
@@ -91,6 +94,15 @@ class GstComplianceSettings {
   /// warned about (backlog 78 row 5).
   final String supplierIrnCheck;
 
+  /// MONTHLY or QUARTERLY (QRMP), GST-7.
+  final String filingFrequency;
+
+  /// First day of the quarter QRMP starts from; null means every period.
+  final String? quarterlyFrom;
+
+  /// FIXED_SUM or SELF_ASSESSMENT: how the PMT-06 deposits are worked out.
+  final String qrmpPaymentMethod;
+
   factory GstComplianceSettings.fromJson(Json json) {
     String? date(dynamic value) {
       final String text = stringValue(value);
@@ -118,10 +130,17 @@ class GstComplianceSettings {
       supplierIrnCheck: stringValue(json['supplier_irn_check']).isEmpty
           ? 'WARN'
           : stringValue(json['supplier_irn_check']),
+      filingFrequency: stringValue(json['filing_frequency']).isEmpty
+          ? 'MONTHLY'
+          : stringValue(json['filing_frequency']),
+      quarterlyFrom: date(json['quarterly_from']),
+      qrmpPaymentMethod: stringValue(json['qrmp_payment_method']).isEmpty
+          ? 'FIXED_SUM'
+          : stringValue(json['qrmp_payment_method']),
     );
   }
 
-  /// Exactly the nine keys the server declares; it refuses any other.
+  /// Exactly the twelve keys the server declares; it refuses any other.
   Json toJson() => <String, dynamic>{
         'einvoice_applicable_from': einvoiceApplicableFrom,
         'thirty_day_rule_from': thirtyDayRuleFrom,
@@ -132,5 +151,8 @@ class GstComplianceSettings {
         'eway_bill_limit': ewayBillLimit,
         'rule37_mode': rule37Mode,
         'supplier_irn_check': supplierIrnCheck,
+        'filing_frequency': filingFrequency,
+        'quarterly_from': quarterlyFrom,
+        'qrmp_payment_method': qrmpPaymentMethod,
       };
 }

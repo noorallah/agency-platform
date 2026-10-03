@@ -607,6 +607,13 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['SALES_VIEW', 'ACCOUNT_VIEW'],
           requiresAnyPermission: true,
         ),
+        // Cash deposited by a quarterly (QRMP) filer, PMT-06 (GST-7).
+        ModuleTabDefinition(
+          id: 'gst-deposits',
+          label: 'PMT-06 deposits',
+          requiredPermissions: ['SALES_VIEW', 'ACCOUNT_VIEW'],
+          requiresAnyPermission: true,
+        ),
         ModuleTabDefinition(
           id: 'tcs',
           label: 'TCS',

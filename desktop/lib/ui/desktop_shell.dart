@@ -64,6 +64,7 @@ import 'purchases/purchase_approval_limits_dialog.dart';
 import 'sales/credit_note_page.dart';
 import 'sales/customer_debit_note_page.dart';
 import 'sales/einvoice_page.dart';
+import 'sales/gst_deposits_page.dart';
 import 'sales/gst_payment_page.dart';
 import 'sales/gst_return_page.dart';
 import 'sales/gst_filing_checks_page.dart';
@@ -2856,6 +2857,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),
+      'gst-deposits' => GstDepositsPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+        ),
       'gst-payment' => GstPaymentPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -2941,6 +2947,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           'What a return for the period would get wrong, found before it is '
               'filed: invalid GSTINs, HSN codes, places of supply, IRNs and '
               'late credit notes.',
+        ),
+      'gst-deposits' => (
+          'PMT-06 deposits',
+          'The cash a quarterly (QRMP) filer pays in the first two months of '
+              'a quarter, and the balance its cash ledger holds.',
         ),
       'gst-payment' => (
           'GST Payment',

@@ -387,6 +387,20 @@ class GstComplianceSettings(BaseEntity):
     gstr2b_tolerance: Mapped[Decimal] = mapped_column(
         Numeric(18, 2), nullable=False, default=Decimal("1.00"), server_default="1.00"
     )
+    #: MONTHLY or QUARTERLY: how the firm files GSTR-1 and 3B (GST-7, A83).
+    #: Quarterly is QRMP: returns each quarter, tax deposited each month on
+    #: PMT-06 (``gst_cash_deposits``).
+    filing_frequency: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="MONTHLY", server_default="MONTHLY"
+    )
+    #: The first day of the first quarter filed quarterly; months before it
+    #: stay monthly. Null with QUARTERLY: every period is quarterly.
+    quarterly_from: Mapped[date | None] = mapped_column(Date)
+    #: FIXED_SUM or SELF_ASSESSMENT: how a quarterly filer's PMT-06 deposit
+    #: for months 1 and 2 is suggested (rule 61A / circular 143/13/2020).
+    qrmp_payment_method: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="FIXED_SUM", server_default="FIXED_SUM"
+    )
 
 
 class TaxRule(BaseEntity):

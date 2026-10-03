@@ -22,10 +22,14 @@ from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.responses.models import ApiResponse
 from app.core.utils.dates import utc_now
-from app.gst_returns.models import HEADS, GstPayment, GstReturnType
+from app.gst_returns.models import HEADS, GstCashDeposit, GstPayment, GstReturnType
 from app.gst_returns.schemas import (
     FilingCheckRowResponse,
     FilingChecksResponse,
+    GstCashDepositCreate,
+    GstCashDepositResponse,
+    GstDepositSuggestionResponse,
+    GstFilingPlanResponse,
     GstHeadRow,
     GstPaymentCreate,
     GstPaymentPreviewResponse,
@@ -45,11 +49,14 @@ from app.gst_returns.schemas import (
 )
 from app.gst_returns.services import GstReturnService
 from app.gst_returns.services.filing_checks import GstFilingChecks
+from app.gst_returns.services.filing_frequency import FilingFrequencyService
+from app.gst_returns.services.gst_cash_deposits import GstCashDepositService
 from app.gst_returns.services.gst_payment_service import (
     GstPaymentPreview,
     GstPaymentService,
 )
 from app.gst_returns.services.gstr2b import Gstr2bService
+from app.gst_returns.services.qrmp import QrmpReturnService
 from app.gst_returns.services.rule37 import Rule37Row, Rule37Service
 from app.gst_returns.services.tax_calendar import TaxCalendarService
 
@@ -92,6 +99,40 @@ def gstr3b(
         data=GstReturnService(db).gstr3b(
             firm_scope=scope.firm_id, from_date=from_date, to_date=to_date
         )
+    )
+
+
+#: A return month, ``YYYY-MM``.
+ReturnPeriod = Annotated[str, Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")]
+
+
+@router.get("/iff", response_model=ApiResponse[dict[str, object]])
+def invoice_furnishing_facility(
+    scope: GstReturnScope,
+    return_period: ReturnPeriod,
+    db: Session = Depends(get_db),
+) -> ApiResponse[dict[str, object]]:
+    """Return what a quarterly filer's month 1 or 2 furnishes on the IFF.
+
+    B2B invoices and registered notes only, with their value against the
+    50 lakh a month the IFF may carry (GST-7).
+    """
+    return ApiResponse(data=QrmpReturnService(db).iff(scope.firm_id, return_period))
+
+
+@router.get("/gstr1-quarterly", response_model=ApiResponse[dict[str, object]])
+def gstr1_quarterly(
+    scope: GstReturnScope,
+    return_period: ReturnPeriod,
+    db: Session = Depends(get_db),
+) -> ApiResponse[dict[str, object]]:
+    """Return a quarterly filer's GSTR-1 for the quarter a month falls in.
+
+    Leaves out the B2B invoices and registered notes of a month whose IFF
+    is recorded as filed, and names those months (GST-7).
+    """
+    return ApiResponse(
+        data=QrmpReturnService(db).gstr1_quarter(scope.firm_id, return_period)
     )
 
 
@@ -168,6 +209,9 @@ def _preview_response(preview: GstPaymentPreview) -> GstPaymentPreviewResponse:
         days_late=preview.days_late,
         suggested_interest=preview.suggested_interest,
         cash_total=preview.cash_total,
+        period_from=preview.period_from,
+        deposits_total=preview.deposits_total,
+        bank_total=preview.bank_total,
         heads=[
             GstHeadRow(
                 head=head.upper(),
@@ -179,6 +223,7 @@ def _preview_response(preview: GstPaymentPreview) -> GstPaymentPreviewResponse:
                 credit_used=result.used(head),
                 carried_forward=result.carried(head),
                 reverse_charge=preview.reverse_charge[head],
+                paid_from_deposits=preview.from_deposits[head],
             )
             for head in HEADS
         ],
@@ -204,6 +249,7 @@ def _payment_response(row: GstPayment) -> GstPaymentResponse:
             credit_used=getattr(row, f"used_{head}"),
             carried_forward=getattr(row, f"carried_{head}"),
             reverse_charge=getattr(row, f"reverse_charge_{head}"),
+            paid_from_deposits=getattr(row, f"cash_ledger_{head}"),
         )
         for head in HEADS
     ]
@@ -217,6 +263,7 @@ def _payment_response(row: GstPayment) -> GstPaymentResponse:
         money_account_id=row.money_account_id,
         heads=heads,
         cash_total=sum((h.cash + h.reverse_charge for h in heads), Decimal("0")),
+        deposits_total=sum((h.paid_from_deposits for h in heads), Decimal("0")),
         interest_amount=row.interest_amount,
         late_fee_amount=row.late_fee_amount,
         narration=row.narration,
@@ -334,6 +381,7 @@ def tax_calendar(
                 done_on=item.done_on,
                 reference=item.reference,
                 filing_id=item.filing_id,
+                period_from=item.period_from,
             )
             for item in TaxCalendarService(db).calendar(scope.firm_id)
         ]
@@ -506,3 +554,147 @@ def rule37_post(
         ),
         message=f"Posted {len(made)} rule 37 entr{'y' if len(made) == 1 else 'ies'}.",
     )
+
+
+def _heads_of(values: dict[str, Decimal]) -> Rule37Heads:
+    """Name the four heads of a per-head figure."""
+    return Rule37Heads(
+        igst=values["igst"],
+        cgst=values["cgst"],
+        sgst=values["sgst"],
+        cess=values["cess"],
+    )
+
+
+def _deposit_response(row: GstCashDeposit) -> GstCashDepositResponse:
+    """Describe one PMT-06 deposit."""
+    return GstCashDepositResponse(
+        id=row.id,
+        return_period=row.return_period,
+        deposit_date=row.deposit_date,
+        method=row.method,
+        money_account_id=row.money_account_id,
+        challan_cpin=row.challan_cpin,
+        challan_cin=row.challan_cin,
+        amount_igst=row.amount_igst,
+        amount_cgst=row.amount_cgst,
+        amount_sgst=row.amount_sgst,
+        amount_cess=row.amount_cess,
+        total=sum(
+            (Decimal(str(getattr(row, f"amount_{head}"))) for head in HEADS),
+            Decimal("0"),
+        ),
+        narration=row.narration,
+        status=row.status,
+        journal_entry_id=row.journal_entry_id,
+        reversal_journal_entry_id=row.reversal_journal_entry_id,
+        reversal_reason=row.reversal_reason,
+        reversed_at=row.reversed_at,
+        version=row.version,
+    )
+
+
+@router.get("/filing-plan", response_model=ApiResponse[GstFilingPlanResponse])
+def gst_filing_plan(
+    scope: GstPaymentViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GstFilingPlanResponse]:
+    """Say how the firm files, and what its PMT-06 deposits still hold (GST-7)."""
+    plan = FilingFrequencyService(db).plan(scope.firm_id)
+    return ApiResponse(
+        data=GstFilingPlanResponse(
+            filing_frequency=plan.frequency,
+            quarterly_from=plan.quarterly_from,
+            qrmp_payment_method=plan.payment_method,
+            cash_ledger=_heads_of(GstCashDepositService(db).balance(scope.firm_id)),
+        )
+    )
+
+
+@router.get(
+    "/cash-deposits/suggestion",
+    response_model=ApiResponse[GstDepositSuggestionResponse],
+)
+def gst_deposit_suggestion(
+    scope: GstPaymentViewScope,
+    return_period: ReturnPeriod,
+    method: Annotated[
+        str | None, Query(pattern="^(FIXED_SUM|SELF_ASSESSMENT)$")
+    ] = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GstDepositSuggestionResponse]:
+    """Work out month 1 or 2's PMT-06 deposit by either method; writes nothing."""
+    found = GstCashDepositService(db).suggestion(
+        scope.firm_id, return_period, method=method
+    )
+    return ApiResponse(
+        data=GstDepositSuggestionResponse(
+            return_period=found.return_period,
+            method=found.method,
+            due_date=found.due_date,
+            heads=_heads_of(found.amounts),
+            total=found.total,
+            basis=found.basis,
+            deposited=_heads_of(found.deposited),
+        )
+    )
+
+
+@router.get("/cash-deposits", response_model=ApiResponse[list[GstCashDepositResponse]])
+def list_gst_cash_deposits(
+    scope: GstPaymentViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[GstCashDepositResponse]]:
+    """Every PMT-06 deposit the firm has recorded, newest month first."""
+    return ApiResponse(
+        data=[
+            _deposit_response(row)
+            for row in GstCashDepositService(db).list_deposits(scope.firm_id)
+        ]
+    )
+
+
+@router.post("/cash-deposits", response_model=ApiResponse[GstCashDepositResponse])
+def record_gst_cash_deposit(
+    data: GstCashDepositCreate,
+    scope: GstPaymentPostScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GstCashDepositResponse]:
+    """Record a PMT-06 challan: Dr GST cash ledger, Cr the bank (GST-7)."""
+    row = GstCashDepositService(db).record(
+        scope.firm_id,
+        data.return_period,
+        deposit_date=data.deposit_date,
+        money_account_id=data.money_account_id,
+        amounts={
+            "igst": data.amount_igst,
+            "cgst": data.amount_cgst,
+            "sgst": data.amount_sgst,
+            "cess": data.amount_cess,
+        },
+        actor_id=scope.actor_id,
+        method=data.method,
+        challan_cpin=data.challan_cpin,
+        challan_cin=data.challan_cin,
+        narration=data.narration,
+    )
+    db.commit()
+    return ApiResponse(data=_deposit_response(row))
+
+
+@router.post(
+    "/cash-deposits/{deposit_id}/reverse",
+    response_model=ApiResponse[GstCashDepositResponse],
+)
+def reverse_gst_cash_deposit(
+    deposit_id: UUID,
+    data: GstPaymentReverse,
+    scope: GstPaymentPostScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GstCashDepositResponse]:
+    """Take back a deposit recorded in error, while its quarter is unsettled."""
+    row = GstCashDepositService(db).reverse(
+        deposit_id, firm_id=scope.firm_id, actor_id=scope.actor_id, reason=data.reason
+    )
+    db.commit()
+    return ApiResponse(data=_deposit_response(row))

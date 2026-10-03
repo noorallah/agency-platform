@@ -61,6 +61,11 @@ from app.customers.gst_registration import (
 )
 from app.customers.models import Customer, CustomerReceivableTransaction
 from app.debit_note.models import DebitNote, DebitNoteStatus
+from app.gst_returns.services.filing_frequency import (
+    FilingFrequencyService,
+    FilingPlan,
+    month_of,
+)
 from app.products.models import Product
 from app.sales_invoice.models import (
     SalesInvoice,
@@ -158,25 +163,6 @@ _LIVE_INVOICE_STATUSES = ("APPROVED", "CLOSED")
 #: A sales return has given tax back once it is completed -- the customer is
 #: credited and the output tax reversed -- and closing it changes neither.
 _CREDITED_RETURN_STATUSES = ("COMPLETED", "CLOSED")
-
-
-def gstr1_due_date(invoice_date: date) -> date:
-    """Return when an invoice's GSTR-1 was due: the 11th of the next month.
-
-    Nothing in this system records that a return was filed, so the due date
-    stands in for it: once it has passed, the month is taken as filed, and a
-    later cancellation cannot rewrite it (D-CMP-11).
-
-    Args:
-        invoice_date: The invoice's own date.
-
-    Returns:
-        The 11th of the month after the invoice's month.
-
-    """
-    if invoice_date.month == 12:
-        return date(invoice_date.year + 1, 1, 11)
-    return date(invoice_date.year, invoice_date.month + 1, 11)
 
 
 #: The longest period one return may be asked for, in calendar months. GSTR-1
@@ -362,6 +348,20 @@ class GstReturnService:
         """Bind the service to the request unit of work."""
         self._session = session
         self._firms = FirmMetadataReader(session)
+        self._plans: dict[UUID, FilingPlan] = {}
+
+    def _gstr1_due(self, firm_id: UUID, invoice_date: date) -> date:
+        """Return when the GSTR-1 declaring an invoice was due.
+
+        The 11th of the next month for a monthly filer; the 13th after the
+        quarter for a quarterly one (GST-7), whose bill cancelled inside its
+        own quarter was never filed and is simply dropped.
+        """
+        plan = self._plans.get(firm_id)
+        if plan is None:
+            plan = FilingFrequencyService(self._session).plan(firm_id)
+            self._plans[firm_id] = plan
+        return plan.gstr1_due(plan.return_period(month_of(invoice_date)))
 
     def gstr1(
         self, *, firm_scope: UUID, from_date: date, to_date: date
@@ -1219,10 +1219,11 @@ class GstReturnService:
             among=select(SalesInvoice.id).where(*declared),
         )
 
-    @staticmethod
-    def _cancelled_after_filing(invoice: SalesInvoice, on: date | None) -> bool:
-        """Say whether a bill was cancelled after its month's return was due."""
-        return on is not None and on > gstr1_due_date(invoice.invoice_date)
+    def _cancelled_after_filing(self, invoice: SalesInvoice, on: date | None) -> bool:
+        """Say whether a bill was cancelled after its period's return was due."""
+        return on is not None and on > self._gstr1_due(
+            invoice.firm_id, invoice.invoice_date
+        )
 
     @over_chunks("invoice_ids")
     def _cancellation_dates(self, invoice_ids: list[UUID]) -> dict[UUID, date]:
@@ -2065,7 +2066,7 @@ class GstReturnService:
             row["total_number"] = int(str(row["total_number"])) + 1
             on = cancelled_on.get(invoice_id)
             if status == "CANCELLED" and not (
-                on is not None and on > gstr1_due_date(invoice_date)
+                on is not None and on > self._gstr1_due(firm_scope, invoice_date)
             ):
                 row["cancelled"] = int(str(row["cancelled"])) + 1
             if text < str(row["from"]):
