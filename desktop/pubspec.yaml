@@ -1,7 +1,7 @@
 name: agency_desktop
 description: Agency Platform reusable Flutter desktop foundation.
 publish_to: none
-version: 1.1.0+4
+version: 1.2.0+5
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
