@@ -11,6 +11,10 @@ Scripted manual tests for the Flutter desktop client against a real backend,
 **organised by module** so a session can take one module at a time and stop
 cleanly at the end of it.
 
+Pointers refreshed on **2026-10-03**: each section now ends with the cases
+added for the backlog items built in Waves 1 to 3 (written from the code, not
+yet driven).
+
 Rewritten on **2026-09-05** against the running application. The previous
 version was written on 2026-08-16, before promotions, loyalty, credit notes,
 proformas, TCS, GST returns, e-invoicing, customer groups and price-list
@@ -240,6 +244,18 @@ TC-FIELD-001 and TC-FIELD-003 in a firm of the run's own — and by defect
 | 5.8a, 5.9 | TC-MAST-007 |
 | 5.10 | TC-MAST-008 |
 
+**Added 2026-10-03** (backlog Waves 1 to 3; written from the code, not yet
+driven): TC-MAST-011 to 016 in `docs/INDEPENDENT_TEST_CASES.md` and
+`docs/qa/05_MASTERS.md` have no old row to map from. Screens to walk in
+Masters: **Principals** and **Brands** (Masters → Configuration → Items), the
+brand picker and **Price history** on a product, **Merge into...** on the
+Customers and Vendors lists and the duplicate warning on a new party,
+**Bank accounts** and **Files** on a customer, **Also a supplier** /
+**Also a customer** with the combined statement, codes left blank to be
+issued from a series, and Reports → Financial → **Customer PAN check** and
+**Supplier PAN check**.
+
+
 ## 6. Configuration
 
 **Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16**, as TC-CONF-001 to
@@ -258,6 +274,16 @@ simulator cases run in TEST01.
 | 6.6 | TC-FIELD-003 |
 | 6.7 | TC-CONF-005 |
 | 6.8 | TC-CONF-006 |
+
+**Added 2026-10-03** (written from the code, not yet driven): TC-CONF-008 (a
+feature or module created by the platform administrator reaches every store),
+TC-FIELD-015 (**Additional details** on the six document editors, and **Show on
+print**) and TC-FIELD-016 (a firm's own **Custom Fields** and **Custom Field
+Rules** under Settings → Firm). Also in Settings: **Approval Levels**
+(TC-FIN-021), **Adjustment Reasons** and **Adjustment Limits**
+(TC-STOCK-010, 016), **TDS on Purchases (194Q)** (TC-FIN-017) and the GST
+settings' **Return filing** section (TC-COMP-023).
+
 
 ## 7. Buying — order to payment
 
@@ -281,6 +307,16 @@ no longer needs a seeded WHOLE01 invoice, because the fixture raises one.
 | 7.9 | TC-BUY-006 |
 | 7.10 | TC-BUY-007 |
 | 7.11 | TC-BUY-008 |
+
+**Added 2026-10-03** (written from the code, not yet driven): TC-BUY-019 to
+028. Screens under Buy: **Requisitions**, the supplier's **Catalogue**,
+**Ratings** and lead-time summary, **Amend** and **Revisions** on an approved
+order, **Quality Inspection**, *Bill matching* and **Purchase Budgets** in
+Settings → Buying, **Payment Runs** with the bank file, **Supplier Rebates**,
+**Landed Costs**, **Supplier Gifts**, and the Supplier performance and Free
+goods reports. TC-BUY-017 and 018 were added to the QA suite by hand on
+2026-10-02 and are now in the case file too.
+
 
 ## 8. Stock
 
@@ -307,6 +343,18 @@ gone out of date.
 | 8.6a | TC-STOCK-007 |
 | 8.7 | TC-STOCK-006 |
 | 8.8 | TC-STOCK-008 |
+
+**Added 2026-10-03** (written from the code, not yet driven): TC-STOCK-009 to
+020. Screens under Stock: **Stock Transfers** (draft, dispatch, in transit,
+receive, challan), **Repacking**, **Adjustment Approvals**, **Physical Count**
+with count plans and blind sheets, **Stock Summary** with incoming, outgoing
+and projected columns, the **Expiry Monitor**'s *Return to supplier now*,
+**Components**, **Assemble** and **Disassemble** on a kit product, **Print
+labels** on products and goods receipts, the evidence picker on the adjustment,
+write-off and transfer dialogs, and Home's stock alerts. Settings → Stock holds
+**Adjustment Reasons**, **Adjustment Limits** and **Batch Rules** (hold returned
+goods for checking).
+
 
 ## 9. Selling — quotation to cash
 
@@ -353,6 +401,18 @@ from the first rupee (threshold 0) so every receipt shows it.
 | 9.23, 9.24 | TC-SELL-016 |
 | 9.25, 9.26 | TC-SELL-017 |
 
+**Added 2026-10-03** (written from the code, not yet driven): TC-SELL-027 to
+035, with no old row to map from. Flows to walk under Sell: **Enquiries**
+(prospect, follow-ups, convert to a quotation, lost reasons, the *Enquiries
+lost* report), the customer-first tick list when billing several delivery
+notes, counter billing with the scan field, tenders and **Save & print (F9)**,
+**Pick list** and **Loading sheet** on the Delivery Notes list, cash discount
+terms and **Raise interest debit note**, **Pending approval** customers,
+**Price Levels**, the UPI QR and **WhatsApp** on an invoice, and **Remind** /
+**Send** for statements, quotations, orders, receipts and purchase orders.
+Approvals by level are TC-FIN-021.
+
+
 ## 10. Pricing, promotions and incentives
 
 **Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16**, as TC-INCENT-001 to
@@ -378,6 +438,13 @@ opens empty. **10.4–10.6**'s seeded claim counts are the fixture's own now.
 | 10.12, 10.13 | TC-INCENT-006 |
 | 10.14 | TC-INCENT-007 |
 | 10.15 | TC-INCENT-008 |
+
+**Added 2026-10-03** (written from the code, not yet driven): TC-INCENT-009 to
+012 — *Buy X get Y at a discount*, *Combo price*, *Bonus loyalty points*,
+the customer-history, weekday and time-of-day conditions, **Generate codes** /
+**Export codes** on a coupon offer, **Copy with new dates...**, and **Principal
+Claims** (Buy → Money). Price levels are TC-SELL-033.
+
 
 ## 11. Territory, routes and beats
 
@@ -424,6 +491,15 @@ refusal for no GSTIN; vehicle required; e-way bill before registration refused.
 | 12.6 | TC-COMP-006 |
 | 12.7, 12.8 | TC-COMP-007 (and TC-SELL-013 for the receipt that charges it) |
 
+**Added 2026-10-03** (written from the code, not yet driven): TC-COMP-020 to
+026 — the 30 November warnings and 16-character numbers, **GST checks**,
+filed returns kept with an *Amendments* section, quarterly (QRMP) filing with
+**PMT-06 deposits** and the IFF, **Rule 42**, a branch's own GSTIN and the tax
+rule kept on each line. They sit under Accounts → Tax filing. TC-COMP-009 to
+019 (offline e-invoices, e-way bills, Rule 37 and the rest) were added to
+the QA suite by hand on 2026-10-02 and are now in the case file too.
+
+
 ## 13. Finance, reports and platform
 
 **Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16**, as TC-FIN-001 to
@@ -450,6 +526,17 @@ raised and dispatched its own note.
 | 13.9c3 | TC-FIN-008, TC-FIN-009 |
 | 13.9d, 13.9e | TC-FIN-007 |
 | 13.10 | TC-FIN-011 |
+
+**Added 2026-10-03** (written from the code, not yet driven): TC-FIN-012 to
+025. Screens: Accounts → Books → **Bank Reconciliation** and **Export to
+Tally**; **Post-dated Cheques** under Sell → Money and Buy → Money; **Bank
+Details** and **TDS Challans** under Accounts → Tax filing; **Cash Flow**
+under Statements; **Files** on journals, receipts and payments; **Print
+cheque** and **Cheque layout** on Payments; close checks and ageing bands on
+Financial Years; Sell → Documents → **Approvals** and the bell; the audit trail
+search box; and the analysis controls on Sales Analysis, Purchase Analysis and
+Rate Trend.
+
 
 ## 14. Concurrency and two machines
 

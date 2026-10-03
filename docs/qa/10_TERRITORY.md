@@ -2,7 +2,7 @@
 
 Part of the QA test suite in `docs/qa/`. Read `00_README.md` first: it
 explains the preparations, the accounts and how to record results. Generated
-on 2026-09-25 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
+on 2026-10-03 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
 
@@ -53,7 +53,6 @@ for a tester with a REST client such as Postman; skip them otherwise.
 - **Preconditions:** A Wholesale firm with the territories, routes, rounds, salespeople and beat plans described in this section's preparation table.
 - **Steps:** Sales Orders → **New Order** for `QA-C4` (Anand, on S1, covered by Asha): ships from MAIN, **Salesman Bala**, one line `QA-P` qty 1 → Create draft. Then Asha → Create draft. Then Salesman blank → Create draft → reopen.
 - **Expect:** Bala is refused in the editor's banner: "The selected salesperson is not assigned to this territory." — nothing saved. Asha saves. Blank saves and, reopened, the salesman is **Asha**, supplied by the customer's route.
-
 ### TC-TERR-006 — Loading places from India Post (B6)
 
 *Added 2026-10-02 (decision B6).*

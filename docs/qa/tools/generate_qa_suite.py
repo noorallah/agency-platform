@@ -12,7 +12,7 @@ SRC = (ROOT / "docs" / "INDEPENDENT_TEST_CASES.md").read_text(encoding="utf-8")
 TABS = json.loads((SCRATCH / "tabs.json").read_text(encoding="utf-8"))
 MATRIX = json.loads((SCRATCH / "matrix.json").read_text(encoding="utf-8"))
 ROLES = json.loads((SCRATCH / "roles.json").read_text(encoding="utf-8"))["roles"]
-TODAY = "2026-09-25"
+TODAY = "2026-10-03"
 
 # --------------------------------------------------------------------------
 # Preparations: what each developer fixture built, said so a person can build

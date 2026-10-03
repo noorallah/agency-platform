@@ -2,7 +2,7 @@
 
 Part of the QA test suite in `docs/qa/`. Read `00_README.md` first: it
 explains the preparations, the accounts and how to record results. Generated
-on 2026-09-25 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
+on 2026-10-03 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
 
@@ -92,6 +92,36 @@ commission uses `commission-firm`:
 - **Preconditions:** As *territory-firm*, plus commission rules, targets and three collected sales, as in the preparation table.
 - **Steps:** sign in as the prepared **Asha** (`SALES_EXECUTIVE`), expand Sales. **(HTTP)** as Asha: `GET /api/v1/commission/payouts`; `POST /api/v1/commission/payouts/{any id}/approve` and `/pay`.
 - **Expect:** no Commission, Targets, Price Lists or Promotions under Sales. All three calls **403**.
+### TC-INCENT-009 — Buy X get Y at a discount, and a combo price
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Also needs:** a second product `QA-Q` priced like DET (create one), so a combo has two items.
+- **Steps:** as the prepared **Firm admin**: Sell → Pricing → **Promotions** → New. (a) Benefit *Buy X get Y at a discount*: buy 2, get 1 at **50%**, optional cap amount. Save and activate. Quotations → New for Vijaya → `QA-DET` × 3, then × 6, then × 1. (b) New promotion, benefit *Combo price*: pick DET and `-Q` in the product pick, amount **150** for the set. Activate. A quotation with DET × 2 and Q × 2, then DET × 2 and Q × 1.
+- **Expect:** (a) the discount is on **whole groups only**: 3 units make one group (the third unit at half price of what that unit has left after other discounts), 6 make two, 1 makes none; a cap limits the total and is shared across the lines in proportion. (b) each **complete set** across the lines sells for the combo amount and the saving (the sets' normal value less 150) is spread across the lines by value; DET × 2 with Q × 2 is two sets, DET × 2 with Q × 1 is one set and the leftover DET is at its normal price. The offer editor shows the benefit and its fields.
+### TC-INCENT-010 — Bonus loyalty points, customer history and day-and-time conditions
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** As *selling-invoiced*, plus 200 loyalty points credited to the first customer.
+- **Steps:** as the prepared **Firm admin**: Sell → Pricing → **Promotions** → New *Bonus loyalty points* with a multiplier of **3** (the benefit stands alone on its offer), dated today. Raise and approve a bill for Vijaya and read her balance (Masters → Loyalty). Try a multiplier of 11 or 0. Next, New promotion with a 5% discount and the condition **Customer order count** = 0 (first order), another with **Days since last order** = 30. Then New promotion 5% with **Days of the week** = Sat and Sun, and another with **Time of day** between 16:00 and 18:00. Try a time window crossing midnight, and a weekday outside 1-7 through the API. Quote a bill on a weekday morning, on a Saturday, and inside the window.
+- **Expect:** an approved bill earns points at the scheme's rate **times the largest multiplier** among the live points offers whose conditions hold on the bill's date; the audit row names the offer and the multiplier; the offer is passed over by the discount engine with a trace note. A multiplier outside 1-10 is refused. Order-count and days-since-last-order conditions are tested against the customer's approved and closed bills on or before the date (a customer with none has count 0). Weekend-only and time-window offers apply only inside their day or window (time is India time, taken from the quotation's or order's own creation time); a window that crosses midnight and a weekday outside 1-7 are refused when the condition is written.
+### TC-INCENT-011 — Bulk coupon codes, and copying an offer with new dates
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Steps:** as the prepared **Firm admin**: Sell → Pricing → **Promotions** → open the coupon-only offer **WELCOME** → coupons → **Generate codes**: count 50, prefix `DIWALI`, a description and a window → Generate; then ask for 6,000. **Export codes**. Use one code on a quotation twice, and for a second customer. Back on the grid select WELCOME → **Copy with new dates...** with a code suffix `-NOV` and a new window.
+- **Expect:** 50 random codes `DIWALI-XXXXXXXX` are made from an alphabet without look-alike characters, each usable **once** and once per customer, all or nothing; 6,000 is refused (limit 5,000). The export is a CSV of the offer's codes with their uses. A code already used cannot be redeemed again. The copy is a **DRAFT** at version one with code `…-NOV`, the same conditions and benefits and the new window; its coupons are **not** copied; the audit trail has *promotion.copied* naming the source. The grid selects one offer at a time (the API takes up to 100).
+### TC-INCENT-012 — Claims to the principal
+
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** As *selling-delivered*, plus the first note billed and approved, as in the preparation table.
+- **Also needs:** a principal (Masters → Items → Principals) and a brand under it on `QA-DET`; a promotion the principal funds (principal and **share %** on the promotion editor) that was claimed on an approved bill; an expiry write-off of a DET batch; a sales return of DET completed with damaged goods. A vendor to be the principal's supplier account.
+- **Steps:** as the prepared **Firm admin**: Buy → Money → **Principal Claims** → New → pick the principal and the period → Preview. Raise the claim. Raise it again for the same period. Then record the principal's **credit note** (Accounts → Party Adjustments, kind *Principal claim*) against it, and a payment into the bank for the rest. Reverse one receipt. Cancel the claim in a second run and raise it again. Print.
+- **Expect:** the preview gathers each source **once**: scheme redemptions (at the principal's share of the benefit), expiry write-offs of its products (at book value) and damaged or scrapped lines of completed sales returns (at the taxable rate credited). Raising posts Dr *Claims Receivable from Principals* and Cr promotional expense (schemes) or inventory adjustment (stock). A second claim over the same sources is refused or empty (one live claim per source). Settlement by credit note and by bank payment moves the status RAISED → PART_SETTLED → SETTLED; reversing a receipt moves it back. Cancelling frees the sources to be claimed again. Reading needs PURCHASE_VIEW, writing PURCHASE_APPROVE. Free quantity on a bill line is not claimed yet.
 ---
 
 ## Screen checks

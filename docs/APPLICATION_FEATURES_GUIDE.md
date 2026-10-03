@@ -16,7 +16,10 @@ order quantity picture, reverse-charge returns and debit notes to customers
 brought in the same day; the rest of the batch work, column mapping on
 imports, e-invoicing (route, notes, print gate, 30-day limit), e-way bills
 without an IRN, rule 37, supplier IRNs and India Post places brought up to
-#947 the same night.
+#947 the same night; the backlog build of 2026-10-02/03 (enquiries, approval
+levels, the bell, bank reconciliation, landed cost, stock transfer documents,
+branch GSTINs, QRMP filing, Tally export and the rest) brought in on
+2026-10-03.
 
 ## Contents
 
@@ -191,9 +194,19 @@ The first screen after signing in, cut to what the person may see:
   customers owe and how much of it is overdue, and items below their reorder
   level. Each opens the screen behind it.
 - **Recent invoices.**
+- **The bell** on the menu bar: everything that is waiting for the person
+  signed in, in the firm they are working in, with a count. It lists orders
+  and bills waiting to be approved, documents waiting for the next sign-off
+  (see *Approval levels* in 5.2), purchase requisitions and stock adjustments
+  waiting for approval, messages that failed to send, and stock at or below its
+  reorder level. Click a line to open the screen that deals with it; reading
+  one marks it read until the count changes. The bell looks again every minute.
 - **To do**, each a count that opens the list behind it: orders to approve,
   orders to deliver, invoices overdue, purchase orders to receive, supplier
   bills overdue.
+  Stock adds its own lines: below reorder level, out of stock, over the
+  maximum level, batches near expiry, goods in transit between warehouses and
+  count sheets still open.
 - **Tax calendar** (for whoever may open GST Payment): for each of the last
   three finished months the firm traded in, **GSTR-1** (due the 11th),
   **GSTR-3B** (due the 20th, with the cash it works out to) and the **TCS
@@ -236,6 +249,17 @@ delivery and every report still adds up.
 
 ## 5.2 Documents
 
+**Enquiries** (*Sell → Documents → Enquiries*). A customer, or somebody who
+is not yet a customer, asks about goods. Record who (name, company, phone,
+email, city), where the lead came from, the salesman, the lines they asked
+about, the value you expect, the date you expect to close and the date to
+follow up. *Follow-ups due* lists what to ring today. **Convert** makes the
+customer from the prospect's details (if they are not one already) and a
+quotation from the lines, in one step; every line must name a product first.
+Converting that quotation to an order marks the enquiry *won*. An enquiry that
+goes nowhere is marked *lost* with a reason from a fixed list, and the lost
+report counts and values them. Enquiries use the quotation's permissions.
+
 **Quotations.** An offer with lines, prices and validity. Convert an
 accepted quotation into a sales order in one step. *Reports: quotation
 register, quotation conversion.*
@@ -246,6 +270,25 @@ reserves the stock and claims any promotion. An order can be put **on hold**
 (the stock stays reserved; nothing more is delivered until the hold is
 released) or cancelled (the reservation is released). The credit check runs
 here: see 5.5.
+
+**Reservations that lapse.** A firm can say how many days an approved order
+keeps its stock reserved (*Settings → Selling → Sales Stages*). An order left
+past that is marked *reservation lapsed* and its stock is released; *Reserve
+again* takes it back if the stock is still there. Left blank, a reservation
+never lapses.
+
+**Approval levels.** A firm can ask for more than one signature on big
+documents (*Settings → Firm → Approval Levels*): for sales orders, sales
+invoices, purchase orders and purchase bills, up to three levels, each from an
+amount upwards and each for a role. With no rule for a document's total,
+nothing changes. Otherwise the levels are signed in order, one level per
+person; *Approve* goes through only for someone who can sign the last open
+level, and anyone else uses *Sign off* to record theirs. The last sign-off
+approves the document. *Reject* needs a reason, clears the sign-offs and sends
+a purchase order back to draft; several documents can be rejected together. A
+sign-off counts while the total is no more than it was when signed. The
+**Approvals** screens (*Sell → Documents* and *Buy → Documents*) list what is
+waiting. Platform administrators are not limited by the levels.
 
 **Rate includes GST.** The order and the quotation carry the same switch the
 counter bill has, starting from the firm's setting (*Settings → Selling →
@@ -305,6 +348,46 @@ outside it) and the amount the customer owes, with a due date from the
 customer's payment terms. A document-level discount or freight charge is
 spread across the lines so the tax is right.
 
+**Several delivery notes on one bill.** The invoice editor asks for the
+**customer** first (only customers with notes still to bill) and opens a tick
+list of their delivery notes -- number, date, order and what is left to bill
+before tax. A customer with one note has it ticked already. A note of another
+branch, salesman, territory or route cannot be ticked beside those already
+ticked, and the list says which field and which note it clashes with. The
+supplier bill does the same with the **supplier** and their goods receipts
+(branch is the only thing a receipt can clash on).
+
+**Counter billing.** On a counter bill a barcode scanner (in keyboard mode)
+adds the product, and scanning it again adds one more. *Received now* can be
+split across tenders -- cash, UPI, card, bank transfer -- with the balance and
+the change shown; each tender is recorded as its own receipt against the bill
+(cash to the cash book, the rest through the bank). **Save & print (F9)**
+saves, approves, prints on the thermal printer and opens the next bill.
+
+**A UPI QR on the bill.** Type the firm's UPI ID (as `name@handle`) under
+*Print settings* on the invoice screen, beside the bank details. A bill that
+still owes money then prints *Scan to pay by UPI* with a QR carrying the payee,
+the amount left and the bill number -- in the A4 footer and under the total on
+the 80 mm roll. A part-paid bill asks only for the rest; a paid, draft or
+cancelled bill, or a reference copy awaiting its IRN, prints none.
+
+**Sending and sharing by hand.** On an approved invoice, *WhatsApp* saves the
+PDF to Downloads, opens the folder with it selected and opens WhatsApp with
+the firm's covering note (and the UPI line where it applies); the document's
+timeline records *WhatsApp shared by hand*, never *sent*. It needs no account
+or switch. *Send* (email) is on the quotation, order, customer statement,
+receipt and purchase order screens as well as the invoice, and needs the
+firm's messaging and email switched on (see 12). *Remind* on the Customer
+Statement screen, or on an overdue invoice, sends the customer a **statement
+of account** -- movements since the oldest unpaid bill, the closing balance,
+the unpaid bills with days overdue and the UPI line -- by email or by WhatsApp
+by hand. A customer who owes nothing, or marked *no reminders*, is refused by
+name.
+
+**Picking list and loading sheet.** Tick delivery notes on the list and choose
+*Pick list* (what to take from where, for the warehouse) or *Loading sheet*
+(what is on the vehicle); each is an A4 PDF.
+
 **Sales Returns.** Goods coming back against an invoice. Approving puts the
 stock back into the warehouse (or into a damaged or quarantine bucket) and
 reduces what the customer owes, with the tax reversed. For a firm that
@@ -354,6 +437,27 @@ notes, sales and purchase returns: tick the rows and *Approve selected* or
 is listed with the reason while the rest go ahead, and *Retry the refused*
 tries those again. Journal entries have *Post selected*.
 
+**Payment mode.** Every receipt and payment records its mode (cash, cheque,
+bank transfer, UPI) and the instrument date; the cash and bank books show
+*Mode* and *Instrument*, and collections by mode read from it.
+
+**Post-dated cheques** (*Sell → Money → Post-dated Cheques* for cheques
+received; *Buy → Money → Post-dated Cheques* for cheques issued). A cheque is
+**held** (nothing posted), then **deposited** (or presented) on or after its
+date -- which records the receipt or payment -- then **cleared**. A cheque that
+**bounces** reverses the receipt or payment as of the day it came back, and
+the bank's return charge can be posted and charged to the customer's account.
+A held cheque can be cancelled. The list can show only those due to deposit
+today.
+
+**Early-payment discount and interest on overdue.** A customer can carry
+*cash discount days and percent* (the credit policy holds the firm's default
+terms); Record Receipt prefills the discount when the money arrives within the
+days. The credit policy also carries an **overdue interest rate** and grace
+days; the customer's statement shows the interest accrued, and *Raise interest
+debit note* drafts a debit note for it (reason: late payment interest) for a
+person who may manage customer debit notes.
+
 **Refunds.** Money paid back to a customer, out of an advance or a credit.
 
 **Customer Statements.** Two views:
@@ -364,6 +468,14 @@ tries those again. Journal entries have *Post selected*.
   opening balance, every invoice, return, credit note and receipt in date
   order with a running balance, and the closing balance. Printable to send to
   the customer.
+- **Combined statement**: where one business is both a customer and a supplier
+  (see 9.1, *Also a supplier*), the statement merges both accounts in date
+  order with a running net, and the set-off preselects the linked party.
+
+The ageing **bands** are the firm's to choose (*Settings → Financial Years*),
+not always 0-30, 31-60, 61-90 and over 90; the supplier ageing follows the same
+bands. Invoices **due** today or in the week ahead are listed by the *due*
+reports, on the selling side and the buying side.
 
 ## 5.4 Incentives
 
@@ -386,6 +498,12 @@ default from 80% of the limit. A firm can choose to **block** such orders
 instead (the credit settings on the *Masters → Customers* screen). Changing that policy is
 kept to people who hold the customer-settings permission, not the sales
 manager whose orders it limits.
+
+**New outlets pending approval.** A firm can switch on *New outlets need
+approval* (Sales Stages). A person without the customer-approve permission then
+saves a new customer as **Pending approval**, and nothing can be billed to it
+until the office approves it (one by one or in bulk, from the Customers list,
+which filters on *Pending approval*).
 
 ## 5.6 Field sales
 
@@ -416,13 +534,34 @@ price list; the customer's own standing discount; their customer group's
 discount. A blank discount box takes the arrangement; a **0** typed in the
 box refuses it.
 
+**Price Levels** (*Sell → Pricing → Price Levels*). Named levels (for example
+*Retail*, *Wholesale*, *Dealer*): the product's rate at each level is typed on
+the product, and a level is given to a customer or to a customer group. A blank
+unit price on an order or quotation is filled from the price list rate if there
+is one, else the customer's level, else the product's own price; the price
+list's quantity breaks apply.
+
 **Promotions.** Offers the firm is running: a percentage or amount off, a
 special price, **buy X get Y free**, for chosen products, categories,
 customers or territories, between dates, optionally with a coupon code and a
 limit on how many times it can be used. Several promotions can apply to one
-line unless a promotion is marked as not combining with others. Each offer
+line unless a promotion is marked as not combining with others. Beyond those:
+**buy X get Y at a discount** (a percentage off the Y goods, with an optional
+cap), a **combo price** (a fixed price for a set of products bought together,
+counted in complete sets) and **bonus loyalty points** for a festival (the
+largest multiplier that applies). An offer can also be limited by who is buying
+-- the customer's number of orders, days since their last order -- and by
+when: days of the week (weekends only, say) and a time-of-day window. Each offer
 records what it has cost. *Reports: promotion performance, promotion claims,
 coupon performance.*
+
+**Coupon codes in bulk.** On the coupon screen, *Generate codes* mints up to
+5,000 single-use codes at once (with a prefix, a description and a window), all
+or none; *Export codes* writes the offer's codes and their uses to a CSV file.
+**Copy with new dates...** on Promotions copies the picked offer as a draft
+with a new window and code suffix (conditions and benefits kept, coupons not).
+An offer can name the **principal** who funds it and its share, which feeds
+*Principal Claims* (6.3).
 
 When several offers match, the firm chooses (*Settings → Selling → Sales
 Stages → When several offers match*): **combine** them, or give **the best
@@ -458,6 +597,11 @@ value of a point, expiry) is set per firm.
 
 ## 6.2 Documents
 
+**Requisitions** (*Buy → Documents → Requisitions*). An indent: someone asks
+for goods, a manager approves, and an approved requisition is converted into a
+purchase order. *Raise requisition* on *Below reorder level* (see 6.3) makes
+them from the shortages.
+
 **Purchase Orders.** Enter the supplier and the lines. An order is
 **approved** before anything can be received against it, and approval can be
 kept to a purchase manager. Receiving moves the order to *part received* and
@@ -470,6 +614,28 @@ billed. The order carries a **billing status** (*Not billed*, *Part billed*,
 *Billed*) and a **Complete** flag beside its status, so billing never
 overwrites how far receiving got.
 
+**Amending an order.** *Amend* on an approved purchase order changes it and
+keeps the earlier version; *Revisions* lists every version, and the print
+carries the amendment.
+
+**Supplier rates.** A supplier can carry a **standing discount** and its own
+price lists (a price list can be scoped to a supplier). On the order, a blank
+price and discount are filled from the supplier's price list, then the
+supplier's **catalogue** (the *Catalogue* tab on the supplier: their code for
+each product, price, pack size, minimum order, order multiple and lead time,
+also loadable from a file), then the product's purchase price; a product price
+with an effective date (9.2) is used from its date. Under *Settings → Buying →
+Purchase Settings* the firm chooses what happens to a quantity that is not a
+multiple of the supplier's order multiple; the editor shows the hint with *Use
+N*. The expected delivery date starts from the supplier's average **lead time**,
+which the supplier screen summarises, and the sales-based reorder point uses
+it too.
+
+**Budgets.** *Settings → Buying → Purchase Budgets* sets an amount for a
+period; the order shows how much of the budget it would use, and approving an
+order over budget follows the firm's policy (warn or block) unless the approver
+holds the over-budget permission.
+
 **Goods Receipts.** Record what actually arrived against an order: the
 quantity accepted, damaged and rejected, into which warehouse, with the batch
 number and expiry date or serial numbers where the product is tracked.
@@ -478,6 +644,21 @@ records the **e-way bill** the goods came on (*E-way bill no.* and date, or
 *Record e-way bill* once it is completed); a receipt worth more than the
 firm's e-way bill limit without one is warned about -- for an unregistered
 supplier, as the buyer's to raise.
+
+**Quality inspection.** A product or category marked *Inspect on receipt* is
+received into **quarantine**: owned and valued, but not for sale. *Buy →
+Documents → Quality Inspection* lists the lines waiting; recording the result
+releases what passes to stock, and what is rejected is written off at once or
+left in quarantine for a purchase return. Cancelling the receipt releases the
+hold.
+
+**Free goods and gifts.** A product can be marked *free issue only*; a receipt
+line can name the **scheme** the free goods came under, and a write-off can name
+the customer they were given to (reasons *Free to customer* and *Sample*).
+*Free goods* in the operational reports adds it up. Gifts from a supplier are
+recorded in the **Supplier Gifts** register (*Buy → Money*): each is booked as
+income (or as drawings, if the owner kept it), and the **194R summary** shows
+the value by supplier.
 
 **Purchase Invoices.** The supplier's bill, matched to the receipt. Approving
 books the amount owed with a due date, and the input GST the firm can claim.
@@ -494,6 +675,12 @@ bill records the **supplier's IRN** from the QR code (*Record IRN* works on an
 approved bill too), and warns when that supplier's bill has none (a firm may
 switch the warning off) or when another bill already carries the same IRN.
 It warns and never refuses: the firm still owes the money.
+
+**Bill matching tolerances.** Under *Settings → Buying → Purchase Settings →
+Bill matching* a firm sets how far a bill's price may differ from the order (a
+percentage and an amount). A bill outside the tolerance is held: only a person
+who holds the over-tolerance approval permission can approve it, singly or in
+bulk.
 
 What a **supplier** is under GST is set on the supplier: *Regular*,
 *Composition*, *Unregistered*, *Overseas* or *SEZ*. A supplier marked
@@ -523,6 +710,43 @@ as a return off a paid bill does.
 invoices; any excess is held as an advance. Reversed, never edited, like a
 receipt.
 
+A supplier's **credit** (from a return or a debit note on a paid bill) can be
+set against a supplier's **opening bill** as well as a purchase bill.
+
+**Payment Runs** (*Buy → Money → Payment Runs*). Proposes the supplier bills
+falling due by a date; a draft run holds the bills and amounts chosen (never
+more than a bill still owes). Approving -- a separate permission the cashier
+does not hold -- records one payment per supplier by bank transfer, all or
+none, and *Bank file* writes a generic NEFT upload (one row per supplier, from
+its primary bank account). A layout for the firm's own bank is not built.
+
+**Printing a cheque.** *Print cheque* on a payment made by cheque prints on the
+leaf (CTS-2010 style: date boxes, payee, amount in words, A/c payee crossing);
+*Cheque layout* moves the print to suit the bank's leaf, kept per bank account.
+A cash or non-cheque payment, or a reversed one, is refused.
+
+**Supplier Rebates** (*Buy → Money → Supplier Rebates*). A volume rebate agreed
+with a supplier: set up the agreement, *accrue* what is earned (booked as a
+receivable from the supplier), reverse an accrual that was wrong, and settle it
+with a supplier adjustment of kind *Supplier rebate* rather than a debit note
+(which must name one bill).
+
+**Principal Claims** (*Buy → Money → Principal Claims*). What a principal (the
+brand owner) owes the firm: for each principal and period it gathers, once
+each, the redemptions of the schemes the principal funds (at its share), expiry
+write-offs of its products, and damaged goods on completed sales returns.
+*Preview* shows it, *Raise* books it as a claim receivable, *Print* gives the
+claim, and it is settled by the principal's credit note or by its payment into
+a cash or bank account; its status (raised, part settled, settled) follows.
+Cancelling a claim frees its sources to be claimed again.
+
+**Landed Costs** (*Buy → Money → Landed Costs*). Freight, duty and handling
+that belong to goods already received. Name the completed receipts and the
+charges (each with its own bill), choose to spread them by value, quantity or
+weight, and post. The share for goods still on hand adds to their value (so the
+stock is worth what it really cost); the share for goods already sold goes to
+cost of goods sold. Cancelling reverses it.
+
 **Purchase Dashboard.** What is on order, what is waiting to be received,
 what is overdue, and spend by supplier.
 
@@ -548,6 +772,12 @@ row used and the daily average.
 Every buying list names the **supplier** in a column and on the bar, and is
 searched by supplier name.
 
+**Supplier performance** (*Reports*): by supplier, the share of receipts on
+time, the quantity rejected, returned and left short, and a **supplier price
+trend**. People can also **rate** a supplier (the *Ratings* tab on the
+supplier): scores from 1 to 5 on several criteria, one live rating per person,
+earlier ones kept as history.
+
 ---
 
 # 7. Stock
@@ -560,7 +790,10 @@ than about a trade.
 ## 7.1 Seeing the stock
 
 - **Inventory**: what is on hand, by product and warehouse: available,
-  reserved for orders, damaged, quarantined. The movements below start here.
+  reserved for orders, damaged, quarantined, with the quantity **incoming**
+  (approved purchase orders not yet received) and **outgoing** (approved sales
+  orders not yet shipped) and the projected quantity. The movements below start
+  here.
 - **Stock Summary**: the totals at a glance: items, value, items below
   reorder level, out of stock.
 - **Stock Search**: find a product and see where it is held.
@@ -581,6 +814,16 @@ From the Inventory screen, each its own action:
 - **Write off**: remove stock that is lost, broken or expired.
 - **Quarantine**: set stock aside so it cannot be sold, and release it later.
 
+An adjustment or write-off names a reason from the firm's own list (*Settings →
+Stock → Adjustment Reasons*); *internal use*, *staff* and *display or samples*
+are posted to their own expense accounts, while damage, expiry and loss stay on
+Inventory Adjustment. **Large adjustments need approval:** under *Settings →
+Stock → Adjustment Limits* each role has a limit; above it the post is refused
+and *Submit for approval* sends it to **Adjustment Approvals** (*Stock →
+Movements*), where someone with a higher limit approves or rejects it, singly
+or in bulk. Files (a photo, a note) can be attached to an adjustment, a
+write-off, a transfer or a count sheet as evidence.
+
 And two documents:
 
 - **Opening Stock**: the stock a firm holds on its first day in the
@@ -589,7 +832,25 @@ And two documents:
 - **Physical Count**: a stock-take. Open a count for a warehouse, record what
   was found line by line (over hours, by several people if needed; the list
   shows how many lines are counted), then post it: every difference becomes
-  an adjustment.
+  an adjustment. **Count plans** choose what to count and how often -- a
+  warehouse, a bin or an ABC class (fast sellers more often) -- draw the sheet,
+  can hide the system quantity on a **blind sheet**, and limit what a counter
+  may post.
+- **Stock Transfers** (*Stock → Movements*). A move between branches or
+  warehouses as a document: *Dispatch* takes the goods off the source at their
+  cost and holds them **in transit** (still the firm's, so the books do not
+  move); *Receive* names, line by line, what arrived and what of it was damaged
+  (damaged goods arrive blocked from sale; what never arrived is written off).
+  A challan prints without values. A draft or dispatched transfer can be
+  cancelled; a received one is final. A transfer between two branches with
+  different GSTINs is refused: bill it as a sale to the other branch (9.3). The
+  quick *Transfer* action above stays for a shift within a building.
+- **Repacking** (*Stock → Movements*). Break a bulk product into smaller packs
+  (or the reverse); the output carries the cost of what went in.
+- **Kits and combo packs.** A product of type bundle is a *kit* with
+  components. *Assemble* and *Disassemble* turn components into kits and back;
+  a kit is stocked and sold as itself, and a delivery that is short of
+  assembled kits assembles the shortfall from the components.
 
 ## 7.3 Tracking
 
@@ -602,6 +863,24 @@ Used when the firm's business profile switches them on:
   sale, with warranty where it applies.
 - **Expiry Monitor**: batches that have expired or expire soon, and their
   value.
+
+Each product can set its own **expiry rules** (days before expiry that it may
+no longer be sold, the alert window, and the days to return it to the
+supplier) and a **batch issue rule** (earliest expiry first, first in first
+out, or picked by hand); the Expiry Monitor offers *Return to supplier now* for
+what is due back. A product with a **shelf life** in days has its expiry worked
+out from the manufacturing date typed on a receipt line. A product can be
+**discontinued** (it still sells until the stock is gone, but is not bought or
+suggested for reorder) or **not for sale** (refused on every new sales line).
+
+**Returned goods held until checked.** *Settings → Stock → Batch Rules* can
+send the sellable part of a sales return into quarantine; *Release* on the
+stock row puts checked goods on the shelf.
+
+**Barcode labels.** *Print labels* on the product and goods receipt lists
+prints Code 128 labels (name, barcode, MRP, price, batch and expiry) on A4
+sheets of 65 or 24, or a 50 x 25 mm roll, skipping the positions already used
+on a part sheet.
 
 ## 7.4 Data
 
@@ -642,6 +921,31 @@ posts it to the journal; an expense dated in a locked year is refused.
 **Ledgers.** One account's movements over a period, with the opening and
 closing balance.
 
+**Bank Reconciliation** (*Accounts → Books*). Import the bank's statement from
+a file (with the same column mapping as other imports; a line already imported
+on the account is refused). *Auto-match* pairs each line with the book entry of
+the same amount within three days and the same reference (cheque number or
+UTR); anything doubtful is left for a person to match by hand, a line can match
+several entries that add up to it, and a match can be undone. The
+*reconciliation statement* as on a date shows the books, the unmatched items
+and the statement balance, checked against the balance printed on the
+statement. Unmatched lines of a month are listed when the month is closed (8.4).
+
+**Files on entries.** *Files* on a journal entry, a receipt or a payment keeps
+the bill or letter behind it.
+
+**Export to Tally** (*Accounts → Books*). Writes the period's posted vouchers
+as a TallyPrime import file: each is typed by what made it (Sales, Purchase,
+Credit Note, Debit Note, Contra, Receipt, Payment, else Journal), with a ledger
+per customer and supplier under Sundry Debtors or Creditors. The *mappings* give
+each account the name and group it has in the firm's Tally. Try a sample in
+Tally before relying on it.
+
+**Bank Details** (*Accounts → Tax filing → Bank Details*). The firm's bank
+accounts for its bills, one marked *print on documents*: its details print in
+the bank block of every document that has one. Only people who may manage
+accounts or record payments see the full number; others see the last four.
+
 ## 8.2 Statements
 
 - **Trial Balance**: every account's balance at a date; debits equal credits.
@@ -651,6 +955,8 @@ closing balance.
 - **Stock valuation**: every item's quantity, rate and value as on a date, with
   the Inventory account's balance on the same day and the difference.
 - **Balance Sheet**: what the firm owns and owes at a date.
+- **Cash Flow**: where the cash came from and went, by operating, investing
+  and financing, from the books, checked against the cash and bank balances.
 
 Each chooses its period on the page line and opens a line to its ledger.
 
@@ -662,6 +968,35 @@ large and small, credit notes, HSN summary, documents issued) and
 invoices and credit notes **as they stand**, every time, so a late credit note
 or a cancelled invoice is always reflected. The place of supply is decided by
 the tax charged on each document.
+
+Once a month is **marked filed**, its GSTR-1 is kept as it was filed. Later
+changes do not rewrite it: they appear as **amendments** (B2BA, B2CLA, CDNRA,
+B2CSA and documents added after filing) in the period that makes them, and
+GSTR-3B carries the net change. A firm whose branches have their own **GSTIN**
+chooses the GSTIN at the top of the page and sees only those branches' documents
+(see 9.3).
+
+**Quarterly filers (QRMP).** Under *Settings → Tax → GST Documents → Return
+filing* a firm chooses monthly or quarterly filing and how it pays in months 1
+and 2. The tax calendar then shows the optional IFF and the PMT-06 deposit for
+months 1 and 2 and the quarter's GSTR-1 and GSTR-3B on their due dates;
+*PMT-06 deposits* (beside GST Payment) records the deposit, and the quarterly
+GST payment uses it before the bank.
+
+**GST checks** (*Accounts → Tax filing → GST checks*). Before filing, lists what
+a return would trip over: an invalid GSTIN (the firm's, a buyer's, a supplier's),
+a missing or short HSN code, a missing place of supply, an invoice with no IRN,
+a credit note raised after the last date allowed (30 November after the year),
+or one on a cancelled invoice. Each row names its document. Separately, a
+credit note after that date, a supplier bill after its credit's last date and a
+document number longer than the 16 characters GST allows (the default series
+are now shortened to fit) each raise a warning when saved. Each line also keeps
+the tax rule that taxed it, shown in the line's tax detail.
+
+**Rule 42** (*Accounts → Tax filing → Rule 42*). Credit on goods and services
+used for both taxable and exempt supplies is reversed in proportion: the
+monthly reversal, the year's true-up and the reclaim post against Input Tax Not
+Claimable, and GSTR-3B carries them. Rule 43 (capital goods) is not built.
 
 **GSTR-2B Reconciliation.** The portal's monthly statement of what
 suppliers filed, imported as the JSON file the portal gives and matched to the
@@ -718,6 +1053,22 @@ cash payable, and the credit carried to next month. Recording the challan
 (CPIN, bank, interest) posts it in one journal; only the latest month can be
 reversed.
 
+**TDS challans** (*Accounts → Tax filing → TDS Challans*). The tax deducted
+and not yet deposited is listed by section; make a challan from it (one
+section, the tax equals the deductions' sum, with the bank's counterfoil
+details), and the challan's serial, BSR code and date flow into the TDS return;
+*Challans due* shows what is deposited and what is not. A supplier can carry a
+*Usual TDS section* that the payment screen prefills.
+
+**TDS on purchases (194Q).** Switch it on under *Settings → Tax → TDS on
+Purchases (194Q)* (threshold 50 lakh, 0.1%, 5% without PAN, all editable). The
+payment screen then prefills the section and the amount for a supplier whose
+bills in the year exceed the threshold, never over a figure typed; a register
+in Reports lists each supplier's bills and the 194Q deducted.
+
+**PAN check.** *Reports → Financial → Customer PAN check* and *Supplier PAN
+check* list parties with a missing or wrongly shaped PAN.
+
 **TDS.** Two registers: *TDS deducted* (by the firm, with PAN and section by
 quarter, for 26Q) and *TDS deducted by customers* (with their TAN, to check
 against 26AS).
@@ -725,8 +1076,8 @@ against 26AS).
 ## 8.4 Structure (configuration)
 
 - **Control Accounts**: which account each kind of posting uses (stock,
-  customers, suppliers, sales, purchases, output and input GST ...), 24 in
-  all, filled in when the books are opened. Once an account has entries
+  customers, suppliers, sales, purchases, output and input GST ...), filled in
+  when the books are opened. Once an account has entries
   against it, it cannot be switched, so the books never split one story
   across two accounts.
 - **Cost Centres** and **Profit Centres**: optional tags on entries for
@@ -734,7 +1085,9 @@ against 26AS).
 
 **Financial years and periods** are under *Settings → Financial Years*. A
 document can only be posted into an open period; closing a period stops late
-changes to it.
+changes to it. Before a month is closed the screen lists what is still undone
+(draft documents, unreconciled bank lines and the like) -- it lists and never
+refuses. The same screen sets the **ageing bands** (5.3).
 
 ---
 
@@ -752,12 +1105,33 @@ deleted. One company may be several customers (a branch per state, say), so a
 GSTIN or PAN may repeat; saving one another customer already holds names that
 customer and asks first.
 
+**One business as customer and supplier.** Tick *Also a supplier* on the
+customer (or *Also a customer* on the supplier) to link the two records (same
+PAN, each linked once); the *Combined statement* then nets what each owes the
+other.
+
+**Duplicates.** Saving a new customer or supplier warns when the same GSTIN,
+the same phone (last ten digits) or the same name (ignoring *stores*, *traders*,
+*Pvt*, *Ltd* and the like) is already held. *Merge into...* on the lists joins
+a duplicate into the one to keep: every document, balance and record of the
+duplicate moves to the survivor in one step, and the duplicate is retired. It is
+refused if the duplicate has a document dated in a locked financial year.
+
+**Customer bank accounts and files.** The *Bank accounts* and *Files* tabs on
+the customer keep the customer's accounts (numbers masked to the last four for
+people who may not change them) and scanned papers.
+
+**Codes from a series.** Leave a new customer's, supplier's or product's code
+blank and one is issued on save (CUS, SUP, PRD followed by five digits); a code
+typed is kept.
+
 **Vendors.** The supplier's side of the same: name, code, GSTIN, PAN,
 contacts, addresses, bank account for payments, category and type, payment
 terms, GST type, and whether the supplier e-invoices. Same export, bulk and
 restore actions.
 
-**Configuration:** *Customer Groups* (segments with a group discount),
+**Configuration:** *Customer Groups* (segments with a group discount and a
+price level),
 *Vendor Categories*, *Vendor Types*.
 
 ## 9.2 Items
@@ -767,11 +1141,18 @@ stock and selling), prices, preferred supplier, reorder level, barcode, and,
 where the profile
 switches them on, batch, expiry, serial number and warranty tracking, plus
 any extra fields the profile adds. Products can be imported from a file
-(checked before anything is saved) and exported.
+(checked before anything is saved) and exported. A product also carries its
+**brand** (and through it the **principal**), its **price levels**, a **price
+history** (a new price with an effective date, also loadable from a file), the
+expiry, shelf-life and issue rules (7.3), *Inspect on receipt* and *Not for
+sale*.
 
 **Configuration:**
 
 - *Product Categories*: a tree of categories.
+- *Principals* and *Brands* (*Masters → Items*): the brand owners the firm
+  distributes for and their brands; brand and principal are also ways to slice
+  Sales Analysis.
 - *Units of Measure*, *UOM Groups*, *Conversion Rules*: a product can be
   bought by the carton, held in boxes and sold in pieces; the conversion is
   applied on every document line.
@@ -781,7 +1162,10 @@ any extra fields the profile adds. Products can be imported from a file
 ## 9.3 Organisation and locations
 
 - **Branches**: places that trade, each with its address, GST registration
-  and manager. Every document belongs to a branch.
+  and manager. Every document belongs to a branch. A branch with its **own
+  GSTIN** (checked, and for the branch's own state) prints it on that branch's
+  documents, e-invoices and e-way bills, and files its GSTR-1 and 3B
+  separately; a branch without one uses the firm's.
 - **Warehouses**: places that hold stock, each under a branch.
 - **Configuration:** *Storage Areas* (zones, racks and bins inside a
   warehouse), *Branch Types*, *Warehouse Types*, and **Places** (countries,
@@ -799,7 +1183,7 @@ reports. Each can be filtered, sorted and exported.
 
 | Area | Reports |
 | --- | --- |
-| Quotations and orders | Quotation register, quotation conversion, sales order register, orders not yet delivered, back orders, orders by customer, salesman or territory, targets achieved |
+| Quotations and orders | Enquiries lost, quotation register, quotation conversion, sales order register, orders not yet delivered, back orders, orders by customer, salesman or territory, targets achieved |
 | Deliveries | Delivery note register, dispatches not yet completed, delivery progress by order, dispatches by route, salesman or warehouse |
 | Invoices and money | Sales invoice register, customer outstanding, invoices not yet approved, overdue sales invoices, sales invoice reconciliation |
 | Returns and credits | Sales return register, returns by customer or product, sales return reconciliation, credit note register, credits by customer or by reason |
@@ -807,7 +1191,8 @@ reports. Each can be filtered, sorted and exported.
 | Promotions | Promotion performance, promotion claims, coupon performance |
 | Buying | Purchase order register, orders not yet received, overdue purchase orders, orders by supplier or buyer, purchases by product, receipts awaiting completion, orders part received, receipts completed, damaged and rejected on receipt |
 | Supplier bills and returns | Purchase invoice register, supplier invoices not yet approved, purchase invoice reconciliation, overdue purchase invoices, vendor outstanding, purchase return register and reconciliation, damaged and expired goods returned, returns by product or vendor |
-| Commission and tax | Commission on collections, TCS charged against due |
+| Commission and tax | Commission on collections, TCS charged against due, customer and supplier PAN check, TDS 194Q |
+| Supplier and stock | Supplier performance, supplier price trend, free goods given, invoices due (selling and buying) |
 
 The accounting statements (Trial Balance, Profit & Loss, Balance Sheet,
 Ledgers), GST returns, customer statements and ageing are under
@@ -845,6 +1230,7 @@ time is required, and a person whose access is removed is signed out at once.
   edited or deleted, by anybody. The firm administrator may give *Firm Audit
   Log View* to any role of the firm (an accountant, say): it reads that firm's
   trail and nothing else.
+  One search box finds text in the action, the record type or the person.
 - **Diagnostics**: the server's health, versions and recent errors, for
   support.
 - **The quick check** (on the server PC, not a screen): `agency-server
@@ -861,7 +1247,9 @@ time is required, and a person whose access is removed is signed out at once.
 
 The server backs up every database **every night at 02:00** into
 `C:\ProgramData\Agency Platform\backups\daily`, keeping the newest seven, and
-also before every upgrade. The *Installation guide* (section 6) explains how
+also before every upgrade. After the nightly backup the server also prunes
+old sign-in and token records on its own (switched off by the platform-wide
+setting `AGENCY_RETENTION_AUTO_PURGE`). The *Installation guide* (section 6) explains how
 to restore one.
 
 ---
@@ -870,11 +1258,11 @@ to restore one.
 
 | Group | Screens | What they set |
 | --- | --- | --- |
-| Firm | Firm Settings, Financial Years, Numbering Series, My Branch and Warehouse | The firm's details; its years and accounting periods (open and close); the number pattern of each kind of document; the branch and warehouse **each person's** new orders, quotations and purchase orders open with; **Messaging** (email, WhatsApp, SMS: off until the firm switches it on with its own accounts; overdue reminders stop 90 days past due unless the firm sets another window) |
+| Firm | Firm Settings, Financial Years, Numbering Series, My Branch and Warehouse, Custom Fields, Approval Levels | The firm's details; its years and accounting periods (open and close); the number pattern of each kind of document; the branch and warehouse **each person's** new orders, quotations and purchase orders open with; the firm's own **custom fields**, and **extra fields on documents** (quotation, order, delivery note, invoice, purchase order, goods receipt) carried from one document to the next and printed when marked *Show on print*; **approval levels** (5.2); **Messaging** (email, WhatsApp, SMS: off until the firm switches it on with its own accounts; overdue reminders stop 90 days past due unless the firm sets another window) |
 | Selling | Sales Stages, Credit Control, Price Floor, Discount Limits, Loyalty Scheme, TCS Settings | Which stages of a sale the firm's people type, and whether *Rate includes GST* starts on; the credit warning and whether it blocks; the lowest price and each role's discount limit; points; tax collected at source |
-| Buying | Purchase Settings, Approval Limits | Purchasing defaults and approval, and the **reorder planning** choice (typed levels or from sales) |
-| Stock | Inventory Settings, Batch Rules | The firm's stock defaults; **Batch Rules**: the near-expiry window (30 days), whether a near-expiry batch or one passing over an earlier batch needs a reason, the minimum-shelf-life policy (block or warn), near-expiry stock below the price floor, and *Price from batch* |
-| Tax | Tax Configuration, Tax Rules, Rule Simulator, Execution Log, Tax Settings | Tax systems, components and rates; the rules that choose the tax for a line (by product tax group, category, place of supply, customer type); trying a rule before relying on it; what each calculation decided; **GST Documents**: the dispatch-before-invoice policy, whether route sales need the invoice first, the dates e-invoicing and the 30-day limit start, the e-invoice route (sandbox or offline) and the e-way bill limit, whether GSTR-3B claims every bill or only those matched to GSTR-2B, the 2B tolerance, the rule 37 mode, and whether a bill from an e-invoicing supplier with no IRN is warned about (read with *Tax view*, changed with the tax-settings permission) |
+| Buying | Purchase Settings, Approval Limits, Purchase Budgets | Purchasing defaults and approval, the **reorder planning** choice (typed levels or from sales), the order-multiple, bill-matching and budget policies, and the budgets |
+| Stock | Inventory Settings, Adjustment Reasons, Adjustment Limits, Batch Rules | The firm's stock defaults; **Batch Rules**: the near-expiry window (30 days), whether a near-expiry batch or one passing over an earlier batch needs a reason, the minimum-shelf-life policy (block or warn), near-expiry stock below the price floor, and *Price from batch*; the firm's adjustment reasons; each role's adjustment limit; whether returns are held for checking |
+| Tax | Tax Configuration, Tax Rules, Rule Simulator, Execution Log, Tax Settings, GST Documents, TDS on Purchases (194Q) | Tax systems, components and rates; the rules that choose the tax for a line (by product tax group, category, place of supply, customer type); trying a rule before relying on it; what each calculation decided; **GST Documents**: the dispatch-before-invoice policy, whether route sales need the invoice first, the dates e-invoicing and the 30-day limit start, the e-invoice route (sandbox or offline) and the e-way bill limit, whether GSTR-3B claims every bill or only those matched to GSTR-2B, the 2B tolerance, the rule 37 mode, whether a bill from an e-invoicing supplier with no IRN is warned about, the Rule 42 mode, and monthly or quarterly return filing (read with *Tax view*, changed with the tax-settings permission) |
 | Business profile | Feature Management, Module Configuration, Attribute Definitions, Mandatory Attributes, Profile Assignment, Industry Templates | What each industry switches on, which extra fields exist and which are mandatory for which product category, and which profile each firm has |
 
 **How tax is chosen.** Tax is not a rate stored on a product. The product
@@ -950,8 +1338,13 @@ A firm can add its own roles; the preset ones cannot be changed.
 Known and planned:
 
 - Gross profit shown above net profit on the Profit & Loss.
-- Sending documents by WhatsApp or email.
-- Bank reconciliation.
+- Sending documents automatically by WhatsApp: only sharing by hand is built
+  (5.2); automatic email, WhatsApp and SMS wait for the firm's own accounts
+  (Settings, Messaging).
+- The 26Q return file for TDS (the registers and challans exist).
+- Rule 43 (capital goods) of the common-credit reversal.
+- A bank-specific layout for the payment run file.
+- Opening a document straight from a GST check row.
 - A live connection to the e-invoice portal (the sandbox and the offline
   upload exist).
 - A signed installer (Windows warns when it is run).
