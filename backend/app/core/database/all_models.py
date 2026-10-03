@@ -67,6 +67,7 @@ from app.inventory.models import (
 )
 from app.loyalty.models import loyalty  # noqa: F401
 from app.messaging.models import messaging as _messaging  # noqa: F401
+from app.notifications.models import notification_read  # noqa: F401
 from app.party_adjustments.models import party_adjustment  # noqa: F401
 from app.pricing.models import price_level, price_list  # noqa: F401
 from app.products.models import brand, price_revision, product  # noqa: F401
