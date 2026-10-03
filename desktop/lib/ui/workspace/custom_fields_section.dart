@@ -23,7 +23,29 @@ class CustomFieldsController extends ChangeNotifier {
 
   /// Reads the applicable definitions for the entity type.
   final Future<ApplicableAttributesRecord> Function() load;
-  final Map<String, String> _stored;
+  Map<String, String> _stored;
+
+  /// Hands the controller the values a document already carries, for a form
+  /// that learns them after it was built (the document is read over the wire
+  /// once the editor is open). Fields already built are re-seeded.
+  void seed(List<AttributeValueRecord> stored) {
+    _stored = {
+      for (final AttributeValueRecord v in stored)
+        v.attributeDefinitionId: _storedValue(v),
+    };
+    for (final MapEntry<String, AttributeFieldController> entry
+        in controllers.entries) {
+      entry.value.clear();
+      final String? value = _stored[entry.key];
+      if (value == null) continue;
+      if (entry.value.definition.isBoolean) {
+        entry.value.boolean = value == 'true' ? true : (value == 'false' ? false : null);
+      } else {
+        entry.value.text.text = value;
+      }
+    }
+    notifyListeners();
+  }
 
   List<AttributeDefinitionRecord> definitions = const [];
   Set<String> mandatoryIds = const {};
@@ -61,6 +83,11 @@ class CustomFieldsController extends ChangeNotifier {
     } on ApiException catch (exception) {
       error = exception.message;
       loaded = false;
+    } on Object {
+      // An answer that could not be read is the same as no answer: the form
+      // says so and sends nothing, rather than failing in the background.
+      error = 'the answer could not be read';
+      loaded = false;
     } finally {
       loading = false;
       notifyListeners();
@@ -70,6 +97,12 @@ class CustomFieldsController extends ChangeNotifier {
   /// Whether the form has something to send. False until the definitions
   /// arrived, so a save cannot clear values it never saw.
   bool get canSend => loaded;
+
+  /// Whether a document has anything to send: the definitions arrived and
+  /// the firm defined at least one. A document sends no `attributes` at all
+  /// otherwise, so a firm that never used the feature sees no change on the
+  /// wire.
+  bool get hasFields => loaded && definitions.isNotEmpty;
 
   /// The `attributes` list for the payload: every filled field.
   List<Json> payload() => [
@@ -102,6 +135,85 @@ class CustomFieldsController extends ChangeNotifier {
     }
     super.dispose();
   }
+}
+
+/// The stored values out of a document's `attributes`, read defensively: a
+/// response from before MST-6 has none, and an odd entry is skipped.
+List<AttributeValueRecord> attributeValuesFrom(Object? raw) => raw is List
+    ? [
+        for (final Object? item in raw)
+          if (item is Map)
+            ProductAttributeValueRecord.fromJson(
+              Map<String, dynamic>.from(item),
+            ),
+      ]
+    : const [];
+
+/// The "Additional details" block a document editor shows (MST-6): nothing at
+/// all while the definitions load or when the firm defined none for this kind
+/// of document, so a firm that never used custom fields sees no change.
+class AdditionalDetailsSection extends StatelessWidget {
+  const AdditionalDetailsSection({
+    super.key,
+    required this.controller,
+    required this.noun,
+    this.readOnly = false,
+    this.onChanged,
+    this.maxHeight,
+    this.padding = const EdgeInsets.only(top: 16),
+  });
+
+  final CustomFieldsController controller;
+
+  /// What the document is called, plural: "sales orders".
+  final String noun;
+  final bool readOnly;
+  final VoidCallback? onChanged;
+
+  /// A one-screen document page has no spare height, so its block scrolls
+  /// inside this limit rather than pushing the lines table off the screen.
+  final double? maxHeight;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: controller,
+        builder: (context, _) {
+          if (controller.loading) return const SizedBox.shrink();
+          if (controller.error == null &&
+              (!controller.loaded || controller.definitions.isEmpty)) {
+            return const SizedBox.shrink();
+          }
+          Widget block = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Additional details',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 8),
+              CustomFieldsSection(
+                controller: controller,
+                noun: noun,
+                readOnly: readOnly,
+                onChanged: onChanged,
+              ),
+            ],
+          );
+          final double? limit = maxHeight;
+          if (limit != null) {
+            block = ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: limit),
+              child: SingleChildScrollView(child: block),
+            );
+          }
+          return Padding(
+            key: const ValueKey('additional-details'),
+            padding: padding,
+            child: block,
+          );
+        },
+      );
 }
 
 /// The section a form places on its Custom fields tab.

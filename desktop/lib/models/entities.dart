@@ -806,9 +806,13 @@ class AttributeDefinitionRecord {
     required this.applicableBusinessProfileId,
     this.validationRule,
     this.firmId,
+    this.showOnPrint = false,
   });
 
   final String id, code, name, dataType, applicableCategory;
+
+  /// Whether the server prints this field on the document (MST-6).
+  final bool showOnPrint;
 
   /// The firm that owns this field, or null for one from the shared catalogue
   /// (MST-8). A firm may read the shared ones and change only its own.
@@ -858,5 +862,6 @@ class AttributeDefinitionRecord {
             ? Map<String, dynamic>.from(json['validation_rule'] as Map)
             : null,
         firmId: json['firm_id'] == null ? null : stringValue(json['firm_id']),
+        showOnPrint: boolValue(json['show_on_print']),
       );
 }

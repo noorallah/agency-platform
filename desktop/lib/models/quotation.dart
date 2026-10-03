@@ -1,6 +1,7 @@
 import 'entities.dart';
 import 'document_preview.dart';
 import 'line_tax_rule.dart';
+import 'product.dart' show AttributeValueRecord, ProductAttributeValueRecord;
 export 'document_preview.dart';
 
 /// One line of an offer.
@@ -120,9 +121,14 @@ class Quotation {
     required this.isExpired,
     required this.canConvert,
     required this.lines,
+    this.attributes = const [],
   });
 
   final String id;
+
+  /// The firm's own fields on this quotation (MST-6); empty on a response
+  /// from before they existed.
+  final List<AttributeValueRecord> attributes;
 
   /// The optimistic-concurrency version this record was read at, sent back
   /// as `If-Match` on save so a concurrent edit is refused rather than
@@ -237,6 +243,14 @@ class Quotation {
         lines: [
           for (final dynamic line in json['lines'] is List ? json['lines'] : const [])
             if (line is Map) QuotationLine.fromJson(Map<String, dynamic>.from(line)),
+        ],
+        attributes: [
+          for (final dynamic item
+              in json['attributes'] is List ? json['attributes'] : const [])
+            if (item is Map)
+              ProductAttributeValueRecord.fromJson(
+                Map<String, dynamic>.from(item),
+              ),
         ],
       );
 }

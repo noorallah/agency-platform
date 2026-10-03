@@ -86,6 +86,13 @@ extension _Phase2DeliveryNoteEditor on _DeliveryNoteEditorDialogState {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             _noteHeader(context),
+                            AdditionalDetailsSection(
+                              controller: _customFields,
+                              noun: 'delivery notes',
+                              maxHeight: 132,
+                              padding:
+                                  const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                            ),
                             Expanded(child: _noteLines(context)),
                             _noteTotals(),
                           ],

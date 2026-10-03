@@ -148,6 +148,11 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
                                 onAdd: _newRow,
                               ),
                             ),
+                            _additionalDetails(
+                              maxHeight: 132,
+                              padding:
+                                  const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                            ),
                             _terms(context),
                             _totals(),
                           ],

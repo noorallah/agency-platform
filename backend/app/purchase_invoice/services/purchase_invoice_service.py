@@ -15,6 +15,8 @@ from sqlalchemy import case, func, or_, select, true
 from sqlalchemy.orm import Session
 
 from app.business.gating import assert_feature_fields
+from app.business.models.framework import AttributeEntityType
+from app.business.services import document_attributes
 from app.common.audit.services import record_audit
 from app.common.report_names import (
     branch_names,
@@ -345,6 +347,34 @@ class PurchaseInvoiceService(TransactionalDocumentService):
     ) -> PurchaseInvoice:
         """Create one purchase invoice and commit it."""
         row = self.stage_invoice(data, firm_id=firm_id, actor_id=actor_id)
+        if data.attributes:
+            document_attributes.store(
+                self._session,
+                AttributeEntityType.PURCHASE_INVOICE,
+                row.id,
+                data.attributes,
+                firm_id=row.firm_id,
+                actor_id=actor_id,
+            )
+        # Fields the source documents hold carry to this one (MST-6).
+        document_attributes.carry_from_sources(
+            self._session,
+            AttributeEntityType.PURCHASE_INVOICE,
+            row.id,
+            [
+                (line.source_document_type, line.source_document_id)
+                for line in self._session.scalars(
+                    select(PurchaseInvoiceLine)
+                    .where(
+                        PurchaseInvoiceLine.purchase_invoice_id == row.id,
+                        PurchaseInvoiceLine.is_deleted.is_(False),
+                    )
+                    .order_by(PurchaseInvoiceLine.line_number)
+                )
+            ],
+            firm_id=row.firm_id,
+            actor_id=actor_id,
+        )
         self._session.commit()
         return row
 
@@ -656,6 +686,15 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             actor_id=actor_id,
             firm_id=firm_scope,
         )
+        if "attributes" in data.model_fields_set:
+            document_attributes.store(
+                self._session,
+                AttributeEntityType.PURCHASE_INVOICE,
+                row.id,
+                data.attributes,
+                firm_id=row.firm_id,
+                actor_id=actor_id,
+            )
         self._session.commit()
         return row
 
@@ -1083,7 +1122,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 )
             )
         }
-        return [
+        answer = [
             self._invoice_response(
                 row,
                 lines=lines[row.id],
@@ -1098,6 +1137,13 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             )
             for row in rows
         ]
+        # The firm's own fields, one read for the page (MST-6).
+        fields = document_attributes.responses_for_many(
+            self._session, AttributeEntityType.PURCHASE_INVOICE, [r.id for r in rows]
+        )
+        for response in answer:
+            response.attributes = fields.get(response.id, [])
+        return answer
 
     def _invoice_response(
         self,

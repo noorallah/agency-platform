@@ -15,6 +15,8 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.business.models.framework import AttributeEntityType
+from app.business.services import document_attributes
 from app.core.exceptions import ResourceNotFoundError
 from app.document_framework.services.print_support import (
     customer_party,
@@ -153,7 +155,13 @@ class SalesOrderPrintService:
             charges=row.additional_charges,
             round_off=row.round_off,
             grand_total=row.grand_total,
-            references=tuple(references),
+            references=(
+                *references,
+                # The firm's own fields marked to print (MST-6).
+                *document_attributes.printed(
+                    self._session, AttributeEntityType.SALES_ORDER, row.id
+                ),
+            ),
             party_labels=("ORDERED BY", "SHIP TO"),
             # An order states what it will cost, not what tax was charged.
             show_tax_summary=False,

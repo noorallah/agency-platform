@@ -27,6 +27,7 @@ import '../document_framework/document_framework_widgets.dart';
 import '../trade_licences/licence_check_dialog.dart';
 import '../../models/bulk_action.dart';
 import '../workspace/bulk_action.dart';
+import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/print_settings_dialog.dart';
 import '../workspace/reason_prompt.dart';
@@ -2633,11 +2634,19 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
 
   void _setState(VoidCallback change) => setState(change);
 
+  /// The firm's own fields on a purchase order (MST-6), sent only once the
+  /// definitions arrived.
+  late final CustomFieldsController _customFields = CustomFieldsController(
+    load: () => widget.api.applicableAttributeDefinitions('PURCHASE_ORDER'),
+    stored: _draft.attributes,
+  );
+
   @override
   void initState() {
     super.initState();
     _historyFuture = _loadHistory();
     unawaited(_loadBudgets());
+    unawaited(_customFields.start());
   }
 
   Future<void> _loadBudgets() async {
@@ -2673,6 +2682,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
   @override
   void dispose() {
     _previewTimer?.cancel();
+    _customFields.dispose();
     super.dispose();
   }
 
@@ -3002,7 +3012,19 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
     );
   }
 
-  Widget _buildGeneralTab() => Wrap(
+  Widget _buildGeneralTab() => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _generalFields(),
+          AdditionalDetailsSection(
+            controller: _customFields,
+            noun: 'purchase orders',
+            readOnly: widget.isReadOnly,
+          ),
+        ],
+      );
+
+  Widget _generalFields() => Wrap(
         spacing: 16,
         runSpacing: 16,
         children: [
@@ -3777,6 +3799,16 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
       });
       return;
     }
+    final String? customField = _customFields.validate();
+    if (customField != null) {
+      setState(() => _error = customField);
+      return;
+    }
+    // Only once the definitions arrived: absent leaves the stored values
+    // alone, and an empty list would clear them.
+    final PurchaseOrder sending = _customFields.hasFields
+        ? _draft.copyWith(attributeInputs: _customFields.payload())
+        : _draft;
     String? amendReason;
     if (widget.isAmending) {
       amendReason = await askForReason(
@@ -3798,10 +3830,10 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
     });
     try {
       final PurchaseOrder saved = widget.isCreating
-          ? await widget.api.createPurchaseOrder(_draft)
+          ? await widget.api.createPurchaseOrder(sending)
           : amendReason != null
-              ? await widget.api.amendPurchaseOrder(_draft, amendReason.trim())
-              : await widget.api.updatePurchaseOrder(_draft);
+              ? await widget.api.amendPurchaseOrder(sending, amendReason.trim())
+              : await widget.api.updatePurchaseOrder(sending);
       if (!mounted) return;
       Navigator.of(
         context,

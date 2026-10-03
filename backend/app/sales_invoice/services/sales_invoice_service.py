@@ -20,6 +20,8 @@ from app.batch_serial.models import BatchRecord
 from app.batch_serial.schemas import PickedSerial
 from app.batch_serial.services.serial_trail_service import SerialTrailService
 from app.business.gating import assert_feature_fields
+from app.business.models.framework import AttributeEntityType
+from app.business.services import document_attributes
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader
 from app.common.report_names import (
@@ -404,6 +406,34 @@ class SalesInvoiceService(TransactionalDocumentService):
     ) -> SalesInvoice:
         """Create one sales invoice and commit it."""
         row = self.stage_invoice(data, firm_id=firm_id, actor_id=actor_id)
+        if data.attributes:
+            document_attributes.store(
+                self._session,
+                AttributeEntityType.SALES_INVOICE,
+                row.id,
+                data.attributes,
+                firm_id=row.firm_id,
+                actor_id=actor_id,
+            )
+        # Fields the source documents hold carry to this one (MST-6).
+        document_attributes.carry_from_sources(
+            self._session,
+            AttributeEntityType.SALES_INVOICE,
+            row.id,
+            [
+                (line.source_document_type, line.source_document_id)
+                for line in self._session.scalars(
+                    select(SalesInvoiceLine)
+                    .where(
+                        SalesInvoiceLine.sales_invoice_id == row.id,
+                        SalesInvoiceLine.is_deleted.is_(False),
+                    )
+                    .order_by(SalesInvoiceLine.line_number)
+                )
+            ],
+            firm_id=row.firm_id,
+            actor_id=actor_id,
+        )
         self._session.commit()
         return row
 
@@ -899,6 +929,15 @@ class SalesInvoiceService(TransactionalDocumentService):
             actor_id=actor_id,
             firm_id=firm_id,
         )
+        if "attributes" in data.model_fields_set:
+            document_attributes.store(
+                self._session,
+                AttributeEntityType.SALES_INVOICE,
+                row.id,
+                data.attributes,
+                firm_id=row.firm_id,
+                actor_id=actor_id,
+            )
         self._session.commit()
         return row
 
@@ -2070,7 +2109,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             ]
         )
         names = customer_labels(self._session, (row.customer_id for row in rows))
-        return [
+        answer = [
             self._invoice_response(
                 row,
                 lines=lines[row.id],
@@ -2088,6 +2127,13 @@ class SalesInvoiceService(TransactionalDocumentService):
             )
             for row in rows
         ]
+        # The firm's own fields, one read for the page (MST-6).
+        fields = document_attributes.responses_for_many(
+            self._session, AttributeEntityType.SALES_INVOICE, [r.id for r in rows]
+        )
+        for response in answer:
+            response.attributes = fields.get(response.id, [])
+        return answer
 
     def _invoice_response(
         self,

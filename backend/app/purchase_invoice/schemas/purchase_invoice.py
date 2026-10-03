@@ -9,6 +9,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.sales.schemas.document_preview import DocumentPreviewLine
 
 
@@ -139,6 +140,10 @@ class PurchaseInvoiceLineWrite(PurchaseInvoiceSchema):
 
 class PurchaseInvoiceCreate(PurchaseInvoiceSchema):
     """Create one purchase invoice."""
+
+    #: The firm's own fields on the document (MST-6). Replaced whole when
+    #: sent; an update that omits them leaves them alone.
+    attributes: list[AttributeValueInput] = Field(default_factory=list, max_length=100)
 
     vendor_id: UUID | None = None
     branch_id: UUID | None = None
@@ -332,6 +337,9 @@ class PurchaseInvoiceLineResponse(PurchaseInvoiceSchema):
 
 class PurchaseInvoiceResponse(PurchaseInvoiceSchema):
     """Return one purchase invoice."""
+
+    #: The firm's own fields on the document (MST-6).
+    attributes: list[AttributeValueResponse] = Field(default_factory=list)
 
     id: UUID
     firm_id: UUID

@@ -188,6 +188,8 @@ class AttributeDefinitionCreate(BusinessFrameworkSchema):
     entity_type: AttributeEntityType = AttributeEntityType.PRODUCT
     data_type: AttributeDataType
     mandatory: bool = False
+    #: Print the field on the documents it is filled on (MST-6).
+    show_on_print: bool = False
     default_value: str | None = None
     validation_rule: dict[str, object] | None = None
     applicable_category: str | None = Field(default=None, max_length=100)
@@ -250,6 +252,7 @@ class AttributeDefinitionResponse(BusinessFrameworkSchema):
     entity_type: AttributeEntityType
     data_type: AttributeDataType
     mandatory: bool
+    show_on_print: bool = False
     default_value: str | None
     validation_rule: dict[str, object] | None
     #: The fixed choices a TEXT field is limited to; empty means free text.

@@ -102,6 +102,12 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
+| `quotation_attribute_values` | firm store ¹ | One custom field value on a quotation (MST-6). | `sales_quotations`, `attribute_definitions` |
+| `sales_order_attribute_values` | firm store ¹ | One custom field value on a sales order (MST-6). | `sales_orders`, `attribute_definitions` |
+| `delivery_note_attribute_values` | firm store ¹ | One custom field value on a delivery note (MST-6). | `delivery_notes`, `attribute_definitions` |
+| `sales_invoice_attribute_values` | firm store ¹ | One custom field value on a sales invoice (MST-6). | `sales_invoices`, `attribute_definitions` |
+| `purchase_order_attribute_values` | firm store ¹ | One custom field value on a purchase order (MST-6). | `purchase_orders`, `attribute_definitions` |
+| `purchase_invoice_attribute_values` | firm store ¹ | One custom field value on a purchase invoice (MST-6). | `purchase_invoices`, `attribute_definitions` |
 | `attribute_definitions` | firm store ¹ | Define one configurable field that extends a record for some industry. | `business_profiles` |
 | `business_features` | firm store ¹ | Define one configurable framework feature flag. |  |
 | `business_modules` | firm store ¹ | Define one configurable module in the ERP workspace. |  |

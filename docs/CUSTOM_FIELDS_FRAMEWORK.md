@@ -21,3 +21,13 @@ fields a food firm does not.
 - Read attributes for a list of records with `values_for_many`, never per row — `ProductService._products_matching_attribute` shows the pattern for filtering.
 
 - **Once a field holds values, its type and its existence are settled** (backlog 16 lifecycle guards, 2026-10-01). `update_attribute` refuses a `data_type` change while `attribute_value_count` finds a live value -- refused rather than converted, because a value left in `value_text` while reads look in `value_number` is orphaned and nothing reports it; add a field of the new type and retire the old. `delete_attribute` refuses while values exist and says to deactivate (`is_active` false) instead -- a soft delete never reaches the `RESTRICT` key on the value tables. Making a field mandatory, on the definition or through a mandatory category rule, is allowed but answers with `warning` (and `message`): up to how many records of that kind hold no value and will be refused at their next save. The count is an upper bound -- it ignores a category or profile scope. The value table for an `entity_type` is found from the mapped `AttributeValueBase` subclasses, so a new module's table is counted with no list to update. The generic resource page shows a save's `data.warning` after the save.
+
+
+## Documents (MST-6, 2026-10-03)
+
+Six documents carry custom fields: quotation, sales order, delivery note, sales invoice, purchase order and purchase invoice. Each has its own value table in `app/business/models/document_attributes.py`, and every document service goes through `app/business/services/document_attributes.py` rather than calling `AttributeService` itself:
+
+- `store` on create, and on update only when `attributes` was sent;
+- `responses_for_many` inside each `*_responses` page builder, so a list reads the values once;
+- `carry` / `carry_from_sources` when a document is raised from another, matching fields by **name** (a code is unique within a firm across every record, so two documents cannot share one);
+- `printed` for the print services: definitions with `show_on_print` appear in the document's reference block.

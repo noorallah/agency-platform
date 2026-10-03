@@ -178,6 +178,14 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
                             _sectionStrip(context),
                             Expanded(child: _section(context)),
                             if (_phase2Section == 0) ...[
+                              AdditionalDetailsSection(
+                                controller: _customFields,
+                                noun: 'purchase orders',
+                                readOnly: _locked,
+                                maxHeight: 132,
+                                padding:
+                                    const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                              ),
                               _orderTerms(context),
                               _orderTotals(),
                             ],

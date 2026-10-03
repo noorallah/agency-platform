@@ -13,6 +13,7 @@ import '../../models/product.dart';
 import '../../models/quotation.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
+import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 
 part 'quotation_editor_phase2.dart';
@@ -114,7 +115,12 @@ class QuotationEditorDialog extends StatefulWidget {
     this.preview,
     this.rateIncludesTax = false,
     this.loadUnitPrices,
+    this.loadAttributes,
   });
+
+  /// Reads the firm's own fields for a quotation (MST-6). Null leaves the
+  /// section out and `attributes` unsent.
+  final Future<ApplicableAttributesRecord> Function()? loadAttributes;
 
   /// What each product costs this customer on a date, and from which
   /// arrangement (phase 2). Null leaves the product's own price, as before.
@@ -160,6 +166,9 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
   final TextEditingController _deliveryTerms = TextEditingController();
   final TextEditingController _remarks = TextEditingController();
   final List<_LineDraft> _lines = <_LineDraft>[];
+
+  /// The firm's own fields, sent only once the definitions arrived.
+  CustomFieldsController? _customFields;
 
   /// A discount on the whole offer, as a percentage. It comes off what
   /// the lines already discounted to, and the server splits it across
@@ -247,6 +256,15 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
     // alternative is an empty field somebody has to fill in every time.
     _validUntil = widget.today.add(const Duration(days: 30));
     final Quotation? existing = widget.existing;
+    final Future<ApplicableAttributesRecord> Function()? loadAttributes =
+        widget.loadAttributes;
+    if (loadAttributes != null) {
+      _customFields = CustomFieldsController(
+        load: loadAttributes,
+        stored: existing?.attributes ?? const [],
+      );
+      unawaited(_customFields!.start());
+    }
     _rateIncludesTax = existing?.rateIncludesTax ?? widget.rateIncludesTax;
     _customerId = existing?.customerId ??
         (widget.customers.isEmpty ? null : widget.customers.first.id);
@@ -503,6 +521,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
   @override
   void dispose() {
     _previewTimer?.cancel();
+    _customFields?.dispose();
     for (final _LineDraft line in _lines) {
       line.dispose();
     }
@@ -610,7 +629,47 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
 
   Json? _payload() {
     if (!(_form.currentState?.validate() ?? false)) return null;
+    // A mandatory field left blank stops the save here, with its name, since
+    // this form hands the payload to its caller rather than saving itself.
+    final String? customField = _customFields?.validate();
+    if (customField != null) {
+      setState(() => _customFieldError = customField);
+      return null;
+    }
     return _buildPayload();
+  }
+
+  String? _customFieldError;
+
+  /// The "Additional details" block, with the reason a save was held back
+  /// when a mandatory field is blank. Nothing when the firm defined none.
+  Widget _additionalDetails({double? maxHeight, EdgeInsetsGeometry? padding}) {
+    final CustomFieldsController? controller = _customFields;
+    if (controller == null) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AdditionalDetailsSection(
+          controller: controller,
+          noun: 'quotations',
+          maxHeight: maxHeight,
+          padding: padding ?? const EdgeInsets.only(top: 16),
+          onChanged: () {
+            if (_customFieldError != null) {
+              setState(() => _customFieldError = null);
+            }
+          },
+        ),
+        if (_customFieldError != null)
+          Padding(
+            padding: padding ?? const EdgeInsets.only(top: 4),
+            child: Text(
+              _customFieldError!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
+      ],
+    );
   }
 
   Json? _buildPayload() {
@@ -636,6 +695,10 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
       if (_deliveryTerms.text.trim().isNotEmpty)
         'delivery_terms': _deliveryTerms.text.trim(),
       if (_remarks.text.trim().isNotEmpty) 'remarks': _remarks.text.trim(),
+      // Only once the definitions arrived: absent leaves the stored values
+      // alone, and an empty list would clear them.
+      if (_customFields?.hasFields ?? false)
+        'attributes': _customFields!.payload(),
       // Omitted when blank: the server reads absent as "no discount on the
       // bill" and would refuse an empty string.
       if (_billDiscount.text.trim().isNotEmpty)
@@ -995,6 +1058,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
                       decoration: const InputDecoration(labelText: 'Remarks'),
                       maxLines: 2,
                     ),
+                    _additionalDetails(),
                   ],
                 ),
               ),

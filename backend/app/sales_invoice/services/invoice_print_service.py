@@ -16,6 +16,8 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.business.models.framework import AttributeEntityType
+from app.business.services import document_attributes
 from app.core.exceptions import ResourceNotFoundError
 from app.delivery_note.models import DeliveryNote
 from app.document_framework.services.print_support import (
@@ -390,6 +392,10 @@ class SalesInvoicePrintService:
             grand_total=invoice.grand_total,
             references=(
                 *references,
+                # The firm's own fields marked to print (MST-6).
+                *document_attributes.printed(
+                    self._session, AttributeEntityType.SALES_INVOICE, invoice.id
+                ),
                 *(
                     ("Reference", invoice.reference_number)
                     for _ in (1,)
