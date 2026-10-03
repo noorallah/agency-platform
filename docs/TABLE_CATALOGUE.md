@@ -213,6 +213,7 @@ trigger each schema owns its own copy of.
 | `journal_lines` | firm store ¹ | Represent one debit or credit leg of a journal entry. | `journal_entries`, `ledger_accounts`, `cost_centers`, `profit_centers` |
 | `journal_types` | firm store ¹ | Classify journals such as sales, purchase, or general. | `firms` |
 | `ledger_accounts` | firm store ¹ | Represent one general-ledger account in the chart of accounts. | `firms`, `account_groups` |
+| `ledger_attachments` | firm store ¹ | A file reference kept with one journal entry or one receipt, refund or payment (ACC-10). | `journal_entries`, `settlements` |
 | `ledger_balances` | firm store ¹ | Hold the derived balance of one ledger account for one period. | `firms`, `ledger_accounts`, `accounting_periods` |
 | `period_close_settings` | firm store ¹ | What a firm does when a month it closes still has work in it (ACC-5). |  |
 | `profit_centers` | firm store ¹ | Represent a profit centre used to attribute revenue. | `firms` |

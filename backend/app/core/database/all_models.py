@@ -41,6 +41,7 @@ from app.expenses.models import expense  # noqa: F401
 from app.finance.models import (  # noqa: F401
     bank_details,
     finance,
+    ledger_attachment,
     tds_194q,
     tds_challan,
 )

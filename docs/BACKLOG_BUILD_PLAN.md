@@ -602,6 +602,7 @@ otherwise it is built as written.
 - **What it is:** the scanned bill or letter kept with the entry.
 - **What gets built:** attachment tables for journal entries and settlements in the shape of `purchase_invoice_attachments` (migration), sharing the expense module's storage; upload and view on the phase 2 journal and receipt screens. Tests.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A88): one `ledger_attachments` table (journal_entry_id XOR settlement_id, migration 0259), file references as STK-9's stock evidence. `app/finance/services/ledger_attachments.py`; `GET/POST /finance/journal-entries/{id}/attachments`, `/receipts/{id}/attachments`, `/payments/{id}/attachments`, each with `DELETE .../attachments/{attachment_id}` (soft-deleted, audited). Desktop: *Files* on the journal, receipt and payment screens. Tests: `test_ledger_attachments.py`, `ledger_attachments_test.dart`.
 
 #### ACC-11. Customer and supplier as one party (§75 row 4)
 - **What it is:** link the shop that buys from us and sells to us, and see one statement.

@@ -4,7 +4,7 @@ from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -25,6 +25,7 @@ from app.document_framework.schemas.bulk_actions import (
     BulkApproveRequest,
 )
 from app.document_framework.services.bulk_actions import run_each
+from app.finance.models.ledger_attachment import LedgerAttachment
 from app.finance.schemas import (
     AccountGroupCreate,
     AccountGroupResponse,
@@ -61,6 +62,8 @@ from app.finance.schemas import (
     LedgerAccountCreate,
     LedgerAccountResponse,
     LedgerAccountUpdate,
+    LedgerAttachmentResponse,
+    LedgerAttachmentsAdd,
     MoneyBookRecord,
     OpeningTrialBalanceReplace,
     OpeningTrialBalanceResponse,
@@ -112,6 +115,7 @@ from app.finance.services.control_accounts import (
     ControlAccountView,
 )
 from app.finance.services.journal_engine import assert_manual_reference
+from app.finance.services.ledger_attachments import LedgerAttachmentService
 from app.finance.services.opening_balances import (
     OpeningLineInput,
     OpeningTrialBalanceService,
@@ -1727,3 +1731,61 @@ def remove_bank_details(
         ledger_account_id, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data=None, message="Bank details removed.")
+
+
+def _attachment_response(row: LedgerAttachment) -> LedgerAttachmentResponse:
+    """Describe one file kept with a ledger entry."""
+    return LedgerAttachmentResponse.model_validate(row)
+
+
+@router.get(
+    "/journal-entries/{journal_id}/attachments",
+    response_model=ApiResponse[list[LedgerAttachmentResponse]],
+)
+def list_journal_attachments(
+    journal_id: UUID,
+    scope: JournalViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[LedgerAttachmentResponse]]:
+    """List the files kept with one journal entry (ACC-10)."""
+    rows = LedgerAttachmentService(db).for_journal(journal_id, firm_id=scope.firm_id)
+    return ApiResponse(data=[_attachment_response(row) for row in rows])
+
+
+@router.post(
+    "/journal-entries/{journal_id}/attachments",
+    response_model=ApiResponse[list[LedgerAttachmentResponse]],
+)
+def attach_to_journal(
+    journal_id: UUID,
+    data: LedgerAttachmentsAdd,
+    scope: JournalCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[LedgerAttachmentResponse]]:
+    """Keep files with a journal entry: the bill or letter behind it (ACC-10)."""
+    rows = LedgerAttachmentService(db).attach_to_journal(
+        journal_id, data.attachments, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    db.commit()
+    return ApiResponse(data=[_attachment_response(row) for row in rows])
+
+
+@router.delete(
+    "/journal-entries/{journal_id}/attachments/{attachment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def remove_journal_attachment(
+    journal_id: UUID,
+    attachment_id: UUID,
+    scope: JournalCreateScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Remove one file from a journal entry; the trail keeps that it was there."""
+    LedgerAttachmentService(db).remove(
+        attachment_id,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        journal_id=journal_id,
+    )
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

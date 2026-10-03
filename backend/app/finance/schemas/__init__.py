@@ -1073,3 +1073,42 @@ class CashFlowReport(FinanceSchema):
     closing_cash: Decimal
     #: Whether opening cash plus the three sections is the closing cash.
     is_reconciled: bool
+
+
+#: How many files one request may attach; a bill and its covering letter,
+#: not an archive.
+MAX_LEDGER_ATTACHMENTS = 10
+
+
+class LedgerAttachmentWrite(FinanceSchema):
+    """One file to keep with a journal, receipt or payment (ACC-10).
+
+    The file stays where it is; the row records where that is.
+    """
+
+    file_name: str = Field(min_length=1, max_length=260)
+    mime_type: str | None = Field(default=None, max_length=120)
+    file_path: str = Field(min_length=1, max_length=1024)
+    caption: str | None = Field(default=None, max_length=200)
+
+
+class LedgerAttachmentsAdd(FinanceSchema):
+    """Attach one or more files at once."""
+
+    attachments: list[LedgerAttachmentWrite] = Field(
+        min_length=1, max_length=MAX_LEDGER_ATTACHMENTS
+    )
+
+
+class LedgerAttachmentResponse(FinanceSchema):
+    """One file kept with a journal, receipt or payment."""
+
+    id: UUID
+    journal_entry_id: UUID | None
+    settlement_id: UUID | None
+    file_name: str
+    mime_type: str | None
+    file_path: str
+    caption: str | None
+    created_at: datetime
+    created_by: UUID | None

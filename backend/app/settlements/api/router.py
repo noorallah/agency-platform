@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
@@ -26,6 +26,12 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.pagination.reports import ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.finance.schemas import LedgerAttachmentResponse, LedgerAttachmentsAdd
+from app.finance.services.ledger_attachments import (
+    PAYMENT_DIRECTIONS,
+    RECEIPT_DIRECTIONS,
+    LedgerAttachmentService,
+)
 from app.settlements.models import Settlement, SettlementMethod
 from app.settlements.schemas import (
     OutstandingInvoiceRecord,
@@ -963,3 +969,129 @@ def allocate_payment(
         data=_to_response(service, row),
         message=f"{row.settlement_number} applied.",
     )
+
+
+@receipts_router.get(
+    "/{settlement_id}/attachments",
+    response_model=ApiResponse[list[LedgerAttachmentResponse]],
+)
+def list_receipt_attachments(
+    settlement_id: UUID,
+    scope: ReceiptViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[LedgerAttachmentResponse]]:
+    """List the files kept with one receipt (ACC-10)."""
+    rows = LedgerAttachmentService(db).for_settlement(
+        settlement_id, firm_id=scope.firm_id, directions=RECEIPT_DIRECTIONS
+    )
+    return ApiResponse(
+        data=[LedgerAttachmentResponse.model_validate(row) for row in rows]
+    )
+
+
+@receipts_router.post(
+    "/{settlement_id}/attachments",
+    response_model=ApiResponse[list[LedgerAttachmentResponse]],
+)
+def attach_to_receipt(
+    settlement_id: UUID,
+    data: LedgerAttachmentsAdd,
+    scope: ReceiptCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[LedgerAttachmentResponse]]:
+    """Keep files with a receipt: the advice or bill behind it (ACC-10)."""
+    rows = LedgerAttachmentService(db).attach_to_settlement(
+        settlement_id,
+        data.attachments,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        directions=RECEIPT_DIRECTIONS,
+    )
+    db.commit()
+    return ApiResponse(
+        data=[LedgerAttachmentResponse.model_validate(row) for row in rows]
+    )
+
+
+@receipts_router.delete(
+    "/{settlement_id}/attachments/{attachment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def remove_receipt_attachment(
+    settlement_id: UUID,
+    attachment_id: UUID,
+    scope: ReceiptCreateScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Remove one file from a receipt; the trail keeps that it was there."""
+    LedgerAttachmentService(db).remove(
+        attachment_id,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        settlement_id=settlement_id,
+    )
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@payments_router.get(
+    "/{settlement_id}/attachments",
+    response_model=ApiResponse[list[LedgerAttachmentResponse]],
+)
+def list_payment_attachments(
+    settlement_id: UUID,
+    scope: PaymentViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[LedgerAttachmentResponse]]:
+    """List the files kept with one payment (ACC-10)."""
+    rows = LedgerAttachmentService(db).for_settlement(
+        settlement_id, firm_id=scope.firm_id, directions=PAYMENT_DIRECTIONS
+    )
+    return ApiResponse(
+        data=[LedgerAttachmentResponse.model_validate(row) for row in rows]
+    )
+
+
+@payments_router.post(
+    "/{settlement_id}/attachments",
+    response_model=ApiResponse[list[LedgerAttachmentResponse]],
+)
+def attach_to_payment(
+    settlement_id: UUID,
+    data: LedgerAttachmentsAdd,
+    scope: PaymentCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[LedgerAttachmentResponse]]:
+    """Keep files with a payment: the advice or bill behind it (ACC-10)."""
+    rows = LedgerAttachmentService(db).attach_to_settlement(
+        settlement_id,
+        data.attachments,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        directions=PAYMENT_DIRECTIONS,
+    )
+    db.commit()
+    return ApiResponse(
+        data=[LedgerAttachmentResponse.model_validate(row) for row in rows]
+    )
+
+
+@payments_router.delete(
+    "/{settlement_id}/attachments/{attachment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def remove_payment_attachment(
+    settlement_id: UUID,
+    attachment_id: UUID,
+    scope: PaymentCreateScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Remove one file from a payment; the trail keeps that it was there."""
+    LedgerAttachmentService(db).remove(
+        attachment_id,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        settlement_id=settlement_id,
+    )
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
