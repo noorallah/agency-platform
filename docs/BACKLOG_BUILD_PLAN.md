@@ -13,6 +13,10 @@ standard**, and the item is **Claude alone**. Only major inputs -- a contract
 or account, money, a CA's or lawyer's sign-off, hardware, branding, or
 something the owner has already parked -- are put to the owner.
 
+**Status 2026-10-03: all 96 items in section 1 are built** (Waves 1-3), each
+row naming its date and decision. What remains is section 2 (owner inputs) and
+section 5.1 (parked or waiting).
+
 ## How to read it
 
 - **Section 1** is one table of every item, by area: what it is, whether it
@@ -51,99 +55,99 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | --- | --- | --- | --- | --- | --- |
 | **Selling** | | | | | |
 | SEL-1 | §58 items 2, 4 | Several delivery notes on one bill: pick the customer first, tick the notes, refuse a mix on screen -- **built 2026-10-03** (A54) | Nothing | S | Claude alone |
-| SEL-2 | §60 row 4 | Offer: buy 2, second at 50% off | Nothing | M | Claude alone |
-| SEL-3 | §60 row 5 | Offer: combo price (shampoo + soap for 150) | Nothing | M | Claude alone |
+| SEL-2 | §60 row 4 | Offer: buy 2, second at 50% off -- **built 2026-10-03** (A94) | Nothing | M | Claude alone |
+| SEL-3 | §60 row 5 | Offer: combo price (shampoo + soap for 150) -- **built 2026-10-03** (A96) | Nothing | M | Claude alone |
 | SEL-4 | §60 row 6 | Offer: double loyalty points during a festival -- **built 2026-10-03** (A73) | Nothing | S | Claude alone |
 | SEL-5 | §60 row 7 | Offer: 500 single-use coupon codes at once, exported to a file -- **built 2026-10-03** (A70) | Nothing | S | Claude alone |
-| SEL-6 | §60 row 8 | Offer only for a first order, or for customers not billed in 90 days | Nothing | M | Claude alone |
+| SEL-6 | §60 row 8 | Offer only for a first order, or for customers not billed in 90 days -- **built 2026-10-03** (A98) | Nothing | M | Claude alone |
 | SEL-7 | §60 row 9 | Offer only on certain weekdays or hours -- **built 2026-10-03** (A72) | Nothing | S | Claude alone |
 | SEL-8 | §60 row 10 | Copy last Diwali's offers with new dates -- **built 2026-10-03** (A71) | Nothing | S | Claude alone |
-| SEL-9 | §64 row 1 | Special rate per customer, and named price levels (Retail, Wholesale, Dealer) | Nothing | M | Claude alone |
-| SEL-10 | §67 row 1 | Enquiries and leads before the quotation | Nothing | L | Claude alone |
-| SEL-11 | §42.7, §60 row 11, §55 G10 | Claims to the principal: scheme, expiry and breakage | Nothing | L | Claude alone |
-| SEL-12 | §55 M10 | Fast counter billing with a barcode scanner | Nothing (a scanner to test with) | M | Claude alone |
-| SEL-13 | §55 G7 | Picking list and loading sheet by van or route | Nothing | M | Claude alone |
-| SEL-14 | §55 G9 | Cash discount for early payment; interest on overdue bills | Nothing | M | Claude alone |
-| SEL-15 | §75 row 11 | A new outlet added by a salesman waits for office approval | Nothing | M | Claude alone |
+| SEL-9 | §64 row 1 | Special rate per customer, and named price levels (Retail, Wholesale, Dealer) -- **built 2026-10-03** (A89) | Nothing | M | Claude alone |
+| SEL-10 | §67 row 1 | Enquiries and leads before the quotation -- **built 2026-10-03** (A133) | Nothing | L | Claude alone |
+| SEL-11 | §42.7, §60 row 11, §55 G10 | Claims to the principal: scheme, expiry and breakage -- **built 2026-10-03** (A128) | Nothing | L | Claude alone |
+| SEL-12 | §55 M10 | Fast counter billing with a barcode scanner -- **built 2026-10-03** (A90) | Nothing (a scanner to test with) | M | Claude alone |
+| SEL-13 | §55 G7 | Picking list and loading sheet by van or route -- **built 2026-10-03** (A92) | Nothing | M | Claude alone |
+| SEL-14 | §55 G9 | Cash discount for early payment; interest on overdue bills -- **built 2026-10-03** (A91) | Nothing | M | Claude alone |
+| SEL-15 | §75 row 11 | A new outlet added by a salesman waits for office approval -- **built 2026-10-03** (A93) | Nothing | M | Claude alone |
 | **Buying** | | | | | |
-| BUY-1 | §61 item 1 | Free goods meant for customers: a "free issue only" product and a "given free / sample" issue | Nothing | M | Claude alone |
-| BUY-2 | §61 items 2, 3 | Supplier gifts for the firm or owner: a register, its journal, the 194R total | Nothing | M | Claude alone |
-| BUY-3 | §65 row 4 | Supplier rates: a supplier's standing discount and price list | Nothing | M | Claude alone |
-| BUY-4 | §69 row 1 | Supplier catalogue: supplier's name and code per product, price history, pack | Nothing | M | Claude alone |
-| BUY-5 | §69 row 2 | Minimum order quantity and order multiple warned on the order | Nothing | S | Claude alone |
-| BUY-6 | §69 row 3 | Supplier lead time fills the expected date and is measured | Nothing | S | Claude alone |
-| BUY-7 | §68 row 3 | Purchase requisition (indent) from a store, approved, turned into orders | Nothing | M | Claude alone |
-| BUY-8 | §68 row 5 | Amending an approved purchase order, with revision numbers | Nothing | M | Claude alone |
-| BUY-9 | §68 row 6 | Received goods held until a quality check passes | Nothing | M | Claude alone |
-| BUY-10 | §68 row 7 | A bill that differs from order or receipt beyond a tolerance is held | Nothing | M | Claude alone |
-| BUY-11 | §68 row 9 | Payment run: pay many suppliers' due bills at once, bank upload file | Nothing (the firm's bank's file format to finish it) | M | Claude alone |
-| BUY-12 | §68 row 11 | Supplier performance: on time, short, rejected, price trend | Nothing | M | Claude alone |
-| BUY-13 | §69 row 8 | Volume rebates from suppliers | Nothing | M | Claude alone |
-| BUY-14 | §69 row 9 | Purchase budget by branch, category and month | Nothing | M | Claude alone |
+| BUY-1 | §61 item 1 | Free goods meant for customers: a "free issue only" product and a "given free / sample" issue -- **built 2026-10-03** (A111) | Nothing | M | Claude alone |
+| BUY-2 | §61 items 2, 3 | Supplier gifts for the firm or owner: a register, its journal, the 194R total -- **built 2026-10-03** (A112) | Nothing | M | Claude alone |
+| BUY-3 | §65 row 4 | Supplier rates: a supplier's standing discount and price list -- **built 2026-10-03** (A97) | Nothing | M | Claude alone |
+| BUY-4 | §69 row 1 | Supplier catalogue: supplier's name and code per product, price history, pack -- **built 2026-10-03** (A101) | Nothing | M | Claude alone |
+| BUY-5 | §69 row 2 | Minimum order quantity and order multiple warned on the order -- **built 2026-10-03** (A103) | Nothing | S | Claude alone |
+| BUY-6 | §69 row 3 | Supplier lead time fills the expected date and is measured -- **built 2026-10-03** (A105) | Nothing | S | Claude alone |
+| BUY-7 | §68 row 3 | Purchase requisition (indent) from a store, approved, turned into orders -- **built 2026-10-03** (A109) | Nothing | M | Claude alone |
+| BUY-8 | §68 row 5 | Amending an approved purchase order, with revision numbers -- **built 2026-10-03** (A102) | Nothing | M | Claude alone |
+| BUY-9 | §68 row 6 | Received goods held until a quality check passes -- **built 2026-10-03** (A100) | Nothing | M | Claude alone |
+| BUY-10 | §68 row 7 | A bill that differs from order or receipt beyond a tolerance is held -- **built 2026-10-03** (A99) | Nothing | M | Claude alone |
+| BUY-11 | §68 row 9 | Payment run: pay many suppliers' due bills at once, bank upload file -- **built 2026-10-03** (A110) | Nothing (the firm's bank's file format to finish it) | M | Claude alone |
+| BUY-12 | §68 row 11 | Supplier performance: on time, short, rejected, price trend -- **built 2026-10-03** (A107) | Nothing | M | Claude alone |
+| BUY-13 | §69 row 8 | Volume rebates from suppliers -- **built 2026-10-03** (A124) | Nothing | M | Claude alone |
+| BUY-14 | §69 row 9 | Purchase budget by branch, category and month -- **built 2026-10-03** (A106) | Nothing | M | Claude alone |
 | BUY-15 | §69 row 10 | Users rate suppliers (opinion, kept apart) -- **built 2026-10-03** (A74) | Nothing | S | Claude alone |
-| BUY-16 | §42.12 | Landed cost: freight and loading added to the stock's cost | Nothing | L | Claude alone |
+| BUY-16 | §42.12 | Landed cost: freight and loading added to the stock's cost -- **built 2026-10-03** (A129) | Nothing | L | Claude alone |
 | BUY-17 | §36 | Supplier credit from a return set against an opening bill -- **built 2026-10-03** (A52) | Nothing | S | Claude alone |
 | **Stock** | | | | | |
-| STK-1 | §70 row 1 | A stock transfer as a document: dispatch, in transit, receive | Nothing | L | Claude alone |
-| STK-2 | §70 row 2 | A GSTIN per branch, and transfers between GSTINs as tax invoices | Nothing | L | Claude alone |
+| STK-1 | §70 row 1 | A stock transfer as a document: dispatch, in transit, receive -- **built 2026-10-03** (A126) | Nothing | L | Claude alone |
+| STK-2 | §70 row 2 | A GSTIN per branch, and transfers between GSTINs as tax invoices -- **built 2026-10-03** (A127) | Nothing | L | Claude alone |
 | STK-3 | §70 row 3 | Issue stock for internal use, staff or display -- **built 2026-10-03** (A61) | Nothing | S | Claude alone |
-| STK-4 | §70 row 4 | Repacking: a 25 kg bag into 25 one-kg packs | Nothing | M | Claude alone |
-| STK-5 | §70 row 7 | Expiry rules per product: stop selling, alert, return to supplier | Nothing | M | Claude alone |
-| STK-6 | §70 row 8 | Planned and blind stock counts, with variance approval | Nothing | M | Claude alone |
-| STK-7 | §70 row 11 | Adjustment reasons as a list the firm keeps | Nothing | M | Claude alone |
-| STK-8 | §70 row 12 | Large adjustments and write-offs need approval | Nothing | M | Claude alone |
+| STK-4 | §70 row 4 | Repacking: a 25 kg bag into 25 one-kg packs -- **built 2026-10-03** (A114) | Nothing | M | Claude alone |
+| STK-5 | §70 row 7 | Expiry rules per product: stop selling, alert, return to supplier -- **built 2026-10-03** (A113) | Nothing | M | Claude alone |
+| STK-6 | §70 row 8 | Planned and blind stock counts, with variance approval -- **built 2026-10-03** (A117) | Nothing | M | Claude alone |
+| STK-7 | §70 row 11 | Adjustment reasons as a list the firm keeps -- **built 2026-10-03** (A104) | Nothing | M | Claude alone |
+| STK-8 | §70 row 12 | Large adjustments and write-offs need approval -- **built 2026-10-03** (A108) | Nothing | M | Claude alone |
 | STK-9 | §70 row 13 | Photos and documents on adjustments, write-offs, counts -- **built 2026-10-03** (A64) | Nothing | S | Claude alone |
 | STK-10 | §70 row 14 | Incoming and outgoing beside available stock -- **built 2026-10-03** (A60) | Nothing | S | Claude alone |
 | STK-11 | §70 row 15 | Issue rule per product: earliest expiry, first in, or pick by hand -- **built 2026-10-03** (A63) | Nothing | S | Claude alone |
-| STK-12 | §70 row 16 | Reservations that lapse after N days | Nothing | M | Claude alone |
+| STK-12 | §70 row 16 | Reservations that lapse after N days -- **built 2026-10-03** (A115) | Nothing | M | Claude alone |
 | STK-13 | §70 row 17 | Returned goods held until checked -- **built 2026-10-03** (A62) | Nothing | S | Claude alone |
-| STK-14 | §70 row 18 | Stock alerts and the inventory dashboard | Nothing | M | Claude alone |
-| STK-15 | §42.13 | Kits and combo packs | Nothing | L | Claude alone |
+| STK-14 | §70 row 18 | Stock alerts and the inventory dashboard -- **built 2026-10-03** (A116) | Nothing | M | Claude alone |
+| STK-15 | §42.13 | Kits and combo packs -- **built 2026-10-03** (A134) | Nothing | L | Claude alone |
 | STK-16 | §55 S8 | Barcode label printing -- **built 2026-10-03** (A65) | Nothing (label size and printer to test) | S | Claude alone |
 | STK-17 | §75 row 5 | Discontinued products, and products never for sale -- **built 2026-10-03** (A58) | Nothing | S | Claude alone |
 | STK-18 | §75 row 6 | Shelf life on the product fills a batch's expiry -- **built 2026-10-03** (A59) | Nothing | S | Claude alone |
 | **Accounts** | | | | | |
-| ACC-1 | §42.2 | Bank reconciliation from the bank's statement file | Nothing (a sample statement helps) | L | Claude alone |
-| ACC-2 | §42.3 | Post-dated cheque register: held, deposited, cleared, bounced | Nothing | M | Claude alone |
+| ACC-1 | §42.2 | Bank reconciliation from the bank's statement file -- **built 2026-10-03** (A125) | Nothing (a sample statement helps) | L | Claude alone |
+| ACC-2 | §42.3 | Post-dated cheque register: held, deposited, cleared, bounced -- **built 2026-10-03** (A80) | Nothing | M | Claude alone |
 | ACC-3 | §74.1 row 12 | How money moved: UPI, cheque, NEFT, card, cash, with number and date -- **built 2026-10-02** (A49) | Nothing | S | Claude alone |
 | ACC-4 | §74.1 row 13 | The firm's bank details printed on bills; account numbers masked -- **built 2026-10-03** (A81) | Nothing | M | Claude alone |
 | ACC-5 | §74.1 row 14 | Checks before closing a month -- **built 2026-10-02** (A50) | Nothing | S | Claude alone |
 | ACC-6 | §74.1 row 16 | Ageing buckets set per firm; due today and this week -- **built 2026-10-03** (A51) | Nothing | S | Claude alone |
 | ACC-7 | §53.1 | TDS challan screen; a supplier's usual TDS section -- **built 2026-10-03** (A79) | Nothing | M | Claude alone |
 | ACC-8 | §42.4 | TDS 194Q worked out automatically past ₹50 lakh per supplier -- **built 2026-10-03** (A78) | Nothing (CA confirms the rate at hand-over) | M | Claude alone |
-| ACC-9 | §74 row 5 | Cash flow statement | Nothing | M | Claude alone |
-| ACC-10 | §74 row 7 | Scanned bill or letter attached to a journal, receipt or payment | Nothing | M | Claude alone |
-| ACC-11 | §75 row 4 | A customer who is also a supplier, as one party | Nothing | M | Claude alone |
+| ACC-9 | §74 row 5 | Cash flow statement -- **built 2026-10-03** (A87) | Nothing | M | Claude alone |
+| ACC-10 | §74 row 7 | Scanned bill or letter attached to a journal, receipt or payment -- **built 2026-10-03** (A88) | Nothing | M | Claude alone |
+| ACC-11 | §75 row 4 | A customer who is also a supplier, as one party -- **built 2026-10-03** (A86) | Nothing | M | Claude alone |
 | ACC-12 | §55 S11 | Cheque printing -- **built 2026-10-03** (A66) | Nothing (a cheque leaf to align) | S | Claude alone |
 | **GST** | | | | | |
 | GST-1 | §77 row 12 | Warn on a credit note after 30 November -- **built 2026-10-02** (A46) | Nothing | S | Claude alone |
 | GST-2 | §77 row 13 | GST document numbers kept to 16 characters -- **built 2026-10-02** (A47) | Nothing | S | Claude alone |
 | GST-3 | §78 row 7 | Warn on a supplier bill entered after its credit's last date -- **built 2026-10-02** (A48) | Nothing | S | Claude alone |
-| GST-4 | §78 row 9 | Common credit reversal for a firm with exempt sales (rules 42/43) | Nothing (CA confirms at hand-over) | M | Claude alone |
+| GST-4 | §78 row 9 | Common credit reversal for a firm with exempt sales (rules 42/43) -- **built 2026-10-03** (A84) | Nothing (CA confirms at hand-over) | M | Claude alone |
 | GST-5 | §74.1 row 9 | GST checks before filing: an exception list -- **built 2026-10-03** (A82) | Nothing | M | Claude alone |
-| GST-6 | §74.1 row 10 | A filed return's figures kept as filed; later changes as amendments | Nothing | L | Claude alone |
-| GST-7 | §74.1 row 11 | Quarterly filers (QRMP) | Nothing | M | Claude alone |
-| GST-8 | §74.1 row 15 | The tax rule that applied, kept on each line | Nothing | M | Claude alone |
+| GST-6 | §74.1 row 10 | A filed return's figures kept as filed; later changes as amendments -- **built 2026-10-03** (A130) | Nothing | L | Claude alone |
+| GST-7 | §74.1 row 11 | Quarterly filers (QRMP) -- **built 2026-10-03** (A83) | Nothing | M | Claude alone |
+| GST-8 | §74.1 row 15 | The tax rule that applied, kept on each line -- **built 2026-10-03** (A85) | Nothing | M | Claude alone |
 | **Masters and configuration** | | | | | |
-| MST-1 | §75 row 1 | Principal (company) and brand masters | Nothing | M | Claude alone |
-| MST-2 | §75 row 7 | New rates from a future date, with rate history | Nothing | M | Claude alone |
-| MST-3 | §75 row 8 | Warn on duplicate parties; merge two into one | Nothing | L | Claude alone |
+| MST-1 | §75 row 1 | Principal (company) and brand masters -- **built 2026-10-03** (A118) | Nothing | M | Claude alone |
+| MST-2 | §75 row 7 | New rates from a future date, with rate history -- **built 2026-10-03** (A119) | Nothing | M | Claude alone |
+| MST-3 | §75 row 8 | Warn on duplicate parties; merge two into one -- **built 2026-10-03** (A136) | Nothing | L | Claude alone |
 | MST-4 | §75 row 9 | Attachments and a bank account on the customer -- **built 2026-10-03** (A68) | Nothing | S | Claude alone |
 | MST-5 | §75 row 10 | Customer, supplier and product codes issued automatically -- **built 2026-10-03** (A67) | Nothing | S | Claude alone |
-| MST-6 | §52 | Extra fields on documents, not only on masters | Nothing | L | Claude alone |
+| MST-6 | §52 | Extra fields on documents, not only on masters -- **built 2026-10-03** (A132) | Nothing | L | Claude alone |
 | MST-7 | §17 | Features and modules created at runtime reach every store -- **built 2026-10-03** (A69) | Nothing | S | Claude alone |
-| MST-8 | §16 | A firm configures its own custom fields | Nothing | M | Claude alone |
+| MST-8 | §16 | A firm configures its own custom fields -- **built 2026-10-03** (A120) | Nothing | M | Claude alone |
 | **Reports** | | | | | |
-| RPT-1 | §62 remainder | Sales analysis: filters, orders basis, margin, compare, chart, export, saved layouts | Nothing | M | Claude alone |
-| RPT-2 | §66 remainder | Purchase analysis: the same, plus receipt basis, average rate, rate trend | Nothing | M | Claude alone |
+| RPT-1 | §62 remainder | Sales analysis: filters, orders basis, margin, compare, chart, export, saved layouts -- **built 2026-10-03** (A121) | Nothing | M | Claude alone |
+| RPT-2 | §66 remainder | Purchase analysis: the same, plus receipt basis, average rate, rate trend -- **built 2026-10-03** (A122) | Nothing | M | Claude alone |
 | **Platform** | | | | | |
-| PLT-1 | §56 A | Bulk reject, and approval in several levels | Nothing | L | Claude alone |
-| PLT-2 | §55 S12 | Notifications: the bell | Nothing | M | Claude alone |
+| PLT-1 | §56 A | Bulk reject, and approval in several levels -- **built 2026-10-03** (A131) | Nothing | L | Claude alone |
+| PLT-2 | §55 S12 | Notifications: the bell -- **built 2026-10-03** (A123) | Nothing | M | Claude alone |
 | PLT-3 | §56 C | Fast global search (trigram indexes) -- **built 2026-10-03** (A75) | Nothing | S | Claude alone |
-| PLT-4 | §56 C | GSTR-1, GSTR-3B and outstanding reports under 3 seconds | Nothing | M | Claude alone |
-| PLT-5 | §56 C | Back-dated entries carried forward in one statement | Nothing | M | Claude alone |
+| PLT-4 | §56 C | GSTR-1, GSTR-3B and outstanding reports under 3 seconds -- **built 2026-10-03** | Nothing | M | Claude alone |
+| PLT-5 | §56 C | Back-dated entries carried forward in one statement -- **built 2026-10-03** | Nothing | M | Claude alone |
 | PLT-6 | §56 C | Old login and log records pruned by default -- **built 2026-10-03** (A76) | Nothing | S | Claude alone |
-| PLT-7 | D-PERF-1 | The 38 routes past their time target on WHOLE01 | Nothing | M | Claude alone |
+| PLT-7 | D-PERF-1 | The 38 routes past their time target on WHOLE01 -- **built 2026-10-03** | Nothing | M | Claude alone |
 | PLT-8 | §31.17 rest | One search box on the audit trail spanning who and what -- **built 2026-10-03** (A77) | Nothing | S | Claude alone |
 | PLT-9 | §31 leftovers | Phase 1 leftovers: payload guard on the phase 2 editors, "Line 1" labels, price-list counts -- **built 2026-10-03** | Nothing | S | Claude alone |
 | PLT-10 | §3 | The stray `installer/` folder -- **done 2026-10-03** | Nothing | S | Claude alone |
@@ -152,8 +156,8 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | MSG-1 | §51 A2 | Share a document on WhatsApp by hand -- **built 2026-10-03** (A56) | Nothing | S | Claude alone |
 | MSG-2 | §51 A3 | UPI QR code on the printed bill -- **built 2026-10-03** (A55) | Nothing | S | Claude alone |
 | MSG-3 | §51 A4 | Payment reminder by hand from the overdue list and statement -- **built 2026-10-03** (A57) | Nothing | S | Claude alone |
-| MSG-4 | §51 | Send documents other than the invoice by hand | Nothing | M | Claude alone |
-| MSG-5 | §55 G4 | Export to Tally (vouchers and masters, XML) | Nothing (the CA's Tally to check an import) | L | Claude alone |
+| MSG-4 | §51 | Send documents other than the invoice by hand -- **built 2026-10-03** (A95) | Nothing | M | Claude alone |
+| MSG-5 | §55 G4 | Export to Tally (vouchers and masters, XML) -- **built 2026-10-03** (A135) | Nothing (the CA's Tally to check an import) | L | Claude alone |
 
 ---
 
@@ -894,7 +898,7 @@ otherwise it is built as written.
 | §65 row 14, §69 row 11 | RFQ and quotation comparison | A go-live firm that asks (rated low for a distributor) |
 | §68 row 12 | Rate contracts / blanket orders | A go-live firm that asks |
 | §70 rows 9-10 | FIFO costing; warn on negative stock | Decided no (B4); closed |
-| §53.1 | 26Q FVU text file | ACC-7 (challans recorded); then Claude builds it and the CA validates with the free NSDL FVU utility |
+| §53.1 | 26Q FVU text file | Unblocked by ACC-7 (challans recorded). **Owner 2026-10-03: kept for later, last in the queue.** When taken up, Claude builds it and the CA validates with the free NSDL FVU utility |
 | A5, A8, A9, A20, A31 | Defaults to confirm | The firm's CA at hand-over |
 | A43, A44, A45 | Built 2026-10-02 | Owner's OK |
 
