@@ -90,6 +90,12 @@ from app.inventory.services.adjustment_reasons import (
     AdjustmentReasonService,
     AdjustmentReasonWrite,
 )
+from app.inventory.services.count_planning import (
+    CountPlanResponse,
+    CountPlanService,
+    CountPlanWrite,
+    abc_classes,
+)
 from app.inventory.services.free_goods import FreeGoodsRecord, free_goods_report
 from app.inventory.services.opening_stock_import import OpeningStockFileImporter
 from app.inventory.services.opening_stock_import import (
@@ -1342,6 +1348,8 @@ def _count_response(
         status=row.status,
         remarks=row.remarks,
         posted_at=row.posted_at,
+        is_blind=row.is_blind,
+        count_plan_id=row.count_plan_id,
         lines=_count_lines(service, row),
         version=row.version,
     )
@@ -1364,6 +1372,7 @@ def _count_lines(
             if line.storage_node_id is not None
             else None
         )
+        hidden = row.is_blind and row.status == "DRAFT"
         responses.append(
             PhysicalCountLineResponse.model_validate(line).model_copy(
                 update={
@@ -1371,10 +1380,102 @@ def _count_lines(
                     "product_name": name,
                     "storage_node_code": place[0] if place else None,
                     "storage_node_name": place[1] if place else None,
+                    # A blind sheet shows what the system holds only once
+                    # posted (STK-6).
+                    **({"expected_quantity": None} if hidden else {}),
                 }
             )
         )
     return responses
+
+
+@router.get("/abc-classes", response_model=ApiResponse[dict[str, str]])
+def inventory_abc_classes(
+    scope: InventoryViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[dict[str, str]]:
+    """Return each dispatched product's ABC class, by product id (STK-6).
+
+    A product not listed is C.
+    """
+    classes = abc_classes(db, scope.firm_id, on=utc_now().date())
+    return ApiResponse(data={str(key): value for key, value in classes.items()})
+
+
+@router.get("/count-plans", response_model=ApiResponse[list[CountPlanResponse]])
+def list_count_plans(
+    scope: InventoryViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[CountPlanResponse]]:
+    """Return the firm's count plans, the due ones first (STK-6)."""
+    return ApiResponse(
+        data=CountPlanService(db).list_plans(scope.firm_id, on=utc_now().date())
+    )
+
+
+@router.post(
+    "/count-plans",
+    response_model=ApiResponse[CountPlanResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_count_plan(
+    data: CountPlanWrite,
+    scope: InventoryAdjustScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CountPlanResponse]:
+    """Add a count plan (STK-6)."""
+    return ApiResponse(
+        data=CountPlanService(db).create(
+            data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
+
+
+@router.put("/count-plans/{plan_id}", response_model=ApiResponse[CountPlanResponse])
+def update_count_plan(
+    plan_id: UUID,
+    data: CountPlanWrite,
+    scope: InventoryAdjustScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CountPlanResponse]:
+    """Change a count plan (STK-6)."""
+    return ApiResponse(
+        data=CountPlanService(db).update(
+            plan_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
+
+
+@router.delete("/count-plans/{plan_id}", response_model=ApiResponse[None])
+def delete_count_plan(
+    plan_id: UUID,
+    scope: InventoryAdjustScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[None]:
+    """Remove a count plan; its sheets stay (STK-6)."""
+    CountPlanService(db).delete(plan_id, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    return ApiResponse(data=None, message="Count plan deleted.")
+
+
+@router.post(
+    "/count-plans/{plan_id}/sheet",
+    response_model=ApiResponse[PhysicalCountResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def draw_count_plan_sheet(
+    plan_id: UUID,
+    scope: InventoryAdjustScope,
+    count_date: date | None = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PhysicalCountResponse]:
+    """Open the sheet a count plan covers (STK-6)."""
+    sheet = CountPlanService(db).draw_sheet(
+        plan_id,
+        count_date=count_date or utc_now().date(),
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(data=_count_response(PhysicalCountService(db), sheet))
 
 
 @router.post(

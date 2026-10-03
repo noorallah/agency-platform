@@ -14,6 +14,7 @@ from app.inventory.models.inventory import (
     StockLedgerEntry,
 )
 from app.inventory.models.physical_count import (
+    CountPlan,
     PhysicalCount,
     PhysicalCountLine,
     PhysicalCountStatus,
@@ -21,6 +22,7 @@ from app.inventory.models.physical_count import (
 from app.inventory.models.stock_attachment import StockAttachment
 
 __all__ = [
+    "CountPlan",
     "RoleStockAdjustmentLimit",
     "StockAdjustmentRequest",
     "StockAdjustmentReason",

@@ -12,6 +12,7 @@ from enum import StrEnum
 from uuid import UUID
 
 from sqlalchemy import (
+    Boolean,
     Date,
     ForeignKey,
     Index,
@@ -61,6 +62,35 @@ class PhysicalCount(BaseEntity):
     remarks: Mapped[str | None] = mapped_column(Text())
     posted_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     posted_by: Mapped[UUID | None] = mapped_column(UUIDType())
+    #: The count plan that drew this sheet (STK-6), if one did.
+    count_plan_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    #: A blind sheet hides what the system holds until it is posted (STK-6).
+    is_blind: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
+
+class CountPlan(BaseEntity):
+    """What to count, where, and how often (STK-6, decision A117)."""
+
+    __tablename__ = "count_plans"
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    branch_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+    warehouse_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+    #: ``A``, ``B`` or ``C``, worked out from the year's dispatch value.
+    abc_class: Mapped[str | None] = mapped_column(String(1))
+    storage_node_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    frequency_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    blind: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
 
 
 class PhysicalCountLine(BaseEntity):

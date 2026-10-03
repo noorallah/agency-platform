@@ -57,6 +57,9 @@ class PhysicalCountLine {
   /// Kept for the person reading it afterwards, and deliberately not what the
   /// variance is computed from: stock moves while a warehouse is counted, so
   /// the difference is measured when the sheet is posted.
+  ///
+  /// Empty on a blind draft sheet: the server withholds it from the counter
+  /// until the sheet is posted (STK-6).
   final String expectedQuantity;
 
   /// What was on the shelf. Empty until somebody walks the line, which is how
@@ -112,6 +115,8 @@ class PhysicalCountSheet {
     required this.remarks,
     required this.postedAt,
     required this.lines,
+    this.isBlind = false,
+    this.countPlanId = '',
   });
 
   final String id;
@@ -126,6 +131,14 @@ class PhysicalCountSheet {
   final String remarks;
   final String postedAt;
   final List<PhysicalCountLine> lines;
+
+  /// A blind count hides the system quantity until the sheet is posted, so the
+  /// counter writes down what is there rather than what is expected.
+  final bool isBlind;
+  final String countPlanId;
+
+  /// True while the system quantity is being withheld from the counter.
+  bool get hidesExpected => isBlind && isDraft;
 
   bool get isDraft => status == 'DRAFT';
   bool get isPosted => status == 'POSTED';
@@ -148,10 +161,63 @@ class PhysicalCountSheet {
       status: stringValue(d['status']),
       remarks: stringValue(d['remarks']),
       postedAt: stringValue(d['posted_at']),
+      isBlind: boolValue(d['is_blind']),
+      countPlanId: stringValue(d['count_plan_id']),
       lines: [
         for (final dynamic row in rows is List ? rows : const [])
           if (row is Map) PhysicalCountLine.fromJson(Map<String, dynamic>.from(row)),
       ],
     );
   }
+}
+
+/// A standing plan for cycle counting: which stock, how often, blind or not.
+class CountPlan {
+  const CountPlan({
+    required this.id,
+    required this.name,
+    required this.branchId,
+    required this.warehouseId,
+    required this.abcClass,
+    required this.storageNodeId,
+    required this.frequencyDays,
+    required this.blind,
+    required this.isActive,
+    required this.lastCountedOn,
+    required this.nextDueOn,
+    required this.isDue,
+    required this.version,
+  });
+
+  final String id;
+  final String name;
+  final String branchId;
+  final String warehouseId;
+
+  /// A, B or C, or empty for every product.
+  final String abcClass;
+  final String storageNodeId;
+  final int frequencyDays;
+  final bool blind;
+  final bool isActive;
+  final String lastCountedOn;
+  final String nextDueOn;
+  final bool isDue;
+  final int version;
+
+  factory CountPlan.fromJson(Json json) => CountPlan(
+        id: stringValue(json['id']),
+        name: stringValue(json['name']),
+        branchId: stringValue(json['branch_id']),
+        warehouseId: stringValue(json['warehouse_id']),
+        abcClass: stringValue(json['abc_class']),
+        storageNodeId: stringValue(json['storage_node_id']),
+        frequencyDays: (json['frequency_days'] as num?)?.toInt() ?? 0,
+        blind: boolValue(json['blind']),
+        isActive: boolValue(json['is_active'], fallback: true),
+        lastCountedOn: stringValue(json['last_counted_on']),
+        nextDueOn: stringValue(json['next_due_on']),
+        isDue: boolValue(json['is_due']),
+        version: (json['version'] as num?)?.toInt() ?? 0,
+      );
 }
