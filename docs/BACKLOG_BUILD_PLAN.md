@@ -288,6 +288,7 @@ otherwise it is built as written.
 - **What it is:** a set price for a set of products bought together.
 - **What gets built:** a new action type naming the set and its price; the engine finds complete sets on the document and apportions the saving over their lines by value (as `apportion` does for bill discounts) so tax stays per line. Dialog: a product multi-pick with quantities. Tests: partial sets, two sets, tax per line.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A96): `PromotionActionType.COMBO_PRICE` with `combo_items` and `amount` (stored as `items` / `price`); `_combo_saving` in `promotion_service.py` counts complete sets across lines and apportions the saving by value; `_LineState` now carries the product. No migration. Desktop: *Combo price* in the offer editor with a product multi-pick. Tests: `test_combo_price.py`, `promotion_combo_test.dart`.
 
 #### SEL-4. Offer: festival bonus loyalty points (§60 row 6)
 - **What it is:** double (or any multiple of) loyalty points for the offer's dates.

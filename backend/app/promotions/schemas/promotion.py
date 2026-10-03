@@ -116,6 +116,11 @@ class PromotionActionType(StrEnum):
     #: ``percent`` off ``free_quantity`` of them, at the line's own rate. A
     #: discount on units already on the line, so tax stays per line.
     BUY_X_GET_Y_DISCOUNT = "BUY_X_GET_Y_DISCOUNT"
+    #: A set price for a set of products bought together (SEL-3): ``combo_items``
+    #: names the products and quantities of one set, ``amount`` its price.
+    #: Complete sets on the document cost that; the saving is spread over
+    #: their lines by value, so each line keeps its own tax.
+    COMBO_PRICE = "COMBO_PRICE"
 
 
 class PromotionConditionWrite(PromotionSchema):
@@ -202,6 +207,13 @@ class PromotionConditionWrite(PromotionSchema):
             )
 
 
+class ComboItem(PromotionSchema):
+    """One product and how many of it make up one combo set (SEL-3)."""
+
+    product_id: UUID
+    quantity: Decimal = Field(gt=0, max_digits=18, decimal_places=4)
+
+
 class PromotionActionWrite(PromotionSchema):
     """Carry one promotion action into a request."""
 
@@ -236,6 +248,8 @@ class PromotionActionWrite(PromotionSchema):
     max_amount: Decimal | None = Field(
         default=None, gt=0, max_digits=18, decimal_places=4
     )
+    #: For COMBO_PRICE: the products of one set, two or more (SEL-3).
+    combo_items: list[ComboItem] | None = Field(default=None, max_length=20)
 
     @model_validator(mode="after")
     def _parameters_match_the_action(self) -> "PromotionActionWrite":
@@ -248,6 +262,7 @@ class PromotionActionWrite(PromotionSchema):
         amount_actions = {
             PromotionActionType.LINE_DISCOUNT_AMOUNT,
             PromotionActionType.BILL_DISCOUNT_AMOUNT,
+            PromotionActionType.COMBO_PRICE,
         }
         if self.action_type in percent_actions and self.percent is None:
             raise ValueError("A percentage benefit needs a percent.")
@@ -271,6 +286,15 @@ class PromotionActionWrite(PromotionSchema):
                 raise ValueError("Say which product is given away.")
             if self.free_quantity is None:
                 raise ValueError("Say how many of it are given away.")
+        combo = self.action_type is PromotionActionType.COMBO_PRICE
+        if combo:
+            items = self.combo_items or []
+            if len(items) < 2:
+                raise ValueError("A combo names two or more products.")
+            if len({item.product_id for item in items}) != len(items):
+                raise ValueError("Name each product of a combo once.")
+        elif self.combo_items:
+            raise ValueError("Only a combo price names a set of products.")
         points = self.action_type is PromotionActionType.LOYALTY_MULTIPLIER
         if points and self.multiplier is None:
             raise ValueError("Say how many times the usual points, such as 2.")

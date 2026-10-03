@@ -529,11 +529,16 @@ class PromotionActionRecord {
     this.freeProductId = '',
     this.maxAmount = '',
     this.multiplier = '',
+    this.comboItems = const <ComboItemRecord>[],
   });
 
   final String id;
   final int sequence;
   final String actionType;
+
+  /// For `COMBO_PRICE`: the products of one set and how many of each. The
+  /// price of the set is [amount].
+  final List<ComboItemRecord> comboItems;
 
   /// For `LOYALTY_MULTIPLIER`: how many times the usual points a bill earns
   /// (2 = double). Applied when the bill is approved, not on the document.
@@ -561,12 +566,24 @@ class PromotionActionRecord {
       return value == 'None' ? '' : value;
     }
 
+    final bool isCombo = stringValue(json['action_type']) == 'COMBO_PRICE';
+    final Object? rawItems = params['items'];
     return PromotionActionRecord(
+      comboItems: isCombo && rawItems is List
+          ? <ComboItemRecord>[
+              for (final Object? item in rawItems)
+                if (item is Map)
+                  ComboItemRecord(
+                    productId: stringValue(item['product_id']),
+                    quantity: stringValue(item['quantity']),
+                  ),
+            ]
+          : const <ComboItemRecord>[],
       id: stringValue(json['id']),
       sequence: (json['sequence'] as num?)?.toInt() ?? 1,
       actionType: stringValue(json['action_type']),
       percent: read('percent'),
-      amount: read('amount'),
+      amount: isCombo ? read('price') : read('amount'),
       buyQuantity: read('buy_quantity'),
       freeQuantity: read('free_quantity'),
       freeProductId: read('free_product_id'),
@@ -587,12 +604,32 @@ class PromotionActionRecord {
           'free_product_id': freeProductId.trim(),
         if (maxAmount.trim().isNotEmpty) 'max_amount': maxAmount.trim(),
         if (multiplier.trim().isNotEmpty) 'multiplier': multiplier.trim(),
+        if (actionType == 'COMBO_PRICE')
+          'combo_items': [
+            for (final ComboItemRecord item in comboItems)
+              <String, dynamic>{
+                'product_id': item.productId,
+                'quantity': item.quantity.trim(),
+              },
+          ],
       };
 }
 
 /// "2x loyalty points" for a bonus-points benefit (`2.00` reads as `2x`).
 String bonusPointsLabel(String multiplier) =>
     '${_plainNumber(multiplier)}x loyalty points';
+
+/// One product of a `COMBO_PRICE` set.
+class ComboItemRecord {
+  const ComboItemRecord({required this.productId, required this.quantity});
+
+  final String productId;
+  final String quantity;
+}
+
+/// "2 products for 120.00" for a `COMBO_PRICE` benefit.
+String comboPriceLabel(int products, String price) =>
+    '$products products for $price';
 
 /// "Buy 1, get 1 at 50% off" for a `BUY_X_GET_Y_DISCOUNT` benefit.
 String buyXGetYDiscountLabel(String buy, String get, String percent) =>
