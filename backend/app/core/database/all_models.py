@@ -61,6 +61,7 @@ from app.inventory.models import (
     adjustment_approval,  # noqa: F401
     adjustment_reason,  # noqa: F401
     inventory,  # noqa: F401
+    repack,  # noqa: F401
     physical_count,  # noqa: F401
     stock_attachment,  # noqa: F401
 )

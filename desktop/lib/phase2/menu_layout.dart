@@ -278,6 +278,7 @@ abstract final class MenuLayout {
         MenuItemSpec(AppModule.inventory, 'physical-counts', 'Physical Count'),
         MenuItemSpec(
             AppModule.inventory, 'adjustment-approvals', 'Adjustment Approvals'),
+        MenuItemSpec(AppModule.inventory, 'repacking', 'Repacking'),
       ]),
       MenuGroupSpec('Tracking', [
         MenuItemSpec(AppModule.inventory, 'batches', 'Batches'),

@@ -966,6 +966,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['INVENTORY_ADJUST'],
         ),
         ModuleTabDefinition(
+          id: 'repacking',
+          label: 'Repacking',
+          requiredPermissions: ['INVENTORY_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'adjustment-reasons',
           label: 'Adjustment Reasons',
           requiredPermissions: [
@@ -1945,6 +1950,12 @@ abstract final class ModuleCatalog {
           label: 'Adjustment Approvals',
           path: 'adjustment-approvals',
           icon: Icons.fact_check_outlined,
+        ),
+      if (visibleTabIds.contains('repacking'))
+        const WorkspaceNavigationNode(
+          label: 'Repacking',
+          path: 'repacking',
+          icon: Icons.inventory_2_outlined,
         ),
       if (visibleTabIds.contains('adjustment-reasons'))
         const WorkspaceNavigationNode(

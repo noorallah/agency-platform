@@ -38,6 +38,7 @@ import '../../models/payment_run.dart';
 import '../../models/supplier_gift.dart';
 import '../../models/post_dated_cheque.dart';
 import '../../models/purchase_requisition.dart';
+import '../../models/repack.dart';
 import '../../models/quality_inspection.dart';
 import '../../models/bank_account_details.dart';
 import '../../models/einvoice.dart';
@@ -3508,6 +3509,33 @@ class ApiClient {
           query: {if (activeOnly) 'active_only': 'true'},
         ),
         AdjustmentReasonRecord.fromJson,
+      );
+
+  /// Repacks and bulk breaking (STK-4): stock consumed and produced in one
+  /// document. Readable by any inventory viewer.
+  Future<List<RepackRecord>> repacks() async => _unwrapList(
+        await request('GET', '/api/v1/inventory/repacks'),
+        RepackRecord.fromJson,
+      );
+
+  /// Posts a repack. Needs `INVENTORY_ADJUST`; a short balance is refused
+  /// with the server's message.
+  Future<RepackRecord> createRepack(Json data) async => RepackRecord.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/inventory/repacks', body: data),
+        ),
+      );
+
+  /// Reverses a posted repack, with the reason the trail keeps.
+  Future<RepackRecord> cancelRepack(String id, String reason) async =>
+      RepackRecord.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/inventory/repacks/$id/cancel',
+            body: <String, dynamic>{'reason': reason},
+          ),
+        ),
       );
 
   /// The largest movement each role may post directly (STK-8). Readable by
