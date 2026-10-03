@@ -359,6 +359,9 @@ PERMISSION_GROUPS = {
         "JOURNAL_REVERSE",
         "PAYMENT_CREATE",
         "PAYMENT_VIEW",
+        # Approving a payment run books every payment in it (BUY-11): the
+        # accountant's call, not the cashier's who records single payments.
+        "PAYMENT_RUN_APPROVE",
         "RECEIPT_CREATE",
         "RECEIPT_VIEW",
         "LEDGER_VIEW",

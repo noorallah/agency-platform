@@ -25,6 +25,7 @@ const Map<String, List<String>> _synonyms = {
     'cheque bounce',
     'deposit cheque'
   ],
+  'accounting/payment-runs': ['payment run', 'bulk payment', 'bank file'],
   'accounting/pdc-issued': ['post-dated cheque issued', 'pdc issued'],
   'accounting/journal-entries': ['journal', 'jv'],
   'accounting/expenses': ['expense', 'payment voucher', 'rent', 'fuel'],

@@ -1085,6 +1085,12 @@ abstract final class ModuleCatalog {
           label: 'Post-dated Cheques (Issued)',
           requiredPermissions: ['PAYMENT_VIEW'],
         ),
+        // Many supplier bills paid at once, with the bank's bulk file (BUY-11).
+        ModuleTabDefinition(
+          id: 'payment-runs',
+          label: 'Payment Runs',
+          requiredPermissions: ['PAYMENT_VIEW'],
+        ),
         // No `REFUND_*` code exists, so this keeps `ACCOUNT_VIEW` and stays
         // exactly as reachable as it is today. A refund reverses a settlement
         // and is not the job of whoever took the money -- the same separation

@@ -82,6 +82,7 @@ from app.sales_return.models import sales_return  # noqa: F401
 from app.sales_targets.models import sales_target  # noqa: F401
 from app.settlements.models import (  # noqa: F401
     cheque_layout,
+    payment_run,
     post_dated_cheque,
     settlement,
 )
