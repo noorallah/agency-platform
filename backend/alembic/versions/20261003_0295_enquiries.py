@@ -90,7 +90,10 @@ def upgrade() -> None:
             sa.Column("expected_close_on", sa.Date(), nullable=True),
             sa.Column("next_follow_up_on", sa.Date(), nullable=True),
             sa.Column(
-                "status", sa.String(20), server_default=sa.text("'OPEN'"), nullable=False
+                "status",
+                sa.String(20),
+                server_default=sa.text("'OPEN'"),
+                nullable=False,
             ),
             sa.Column("lost_reason", sa.String(40), nullable=True),
             sa.Column("lost_remarks", sa.Text(), nullable=True),
