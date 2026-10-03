@@ -80,6 +80,7 @@ MODULES: tuple[tuple[str, frozenset[str]], ...] = (
         "Selling",
         frozenset(
             {
+                "enquiries",
                 "quotations",
                 "sales-orders",
                 "delivery-notes",
@@ -105,6 +106,8 @@ MODULES: tuple[tuple[str, frozenset[str]], ...] = (
                 "payments",
                 "payment-runs",
                 "supplier-rebates",
+                "landed-costs",
+                "principal-claims",
             }
         ),
     ),
@@ -140,6 +143,7 @@ MODULES: tuple[tuple[str, frozenset[str]], ...] = (
                 "search",
                 "notifications",
                 "report-layouts",
+                "approvals",
             }
         ),
     ),
