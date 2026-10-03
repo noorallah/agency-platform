@@ -60,6 +60,12 @@ class ProductCategory(BaseEntity):
     level: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
     #: Goods of this category wait in quarantine on receipt until passed
     #: (BUY-9).
+    #: Expiry rules (STK-5), each overriding the firm's:
+    #: stop selling this many days before expiry, alert this many days
+    #: before, and send back to the supplier this many days before.
+    expiry_stop_sale_days: Mapped[int | None] = mapped_column(Integer)
+    expiry_alert_days: Mapped[int | None] = mapped_column(Integer)
+    expiry_return_days: Mapped[int | None] = mapped_column(Integer)
     inspection_required: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
@@ -249,6 +255,12 @@ class Product(BaseEntity):
     require_batch_on_receipt: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    #: Expiry rules (STK-5), each overriding the category's and the firm's:
+    #: stop selling this many days before expiry, alert this many days
+    #: before, and send back to the supplier this many days before.
+    expiry_stop_sale_days: Mapped[int | None] = mapped_column(Integer)
+    expiry_alert_days: Mapped[int | None] = mapped_column(Integer)
+    expiry_return_days: Mapped[int | None] = mapped_column(Integer)
     #: Promotional stock (BUY-1): received, given away and counted, but never
     #: sold at a price.
     free_issue_only: Mapped[bool] = mapped_column(

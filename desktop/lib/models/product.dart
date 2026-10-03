@@ -61,6 +61,8 @@ class ProductMediaRecord {
       );
 }
 
+int? _optInt(Object? v) => v is num ? v.toInt() : null;
+
 class ProductCategoryRecord {
   const ProductCategoryRecord({
     required this.id,
@@ -72,6 +74,9 @@ class ProductCategoryRecord {
     required this.isActive,
     this.requiredLicenceTypeId = '',
     this.inspectionRequired = false,
+    this.expiryStopSaleDays,
+    this.expiryAlertDays,
+    this.expiryReturnDays,
   });
 
   final String id;
@@ -91,6 +96,11 @@ class ProductCategoryRecord {
   /// (BUY-9).
   final bool inspectionRequired;
 
+  /// Expiry windows in days before expiry (STK-5); null takes the firm's.
+  final int? expiryStopSaleDays;
+  final int? expiryAlertDays;
+  final int? expiryReturnDays;
+
   factory ProductCategoryRecord.fromJson(Json json) => ProductCategoryRecord(
         id: stringValue(json['id']),
         code: stringValue(json['code']),
@@ -100,6 +110,10 @@ class ProductCategoryRecord {
         path: stringValue(json['path']),
         isActive: boolValue(json['is_active'], fallback: true),
         requiredLicenceTypeId: stringValue(json['required_licence_type_id']),
+        inspectionRequired: boolValue(json['inspection_required']),
+        expiryStopSaleDays: _optInt(json['expiry_stop_sale_days']),
+        expiryAlertDays: _optInt(json['expiry_alert_days']),
+        expiryReturnDays: _optInt(json['expiry_return_days']),
       );
 }
 
@@ -231,6 +245,9 @@ class Product {
     this.freeIssueOnly = false,
     this.inspectionRequired = false,
     this.shelfLifeDays,
+    this.expiryStopSaleDays,
+    this.expiryAlertDays,
+    this.expiryReturnDays,
     this.issueRule = '',
     this.allowNegativeStock = false,
     this.requireBatchOnReceipt = false,
@@ -322,6 +339,12 @@ class Product {
   /// manufacturing date gets its expiry from it. Null fills nothing.
   final int? shelfLifeDays;
 
+  /// Expiry windows in days before expiry (STK-5); null inherits the
+  /// category's, then the firm's.
+  final int? expiryStopSaleDays;
+  final int? expiryAlertDays;
+  final int? expiryReturnDays;
+
   /// FEFO, FIFO or PICK (STK-11); empty is earliest expiry.
   final String issueRule;
   final bool allowNegativeStock;
@@ -401,6 +424,9 @@ class Product {
         shelfLifeDays: json['shelf_life_days'] is num
             ? (json['shelf_life_days'] as num).toInt()
             : null,
+        expiryStopSaleDays: _optInt(json['expiry_stop_sale_days']),
+        expiryAlertDays: _optInt(json['expiry_alert_days']),
+        expiryReturnDays: _optInt(json['expiry_return_days']),
         allowNegativeStock: boolValue(json['allow_negative_stock']),
         requireBatchOnReceipt: boolValue(json['require_batch_on_receipt']),
         requireBatchOnIssue: boolValue(json['require_batch_on_issue']),

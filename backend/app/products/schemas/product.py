@@ -73,6 +73,11 @@ class ProductCategoryCreate(ProductSchema):
     #: Its goods wait in quarantine on receipt (BUY-9). On an update, absent
     #: leaves it alone.
     inspection_required: bool = False
+    #: Expiry rules (STK-5); blank takes the firm's. On an update absent
+    #: leaves them alone.
+    expiry_stop_sale_days: int | None = Field(default=None, ge=0, le=3650)
+    expiry_alert_days: int | None = Field(default=None, ge=0, le=3650)
+    expiry_return_days: int | None = Field(default=None, ge=0, le=3650)
 
     @field_validator("code", mode="before")
     @classmethod
@@ -98,6 +103,9 @@ class ProductCategoryResponse(ProductSchema):
     is_active: bool
     required_licence_type_id: UUID | None = None
     inspection_required: bool = False
+    expiry_stop_sale_days: int | None = None
+    expiry_alert_days: int | None = None
+    expiry_return_days: int | None = None
     created_at: datetime
     updated_at: datetime
     #: The concurrency counter, echoed as `If-Match` on the next edit.
@@ -195,6 +203,10 @@ class ProductWrite(ProductSchema):
     inspection_required: bool = False
     #: Promotional stock, never sold at a price (BUY-1).
     free_issue_only: bool = False
+    #: Expiry rules (STK-5); blank inherits the category's, then the firm's.
+    expiry_stop_sale_days: int | None = Field(default=None, ge=0, le=3650)
+    expiry_alert_days: int | None = Field(default=None, ge=0, le=3650)
+    expiry_return_days: int | None = Field(default=None, ge=0, le=3650)
     require_batch_on_issue: bool = False
     require_serial_on_receipt: bool = False
     require_serial_on_issue: bool = False
@@ -330,6 +342,9 @@ class ProductResponse(ProductSchema):
     require_batch_on_receipt: bool
     inspection_required: bool = False
     free_issue_only: bool = False
+    expiry_stop_sale_days: int | None = None
+    expiry_alert_days: int | None = None
+    expiry_return_days: int | None = None
     require_batch_on_issue: bool
     require_serial_on_receipt: bool
     require_serial_on_issue: bool

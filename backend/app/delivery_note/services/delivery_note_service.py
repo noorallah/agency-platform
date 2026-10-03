@@ -2209,6 +2209,28 @@ class DeliveryNoteService(TransactionalDocumentService):
                 f"Line {line.line_number}: batch {expired.batch_number} "
                 f"expired{when}."
             )
+        # Inside the product's stop-selling window (STK-5) it is not sold.
+        from app.batch_serial.services.expiry_rules import expiry_rules
+
+        rule = expiry_rules(self._session, line.firm_id, {line.product_id}).get(
+            line.product_id
+        )
+        stop_at = rule.sell_until(as_of) if rule else None
+        if stop_at is not None:
+            closing = self._session.scalars(
+                select(BatchRecord).where(
+                    BatchRecord.id.in_([pick.batch_id for pick in picks]),
+                    BatchRecord.expiry_date.is_not(None),
+                    BatchRecord.expiry_date < stop_at,
+                )
+            ).first()
+            if closing is not None and closing.expiry_date is not None:
+                raise ValidationError(
+                    f"Line {line.line_number}: batch {closing.batch_number} "
+                    f"expires on {closing.expiry_date.isoformat()}, inside the "
+                    f"{rule.stop_sale_days if rule else 0} days before expiry "
+                    "this product stops being sold."
+                )
         return [(pick.batch_id, self._q(pick.quantity)) for pick in picks]
 
     def _record_drawn(

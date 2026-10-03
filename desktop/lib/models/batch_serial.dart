@@ -431,6 +431,43 @@ class ExpiryDashboardRecord {
   }
 }
 
+/// A batch inside its product's return-to-supplier window (STK-5).
+class ReturnDueRecord {
+  const ReturnDueRecord({
+    required this.batchId,
+    required this.batchNumber,
+    required this.productId,
+    required this.productCode,
+    required this.productName,
+    required this.vendorId,
+    required this.expiryDate,
+    required this.daysToExpiry,
+    required this.quantity,
+  });
+
+  final String batchId;
+  final String batchNumber;
+  final String productId;
+  final String productCode;
+  final String productName;
+  final String vendorId;
+  final String expiryDate;
+  final int daysToExpiry;
+  final String quantity;
+
+  factory ReturnDueRecord.fromJson(Json json) => ReturnDueRecord(
+        batchId: stringValue(json['batch_id']),
+        batchNumber: stringValue(json['batch_number']),
+        productId: stringValue(json['product_id']),
+        productCode: stringValue(json['product_code']),
+        productName: stringValue(json['product_name']),
+        vendorId: stringValue(json['vendor_id']),
+        expiryDate: stringValue(json['expiry_date']),
+        daysToExpiry: _intValue(json['days_to_expiry']),
+        quantity: stringValue(json['quantity']),
+      );
+}
+
 class BatchQuery {
   const BatchQuery({
     this.productId,

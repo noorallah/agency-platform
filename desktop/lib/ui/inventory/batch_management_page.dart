@@ -63,6 +63,7 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
 
   BatchSummaryRecord? _batchSummary;
   ExpiryDashboardRecord? _expiryDashboard;
+  List<ReturnDueRecord> _returnsDue = const [];
 
   bool get _canViewBatch => widget.permissions.hasPermission('BATCH_VIEW');
   bool get _canCreateBatch => widget.permissions.hasPermission('BATCH_CREATE');
@@ -172,6 +173,11 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
             _expiryDashboard = await widget.api.expiryDashboard();
           } on ApiException {
             // handled below
+          }
+          try {
+            _returnsDue = await widget.api.batchesReturnsDue();
+          } on ApiException {
+            _returnsDue = const [];
           }
           final PagedResult<BatchRecord> nearExpiry = await widget.api.batches(
             page: _page,
@@ -824,6 +830,7 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
               SummaryCount(label: 'Quarantine', value: '${dash.quarantine}'),
               SummaryCount(label: 'Recalled', value: '${dash.recalled}'),
             ]),
+            _buildReturnsDue(),
             Expanded(
               child: _batches.isEmpty
                   ? const StandardEmptyState(type: EmptyStateType.noRecords)
@@ -870,6 +877,7 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
               ],
             ),
             const SizedBox(height: 24),
+            _buildReturnsDue(),
             const Text(
               'All Batches',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
@@ -888,6 +896,45 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
               SizedBox(height: 420, child: _buildBatchGrid()),
           ],
         ),
+      ),
+    );
+  }
+
+  /// STK-5: batches inside their product's return-to-supplier window.
+  Widget _buildReturnsDue() {
+    if (_returnsDue.isEmpty) return const SizedBox.shrink();
+    final ThemeData theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        key: const ValueKey('returns-due'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Return to supplier now', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 4),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 160),
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                for (final ReturnDueRecord r in _returnsDue)
+                  ListTile(
+                    dense: true,
+                    title: Text(
+                      '${r.productCode} - ${r.productName}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(
+                      'Batch ${r.batchNumber} - expires ${r.expiryDate} '
+                      '(${r.daysToExpiry} days)',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: Text('Qty ${r.quantity}'),
+                  ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

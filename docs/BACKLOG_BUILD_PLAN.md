@@ -490,6 +490,7 @@ otherwise it is built as written.
 - **What it is:** per product: when to stop selling, when to alert, when to send back to the supplier.
 - **What gets built:** migration: three day counts on product / category overriding the firm's `batch_sale_settings`; the batch picker and dispatch (`batch_sale_policy.py`) use them; the expiry monitor lists "return to supplier now". Tests.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A113): the three day counts on `products` and `product_categories` (migration 0277); `app/batch_serial/services/expiry_rules.py` (`expiry_rules`, `returns_due`); `allocate_for_dispatch` and the delivery note's chosen-batch check honour the stop window; the picker uses the product's alert window; `/batches/returns-due`. Desktop: the fields on the product and category, *Return to supplier now* on the expiry monitor. Tests: `test_expiry_rules.py`, `expiry_rules_test.dart`.
 
 #### STK-6. Count planning (§70 row 8)
 - **What it is:** cycle counts on a schedule, blind counts, and approval of large differences.

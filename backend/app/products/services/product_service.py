@@ -871,6 +871,9 @@ class ProductService:
             is_active=data.is_active,
             required_licence_type_id=data.required_licence_type_id,
             inspection_required=data.inspection_required,
+            expiry_stop_sale_days=data.expiry_stop_sale_days,
+            expiry_alert_days=data.expiry_alert_days,
+            expiry_return_days=data.expiry_return_days,
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -960,6 +963,13 @@ class ProductService:
             row.required_licence_type_id = data.required_licence_type_id
         if "inspection_required" in data.model_fields_set:
             row.inspection_required = data.inspection_required
+        for field in (
+            "expiry_stop_sale_days",
+            "expiry_alert_days",
+            "expiry_return_days",
+        ):
+            if field in data.model_fields_set:
+                setattr(row, field, getattr(data, field))
         row.updated_by = actor_id
         if row.path != old_path:
             self._repath_category_descendants(row)
@@ -1843,6 +1853,9 @@ class ProductService:
             "require_batch_on_receipt": product.require_batch_on_receipt,
             "inspection_required": product.inspection_required,
             "free_issue_only": product.free_issue_only,
+            "expiry_stop_sale_days": product.expiry_stop_sale_days,
+            "expiry_alert_days": product.expiry_alert_days,
+            "expiry_return_days": product.expiry_return_days,
             "require_batch_on_issue": product.require_batch_on_issue,
             "require_serial_on_receipt": product.require_serial_on_receipt,
             "require_serial_on_issue": product.require_serial_on_issue,

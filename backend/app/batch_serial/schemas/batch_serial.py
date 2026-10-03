@@ -435,3 +435,17 @@ class ReturnableSerials(SerialSchema):
     #: False for a product nobody tracks by serial: the line names none.
     serial_tracked: bool
     serials: list[PickedSerial]
+
+
+class ReturnDueResponse(BatchSchema):
+    """One batch due back to its supplier (STK-5)."""
+
+    batch_id: UUID
+    batch_number: str
+    product_id: UUID
+    product_code: str
+    product_name: str
+    vendor_id: UUID | None
+    expiry_date: date
+    days_to_expiry: int
+    quantity: Decimal
