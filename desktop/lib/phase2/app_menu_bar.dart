@@ -18,6 +18,7 @@ class AppMenuBar extends StatelessWidget {
     required this.settings,
     required this.currentPath,
     required this.onOpen,
+    required this.onOpenSetUp,
     required this.trailing,
     this.profile,
   });
@@ -26,12 +27,17 @@ class AppMenuBar extends StatelessWidget {
   /// in this list at all.
   final List<MenuAreaSpec> areas;
 
-  /// The Settings gear's sections, or null when the user may open none.
+  /// The Settings page's sections, or null when the user may open none --
+  /// which hides the gear.
   final MenuAreaSpec? settings;
 
   /// The router path on screen, which marks its area on the bar.
   final String currentPath;
   final ValueChanged<MenuItemSpec> onOpen;
+
+  /// Opens the Settings page (backlog 72), at the named section or at its
+  /// first.
+  final ValueChanged<String?> onOpenSetUp;
 
   /// Search and the firm switcher, right-aligned before the gear.
   final List<Widget> trailing;
@@ -52,7 +58,6 @@ class AppMenuBar extends StatelessWidget {
     'accounts': 'a',
     'masters': 'm',
     'reports': 'r',
-    'admin': 'd',
   };
 
   /// [label] with `&` before its Alt letter, as [MenuAcceleratorLabel]
@@ -86,27 +91,16 @@ class AppMenuBar extends StatelessWidget {
             ),
           ),
           ...trailing,
+          // The gear opens the Settings page in a tab of its own rather than
+          // a panel: with the set-up lists and Admin behind it there are too
+          // many sections for one drop-down (backlog 72).
           if (settings != null)
-            MenuBar(
-              style: MenuStyle(
-                backgroundColor: WidgetStatePropertyAll(colors.chrome),
-                elevation: const WidgetStatePropertyAll(0),
-                padding: const WidgetStatePropertyAll(EdgeInsets.zero),
-              ),
-              children: [
-                SubmenuButton(
-                  key: const ValueKey('menu-area-settings'),
-                  style: barIconStyle(context),
-                  menuStyle: panelStyle(context),
-                  alignmentOffset: const Offset(-420, 0),
-                  menuChildren: [_AreaPanel(area: settings!, onOpen: onOpen)],
-                  child: Tooltip(
-                    message: 'Settings',
-                    child: Icon(Icons.settings_outlined,
-                        color: colors.onChrome, size: 20),
-                  ),
-                ),
-              ],
+            IconButton(
+              key: const ValueKey('menu-area-settings'),
+              tooltip: 'Settings',
+              style: barIconStyle(context),
+              onPressed: () => onOpenSetUp(null),
+              icon: Icon(Icons.settings_outlined, color: colors.onChrome),
             ),
           if (profile != null) ...[
             const SizedBox(width: 6),
@@ -188,7 +182,7 @@ class AppMenuBar extends StatelessWidget {
                       textStyle: WidgetStatePropertyAll(menuTextStyle(context)),
                     ),
                     menuStyle: panelStyle(context),
-                    menuChildren: [_AreaPanel(area: area, onOpen: onOpen)],
+                    menuChildren: [_panel(area)],
                     child: MenuAcceleratorLabel(
                       acceleratorLabel(area.id, area.label),
                     ),
@@ -200,6 +194,20 @@ class AppMenuBar extends StatelessWidget {
       ),
     );
   }
+
+  /// An area's drop-down. Its links to Settings name only the sections this
+  /// person is offered there.
+  Widget _panel(MenuAreaSpec area) => _AreaPanel(
+        area: area,
+        onOpen: onOpen,
+        setUp: [
+          for (final String section in area.setUp)
+            if (settings?.groups.any((group) => group.label == section) ??
+                false)
+              section,
+        ],
+        onOpenSetUp: onOpenSetUp,
+      );
 
   Widget _areaButton(BuildContext context, MenuAreaSpec area, bool current) {
     // An area of one screen (Home) opens it rather than a panel of one.
@@ -216,7 +224,7 @@ class AppMenuBar extends StatelessWidget {
       key: ValueKey('menu-area-${area.id}'),
       style: _barButtonStyle(context, current),
       menuStyle: panelStyle(context),
-      menuChildren: [_AreaPanel(area: area, onOpen: onOpen)],
+      menuChildren: [_panel(area)],
       // "Sell ▾": an area that drops a panel says so, as the wireframe does.
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         MenuAcceleratorLabel(acceleratorLabel(area.id, area.label)),
@@ -262,104 +270,200 @@ class AppMenuBar extends StatelessWidget {
   }
 }
 
-/// One area's drop-down: its groups side by side, every item visible at once
-/// with no scrolling and nothing to expand (4.3).
-class _AreaPanel extends StatelessWidget {
-  const _AreaPanel({required this.area, required this.onOpen});
+/// One area's drop-down (4.3), as the light menu draws it (backlog 72): the
+/// area's daily list, "Returns & notes" opening its short list beside it,
+/// and "All ... screens" one click away -- every group side by side, nothing
+/// to scroll or expand. An area with no daily list shows every group at once.
+class _AreaPanel extends StatefulWidget {
+  const _AreaPanel({
+    required this.area,
+    required this.onOpen,
+    required this.setUp,
+    required this.onOpenSetUp,
+  });
 
   final MenuAreaSpec area;
   final ValueChanged<MenuItemSpec> onOpen;
 
+  /// The Settings sections linked from the foot, already cut to what the
+  /// person is offered.
+  final List<String> setUp;
+  final ValueChanged<String?> onOpenSetUp;
+
+  @override
+  State<_AreaPanel> createState() => _AreaPanelState();
+}
+
+class _AreaPanelState extends State<_AreaPanel> {
+  bool _all = false;
+  bool _returns = false;
+
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-    final List<MenuGroupSpec> everyday =
-        area.groups.where((group) => !group.configuration).toList();
-    final List<MenuGroupSpec> setup =
-        area.groups.where((group) => group.configuration).toList();
-    final bool labelled =
-        area.groups.length > 1 || area.groups.first.label != area.label;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-      child: IntrinsicHeight(
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Beside a configuration block the everyday groups are short --
-            // two masters, one, two -- so they stack in one column, each
-            // under its own heading, rather than leaving three half-empty
-            // columns (owner, 2026-09-26).
-            if (setup.isNotEmpty && everyday.isNotEmpty)
-              IntrinsicWidth(
-                key: const ValueKey('menu-everyday'),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (int i = 0; i < everyday.length; i++) ...[
-                      if (i > 0) const SizedBox(height: 8),
-                      _column(context, everyday[i], labelled: labelled),
-                    ],
-                  ],
-                ),
-              )
-            else
-              for (final MenuGroupSpec group in everyday)
-                _column(context, group, labelled: labelled),
-            // Configuration apart from the everyday masters: a line, then a
-            // shaded block headed CONFIGURATION -- the lists set up once and
-            // rarely opened again (owner, 2026-09-26).
-            if (setup.isNotEmpty) ...[
-              if (everyday.isNotEmpty)
-                Container(
-                  width: 1,
-                  margin: const EdgeInsets.only(right: 12),
-                  color: scheme.outlineVariant,
-                ),
-              DecoratedBox(
-                key: const ValueKey('menu-configuration'),
-                decoration: BoxDecoration(
-                  color: scheme.surfaceContainerLow,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(4, 6, 0, 4),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(0, 0, 12, 4),
-                        child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          Icon(Icons.tune,
-                              size: 14, color: scheme.onSurfaceVariant),
-                          const SizedBox(width: 6),
-                          Text(
-                            'CONFIGURATION',
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                              letterSpacing: .9,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ]),
-                      ),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          for (final MenuGroupSpec group in setup)
-                            _column(context, group, labelled: true),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+    final MenuAreaSpec area = widget.area;
+    final bool light = area.daily.isNotEmpty && !_all;
+    final List<Widget> columns;
+    if (light) {
+      columns = [
+        for (int i = 0; i < area.daily.length; i++) ...[
+          _column(
+            context,
+            area.daily[i].label,
+            [
+              for (final String path in area.daily[i].paths)
+                if (path == MenuLayout.returnsAndNotes)
+                  _returnsToggle(context)
+                else if (area.item(path) case final MenuItemSpec item)
+                  _item(context, item),
             ],
+          ),
+          // The short list opens beside the column that names it.
+          if (_returns &&
+              area.daily[i].paths.contains(MenuLayout.returnsAndNotes))
+            _column(
+              context,
+              'Returns & notes',
+              [
+                for (final String path in area.shortList)
+                  if (area.item(path) case final MenuItemSpec item)
+                    _item(context, item),
+              ],
+              key: const ValueKey('menu-returns-and-notes'),
+            ),
+        ],
+      ];
+    } else {
+      final bool labelled =
+          area.groups.length > 1 || area.groups.first.label != area.label;
+      columns = [
+        for (final MenuGroupSpec group in area.groups)
+          _column(
+            context,
+            labelled ? group.label : null,
+            [for (final MenuItemSpec item in group.items) _item(context, item)],
+          ),
+      ];
+    }
+    final List<Widget> foot = [
+      if (light)
+        _link(
+          context,
+          key: const ValueKey('menu-show-all'),
+          label: 'All ${area.label} screens (${area.items.length})',
+          trailing: Icons.chevron_right,
+          onPressed: () => setState(() => _all = true),
+        ),
+      if (_all && area.daily.isNotEmpty)
+        _link(
+          context,
+          key: const ValueKey('menu-show-daily'),
+          label: 'Back to daily list',
+          leading: Icons.chevron_left,
+          onPressed: () => setState(() => _all = false),
+        ),
+      if (widget.setUp.isNotEmpty) ...[
+        const SizedBox(width: 8),
+        _caption(context, 'SET UP IN SETTINGS'),
+        for (final String section in widget.setUp)
+          MenuItemButton(
+            key: ValueKey('menu-setup-$section'),
+            style: _itemStyle(context, minWidth: 0),
+            trailingIcon: const Icon(Icons.chevron_right, size: 16),
+            onPressed: () => widget.onOpenSetUp(section),
+            child: Text(section),
+          ),
+      ],
+    ];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+      child: IntrinsicWidth(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_all && area.daily.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: _caption(
+                    context, 'ALL ${area.label.toUpperCase()} SCREENS'),
+              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: columns,
+            ),
+            if (foot.isNotEmpty) ...[
+              const Divider(height: 13),
+              // A menu button with an icon stretches its label to the width
+              // it is given, and a row gives none.
+              Row(mainAxisSize: MainAxisSize.min, children: [
+                for (final Widget child in foot) IntrinsicWidth(child: child),
+              ]),
+            ],
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+              child: Text(
+                'Ctrl+K finds any screen · Esc closes',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
+              ),
+            ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// "Returns & notes ▸": opens the short list beside it and keeps the panel
+  /// open, as the wireframe's step 4 does.
+  Widget _returnsToggle(BuildContext context) => MenuItemButton(
+        key: const ValueKey('menu-returns-toggle'),
+        closeOnActivate: false,
+        style: _itemStyle(context),
+        trailingIcon: Icon(
+          _returns ? Icons.chevron_left : Icons.chevron_right,
+          size: 18,
+        ),
+        onPressed: () => setState(() => _returns = !_returns),
+        child: const Text('Returns & notes'),
+      );
+
+  /// A control of the panel itself, which changes what it shows rather than
+  /// opening anything, so the panel stays open.
+  Widget _link(
+    BuildContext context, {
+    required Key key,
+    required String label,
+    required VoidCallback onPressed,
+    IconData? leading,
+    IconData? trailing,
+  }) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return MenuItemButton(
+      key: key,
+      closeOnActivate: false,
+      style: _itemStyle(context, minWidth: 0).copyWith(
+        foregroundColor: WidgetStatePropertyAll(scheme.primary),
+        iconColor: WidgetStatePropertyAll(scheme.primary),
+      ),
+      leadingIcon: leading == null ? null : Icon(leading, size: 16),
+      trailingIcon: trailing == null ? null : Icon(trailing, size: 16),
+      onPressed: onPressed,
+      child: Text(label),
+    );
+  }
+
+  Widget _caption(BuildContext context, String text) {
+    final ThemeData theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: Text(
+        text,
+        // The wireframe's h4: bold, tracked 0.08em.
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+          letterSpacing: .9,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -367,25 +471,27 @@ class _AreaPanel extends StatelessWidget {
 
   Widget _column(
     BuildContext context,
-    MenuGroupSpec group, {
-    required bool labelled,
+    String? label,
+    List<Widget> items, {
+    Key? key,
   }) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
     return Padding(
+      key: key,
       padding: const EdgeInsets.only(right: 16),
       child: IntrinsicWidth(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (labelled)
+            if (label != null)
               Padding(
                 // The wireframe: a heading stands at the column's edge and its
                 // items one step in (item text 12 px in; the wireframe has 8).
                 padding: const EdgeInsets.fromLTRB(0, 4, 12, 6),
                 child: Text(
-                  group.label.toUpperCase(),
+                  label.toUpperCase(),
                   // The wireframe's h4: bold, tracked 0.08em.
                   style: theme.textTheme.labelSmall?.copyWith(
                     color: scheme.onSurfaceVariant,
@@ -394,31 +500,34 @@ class _AreaPanel extends StatelessWidget {
                   ),
                 ),
               ),
-            for (final MenuItemSpec item in group.items)
-              MenuItemButton(
-                key: ValueKey('menu-item-${item.path}'),
-                style: ButtonStyle(
-                  textStyle:
-                      WidgetStatePropertyAll(AppMenuBar.menuTextStyle(context)),
-                  minimumSize: const WidgetStatePropertyAll(Size(160, 34)),
-                  // 4.14: a pointed-at item is outlined in the accent, not
-                  // only tinted -- a tint alone is the faint hover D-QA-1
-                  // reported.
-                  shape: WidgetStateProperty.resolveWith(
-                      (states) => RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(5),
-                            side: states.contains(WidgetState.hovered) ||
-                                    states.contains(WidgetState.focused)
-                                ? BorderSide(color: scheme.primary, width: 1.5)
-                                : BorderSide.none,
-                          )),
-                ),
-                onPressed: () => onOpen(item),
-                child: Text(item.label),
-              ),
+            ...items,
           ],
         ),
       ),
+    );
+  }
+
+  Widget _item(BuildContext context, MenuItemSpec item) => MenuItemButton(
+        key: ValueKey('menu-item-${item.path}'),
+        style: _itemStyle(context),
+        onPressed: () => widget.onOpen(item),
+        child: Text(item.label),
+      );
+
+  ButtonStyle _itemStyle(BuildContext context, {double minWidth = 160}) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return ButtonStyle(
+      textStyle: WidgetStatePropertyAll(AppMenuBar.menuTextStyle(context)),
+      minimumSize: WidgetStatePropertyAll(Size(minWidth, 34)),
+      // 4.14: a pointed-at item is outlined in the accent, not only tinted --
+      // a tint alone is the faint hover D-QA-1 reported.
+      shape: WidgetStateProperty.resolveWith((states) => RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(5),
+            side: states.contains(WidgetState.hovered) ||
+                    states.contains(WidgetState.focused)
+                ? BorderSide(color: scheme.primary, width: 1.5)
+                : BorderSide.none,
+          )),
     );
   }
 }
