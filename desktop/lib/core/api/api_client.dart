@@ -39,6 +39,7 @@ import '../../models/bank_reconciliation.dart';
 import '../../models/tds_challan.dart';
 import '../../models/payment_run.dart';
 import '../../models/supplier_gift.dart';
+import '../../models/approval.dart';
 import '../../models/landed_cost.dart';
 import '../../models/principal_claim.dart';
 import '../../models/supplier_rebate.dart';
@@ -8490,6 +8491,48 @@ class ApiClient {
         '/api/v1/landed-costs/$id/cancel',
         body: {'reason': reason},
       )));
+
+  // ---- approval in levels (PLT-1) ---------------------------------------
+
+  Future<List<ApprovalRule>> approvalRules() async => _unwrapList(
+        await request('GET', '/api/v1/approvals/rules'),
+        ApprovalRule.fromJson,
+      );
+
+  /// Replaces the whole chain of one document type.
+  Future<List<ApprovalRule>> replaceApprovalRules(
+    String documentType,
+    Json body,
+  ) async =>
+      _unwrapList(
+        await request('PUT', '/api/v1/approvals/rules/$documentType',
+            body: body),
+        ApprovalRule.fromJson,
+      );
+
+  /// What awaits the caller's sign-off, oldest first.
+  Future<List<ApprovalStatus>> pendingApprovals() async => _unwrapList(
+        await request('GET', '/api/v1/approvals/pending'),
+        ApprovalStatus.fromJson,
+      );
+
+  Future<ApprovalStatus> approvalStatus(String documentType, String id) async =>
+      ApprovalStatus.fromJson(_unwrapMap(
+          await request('GET', '/api/v1/approvals/$documentType/$id')));
+
+  /// Signs the next level; the last sign-off approves the document.
+  Future<ApprovalStatus> signOffApproval(Json body) async =>
+      ApprovalStatus.fromJson(_unwrapMap(
+          await request('POST', '/api/v1/approvals/sign-off', body: body)));
+
+  Future<ApprovalStatus> rejectApproval(Json body) async =>
+      ApprovalStatus.fromJson(_unwrapMap(
+          await request('POST', '/api/v1/approvals/reject', body: body)));
+
+  /// Rejects several documents of one type; rows are acted on one by one.
+  Future<BulkActionResult> bulkRejectApprovals(Json body) async =>
+      BulkActionResult.fromJson(_unwrapMap(
+          await request('POST', '/api/v1/approvals/bulk-reject', body: body)));
 
   // ---- quality inspection hold (BUY-9) ----------------------------------
 

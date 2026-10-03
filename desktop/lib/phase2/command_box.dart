@@ -46,6 +46,8 @@ const Map<String, List<String>> _synonyms = {
   'purchases/supplier-rebates': ['rebate', 'volume rebate', 'supplier credit'],
   'purchases/principal-claims': ['principal claim', 'scheme claim', 'expiry claim'],
   'purchases/landed-costs': ['landed cost', 'freight', 'clearing charges'],
+  'purchases/approvals': ['approvals', 'sign off', 'pending approval'],
+  'sales/approvals': ['approvals', 'sign off', 'pending approval'],
   'masters/supplier-gifts': ['supplier gift', 'gift', '194r', 'free sample'],
   'sales/gst-returns': ['gstr', 'gstr-1', 'gstr-3b', 'gst'],
   'sales/gst-deposits': ['pmt-06', 'pmt06', 'qrmp', 'quarterly deposit'],
@@ -78,6 +80,11 @@ const Map<String, List<String>> _synonyms = {
     'adjustment limit',
     'write-off limit',
     'stock approval limit',
+  ],
+  MenuLayout.approvalRulesRoute: [
+    'approval levels',
+    'approval rules',
+    'multi-level approval',
   ],
   MenuLayout.approvalLimitsRoute: [
     'approval limit',

@@ -555,6 +555,13 @@ abstract final class ModuleCatalog {
           label: 'Geography',
           requiredPermissions: ['TERRITORY_VIEW'],
         ),
+        // Documents waiting for the caller's sign-off at their level (PLT-1).
+        ModuleTabDefinition(
+          id: 'approvals',
+          label: 'Approvals',
+          requiredPermissions: ['SALES_APPROVE', 'PURCHASE_APPROVE'],
+          requiresAnyPermission: true,
+        ),
         ModuleTabDefinition(
           id: 'price-lists',
           label: 'Price Lists',
@@ -856,6 +863,13 @@ abstract final class ModuleCatalog {
           id: 'principal-claims',
           label: 'Principal Claims',
           requiredPermissions: ['PURCHASE_VIEW'],
+        ),
+        // Documents waiting for the caller's sign-off at their level (PLT-1).
+        ModuleTabDefinition(
+          id: 'approvals',
+          label: 'Approvals',
+          requiredPermissions: ['SALES_APPROVE', 'PURCHASE_APPROVE'],
+          requiresAnyPermission: true,
         ),
         // Freight and clearing bills moved into the goods' cost (BUY-16).
         ModuleTabDefinition(
