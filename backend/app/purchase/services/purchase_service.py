@@ -2076,6 +2076,18 @@ class PurchaseService(TransactionalDocumentService):
                 ):
                     fixed = Decimal(str(listed.unit_price))
                 if fixed is None:
+                    # A dated revision in force on the order's date (MST-2).
+                    from app.products.services.price_revisions import (
+                        price_in_force,
+                    )
+
+                    fixed = price_in_force(
+                        self._session,
+                        line.product_id,
+                        "purchase_price",
+                        on=order.purchase_date,
+                    )
+                if fixed is None:
                     product = self._session.get(Product, line.product_id)
                     fixed = Decimal(str(getattr(product, "purchase_price", 0) or 0))
                 price = fixed

@@ -14,6 +14,7 @@ import '../../models/pricing.dart';
 import '../../models/product.dart';
 import '../../models/vendor.dart';
 import '../../models/file_import.dart';
+import 'price_revisions_section.dart';
 import 'product_import_dialog.dart';
 import '../../models/trade_licence.dart';
 import '../../models/uom_packaging.dart';
@@ -902,6 +903,8 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
             widget.permissions.hasPermission('PRICE_LIST_MANAGE'),
         loadLevelRates: _controller.levelRates,
         onSaveLevelRates: _controller.saveLevelRates,
+        priceRevisions: PriceRevisionActions.of(widget.api),
+        canManagePriceRevisions: _canEdit,
         definitions: _controller.attributeDefinitions,
         metadata: _controller.metadata,
         initialTab: _dialogTab,
@@ -1166,6 +1169,20 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
     );
   }
 
+  Future<void> _runPriceRevisionImport() async {
+    final FileImportReport? report = await showDialog<FileImportReport>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => PriceRevisionImportDialog(api: widget.api),
+    );
+    if (!mounted || report == null) return;
+    NotificationService.show(
+      context,
+      'Imported ${report.toCreate} price revisions.',
+      kind: AppNotificationKind.success,
+    );
+  }
+
   Future<void> _export(String format) async {
     final _ExportScope? scope = await showDialog<_ExportScope>(
       context: context,
@@ -1366,6 +1383,13 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
                 onPressed:
                     _labelProducts(selected).isEmpty ? null : _printLabels,
               ),
+              if (_canImport)
+                ToolbarCommand(
+                  id: 'import-price-revisions',
+                  label: 'Import price revisions',
+                  icon: Icons.price_change_outlined,
+                  onPressed: _runPriceRevisionImport,
+                ),
             ]
           : const [],
     );
@@ -1800,6 +1824,8 @@ class ProductWorkspaceDialog extends StatefulWidget {
     this.canManageLevelRates = false,
     this.loadLevelRates,
     this.onSaveLevelRates,
+    this.priceRevisions,
+    this.canManagePriceRevisions = false,
   });
 
   /// The firm's active price levels; null hides the "Prices by level" grid
@@ -1815,6 +1841,11 @@ class ProductWorkspaceDialog extends StatefulWidget {
       loadLevelRates;
   final Future<void> Function(String productId, List<Json> rates)?
       onSaveLevelRates;
+
+  /// Dated price revisions (MST-2), phase 2's "Price history" section; null
+  /// hides it. Managing them is PRODUCT_UPDATE.
+  final PriceRevisionActions? priceRevisions;
+  final bool canManagePriceRevisions;
 
   /// Whether the signed-in user holds PRODUCT_TAX_MANAGE; without it the
   /// input credit setting is shown but cannot be changed.
@@ -2304,6 +2335,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         'general' => 'General',
         'packaging' => 'UOM & Size',
         'pricing' => 'Pricing',
+        'price_history' => 'Price history',
         'tax' => 'Tax',
         'business_attributes' => 'Attributes',
         'images' => 'Images',
