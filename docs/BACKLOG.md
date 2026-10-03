@@ -5316,7 +5316,10 @@ on 2026-10-04, on one condition: fewer server calls, performance kept.**
 | Saving My preferences | **One** `PUT`, changed fields only; theme, text size and date format apply at once without a reload. Text size stays a this-PC setting with no server field. |
 
 A test per row should count the requests (the desktop's fake API client
-already records them), so a later change cannot add a call unnoticed. Screenshots 12-21 in `Branding wireframes -
+already records them), so a later change cannot add a call unnoticed.
+
+**Favourites (D-UI-3) join this UI backlog** (owner, 2026-10-04) and are built
+with the light menu, which relies on them. Screenshots 12-21 in `Branding wireframes -
 screenshots\`.
 
 Owner, 2026-09-29: separate configuration from the menu items people use
