@@ -196,10 +196,16 @@ def _party_adjustments(inspector: sa.Inspector) -> None:
         str(check["name"]): str(check.get("sqltext", ""))
         for check in inspector.get_check_constraints("party_adjustments")
     }
-    if _PARTIES in checks and "SUPPLIER_REBATE" not in checks[_PARTIES]:
-        op.drop_constraint(_PARTIES, "party_adjustments", type_="check")
-        checks.pop(_PARTIES)
-    if _PARTIES not in checks:
+    # The naming convention prefixes a check's name with the table's, so the
+    # deployed name is `CK_party_adjustments_CK_party_adjustments_...`: found
+    # by its ending, dropped by its own name (`op.f`, no convention applied),
+    # and created through the convention so it matches `create_all`.
+    found = [name for name in checks if name.endswith("parties_match_kind")]
+    current = [name for name in found if "SUPPLIER_REBATE" in checks[name]]
+    for name in found:
+        if name not in current:
+            op.drop_constraint(op.f(name), "party_adjustments", type_="check")
+    if not current:
         op.create_check_constraint(_PARTIES, "party_adjustments", _PARTIES_CHECK)
 
 
@@ -334,7 +340,10 @@ def downgrade() -> None:
         columns = {
             column["name"] for column in inspector.get_columns("party_adjustments")
         }
-        op.drop_constraint(_PARTIES, "party_adjustments", type_="check")
+        for check in inspector.get_check_constraints("party_adjustments"):
+            name = str(check["name"])
+            if name.endswith("parties_match_kind"):
+                op.drop_constraint(op.f(name), "party_adjustments", type_="check")
         op.create_check_constraint(_PARTIES, "party_adjustments", _PARTIES_BEFORE)
         if "rebate_agreement_id" in columns:
             op.drop_index(
