@@ -65,9 +65,10 @@ from app.goods_receipt.schemas import (
     GoodsReceiptSummary,
     GoodsReceiptUpdate,
 )
-from app.inventory.models import StockLedgerEntry
+from app.inventory.models import InventoryTransaction, StockLedgerEntry
+from app.inventory.schemas import QuarantineAction, StockQuarantineCreate
 from app.inventory.services import InventoryService, LineConversion
-from app.products.models import Product
+from app.products.models import Product, ProductCategory
 from app.purchase.models import PurchaseOrder, PurchaseOrderHistory, PurchaseOrderLine
 from app.purchase.schemas import PurchaseOrderStatus
 from app.purchase.services.line_quantities import order_line_quantities
@@ -713,6 +714,9 @@ class GoodsReceiptService(TransactionalDocumentService):
         """
         reversed_lines = 0
         movement_ids: list[UUID] = []
+        self._undo_inspection_holds(
+            receipt, firm_scope=firm_scope, actor_id=actor_id, reason=reason
+        )
         for line in self._session.scalars(
             select(GoodsReceiptLine).where(
                 GoodsReceiptLine.goods_receipt_id == receipt.id,
@@ -734,6 +738,95 @@ class GoodsReceiptService(TransactionalDocumentService):
             line.updated_by = actor_id
             reversed_lines += 1
         return reversed_lines, self._movement_value(movement_ids)
+
+    def _needs_inspection(self, product: Product) -> bool:
+        """Say whether this product's goods wait for an inspection (BUY-9)."""
+        if product.inspection_required:
+            return True
+        if product.category_id is None:
+            return False
+        category = self._session.get(ProductCategory, product.category_id)
+        return bool(category is not None and category.inspection_required)
+
+    def _hold_for_inspection(
+        self,
+        receipt: GoodsReceipt,
+        line: GoodsReceiptLine,
+        transaction: InventoryTransaction,
+        *,
+        actor_id: UUID,
+    ) -> None:
+        """Move what this line put into stock into quarantine (BUY-9).
+
+        The goods are owned and valued as received -- the hold posts nothing --
+        but cannot be sold or issued until an inspection passes them.
+        """
+        held = Decimal(str(transaction.current_quantity_delta))
+        if held <= ZERO:
+            return
+        hold = self._inventory.stage_quarantine(
+            StockQuarantineCreate(
+                branch_id=receipt.branch_id,
+                warehouse_id=line.warehouse_id,
+                storage_node_id=line.storage_node_id,
+                product_id=line.product_id,
+                batch_id=line.batch_id,
+                action=QuarantineAction.HOLD,
+                quantity=held,
+                reference_number=f"{receipt.grn_number}-QC{line.line_number}",
+                transaction_date=receipt.receipt_date,
+                remarks=f"Awaiting inspection: {receipt.grn_number}",
+            ),
+            firm_scope=receipt.firm_id,
+            actor_id=actor_id,
+        )
+        line.inspection_status = "PENDING"
+        line.inspection_transaction_id = hold.id
+        line.inspection_quantity = held
+
+    def _undo_inspection_holds(
+        self,
+        receipt: GoodsReceipt,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        reason: str | None,
+    ) -> None:
+        """Release a cancelled receipt's pending holds before reversing it.
+
+        Raises:
+            ValidationError: If an inspection on it was already decided --
+                the goods were passed or rejected, so the receipt is history
+                and is undone with a purchase return.
+
+        """
+        lines = self._session.scalars(
+            select(GoodsReceiptLine).where(
+                GoodsReceiptLine.goods_receipt_id == receipt.id,
+                GoodsReceiptLine.inspection_status.is_not(None),
+                GoodsReceiptLine.is_deleted.is_(False),
+            )
+        ).all()
+        decided = [
+            line.line_number for line in lines if line.inspection_status == "DONE"
+        ]
+        if decided:
+            raise ValidationError(
+                f"{receipt.grn_number} cannot be cancelled: line(s) "
+                f"{', '.join(str(n) for n in decided)} were already inspected. "
+                "Send the goods back with a purchase return instead."
+            )
+        for line in lines:
+            if line.inspection_transaction_id is not None:
+                self._inventory.reverse_transaction(
+                    line.inspection_transaction_id,
+                    firm_scope=firm_scope,
+                    actor_id=actor_id,
+                    reason=reason or f"Goods receipt {receipt.grn_number} cancelled.",
+                )
+            line.inspection_status = None
+            line.inspection_transaction_id = None
+            line.inspection_quantity = None
 
     def _movement_value(self, movement_ids: list[UUID]) -> Decimal:
         """Return what the stock ledger says those movements were worth."""
@@ -1660,6 +1753,8 @@ class GoodsReceiptService(TransactionalDocumentService):
                 batch_id=batch_id,
             )
             line.inventory_transaction_id = transaction.id
+            if product is not None and self._needs_inspection(product):
+                self._hold_for_inspection(receipt, line, transaction, actor_id=actor_id)
             line.updated_by = actor_id
             received_cost += self._receipt_cost(transaction.id)
 

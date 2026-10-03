@@ -249,6 +249,9 @@ PERMISSION_GROUPS = {
         # Approving a supplier bill priced past the firm's tolerance over its
         # order (BUY-10): the purchase manager's call, not the executive's.
         "PURCHASE_APPROVE_OVER_TOLERANCE",
+        # Passing or rejecting received goods held for inspection (BUY-9):
+        # not the executive who counted them in; the inventory manager too.
+        "PURCHASE_INSPECT",
         "PURCHASE_IMPORT",
         "PURCHASE_EXPORT",
         # Which of purchase order and goods receipt this firm raises by hand.
@@ -678,12 +681,14 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             {
                 "PURCHASE_APPROVE",
                 "PURCHASE_APPROVE_OVER_TOLERANCE",
+                "PURCHASE_INSPECT",
                 "PURCHASE_MANAGE_SETTINGS",
             }
         )
     )
     | frozenset({"TRADE_LICENCE_VIEW"}),
-    "INVENTORY_MANAGER": _codes("inventory", "batch_serial"),
+    "INVENTORY_MANAGER": _codes("inventory", "batch_serial")
+    | frozenset({"PURCHASE_INSPECT"}),
     "CASHIER": frozenset(
         # A cashier who can record money and not look at what they recorded
         # cannot do the job; the view codes went in with the receipts and

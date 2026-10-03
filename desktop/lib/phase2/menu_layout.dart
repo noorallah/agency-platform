@@ -236,6 +236,8 @@ abstract final class MenuLayout {
         MenuItemSpec.module(AppModule.purchaseInvoices, 'Purchase Invoices'),
         MenuItemSpec.module(AppModule.purchaseReturns, 'Purchase Returns'),
         MenuItemSpec(AppModule.purchases, 'debit-notes', 'Debit Notes'),
+        MenuItemSpec(
+            AppModule.purchases, 'quality-inspection', 'Quality Inspection'),
       ]),
       MenuGroupSpec('Money', [
         MenuItemSpec(AppModule.accounting, 'payments', 'Payments'),

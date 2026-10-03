@@ -1774,6 +1774,8 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(field.label),
+              subtitle:
+                  field.helperText == null ? null : Text(field.helperText!),
               value: _booleans[field.key]!,
               onChanged: _locked(field)
                   ? null

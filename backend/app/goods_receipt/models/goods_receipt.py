@@ -253,6 +253,23 @@ class GoodsReceiptLine(BaseEntity):
     inventory_transaction_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("inventory_transactions.id", ondelete="SET NULL")
     )
+    #: BUY-9. Null: the goods went straight to stock. ``PENDING``: they wait in
+    #: quarantine for an inspection; ``DONE``: somebody passed or rejected
+    #: them. The hold movement is kept so a cancelled receipt can undo it.
+    inspection_status: Mapped[str | None] = mapped_column(String(20))
+    inspection_transaction_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("inventory_transactions.id", ondelete="SET NULL")
+    )
+    #: How much was held, in the stock unit, and what the inspection decided.
+    inspection_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    inspection_passed_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    inspection_rejected_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    #: ``WRITE_OFF`` or ``RETURN`` -- rejected goods returned stay in
+    #: quarantine until a purchase return takes them back.
+    inspection_rejected_action: Mapped[str | None] = mapped_column(String(20))
+    inspected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    inspected_by: Mapped[UUID | None] = mapped_column(UUIDType())
+    inspection_remarks: Mapped[str | None] = mapped_column(Text)
     remarks: Mapped[str | None] = mapped_column(Text)
     #: The tax rule that decided the line, by code and version_number; null
     #: when the profile alone did (GST-8). Kept here because the execution

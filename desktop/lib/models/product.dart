@@ -71,6 +71,7 @@ class ProductCategoryRecord {
     required this.path,
     required this.isActive,
     this.requiredLicenceTypeId = '',
+    this.inspectionRequired = false,
   });
 
   final String id;
@@ -85,6 +86,10 @@ class ProductCategoryRecord {
   /// product or a nearer category names its own (backlog 54). Empty means
   /// none -- a category's own is never required by inheriting nothing.
   final String requiredLicenceTypeId;
+
+  /// Goods of this category wait in quarantine on receipt until inspected
+  /// (BUY-9).
+  final bool inspectionRequired;
 
   factory ProductCategoryRecord.fromJson(Json json) => ProductCategoryRecord(
         id: stringValue(json['id']),
@@ -223,6 +228,7 @@ class Product {
     this.trackManufacturingDate = false,
     this.trackWarranty = false,
     this.notForSale = false,
+    this.inspectionRequired = false,
     this.shelfLifeDays,
     this.issueRule = '',
     this.allowNegativeStock = false,
@@ -306,6 +312,9 @@ class Product {
   /// (STK-17). The server refuses it on every new sales line.
   final bool notForSale;
 
+  /// Received goods wait in quarantine until passed (BUY-9).
+  final bool inspectionRequired;
+
   /// Days from manufacture to expiry (STK-18): a receipt typed with only a
   /// manufacturing date gets its expiry from it. Null fills nothing.
   final int? shelfLifeDays;
@@ -383,6 +392,7 @@ class Product {
         trackManufacturingDate: boolValue(json['track_manufacturing_date']),
         trackWarranty: boolValue(json['track_warranty']),
         notForSale: boolValue(json['not_for_sale']),
+        inspectionRequired: boolValue(json['inspection_required']),
         issueRule: stringValue(json['issue_rule']),
         shelfLifeDays: json['shelf_life_days'] is num
             ? (json['shelf_life_days'] as num).toInt()

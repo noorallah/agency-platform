@@ -4,6 +4,7 @@ import re
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -371,3 +372,43 @@ class GoodsReceiptPurchaseOrderReport(GoodsReceiptSchema):
     #: -- the report reads the orders the receiving side has moved there, so
     #: it cannot disagree with them (D-RPT-14).
     status: str
+
+
+class GoodsInspectionWrite(GoodsReceiptSchema):
+    """Decide one received line held for inspection (BUY-9).
+
+    Passed and rejected together must come to what the line holds, in the
+    stock unit. Rejected goods are written off now, or kept in quarantine for
+    a purchase return to send back.
+    """
+
+    passed_quantity: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
+    rejected_quantity: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
+    rejected_action: Literal["WRITE_OFF", "RETURN"] | None = None
+    remarks: str | None = Field(default=None, max_length=1000)
+
+
+class GoodsInspectionResponse(GoodsReceiptSchema):
+    """One received line waiting for, or decided by, an inspection."""
+
+    goods_receipt_id: UUID
+    grn_number: str
+    receipt_date: date
+    vendor_id: UUID
+    vendor_name: str
+    line_id: UUID
+    line_number: int
+    product_id: UUID
+    product_code: str
+    product_name: str
+    batch_number: str | None
+    warehouse_id: UUID
+    quantity: Decimal
+    status: str
+    passed_quantity: Decimal | None
+    rejected_quantity: Decimal | None
+    rejected_action: str | None
+    inspected_at: datetime | None
+    remarks: str | None
