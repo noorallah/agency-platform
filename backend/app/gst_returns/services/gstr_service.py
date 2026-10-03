@@ -1127,6 +1127,57 @@ class GstReturnService:
 
     # ---- reading -------------------------------------------------------
 
+    def declared_invoices(
+        self, *, firm_scope: UUID, from_date: date, to_date: date
+    ) -> list[tuple[SalesInvoice, Customer, list[tuple[str | None, str]]]]:
+        """Return each invoice GSTR-1 declares, with each line's code and kind.
+
+        The pre-filing checks (GST-5) read the same invoices the return files,
+        so a check cannot pass a bill the return then trips on. Each line is
+        its HSN/SAC as billed (or None) and its kind -- ``TAXABLE``,
+        ``NIL_RATED`` and so on.
+        """
+        _check_period(from_date, to_date)
+        return [
+            (
+                invoice,
+                customer,
+                [
+                    (billed.hsn_sac if billed is not None else None, kind)
+                    for _taxable, _buckets, billed, _quantity, kind in lines
+                ],
+            )
+            for invoice, customer, lines in self._invoices(
+                firm_scope=firm_scope, from_date=from_date, to_date=to_date
+            )
+        ]
+
+    def unplaced_invoice_ids(
+        self, *, firm_scope: UUID, from_date: date, to_date: date
+    ) -> set[UUID]:
+        """Return the invoices GSTR-1 cannot give a place of supply.
+
+        An inter-state supply to a buyer with no GSTIN, where nothing names the
+        state: the same test ``gstr1`` applies to fill ``unplaced_invoices``.
+        """
+        _check_period(from_date, to_date)
+        seller_state = self._seller_state(firm_scope)
+        unplaced: set[UUID] = set()
+        for invoice, customer, lines in self._invoices(
+            firm_scope=firm_scope, from_date=from_date, to_date=to_date
+        ):
+            if (getattr(customer, "gst_number", None) or "").strip():
+                continue
+            taxed = [buckets for _t, buckets, _b, _q, kind in lines if kind == TAXABLE]
+            if not taxed:
+                continue
+            charged = GstBuckets()
+            for buckets in taxed:
+                charged = charged.plus(buckets)
+            if not self._place_of_supply(charged, seller_state):
+                unplaced.add(invoice.id)
+        return unplaced
+
     def _invoices(self, *, firm_scope: UUID, from_date: date, to_date: date) -> list[
         tuple[
             SalesInvoice,

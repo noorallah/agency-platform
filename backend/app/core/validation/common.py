@@ -137,6 +137,50 @@ def normalize_gstin(value: str | None) -> str | None:
     return normalized
 
 
+_GSTIN_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+#: The state codes a GSTIN may start with: the states and union territories
+#: (01-38), "other territory" (97) and the Centre's own registrations (99).
+GSTIN_STATE_CODES = frozenset({f"{n:02d}" for n in range(1, 39)} | {"97", "99"})
+
+
+def gstin_check_character(gstin: str) -> str:
+    """Return the check character the first fourteen characters call for.
+
+    GSTN's mod-36 scheme (the Luhn algorithm over base 36): each character's
+    value is multiplied by 1 and 2 alternately, each product contributes its
+    base-36 digits, and the check character brings the sum to a multiple of
+    36.
+    """
+    total = 0
+    for position, character in enumerate(gstin[:14]):
+        product = _GSTIN_ALPHABET.index(character) * (1 if position % 2 == 0 else 2)
+        total += product // 36 + product % 36
+    return _GSTIN_ALPHABET[(36 - total % 36) % 36]
+
+
+def gstin_problem(gstin: str | None) -> str | None:
+    """Return what is wrong with a GSTIN, or None when nothing is.
+
+    The shape, the state code and the check character -- everything that can
+    be told without asking the portal whether the registration is live.
+    """
+    text = "".join((gstin or "").split()).upper()
+    if not text:
+        return None
+    if not _GSTIN_PATTERN.fullmatch(text):
+        return f"GSTIN {text} is not 15 characters in the GSTIN pattern."
+    if text[:2] not in GSTIN_STATE_CODES:
+        return f"GSTIN {text} starts with {text[:2]}, which is no state's code."
+    expected = gstin_check_character(text)
+    if text[14] != expected:
+        return (
+            f"GSTIN {text} fails its check character (it should end in "
+            f"{expected}); a character was probably mistyped."
+        )
+    return None
+
+
 def _identifier(value: str | None) -> str | None:
     """Return an identifier in capitals without spaces, or None for a blank."""
     if value is None:

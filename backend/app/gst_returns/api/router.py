@@ -24,6 +24,8 @@ from app.core.responses.models import ApiResponse
 from app.core.utils.dates import utc_now
 from app.gst_returns.models import HEADS, GstPayment, GstReturnType
 from app.gst_returns.schemas import (
+    FilingCheckRowResponse,
+    FilingChecksResponse,
     GstHeadRow,
     GstPaymentCreate,
     GstPaymentPreviewResponse,
@@ -42,6 +44,7 @@ from app.gst_returns.schemas import (
     TaxCalendarItemResponse,
 )
 from app.gst_returns.services import GstReturnService
+from app.gst_returns.services.filing_checks import GstFilingChecks
 from app.gst_returns.services.gst_payment_service import (
     GstPaymentPreview,
     GstPaymentService,
@@ -88,6 +91,47 @@ def gstr3b(
     return ApiResponse(
         data=GstReturnService(db).gstr3b(
             firm_scope=scope.firm_id, from_date=from_date, to_date=to_date
+        )
+    )
+
+
+@router.get("/checks", response_model=ApiResponse[FilingChecksResponse])
+def filing_checks(
+    scope: GstReturnScope,
+    from_date: Annotated[date, Query()],
+    to_date: Annotated[date, Query()],
+    db: Session = Depends(get_db),
+) -> ApiResponse[FilingChecksResponse]:
+    """List what the period's documents would trip on before filing (GST-5).
+
+    Bad GSTINs, missing or short HSN, a bill with no place of supply, a
+    document with no IRN that needed one, and credit notes past the section
+    34(2) limit or against a cancelled bill -- each row naming its document.
+    """
+    service = GstFilingChecks(db)
+    rows = service.rows(scope.firm_id, from_date=from_date, to_date=to_date)
+    counts: dict[str, int] = {}
+    for row in rows:
+        counts[row.check] = counts.get(row.check, 0) + 1
+    return ApiResponse(
+        data=FilingChecksResponse(
+            from_date=from_date,
+            to_date=to_date,
+            required_hsn_digits=service.required_hsn_digits(scope.firm_id, on=to_date),
+            counts=counts,
+            rows=[
+                FilingCheckRowResponse(
+                    check=row.check,
+                    severity=row.severity,
+                    document_type=row.document_type,
+                    document_id=row.document_id,
+                    document_number=row.document_number,
+                    document_date=row.document_date,
+                    party_name=row.party_name,
+                    message=row.message,
+                )
+                for row in rows
+            ],
         )
     )
 

@@ -66,6 +66,7 @@ import 'sales/customer_debit_note_page.dart';
 import 'sales/einvoice_page.dart';
 import 'sales/gst_payment_page.dart';
 import 'sales/gst_return_page.dart';
+import 'sales/gst_filing_checks_page.dart';
 import 'sales/gstr2b_page.dart';
 import 'sales/rule37_page.dart';
 import 'sales/sales_analysis_page.dart';
@@ -2850,6 +2851,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),
+      'gst-checks' => GstFilingChecksPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+        ),
       'gst-payment' => GstPaymentPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -2929,6 +2935,12 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           'Credit on supplier bills unpaid 180 days after their date, '
               'reversed in proportion to what is unpaid and reclaimed as it '
               'is paid.',
+        ),
+      'gst-checks' => (
+          'GST checks',
+          'What a return for the period would get wrong, found before it is '
+              'filed: invalid GSTINs, HSN codes, places of supply, IRNs and '
+              'late credit notes.',
         ),
       'gst-payment' => (
           'GST Payment',

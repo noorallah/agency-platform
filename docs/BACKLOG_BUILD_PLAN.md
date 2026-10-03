@@ -120,7 +120,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | GST-2 | §77 row 13 | GST document numbers kept to 16 characters -- **built 2026-10-02** (A47) | Nothing | S | Claude alone |
 | GST-3 | §78 row 7 | Warn on a supplier bill entered after its credit's last date -- **built 2026-10-02** (A48) | Nothing | S | Claude alone |
 | GST-4 | §78 row 9 | Common credit reversal for a firm with exempt sales (rules 42/43) | Nothing (CA confirms at hand-over) | M | Claude alone |
-| GST-5 | §74.1 row 9 | GST checks before filing: an exception list | Nothing | M | Claude alone |
+| GST-5 | §74.1 row 9 | GST checks before filing: an exception list -- **built 2026-10-03** (A82) | Nothing | M | Claude alone |
 | GST-6 | §74.1 row 10 | A filed return's figures kept as filed; later changes as amendments | Nothing | L | Claude alone |
 | GST-7 | §74.1 row 11 | Quarterly filers (QRMP) | Nothing | M | Claude alone |
 | GST-8 | §74.1 row 15 | The tax rule that applied, kept on each line | Nothing | M | Claude alone |
@@ -642,6 +642,7 @@ otherwise it is built as written.
 - **What it is:** a list of what is wrong in a return period before it is filed.
 - **What gets built:** an exceptions endpoint in `backend/app/gst_returns`: bad GSTIN checksum or state, missing or short HSN for the firm's turnover, missing place of supply, e-invoice required but not registered, a credit note with no invoice; each row opens its document. Phase 2 screen under GST. Tests per check.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A82): `app/gst_returns/services/filing_checks.py`, `GET /gst-returns/checks?from_date&to_date` (SALES_VIEW, the GSTR-1 window). Reads the invoices GSTR-1 declares (`declared_invoices`, `unplaced_invoice_ids` on `GstReturnService`). Checks: GSTIN_INVALID (the firm's, a buyer's on invoices and notes, a supplier's on bills as a warning -- shape, state code 01-38/97/99, GSTN mod-36 check character via `gstin_problem` in `app/core/validation/common.py`), HSN_MISSING / HSN_SHORT (six digits once the firm e-invoices, four below), PLACE_OF_SUPPLY_MISSING, IRN_MISSING (`missing_irn`), CREDIT_NOTE_LATE (after 30 November following the supply's year, s.34(2)), CREDIT_NOTE_ON_CANCELLED_INVOICE. "A credit note with no invoice" cannot happen: `credit_notes.sales_invoice_id` is NOT NULL, so the cancelled-bill case stands in. No migration. Desktop: *GST checks* beside GSTR-1 and Rule 37 (Sell > Tax filing). **Open:** each row names its document (type, number, date, party), but *Open document* stays disabled -- the desktop has no way to open a sales invoice, credit note, debit note or bill by id (global search only navigates to the module's list), so the row cannot jump to it yet. Tests: `test_gst_filing_checks.py`, `gst_filing_checks_test.dart`.
 
 #### GST-6. Filed figures kept; changes as amendments (§74.1 row 10, remainder)
 - **What it is:** once a return is marked filed, its figures stop changing; a later edit shows up in the next return as an amendment.

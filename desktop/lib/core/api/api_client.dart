@@ -6182,6 +6182,23 @@ class ApiClient {
         body: {'purchase_invoice_id': purchaseInvoiceId},
       ));
 
+  // ---- GST checks before filing (GST-5) ----------------------------------
+
+  /// What would be wrong in a return for the window (at most three months).
+  Future<Json> getGstFilingChecks({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    String iso(DateTime v) => '${v.year.toString().padLeft(4, '0')}-'
+        '${v.month.toString().padLeft(2, '0')}-'
+        '${v.day.toString().padLeft(2, '0')}';
+    return _unwrapMap(await request(
+      'GET',
+      '/api/v1/gst-returns/checks',
+      query: {'from_date': iso(from), 'to_date': iso(to)},
+    ));
+  }
+
   // ---- rule 37: bills unpaid 180 days (backlog 78 row 4) ---------------
 
   /// Credit to reverse on bills unpaid 180 days after their date, and to
