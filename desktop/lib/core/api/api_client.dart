@@ -8358,6 +8358,81 @@ class ApiClient {
         ),
       );
 
+  // Files kept with a journal entry, a receipt or a payment (ACC-10): the
+  // file stays where it is and the record keeps its path, as with STK-9.
+
+  Future<List<StockAttachmentRecord>> listJournalAttachments(
+    String journalId,
+  ) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/finance/journal-entries/$journalId/attachments',
+        ),
+        StockAttachmentRecord.fromJson,
+      );
+
+  Future<List<StockAttachmentRecord>> attachToJournal(
+    String journalId,
+    List<Json> files,
+  ) async =>
+      _unwrapList(
+        await request(
+          'POST',
+          '/api/v1/finance/journal-entries/$journalId/attachments',
+          body: {'attachments': files},
+        ),
+        StockAttachmentRecord.fromJson,
+      );
+
+  Future<void> removeJournalAttachment(
+    String journalId,
+    String attachmentId,
+  ) async {
+    await request(
+      'DELETE',
+      '/api/v1/finance/journal-entries/$journalId/attachments/$attachmentId',
+    );
+  }
+
+  /// Receipts and payments only: a refund has no files endpoint.
+  Future<List<StockAttachmentRecord>> listSettlementAttachments(
+    SettlementDirection direction,
+    String settlementId,
+  ) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/${direction.path}/$settlementId/attachments',
+        ),
+        StockAttachmentRecord.fromJson,
+      );
+
+  Future<List<StockAttachmentRecord>> attachToSettlement(
+    SettlementDirection direction,
+    String settlementId,
+    List<Json> files,
+  ) async =>
+      _unwrapList(
+        await request(
+          'POST',
+          '/api/v1/${direction.path}/$settlementId/attachments',
+          body: {'attachments': files},
+        ),
+        StockAttachmentRecord.fromJson,
+      );
+
+  Future<void> removeSettlementAttachment(
+    SettlementDirection direction,
+    String settlementId,
+    String attachmentId,
+  ) async {
+    await request(
+      'DELETE',
+      '/api/v1/${direction.path}/$settlementId/attachments/$attachmentId',
+    );
+  }
+
   /// Delete a hand-written draft. Its reference stays taken.
   Future<void> deleteJournalEntry(String id) =>
       request('DELETE', '/api/v1/finance/journal-entries/$id');

@@ -15,6 +15,7 @@ import '../workspace/bulk_action.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
 import 'journal_entry_dialog.dart';
+import 'ledger_files_dialog.dart';
 import 'journal_entry_view_dialog.dart';
 
 /// The journal: everything posted to the ledger, and a way to add to it.
@@ -438,6 +439,17 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
     );
   }
 
+  Future<void> _openFiles(JournalEntry entry) => showDialog<void>(
+        context: context,
+        builder: (_) => LedgerFilesDialog.journal(
+          api: widget.api,
+          journalId: entry.id,
+          subtitle: entry.referenceNumber,
+          canView: _canView,
+          canEdit: _canCreate,
+        ),
+      );
+
   /// More than one row ticked: the bar names the batch and offers the bulk
   /// post instead of the one entry's steps.
   bool get _bulkMode => _ticked.length > 1;
@@ -592,6 +604,14 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
                       _canReverse
                   ? () => unawaited(_reverseSelected())
                   : null,
+            ),
+            // Scans and papers kept with the entry (ACC-10); any status.
+            ToolbarCommand(
+              id: 'files',
+              label: 'Files',
+              icon: Icons.attach_file,
+              onPressed:
+                  selected != null ? () => unawaited(_openFiles(selected)) : null,
             ),
             ToolbarCommand(
               id: 'reject',

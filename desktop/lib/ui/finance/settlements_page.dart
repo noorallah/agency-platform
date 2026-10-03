@@ -12,6 +12,7 @@ import '../../models/settlement.dart';
 import '../../models/settlement_direction.dart';
 import '../workspace/cheque_print_dialog.dart';
 import '../workspace/desktop_framework.dart';
+import 'ledger_files_dialog.dart';
 import 'record_settlement_dialog.dart';
 import 'supplier_credit_refunds.dart';
 
@@ -366,6 +367,17 @@ class _SettlementsPageState extends State<SettlementsPage> {
                   ? () => unawaited(_reverse(selected))
                   : null,
             ),
+            // Papers kept with a receipt or payment (ACC-10); a refund has
+            // no files endpoint.
+            if (widget.direction.allocates)
+              ToolbarCommand(
+                id: 'files',
+                label: 'Files',
+                icon: Icons.attach_file,
+                onPressed: selected != null
+                    ? () => unawaited(_openFiles(selected))
+                    : null,
+              ),
             // A bank payment written as a cheque (ACC-12); the layout is set
             // up now and then and is about no row, so it sits behind "...".
             if (widget.direction == SettlementDirection.payment) ...[
@@ -458,6 +470,18 @@ class _SettlementsPageState extends State<SettlementsPage> {
       ),
     );
   }
+
+  Future<void> _openFiles(Settlement row) => showDialog<void>(
+        context: context,
+        builder: (_) => LedgerFilesDialog(
+          api: widget.api,
+          recordId: row.id,
+          direction: widget.direction,
+          subtitle: row.settlementNumber,
+          canView: _canView,
+          canEdit: _canCreate,
+        ),
+      );
 
   Future<void> _printCheque(Settlement row) async {
     await showDialog<Object>(
