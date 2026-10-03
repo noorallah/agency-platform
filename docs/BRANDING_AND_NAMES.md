@@ -132,7 +132,7 @@ agency's logo, name and tagline.
 | Layout | Description | Suits |
 | --- | --- | --- |
 | **A. Brand panel + form** | A large dark panel on the left with the logo, name and tagline; the form on the right | The most "branded"; the common pattern on web products |
-| **B. Home's frame, one card** *(recommended)* | The dark bar at the top carries the logo and name and **becomes the menu bar after sign-in**, so nothing jumps; one plain card in the middle | Closest to Home, Tally and Business Central; the quietest |
+| **B. Home's frame, one card** *(chosen 2026-10-03)* | The dark bar at the top carries the logo and name and **becomes the menu bar after sign-in**, so nothing jumps; one plain card in the middle | Closest to Home, Tally and Business Central; the quietest |
 | **C. Home's frame, pick who you are** | As B, plus tiles of the people who signed in on this PC; a person clicks their name and types only the password; "Someone else" gives the full form | Shared billing-counter PCs |
 
 **In every layout the product identifies itself** (owner, 2026-10-03): the
@@ -177,9 +177,9 @@ and 10-03 screenshot sets) are in `dist\windows\Design\_old (superseded)\`.
 
 ## 7. For the owner to decide or supply
 
-1. **Sign-in layout:** A, B or C (B recommended).
-   Also where the product mark sits: card foot, top bar or band (card foot
-   recommended).
+1. ~~Sign-in layout~~ -- **decided 2026-10-03: B** (Home's frame, one card),
+   with our support panel beside it. Still open: where the product mark sits
+   -- card foot, top bar or band (card foot recommended).
 2. ~~Product name and logo at install~~ -- **decided 2026-10-03: locked**; the
    installer wireframe is approved.
 3. **Our company's details** for Help > About: support email, phone, website
