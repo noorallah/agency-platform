@@ -774,6 +774,7 @@ otherwise it is built as written.
 - **What it is:** an entry dated in the past updates later balances in one step, not month by month.
 - **What gets built:** replace the loop in the journal engine's carry into later periods (`backend/app/finance/services/journal_engine.py`) with one set-based `UPDATE`; integration test on PostgreSQL.
 - **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (no decision needed, no migration): `JournalEntryEngine._carry_into_later_periods` is one set-based `UPDATE` over the later periods' balances, moving the version counter and refreshing the session's copies. Tests: the unit carry test unchanged, `tests/integration/test_back_dated_carry.py` on PostgreSQL.
 
 #### PLT-6. Retention on by default (§56 C)
 - **What it is:** old login records, refresh tokens and tax logs are pruned automatically.

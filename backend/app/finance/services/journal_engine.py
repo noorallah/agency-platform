@@ -11,7 +11,7 @@ from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -895,22 +895,31 @@ class JournalEntryEngine:
         period = self._session.get(AccountingPeriod, entry.accounting_period_id)
         if period is None:
             return
-        later = self._session.scalars(
-            select(LedgerBalance)
-            .join(
-                AccountingPeriod,
-                AccountingPeriod.id == LedgerBalance.accounting_period_id,
-            )
+        # One set-based statement however many periods follow (PLT-5): two
+        # years of back-dated history moved each later month row by row,
+        # loading every balance to add the same figure to it. The counter
+        # moves too, as an ORM update would have moved it, and the session's
+        # copies are refreshed from what was written.
+        later_periods = select(AccountingPeriod.id).where(
+            AccountingPeriod.firm_id == firm_id,
+            AccountingPeriod.starts_on > period.ends_on,
+        )
+        amount = quantize_money(movement)
+        self._session.execute(
+            update(LedgerBalance)
             .where(
                 LedgerBalance.ledger_account_id == line.ledger_account_id,
                 LedgerBalance.firm_id == firm_id,
-                AccountingPeriod.starts_on > period.ends_on,
+                LedgerBalance.accounting_period_id.in_(later_periods),
             )
-        ).all()
-        for balance in later:
-            balance.opening_balance = quantize_money(balance.opening_balance + movement)
-            balance.closing_balance = quantize_money(balance.closing_balance + movement)
-            balance.updated_by = actor_id
+            .values(
+                opening_balance=LedgerBalance.opening_balance + amount,
+                closing_balance=LedgerBalance.closing_balance + amount,
+                updated_by=actor_id,
+                version=LedgerBalance.version + 1,
+            )
+            .execution_options(synchronize_session="fetch")
+        )
 
     def _opening_balance(
         self, ledger_account_id: UUID, accounting_period_id: UUID, *, firm_id: UUID

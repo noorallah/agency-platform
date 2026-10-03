@@ -24,13 +24,19 @@ _PAGE = (
 )
 _APP = _ROOT / "backend" / "app"
 
-#: The services that call ``reverse_transaction``, and the type each reverses.
+#: The services that call ``reverse_transaction``, and the types each reverses.
 #: A reversal is written as ``<original>_REVERSAL``, so these are the only
 #: twins that can appear -- ``reverse_transaction`` has no endpoint of its own.
-_REVERSED_BY = {
-    "goods_receipt/services/goods_receipt_service.py": "GOODS_RECEIPT",
-    "purchase_return/services/purchase_return_service.py": "RETURN",
-    "sales_return/services/sales_return_service.py": "SALES_RETURN",
+#: A cancelled receipt also reverses its inspection hold (BUY-9), and a
+#: cancelled repack its movements, which are adjustments (STK-4).
+_REVERSED_BY: dict[str, tuple[str, ...]] = {
+    "goods_receipt/services/goods_receipt_service.py": (
+        "GOODS_RECEIPT",
+        "QUARANTINE_HOLD",
+    ),
+    "inventory/services/repacking.py": ("ADJUSTMENT",),
+    "purchase_return/services/purchase_return_service.py": ("RETURN",),
+    "sales_return/services/sales_return_service.py": ("SALES_RETURN",),
 }
 
 
@@ -60,7 +66,9 @@ def test_the_picker_offers_exactly_the_types_the_server_writes() -> None:
     """Every written type is offered once, and nothing else is."""
     offered = _offered()
     written = {member.value for member in InventoryTransactionType} | {
-        f"{original}{REVERSAL_SUFFIX}" for original in _REVERSED_BY.values()
+        f"{original}{REVERSAL_SUFFIX}"
+        for originals in _REVERSED_BY.values()
+        for original in originals
     }
     assert len(offered) == len(set(offered)), "a type is offered twice"
     assert set(offered) - written == set(), "offered, never written"

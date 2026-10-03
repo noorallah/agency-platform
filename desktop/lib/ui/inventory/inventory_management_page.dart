@@ -96,8 +96,10 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
     'TRANSFER_IN': 'Transfer in',
     'WRITE_OFF': 'Write-off',
     'QUARANTINE_HOLD': 'Quarantine hold',
+    'QUARANTINE_HOLD_REVERSAL': 'Inspection hold undone',
     'QUARANTINE_RELEASE': 'Quarantine release',
     'ADJUSTMENT': 'Adjustment / count',
+    'ADJUSTMENT_REVERSAL': 'Repack cancelled',
   };
 
   final TextEditingController _search = TextEditingController();
