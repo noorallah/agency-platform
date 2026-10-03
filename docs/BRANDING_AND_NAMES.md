@@ -139,7 +139,21 @@ agency's logo, name and tagline.
 product's mark -- product logo, product name, "by <company>" and the tagline --
 sits under the sign-in form, and the window title reads "<product> - Sign in",
 so anyone who sees the screen can tell which product it is and whose. The
-agency's branding stays the larger, upper element.
+agency's branding stays the larger, upper element. Where the mark sits is offered three
+ways (a separate badge under the form was tried first and looked detached):
+
+1. **In the sign-in card's own foot** *(recommended)* -- part of the form, as
+   Microsoft's and Zoho's sign-in boxes carry their mark.
+2. **At the right of the dark top bar**, opposite the agency.
+3. **A night-blue product band** replacing the status line, in the Jugnix
+   colours.
+
+**Our support beside the form** (owner, 2026-10-03): a night-blue panel in the
+space beside the sign-in card -- "Stuck? We'll light the way." -- with the
+support phone (call or WhatsApp, with hours), email, help website, a "Copy
+details for support" button (version, server, PC name) and a line that a
+forgotten password is reset by the firm's administrator. Placeholders until
+the company is registered. In layout C it is a third column.
 
 In every layout: username or email, password with show/hide, remember
 username, keep me signed in, Sign in on Enter, Forgot password, the server's
@@ -164,6 +178,8 @@ and 10-03 screenshot sets) are in `dist\windows\Design\_old (superseded)\`.
 ## 7. For the owner to decide or supply
 
 1. **Sign-in layout:** A, B or C (B recommended).
+   Also where the product mark sits: card foot, top bar or band (card foot
+   recommended).
 2. ~~Product name and logo at install~~ -- **decided 2026-10-03: locked**; the
    installer wireframe is approved.
 3. **Our company's details** for Help > About: support email, phone, website
