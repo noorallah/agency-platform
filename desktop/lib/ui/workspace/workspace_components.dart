@@ -3673,6 +3673,7 @@ class StatusBadge extends StatelessWidget {
     final StatusBadgeTone tone = switch (status) {
       'ACTIVE' || 'APPROVED' => StatusBadgeTone.success,
       'PENDING' ||
+      'PENDING_APPROVAL' ||
       'DRAFT' ||
       'NEAR EXPIRY' ||
       'NEAR_EXPIRY' ||

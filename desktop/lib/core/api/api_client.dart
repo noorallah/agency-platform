@@ -1163,6 +1163,18 @@ class ApiClient {
         ),
       ));
 
+  /// Approve a customer waiting for office approval (SEL-15); it becomes
+  /// ACTIVE and can be billed. Needs `CUSTOMER_APPROVE`.
+  Future<Customer> approveCustomer(String id) async =>
+      Customer.fromJson(_unwrapMap(
+        await request('POST', '/api/v1/customers/$id/approve'),
+      ));
+
+  /// Approve several waiting customers in one call; per row, so some can be
+  /// refused while others succeed.
+  Future<BulkActionResult> bulkApproveCustomers(List<BulkRow> rows) =>
+      _bulk('/api/v1/customers/bulk-approve', rows);
+
   Future<void> deleteCustomer(String id) =>
       request('DELETE', '/api/v1/customers/$id');
 

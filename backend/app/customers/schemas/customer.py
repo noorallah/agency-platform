@@ -26,6 +26,9 @@ class CustomerStatus(StrEnum):
     ACTIVE = "ACTIVE"
     INACTIVE = "INACTIVE"
     ON_HOLD = "ON_HOLD"
+    #: A new outlet waiting for the office (SEL-15): takes quotations and
+    #: orders, is not billed until somebody with CUSTOMER_APPROVE approves it.
+    PENDING = "PENDING"
 
 
 class CustomerReceivableTransactionType(StrEnum):

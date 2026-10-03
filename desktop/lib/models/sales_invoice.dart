@@ -171,6 +171,7 @@ class SalesWorkflowSettings {
     this.promotionMode = 'COMBINE',
     this.maxLineDiscountPercent,
     this.rateIncludesTax = false,
+    this.newOutletsNeedApproval = false,
   });
 
   final bool quotationStage;
@@ -193,6 +194,10 @@ class SalesWorkflowSettings {
   /// Whether a new counter bill reads a typed rate as including GST
   /// (backlog 64 row 4). Only the default: each bill has its own switch.
   final bool rateIncludesTax;
+
+  /// SEL-15: a customer added by someone who cannot approve customers waits
+  /// for approval -- it takes orders but cannot be billed until approved.
+  final bool newOutletsNeedApproval;
 
   /// What a firm gets before anybody configures anything, and what the client
   /// falls back to when the settings cannot be read. Failing open matters: an
@@ -219,6 +224,7 @@ class SalesWorkflowSettings {
             : stringValue(json['promotion_mode']),
         maxLineDiscountPercent: _orNull(json['max_line_discount_percent']),
         rateIncludesTax: boolValue(json['rate_includes_tax']),
+        newOutletsNeedApproval: boolValue(json['new_outlets_need_approval']),
       );
 
   /// The three switches only. No screen here edits the default branch or
@@ -232,6 +238,7 @@ class SalesWorkflowSettings {
         // Shown on the same screen, so sent on every save: null clears it.
         'max_line_discount_percent': maxLineDiscountPercent,
         'rate_includes_tax': rateIncludesTax,
+        'new_outlets_need_approval': newOutletsNeedApproval,
       };
 
   SalesWorkflowSettings copyWith({
@@ -241,6 +248,7 @@ class SalesWorkflowSettings {
     String? promotionMode,
     String? Function()? maxLineDiscountPercent,
     bool? rateIncludesTax,
+    bool? newOutletsNeedApproval,
   }) =>
       SalesWorkflowSettings(
         quotationStage: quotationStage ?? this.quotationStage,
@@ -254,6 +262,8 @@ class SalesWorkflowSettings {
             ? maxLineDiscountPercent()
             : this.maxLineDiscountPercent,
         rateIncludesTax: rateIncludesTax ?? this.rateIncludesTax,
+        newOutletsNeedApproval:
+            newOutletsNeedApproval ?? this.newOutletsNeedApproval,
       );
 }
 

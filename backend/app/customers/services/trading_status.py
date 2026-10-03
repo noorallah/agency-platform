@@ -28,11 +28,29 @@ def assert_customer_takes_new_documents(customer: Customer, *, document: str) ->
     ``document`` is what is being raised, as it reads in a sentence -- "sales
     order", "quotation".
     """
-    if customer.status == "ACTIVE":
+    # A pending outlet takes quotations and orders (SEL-15); it is billing
+    # that waits for the office, in ``assert_customer_may_be_billed``.
+    if customer.status in ("ACTIVE", "PENDING"):
         return
     words = _STATUS_WORDS.get(customer.status, customer.status.lower())
     raise ValidationError(
         f"{customer.code} ({customer.display_name}) is {words}, so a new "
         f"{document} cannot be raised for them. Set the customer active "
         "first; documents already in flight are not affected."
+    )
+
+
+def assert_customer_may_be_billed(customer: Customer) -> None:
+    """Refuse a bill for a new outlet the office has not approved (SEL-15).
+
+    Orders are taken from a pending outlet so the salesman's visit is not
+    wasted; the invoice -- the credit sale -- waits until somebody holding
+    CUSTOMER_APPROVE approves the outlet.
+    """
+    if customer.status != "PENDING":
+        return
+    raise ValidationError(
+        f"{customer.code} ({customer.display_name}) is a new outlet waiting for "
+        "approval, so it cannot be billed yet. Its orders are kept; approve the "
+        "customer to bill them."
     )

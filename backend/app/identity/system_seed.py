@@ -84,6 +84,8 @@ PERMISSION_GROUPS = {
         # Changing where a customer's refunds are paid (MST-4), a duty of its
         # own like the supplier twin.
         "CUSTOMER_MANAGE_BANK_DETAILS",
+        # Letting a new outlet a salesman added be billed (SEL-15).
+        "CUSTOMER_APPROVE",
     ),
     "vendor": (
         "VENDOR_CREATE",

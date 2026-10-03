@@ -519,6 +519,8 @@ class SalesWorkflowSettingsResponse(SalesOrderSchema):
     max_line_discount_percent: Decimal | None = None
     #: Whether a new counter bill reads a typed rate as including GST.
     rate_includes_tax: bool = False
+    #: Whether a new outlet waits for approval before it is billed (SEL-15).
+    new_outlets_need_approval: bool = False
     is_configured: bool
 
 
@@ -550,6 +552,8 @@ class SalesWorkflowSettingsWrite(SalesOrderSchema):
     #: The default for a new counter bill's "Rate includes GST" switch
     #: (backlog 64 row 4). Omitted is left as it is.
     rate_includes_tax: bool | None = None
+    #: Omitted is left as it is (SEL-15).
+    new_outlets_need_approval: bool | None = None
 
 
 class SalesOrderPreview(SalesOrderSchema):

@@ -20,6 +20,8 @@ import '../../models/product.dart';
 import '../../models/sales_territory.dart';
 import '../../models/trade_licence.dart';
 import '../../models/vendor.dart';
+import '../../models/bulk_action.dart';
+import '../workspace/bulk_action.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/opening_bill_import_dialog.dart';
@@ -159,6 +161,54 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
       widget.hasActiveFirm &&
       widget.permissions.hasPermission('CUSTOMER_CREATE');
   bool get _canEdit => widget.permissions.hasPermission('CUSTOMER_UPDATE');
+
+  /// SEL-15: approving an outlet that waits for the office.
+  bool get _canApprove =>
+      widget.permissions.hasPermission('CUSTOMER_APPROVE');
+
+  /// The rows ticked for a bulk approve (only with `CUSTOMER_APPROVE`).
+  Set<String> _ticked = <String>{};
+
+  bool get _bulkMode => _ticked.length > 1;
+
+  List<BulkRow> _bulkRows() => [
+        for (final Customer row in _controller.items)
+          if (_ticked.contains(row.id)) (id: row.id, version: row.version),
+      ];
+
+  Future<void> _approve(Customer customer) async {
+    if (!_canApprove || customer.status != 'PENDING') return;
+    try {
+      await widget.api.approveCustomer(customer.id);
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        'Customer approved.',
+        kind: AppNotificationKind.success,
+      );
+      await _controller.load();
+    } on ApiException catch (exception) {
+      if (mounted) {
+        NotificationService.show(
+          context,
+          exception.message,
+          kind: AppNotificationKind.error,
+        );
+      }
+    }
+  }
+
+  Future<void> _bulkApprove() async {
+    await runBulkAction(
+      context,
+      verb: 'Approved',
+      rows: _bulkRows(),
+      send: widget.api.bulkApproveCustomers,
+    );
+    if (!mounted) return;
+    setState(() => _ticked = <String>{});
+    await _controller.load();
+  }
   bool get _canDelete => widget.permissions.hasPermission('CUSTOMER_DELETE');
   bool get _canRestore => widget.permissions.hasPermission('CUSTOMER_RESTORE');
   bool get _canExport => widget.permissions.hasPermission('CUSTOMER_EXPORT');
@@ -216,6 +266,7 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
           ('Active', 'ACTIVE', 'active'),
           ('On hold', 'ON_HOLD', 'on_hold'),
           ('Inactive', 'INACTIVE', 'inactive'),
+          ('Pending approval', 'PENDING', 'pending'),
         ])
           SummaryCount(
             key: ValueKey('customer-counter-$key'),
@@ -305,6 +356,9 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
               widget.permissions.hasPermission('CUSTOMER_MANAGE_SETTINGS'),
           mayChangeStandingDiscount:
               widget.permissions.hasPermission('CUSTOMER_MANAGE_SETTINGS'),
+          onApprove: customer != null && _canApprove
+              ? () => widget.api.approveCustomer(customer.id)
+              : null,
           // Licences (backlog 54): only for a record that already exists, and
           // only for somebody who may see them at all.
           loadLicences: customer != null &&
@@ -622,6 +676,28 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
       // phase 1 keeps its button here.
       // D-GOLIVE-1. Phase 2 draws commands; phase 1 does not.
       commands: [
+        if (_canApprove && Phase2Scope.of(context))
+          if (_bulkMode)
+            ToolbarCommand(
+              id: 'bulk-approve',
+              label: 'Approve selected',
+              icon: Icons.check_circle_outline,
+              onPressed:
+                  _controller.loading ? null : () => unawaited(_bulkApprove()),
+            )
+          else
+            ToolbarCommand(
+              id: 'approve',
+              label: 'Approve',
+              icon: Icons.check_circle_outline,
+              tooltip: 'Approve the outlet so it can be billed',
+              onPressed: _controller.loading ||
+                      selected == null ||
+                      selected.status != 'PENDING' ||
+                      selected.isDeleted
+                  ? null
+                  : () => unawaited(_approve(selected)),
+            ),
         if (_canImport)
           ToolbarCommand(
             id: 'import-opening-bills',
@@ -716,7 +792,7 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
         _filterDropdown(
           label: 'Status',
           value: _status,
-          values: const ['ACTIVE', 'INACTIVE', 'ON_HOLD'],
+          values: const ['ACTIVE', 'INACTIVE', 'ON_HOLD', 'PENDING'],
           onChanged: (value) => setState(() => _status = value),
         ),
         _filterDropdown(
@@ -814,13 +890,18 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
             customer.gstNumber,
             customer.phone,
             customer.city,
-            customer.isDeleted ? 'DELETED' : customer.status,
+            customer.isDeleted ? 'DELETED' : _statusCell(customer.status),
             _money(customer.creditLimit),
             _money(customer.currentOutstanding),
             _money(customer.unappliedAdvanceBalance),
             _dateOnly(customer.createdAt),
           ],
           selectedId: selected?.id,
+          // Ticks are for a bulk approve, so only for somebody who may.
+          selectedIds: _ticked,
+          onSelectionChanged: _canApprove && Phase2Scope.of(context)
+              ? (ticked) => setState(() => _ticked = ticked)
+              : null,
           onSelect: _controller.select,
           onOpen: (customer) => _open(CustomerDialogMode.view, customer),
           contextActionsFor: (customer) => [
@@ -858,12 +939,19 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
         // Option C (owner, 2026-09-27): the customer's actions on a bar that
         // names them, above the grid, as on the document lists.
         selectionBar: true,
-        selection: selected == null
+        selection: _bulkMode
+            ? SelectionSummary(
+                title: '${_ticked.length} selected',
+                onClear: () => setState(() => _ticked = <String>{}),
+              )
+            : selected == null
             ? null
             : SelectionSummary.record(
                 name: selected.name,
                 facts: [selected.code, selected.city],
-                status: selected.isDeleted ? 'DELETED' : selected.status,
+                status: selected.isDeleted
+                    ? 'DELETED'
+                    : _statusCell(selected.status),
                 onClear: _controller.clearSelection,
               ),
         searchPanel: searchPanel,
@@ -922,7 +1010,7 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
           decoration: InputDecoration(labelText: label),
           items: values
               .map((item) =>
-                  DropdownMenuItem(value: item, child: Text(_label(item))))
+                  DropdownMenuItem(value: item, child: Text(item == 'PENDING' ? 'Pending approval' : _label(item))))
               .toList(),
           onChanged: onChanged,
         ),
@@ -947,6 +1035,7 @@ class CustomerWorkspaceDialog extends StatefulWidget {
     this.loadPriceLevels,
     this.mayChangeCreditLimit = true,
     this.mayChangeStandingDiscount = true,
+    this.onApprove,
     this.loadLicences,
     this.canManageLicences = false,
     this.onAddLicence,
@@ -1014,6 +1103,10 @@ class CustomerWorkspaceDialog extends StatefulWidget {
   /// it the rate is shown and not editable, on a new customer as well: the
   /// server refuses a new customer that starts with one just the same.
   final bool mayChangeStandingDiscount;
+
+  /// Approves the customer waiting for the office (SEL-15). Null when the
+  /// caller may not (`CUSTOMER_APPROVE`), which hides the button.
+  final Future<Customer> Function()? onApprove;
 
   /// The trade licences this customer holds (backlog 54). Null hides the
   /// Licences tab entirely -- while the customer is still being created, or
@@ -1452,6 +1545,28 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     if (mounted) Navigator.pop(context);
   }
 
+  /// SEL-15: approve the outlet from its own page; closes with the approved
+  /// customer so the list reloads.
+  Future<void> _approve() async {
+    final approve = widget.onApprove;
+    if (approve == null || _saving) return;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final Customer approved = await approve();
+      if (mounted) Navigator.pop(context, approved);
+    } on ApiException catch (exception) {
+      if (mounted) {
+        setState(() {
+          _error = exception.message;
+          _saving = false;
+        });
+      }
+    }
+  }
+
   Future<void> _save() async {
     if (_readOnly || _saving) return;
     bool valid = true;
@@ -1692,7 +1807,14 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
             _dropdown(
               'Status',
               _status,
-              const ['ACTIVE', 'INACTIVE', 'ON_HOLD'],
+              [
+                'ACTIVE',
+                'INACTIVE',
+                'ON_HOLD',
+                // Offered only while it is the value held, so it cannot be
+                // chosen for a customer that is not waiting.
+                if (widget.customer?.status == 'PENDING') 'PENDING',
+              ],
               (value) => setState(() {
                 _status = value!;
                 _dirty = true;
@@ -2858,6 +2980,10 @@ const Map<String, String> _gstTypes = {
   'DEEMED_EXPORT': 'Deemed export',
   'OVERSEAS': 'Overseas (export)',
 };
+
+/// A status as the grid shows it: PENDING reads "Pending approval".
+String _statusCell(String status) =>
+    status == 'PENDING' ? 'PENDING_APPROVAL' : status;
 
 String _label(String value) => value
     .toLowerCase()

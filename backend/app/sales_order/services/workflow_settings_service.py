@@ -38,6 +38,7 @@ DEFAULT_SETTINGS = SalesWorkflowSettings(
     promotion_mode="COMBINE",
     max_line_discount_percent=None,
     rate_includes_tax=False,
+    new_outlets_need_approval=False,
 )
 
 
@@ -79,6 +80,7 @@ class SalesWorkflowService:
             promotion_mode=policy.promotion_mode or "COMBINE",
             max_line_discount_percent=policy.max_line_discount_percent,
             rate_includes_tax=bool(policy.rate_includes_tax),
+            new_outlets_need_approval=bool(policy.new_outlets_need_approval),
             is_configured=stored is not None,
         )
 
@@ -133,6 +135,8 @@ class SalesWorkflowService:
         # switch it off.
         if data.rate_includes_tax is not None:
             row.rate_includes_tax = data.rate_includes_tax
+        if data.new_outlets_need_approval is not None:
+            row.new_outlets_need_approval = data.new_outlets_need_approval
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -159,6 +163,7 @@ class SalesWorkflowService:
             promotion_mode=row.promotion_mode,
             max_line_discount_percent=row.max_line_discount_percent,
             rate_includes_tax=row.rate_includes_tax,
+            new_outlets_need_approval=row.new_outlets_need_approval,
             is_configured=True,
         )
 
@@ -225,6 +230,7 @@ class SalesWorkflowService:
                 else None
             ),
             "rate_includes_tax": row.rate_includes_tax,
+            "new_outlets_need_approval": row.new_outlets_need_approval,
             "quotation_stage": row.quotation_stage,
             "sales_order_stage": row.sales_order_stage,
             "delivery_note_stage": row.delivery_note_stage,
