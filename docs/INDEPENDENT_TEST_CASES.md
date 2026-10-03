@@ -3903,16 +3903,16 @@ being signed in and nothing else.
 
 ### TC-ME-002 — Choosing your own primary firm
 
-- **Covers:** plan 26a.3, 26a.4
+- **Covers:** plan 26a.3, 26a.4; backlog 73 (since 1.2.0 the choice is *Start in firm* in My preferences)
 - **Fixture:** `two-firm-user`
 - **Steps**
   1. Sign in as the fixture's **Two-firm user**.
-  2. Account menu → **Primary firm**.
-  3. Choose **TEST02** → **Save**.
+  2. Account menu → **My preferences**.
+  3. **Start in firm** → **TEST02** → **Save**.
   4. Open the firm switcher.
 - **Expect**
-  - Step 2: a dialog listing TEST01 and TEST02, **TEST01 selected**, and **Save dead** until something else is chosen.
-  - Step 3: a notice says which firm you will start in next time. **Nothing on screen switches** — the primary is for next time, not for now.
+  - Step 2: the dialog opens at once, **Start in firm** reading **TEST01** and listing only TEST01 and TEST02. The account menu has **no separate Primary firm entry** any more.
+  - Step 3: the dialog closes. **Nothing on screen switches** — the primary is for next time, not for now.
   - Step 4: **TEST02** is labelled `primary` beside its code.
 - **Data**
   ```sql
@@ -3975,7 +3975,7 @@ being signed in and nothing else.
 - **Steps**
   1. Sign in as the fixture's **Platform admin**.
   2. Open the account menu; open **My profile**.
-- **Expect:** **no Primary firm entry** — a platform administrator always starts on Platform, so there is nothing to choose. My profile shows a **Platform administrator** chip under the name.
+- **Expect:** the menu offers **My preferences**, and the dialog has **no Start in firm** box — a platform administrator always starts on Platform, so there is nothing to choose. My profile shows a **Platform administrator** chip under the name.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 — reads only.
 - **Leaves:** a platform administrator.
 
@@ -3983,8 +3983,8 @@ being signed in and nothing else.
 
 - **Covers:** plan 26a.6 (one-firm half)
 - **Fixture:** `firm-admin`
-- **Steps:** sign in as the fixture's **Firm admin** and open the account menu.
-- **Expect:** **no Primary firm entry**. The menu offers it only to somebody with more than one firm who is not a platform administrator.
+- **Steps:** sign in as the fixture's **Firm admin**, open the account menu → **My preferences**.
+- **Expect:** **no Start in firm** box. It is offered only to somebody with more than one firm who is not a platform administrator.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 — reads only.
 - **Leaves:** a firm admin user.
 
@@ -4016,6 +4016,100 @@ being signed in and nothing else.
   `authorization_version` up by one (every session ends, including this one); one `password_history` row holding the old hash. Audit `identity.password_changed`. The server also refuses any of the last five passwords.
   Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.2.
 - **Leaves:** a two-firm user whose password is `Str0ng-Passw0rd!`.
+
+### TC-ME-009 — My preferences: theme, text size and date format apply at once
+
+- **Covers:** backlog 73 (My preferences, 1.2.0)
+- **Fixture:** `two-firm-user`
+- **Steps**
+  1. Sign in as the fixture's **Two-firm user**; open any sales invoice and note how its date is written.
+  2. Account menu → **My preferences**. Change nothing → **Save**.
+  3. Open it again: **Theme** → **Dark**, **Text size** → **Large**, **Date format** → the `yyyy-MM-dd` row → **Save**.
+  4. Open the same sales invoice again.
+  5. Open My preferences, change the theme, then press **Esc**.
+  6. Sign out, sign in on **another PC** (or another Windows account) as the same user.
+- **Expect**
+  - Step 1: dates read `dd-MM-yyyy` (for example `04-10-2026`) — the default for everybody after the 1.2.0 upgrade.
+  - Step 2: the dialog closes; nothing changes.
+  - Step 3: the dialog closes and, without restarting, the screen turns dark and the text grows. Each date-format row shows today's date written that way.
+  - Step 4: the invoice date now reads `2026-10-04` style.
+  - Step 5: the dialog closes and the theme stays as it was.
+  - Step 6: the dark theme and the `yyyy-MM-dd` dates follow the user; **text size does not** — it is this PC's setting, and the dialog says *This PC only*.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 — this user's `platform.user_preferences` row: `preferred_theme_mode = dark`, `date_format = yyyy-MM-dd`. Opening the dialog reads nothing; Save sends one update carrying only the changed fields; Save with nothing changed sends none.
+- **Leaves:** a two-firm user with the dark theme and ISO dates — set them back if the next case needs the defaults.
+
+### TC-ME-010 — My preferences: the first screen
+
+- **Covers:** backlog 73
+- **Fixture:** `two-firm-user`
+- **Steps**
+  1. Sign in as the fixture's **Two-firm user**. Account menu → **My preferences** → open the **First screen** list.
+  2. Choose **Sell › Sales Invoices** → **Save**.
+  3. Open Customers, then sign out and back in.
+  4. Set **First screen** back to **The screen I was last on**; open Customers; sign out and back in.
+- **Expect**
+  - Step 1: the first entry is **The screen I was last on** (selected); below it only screens this user's roles may open — no Users, Roles or Firms.
+  - Step 3: you land on **Sales Invoices**, not Customers.
+  - Step 4: you land on **Customers**, where you were last.
+- **Data:** `platform.user_preferences.dashboard_layout` holds `first_screen` beside `favourites` (§15.4).
+- **Leaves:** a two-firm user starting where they left off.
+
+### TC-ME-011 — Favourites: star a screen, find it on Home and in Ctrl+K
+
+- **Covers:** D-UI-3 (fixed in 1.2.0)
+- **Fixture:** `two-firm-user`
+- **Steps**
+  1. Sign in as the fixture's **Two-firm user**. Open **Sell**; point at **Sales Orders** and click the star that appears. Star one more screen in another drop-down.
+  2. Go to **Home**.
+  3. On Home, drag the last favourite before the first; point at another box and click its **x**.
+  4. Press **Ctrl+K** and type `s`.
+  5. Sign out; sign in on another PC (or another Windows account) as the same user.
+- **Expect**
+  - Step 1: each star turns gold as it is clicked; the drop-down stays open.
+  - Step 2: the **FAVOURITES** box shows the starred screens.
+  - Step 3: the order changes and the removed box goes; that screen's star in its drop-down is no longer gold.
+  - Step 4: starred screens are listed **first** among the matches.
+  - Step 5: the same favourites, in the same order.
+- **Data:** `platform.user_preferences.dashboard_layout.favourites` lists the screens in order. Several stars in a row are saved by **one** update about a second after the last.
+- **Leaves:** a two-firm user with favourites.
+
+### TC-ME-012 — The light menu: daily work first, everything one click away
+
+- **Covers:** backlog 72 (light menu, 1.2.0)
+- **Fixture:** `firm-admin`
+- **Steps**
+  1. Sign in as the fixture's **Firm admin**. Open **Sell**.
+  2. Click **Returns & notes**.
+  3. Click **All Sell screens** at the foot.
+  4. Open **Buy**, **Stock**, **Accounts** and **Masters** the same way.
+  5. Look along the menu bar for **Admin**.
+- **Expect**
+  - Step 1: a short list — Quotations, Sales Orders, Delivery Notes, Sales Invoices, Returns & notes, Receipts, Customer Statements — and **All Sell screens (N)** at the foot. Price Lists, Promotions and Territories are **not** here.
+  - Step 2: a short list beside it: Sales Returns, Credit Notes, Customer Debit Notes.
+  - Step 3: every Sell screen this user may open, under its group (Documents, Money, Incentives, Insight, Field sales); any of them opens in a tab.
+  - Step 4: each area works the same way; Masters shows Customers, Vendors, Products, Branches and Warehouses, and its lists (Customer Groups, Product Categories, Units, Places …) are under Settings › Set up.
+  - Step 5: **no Admin** on the bar: Users, Roles, Firms, Audit Logs and Backups are under **Settings (gear) › Platform**, for those who may open them.
+- **Data:** none — the menu is built in the app from the permissions read at sign-in; opening it sends no request.
+- **Leaves:** a firm admin user.
+
+### TC-ME-013 — Settings › Set up: cards and a search across every section
+
+- **Covers:** backlog 72 (Settings › Set up, 1.2.0)
+- **Fixture:** `firm-admin`, then `two-firm-user`
+- **Steps**
+  1. Sign in as the fixture's **Firm admin**. Click the **gear**.
+  2. Click **This PC and me**, then the **My Preferences** card.
+  3. Close it; in the search box type `price`.
+  4. Click **Price Lists**.
+  5. Sign in as the **Two-firm user** and click the gear.
+- **Expect**
+  - Step 1: Settings opens as a tab: sections down the left — This PC and me, Firm, Selling, Buying, Stock, Tax, Business profile, then **SET UP** (Pricing, Territories & routes, Account structure, Party lists, Item lists, Locations) and, for a platform administrator only, **PLATFORM**; the chosen section's screens as cards.
+  - Step 2: the My preferences dialog opens.
+  - Step 3: matches from every section — Price Lists, Price Levels, Price Floor …
+  - Step 4: Price Lists opens in its own tab.
+  - Step 5: only the sections this user's roles reach; **This PC and me** is always there.
+- **Data:** none — built from the permissions already held; no request until a screen opens.
+- **Leaves:** unchanged.
 
 ---
 
