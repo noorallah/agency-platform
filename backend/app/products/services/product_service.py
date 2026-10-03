@@ -1842,6 +1842,7 @@ class ProductService:
             "allow_negative_stock": product.allow_negative_stock,
             "require_batch_on_receipt": product.require_batch_on_receipt,
             "inspection_required": product.inspection_required,
+            "free_issue_only": product.free_issue_only,
             "require_batch_on_issue": product.require_batch_on_issue,
             "require_serial_on_receipt": product.require_serial_on_receipt,
             "require_serial_on_issue": product.require_serial_on_issue,

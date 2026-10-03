@@ -31,6 +31,18 @@ class StockReasonOption {
   final String name;
 }
 
+/// A customer a write-off can be given to, reduced to what a picker needs.
+class StockCustomerOption {
+  const StockCustomerOption({required this.id, required this.label});
+
+  final String id;
+  final String label;
+}
+
+/// The write-off reason that names a customer, and the one that may (BUY-1).
+const String freeToCustomerReason = 'FREE_TO_CUSTOMER';
+const String sampleReason = 'SAMPLE';
+
 /// The six reasons every firm has, offered when the firm's own list could not
 /// be read (STK-7) so a write-off is never blocked by a failed lookup.
 const List<StockReasonOption> fallbackStockReasons = [
@@ -112,7 +124,13 @@ class StockActionDialog extends StatefulWidget {
     this.onSave,
     this.onSubmitForApproval,
     this.pickFiles,
+    this.searchCustomers,
   });
+
+  /// Finds customers by what was typed, for the write-off reasons that name
+  /// one (BUY-1). Null: the picker finds nothing.
+  final Future<List<StockCustomerOption>> Function(String text)?
+      searchCustomers;
 
   /// Sends the draft for approval when the server says it is above the
   /// limit of whoever posts it (STK-8). Null: the refusal is only shown.
@@ -158,6 +176,7 @@ class _StockActionDialogState extends State<StockActionDialog>
   bool _releasing = false;
   DateTime _when = DateTime.now();
   String? _error;
+  String? _customerId;
   List<Json> _attachments = const [];
 
   /// The draft the server refused as too large, kept so it can be sent for
@@ -225,6 +244,12 @@ class _StockActionDialogState extends State<StockActionDialog>
       setState(() => _error = problem);
       return;
     }
+    if (widget.action == StockAction.writeOff &&
+        _reason == freeToCustomerReason &&
+        _customerId == null) {
+      setState(() => _error = 'Choose the customer it was given to.');
+      return;
+    }
     _post(<String, dynamic>{
       'quantity': _quantity.text.trim(),
       if (_reference.text.trim().isNotEmpty)
@@ -234,6 +259,10 @@ class _StockActionDialogState extends State<StockActionDialog>
       if (widget.action == StockAction.transfer)
         'to_warehouse_id': _destination,
       if (widget.action == StockAction.writeOff) 'reason': _reason,
+      if (widget.action == StockAction.writeOff &&
+          _customerId != null &&
+          (_reason == freeToCustomerReason || _reason == sampleReason))
+        'customer_id': _customerId,
       if (widget.action == StockAction.quarantine)
         'action': _releasing ? 'RELEASE' : 'HOLD',
       // Photos and documents (STK-9); a hold or release takes none.
@@ -372,8 +401,18 @@ class _StockActionDialogState extends State<StockActionDialog>
                     child: Text(reason.name, overflow: TextOverflow.ellipsis),
                   ),
               ],
-              onChanged: (value) => setState(() => _reason = value ?? 'DAMAGE'),
+              onChanged: (value) => setState(() {
+                _reason = value ?? 'DAMAGE';
+                if (_reason != freeToCustomerReason &&
+                    _reason != sampleReason) {
+                  _customerId = null;
+                }
+              }),
             ),
+            if (_reason == freeToCustomerReason || _reason == sampleReason) ...[
+              const SizedBox(height: AppSpacing.md),
+              _customerPicker(),
+            ],
           ],
         StockAction.quarantine => [
             SegmentedButton<bool>(
@@ -387,6 +426,42 @@ class _StockActionDialogState extends State<StockActionDialog>
             ),
           ],
       };
+
+  /// Who the goods were given to: required for a free gift, optional for a
+  /// sample.
+  Widget _customerPicker() => Autocomplete<StockCustomerOption>(
+        key: const ValueKey('stock-write-off-customer'),
+        optionsBuilder: (value) async {
+          final String text = value.text.trim();
+          final Future<List<StockCustomerOption>> Function(String)? search =
+              widget.searchCustomers;
+          if (text.length < 2 || search == null) {
+            return const <StockCustomerOption>[];
+          }
+          try {
+            return await search(text);
+          } on ApiException {
+            return const <StockCustomerOption>[];
+          }
+        },
+        displayStringForOption: (option) => option.label,
+        onSelected: (option) => setState(() => _customerId = option.id),
+        fieldViewBuilder: (context, controller, focusNode, onSubmitted) =>
+            TextField(
+          controller: controller,
+          focusNode: focusNode,
+          decoration: InputDecoration(
+            labelText: _reason == freeToCustomerReason
+                ? 'Customer'
+                : 'Customer (optional)',
+            helperText: 'Type two letters of the name or code',
+          ),
+          // Typing again means the earlier pick no longer stands.
+          onChanged: (_) {
+            if (_customerId != null) setState(() => _customerId = null);
+          },
+        ),
+      );
 
   Widget _quantityField() => TextField(
         controller: _quantity,

@@ -249,6 +249,11 @@ class Product(BaseEntity):
     require_batch_on_receipt: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    #: Promotional stock (BUY-1): received, given away and counted, but never
+    #: sold at a price.
+    free_issue_only: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     #: Received goods wait in quarantine until somebody passes them (BUY-9).
     #: True on the product or on its category is enough.
     inspection_required: Mapped[bool] = mapped_column(

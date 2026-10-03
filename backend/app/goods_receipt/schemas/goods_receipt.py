@@ -91,6 +91,8 @@ class GoodsReceiptLineWrite(GoodsReceiptSchema):
     warehouse_id: UUID | None = None
     storage_node_id: UUID | None = None
     batch_number: str | None = Field(default=None, max_length=120)
+    #: The supplier's scheme a free line came under (BUY-1).
+    scheme_name: str | None = Field(default=None, max_length=120)
     expiry_date: date | None = None
     manufacturing_date: date | None = None
     #: The batch's printed MRP (with tax) and selling price (before tax), per
@@ -226,6 +228,7 @@ class GoodsReceiptLineResponse(GoodsReceiptSchema):
     conversion_version: int | None
     warehouse_id: UUID
     storage_node_id: UUID | None
+    scheme_name: str | None = None
     batch_number: str | None
     expiry_date: date | None
     manufacturing_date: date | None

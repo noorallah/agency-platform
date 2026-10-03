@@ -193,6 +193,8 @@ class ProductWrite(ProductSchema):
     require_batch_on_receipt: bool = False
     #: Received goods wait in quarantine until passed (BUY-9).
     inspection_required: bool = False
+    #: Promotional stock, never sold at a price (BUY-1).
+    free_issue_only: bool = False
     require_batch_on_issue: bool = False
     require_serial_on_receipt: bool = False
     require_serial_on_issue: bool = False
@@ -327,6 +329,7 @@ class ProductResponse(ProductSchema):
     allow_negative_stock: bool
     require_batch_on_receipt: bool
     inspection_required: bool = False
+    free_issue_only: bool = False
     require_batch_on_issue: bool
     require_serial_on_receipt: bool
     require_serial_on_issue: bool

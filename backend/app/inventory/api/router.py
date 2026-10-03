@@ -90,6 +90,7 @@ from app.inventory.services.adjustment_reasons import (
     AdjustmentReasonService,
     AdjustmentReasonWrite,
 )
+from app.inventory.services.free_goods import FreeGoodsRecord, free_goods_report
 from app.inventory.services.opening_stock_import import OpeningStockFileImporter
 from app.inventory.services.opening_stock_import import (
     template_csv as opening_stock_template_csv,
@@ -229,6 +230,23 @@ class StockValuationRecord(BaseModel):
 StockValuationScope = Annotated[
     ResolvedFirmScope, firm_any_permission_scope("INVENTORY_VIEW", "REPORT_VIEW")
 ]
+
+
+@router.get(
+    "/reports/free-goods",
+    response_model=PaginatedResponse[FreeGoodsRecord],
+)
+def free_goods(
+    scope: StockValuationScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[FreeGoodsRecord]:
+    """Free goods received per supplier and scheme, given away, and held (BUY-1)."""
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(free_goods_report(db, firm_id=scope.firm_id, window=window))
 
 
 @router.get(

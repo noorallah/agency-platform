@@ -198,6 +198,8 @@ class InventoryTransaction(BaseEntity):
     transaction_type: Mapped[str] = mapped_column(String(40), nullable=False)
     reference_number: Mapped[str] = mapped_column(String(80), nullable=False)
     reference_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    #: The customer free goods or a sample were given to (BUY-1).
+    customer_id: Mapped[UUID | None] = mapped_column(UUIDType())
     transaction_date: Mapped[date] = mapped_column(Date, nullable=False)
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
     current_quantity_delta: Mapped[Decimal] = mapped_column(

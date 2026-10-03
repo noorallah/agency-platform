@@ -253,6 +253,8 @@ class GoodsReceiptLine(BaseEntity):
     inventory_transaction_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("inventory_transactions.id", ondelete="SET NULL")
     )
+    #: The supplier's scheme a free line came under (BUY-1), as typed.
+    scheme_name: Mapped[str | None] = mapped_column(String(120))
     #: BUY-9. Null: the goods went straight to stock. ``PENDING``: they wait in
     #: quarantine for an inspection; ``DONE``: somebody passed or rejected
     #: them. The hold movement is kept so a cancelled receipt can undo it.

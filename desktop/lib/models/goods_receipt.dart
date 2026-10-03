@@ -42,7 +42,11 @@ class GoodsReceiptLine {
     this.sellingPrice = '',
     this.taxRuleCode,
     this.taxRuleVersion,
+    this.schemeName = '',
   });
+
+  /// The supplier's scheme the free goods came under; empty when none.
+  final String schemeName;
 
   /// Per stock unit, tax included; empty when none was recorded.
   final String mrp;
@@ -128,6 +132,7 @@ class GoodsReceiptLine {
         updatedAt: stringValue(json['updated_at']),
         mrp: stringValue(json['mrp']),
         sellingPrice: stringValue(json['selling_price']),
+        schemeName: stringValue(json['scheme_name']),
         taxRuleCode: LineTaxRule.fromJson(json).code,
         taxRuleVersion: LineTaxRule.fromJson(json).version,
       );
@@ -153,6 +158,7 @@ class GoodsReceiptLine {
         'expiry_date': expiryDate,
         'manufacturing_date': manufacturingDate,
         'remarks': remarks,
+        if (schemeName.trim().isNotEmpty) 'scheme_name': schemeName.trim(),
       };
 }
 

@@ -136,6 +136,9 @@ class ControlAccountPurpose(StrEnum):
     #: Stock put out on display or handed out as a sample or demo (STK-3):
     #: a selling cost.
     SAMPLES_AND_DISPLAY = "SAMPLES_AND_DISPLAY"
+    #: Free goods given to customers and samples handed out (BUY-1), at
+    #: what they cost: a selling expense.
+    PROMOTIONAL_EXPENSE = "PROMOTIONAL_EXPENSE"
     #: Interest for depositing TDS late (section 201(1A)) and the fee for a
     #: late return (234E), paid on a TDS challan (ACC-7). A cost of its own,
     #: never TDS payable: it was never deducted from anybody.
@@ -268,6 +271,7 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     ControlAccountPurpose.INTERNAL_USE: frozenset({"EXPENSE"}),
     ControlAccountPurpose.STAFF_WELFARE: frozenset({"EXPENSE"}),
     ControlAccountPurpose.SAMPLES_AND_DISPLAY: frozenset({"EXPENSE"}),
+    ControlAccountPurpose.PROMOTIONAL_EXPENSE: frozenset({"EXPENSE"}),
     ControlAccountPurpose.TDS_INTEREST_AND_FEES: frozenset({"EXPENSE"}),
     ControlAccountPurpose.CHEQUE_RETURN_CHARGES: frozenset({"INCOME"}),
     ControlAccountPurpose.GST_CASH_LEDGER: frozenset({"ASSET"}),
@@ -336,6 +340,7 @@ PURPOSE_LABELS: dict[ControlAccountPurpose, str] = {
     ControlAccountPurpose.INTERNAL_USE: "Stock used in business",
     ControlAccountPurpose.STAFF_WELFARE: "Staff welfare",
     ControlAccountPurpose.SAMPLES_AND_DISPLAY: "Samples and display",
+    ControlAccountPurpose.PROMOTIONAL_EXPENSE: "Promotional expenses",
     ControlAccountPurpose.TDS_INTEREST_AND_FEES: "Interest and fees on TDS",
     ControlAccountPurpose.CHEQUE_RETURN_CHARGES: "Cheque return charges",
     ControlAccountPurpose.GST_CASH_LEDGER: "GST electronic cash ledger",

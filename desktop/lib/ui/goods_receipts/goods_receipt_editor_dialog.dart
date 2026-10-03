@@ -51,6 +51,7 @@ class GoodsReceiptDraftLine {
     this.mrp = '',
     this.sellingPrice = '',
     this.remarks = '',
+    this.schemeName = '',
   });
 
   final String purchaseOrderLineId;
@@ -81,6 +82,9 @@ class GoodsReceiptDraftLine {
   /// Per stock unit, before tax.
   String sellingPrice;
   String remarks;
+
+  /// The supplier's scheme the free goods came under (BUY-1); optional.
+  String schemeName;
 
   /// What is still outstanding on the order line, never below zero.
   double get outstanding {
@@ -113,6 +117,7 @@ class GoodsReceiptDraftLine {
         if (batchNumber.trim().isNotEmpty && sellingPrice.trim().isNotEmpty)
           'selling_price': sellingPrice.trim(),
         if (remarks.trim().isNotEmpty) 'remarks': remarks.trim(),
+        if (schemeName.trim().isNotEmpty) 'scheme_name': schemeName.trim(),
       };
 }
 
@@ -319,6 +324,7 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
       draft.mrp = line.mrp;
       draft.sellingPrice = line.sellingPrice;
       draft.remarks = line.remarks;
+      draft.schemeName = line.schemeName;
     }
     return drafts;
   }

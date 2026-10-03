@@ -28,6 +28,8 @@ SYSTEM_REASONS: tuple[tuple[str, str], ...] = (
     ("INTERNAL_USE", "Internal use"),
     ("STAFF", "Staff"),
     ("DISPLAY", "Display"),
+    ("FREE_TO_CUSTOMER", "Given free to customer"),
+    ("SAMPLE", "Sample"),
 )
 
 

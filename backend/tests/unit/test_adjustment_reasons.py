@@ -85,6 +85,8 @@ def test_system_reasons_are_seeded_and_kept(firm: _Firm) -> None:
         "INTERNAL_USE",
         "STAFF",
         "DISPLAY",
+        "FREE_TO_CUSTOMER",
+        "SAMPLE",
     ]
     damage = reasons[0]
     with pytest.raises(ValidationError, match="cannot be deleted"):

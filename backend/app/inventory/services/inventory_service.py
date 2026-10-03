@@ -83,7 +83,13 @@ ISSUE_PURPOSES: dict[str, ControlAccountPurpose] = {
     "INTERNAL_USE": ControlAccountPurpose.INTERNAL_USE,
     "STAFF": ControlAccountPurpose.STAFF_WELFARE,
     "DISPLAY": ControlAccountPurpose.SAMPLES_AND_DISPLAY,
+    # Free goods passed on to a customer and samples (BUY-1).
+    "FREE_TO_CUSTOMER": ControlAccountPurpose.PROMOTIONAL_EXPENSE,
+    "SAMPLE": ControlAccountPurpose.PROMOTIONAL_EXPENSE,
 }
+
+#: The reasons that must name the customer the stock went to (BUY-1).
+CUSTOMER_REASONS = frozenset({"FREE_TO_CUSTOMER"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -1677,6 +1683,20 @@ class InventoryService:
 
         listed = AdjustmentReasonService(self._session).resolve(firm_scope, data.reason)
         reason = listed.code
+        if reason in CUSTOMER_REASONS and data.customer_id is None:
+            raise ValidationError(
+                f"{listed.name} names the customer the goods went to."
+            )
+        if data.customer_id is not None:
+            from app.customers.models import Customer
+
+            customer = self._session.get(Customer, data.customer_id)
+            if (
+                customer is None
+                or customer.firm_id != firm_scope
+                or customer.is_deleted
+            ):
+                raise ValidationError("That customer is not one of this firm's.")
         narration = (
             f"{listed.name}: {data.remarks}"
             if data.remarks
@@ -1702,6 +1722,7 @@ class InventoryService:
                 remarks=narration,
             ),
         )
+        transaction.customer_id = data.customer_id
         # The flush is required: request sessions do not autoflush, so the row
         # staged above is invisible to this query until it is written.
         self._session.flush()
