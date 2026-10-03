@@ -90,6 +90,8 @@ class _LineState:
     gross: Decimal
     quantity: Decimal
     discount: Decimal = ZERO
+    #: What the line sells, for an offer about a set of products (SEL-3).
+    product_id: UUID | None = None
     free_quantity: Decimal = ZERO
     codes: list[str] = field(default_factory=list)
 
@@ -119,6 +121,7 @@ class PromotionService:
                 line_number=line.line_number,
                 gross=quantize_money(line.gross),
                 quantity=Decimal(str(line.quantity)),
+                product_id=getattr(line, "product_id", None),
             )
             for line in data.lines
         ]
@@ -854,6 +857,9 @@ class PromotionService:
                     shares = apportion(cap, shares)
                 for state, share in zip(matched, shares, strict=True):
                     state.discount += share
+            elif kind == PromotionActionType.COMBO_PRICE.value:
+                for state, share in _combo_saving(params, matched):
+                    state.discount += share
             elif kind == PromotionActionType.FREE_PRODUCT.value:
                 gift_id = params.get("free_product_id")
                 free = Decimal(str(params.get("free_quantity", 0) or 0))
@@ -942,6 +948,68 @@ class PromotionService:
             )
         )
         self._session.flush()
+
+
+def _combo_saving(
+    params: dict[str, object], matched: list[_LineState]
+) -> list[tuple[_LineState, Decimal]]:
+    """Return what a combo price takes off each line of its complete sets.
+
+    SEL-3. The set is the products and quantities the offer names; the
+    document holds as many complete sets as its scarcest member allows,
+    counted across lines. One set at its own rates costs what each unit has
+    left after earlier offers; the saving is that less the combo price, times
+    the sets, and it is spread over the lines the sets used by the value each
+    contributed -- the way a bill discount is -- so each line keeps its own
+    GST. A combo dearer than its parts saves nothing.
+    """
+    raw = params.get("items")
+    items = raw if isinstance(raw, list) else []
+    price = Decimal(str(params.get("price", 0) or 0))
+    wanted: dict[str, Decimal] = {}
+    for item in items:
+        if isinstance(item, dict) and item.get("product_id"):
+            wanted[str(item["product_id"])] = Decimal(str(item.get("quantity", 0)))
+    if len(wanted) < 2 or price <= ZERO or any(q <= ZERO for q in wanted.values()):
+        return []
+    lines: dict[str, list[_LineState]] = {key: [] for key in wanted}
+    for state in matched:
+        key = str(state.product_id) if state.product_id is not None else ""
+        if key in lines and state.quantity > ZERO:
+            lines[key].append(state)
+    held = {
+        key: sum((state.quantity for state in found), ZERO)
+        for key, found in lines.items()
+    }
+    sets = min(int(held[key] // wanted[key]) for key in wanted)
+    if sets <= 0:
+        return []
+    # What one unit of each product has left, across the lines that hold it.
+    unit = {
+        key: sum((state.remaining for state in lines[key]), ZERO) / held[key]
+        for key in wanted
+    }
+    worth = sum((unit[key] * wanted[key] for key in wanted), ZERO)
+    saving = quantize_money((worth - price) * sets)
+    if saving <= ZERO:
+        return []
+    # Each line's part of the sets: its share of its product's units used.
+    weights: list[Decimal] = []
+    targets: list[_LineState] = []
+    for key in wanted:
+        used = wanted[key] * sets
+        for state in lines[key]:
+            take = min(state.quantity, used)
+            used -= take
+            if take <= ZERO:
+                continue
+            targets.append(state)
+            weights.append(take * unit[key])
+    shares = apportion(saving, weights)
+    return [
+        (state, min(share, state.remaining))
+        for state, share in zip(targets, shares, strict=True)
+    ]
 
 
 def _cap(params: dict[str, object]) -> Decimal | None:

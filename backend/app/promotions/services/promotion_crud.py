@@ -375,6 +375,14 @@ class PromotionCrudService:
             PromotionActionType.BILL_DISCOUNT_AMOUNT,
         }:
             return {"amount": str(getattr(action, "amount", None))}
+        if kind is PromotionActionType.COMBO_PRICE:
+            return {
+                "price": str(getattr(action, "amount", None)),
+                "items": [
+                    {"product_id": str(item.product_id), "quantity": str(item.quantity)}
+                    for item in getattr(action, "combo_items", None) or []
+                ],
+            }
         if kind is PromotionActionType.BUY_X_GET_Y_DISCOUNT:
             cap = getattr(action, "max_amount", None)
             return {

@@ -681,6 +681,8 @@ class _PromotionPageState extends State<PromotionPage> {
                 'another product free',
         'BUY_X_GET_Y_DISCOUNT' => buyXGetYDiscountLabel(
             action.buyQuantity, action.freeQuantity, action.percent),
+        'COMBO_PRICE' =>
+          comboPriceLabel(action.comboItems.length, action.amount),
         'FREE_SHIPPING' => 'free delivery',
         'LOYALTY_MULTIPLIER' => bonusPointsLabel(action.multiplier),
         _ => action.actionType,

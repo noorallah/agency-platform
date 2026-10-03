@@ -530,3 +530,13 @@ still comes off its fixed rate. Sales orders and quotations fill a blank price
 on the server, before the GST-inclusive conversion, which converts only typed
 prices (level and list prices are pre-tax). Downstream documents inherit the
 price of the line they continue, as before.
+
+## Buy X get Y at a discount, and combo prices (SEL-2, SEL-3, 2026-10-03)
+
+Both are line discounts, so tax stays per line and the best-offer valuation
+reads them like any other. `BUY_X_GET_Y_DISCOUNT` takes the percent off the
+"get" units of every complete group of buy + get units on each matched line,
+at what each unit has left after earlier offers. `COMBO_PRICE` counts complete
+sets of its products across the document's lines and spreads the saving --
+one set's worth less its price, times the sets -- over the lines the sets used
+by value (`apportion`). Neither saves anything on a partial group or set.

@@ -38,6 +38,7 @@ class _PromotionDialogState extends State<PromotionDialog> {
     'FREE_QUANTITY': 'Free goods (buy X, get Y)',
     'FREE_PRODUCT': 'A free product (buy X, get another)',
     'BUY_X_GET_Y_DISCOUNT': 'Buy X, get Y at a discount',
+    'COMBO_PRICE': 'Combo price',
     'FREE_SHIPPING': 'Free delivery',
     'LOYALTY_MULTIPLIER': 'Bonus loyalty points',
   };
@@ -254,6 +255,17 @@ class _PromotionDialogState extends State<PromotionDialog> {
     if (hasBonus && _actions.length > 1) {
       return 'A bonus-points offer gives nothing else; make the discount a '
           'separate offer.';
+    }
+    for (final _ActionDraft a in _actions) {
+      if (a.actionType != 'COMBO_PRICE') continue;
+      if (a.combo.length < 2) {
+        return 'A combo needs at least two different products.';
+      }
+      for (final _ComboLine line in a.combo) {
+        if ((double.tryParse(line.quantity.text.trim()) ?? 0) <= 0) {
+          return 'Give every combo product a quantity above zero.';
+        }
+      }
     }
     return null;
   }
@@ -507,6 +519,7 @@ class _PromotionDialogState extends State<PromotionDialog> {
     final bool isGift = action.actionType == 'FREE_PRODUCT';
     final bool isDiscounted = action.actionType == 'BUY_X_GET_Y_DISCOUNT';
     final bool isShipping = action.actionType == 'FREE_SHIPPING';
+    final bool isCombo = action.actionType == 'COMBO_PRICE';
     final bool isBonus = action.actionType == 'LOYALTY_MULTIPLIER';
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.sm),
@@ -536,6 +549,11 @@ class _PromotionDialogState extends State<PromotionDialog> {
                 padding: EdgeInsets.only(top: AppSpacing.md),
                 child: Text('The delivery charge is waived whole.'),
               ),
+            )
+          else if (isCombo)
+            Expanded(
+              flex: 4,
+              child: _comboBody(action, index),
             )
           else if (isBonus)
             Expanded(
@@ -709,6 +727,67 @@ class _PromotionDialogState extends State<PromotionDialog> {
           ),
         ],
       ),
+    );
+  }
+
+  /// The products of one set, each with its quantity, and the set's price.
+  Widget _comboBody(_ActionDraft action, int index) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (int i = 0; i < action.combo.length; i++)
+          Row(
+            key: ObjectKey(action.combo[i]),
+            children: [
+              Expanded(
+                child: Text(
+                  action.combo[i].label,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              SizedBox(
+                width: 80,
+                child: TextFormField(
+                  key: ValueKey('promotion-combo-qty-$index-$i'),
+                  controller: action.combo[i].quantity,
+                  decoration: const InputDecoration(labelText: 'Qty'),
+                  keyboardType: TextInputType.number,
+                ),
+              ),
+              IconButton(
+                tooltip: 'Remove product',
+                onPressed: () => setState(() => action.combo.removeAt(i)),
+                icon: const Icon(Icons.close, size: 18),
+              ),
+            ],
+          ),
+        _searchBox(
+          key: (action, 'combo-add', action.combo.length),
+          source: 'product_id',
+          label: 'Add a product to the set',
+          clearOnSelect: true,
+          onSelected: (option) {
+            if (action.combo.any((l) => l.productId == option.id)) return;
+            setState(
+              () => action.combo.add(_ComboLine(option.id, option.label)),
+            );
+          },
+        ),
+        TextFormField(
+          key: ValueKey('promotion-combo-price-$index'),
+          controller: action.amount,
+          decoration: const InputDecoration(
+            labelText: 'Set price',
+            helperText: 'What one complete set costs',
+          ),
+          keyboardType: TextInputType.number,
+          validator: (value) =>
+              (double.tryParse((value ?? '').trim()) ?? 0) <= 0
+                  ? 'Enter the price of one set.'
+                  : null,
+        ),
+      ],
     );
   }
 
@@ -1203,6 +1282,13 @@ class _ActionDraft {
     draft.freeProductId = record.freeProductId;
     draft.maxAmount.text = record.maxAmount;
     draft.multiplier.text = record.multiplier;
+    // Nothing reads one product by id, so a saved set names its products
+    // generically.
+    draft.combo = [
+      for (final ComboItemRecord item in record.comboItems)
+        _ComboLine(item.productId, 'Product chosen earlier')
+          ..quantity.text = item.quantity,
+    ];
     // Nothing reads one product by id, so a saved gift is named generically
     // until somebody searches for another.
     draft.freeProductLabel =
@@ -1220,6 +1306,9 @@ class _ActionDraft {
   String freeProductId = '';
   String freeProductLabel = '';
 
+  /// The products of a `COMBO_PRICE` set.
+  List<_ComboLine> combo = <_ComboLine>[];
+
   /// Only the figures this benefit reads: a figure typed for another benefit
   /// and then switched away from must not ride along.
   Json toJson(int sequence) => PromotionActionRecord(
@@ -1229,7 +1318,18 @@ class _ActionDraft {
                 actionType == 'BUY_X_GET_Y_DISCOUNT'
             ? percent.text
             : '',
-        amount: actionType.endsWith('_AMOUNT') ? amount.text : '',
+        amount: actionType.endsWith('_AMOUNT') || actionType == 'COMBO_PRICE'
+            ? amount.text
+            : '',
+        comboItems: actionType == 'COMBO_PRICE'
+            ? [
+                for (final _ComboLine line in combo)
+                  ComboItemRecord(
+                    productId: line.productId,
+                    quantity: line.quantity.text,
+                  ),
+              ]
+            : const <ComboItemRecord>[],
         buyQuantity: actionType == 'FREE_QUANTITY' ||
                 actionType == 'FREE_PRODUCT' ||
                 actionType == 'BUY_X_GET_Y_DISCOUNT'
@@ -1247,6 +1347,15 @@ class _ActionDraft {
             : '',
         multiplier: actionType == 'LOYALTY_MULTIPLIER' ? multiplier.text : '',
       ).toJson();
+}
+
+/// One product of a combo set being edited.
+class _ComboLine {
+  _ComboLine(this.productId, this.label);
+
+  final String productId;
+  final String label;
+  final TextEditingController quantity = TextEditingController(text: '1');
 }
 
 /// One record a condition picker offers.
