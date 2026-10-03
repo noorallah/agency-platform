@@ -948,6 +948,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['INVENTORY_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'adjustment-approvals',
+          label: 'Adjustment Approvals',
+          requiredPermissions: ['INVENTORY_ADJUST'],
+        ),
+        ModuleTabDefinition(
           id: 'adjustment-reasons',
           label: 'Adjustment Reasons',
           requiredPermissions: [
@@ -1903,6 +1908,12 @@ abstract final class ModuleCatalog {
           label: 'Settings',
           path: 'inventory-settings',
           icon: Icons.settings_outlined,
+        ),
+      if (visibleTabIds.contains('adjustment-approvals'))
+        const WorkspaceNavigationNode(
+          label: 'Adjustment Approvals',
+          path: 'adjustment-approvals',
+          icon: Icons.fact_check_outlined,
         ),
       if (visibleTabIds.contains('adjustment-reasons'))
         const WorkspaceNavigationNode(

@@ -69,6 +69,11 @@ const Map<String, List<String>> _synonyms = {
     'max discount',
     'discount cap',
   ],
+  MenuLayout.adjustmentLimitsRoute: [
+    'adjustment limit',
+    'write-off limit',
+    'stock approval limit',
+  ],
   MenuLayout.approvalLimitsRoute: [
     'approval limit',
     'purchase limit',

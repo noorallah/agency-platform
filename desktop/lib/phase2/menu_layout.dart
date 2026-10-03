@@ -137,6 +137,10 @@ abstract final class MenuLayout {
   /// when a batch is left behind or skipped, and the below-floor allowance. A
   /// dialog, under Stock.
   static const String batchRulesRoute = 'settings/batch-rules';
+
+  /// The largest stock adjustment or write-off each role may post directly
+  /// (STK-8). A dialog, under Stock.
+  static const String adjustmentLimitsRoute = 'settings/adjustment-limits';
   static const String loyaltySchemeRoute = 'settings/loyalty-scheme';
   static const String tcsSettingsRoute = 'settings/tcs';
 
@@ -268,6 +272,8 @@ abstract final class MenuLayout {
       MenuGroupSpec('Movements', [
         MenuItemSpec(AppModule.inventory, 'opening-stock', 'Opening Stock'),
         MenuItemSpec(AppModule.inventory, 'physical-counts', 'Physical Count'),
+        MenuItemSpec(
+            AppModule.inventory, 'adjustment-approvals', 'Adjustment Approvals'),
       ]),
       MenuGroupSpec('Tracking', [
         MenuItemSpec(AppModule.inventory, 'batches', 'Batches'),
@@ -460,6 +466,8 @@ abstract final class MenuLayout {
           AppModule.inventory, 'inventory-settings', 'Inventory Settings'),
       MenuItemSpec(
           AppModule.inventory, 'adjustment-reasons', 'Adjustment Reasons'),
+      MenuItemSpec.setting(adjustmentLimitsRoute, 'Adjustment Limits',
+          permission: 'INVENTORY_VIEW'),
       MenuItemSpec.setting(batchRulesRoute, 'Batch Rules',
           permission: 'INVENTORY_VIEW'),
       // Branch & Warehouse Settings is left out (MenuLayout.notOffered).

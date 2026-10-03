@@ -275,6 +275,9 @@ PERMISSION_GROUPS = {
         # The firm's list of adjustment reasons and the account each costs
         # (STK-7): where a write-off lands is a control, not an adjustment.
         "INVENTORY_MANAGE_REASONS",
+        # The value limits on stock adjustments (STK-8). Withheld from the
+        # inventory manager: the role a limit constrains must not lift it.
+        "INVENTORY_MANAGE_SETTINGS",
     ),
     "uom_framework": (
         "UOM_VIEW",
@@ -694,7 +697,9 @@ _SEEDED_ROLE_PERMISSION_CODES = {
         )
     )
     | frozenset({"TRADE_LICENCE_VIEW"}),
-    "INVENTORY_MANAGER": _codes("inventory", "batch_serial")
+    "INVENTORY_MANAGER": (
+        _codes("inventory", "batch_serial") - frozenset({"INVENTORY_MANAGE_SETTINGS"})
+    )
     | frozenset({"PURCHASE_INSPECT"}),
     "CASHIER": frozenset(
         # A cashier who can record money and not look at what they recorded

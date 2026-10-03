@@ -1706,9 +1706,31 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
               await widget.api.quarantineStock(body);
           }
         },
+        onSubmitForApproval: action != StockAction.writeOff
+            ? null
+            : (Json values) => widget.api.submitAdjustmentRequest(
+                  'WRITE_OFF',
+                  stockActionBody(
+                    action: action,
+                    draft: values,
+                    branchId: row.branchId,
+                    warehouseId: row.warehouseId,
+                    productId: row.productId,
+                    batchId: row.batchId,
+                  ),
+                ),
       ),
     );
     if (draft == null || !mounted) return;
+    if (draft[stockSubmittedForApprovalKey] == true) {
+      NotificationService.show(
+        context,
+        'Sent for approval. Nothing has moved yet.',
+        kind: AppNotificationKind.success,
+      );
+      await _load(requestedPage: 1);
+      return;
+    }
     NotificationService.show(
       context,
       switch (action) {
@@ -1756,12 +1778,16 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         initialProductId: _productId,
         onSave: (StockAdjustmentDraft draft) =>
             widget.api.createInventoryAdjustment(draft.toJson()),
+        onSubmitForApproval: (StockAdjustmentDraft draft) =>
+            widget.api.submitAdjustmentRequest('ADJUSTMENT', draft.toJson()),
       ),
     );
     if (draft == null || !mounted) return;
     NotificationService.show(
       context,
-      'Inventory adjustment posted.',
+      draft.submittedForApproval
+          ? 'Sent for approval. Nothing has moved yet.'
+          : 'Inventory adjustment posted.',
       kind: AppNotificationKind.success,
     );
     await _load(requestedPage: 1);
@@ -2162,7 +2188,27 @@ class StockAdjustmentDraft {
     required this.remarks,
     this.attachments = const [],
     this.reasonCode,
+    this.submittedForApproval = false,
   });
+
+  /// True when the dialog closed because the movement was sent for approval
+  /// (STK-8) rather than posted.
+  final bool submittedForApproval;
+
+  /// The same draft, marked as sent for approval.
+  StockAdjustmentDraft asSubmittedForApproval() => StockAdjustmentDraft(
+        branchId: branchId,
+        warehouseId: warehouseId,
+        storageNodeId: storageNodeId,
+        productId: productId,
+        quantity: quantity,
+        referenceNumber: referenceNumber,
+        transactionDate: transactionDate,
+        remarks: remarks,
+        attachments: attachments,
+        reasonCode: reasonCode,
+        submittedForApproval: true,
+      );
 
   final String branchId;
   final String warehouseId;
@@ -2205,9 +2251,14 @@ class StockAdjustmentDialog extends StatefulWidget {
     this.initialBranchId,
     this.initialWarehouseId,
     required this.onSave,
+    this.onSubmitForApproval,
     this.initialProductId,
     this.reasons = const [],
   });
+
+  /// Sends the adjustment for approval when the server says it is above the
+  /// limit of whoever posts it (STK-8). Null: the refusal is only shown.
+  final Future<void> Function(StockAdjustmentDraft draft)? onSubmitForApproval;
 
   /// Posts the adjustment; throws [ApiException] on a refusal, which the
   /// dialog shows without closing.
@@ -2247,6 +2298,34 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog>
   List<StorageNodeRecord> _storageNodes = const [];
   List<Json> _attachments = const [];
   String? _validationError;
+
+  /// The draft the server refused as too large, kept so it can be sent for
+  /// approval as it stands (STK-8).
+  StockAdjustmentDraft? _refused;
+
+  Future<void> _post(StockAdjustmentDraft draft) async {
+    await saveAndClose<StockAdjustmentDraft>(() async {
+      try {
+        await widget.onSave(draft);
+      } on ApiException catch (error) {
+        _refused = error.needsApproval && widget.onSubmitForApproval != null
+            ? draft
+            : null;
+        rethrow;
+      }
+      _refused = null;
+      return draft;
+    });
+  }
+
+  Future<void> _submitForApproval() async {
+    final StockAdjustmentDraft? draft = _refused;
+    if (draft == null) return;
+    await saveAndClose<StockAdjustmentDraft>(() async {
+      await widget.onSubmitForApproval!(draft);
+      return draft.asSubmittedForApproval();
+    });
+  }
 
   List<WarehouseRecord> get _filteredWarehouses => _branchId == null
       ? widget.warehouses
@@ -2294,6 +2373,19 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog>
               mainAxisSize: MainAxisSize.min,
               children: [
                 saveErrorBanner(),
+                if (_refused != null && !saving)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: FilledButton.icon(
+                        key: const ValueKey('submit-for-approval'),
+                        onPressed: _submitForApproval,
+                        icon: const Icon(Icons.send_outlined),
+                        label: const Text('Submit for approval'),
+                      ),
+                    ),
+                  ),
                 DropdownButtonFormField<String>(
                   isExpanded: true,
                   initialValue: _branchId,
@@ -2463,7 +2555,7 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog>
                   _date.text.trim().isEmpty) {
                 return;
               }
-              submit<StockAdjustmentDraft>(
+              _post(
                 StockAdjustmentDraft(
                   branchId: _branchId!,
                   warehouseId: _warehouseId!,
@@ -2476,7 +2568,6 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog>
                   attachments: _attachments,
                   reasonCode: _reasonCode,
                 ),
-                widget.onSave,
               );
             },
             child: const Text('Post adjustment'),
