@@ -515,3 +515,18 @@ from the firm's setting and always send it. A quotation typed at shelf prices
 converts into an order typed at them, read back to pre-tax at the order's own
 date, so the customer is billed the price quoted; the quotation print shows
 both rates. A bill continuing an order inherits the pre-tax price, as before.
+
+## The price a line starts at (SEL-9, 2026-10-03)
+
+The discount ranking above decides what comes off; this decides what it comes
+off. A line with no typed price starts at, most specific first: a fixed `rate`
+on a price list that applies to the customer (same scope, date and quantity
+break as the list's discount), then the customer's price level (its own, else
+its group's), then the product's `selling_price` --
+`resolve_unit_price` in `app/core/utils/pricing.py`, applied by
+`UnitPriceResolver`. A typed price, zero included, beats all three. Levels are
+prices, not rates, so a price revision does not move them; a list's discount
+still comes off its fixed rate. Sales orders and quotations fill a blank price
+on the server, before the GST-inclusive conversion, which converts only typed
+prices (level and list prices are pre-tax). Downstream documents inherit the
+price of the line they continue, as before.

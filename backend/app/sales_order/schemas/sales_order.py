@@ -70,8 +70,11 @@ class SalesOrderLineWrite(SalesOrderSchema):
     sales_uom_id: UUID | None = None
     inventory_uom_id: UUID | None = None
     packaging_type_id: UUID | None = None
-    unit_price: Decimal = Field(
-        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    #: Blank takes the customer's price (SEL-9): a fixed rate on a price
+    #: list, else the customer's price level, else the product's own price.
+    #: Zero is a price -- a free line -- not a silence.
+    unit_price: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
     )
     #: None means the caller said nothing, so the customer's standing
     #: discount applies. Zero means they said no discount.

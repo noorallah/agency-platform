@@ -503,7 +503,10 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
           line.unitPrice,
           validator: _priceBox,
           hint: _rateIncludesTax ? 'list rate' : null,
-          onTyped: () => line.priceEdited = true,
+          onTyped: () {
+            line.priceEdited = true;
+            line.priceSource = '';
+          },
         ),
         _numberBox(
           context,
@@ -621,7 +624,9 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
       DocumentSideNote(
         line.priceEdited
             ? 'typed on this offer'
-            : "the product's selling price"
+            : line.priceSource.isNotEmpty
+                ? 'from: ${line.priceSource}'
+                : "the product's selling price"
                 '${(product?.mrp ?? '').isEmpty ? '' : ' (MRP ${documentMoney(product!.mrp)})'}',
       ),
       if (companion != null && companion.lastPrice.isNotEmpty) ...[

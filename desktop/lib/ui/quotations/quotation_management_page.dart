@@ -194,6 +194,19 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
         rateIncludesTax: rateIncludesTax,
         // Phase 2's screen prices the offer as it is typed.
         preview: Phase2Scope.of(context) ? widget.api.previewQuotation : null,
+        // ...and shows what this customer is charged, and why.
+        loadUnitPrices: Phase2Scope.of(context)
+            ? ({
+                required List<String> productIds,
+                required String on,
+                required String customerId,
+              }) =>
+                widget.api.unitPrices(
+                  productIds: productIds,
+                  on: on,
+                  customerId: customerId,
+                )
+            : null,
       ),
     );
     if (payload == null) return;

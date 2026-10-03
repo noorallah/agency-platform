@@ -535,6 +535,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['PRICE_LIST_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'price-levels',
+          label: 'Price Levels',
+          requiredPermissions: ['PRICE_LIST_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'promotions',
           label: 'Promotions',
           requiredPermissions: ['PROMOTION_VIEW'],

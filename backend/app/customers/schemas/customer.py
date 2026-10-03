@@ -182,6 +182,8 @@ class CustomerWrite(CustomerSchema):
     #: The account manager, a member of the firm; blank leaves documents to
     #: the territory's salesperson (backlog 67 row 2).
     salesman_id: UUID | None = None
+    #: The price level the customer buys at (SEL-9); blank takes the group's.
+    price_level_id: UUID | None = None
     #: The same business as a supplier (ACC-11): one combined statement, and
     #: a set-off between the two preselected.
     linked_vendor_id: UUID | None = None
@@ -319,6 +321,7 @@ class CustomerResponse(CustomerSchema):
     tan_number: str | None = None
     gst_registration_type: str | None = None
     salesman_id: UUID | None = None
+    price_level_id: UUID | None = None
     linked_vendor_id: UUID | None = None
     email: str | None
     phone: str | None
@@ -514,6 +517,8 @@ class CustomerGroupWrite(CustomerSchema):
     default_discount_percent: Decimal = Field(
         default=Decimal("0"), ge=0, le=100, max_digits=9, decimal_places=4
     )
+    #: The price level everyone in the segment buys at (SEL-9).
+    price_level_id: UUID | None = None
     is_active: bool = True
 
 
@@ -525,5 +530,6 @@ class CustomerGroupResponse(CustomerSchema):
     name: str
     description: str | None
     default_discount_percent: Decimal
+    price_level_id: UUID | None = None
     is_active: bool
     version: int

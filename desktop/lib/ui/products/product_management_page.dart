@@ -10,6 +10,7 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
+import '../../models/pricing.dart';
 import '../../models/product.dart';
 import '../../models/vendor.dart';
 import '../../models/file_import.dart';
@@ -24,7 +25,7 @@ import '../../phase2/indian_format.dart';
 part 'product_editor_phase2.dart';
 
 class ProductController extends ChangeNotifier {
-  ProductController(this._api);
+  ProductController(this._api, {this.canViewPriceLevels = false});
 
   final ApiClient _api;
   List<Product> items = const [];
@@ -38,6 +39,16 @@ class ProductController extends ChangeNotifier {
   bool loading = false;
   String? error;
   bool _disposed = false;
+
+  /// Whether the signed-in user may read price levels; only then are they asked
+  /// for, so a user without `PRICE_LIST_VIEW` is never sent a 403.
+  final bool canViewPriceLevels;
+
+  /// The firm's price levels, for the "Prices by level" grid. Null when they
+  /// could not be read -- the grid is then hidden and nothing is ever sent for
+  /// it, because a rate list sent without the levels would replace the saved
+  /// one with nothing.
+  List<PriceLevelRecord>? priceLevels;
 
   List<ProductCategoryRecord> categories = const [];
   List<UomRecord> uoms = const [];
@@ -125,6 +136,14 @@ class ProductController extends ChangeNotifier {
     } on ApiException {
       suppliers = null;
     }
+    if (canViewPriceLevels) {
+      try {
+        priceLevels =
+            (await _api.priceLevels()).where((level) => level.isActive).toList();
+      } on ApiException {
+        priceLevels = null;
+      }
+    }
     try {
       profileUomDefaults = await _api.firmUomDefaults();
     } on ApiException {
@@ -176,6 +195,12 @@ class ProductController extends ChangeNotifier {
       }
     }
   }
+
+  Future<List<ProductLevelRate>> levelRates(String productId) =>
+      _api.productLevelRates(productId);
+
+  Future<void> saveLevelRates(String productId, List<Json> rates) =>
+      _api.saveProductLevelRates(productId, rates);
 
   Future<Product> save(Product? product, Json payload) async => product == null
       ? _api.createProduct(payload)
@@ -323,7 +348,10 @@ class ProductManagementPage extends StatefulWidget {
 class _ProductManagementPageState extends State<ProductManagementPage> {
   static const int _rowsPerPage = 20;
   static const String _preferencesKey = 'product_grid_v2';
-  late final ProductController _controller = ProductController(widget.api)
+  late final ProductController _controller = ProductController(
+    widget.api,
+    canViewPriceLevels: widget.permissions.hasPermission('PRICE_LIST_VIEW'),
+  )
     ..addListener(_changed);
   final TextEditingController _search = TextEditingController();
   final TextEditingController _brand = TextEditingController();
@@ -853,6 +881,11 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         suppliers: _controller.suppliers,
         profileUomDefaults: _controller.profileUomDefaults,
         canManageTax: widget.permissions.hasPermission('PRODUCT_TAX_MANAGE'),
+        priceLevels: _controller.priceLevels,
+        canManageLevelRates:
+            widget.permissions.hasPermission('PRICE_LIST_MANAGE'),
+        loadLevelRates: _controller.levelRates,
+        onSaveLevelRates: _controller.saveLevelRates,
         definitions: _controller.attributeDefinitions,
         metadata: _controller.metadata,
         initialTab: _dialogTab,
@@ -1746,7 +1779,25 @@ class ProductWorkspaceDialog extends StatefulWidget {
     required this.onTabChanged,
     this.profileUomDefaults,
     this.canManageTax = true,
+    this.priceLevels,
+    this.canManageLevelRates = false,
+    this.loadLevelRates,
+    this.onSaveLevelRates,
   });
+
+  /// The firm's active price levels; null hides the "Prices by level" grid
+  /// (no `PRICE_LIST_VIEW`, or the levels could not be read).
+  final List<PriceLevelRecord>? priceLevels;
+
+  /// Whether the user holds PRICE_LIST_MANAGE; without it the grid is shown
+  /// read-only.
+  final bool canManageLevelRates;
+
+  /// Reads one product's saved level rates, and replaces them.
+  final Future<List<ProductLevelRate>> Function(String productId)?
+      loadLevelRates;
+  final Future<void> Function(String productId, List<Json> rates)?
+      onSaveLevelRates;
 
   /// Whether the signed-in user holds PRODUCT_TAX_MANAGE; without it the
   /// input credit setting is shown but cannot be changed.
@@ -1850,6 +1901,22 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   final List<Map<String, String>> _attachmentRows = [];
   bool _saving = false;
   bool _dirty = false;
+
+  /// One box per level, keyed by level id. Filled by `_loadLevelRates`.
+  final Map<String, TextEditingController> _levelRates = {};
+
+  /// True once the saved rates arrived (or there is nothing to read, on a new
+  /// product). The rates are sent only then: an unread grid is empty, and a
+  /// PUT of an empty grid would wipe what was saved.
+  bool _levelRatesLoaded = false;
+
+  /// Whether the user typed in the grid; only then is anything sent for it.
+  bool _levelRatesTouched = false;
+  String? _levelRatesError;
+
+  /// A product that saved while its level rates did not, so a retry sends the
+  /// rates alone rather than creating the product a second time.
+  Product? _savedAwaitingRates;
   List<String> _validationSummary = const [];
 
   /// Phase 2: where each section starts on the one-scroll page.
@@ -1858,6 +1925,12 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   void _setState(VoidCallback change) => setState(change);
 
   bool get _readOnly => widget.mode == ProductDialogMode.view;
+  bool get _showLevelRates =>
+      widget.priceLevels != null &&
+      widget.priceLevels!.isNotEmpty &&
+      widget.onSaveLevelRates != null;
+  bool get _mayEditLevelRates =>
+      !_readOnly && widget.canManageLevelRates && _levelRatesLoaded;
   bool get _barcodeEnabled => _metadata.featureEnabled('BARCODE');
   bool get _qrEnabled => _metadata.featureEnabled('QR_CODE');
   List<String> get _visibleTabs {
@@ -1881,6 +1954,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   void initState() {
     super.initState();
     final Product? product = widget.product;
+    unawaited(_loadLevelRates());
     _code = TextEditingController(text: product?.code ?? '');
     _name = TextEditingController(text: product?.name ?? '');
     _shortName = TextEditingController(text: product?.shortName ?? '');
@@ -2057,6 +2131,9 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     }
     for (final AttributeFieldController controller
         in _attributeControllers.values) {
+      controller.dispose();
+    }
+    for (final TextEditingController controller in _levelRates.values) {
       controller.dispose();
     }
     super.dispose();
@@ -2382,6 +2459,96 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     );
   }
 
+  TextEditingController _levelBox(String levelId) =>
+      _levelRates.putIfAbsent(levelId, TextEditingController.new);
+
+  /// Reads the saved level rates into the grid. A new product has none to
+  /// read; on an existing one a failure leaves the grid locked and says why,
+  /// so an empty grid can never be mistaken for "no rates" and sent.
+  Future<void> _loadLevelRates() async {
+    final Product? product = widget.product;
+    final Future<List<ProductLevelRate>> Function(String)? load =
+        widget.loadLevelRates;
+    if (product == null) {
+      _levelRatesLoaded = true;
+      return;
+    }
+    if (load == null) return;
+    try {
+      final List<ProductLevelRate> rates = await load(product.id);
+      if (!mounted) return;
+      setState(() {
+        for (final ProductLevelRate rate in rates) {
+          _levelBox(rate.priceLevelId).text = rate.rate;
+        }
+        _levelRatesLoaded = true;
+      });
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      setState(() => _levelRatesError = exception.message);
+    }
+  }
+
+  /// The rates to send: one entry per level with a figure typed.
+  List<Json> _levelRatePayload() => <Json>[
+        for (final PriceLevelRecord level in widget.priceLevels!)
+          if ((_levelRates[level.id]?.text.trim() ?? '').isNotEmpty)
+            <String, dynamic>{
+              'price_level_id': level.id,
+              'rate': _levelRates[level.id]!.text.trim(),
+            },
+      ];
+
+  Widget _levelRatesBlock() {
+    final ThemeData theme = Theme.of(context);
+    final List<PriceLevelRecord> levels = widget.priceLevels!;
+    return ExpansionTile(
+      key: const ValueKey('product-level-rates'),
+      title: const Text('Prices by level'),
+      initiallyExpanded: true,
+      childrenPadding: const EdgeInsets.symmetric(horizontal: 8),
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              _levelRatesError != null
+                  ? 'The saved rates could not be read ($_levelRatesError), '
+                      'so they cannot be changed here.'
+                  : !_levelRatesLoaded
+                      ? 'Reading the saved rates…'
+                      : 'The price at each level, per stock unit. A blank '
+                          'level uses the selling price.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: _levelRatesError != null
+                    ? theme.colorScheme.error
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ),
+        Wrap(
+          spacing: 16,
+          runSpacing: 12,
+          children: [
+            for (final PriceLevelRecord level in levels)
+              SizedBox(
+                width: 220,
+                child: TextField(
+                  key: ValueKey<String>('product-level-rate-${level.id}'),
+                  controller: _levelBox(level.id),
+                  readOnly: !_mayEditLevelRates,
+                  decoration: InputDecoration(labelText: level.label),
+                  onChanged: (_) => _dirty = _levelRatesTouched = true,
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
   Widget _pricingSection() => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2409,6 +2576,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
               ),
             ],
           ),
+          if (_showLevelRates && Phase2Scope.of(context)) _levelRatesBlock(),
           ExpansionTile(
             title: const Text('Price actions'),
             initiallyExpanded: true,
@@ -3117,6 +3285,15 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     if (_name.text.trim().isEmpty) {
       issues.add('Product name is required.');
     }
+    if (_showLevelRates && _levelRatesTouched) {
+      for (final TextEditingController box in _levelRates.values) {
+        final String text = box.text.trim();
+        if (text.isNotEmpty && (double.tryParse(text) ?? -1) < 0) {
+          issues.add('A price by level must be a number, zero or more.');
+          break;
+        }
+      }
+    }
     for (final String id in _metadata.requiredAttributeDefinitionIds) {
       if (_attributeControllers[id]?.isEmpty ?? true) {
         issues.add('Required business attributes are missing.');
@@ -3242,7 +3419,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
 
   Future<void> _saveAndNew() async {
     await _submit(closeWhenDone: false);
-    if (!mounted) return;
+    if (!mounted || _savedAwaitingRates != null) return;
     setState(() {
       _code.clear();
       _name.clear();
@@ -3295,6 +3472,10 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       }
       _imageRows.clear();
       _attachmentRows.clear();
+      for (final TextEditingController box in _levelRates.values) {
+        box.clear();
+      }
+      _levelRatesTouched = false;
       _dirty = false;
       _validationSummary = const [];
     });
@@ -3314,7 +3495,29 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       _validationSummary = const [];
     });
     try {
-      final Product saved = await widget.onSave(_payload());
+      final Product saved =
+          _savedAwaitingRates ?? await widget.onSave(_payload());
+      if (_showLevelRates &&
+          _levelRatesTouched &&
+          _levelRatesLoaded &&
+          widget.canManageLevelRates) {
+        try {
+          await widget.onSaveLevelRates!(saved.id, _levelRatePayload());
+          _savedAwaitingRates = null;
+          _levelRatesTouched = false;
+        } on ApiException catch (exception) {
+          _savedAwaitingRates = saved;
+          if (mounted) {
+            setState(() {
+              _validationSummary = [
+                'The product was saved, but its prices by level were not: '
+                    '${exception.message}. Save again to retry them.',
+              ];
+            });
+          }
+          return;
+        }
+      }
       _dirty = false;
       if (!mounted) return;
       if (closeWhenDone) {

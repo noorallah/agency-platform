@@ -8,6 +8,7 @@ import '../../core/design/design_tokens.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
 import '../../models/entities.dart';
+import '../../models/pricing.dart';
 import '../../models/product.dart';
 import '../../models/quotation.dart';
 import '../../phase2/document_page.dart';
@@ -58,10 +59,15 @@ class _LineDraft {
   /// price the salesman had just agreed.
   bool priceEdited = false;
 
+  /// Where the server says this line's price came from ("Price list",
+  /// "Dealer level", "Product price"); empty before it has been asked.
+  String priceSource = '';
+
   /// Fill the price from the product's own, unless it was typed into.
   void followProduct(String price) {
     if (priceEdited) return;
     unitPrice.text = price;
+    priceSource = '';
   }
 
   /// True once somebody typed in the discount box.
@@ -107,7 +113,16 @@ class QuotationEditorDialog extends StatefulWidget {
     this.existing,
     this.preview,
     this.rateIncludesTax = false,
+    this.loadUnitPrices,
   });
+
+  /// What each product costs this customer on a date, and from which
+  /// arrangement (phase 2). Null leaves the product's own price, as before.
+  final Future<Map<String, UnitPriceQuote>> Function({
+    required List<String> productIds,
+    required String on,
+    required String customerId,
+  })? loadUnitPrices;
 
   /// Set on the payload a phase 2 editor hands back when "Save & print" was
   /// chosen; the list strips it, saves, then prints what it saved.
@@ -340,6 +355,66 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
       line.productId = productId;
       line.followProduct(_priceOf(productId));
     });
+    unawaited(_quotePrices([line]));
+  }
+
+  /// Ask the server what this customer is charged for the unpriced [lines]
+  /// and show it in the price box, with where it came from. A suggestion: a
+  /// line somebody typed into is never touched, a stale answer is dropped,
+  /// and a refusal leaves the product's own price where it was.
+  Future<void> _quotePrices(Iterable<_LineDraft> lines) async {
+    final String? customerId = _customerId;
+    final Future<Map<String, UnitPriceQuote>> Function({
+      required List<String> productIds,
+      required String on,
+      required String customerId,
+    })? load = widget.loadUnitPrices;
+    // With GST in the rate a blank box is the server's own pre-tax price.
+    if (load == null || _rateIncludesTax || customerId == null) return;
+    final Map<_LineDraft, String> asked = {
+      for (final _LineDraft line in lines)
+        if (!line.priceEdited && line.productId != null)
+          line: line.productId!,
+    };
+    if (asked.isEmpty) return;
+    try {
+      final Map<String, UnitPriceQuote> quotes = await load(
+        productIds: asked.values.toSet().toList(),
+        on: _iso(widget.today),
+        customerId: customerId,
+      );
+      if (!mounted || _customerId != customerId) return;
+      setState(() {
+        asked.forEach((_LineDraft line, String productId) {
+          final UnitPriceQuote? quote = quotes[productId];
+          if (quote == null ||
+              line.priceEdited ||
+              line.productId != productId ||
+              !_lines.contains(line) ||
+              (double.tryParse(quote.unitPrice) ?? 0) <= 0) {
+            return;
+          }
+          line.unitPrice.text = _plainPrice(quote.unitPrice);
+          line.priceSource = quote.sourceLabel;
+        });
+      });
+      _schedulePreview();
+    } on Object {
+      // Only a suggestion: the product's own price stays.
+    }
+  }
+
+  /// `100.0000` as `100.00`: the server's scale, kept to two places unless
+  /// the price really has more.
+  static String _plainPrice(String value) {
+    final String text = value.trim();
+    if (!text.contains('.')) return text;
+    String trimmed = text.replaceAll(RegExp(r'0+$'), '');
+    final int decimals = trimmed.length - trimmed.indexOf('.') - 1;
+    if (decimals < 2) {
+      trimmed = trimmed.padRight(trimmed.length + 2 - decimals, '0');
+    }
+    return trimmed;
   }
 
   /// A fresh line, defaulted to the first product so the row is savable as it
@@ -398,6 +473,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
       // each says what silence takes; typing the rate in would make it an
       // explicit override and outrank the arrangement it was quoting.
     });
+    unawaited(_quotePrices(_lines));
   }
 
   /// The warehouses of the chosen branch: an order's warehouse must belong
@@ -462,7 +538,11 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
     return null;
   }
 
-  void _addLine() => setState(() => _lines.add(_newLine()));
+  void _addLine() {
+    final _LineDraft line = _newLine();
+    setState(() => _lines.add(line));
+    unawaited(_quotePrices([line]));
+  }
 
   void _removeLine(int index) {
     // A quotation with no lines is not an offer, and the server refuses one,

@@ -54,6 +54,7 @@ from app.customers.schemas.customer import CustomerListFilters
 from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
+from app.pricing.models import PriceLevel
 from app.sales.models.territory import (
     GeoCity,
     GeoCountry,
@@ -73,6 +74,7 @@ GeoRow = GeoCountry | GeoState | GeoDistrict | GeoCity | GeoPostalCode | GeoLoca
 #: was accepted, and its discount then priced this firm's orders.
 _CUSTOMER_REFERENCES: MasterReferences = {
     "customer_group_id": (CustomerGroup, "Customer segment"),
+    "price_level_id": (PriceLevel, "Price level"),
 }
 
 

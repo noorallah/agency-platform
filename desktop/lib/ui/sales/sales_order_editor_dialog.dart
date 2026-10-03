@@ -12,6 +12,7 @@ import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
 import '../../models/entities.dart';
 import '../../models/firm_member.dart';
+import '../../models/pricing.dart';
 import '../../models/product.dart';
 import '../../models/document_preview.dart';
 import '../../phase2/document_page.dart';
@@ -75,6 +76,11 @@ class _LineDraft {
   /// price the salesman had just agreed.
   bool priceEdited = false;
 
+  /// Where the server says this line's price came from ("Price list",
+  /// "Dealer level", "Product price"), or empty before it has been asked.
+  /// Cleared the moment somebody types a price.
+  String priceSource = '';
+
   /// Fill the price from the product's own, unless it was typed into.
   /// The batch the customer asked for (backlog 79 row 4), or null for
   /// earliest expiry. Kept even when the batch is no longer listed.
@@ -87,6 +93,7 @@ class _LineDraft {
   void followProduct(String price) {
     if (priceEdited) return;
     unitPrice.text = price;
+    priceSource = '';
   }
 
   double get _quantity => double.tryParse(quantity.text.trim()) ?? 0;
@@ -591,6 +598,68 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
       line.productId = productId;
       line.followProduct(_priceOf(productId));
     });
+    unawaited(_quotePrices([line]));
+  }
+
+  /// Ask the server what this customer is charged for the unpriced [lines]
+  /// and show it in the price box, with where it came from.
+  ///
+  /// Phase 2 only, and a suggestion: a line somebody has typed into is never
+  /// touched, the answer is dropped if the product moved while it was on its
+  /// way, and the figure still goes out as the typed value it now is -- so
+  /// what is saved is what is on screen. A refusal or a missing answer leaves
+  /// the product's own price where it was.
+  Future<void> _quotePrices(Iterable<_LineDraft> lines) async {
+    final String? customerId = _customerId;
+    // With GST in the rate a blank box is the server's own pre-tax price, and
+    // a quoted pre-tax figure typed into it would be read as shelf price.
+    if (!_phase2 || _locked || _rateIncludesTax || customerId == null) return;
+    final List<_LineDraft> targets = [
+      for (final _LineDraft line in lines)
+        if (!line.priceEdited && line.productId != null) line,
+    ];
+    if (targets.isEmpty) return;
+    final Map<_LineDraft, String> asked = {
+      for (final _LineDraft line in targets) line: line.productId!,
+    };
+    try {
+      final Map<String, UnitPriceQuote> quotes = await widget.api.unitPrices(
+        productIds: asked.values.toSet().toList(),
+        on: _iso(_orderDate),
+        customerId: customerId,
+      );
+      if (!mounted || _customerId != customerId) return;
+      setState(() {
+        asked.forEach((_LineDraft line, String productId) {
+          final UnitPriceQuote? quote = quotes[productId];
+          if (quote == null ||
+              line.priceEdited ||
+              line.productId != productId ||
+              !_lines.contains(line)) {
+            return;
+          }
+          if ((double.tryParse(quote.unitPrice) ?? 0) <= 0) return;
+          line.unitPrice.text = _plainPrice(quote.unitPrice);
+          line.priceSource = quote.sourceLabel;
+        });
+      });
+      _schedulePreview();
+    } on Object {
+      // Only a suggestion: the product's own price stays.
+    }
+  }
+
+  /// `100.0000` as `100.00`: the server's scale, kept to two places unless
+  /// the price really has more.
+  static String _plainPrice(String value) {
+    final String text = value.trim();
+    if (!text.contains('.')) return text;
+    String trimmed = text.replaceAll(RegExp(r'0+$'), '');
+    final int decimals = trimmed.length - trimmed.indexOf('.') - 1;
+    if (decimals < 2) {
+      trimmed = trimmed.padRight(trimmed.length + 2 - decimals, '0');
+    }
+    return trimmed;
   }
 
   /// A fresh line, defaulted to the first product so the row is savable as it
@@ -600,7 +669,11 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     return _LineDraft(productId: productId, unitPrice: _priceOf(productId));
   }
 
-  void _addLine() => setState(() => _lines.add(_newLine()));
+  void _addLine() {
+    final _LineDraft line = _newLine();
+    setState(() => _lines.add(line));
+    unawaited(_quotePrices([line]));
+  }
 
   void _removeLine(int index) {
     // An order with no lines is not an order, and the server refuses one, so
@@ -1156,8 +1229,10 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
                       // this one.
                       onChanged: _editing
                           ? (String? value) {}
-                          : (String? value) =>
-                              setState(() => _customerId = value),
+                          : (String? value) {
+                              setState(() => _customerId = value);
+                              unawaited(_quotePrices(_lines));
+                            },
                       emptyMessage: 'Choose a customer.',
                     ),
                   ),

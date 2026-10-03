@@ -215,6 +215,7 @@ class PriceListService:
                     product_id=item.product_id,
                     min_quantity=item.min_quantity,
                     discount_percent=item.discount_percent,
+                    rate=item.rate,
                     created_by=actor_id,
                     updated_by=actor_id,
                 )
@@ -296,6 +297,7 @@ class PriceListService:
                         else None
                     ),
                     discount_percent=item.discount_percent,
+                    rate=item.rate,
                 )
                 for item in items
             ],

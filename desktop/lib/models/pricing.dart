@@ -105,6 +105,7 @@ class PriceListItemRecord {
     this.productCode = '',
     this.productName = '',
     this.minQuantity = '0',
+    this.rate = '',
   });
 
   final String id;
@@ -118,6 +119,10 @@ class PriceListItemRecord {
   final String minQuantity;
   final String discountPercent;
 
+  /// An optional fixed price. Blank means the item is a rate off the
+  /// product's price, as before; a figure here is the price itself.
+  final String rate;
+
   String get label =>
       productCode.isEmpty ? productId : '$productCode  $productName';
 
@@ -128,6 +133,87 @@ class PriceListItemRecord {
         productName: stringValue(json['product_name']),
         minQuantity: stringValue(json['min_quantity']),
         discountPercent: stringValue(json['discount_percent']),
+        rate: stringValue(json['rate']),
+      );
+}
+
+/// A named price level -- "Dealer", "Retail" -- a customer or a customer group
+/// can be put on, and a product carries one rate per level.
+class PriceLevelRecord {
+  const PriceLevelRecord({
+    required this.id,
+    required this.code,
+    required this.name,
+    this.sortOrder = 0,
+    this.isActive = true,
+    this.version = 0,
+  });
+
+  final String id;
+  final String code;
+  final String name;
+  final int sortOrder;
+  final bool isActive;
+  final int version;
+
+  String get label => name.isEmpty ? code : name;
+
+  factory PriceLevelRecord.fromJson(Json json) => PriceLevelRecord(
+        id: stringValue(json['id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        sortOrder: (json['sort_order'] as num?)?.toInt() ?? 0,
+        isActive: json['is_active'] as bool? ?? true,
+        version: (json['version'] as num?)?.toInt() ?? 0,
+      );
+}
+
+/// One product's rate at one level.
+class ProductLevelRate {
+  const ProductLevelRate({
+    required this.priceLevelId,
+    required this.rate,
+    this.priceLevelCode = '',
+    this.priceLevelName = '',
+  });
+
+  final String priceLevelId;
+  final String priceLevelCode;
+  final String priceLevelName;
+  final String rate;
+
+  factory ProductLevelRate.fromJson(Json json) => ProductLevelRate(
+        priceLevelId: stringValue(json['price_level_id']),
+        priceLevelCode: stringValue(json['price_level_code']),
+        priceLevelName: stringValue(json['price_level_name']),
+        rate: stringValue(json['rate']),
+      );
+}
+
+/// The price the server would charge one product for a customer, and where it
+/// came from: `PRICE_LIST`, `PRICE_LEVEL` or `PRODUCT`.
+class UnitPriceQuote {
+  const UnitPriceQuote({
+    required this.productId,
+    required this.unitPrice,
+    required this.source,
+  });
+
+  final String productId;
+  final String unitPrice;
+  final String source;
+
+  /// How the source is worded on screen.
+  String get sourceLabel => switch (source) {
+        'PRICE_LIST' => 'Price list',
+        'PRICE_LEVEL' => 'Dealer level',
+        _ => 'Product price',
+      };
+
+  factory UnitPriceQuote.fromJson(Json json) => UnitPriceQuote(
+        productId: stringValue(json['product_id']),
+        unitPrice: stringValue(json['unit_price']),
+        source: stringValue(json['source']),
       );
 }
 
