@@ -186,6 +186,29 @@ class PurchaseOrderUpdate(PurchaseOrderWrite):
     pass
 
 
+class PurchaseOrderAmend(PurchaseOrderWrite):
+    """Amend an approved order formally (BUY-8): the whole new version, and why.
+
+    The supplier cannot change. A line already received keeps its product and
+    cannot drop below what was received.
+    """
+
+    reason: str = Field(min_length=3, max_length=1000)
+
+
+class PurchaseOrderRevisionResponse(PurchaseSchema):
+    """One earlier version of an amended order (BUY-8)."""
+
+    id: UUID
+    revision_number: int
+    grand_total: Decimal
+    reason: str
+    amended_by: UUID | None
+    amended_at: datetime
+    #: The header terms and lines as they stood, as recorded.
+    snapshot: dict[str, object]
+
+
 class PurchaseOrderImportRequest(PurchaseSchema):
     """Purchase Order Import Request contract."""
 
@@ -317,6 +340,8 @@ class PurchaseOrderResponse(PurchaseSchema):
     buyer_id: UUID | None
     tax_profile_id: UUID | None
     po_number: str
+    #: Times the approved order was formally amended (BUY-8).
+    revision_number: int = 0
     vendor_contact: str | None
     vendor_address: str | None
     department: str | None

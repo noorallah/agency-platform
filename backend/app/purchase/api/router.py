@@ -39,6 +39,7 @@ from app.document_framework.schemas.bulk_actions import (
 from app.document_framework.services.bulk_actions import run_each
 from app.purchase.models import RolePurchaseApprovalLimit
 from app.purchase.schemas import (
+    PurchaseOrderAmend,
     PurchaseOrderByBuyerRecord,
     PurchaseOrderByProductRecord,
     PurchaseOrderByVendorRecord,
@@ -51,6 +52,7 @@ from app.purchase.schemas import (
     PurchaseOrderPreview,
     PurchaseOrderRegisterRecord,
     PurchaseOrderResponse,
+    PurchaseOrderRevisionResponse,
     PurchaseOrderSentRequest,
     PurchaseOrderStatus,
     PurchaseOrderUpdate,
@@ -823,6 +825,51 @@ def approve_purchase_order(
         order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data=service.order_response(row))
+
+
+@router.post("/{order_id}/amend", response_model=ApiResponse[PurchaseOrderResponse])
+def amend_purchase_order(
+    order_id: UUID,
+    data: PurchaseOrderAmend,
+    scope: PurchaseUpdateScope,
+    response: Response,
+    db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
+) -> ApiResponse[PurchaseOrderResponse]:
+    """Amend an approved order formally (BUY-8).
+
+    The version it replaces is kept and the print reads "Amendment N". An
+    amendment that raises the total also needs PURCHASE_APPROVE, within the
+    amender's limit, since it approves the new total.
+    """
+    service = PurchaseService(db)
+    assert_version(
+        service.get_order(order_id, firm_scope=scope.firm_id).version, expected_version
+    )
+    row = service.amend_order(
+        order_id,
+        data,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        may_approve=scope.principal.has_permission("PURCHASE_APPROVE"),
+    )
+    set_etag(response, row)
+    return ApiResponse(data=service.order_response(row), message="Order amended.")
+
+
+@router.get(
+    "/{order_id}/revisions",
+    response_model=ApiResponse[list[PurchaseOrderRevisionResponse]],
+)
+def list_purchase_order_revisions(
+    order_id: UUID,
+    scope: PurchaseViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PurchaseOrderRevisionResponse]]:
+    """Return the order's earlier versions, oldest first (BUY-8)."""
+    return ApiResponse(
+        data=PurchaseService(db).list_revisions(order_id, firm_scope=scope.firm_id)
+    )
 
 
 @router.post("/{order_id}/mark-sent", response_model=ApiResponse[PurchaseOrderResponse])

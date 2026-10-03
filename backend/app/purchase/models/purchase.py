@@ -57,6 +57,12 @@ class PurchaseOrder(BaseEntity):
         UUIDType(), ForeignKey("tax_profiles.id", ondelete="RESTRICT"), index=True
     )
     po_number: Mapped[str] = mapped_column(String(60), nullable=False)
+    #: How many times the approved order was formally amended (BUY-8). Zero
+    #: is the order as first approved; each earlier version is kept in
+    #: ``purchase_order_revisions``.
+    revision_number: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     vendor_contact: Mapped[str | None] = mapped_column(String(200))
     vendor_address: Mapped[str | None] = mapped_column(String(500))
     department: Mapped[str | None] = mapped_column(String(120))
@@ -451,3 +457,37 @@ class RolePurchaseApprovalLimit(BaseEntity):
     firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
     role_code: Mapped[str] = mapped_column(String(100), nullable=False)
     max_order_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+
+
+class PurchaseOrderRevision(BaseEntity):
+    """One earlier version of an amended purchase order (BUY-8, A102).
+
+    Written when an approved order is amended: what it said before -- the
+    header terms and every line -- as it stood at ``revision_number``, with
+    why it changed. A snapshot of a document, read back as it was, which is
+    why it is kept whole rather than column by column.
+    """
+
+    __tablename__ = "purchase_order_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "purchase_order_id",
+            "revision_number",
+            name="UQ_purchase_order_revisions_order_revision",
+        ),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    purchase_order_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("purchase_orders.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    #: The number the order carried before this amendment.
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    grand_total: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)

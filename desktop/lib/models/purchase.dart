@@ -442,6 +442,47 @@ class PurchaseOrderHistoryRecord {
       );
 }
 
+/// An earlier version of an amended order (BUY-8), as it stood before the
+/// amendment named by [revisionNumber] replaced it.
+class PurchaseOrderRevision {
+  const PurchaseOrderRevision({
+    required this.id,
+    required this.revisionNumber,
+    required this.grandTotal,
+    required this.reason,
+    required this.amendedBy,
+    required this.amendedAt,
+    required this.snapshot,
+  });
+
+  final String id;
+  final int revisionNumber;
+  final String grandTotal;
+  final String reason;
+  final String amendedBy;
+  final String amendedAt;
+  final Json snapshot;
+
+  factory PurchaseOrderRevision.fromJson(Json json) => PurchaseOrderRevision(
+        id: stringValue(json['id']),
+        revisionNumber: _revisionInt(json['revision_number']),
+        grandTotal: stringValue(json['grand_total']),
+        reason: stringValue(json['reason']),
+        amendedBy: stringValue(json['amended_by']),
+        amendedAt: stringValue(json['amended_at']),
+        snapshot: json['snapshot'] is Map
+            ? Map<String, dynamic>.from(json['snapshot'] as Map)
+            : const <String, dynamic>{},
+      );
+
+  /// The snapshot's lines, as plain maps.
+  List<Json> get lines => [
+        if (snapshot['lines'] is List)
+          for (final dynamic line in snapshot['lines'] as List)
+            if (line is Map) Map<String, dynamic>.from(line),
+      ];
+}
+
 class PurchaseOrder {
   const PurchaseOrder({
     required this.id,
@@ -479,6 +520,7 @@ class PurchaseOrder {
     required this.cancelReason,
     this.sentAt = '',
     this.sentVia = '',
+    this.revisionNumber = 0,
     this.billingStatus = '',
     this.isComplete = false,
     required this.isDeleted,
@@ -571,6 +613,18 @@ class PurchaseOrder {
   final String sentAt;
   final String sentVia;
 
+  /// 0 for an order never amended after approval (BUY-8).
+  final int revisionNumber;
+
+  /// The number as lists show it, with the amendment beside it.
+  String get numberLabel =>
+      revisionNumber > 0 ? '$poNumber (Amendment $revisionNumber)' : poNumber;
+
+  /// Whether the amend action applies: approved or later, and not finished.
+  bool get isAmendable =>
+      !isDeleted &&
+      const {'APPROVED', 'PARTIALLY_RECEIVED', 'RECEIVED'}.contains(status);
+
   /// NOT_INVOICED, PARTIALLY_INVOICED or INVOICED, beside the lifecycle
   /// status and never instead of it (backlog 69 row 5). Read-only.
   final String billingStatus;
@@ -625,6 +679,7 @@ class PurchaseOrder {
         cancelReason: stringValue(json['cancel_reason']),
         sentAt: stringValue(json['sent_at']),
         sentVia: stringValue(json['sent_via']),
+        revisionNumber: _revisionInt(json['revision_number']),
         billingStatus: stringValue(json['billing_status']),
         isComplete: boolValue(json['is_complete']),
         isDeleted: boolValue(json['is_deleted']),
@@ -708,6 +763,7 @@ class PurchaseOrder {
         cancelReason: cancelReason,
         sentAt: sentAt,
         sentVia: sentVia,
+        revisionNumber: revisionNumber,
         billingStatus: billingStatus,
         isComplete: isComplete,
         isDeleted: isDeleted,
@@ -954,3 +1010,6 @@ String? _idOrNull(dynamic value) {
   final String text = stringValue(value);
   return text.isEmpty ? null : text;
 }
+
+int _revisionInt(dynamic value) =>
+    value is num ? value.toInt() : int.tryParse('${value ?? ''}') ?? 0;
