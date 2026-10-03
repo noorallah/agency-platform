@@ -58,15 +58,21 @@ def eway_payload(
     lines: Iterable[Any],
     quantity_of: str,
     total_value: Decimal,
+    branch_id: UUID | None = None,
 ) -> dict[str, object]:
     """Return the e-way bill payload for one document, without an IRN.
 
     ``doc_type`` is ``INV`` for a bill or ``CHL`` for a delivery challan;
-    ``quantity_of`` names the line attribute that holds what moves.
+    ``quantity_of`` names the line attribute that holds what moves. The
+    consignor is the GSTIN of the branch the goods leave (STK-2).
     """
     firm = FirmMetadataReader(session).get(firm_id)
     customer = session.scalar(select(Customer).where(Customer.id == customer_id))
-    seller = (getattr(firm, "gst_number", None) or "").strip().upper() or None
+    from app.branches.services.registration import BranchRegistration
+
+    seller = BranchRegistration(session).own_gstin(branch_id) or (
+        (getattr(firm, "gst_number", None) or "").strip().upper() or None
+    )
     buyer = (getattr(customer, "gst_number", None) or "").strip().upper() or None
     rows = list(lines)
     products = {

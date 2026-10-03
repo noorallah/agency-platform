@@ -129,6 +129,9 @@ class Branch(BaseEntity):
     gst_registration: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    #: The branch's own GST registration (STK-2), where it is registered in a
+    #: state of its own. Empty means it supplies under the firm's GSTIN.
+    gstin: Mapped[str | None] = mapped_column(String(15))
     pan: Mapped[str | None] = mapped_column(String(32))
     license_number: Mapped[str | None] = mapped_column(String(64))
     working_hours: Mapped[dict[str, object]] = mapped_column(

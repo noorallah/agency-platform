@@ -16,8 +16,8 @@ The two states are read as GST state codes -- the two digits a GSTIN starts
 with -- because that is what a return and an e-invoice file:
 
 - **The supplier** is the firm's own GSTIN. A branch registered for GST in a
-  state of its own supplies from there; branches carry no GSTIN of their own,
-  so that branch's state is read from its address.
+  state of its own supplies from there: from the state its own GSTIN names
+  (STK-2), else from its address.
 - **The buyer** is the buyer's GSTIN where it has one. An unregistered buyer has
   none, so the address the invoice is addressed to decides it -- the billing
   address, then the default billing one, then any live address, the same order
@@ -302,6 +302,12 @@ class SupplyPlaceResolver:
     def supplier_state(self, *, firm_id: UUID, branch_id: UUID | None) -> str | None:
         """Return the GST state code the supply is made from."""
         branch = self._session.get(Branch, branch_id) if branch_id is not None else None
+        if branch is not None and not branch.is_deleted and branch.gstin:
+            # A branch with its own GSTIN (STK-2) supplies from the state the
+            # number is registered in.
+            own_gstin = gst_state_code(branch.gstin)
+            if own_gstin is not None:
+                return own_gstin
         if (
             branch is not None
             and not branch.is_deleted
@@ -498,6 +504,10 @@ class SupplyPlaceResolver:
                 if preferred(address):
                     return address
         return None
+
+    def state_code_of(self, state_id: UUID) -> str | None:
+        """Return the GST state code of a ``geo_states`` row, or None."""
+        return self._geo_state_code(state_id)
 
     def _geo_state_code(self, state_id: UUID) -> str | None:
         """Return the GST state code of a ``geo_states`` row."""

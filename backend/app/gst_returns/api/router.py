@@ -11,8 +11,10 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
+from app.branches.services.registration import BranchRegistration
 from app.common.scope import (
     ResolvedFirmScope,
     firm_any_permission_scope,
@@ -84,17 +86,55 @@ router = APIRouter(
 GstReturnScope = Annotated[ResolvedFirmScope, firm_permission_scope("SALES_VIEW")]
 
 
+class GstRegistrationResponse(BaseModel):
+    """One GSTIN the firm files under, and its branches (STK-2)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    gstin: str
+    state_code: str
+    is_firm: bool
+    branch_names: list[str]
+
+
+@router.get("/registrations", response_model=ApiResponse[list[GstRegistrationResponse]])
+def gst_registrations(
+    scope: GstReturnScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[GstRegistrationResponse]]:
+    """Return every GSTIN the firm files returns under, the firm's first."""
+    return ApiResponse(
+        data=[
+            GstRegistrationResponse(
+                gstin=row.gstin,
+                state_code=row.state_code,
+                is_firm=row.is_firm,
+                branch_names=list(row.branch_names),
+            )
+            for row in BranchRegistration(db).registrations(scope.firm_id)
+        ]
+    )
+
+
 @router.get("/gstr1", response_model=ApiResponse[dict[str, object]])
 def gstr1(
     scope: GstReturnScope,
     from_date: Annotated[date, Query()],
     to_date: Annotated[date, Query()],
     db: Session = Depends(get_db),
+    gstin: Annotated[str | None, Query(max_length=15)] = None,
 ) -> ApiResponse[dict[str, object]]:
-    """Return the outward supplies for a period, section by section."""
+    """Return the outward supplies for a period, section by section.
+
+    ``gstin`` names which of the firm's registrations files it (STK-2); the
+    firm's own when omitted.
+    """
     return ApiResponse(
         data=GstReturnService(db).gstr1(
-            firm_scope=scope.firm_id, from_date=from_date, to_date=to_date
+            firm_scope=scope.firm_id,
+            from_date=from_date,
+            to_date=to_date,
+            gstin=gstin,
         )
     )
 
@@ -105,11 +145,19 @@ def gstr3b(
     from_date: Annotated[date, Query()],
     to_date: Annotated[date, Query()],
     db: Session = Depends(get_db),
+    gstin: Annotated[str | None, Query(max_length=15)] = None,
 ) -> ApiResponse[dict[str, object]]:
-    """Return the outward half of the summary return for a period."""
+    """Return the outward half of the summary return for a period.
+
+    ``gstin`` names which of the firm's registrations files it (STK-2); the
+    firm's own when omitted.
+    """
     return ApiResponse(
         data=GstReturnService(db).gstr3b(
-            firm_scope=scope.firm_id, from_date=from_date, to_date=to_date
+            firm_scope=scope.firm_id,
+            from_date=from_date,
+            to_date=to_date,
+            gstin=gstin,
         )
     )
 

@@ -22,8 +22,8 @@ from sqlalchemy.orm import Session
 from app.branches.models import Warehouse
 from app.core.exceptions import ResourceNotFoundError
 from app.document_framework.services.print_support import (
-    firm_party,
     load_template,
+    seller_party,
 )
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
@@ -168,7 +168,7 @@ class PurchaseOrderPrintService:
             due_date=None,
             place_of_supply=None,
             reverse_charge=False,
-            seller=self._firm(firm_scope),
+            seller=self._firm(firm_scope, order.branch_id),
             buyer=self._vendor(order),
             ship_to=self._warehouse(order),
             lines=tuple(printed),
@@ -197,9 +197,9 @@ class PurchaseOrderPrintService:
         """Return the line's value before tax."""
         return line.net_amount - line.tax_amount
 
-    def _firm(self, firm_scope: UUID) -> PartyBlock:
-        """Describe the printing firm."""
-        return firm_party(firm_scope)
+    def _firm(self, firm_scope: UUID, branch_id: UUID | None = None) -> PartyBlock:
+        """Describe the ordering firm, under its branch's GSTIN (STK-2)."""
+        return seller_party(self._session, firm_scope, branch_id)
 
     def _vendor(self, order: PurchaseOrder) -> PartyBlock:
         """Return the supplier the order is placed with."""

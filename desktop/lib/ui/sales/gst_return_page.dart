@@ -11,6 +11,7 @@ import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
+import '../../models/gst_registration.dart';
 import '../workspace/desktop_framework.dart';
 
 /// Which return is on screen.
@@ -48,6 +49,9 @@ class _GstReturnPageState extends State<GstReturnPage> {
   Json? _quarterData;
   String? _error;
   bool _loading = false;
+  // Every GSTIN the firm files under; the picker shows only for 2 or more.
+  List<GstRegistration> _registrations = const [];
+  String? _gstin;
 
   bool get _mayView => widget.permissions.hasPermission('SALES_VIEW');
 
@@ -72,6 +76,17 @@ class _GstReturnPageState extends State<GstReturnPage> {
     if (widget.hasActiveFirm && _mayView) {
       _load();
       _loadPlan();
+      _loadRegistrations();
+    }
+  }
+
+  Future<void> _loadRegistrations() async {
+    try {
+      final List<GstRegistration> found = await widget.api.gstRegistrations();
+      if (!mounted) return;
+      setState(() => _registrations = found);
+    } catch (_) {
+      // Without the list the page files under the firm's own GSTIN.
     }
   }
 
@@ -156,10 +171,12 @@ class _GstReturnPageState extends State<GstReturnPage> {
       final Json one = await widget.api.gstr1(
         fromDate: _from.text.trim(),
         toDate: _to.text.trim(),
+        gstin: _gstin,
       );
       final Json summary = await widget.api.gstr3b(
         fromDate: _from.text.trim(),
         toDate: _to.text.trim(),
+        gstin: _gstin,
       );
       if (!mounted) return;
       setState(() {
@@ -243,6 +260,31 @@ class _GstReturnPageState extends State<GstReturnPage> {
         runSpacing: AppSpacing.sm,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
+          if (_registrations.length > 1)
+            SizedBox(
+              width: 340,
+              child: DropdownButtonFormField<String>(
+                key: const ValueKey('gst-registration'),
+                isExpanded: true,
+                initialValue: _gstin ?? _registrations.first.gstin,
+                decoration: const InputDecoration(
+                  labelText: 'GSTIN',
+                  isDense: true,
+                ),
+                items: [
+                  for (final GstRegistration entry in _registrations)
+                    DropdownMenuItem(
+                      value: entry.gstin,
+                      child: Text(entry.label, overflow: TextOverflow.ellipsis),
+                    ),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => _gstin = value);
+                  _load();
+                },
+              ),
+            ),
           SegmentedButton<_ReturnView>(
             segments: [
               const ButtonSegment(

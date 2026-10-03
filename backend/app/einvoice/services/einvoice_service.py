@@ -515,6 +515,7 @@ class EInvoiceService:
                 lines=self._invoice_lines(invoice.id),
                 quantity_of="current_invoice_quantity",
                 total_value=invoice.grand_total,
+                branch_id=invoice.branch_id,
             )
         )
         payload |= {

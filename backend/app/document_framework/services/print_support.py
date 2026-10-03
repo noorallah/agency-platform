@@ -156,6 +156,42 @@ def firm_party(firm_scope: UUID) -> PartyBlock:
         )
 
 
+def seller_party(
+    session: Session, firm_scope: UUID, branch_id: UUID | None
+) -> PartyBlock:
+    """Describe the firm as the seller on a document raised at a branch.
+
+    A branch with a GSTIN of its own (STK-2) supplies under it, from its own
+    address and state, so a tax invoice it raises must print those -- the
+    buyer's credit follows the GSTIN printed. Every other branch prints the
+    firm, exactly as ``firm_party`` does.
+    """
+    party = firm_party(firm_scope)
+    if branch_id is None:
+        return party
+    from app.branches.models import Branch
+    from app.sales.models.territory import GeoState
+    from app.tax.services.place_of_supply import place_of_supply_label
+
+    branch = session.get(Branch, branch_id)
+    if branch is None or branch.is_deleted or not branch.gstin:
+        return party
+    state_name = (
+        session.scalar(select(GeoState.name).where(GeoState.id == branch.state_id))
+        if branch.state_id is not None
+        else None
+    )
+    lines = [
+        line for line in (branch.address_line1, branch.address_line2) if line
+    ] or party.address_lines
+    return replace(
+        party,
+        address_lines=lines,
+        gstin=branch.gstin,
+        state=state_name or place_of_supply_label(branch.gstin[:2]),
+    )
+
+
 def customer_party(
     session: Session,
     customer_id: UUID,

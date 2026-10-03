@@ -203,6 +203,7 @@ class EWayBillService:
             ),
             quantity_of="delivered_quantity",
             total_value=note.grand_total,
+            branch_id=note.branch_id,
         ) | {
             "TransDistance": float(distance),
             "TransMode": mode,

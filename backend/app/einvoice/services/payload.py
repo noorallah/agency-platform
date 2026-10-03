@@ -19,6 +19,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.branches.services.registration import BranchRegistration
 from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ValidationError
 from app.core.utils.money import ZERO, quantize_ledger, quantize_money
@@ -150,7 +151,11 @@ class EInvoicePayloadBuilder:
         customer = self._session.scalar(
             select(Customer).where(Customer.id == invoice.customer_id)
         )
-        seller_gstin = _gstin(firm.gst_number)
+        # The branch's own GSTIN where it has one (STK-2), else the firm's.
+        seller_gstin = _gstin(
+            BranchRegistration(self._session).own_gstin(invoice.branch_id)
+            or firm.gst_number
+        )
         buyer_gstin = _gstin(getattr(customer, "gst_number", None))
         # The place of supply is the document's, as it was charged -- not the
         # buyer's GSTIN, which names where the buyer is registered and not

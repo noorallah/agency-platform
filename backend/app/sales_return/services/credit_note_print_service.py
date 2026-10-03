@@ -28,8 +28,8 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import ResourceNotFoundError
 from app.document_framework.services.print_support import (
     customer_party,
-    firm_party,
     load_template,
+    seller_party,
 )
 from app.products.models import Product
 from app.sales_invoice.services.invoice_pdf import (
@@ -225,7 +225,7 @@ class CreditNotePrintService:
             due_date=None,
             place_of_supply=None,
             reverse_charge=False,
-            seller=firm_party(firm_scope),
+            seller=seller_party(self._session, firm_scope, row.branch_id),
             buyer=customer_party(self._session, row.customer_id, "BILLING")
             or PartyBlock(name="", address_lines=[]),
             ship_to=None,

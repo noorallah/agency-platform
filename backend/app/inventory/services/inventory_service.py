@@ -1983,6 +1983,18 @@ class InventoryService:
             raise ValidationError(
                 "The destination warehouse does not belong to the active firm."
             )
+        from app.branches.services.registration import BranchRegistration
+
+        registration = BranchRegistration(self._session)
+        sent_under = registration.gstin_for(firm_scope, data.branch_id)
+        received_under = registration.gstin_for(firm_scope, to_branch_id)
+        if sent_under and received_under and sent_under != received_under:
+            # Between two GSTINs a move of goods is a supply (STK-2).
+            raise ValidationError(
+                f"The goods would leave GSTIN {sent_under} for {received_under}; "
+                "between two registrations that is a supply, so raise a sales "
+                "invoice to the other branch instead of a transfer."
+            )
         destination = self._ensure_inventory_projection(
             firm_id=firm_scope,
             branch_id=to_branch_id,

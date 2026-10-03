@@ -111,6 +111,7 @@ class BranchWarehouseService:
         assert_master_references(
             self._session, values, _BRANCH_REFERENCES, firm_id=firm_id
         )
+        self._settle_gstin(values, current=None)
         self._demote_other_default_branches(
             firm_id, is_default=bool(values["is_default"]), exclude_id=None
         )
@@ -200,6 +201,7 @@ class BranchWarehouseService:
             firm_id=row.firm_id,
             current=row,
         )
+        self._settle_gstin(values, current=row)
         self._demote_other_default_branches(
             row.firm_id,
             is_default=bool(values.get("is_default", row.is_default)),
@@ -1469,6 +1471,36 @@ class BranchWarehouseService:
         if not partial:
             values["display_name"] = data.display_name or data.name
         return values
+
+    def _settle_gstin(
+        self, values: dict[str, object], *, current: Branch | None
+    ) -> None:
+        """Hold a branch's own GSTIN to the state the branch is in (STK-2).
+
+        A GSTIN is a registration in one state, and its first two digits say
+        which; a branch in Karnataka cannot supply under a Maharashtra
+        number. A branch with a GSTIN of its own is registered for GST, so
+        the flag follows the number.
+
+        Raises:
+            ValidationError: If the GSTIN's state is not the branch's.
+
+        """
+        gstin = values.get("gstin", current.gstin if current else None)
+        if not gstin:
+            return
+        values["gst_registration"] = True
+        state_id = values.get("state_id", current.state_id if current else None)
+        if state_id is None:
+            return
+        from app.tax.services.place_of_supply import SupplyPlaceResolver
+
+        state = SupplyPlaceResolver(self._session).state_code_of(UUID(str(state_id)))
+        if state is not None and str(gstin)[:2] != state:
+            raise ValidationError(
+                f"GSTIN {gstin} is registered in state {str(gstin)[:2]}, but the "
+                f"branch is in state {state}."
+            )
 
     @staticmethod
     def _warehouse_values(

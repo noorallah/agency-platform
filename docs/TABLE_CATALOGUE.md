@@ -84,7 +84,7 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `branch_attribute_values` | firm store ¹ | Store one configurable attribute value for a branch. | `branches`, `firms`, `attribute_definitions` |
 | `branch_types` | firm store ¹ | Persist reusable branch type masters per firm. | `firms` |
-| `branches` | firm store ¹ | Represent one physical operational branch owned by a firm. | `firms`, `business_profiles`, `branch_types`, `users`, `geo_countries`, `geo_states`, `geo_districts`, `geo_cities`, `geo_postal_codes`, `geo_localities` |
+| `branches` | firm store ¹ | Represent one physical operational branch owned by a firm; `gstin` is its own registration where it has one (STK-2). | `firms`, `business_profiles`, `branch_types`, `users`, `geo_countries`, `geo_states`, `geo_districts`, `geo_cities`, `geo_postal_codes`, `geo_localities` |
 | `user_work_defaults` | firm store ¹ | One person's usual branch and warehouse in one firm. | `branches`, `warehouses` |
 | `warehouse_attribute_values` | firm store ¹ | Store one configurable attribute value for a warehouse. | `warehouses`, `firms`, `attribute_definitions` |
 | `warehouse_storage_nodes` | firm store ¹ | Represent storage hierarchy nodes (area/rack/shelf/bin/receiving). | `warehouses` |
