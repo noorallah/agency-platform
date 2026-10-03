@@ -80,6 +80,10 @@ def upgrade() -> None:
                     nullable=False,
                 ),
             )
+    # The platform store keeps some document tables but not the field
+    # definitions; a value table needs both ends of its keys.
+    if not inspector.has_table("attribute_definitions"):
+        return
     for table, owner, owner_table in _TABLES:
         if not inspector.has_table(owner_table) or inspector.has_table(table):
             continue
