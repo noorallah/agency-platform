@@ -292,6 +292,7 @@ abstract final class MenuLayout {
       MenuGroupSpec('Statements', [
         MenuItemSpec(AppModule.accounting, 'trial-balance', 'Trial Balance'),
         MenuItemSpec(AppModule.accounting, 'profit-loss', 'Profit & Loss'),
+        MenuItemSpec(AppModule.accounting, 'cash-flow', 'Cash Flow'),
         MenuItemSpec(AppModule.accounting, 'balance-sheet', 'Balance Sheet'),
       ]),
       MenuGroupSpec('Tax filing', [

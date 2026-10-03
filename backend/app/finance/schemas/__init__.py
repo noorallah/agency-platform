@@ -1043,3 +1043,33 @@ __all__ = [
     "VoucherTypeCreate",
     "VoucherTypeResponse",
 ]
+
+
+class CashFlowLineResponse(FinanceSchema):
+    """One account's cash effect over the period (ACC-9)."""
+
+    ledger_account_id: UUID | None
+    account_code: str
+    account_name: str
+    #: Positive brought cash in; negative took it out.
+    amount: Decimal
+
+
+class CashFlowReport(FinanceSchema):
+    """The cash flow statement by the indirect method (ACC-9)."""
+
+    from_date: date
+    to_date: date
+    net_profit: Decimal
+    #: Working capital: the change in each current asset and liability.
+    operating: list[CashFlowLineResponse]
+    operating_total: Decimal
+    investing: list[CashFlowLineResponse]
+    investing_total: Decimal
+    financing: list[CashFlowLineResponse]
+    financing_total: Decimal
+    net_change: Decimal
+    opening_cash: Decimal
+    closing_cash: Decimal
+    #: Whether opening cash plus the three sections is the closing cash.
+    is_reconciled: bool

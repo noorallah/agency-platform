@@ -37,6 +37,8 @@ from app.finance.schemas import (
     AgeingSettingsResponse,
     AgeingSettingsUpdate,
     BalanceSheetReport,
+    CashFlowLineResponse,
+    CashFlowReport,
     ControlAccountAssign,
     ControlAccountResponse,
     CostCenterCreate,
@@ -103,6 +105,7 @@ from app.finance.services.bank_details import (
     BankDetailsService,
 )
 from app.finance.services.books_register import BooksRegisterService
+from app.finance.services.cash_flow import CashFlowLine, CashFlowService
 from app.finance.services.control_accounts import (
     ControlAccountPurpose,
     ControlAccountService,
@@ -1182,6 +1185,55 @@ def profit_and_loss_range(
         compare_previous_year=compare == "previous_year",
     )
     return ApiResponse(data=report)
+
+
+@router.get("/cash-flow", response_model=ApiResponse[CashFlowReport])
+def cash_flow(
+    from_period_id: UUID,
+    to_period_id: UUID,
+    scope: ProfitLossScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CashFlowReport]:
+    """Return the cash flow over a run of months, by the indirect method.
+
+    Profit, then the change in working capital, then investing and financing,
+    reconciled to the change in cash and bank (ACC-9).
+    """
+    found = CashFlowService(db).statement(
+        firm_id=scope.firm_id,
+        from_period_id=from_period_id,
+        to_period_id=to_period_id,
+    )
+
+    def lines(items: list[CashFlowLine]) -> list[CashFlowLineResponse]:
+        """Describe one section's lines."""
+        return [
+            CashFlowLineResponse(
+                ledger_account_id=item.ledger_account_id,
+                account_code=item.account_code,
+                account_name=item.account_name,
+                amount=item.amount,
+            )
+            for item in items
+        ]
+
+    return ApiResponse(
+        data=CashFlowReport(
+            from_date=found.from_date,
+            to_date=found.to_date,
+            net_profit=found.net_profit,
+            operating=lines(found.operating),
+            operating_total=found.operating_total,
+            investing=lines(found.investing),
+            investing_total=found.investing_total,
+            financing=lines(found.financing),
+            financing_total=found.financing_total,
+            net_change=found.net_change,
+            opening_cash=found.opening_cash,
+            closing_cash=found.closing_cash,
+            is_reconciled=found.is_reconciled,
+        )
+    )
 
 
 @router.get("/balance-sheet", response_model=ApiResponse[BalanceSheetReport])

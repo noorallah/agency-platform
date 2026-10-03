@@ -902,3 +902,12 @@ positive head posts the same way, a negative one the mirror (`R42-Y-...`).
 GSTR-3B reports the reversal in 4(B)(1) and a reclaim in 4(A)(5), each in the
 return its movement date falls in. A period cannot be taken back while its
 year's true-up stands.
+
+## The cash flow statement reads, never posts (ACC-9, 2026-10-03)
+
+`app/finance/services/cash_flow.py` builds the statement by the indirect
+method from the same span balances as the trial balance. Because every
+journal balances, each non-cash account's credit less debit is its cash
+effect and the three sections sum to the change in the cash and bank
+accounts; `is_reconciled` fails only when an account the statement treats as
+cash is not, or the reverse -- the chart's groups decide. It posts nothing.

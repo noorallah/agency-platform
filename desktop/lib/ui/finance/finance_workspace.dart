@@ -19,6 +19,7 @@ import 'journal_entries_page.dart';
 import 'ledger_statement_page.dart';
 import 'opening_trial_balance_page.dart';
 import 'party_adjustment_page.dart';
+import 'cash_flow_page.dart';
 import 'profit_loss_page.dart';
 import 'settlements_page.dart';
 import 'trial_balance_page.dart';
@@ -372,6 +373,11 @@ class _FinanceWorkspaceState extends State<FinanceWorkspace> {
               hasActiveFirm: widget.hasActiveFirm,
             ),
           'profit-loss' => ProfitLossPage(
+              api: widget.api,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
+            ),
+          'cash-flow' => CashFlowPage(
               api: widget.api,
               permissions: widget.permissions,
               hasActiveFirm: widget.hasActiveFirm,
