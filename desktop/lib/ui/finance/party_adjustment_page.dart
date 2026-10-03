@@ -697,6 +697,8 @@ class _PartyAdjustmentDialogState extends State<PartyAdjustmentDialog> {
         ..._startable,
         if (_kind == 'SUPPLIER_REBATE')
           ('SUPPLIER_REBATE', partyAdjustmentKindLabel('SUPPLIER_REBATE')),
+        if (_kind == 'PRINCIPAL_CLAIM')
+          ('PRINCIPAL_CLAIM', partyAdjustmentKindLabel('PRINCIPAL_CLAIM')),
       ];
 
   final TextEditingController _amount = TextEditingController();
@@ -725,7 +727,9 @@ class _PartyAdjustmentDialogState extends State<PartyAdjustmentDialog> {
 
   bool get _editing => widget.existing != null;
   bool get _needsCustomer =>
-      _kind != 'SUPPLIER_WRITE_BACK' && _kind != 'SUPPLIER_REBATE';
+      _kind != 'SUPPLIER_WRITE_BACK' &&
+      _kind != 'SUPPLIER_REBATE' &&
+      _kind != 'PRINCIPAL_CLAIM';
   bool get _needsVendor => _kind != 'CUSTOMER_WRITE_OFF';
 
   @override

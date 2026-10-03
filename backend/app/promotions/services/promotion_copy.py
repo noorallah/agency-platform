@@ -108,6 +108,8 @@ class PromotionCopyService:
                 requires_coupon=source.requires_coupon,
                 max_redemptions=source.max_redemptions,
                 max_redemptions_per_customer=source.max_redemptions_per_customer,
+                principal_id=source.principal_id,
+                principal_share_percent=source.principal_share_percent,
                 version_group_id=uuid4(),
                 version_number=1,
                 created_by=actor_id,

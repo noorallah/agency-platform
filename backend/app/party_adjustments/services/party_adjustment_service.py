@@ -103,6 +103,7 @@ _KIND_NAMES = {
     PartyAdjustmentKind.SUPPLIER_WRITE_BACK.value: "write-back",
     PartyAdjustmentKind.SET_OFF.value: "set-off",
     PartyAdjustmentKind.SUPPLIER_REBATE.value: "rebate settlement",
+    PartyAdjustmentKind.PRINCIPAL_CLAIM.value: "claim settlement",
 }
 
 
@@ -111,6 +112,7 @@ def _has_customer(kind: str) -> bool:
     return kind not in (
         PartyAdjustmentKind.SUPPLIER_WRITE_BACK.value,
         PartyAdjustmentKind.SUPPLIER_REBATE.value,
+        PartyAdjustmentKind.PRINCIPAL_CLAIM.value,
     )
 
 
@@ -330,6 +332,7 @@ class PartyAdjustmentService(TransactionalDocumentService):
             amount=amount,
             allocations=data.allocations,
             rebate_agreement_id=data.rebate_agreement_id,
+            principal_claim_id=data.principal_claim_id,
         )
         number = self._issue_number(
             numbering_rule,
@@ -355,6 +358,7 @@ class PartyAdjustmentService(TransactionalDocumentService):
             reason=data.reason,
             status=PartyAdjustmentStatus.DRAFT.value,
             rebate_agreement_id=data.rebate_agreement_id,
+            principal_claim_id=data.principal_claim_id,
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -496,6 +500,7 @@ class PartyAdjustmentService(TransactionalDocumentService):
             amount=quantize_ledger(row.amount),
             allocations=self._as_writes(row),
             rebate_agreement_id=row.rebate_agreement_id,
+            principal_claim_id=row.principal_claim_id,
         )
         before = self._snapshot(row)
         entry = self._posting.post_party_adjustment(
@@ -683,6 +688,7 @@ class PartyAdjustmentService(TransactionalDocumentService):
         amount: Decimal,
         allocations: Sequence[PartyAdjustmentAllocationWrite],
         rebate_agreement_id: UUID | None = None,
+        principal_claim_id: UUID | None = None,
     ) -> None:
         """Refuse an adjustment that does not fit its parties and bills.
 
@@ -726,6 +732,21 @@ class PartyAdjustmentService(TransactionalDocumentService):
             if amount > due:
                 raise ValidationError(
                     f"The rebate has {due} still to settle, so {amount} cannot "
+                    "be set against the supplier's bills."
+                )
+
+        if kind == PartyAdjustmentKind.PRINCIPAL_CLAIM.value:
+            # Imported here: the claim service reads these adjustments.
+            from app.principal_claims.services import PrincipalClaimService
+
+            if vendor is None or principal_claim_id is None:
+                raise ValidationError("Name the claim this settles.")
+            owed = PrincipalClaimService(self._session).to_settle(
+                principal_claim_id, firm_id=firm_id, vendor_id=vendor.id
+            )
+            if amount > owed:
+                raise ValidationError(
+                    f"The claim has {owed} still to settle, so {amount} cannot "
                     "be set against the supplier's bills."
                 )
 
@@ -1085,6 +1106,7 @@ class PartyAdjustmentService(TransactionalDocumentService):
                     allocations=lines,
                     version=row.version,
                     rebate_agreement_id=row.rebate_agreement_id,
+                    principal_claim_id=row.principal_claim_id,
                 )
             )
         return answer

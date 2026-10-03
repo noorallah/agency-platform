@@ -23,6 +23,7 @@ class PartyAdjustmentKindEnum(StrEnum):
     SUPPLIER_WRITE_BACK = "SUPPLIER_WRITE_BACK"
     SET_OFF = "SET_OFF"
     SUPPLIER_REBATE = "SUPPLIER_REBATE"
+    PRINCIPAL_CLAIM = "PRINCIPAL_CLAIM"
 
 
 class PartyAdjustmentStatusEnum(StrEnum):
@@ -79,6 +80,8 @@ class PartyAdjustmentCreate(PartyAdjustmentSchema):
     allocations: list[PartyAdjustmentAllocationWrite] = Field(default_factory=list)
     #: The volume rebate a ``SUPPLIER_REBATE`` settles, and only then.
     rebate_agreement_id: UUID | None = None
+    #: The claim a ``PRINCIPAL_CLAIM`` settles, and only then (SEL-11).
+    principal_claim_id: UUID | None = None
 
     @model_validator(mode="after")
     def _shape(self) -> "PartyAdjustmentCreate":
@@ -92,6 +95,11 @@ class PartyAdjustmentCreate(PartyAdjustmentSchema):
             raise ValueError("Name the rebate agreement this settles.")
         if not rebate and self.rebate_agreement_id is not None:
             raise ValueError("Only a rebate settlement names a rebate agreement.")
+        claim = self.kind == PartyAdjustmentKindEnum.PRINCIPAL_CLAIM
+        if claim and self.principal_claim_id is None:
+            raise ValueError("Name the claim this settles.")
+        if not claim and self.principal_claim_id is not None:
+            raise ValueError("Only a claim settlement names a claim.")
         return self
 
 
@@ -163,6 +171,7 @@ class PartyAdjustmentResponse(PartyAdjustmentSchema):
     allocations: list[PartyAdjustmentAllocationResponse]
     version: int
     rebate_agreement_id: UUID | None = None
+    principal_claim_id: UUID | None = None
 
 
 class PartyAdjustmentOpenBills(PartyAdjustmentSchema):

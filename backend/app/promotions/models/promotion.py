@@ -90,6 +90,15 @@ class Promotion(BaseEntity):
     #: hence nullable rather than a default nobody chose.
     max_redemptions: Mapped[int | None] = mapped_column(Integer)
     max_redemptions_per_customer: Mapped[int | None] = mapped_column(Integer)
+    #: The principal that funds this scheme (SEL-11): its cost is claimed
+    #: back from them. Null for the firm's own offer.
+    principal_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("principals.id", ondelete="RESTRICT")
+    )
+    #: The share of each redemption the principal bears.
+    principal_share_percent: Mapped[Decimal] = mapped_column(
+        Numeric(7, 4), nullable=False, default=Decimal("100"), server_default="100"
+    )
     #: The promotion's published revision. `version` -- inherited from
     #: `BaseEntity` -- is the optimistic-concurrency counter and must not be
     #: reused for this, which is the trap `uom.ConversionRule` fell into.

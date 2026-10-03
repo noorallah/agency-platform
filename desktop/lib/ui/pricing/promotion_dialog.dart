@@ -62,6 +62,12 @@ class _PromotionDialogState extends State<PromotionDialog> {
   /// presenting one of its coupons. The screen had no switch, so an offer
   /// meant for coupon holders reached everybody (D-QA-7).
   bool _requiresCoupon = false;
+
+  /// The principal funding the scheme (SEL-11); null is the firm's own offer.
+  String? _principalId;
+  List<PrincipalRecord> _principals = const <PrincipalRecord>[];
+  final TextEditingController _principalShare =
+      TextEditingController(text: '100');
   List<_ActionDraft> _actions = <_ActionDraft>[_ActionDraft()];
   List<_ConditionDraft> _conditions = <_ConditionDraft>[];
   bool _saving = false;
@@ -82,8 +88,11 @@ class _PromotionDialogState extends State<PromotionDialog> {
   @override
   void initState() {
     super.initState();
+    unawaited(_readPrincipals());
     final PromotionRecord? row = widget.existing;
     if (row == null) return;
+    _principalId = row.principalId.isEmpty ? null : row.principalId;
+    _principalShare.text = row.principalSharePercent;
     _code.text = row.code;
     _name.text = row.name;
     _description.text = row.description;
@@ -100,6 +109,16 @@ class _PromotionDialogState extends State<PromotionDialog> {
         : row.actions.map(_ActionDraft.from).toList();
     _conditions = row.conditions.map(_ConditionDraft.from).toList();
     unawaited(_nameSavedIds());
+  }
+
+  Future<void> _readPrincipals() async {
+    try {
+      final List<PrincipalRecord> found = await widget.api.principals();
+      if (!mounted) return;
+      setState(() => _principals = found);
+    } on Exception {
+      // The picker stays at "None"; a saved principal is still sent back.
+    }
   }
 
   /// A saved group, branch or salesman condition arrives as a bare id; read
@@ -159,6 +178,7 @@ class _PromotionDialogState extends State<PromotionDialog> {
     _to.dispose();
     _maxRedemptions.dispose();
     _maxPerCustomer.dispose();
+    _principalShare.dispose();
     super.dispose();
   }
 
@@ -176,6 +196,11 @@ class _PromotionDialogState extends State<PromotionDialog> {
         'max_redemptions': int.tryParse(_maxRedemptions.text.trim()),
         'max_redemptions_per_customer':
             int.tryParse(_maxPerCustomer.text.trim()),
+        // Sent every time, like the limits above: an update replaces the
+        // offer, so leaving them out would drop the principal's funding.
+        'principal_id': _principalId,
+        'principal_share_percent':
+            _principalId == null ? '100' : _principalShare.text.trim(),
         if (_from.text.trim().isNotEmpty) 'effective_from': _from.text.trim(),
         if (_to.text.trim().isNotEmpty) 'effective_to': _to.text.trim(),
         'conditions': [
@@ -452,6 +477,70 @@ class _PromotionDialogState extends State<PromotionDialog> {
                           labelText: 'Uses per customer',
                           helperText: 'Blank = no limit',
                         ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      // Rebuilt once the list arrives, so a saved principal
+                      // shows its name rather than the placeholder.
+                      child: KeyedSubtree(
+                        key: ValueKey('principals-${_principals.length}'),
+                        child: DropdownButtonFormField<String?>(
+                        key: const ValueKey('promotion-principal'),
+                        isExpanded: true,
+                        initialValue: _principalId,
+                        decoration: const InputDecoration(
+                          labelText: 'Funded by principal',
+                          helperText: 'The part they bear is claimed back',
+                        ),
+                        items: [
+                          const DropdownMenuItem<String?>(
+                            value: null,
+                            child: Text('None (our own offer)'),
+                          ),
+                          for (final PrincipalRecord p in _principals)
+                            DropdownMenuItem<String?>(
+                              value: p.id,
+                              child: Text(_coded(p.code, p.name),
+                                  overflow: TextOverflow.ellipsis),
+                            ),
+                          if (_principalId != null &&
+                              !_principals.any((p) => p.id == _principalId))
+                            DropdownMenuItem<String?>(
+                              value: _principalId,
+                              child: const Text('Saved principal'),
+                            ),
+                        ],
+                        onChanged: (value) =>
+                            setState(() => _principalId = value),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: TextFormField(
+                        key: const ValueKey('promotion-principal-share'),
+                        controller: _principalShare,
+                        enabled: _principalId != null,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        decoration: const InputDecoration(
+                          labelText: "Principal's share %",
+                          helperText: 'Above 0, up to 100',
+                        ),
+                        validator: (value) {
+                          if (_principalId == null) return null;
+                          final double? parsed =
+                              double.tryParse((value ?? '').trim());
+                          return parsed == null || parsed <= 0 || parsed > 100
+                              ? 'Above 0 and up to 100'
+                              : null;
+                        },
                       ),
                     ),
                   ],

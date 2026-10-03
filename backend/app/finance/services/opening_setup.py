@@ -388,6 +388,15 @@ CHART: tuple[SeedAccount, ...] = (
         ControlAccountPurpose.SUPPLIER_REBATE_RECEIVABLE,
     ),
     SeedAccount(
+        # What a principal owes on a claim, until settled (SEL-11).
+        # Migration 20261003_0290 gives existing firms the same account.
+        "1420",
+        "Claims Receivable from Principals",
+        AccountTypeEnum.ASSET,
+        "CA",
+        ControlAccountPurpose.PRINCIPAL_CLAIM_RECEIVABLE,
+    ),
+    SeedAccount(
         "5700",
         "Loyalty Expense",
         AccountTypeEnum.EXPENSE,

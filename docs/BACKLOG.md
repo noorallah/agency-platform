@@ -3516,6 +3516,8 @@ TCS, an audit trail, currency and exchange-rate fields, and a low-stock view.
   is the promotion cost, summed per principal per period, raised as a document
   and settled -- the promotion and loyalty ledgers already hold the figures.
 
+**Status, 2026-10-03: built** (SEL-11, A128): *Principal Claims* under Buy. A promotion names the principal funding it and its share; a claim per principal and period gathers those redemptions, expiry write-offs and broken returns, posts what the principal owes, and is settled by its credit note or payment. Reminders on claims are not built.
+
 ### 42.8 Backup and restore inside the product
 
 - **Who has it:** TallyPrime, BUSY, Marg.
@@ -4413,7 +4415,7 @@ strike it with the reason).
 | G7 | Picking list and loading sheet, by van or route -- **built 2026-10-03** (SEL-13, A92): pick list and loading sheet PDFs | Medium, small | |
 | G8 | Debit note to a supplier | Medium, small | Mirror of credit notes |
 | G9 | Cash discount for early payment; interest on overdue -- **built 2026-10-03** (SEL-14, A91): cash discount window, overdue interest on the statement, interest debit note | Medium | |
-| G10 | Expiry and breakage claims to the principal | Medium | Extends §42.7 scheme claims |
+| G10 | Expiry and breakage claims to the principal -- **built 2026-10-03** (SEL-11, A128) | Medium | Extends §42.7 scheme claims |
 | S7 | Stock ageing, slow-moving and dead stock; vendor ageing | Medium, small | Not in the report catalogue |
 | S8 | Barcode label printing -- **built 2026-10-03** (STK-16, A65): A4 65/24-up sheets and 50 x 25 mm roll, from the product list and a goods receipt | Medium, small | After M10 |
 | S11 | Cheque printing -- **built 2026-10-03** (ACC-12, A66): CTS-2010 leaf, per-bank offsets with a test print | Low-Medium, small | |
@@ -4622,7 +4624,7 @@ branch, salesman, document type and date, and the tests "is one of", "between",
 | 8 | **Customer eligibility** -- **built 2026-10-03** (SEL-6, A98): first order, not billed in N days | first order only; customers not billed in 90 days | new conditions |
 | 9 | **Day and time** | weekends only; 4-6 pm | **Built 2026-10-03** (SEL-7, A72): weekday from the document date, time of day in India time from when it was raised |
 | 10 | **Offer templates** | "copy last Diwali's offers, new dates" | **Built 2026-10-03** (SEL-8, A71): *Copy with new dates...* copies the ticked offers as drafts with a code suffix |
-| 11 | **Manufacturer scheme claims** | free goods given on the company's scheme, claimed back | track the value per scheme to claim from the supplier |
+| 11 | **Manufacturer scheme claims** -- **built 2026-10-03** (SEL-11, A128) | free goods given on the company's scheme, claimed back | track the value per scheme to claim from the supplier |
 | 12 | **Offer shown on the print** | "Diwali offer: 250 saved" on the bill | **Built 2026-10-01**: the bill head names the offers claimed on the orders it bills (*Offers*) and *You saved* -- line discounts plus the bill discount |
 | 13 | **Try an offer before launch** | see today what next week's Diwali offer does to an order | **Built.** *Try offers* on the Promotions screen (behind "...") over `POST /api/v1/promotions/simulate`: a date, document, optional customer, coupon and delivery charge, and lines; it shows each line's discount and free goods, the bill discount, delivery waived, gifts, the total saved, and every offer tried with why it applied or not |
 

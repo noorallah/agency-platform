@@ -320,6 +320,14 @@ trigger each schema owns its own copy of.
 | `party_adjustment_settings` | firm store ¹ | A firm's limits on adjusting balances. A firm with no row has defaults. |  |
 | `party_adjustments` | firm store ¹ | One balance moved without money: write-off, write-back or set-off. | `customers`, `vendors`, `journal_entries` |
 
+### `app/principal_claims`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `principal_claims` | firm store ¹ | A claim on one principal for one period: schemes, expiry and breakage, and the journal raising it (SEL-11). | `principals`, `vendors`, `journal_entries` |
+| `principal_claim_lines` | firm store ¹ | One redemption, write-off or returned line claimed; a source is held by one live line. | `principal_claims`, `products` |
+| `principal_claim_receipts` | firm store ¹ | Money the principal paid against a claim, and its journal. | `principal_claims`, `ledger_accounts`, `journal_entries` |
+
 ### `app/pricing`
 
 | Table | Store | Holds | Points at |

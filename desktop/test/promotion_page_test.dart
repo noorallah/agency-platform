@@ -92,6 +92,16 @@ class _PromotionApi extends ApiClient {
   Future<void> deletePromotion(String id) async => deleted.add(id);
 
   @override
+  Future<List<PrincipalRecord>> principals() async => <PrincipalRecord>[
+        PrincipalRecord.fromJson(const <String, dynamic>{
+          'id': 'pr-1',
+          'code': 'HUL',
+          'name': 'Hindustan Foods',
+          'vendor_id': 'v-1',
+        }),
+      ];
+
+  @override
   Future<PagedResult<Product>> products({
     int page = 1,
     int pageSize = 20,
@@ -531,6 +541,88 @@ void main() {
     expect(api.savedBody?['requires_coupon'], isTrue);
     expect(api.savedBody?['max_redemptions'], 50);
     expect(api.savedBody?['max_redemptions_per_customer'], isNull);
+  });
+
+  // SEL-11: the promotion write is a full replace, so both keys always go.
+  testWidgets('an own offer sends no principal and a full share',
+      (tester) async {
+    final _PromotionApi api = _PromotionApi();
+    await _pumpDialog(tester, api, existing: _promotion());
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.savedBody!.containsKey('principal_id'), isTrue);
+    expect(api.savedBody!['principal_id'], isNull);
+    expect(api.savedBody!['principal_share_percent'], '100');
+  });
+
+  testWidgets('a principal-funded offer sends the principal and its share',
+      (tester) async {
+    final _PromotionApi api = _PromotionApi();
+    await _pumpDialog(tester, api, existing: _promotion());
+
+    // Off until a principal is chosen.
+    expect(
+        tester
+            .widget<TextFormField>(
+                find.byKey(const ValueKey('promotion-principal-share')))
+            .enabled,
+        isFalse);
+    await tester.ensureVisible(find.byKey(const ValueKey('promotion-principal')));
+    await tester.tap(find.byKey(const ValueKey('promotion-principal')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Hindustan Foods').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const ValueKey('promotion-principal-share')), '60');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.savedBody!['principal_id'], 'pr-1');
+    expect(api.savedBody!['principal_share_percent'], '60');
+  });
+
+  testWidgets('a share above 100 is refused before it is sent',
+      (tester) async {
+    final _PromotionApi api = _PromotionApi();
+    await _pumpDialog(tester, api, existing: _promotion());
+    await tester.ensureVisible(find.byKey(const ValueKey('promotion-principal')));
+    await tester.tap(find.byKey(const ValueKey('promotion-principal')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Hindustan Foods').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const ValueKey('promotion-principal-share')), '120');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.savedBody, isNull);
+    expect(find.text('Above 0 and up to 100'), findsOneWidget);
+  });
+
+  testWidgets('an edit keeps the principal it was read with', (tester) async {
+    final _PromotionApi api = _PromotionApi();
+    const PromotionRecord base = PromotionRecord(
+      id: 'promo-1',
+      code: 'FND',
+      name: 'Funded offer',
+      version: 2,
+      status: 'ACTIVE',
+      principalId: 'pr-1',
+      principalSharePercent: '40',
+      actions: <PromotionActionRecord>[
+        PromotionActionRecord(
+            actionType: 'LINE_DISCOUNT_PERCENT', percent: '10'),
+      ],
+    );
+    await _pumpDialog(tester, api, existing: base);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.savedBody!['principal_id'], 'pr-1');
+    expect(api.savedBody!['principal_share_percent'], '40');
   });
 
   testWidgets('a limit of zero is refused before it is sent', (tester) async {

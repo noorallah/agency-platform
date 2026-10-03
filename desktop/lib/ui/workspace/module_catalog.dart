@@ -851,6 +851,12 @@ abstract final class ModuleCatalog {
           label: 'Supplier Rebates',
           requiredPermissions: ['PURCHASE_VIEW'],
         ),
+        // What a principal owes for schemes, expiry and breakage (SEL-11).
+        ModuleTabDefinition(
+          id: 'principal-claims',
+          label: 'Principal Claims',
+          requiredPermissions: ['PURCHASE_VIEW'],
+        ),
         ModuleTabDefinition(
           id: 'purchase-analytics',
           label: 'Analytics',
@@ -1884,6 +1890,12 @@ abstract final class ModuleCatalog {
           label: 'Supplier Rebates',
           path: 'supplier-rebates',
           icon: Icons.savings_outlined,
+        ),
+      if (visibleTabIds.contains('principal-claims'))
+        const WorkspaceNavigationNode(
+          label: 'Principal Claims',
+          path: 'principal-claims',
+          icon: Icons.request_page_outlined,
         ),
       if (visibleTabIds.contains('purchase-analytics'))
         const WorkspaceNavigationNode(
