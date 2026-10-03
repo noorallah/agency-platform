@@ -594,6 +594,12 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['ACCOUNT_VIEW', 'SALES_VIEW'],
           requiresAnyPermission: true,
         ),
+        // What a return would get wrong, found before filing (GST-5).
+        ModuleTabDefinition(
+          id: 'gst-checks',
+          label: 'GST checks',
+          requiredPermissions: ['SALES_VIEW'],
+        ),
         // Paying the month's GST: set-off and challan (backlog 63).
         ModuleTabDefinition(
           id: 'gst-payment',

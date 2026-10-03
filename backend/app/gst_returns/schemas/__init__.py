@@ -105,6 +105,8 @@ class GstPaymentResponse(GstSchema):
 
 
 __all__ = [
+    "FilingCheckRowResponse",
+    "FilingChecksResponse",
     "GstHeadRow",
     "GstPaymentCreate",
     "GstPaymentPreviewResponse",
@@ -225,3 +227,34 @@ class Rule37Post(GstSchema):
 
     as_of: date
     purchase_invoice_ids: list[UUID] | None = Field(default=None, max_length=1000)
+
+
+class FilingCheckRowResponse(GstSchema):
+    """One thing to put right before a return is filed (GST-5)."""
+
+    #: GSTIN_INVALID, HSN_MISSING, HSN_SHORT, PLACE_OF_SUPPLY_MISSING,
+    #: IRN_MISSING, CREDIT_NOTE_LATE or CREDIT_NOTE_ON_CANCELLED_INVOICE.
+    check: str
+    #: ERROR: the portal or the law refuses it. WARNING: worth a look.
+    severity: str
+    #: SALES_INVOICE, CREDIT_NOTE, CUSTOMER_DEBIT_NOTE, PURCHASE_INVOICE or
+    #: FIRM (the firm's own GSTIN).
+    document_type: str
+    document_id: UUID | None
+    document_number: str
+    document_date: date | None
+    party_name: str
+    message: str
+
+
+class FilingChecksResponse(GstSchema):
+    """What a period's documents would trip on, before filing."""
+
+    from_date: date
+    to_date: date
+    #: Digits an HSN must carry: six once the firm e-invoices (turnover past
+    #: 5 crore), four below it.
+    required_hsn_digits: int
+    #: Rows by check, for the summary line.
+    counts: dict[str, int]
+    rows: list[FilingCheckRowResponse]

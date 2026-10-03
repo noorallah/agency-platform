@@ -43,6 +43,13 @@ const Map<String, List<String>> _synonyms = {
   'masters/customer-statements': ['statement', 'outstanding'],
   'masters/supplier-statements': ['statement', 'payable', 'creditor'],
   'sales/gst-returns': ['gstr', 'gstr-1', 'gstr-3b', 'gst'],
+  'sales/gst-checks': [
+    'gst checks',
+    'gst exceptions',
+    'before filing',
+    'hsn missing',
+    'invalid gstin',
+  ],
   'administration/uoms': ['unit', 'uom'],
   'masters/financial-years': ['financial year', 'fy', 'books'],
   'dashboard': ['home', 'dashboard'],
