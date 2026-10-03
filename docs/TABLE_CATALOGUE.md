@@ -450,6 +450,12 @@ trigger each schema owns its own copy of.
 | `sales_return_sources` | firm store ¹ | Store the documents one return was raised against. | `sales_returns`, `firms`, `customers`, `branches` |
 | `sales_returns` | firm store ¹ | Store one customer return header. | `firms`, `customers`, `branches`, `warehouses`, `users`, `sales_territories`, `business_profiles`, `journal_entries` |
 
+### `app/report_layouts`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `report_layouts` | firm store ¹ | One person's named layout of an analysis screen (RPT-1); the settings are the screen's own JSON. | `users` (bare id) |
+
 ### `app/sales_targets`
 
 | Table | Store | Holds | Points at |

@@ -76,6 +76,7 @@ from app.purchase.models import purchase, requisition  # noqa: F401
 from app.purchase_invoice.models import purchase_invoice  # noqa: F401
 from app.purchase_return.models import purchase_return  # noqa: F401
 from app.quotation.models import quotation  # noqa: F401
+from app.report_layouts.models import report_layout  # noqa: F401
 from app.sales.models import territory  # noqa: F401
 from app.sales_invoice.models import sales_invoice  # noqa: F401
 from app.sales_order.models import sales_order  # noqa: F401
