@@ -5278,6 +5278,17 @@ so every PC still reads one place -- see "Current state" above.)*
 
 ## 72. Configuration apart from the daily menu, shown by permission
 
+**Reopened by the owner 2026-10-03** while reviewing the branding wireframes:
+"some menu items have settings also". The comparison now lives in
+`dist\windows\Design\Branding wireframes.html`, step 4, switch "Set-up
+lists", drawn from `menu_layout.dart` as built that day: inside the menus
+(Sell: Pricing, Territories & routes; Accounts: Structure; Masters: Parties,
+Items, Locations lists, all under CONFIGURATION) versus **apart, behind the
+gear** (option B, recommended): each drop-down keeps daily work and points to
+Settings, which gains a SET UP part, and Admin leaves the bar for Settings >
+Platform. Owner to choose. Screenshots 12-16 in `Branding wireframes -
+screenshots\`.
+
 Owner, 2026-09-29: separate configuration from the menu items people use
 every day -- configuration is rarely used, and mostly by administrators --
 with wireframes, and **only shown to those whose permissions allow it**.
