@@ -753,6 +753,7 @@ otherwise it is built as written.
 - **What it is:** the same for purchases, plus the received and ordered bases, average rate and a rate trend per product.
 - **What gets built:** the shared `AnalysisPage` widget gains the same; server bases over goods receipts and orders; a rate trend report. Tests.
 - **Depends on:** RPT-1 (shared widget). **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A122, no migration): `basis=received|ordered` and `compare_previous_year` on `/purchase-invoices/reports/analysis`; `average_rate` on every analysis figure (sales too); `/purchase-invoices/reports/rate-trend` (`PurchaseAnalysisService.rate_trend`). Desktop: the shared `AnalysisPage` controls switched on for purchases, and a rate trend screen. Tests: `test_purchase_analysis_rest.py`.
 
 ### Platform
 

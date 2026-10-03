@@ -810,6 +810,12 @@ abstract final class ModuleCatalog {
           requiresAnyPermission: true,
         ),
         ModuleTabDefinition(
+          id: 'purchase-rate-trend',
+          label: 'Rate Trend',
+          requiredPermissions: ['PURCHASE_VIEW', 'REPORT_VIEW'],
+          requiresAnyPermission: true,
+        ),
+        ModuleTabDefinition(
           id: 'purchase-orders',
           label: 'Purchase Orders',
           requiredPermissions: ['PURCHASE_VIEW'],
@@ -1866,6 +1872,12 @@ abstract final class ModuleCatalog {
           label: 'Purchase Analysis',
           path: 'purchase-analysis',
           icon: Icons.pivot_table_chart_outlined,
+        ),
+      if (visibleTabIds.contains('purchase-rate-trend'))
+        const WorkspaceNavigationNode(
+          label: 'Rate Trend',
+          path: 'purchase-rate-trend',
+          icon: Icons.show_chart_outlined,
         ),
       if (visibleTabIds.contains('purchase-settings'))
         const WorkspaceNavigationNode(

@@ -1055,6 +1055,19 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'unit_price', label: 'Rate', numeric: true),
     ],
   ),
+  // What one product was bought at, bill by bill: it needs a product chosen,
+  // which the generic grid cannot ask for, so Buy > Rate Trend is its screen
+  // (RPT-2) and the Reports picker does not list it.
+  ReportDefinition(
+    id: 'purchase-rate-trend',
+    label: 'Purchase rate trend',
+    description: 'The rate a product was bought at, bill by bill.',
+    path: '/api/v1/purchase-invoices/reports/rate-trend',
+    needsPeriod: true,
+    permission: 'PURCHASE_VIEW',
+    area: ReportArea.operational,
+    ownScreen: true,
+  ),
   // Where a supplier billed a rate other than the goods were received at
   // (65 row 5): the difference posts to Purchase Price Variance, and this
   // names it line by line so a buyer can take it up.

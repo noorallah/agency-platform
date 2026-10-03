@@ -87,6 +87,7 @@ import 'pricing/price_list_page.dart';
 import 'pricing/promotion_page.dart';
 import 'products/product_management_page.dart';
 import 'purchases/purchase_analysis_page.dart';
+import 'purchases/purchase_rate_trend_page.dart';
 import 'purchases/purchase_management_page.dart';
 import 'trade_licences/licence_check_settings_page.dart';
 import 'quotations/quotation_management_page.dart';
@@ -3186,6 +3187,11 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
         ),
+      'purchase-rate-trend' => PurchaseRateTrendPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: hasActiveFirm,
+        ),
       'purchase-orders' => PurchaseManagementPage(
           api: widget.api,
           preferences: widget.preferences,
@@ -3246,6 +3252,7 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
         'purchase-requisitions' => 'Purchase Requisitions',
         'quality-inspection' => 'Quality Inspection',
         'purchase-analysis' => 'Purchase Analysis',
+        'purchase-rate-trend' => 'Rate Trend',
         'purchase-analytics' => 'Purchase Analytics',
         'purchase-settings' => 'Purchase Settings',
         _ => module.label,
@@ -3269,6 +3276,9 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
         'purchase-analysis' =>
           'Purchases by any one or two dimensions, net of returns. Click a '
               'figure to see the bills behind it.',
+        'purchase-rate-trend' =>
+          'What a product was bought at, bill by bill: the lowest and '
+              'highest rate and how far the last one has moved.',
         'purchase-analytics' =>
           'Analytics shell ready for backend reporting expansion.',
         'purchase-settings' =>

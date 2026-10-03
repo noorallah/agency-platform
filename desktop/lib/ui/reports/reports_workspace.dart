@@ -136,7 +136,11 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
       ? ReportArea.financial
       : ReportArea.operational;
 
-  List<ReportDefinition> get _reports => reportsFor(_area, canRead: _canRead);
+  List<ReportDefinition> get _reports => [
+        for (final ReportDefinition report
+            in reportsFor(_area, canRead: _canRead))
+          if (!report.ownScreen) report,
+      ];
 
   @override
   void initState() {
