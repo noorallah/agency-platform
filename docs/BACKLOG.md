@@ -5201,10 +5201,13 @@ Decided by the owner on 2026-10-03:
   placeholder logo until the trademark is filed; then Jugnix Trade by Jugnix,
   "Many lights. One glow."
 
-Still open with the owner: where the product mark sits on sign-in -- in the
-card's foot (recommended), at the right of the top bar, or a night-blue band
-at the foot; and a review of steps 4-6 (main app, Settings > Branding, Help >
-About).
+- **Product mark on sign-in: in the sign-in card's foot** (chosen 2026-10-03).
+- **Main app header: option 1** (chosen 2026-10-03) -- the agency's logo,
+  name and tagline in the window's own title bar, then the selected firm's
+  name; the menu bar starts with Home; the product at the foot.
+
+Still open with the owner, when they like: a look at steps 5-6 (Settings >
+Branding, Help > About).
 
 **UI changes to build** (on top of rows 1-5 of the table below):
 
@@ -5212,10 +5215,10 @@ About).
 | --- | --- | --- |
 | U1 | Installer page 3 Branding (server install only), writing the server's branding record; client installs skip it | `packaging/AgencyPlatform.iss` + a first-start hand-off to the backend |
 | U2 | Product identity from one place: product name, company name, company logo, tagline, product logo/icon, support phone/email/website/hours; placeholders until the trademark is filed. **Written by every installer and update installer** (an update replaces it, so a rebrand ships as an update); nothing in the code names the product or the company; customers cannot edit it | `desktop/config/branding.json` (package-built, not customer-edited), `Runner.rc`, `.iss` display strings only -- keep the ProgramData folder, service names and AppId |
-| U3 | Phase 2 sign-in, layout B: agency logo + name + tagline in the dark bar and the card head; window title "<product> - Sign in"; product mark (placement pending); status line with server state, version, "Powered by <product>" | phase 2 sign-in screen |
+| U3 | Phase 2 sign-in, layout B: agency logo + name + tagline in the dark bar and the card head; window title "<product> - Sign in"; product mark in the sign-in card's foot; status line with server state, version, "Powered by <product>" | phase 2 sign-in screen |
 | U4 | Support panel beside the sign-in card, with "Copy details for support" | phase 2 sign-in screen |
 | U5 | First-run setup step 1 "Your agency", pre-filled from the installer, skippable with a "Finish setting up" card on Home | phase 2, after the first administrator's first sign-in |
-| U6 | Owner 2026-10-03: **the menu bar starts with Home**; the **agency's logo, name and tagline get the top strip** (option pending: 1 in the window's own title bar, recommended -- no extra height; 2 a taller agency band with the firm switcher and user; 3 title bar holding settings and the user too); the **selected firm's name beside the agency, as plain text** ("agency > firm"; nothing when no firm is selected); **the firm switcher stays in the menu bar** as today; a practice/demo firm carries a "PRACTICE - not real books" mark (suggested); "Finish setting up" prompt there when not given; **our product at the right of the status line** (logo, version, by company; click = About); calm -- nothing blinks or animates | `desktop/lib/phase2/app_menu_bar.dart`, the shell |
+| U6 | Owner 2026-10-03: **the menu bar starts with Home**; the **agency's logo, name and tagline get the top strip** (**option 1 chosen 2026-10-03**: in the window's own title bar -- no extra height); the **selected firm's name beside the agency, as plain text** ("agency > firm"; nothing when no firm is selected); **the firm switcher stays in the menu bar** as today; a practice/demo firm carries a "PRACTICE - not real books" mark (suggested); "Finish setting up" prompt there when not given; **our product at the right of the status line** (logo, version, by company; click = About); calm -- nothing blinks or animates | `desktop/lib/phase2/app_menu_bar.dart`, the shell |
 | U7 | Settings > Platform > Branding with preview; product and company shown read-only | phase 2 Settings |
 | U8 | Help > About: product, version, build, licensed to, maker, support details, "Copy details for support" | phase 2 Help menu |
 

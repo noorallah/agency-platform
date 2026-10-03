@@ -178,8 +178,11 @@ and 10-03 screenshot sets) are in `dist\windows\Design\_old (superseded)\`.
 ## 7. For the owner to decide or supply
 
 1. ~~Sign-in layout~~ -- **decided 2026-10-03: B** (Home's frame, one card),
-   with our support panel beside it. Still open: where the product mark sits
-   -- card foot, top bar or band (card foot recommended).
+   with our support panel beside it, and the product mark in the card's foot.
+1a. ~~Main app header~~ -- **decided 2026-10-03: option 1**: the agency's logo,
+   name and tagline in the window's own title bar, then the selected firm's
+   name (nothing when no firm is selected); the menu bar starts with Home and
+   keeps the firm switcher; our product at the right of the status line.
 2. ~~Product name and logo at install~~ -- **decided 2026-10-03: locked**; the
    installer wireframe is approved. Our company name, logo, tagline and
    product name are changed by us through an installer or update installer,
