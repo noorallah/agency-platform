@@ -14,7 +14,7 @@ from types import SimpleNamespace
 from uuid import UUID
 
 from sqlalchemy import and_, case, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, lazyload, load_only
 
 from app.batch_serial.models import BatchRecord
 from app.batch_serial.schemas import PickedSerial
@@ -2369,6 +2369,12 @@ class SalesInvoiceService(TransactionalDocumentService):
                 select(Customer).where(
                     Customer.firm_id == firm_scope,
                     Customer.is_deleted.is_(False),
+                )
+                # The name and the balance, without the addresses and
+                # contacts every customer would otherwise load (PLT-4).
+                .options(
+                    load_only(Customer.display_name, Customer.current_outstanding),
+                    lazyload("*"),
                 )
             ).all()
         )

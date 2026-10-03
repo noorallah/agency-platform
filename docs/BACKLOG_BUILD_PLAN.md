@@ -778,6 +778,7 @@ otherwise it is built as written.
 - **What it is:** the month's returns and the receivables reports open in under 3 seconds on a big firm.
 - **What gets built:** move GSTR-1 / 3B arithmetic from Python into grouped SQL in `gstr_service.py`; the outstanding reports read allocations grouped in SQL rather than per bill. Re-time on PERF01 (`docs/PERFORMANCE_AT_VOLUME.md`). Tests that figures are unchanged.
 - **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (no decision, no migration): the returns load only the columns they read (invoices, customers, products as code and name; 3B no products), and `outstanding_invoices` skips in SQL a bill its allocations already cover unless a customer debit note names it. Month: GSTR-1 6.4 to 3.7 s, 3B 4.9 to 2.9 s, Customer Outstanding 3.8 to 2.7 s on PERF01, every answer byte-identical before and after. The arithmetic stayed in Python (paise rounding, D-CMP-4); a quarter is still over 3 s -- see `docs/PERFORMANCE_AT_VOLUME.md`. Tests: `test_outstanding_skips_covered_bills.py`.
 
 #### PLT-5. Set-based back-dated carry (§56 C)
 - **What it is:** an entry dated in the past updates later balances in one step, not month by month.

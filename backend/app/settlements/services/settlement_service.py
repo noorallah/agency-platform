@@ -435,6 +435,28 @@ class SettlementService(TransactionalDocumentService):
             .group_by(allocation_column)
             .subquery()
         )
+        # A bill its allocations alone already cover owes nothing, whatever
+        # else is known of it: points, returns, credit notes, write-offs and
+        # a supplier return only ever take more off. Only a debit note to a
+        # customer adds to a bill, so a bill one names is always read. Left
+        # in SQL, two years of paid bills never reach Python -- they were
+        # nine in ten of Customer Outstanding's rows (PLT-4).
+        open_bills: list[Any] = [
+            allocated.c.total.is_(None),
+            allocated.c.total < invoice.grand_total,
+        ]
+        if is_receipt:
+            # Imported here, as in `debited_against`.
+            from app.customer_debit_note.models import CustomerDebitNote
+
+            open_bills.append(
+                invoice.id.in_(
+                    select(CustomerDebitNote.sales_invoice_id).where(
+                        CustomerDebitNote.firm_id == firm_id,
+                        CustomerDebitNote.sales_invoice_id.is_not(None),
+                    )
+                )
+            )
         # The columns the list shows, never the whole document: a firm-wide
         # read of full rows was a third of Customer Outstanding's 16 s on a
         # firm with 109,566 invoices (backlog 56 C, step 4).
@@ -454,6 +476,7 @@ class SettlementService(TransactionalDocumentService):
                 *(() if party_id is None else (party_column == party_id,)),
                 invoice.is_deleted.is_(False),
                 invoice.status.in_(SETTLEABLE_INVOICE_STATES),
+                or_(*open_bills),
             )
             .order_by(invoice.invoice_date.asc(), invoice.invoice_number.asc())
         ).all()
@@ -463,8 +486,9 @@ class SettlementService(TransactionalDocumentService):
         settled: dict[UUID, Decimal] = {}
         debited: dict[UUID, Decimal] = {}
         if is_receipt and rows:
-            # Firm-wide, one grouped read per source beats the ids in chunks.
-            asked = None if party_id is None else [row.id for row in rows]
+            # The bills still read: past one chunk of them the reads go
+            # firm-wide in one grouped statement each (`whole_past_a_chunk`).
+            asked = [row.id for row in rows]
             settled = settled_against(self._session, firm_id=firm_id, invoice_ids=asked)
             # Shown as part of the bill rather than as money taken off it
             # below zero (backlog 77 row 5).
