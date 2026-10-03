@@ -39,6 +39,15 @@ const List<ReportDefinition> reportCatalog = [
     area: ReportArea.operational,
   ),
   ReportDefinition(
+    id: 'enquiries-lost',
+    label: 'Enquiries lost',
+    description: 'Why enquiries were lost, and what they were worth.',
+    path: '/api/v1/enquiries/reports/lost',
+    needsPeriod: true,
+    permission: 'SALES_VIEW',
+    area: ReportArea.operational,
+  ),
+  ReportDefinition(
     id: 'sales-order-register',
     label: 'Sales order register',
     description: 'Every order raised, with what it was worth.',

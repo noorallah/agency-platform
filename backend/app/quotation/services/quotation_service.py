@@ -388,6 +388,16 @@ class QuotationService(TransactionalDocumentService):
             )
         ]
 
+    def stage_quotation(
+        self, data: QuotationCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> SalesQuotation:
+        """Build one quotation without committing, for a caller composing more.
+
+        An enquiry converted to a quotation (SEL-10) stages the new customer
+        and the quotation together and commits once.
+        """
+        return self._stage_quotation(data, firm_id=firm_id, actor_id=actor_id)
+
     def _stage_quotation(
         self, data: QuotationCreate, *, firm_id: UUID, actor_id: UUID
     ) -> SalesQuotation:
@@ -826,6 +836,12 @@ class QuotationService(TransactionalDocumentService):
             actor_id=actor_id,
         )
         row.converted_sales_order_id = order.id
+        # The enquiry behind the quotation is won (SEL-10).
+        from app.enquiry.services import EnquiryService
+
+        EnquiryService(self._session).won_from_quotation(
+            row.id, firm_id=row.firm_id, actor_id=actor_id
+        )
         # The quotation's fields carry to the order (MST-6).
         document_attributes.carry(
             self._session,

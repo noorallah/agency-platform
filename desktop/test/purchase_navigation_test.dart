@@ -274,6 +274,7 @@ void main() {
           'Quality Inspection',
           'Supplier Rebates',
           'Principal Claims',
+          'Approvals',
           'Analytics',
           'Purchase Analysis',
           'Rate Trend',

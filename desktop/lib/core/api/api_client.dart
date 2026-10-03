@@ -41,6 +41,7 @@ import '../../models/payment_run.dart';
 import '../../models/supplier_gift.dart';
 import '../../models/approval.dart';
 import '../../models/landed_cost.dart';
+import '../../models/enquiry.dart';
 import '../../models/principal_claim.dart';
 import '../../models/supplier_rebate.dart';
 import '../../models/post_dated_cheque.dart';
@@ -8405,6 +8406,78 @@ class ApiClient {
         '/api/v1/supplier-rebates/$id/reverse-accrual',
         expectedVersion: expectedVersion,
       )));
+
+  // ---- enquiries and leads (SEL-10) -------------------------------------
+
+  /// The firm's enquiries, newest first; [status] and [salesmanId] narrow it.
+  Future<List<Enquiry>> enquiries({String? status, String? salesmanId}) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/enquiries',
+          query: {
+            if (status != null && status.isNotEmpty) 'status': status,
+            if (salesmanId != null && salesmanId.isNotEmpty)
+              'salesman_id': salesmanId,
+          },
+        ),
+        Enquiry.fromJson,
+      );
+
+  /// The live enquiries whose next follow-up is on or before [on] (default
+  /// today), soonest first.
+  Future<List<Enquiry>> followUpsDue({String? on, String? salesmanId}) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/enquiries/follow-ups-due',
+          query: {
+            if (on != null && on.isNotEmpty) 'on': on,
+            if (salesmanId != null && salesmanId.isNotEmpty)
+              'salesman_id': salesmanId,
+          },
+        ),
+        Enquiry.fromJson,
+      );
+
+  /// Lost enquiries by reason: how many and what they were worth.
+  Future<List<EnquiryLostRow>> enquiryLostReport(
+    String from,
+    String to,
+  ) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/enquiries/reports/lost',
+          query: {'from_date': from, 'to_date': to},
+        ),
+        EnquiryLostRow.fromJson,
+      );
+
+  Future<Enquiry> enquiry(String id) async =>
+      Enquiry.fromJson(_unwrapMap(await request('GET', '/api/v1/enquiries/$id')));
+
+  Future<Enquiry> createEnquiry(Json body) async => Enquiry.fromJson(
+      _unwrapMap(await request('POST', '/api/v1/enquiries', body: body)));
+
+  /// Only an open enquiry can be changed.
+  Future<Enquiry> updateEnquiry(String id, Json body) async =>
+      Enquiry.fromJson(_unwrapMap(
+          await request('PUT', '/api/v1/enquiries/$id', body: body)));
+
+  Future<Enquiry> logEnquiryFollowUp(String id, Json body) async =>
+      Enquiry.fromJson(_unwrapMap(await request(
+          'POST', '/api/v1/enquiries/$id/follow-ups',
+          body: body)));
+
+  Future<Enquiry> markEnquiryLost(String id, Json body) async =>
+      Enquiry.fromJson(_unwrapMap(
+          await request('POST', '/api/v1/enquiries/$id/lost', body: body)));
+
+  /// Raises the quotation; a prospect becomes a customer.
+  Future<Enquiry> convertEnquiry(String id, Json body) async =>
+      Enquiry.fromJson(_unwrapMap(
+          await request('POST', '/api/v1/enquiries/$id/convert', body: body)));
 
   // ---- claims on a principal (SEL-11) -----------------------------------
 

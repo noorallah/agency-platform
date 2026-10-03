@@ -41,6 +41,7 @@ from app.delivery_note.api import router as delivery_notes_router
 from app.diagnostics.api import router as diagnostics_router
 from app.document_framework.api import router as document_framework_router
 from app.einvoice.api.router import router as einvoice_router
+from app.enquiry.api import router as enquiry_router
 from app.expenses.api.router import router as expenses_router
 from app.finance.api import router as finance_router
 from app.firms.api import router as firms_router
@@ -177,6 +178,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(principal_claims_router)
     application.include_router(landed_costs_router)
     application.include_router(approvals_router)
+    application.include_router(enquiry_router)
     application.include_router(notifications_router)
     application.include_router(trade_licences_router)
     application.include_router(products_router)

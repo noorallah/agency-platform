@@ -187,6 +187,7 @@ abstract final class MenuLayout {
     home,
     MenuAreaSpec('sell', 'Sell', [
       MenuGroupSpec('Documents', [
+        MenuItemSpec(AppModule.sales, 'enquiries', 'Enquiries'),
         MenuItemSpec.module(AppModule.quotations, 'Quotations'),
         MenuItemSpec.module(AppModule.salesOrders, 'Sales Orders'),
         MenuItemSpec(
