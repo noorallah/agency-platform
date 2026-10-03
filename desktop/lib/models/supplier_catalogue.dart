@@ -58,3 +58,50 @@ class SupplierCatalogueRow {
         isCurrent: boolValue(json['is_current'], fallback: true),
       );
 }
+
+/// A supplier's lead time as quoted and as measured from receipts (BUY-6).
+class SupplierLeadTime {
+  const SupplierLeadTime({
+    this.quotedDays,
+    this.receipts = 0,
+    this.averageDays = '',
+    this.lateReceipts = 0,
+    this.receiptsWithExpectedDate = 0,
+    this.onTimePercent = '',
+  });
+
+  final int? quotedDays;
+  final int receipts;
+  final String averageDays;
+  final int lateReceipts;
+  final int receiptsWithExpectedDate;
+  final String onTimePercent;
+
+  factory SupplierLeadTime.fromJson(Json json) => SupplierLeadTime(
+        quotedDays: int.tryParse(stringValue(json['quoted_days'])),
+        receipts: int.tryParse(stringValue(json['receipts'])) ?? 0,
+        averageDays: stringValue(json['average_days']),
+        lateReceipts: int.tryParse(stringValue(json['late_receipts'])) ?? 0,
+        receiptsWithExpectedDate:
+            int.tryParse(stringValue(json['receipts_with_expected_date'])) ??
+                0,
+        onTimePercent: stringValue(json['on_time_percent']),
+      );
+
+  /// One line: quote, measured average, punctuality.
+  String get summary {
+    final int? quote = quotedDays;
+    final String quoted = quote == null
+        ? 'Quoted: none in the catalogue'
+        : 'Quoted: $quote ${quote == 1 ? 'day' : 'days'}';
+    final String delivered = receipts == 0 || averageDays.isEmpty
+        ? 'Delivered: no receipts yet'
+        : 'Delivered: $averageDays days on average over $receipts '
+            '${receipts == 1 ? 'receipt' : 'receipts'}';
+    final String onTime =
+        receiptsWithExpectedDate == 0 || onTimePercent.isEmpty
+            ? 'On time: not measured'
+            : 'On time: $onTimePercent% ($lateReceipts late)';
+    return '$quoted · $delivered · $onTime';
+  }
+}

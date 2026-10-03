@@ -419,7 +419,17 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
       ),
       DocumentField(
         label: 'Expected by',
-        width: 150,
+        width: 190,
+        below: widget.isCreating && _draft.expectedDeliveryDate.isEmpty
+            ? Text(
+                "Blank: filled from the supplier's lead time",
+                key: const ValueKey('purchase-order-expected-helper'),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontSize: 10,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              )
+            : null,
         child: _dateBox(
           context,
           key: const ValueKey('purchase-order-expected-date'),

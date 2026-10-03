@@ -211,6 +211,9 @@ class ReorderService:
         demand = (
             self._sales_by_location(firm_id, planning, warehouse_id) if by_sales else {}
         )
+        # The supplier's own lead time, where its catalogue quotes one, sets
+        # the reorder point rather than the firm-wide figure (BUY-6).
+        lead_for = self._supplier_lead_times(firm_id, {p for _, p in demand})
         stock: list[_Level] = []
         for found in self._session.execute(statement).all():
             warehouse, product_id, branch_text, held_raw, typed, maximum = found
@@ -233,7 +236,8 @@ class ReorderService:
             if sold is None:
                 continue
             daily = sold / planning.sales_window_days
-            point = daily * (planning.lead_time_days + planning.safety_days)
+            lead = lead_for.get(product_id, planning.lead_time_days)
+            point = daily * (lead + planning.safety_days)
             if held > point:
                 continue
             stock.append(
@@ -540,6 +544,25 @@ class ReorderService:
                 open_statuses=OPEN_ORDER_STATUSES,
             ).items()
             if key[0] in warehouse_ids
+        }
+
+    def _supplier_lead_times(
+        self, firm_id: UUID, product_ids: set[UUID]
+    ) -> dict[UUID, int]:
+        """Return, per product, the lead time its chosen supplier quotes."""
+        if not product_ids:
+            return {}
+        products = {
+            row.id: row
+            for row in self._session.scalars(
+                select(Product).where(Product.id.in_(product_ids))
+            )
+        }
+        terms = self._supplier_terms(firm_id, self._suppliers(firm_id, products))
+        return {
+            product_id: row.lead_time_days
+            for product_id, row in terms.items()
+            if row.lead_time_days is not None
         }
 
     def _supplier_terms(

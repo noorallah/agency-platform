@@ -54,3 +54,17 @@ class SupplierProductResponse(BaseModel):
     #: Whether it is the row in force today, rather than history or future.
     is_current: bool
     created_at: datetime
+
+
+class VendorLeadTimeResponse(BaseModel):
+    """What a supplier quotes and what its deliveries took (BUY-6)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    vendor_id: UUID
+    quoted_days: int | None
+    receipts: int
+    average_days: Decimal | None
+    late_receipts: int
+    receipts_with_expected_date: int
+    on_time_percent: Decimal | None

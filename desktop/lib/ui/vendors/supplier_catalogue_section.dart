@@ -42,11 +42,24 @@ class _SupplierCatalogueSectionState extends State<SupplierCatalogueSection> {
   bool _history = false;
   String? _selectedId;
   String? _error;
+  SupplierLeadTime? _leadTime;
 
   @override
   void initState() {
     super.initState();
     unawaited(_reload());
+    unawaited(_loadLeadTime());
+  }
+
+  Future<void> _loadLeadTime() async {
+    try {
+      final SupplierLeadTime value =
+          await widget.api.supplierLeadTime(widget.vendorId);
+      if (!mounted) return;
+      setState(() => _leadTime = value);
+    } on Object {
+      // The summary is a convenience; the catalogue works without it.
+    }
   }
 
   Future<void> _reload() async {
@@ -150,6 +163,15 @@ class _SupplierCatalogueSectionState extends State<SupplierCatalogueSection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (_leadTime != null)
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.sm),
+            child: Text(
+              _leadTime!.summary,
+              key: const ValueKey('supplier-lead-time-summary'),
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
           child: Wrap(

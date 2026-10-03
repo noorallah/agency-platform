@@ -394,6 +394,7 @@ otherwise it is built as written.
 - **What it is:** the expected date fills from the supplier's lead time, and actual delays are recorded.
 - **What gets built:** expected delivery default from the catalogue row; actual lead time derived per receipt; reorder planning (`reorder.py`, which already has a firm-wide `lead_time_days`) prefers the supplier's. Tests.
 - **Depends on:** BUY-4. **Effort / Who:** S, Claude alone.
+- **Built 2026-10-03** (A105, no migration): `PurchaseService._expected_from_lead_time` on create; `app/vendors/services/lead_times.py` and `GET /vendors/{id}/lead-time`; `ReorderService._supplier_lead_times` sets the sales-based reorder point. Desktop: the lead-time summary on the supplier, helper text on the order's expected date. Tests: `test_supplier_lead_time.py`, `supplier_lead_time_test.dart`.
 
 #### BUY-7. Purchase requisition / indent (§68 row 3)
 - **What it is:** a branch or storeman asks for goods; once approved it becomes one or more orders.

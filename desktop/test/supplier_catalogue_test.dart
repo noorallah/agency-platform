@@ -68,6 +68,7 @@ class _Api extends ApiClient {
     bool retrying = false,
     int? expectedVersion,
   }) async {
+    if (path.endsWith('/lead-time')) return <String, dynamic>{'data': <String, dynamic>{}};
     calls.add('$method $path');
     queries.add(query);
     if (method != 'GET') lastBody = body;
