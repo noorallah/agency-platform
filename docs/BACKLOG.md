@@ -5175,6 +5175,59 @@ view 8 of `dist\windows\Design\UI phase 2 wireframes.html`, in **three
 layouts** (A, B, C) that follow Home's frame and colours; switch "not yet set"
 / "configured" to see both branding states. **Layout: owner to choose.**
 
+**Current state, 2026-10-03 -- read this first; it supersedes the 09-28 text
+below where they differ.** Wireframes: `dist\windows\Design\Branding
+wireframes.html` (six steps; screenshots in `Branding wireframes -
+screenshots\`); proposal: `docs/BRANDING_AND_NAMES.md`. **Kept in the backlog
+by the owner to build later** (B9: after the Jugnix trademark is filed).
+
+Decided by the owner on 2026-10-03:
+
+- **Installer approved.** Six pages; page 3 **Branding** appears on a server
+  install only and takes the agency's name, tagline and logo (all optional)
+  into the server's branding record. Our product name, company and product
+  logo come from the package and are **locked** (no reseller white-label).
+- **First-run setup approved** (step 1 "Your agency", pre-filled from the
+  installer, skippable).
+- **Our identity is changed by our installers, never hard-coded.** Company
+  name, company logo, tagline (message) and product name are read from the
+  package's branding file, so a new installer **or an update installer** can
+  change them (a rebrand ships as an update); customers cannot edit them.
+- **Sign-in layout B** -- Home's frame, the dark bar carrying the agency's
+  logo and name, one sign-in card in the middle.
+- **The sign-in screen must say whose product it is**: the window title
+  "<product> - Sign in", and the product's mark (logo, name, "by <company>",
+  tagline) on the screen.
+- **Our support contact on the sign-in screen**, in the space beside the card:
+  a night-blue panel "Stuck? We'll light the way." with support phone (call or
+  WhatsApp, hours), email, help website, a "Copy details for support" button
+  (version, server address, PC name) and "Forgot your password? Your
+  administrator resets it."
+- Product and company show as `[Product name]` / `[Company name]` /
+  placeholder logo until the trademark is filed; then Jugnix Trade by Jugnix,
+  "Many lights. One glow."
+
+- **Product mark on sign-in: in the sign-in card's foot** (chosen 2026-10-03).
+- **Main app header: option 1** (chosen 2026-10-03) -- the agency's logo,
+  name and tagline in the window's own title bar, then the selected firm's
+  name; the menu bar starts with Home; the product at the foot.
+
+Still open with the owner, when they like: a look at steps 5-6 (Settings >
+Branding, Help > About).
+
+**UI changes to build** (on top of rows 1-5 of the table below):
+
+| # | Change | Where |
+| --- | --- | --- |
+| U1 | Installer page 3 Branding (server install only), writing the server's branding record; client installs skip it | `packaging/AgencyPlatform.iss` + a first-start hand-off to the backend |
+| U2 | Product identity from one place: product name, company name, company logo, tagline, product logo/icon, support phone/email/website/hours; placeholders until the trademark is filed. **Written by every installer and update installer** (an update replaces it, so a rebrand ships as an update); nothing in the code names the product or the company; customers cannot edit it | `desktop/config/branding.json` (package-built, not customer-edited), `Runner.rc`, `.iss` display strings only -- keep the ProgramData folder, service names and AppId |
+| U3 | Phase 2 sign-in, layout B: agency logo + name + tagline in the dark bar and the card head; window title "<product> - Sign in"; product mark in the sign-in card's foot; status line with server state, version, "Powered by <product>" | phase 2 sign-in screen |
+| U4 | Support panel beside the sign-in card, with "Copy details for support" | phase 2 sign-in screen |
+| U5 | First-run setup step 1 "Your agency", pre-filled from the installer, skippable with a "Finish setting up" card on Home | phase 2, after the first administrator's first sign-in |
+| U6 | Owner 2026-10-03: **the menu bar starts with Home**; the **agency's logo, name and tagline get the top strip** (**option 1 chosen 2026-10-03**: in the window's own title bar -- no extra height); the **selected firm's name beside the agency, as plain text** ("agency > firm"; nothing when no firm is selected); **the firm switcher stays in the menu bar** as today; a practice/demo firm carries a "PRACTICE - not real books" mark (suggested); "Finish setting up" prompt there when not given; **our product at the right of the status line** (logo, version, by company; click = About); calm -- nothing blinks or animates | `desktop/lib/phase2/app_menu_bar.dart`, the shell |
+| U7 | Settings > Platform > Branding with preview; product and company shown read-only | phase 2 Settings |
+| U8 | Help > About: product, version, build, licensed to, maker, support details, "Copy details for support" -- **parked by the owner 2026-10-03, to decide later** (the Help menu and About screen are not yet reviewed) | phase 2 Help menu |
+
 **Today:** the phase 1 sign-in screen reads `config\branding.json` beside the
 executable -- `app_name`, `company_name`, `logo_path`, two colours. That file
 is per PC and edited by hand, so ten PCs mean ten edits, Setup overwrites it
@@ -5222,12 +5275,60 @@ documents.
 | **Our company** (the maker) | Fixed at build time (`AppPublisher` in `packaging/AgencyPlatform.iss`, `CompanyName` in `Runner.rc`, the product constants); **never editable by a customer** | Installer and Windows Apps list as publisher; exe properties; sign-in footer "Powered by Agency Platform"; the status line's right end "Agency Platform 1.0.2 - <maker>"; Help > About (version, build, maker, support email, phone, website, copyright, "Copy details for support"). **Not** on the customer's printed invoices |
 
 **The installer asks nothing about branding** -- a name typed there would sit
-on one PC, and the server record is what every PC reads.
+on one PC, and the server record is what every PC reads. *(Superseded
+2026-10-03: the server installer now takes it and writes the server's record,
+so every PC still reads one place -- see "Current state" above.)*
 
 **Owner owes:** the company's legal name, support email, phone and website
 (the wireframe shows "Your Company Pvt Ltd"), and the product `.ico` (§47).
 
 ## 72. Configuration apart from the daily menu, shown by permission
+
+**Status, 2026-10-04: built.** Light menu and Settings > Set up in #1060, favourites (D-UI-3) in #1061. Each makes the server calls in the rules table below and no more.
+
+**Reopened by the owner 2026-10-03** while reviewing the branding wireframes:
+"some menu items have settings also". The comparison now lives in
+`dist\windows\Design\Branding wireframes.html`, step 4, switch "Set-up
+lists", drawn from `menu_layout.dart` as built that day: inside the menus
+(Sell: Pricing, Territories & routes; Accounts: Structure; Masters: Parties,
+Items, Locations lists, all under CONFIGURATION) versus **apart, behind the
+gear** (option B, recommended): each drop-down keeps daily work and points to
+Settings, which gains a SET UP part, and Admin leaves the bar for Settings >
+Platform. A third option was drawn the same day after the owner said the
+Sell drop-down fills half the screen and may feel heavy to a customer: a
+**light menu** (recommended) -- each drop-down shows only daily work (Sell 7
+items: Quotations, Sales Orders, Delivery Notes, Sales Invoices, Returns &
+notes, Receipts, Customer Statements; today 27), with "All Sell screens (20)"
+one click away, the set-up lists behind the gear, stages the firm switched off
+never shown, Approvals waiting on Home's to-do list, and favourites and Ctrl+K
+reaching everything. Same for Buy, Stock, Accounts and Masters. **Owner
+chose the light menu on 2026-10-03.** Drawn the same day for review before it
+is built (steps 4 and 7-9 of the branding wireframes): "Returns & notes" opens
+a short list beside it; **favourites** -- a star on every menu item, the
+person's own list on Home and first in Ctrl+K, kept on the server (D-UI-3);
+**Settings > Set up** -- today's Settings plus SET UP (Pricing, Territories &
+routes, Account structure, Party lists, Item lists, Locations) and PLATFORM
+(Admin's People, Firms, System), each section a set of cards, with a search
+box; and **My preferences** (§73). View "Menu and Setup" of the phase 2
+wireframes is retired. **Owner approved Settings > Set up and My preferences
+on 2026-10-04, on one condition: fewer server calls, performance kept.**
+
+**Performance rules for the build** (owner, 2026-10-04):
+
+| What | Server calls |
+| --- | --- |
+| Light menu, "All ... screens", Returns & notes, Settings > Set up and its search | **None.** Built in the app from the menu catalogue, the permissions already held since sign-in, and the firm's stage switches read once when the firm is chosen and kept for the session. A list's data is read only when its tab opens, as today. |
+| Favourites on Home and in Ctrl+K | **None to read.** Kept in the existing preferences record (`dashboard_layout` JSON, a list of menu paths -- no new table or endpoint), which `GET /api/v1/me/preferences` already returns once at sign-in. |
+| Starring or un-starring | The screen changes at once; **one** `PUT /api/v1/me/preferences` saves, debounced about a second, so starring five screens is one call. A failed save says so and puts the stars back. |
+| Opening My preferences | **None.** The dialog opens from the copy already in memory. |
+| Saving My preferences | **One** `PUT`, changed fields only; theme, text size and date format apply at once without a reload. Text size stays a this-PC setting with no server field. |
+
+A test per row should count the requests (the desktop's fake API client
+already records them), so a later change cannot add a call unnoticed.
+
+**Favourites (D-UI-3) join this UI backlog** (owner, 2026-10-04) and are built
+with the light menu, which relies on them. Screenshots 12-21 in `Branding wireframes -
+screenshots\`.
 
 Owner, 2026-09-29: separate configuration from the menu items people use
 every day -- configuration is rarely used, and mostly by administrators --
@@ -5295,6 +5396,8 @@ managers) stay in Sell.
 
 ## 73. One standard for dialogs, and the review of every dialog against it
 
+**Status, 2026-10-04: My preferences built (#1062).** It holds start-in firm, first screen, theme, text size (this PC only) and date format. It opens from the user menu, where it replaces Primary firm in phase 2, and from Settings > This PC and me. Opening it makes no request; saving makes one PATCH of the changed fields, plus the primary-firm call when that changes. Two decisions were made by convention. **Rows per page** is left out because no screen reads it yet. The **date format** defaults to dd-MM-yyyy, the phase 2 convention; migration `20261004_0299` moves accounts still on the old ISO default, which nobody could have chosen. The dialog fixes (D-DLG-*) below are still open.
+
 Owner, 2026-09-29: review, for the new UI, every form that opens on a click,
 like Change password; and a user sets his own preferences -- theme, and the
 firm he starts in when he has several.
@@ -5342,7 +5445,9 @@ is missing is one place: a **My preferences** dialog (view 11) -- start-in
 firm, first screen, theme, text size, date format, rows per page -- opened
 from the user menu and from Setup's *This PC and me* (§72), with "switching
 firm on the bar is for this session; Start in firm is for next time" said on
-it.
+it. Redrawn 2026-10-03 as step 9 of `dist\windows\Design\Branding
+wireframes.html`, with the user menu that opens it; favourites are kept with
+these preferences.
 
 ## 74. Money against a full ERP checklist: what else to consider
 
@@ -5628,3 +5733,49 @@ shelf life per customer (allocation passes over a short batch; a hand-picked
 one is blocked or warned, migration 0223). Row 4, pinning a batch on the order,
 built the same day (migration 0224), and row 7, the batch's own MRP and
 selling price (decision A41, migration 0225). §79 is complete.
+
+## 80. Fewer server calls: a client-side cache for preferences and reference data
+
+**Status, 2026-10-04: deferred by the owner** ("we will do it later"), after UI items 1-4 were built.
+
+Owner, 2026-10-04, approving Settings > Set up and My preferences (§72, §73):
+"make sure we reduce server calls and keep performance" -- and asked whether
+preference and static calls can be cached on the UI side. **They can; today
+nothing is.** Kept with the UI backlog.
+
+**What the desktop does today** (survey of `desktop/lib`, 2026-10-04):
+
+- **No response cache at all.** `ApiClient.request` sends every call to the
+  network. Only two widgets memoise a read for their own lifetime.
+- **Reference data is re-read on every open, by every screen, unshared:**
+  branches (`/branches`, 21 call sites in 19 files), warehouses (19 in 18),
+  units (`/uom-framework/uoms`, 12 in 10), tax profiles (12 in 11), customer
+  groups (6), places (8), product categories (4), active features (2). Several
+  page through everything at the largest page size.
+- `DocumentLineLabels.load` reads products, units, tax profiles, branches and
+  warehouses **one after another** each time the sales order or sales invoice
+  list loads.
+- The shell already holds sales and purchase workflow settings and the active
+  modules, yet four document screens fetch them again.
+- **Home** fires 8 tiles plus 6 to-do summaries at once; the register and the
+  day's settlements page sequentially (up to 50 pages each) -- 14 requests at
+  least, well past 30 on a busy firm -- and all of it again on every firm
+  switch.
+- Sign-in reads `/me/preferences`, `/me/firms`, `/me` and the work defaults one
+  after another; they do not depend on each other.
+
+**The ask:**
+
+| # | Item | Detail |
+| --- | --- | --- |
+| 1 | **One reference-data cache** | A session store keyed by firm: branches, warehouses, units, tax profiles, customer groups, product categories, places, active features and modules, workflow settings. Read once on first use, shared by every screen and picker; cleared on firm switch and sign-out. |
+| 2 | **Kept fresh without polling** | A short expiry (about 10 minutes) as the safety net; the app's own saves invalidate the entry they touched (save a warehouse -> the warehouse list is dropped); the screen that manages a list always reads it fresh; a "Refresh" on any picker. |
+| 3 | **ETag revalidation** | Lists that publish a version answer `304 Not Modified` to `If-None-Match`, so a re-check costs no payload. Backend side: a list-level ETag on the reference endpoints. |
+| 4 | **Preferences and favourites** | Read once at sign-in, held in memory, written back with one debounced `PUT` of changed fields (§72 rules). |
+| 5 | **Sign-in in parallel** | The four sign-in reads together, not in a row. |
+| 6 | **Home lighter** | One summary endpoint for the tiles and to-do counts, or the existing ones read from the cache where they are reference data; no 50-page client-side paging for a total the server can sum. |
+| 7 | **Remove duplicates** | Document screens use the shell's workflow settings and active modules instead of re-reading them. |
+| 8 | **Guard** | Desktop tests that count requests for opening a document editor twice, switching firm and loading Home, so a later change cannot add calls unnoticed. |
+
+Never cached: documents, balances, stock, prices -- anything a person acts on
+must be read live.

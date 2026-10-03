@@ -320,7 +320,7 @@ None open (2026-10-02). D-TEST-2 and D-UI-2 are under Fixed.
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
 
-None open (2026-10-01).
+None (2026-10-04). D-UI-3 is under Fixed.
 
 ---
 
@@ -328,6 +328,7 @@ None open (2026-10-01).
 
 | Id | Fixed | Summary | PR | Guard |
 | --- | --- | --- | --- | --- |
+| D-UI-3 | 2026-10-04 | **Favourites could not be chosen** (owner, 2026-10-03: "favourites not working or not shown"). Home's FAVOURITES box was a fixed list of thirteen screens with no star anywhere. Now every drop-down item shows a star on hover; the person's own list fills Home's FAVOURITES box (x on hover removes one, drag to reorder) and comes first in Ctrl+K. It is kept in the existing preferences record (`dashboard_layout.favourites`), read at sign-in with no request of its own, and saved by one PUT debounced 800 ms. | #1061 | `desktop/test/favourites_test.dart` |
 | D-PERF-1 | 2026-10-03 | The first `quick-check` of WHOLE01 (2026-10-02, 1.4 GB free) found 38 of 278 routes past their target. Re-timed every route on WHOLE01 (`time_routes.py`, 404 timings): **two** were over -- the rest had been fixed by the work since, or were the low-memory run. `geo/localities` with no PIN code built 43,470 localities as entities; it and the PIN-code list now select the five columns shown (1.35 to 0.72 s in the service), ordered by name then id so equal names keep one order. `goods-receipts` was a cold first call (0.02 s warm). `firm-profile-assignments` -- platform-only, so not in a firm administrator's run -- answers 48 firms in 0.9 s warm when called on its own. Found by `quick-check`. | this PR | `test_sales_geography_masters.py` (the lists), `scripts/time_routes.py` (the timings) |
 | D-SELL-44 | 2026-10-03 | A bill of several delivery notes compared each later note's salesman, territory and route only with the **first** note's, so a first note naming no salesman let a second naming one salesman and a third naming another onto one bill. Each is now compared with the first note that names one -- the same rule the new tick list applies on screen. Found writing SEL-1. | this PR | `test_sales_invoice_module.py::test_notes_of_two_salesmen_are_refused_whatever_the_first_says` |
 | D-UI-2 | 2026-10-02 | Filed as D-UI-1, an id already taken by a fixed row of 2026-09-26. The GSTR-3B screen still printed `inward_supplies`, which the server stopped sending once table 4 was derived, so a blank line sat under the input credit; it is gone, and a response with no table 4 at all now says so in words rather than showing nothing or zero. The GST Documents dialog started its dispatch policy at Off and fell back to Off for a value it did not know, while the server's default is Warn; both now start at Warn. Found in the 10-02 documentation audit. | this PR | `gst_return_page_test.dart` (`a summary without table 4 says so`), `gst_dispatch_policy_test.dart` (`a value the screen does not know reads as the server default`) |

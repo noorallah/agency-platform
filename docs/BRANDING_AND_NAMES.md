@@ -1,8 +1,11 @@
 # Logo, agency name and company name: findings for review
 
-Prepared 2026-09-28 for the owner to review. Nothing here is built yet; the
-build items are backlog §71 (`docs/BACKLOG.md`). The wireframes are views 8
-and 9 of `dist\windows\Design\UI phase 2 wireframes.html`.
+Prepared 2026-09-28 for the owner to review; **updated 2026-10-03** after the
+owner asked for the agency's branding to be given during installation and for
+placeholders for our own product and company. Nothing here is built yet; the
+build items are backlog §71 (`docs/BACKLOG.md`), parked as B9 until the
+Jugnix trademark is filed. The wireframes are
+`dist\windows\Design\Branding wireframes.html` (section 6).
 
 ## 1. What the owner asked
 
@@ -60,9 +63,9 @@ Sources:
 
 | Name | Example | Who sets it, and when | Where it shows |
 | --- | --- | --- | --- |
-| **The agency** (the customer who bought the product) | Sri Lakshmi Agencies | Its first administrator, in a **first-run setup** after the first sign-in; changed any time in **Settings > Platform > Branding** | Sign-in screen; **left end of the menu bar on every screen**; window and taskbar title; "Licensed to" in About |
+| **The agency** (the customer who bought the product) | Sri Lakshmi Agencies | On the **server installer's Branding page** (optional); if left blank, the **first-run setup** asks after the first sign-in; changed any time in **Settings > Platform > Branding** | Sign-in screen; **left end of the menu bar on every screen**; window and taskbar title; "Licensed to" in About |
 | **The firm** (the business being worked in) | QA01 Traders | As today, when the firm is created | Firm switcher, Home greeting, the firm's letterhead on printed documents (unchanged) |
-| **Our company** (the maker) | *owner to supply* | Fixed when the product is built; **never editable by a customer** | Installer and Windows' Apps list as publisher; exe properties; "Powered by Agency Platform" on sign-in; right end of the status line; Help > About |
+| **Our company** (the maker) and **our product** | Jugnix / Jugnix Trade, shown as `[Company name]` / `[Product name]` with a placeholder logo until the trademark is filed | In the installer package's branding file; **locked at install** (approved 2026-10-03); **a new installer or an update installer can change any of them** -- company name, logo, tagline, product name -- so a rebrand ships as an update | Installer and Windows' Apps list as publisher; exe properties; "Powered by <product>" on sign-in; right end of the status line; Help > About |
 
 ### 4.1 The agency's branding
 
@@ -81,17 +84,25 @@ Sources:
   the version; its name and logo apply only until the server's record is set,
   so an installation that set them by hand keeps them.
 
-### 4.2 When it is given: the first-run setup, not the installer
+### 4.2 When it is given: on the server install, with the first-run setup as the fallback
 
-- Setup asks only technical questions: server or client, the PostgreSQL
-  administrator, the install folder.
-- After the **first administrator signs in for the first time**, a short
-  setup opens: **1. Your agency** (name, tagline, logo, colour, with a preview)
-  > **2. First firm** > **3. Users** > **4. Done**.
-- It can be skipped. Home then shows a "Finish setting up" card until it is
-  done.
-- **Why not in the installer:** a name typed there would sit on one PC only,
-  and each client PC would ask again. The server record is what every PC reads.
+Changed 2026-10-03 at the owner's request (the 2026-09-28 proposal kept it out
+of the installer).
+
+- The installer has six pages: 1. Welcome, 2. Server or client, **3. Branding**,
+  4. Database, 5. Install folder, 6. Ready.
+- **Page 3 appears on a server install only.** Agency name, tagline and logo,
+  all optional, are written to the **server's** branding record, so every PC
+  shows them. A client install never asks; it reads the server. (This answers
+  the earlier objection: what is typed is not held on one PC.)
+- The right half of page 3 shows our product name, company and product logo
+  from the package, **locked** (owner approved the installer 2026-10-03; the
+  "editable" reseller variant is not taken).
+- After the **first administrator signs in for the first time**, a short setup
+  opens: **1. Your agency** > **2. First firm** > **3. Users** > **4. Done**.
+  If the installer took the branding it is shown filled in to check; if it was
+  left blank it is asked here. It can be skipped; Home then shows a "Finish
+  setting up" card until it is done.
 
 ### 4.3 After sign-in (the main app)
 
@@ -99,13 +110,13 @@ Sources:
   Home. Below 820 px wide only the logo shows.
 - **Window and taskbar title:** "QA01 Traders - Sri Lakshmi Agencies".
 - **Firm switcher:** the firm being worked in, as today.
-- **Status line, right end:** "Agency Platform 1.0.2 - <our company>".
+- **Status line, right end:** "<product> 1.0.2 - <our company>".
 - **Help menu:** keyboard shortcuts, user guide, contact support, About.
 
 ### 4.4 Our company's name
 
 - Shown on the installer's welcome page and in Windows' Apps list as publisher,
-  in the exe's properties, as "Powered by Agency Platform" at the foot of the
+  in the exe's properties, as "Powered by <product>" at the foot of the
   sign-in screen, at the right end of the status line, and in **Help > About**:
   product, version, build, "Licensed to <agency>", server, made by, support
   email, phone, website, copyright, and a "Copy details for support" button.
@@ -121,8 +132,28 @@ agency's logo, name and tagline.
 | Layout | Description | Suits |
 | --- | --- | --- |
 | **A. Brand panel + form** | A large dark panel on the left with the logo, name and tagline; the form on the right | The most "branded"; the common pattern on web products |
-| **B. Home's frame, one card** *(recommended)* | The dark bar at the top carries the logo and name and **becomes the menu bar after sign-in**, so nothing jumps; one plain card in the middle | Closest to Home, Tally and Business Central; the quietest |
+| **B. Home's frame, one card** *(chosen 2026-10-03)* | The dark bar at the top carries the logo and name and **becomes the menu bar after sign-in**, so nothing jumps; one plain card in the middle | Closest to Home, Tally and Business Central; the quietest |
 | **C. Home's frame, pick who you are** | As B, plus tiles of the people who signed in on this PC; a person clicks their name and types only the password; "Someone else" gives the full form | Shared billing-counter PCs |
+
+**In every layout the product identifies itself** (owner, 2026-10-03): the
+product's mark -- product logo, product name, "by <company>" and the tagline --
+sits under the sign-in form, and the window title reads "<product> - Sign in",
+so anyone who sees the screen can tell which product it is and whose. The
+agency's branding stays the larger, upper element. Where the mark sits is offered three
+ways (a separate badge under the form was tried first and looked detached):
+
+1. **In the sign-in card's own foot** *(recommended)* -- part of the form, as
+   Microsoft's and Zoho's sign-in boxes carry their mark.
+2. **At the right of the dark top bar**, opposite the agency.
+3. **A night-blue product band** replacing the status line, in the Jugnix
+   colours.
+
+**Our support beside the form** (owner, 2026-10-03): a night-blue panel in the
+space beside the sign-in card -- "Stuck? We'll light the way." -- with the
+support phone (call or WhatsApp, with hours), email, help website, a "Copy
+details for support" button (version, server, PC name) and a line that a
+forgotten password is reset by the firm's administrator. Placeholders until
+the company is registered. In layout C it is a third column.
 
 In every layout: username or email, password with show/hide, remember
 username, keep me signed in, Sign in on Enter, Forgot password, the server's
@@ -132,23 +163,32 @@ and a narrow-window form.
 
 ## 6. The wireframes
 
-Open `dist\windows\Design\UI phase 2 wireframes.html` in a browser.
+Open `dist\windows\Design\Branding wireframes.html` in a browser. It holds
+only this subject, as six steps in the order a customer meets them:
+1. Installer, 2. Sign in, 3. First-run setup, 4. Main app,
+5. Settings > Branding, 6. Help > About. A box at the top lists what is still open. Switches show the agency's branding given or not, our product as a
+placeholder or as Jugnix Trade, the sign-in layout (A, B, C) and the product
+fields at install (locked or editable).
 
-- **View 8, Sign in:** a "Layout" switch for A, B and C.
-- **View 9, Logo and names:** tabs for 1. Installer, 2. First-run setup,
-  3. Main app, 4. Settings > Branding, 5. Help > About.
-- On both views, "Branding: not yet set / configured" shows the screens before
-  and after the agency sets its branding. The menu bar in every other view
-  follows the same switch.
+Screenshots of the main states are in
+`dist\windows\Design\Branding wireframes - screenshots\`. Earlier versions
+(views 8 and 9 of the phase 2 wireframes, the 09-28 review PDF and the 09-29
+and 10-03 screenshot sets) are in `dist\windows\Design\_old (superseded)\`.
 
 ## 7. For the owner to decide or supply
 
-1. **Sign-in layout:** A, B or C (B recommended).
-2. **Our company's details:** legal name, support email, phone, website. The
-   wireframes show "Your Company Pvt Ltd" meanwhile.
-3. **The product icon** (`.ico`) for the window and taskbar, still owed
-   (backlog §47).
-4. **Confirm the proposal in section 4**, especially: branding entered in the
-   first-run setup rather than the installer, and our name kept off the
-   customer's invoices.
-5. **Merge PR #835** (backlog §71), or change it first.
+1. ~~Sign-in layout~~ -- **decided 2026-10-03: B** (Home's frame, one card),
+   with our support panel beside it, and the product mark in the card's foot.
+1a. ~~Main app header~~ -- **decided 2026-10-03: option 1**: the agency's logo,
+   name and tagline in the window's own title bar, then the selected firm's
+   name (nothing when no firm is selected); the menu bar starts with Home and
+   keeps the firm switcher; our product at the right of the status line.
+2. ~~Product name and logo at install~~ -- **decided 2026-10-03: locked**; the
+   installer wireframe is approved. Our company name, logo, tagline and
+   product name are changed by us through an installer or update installer,
+   never hard-coded.
+2a. ~~First-run setup~~ -- **approved 2026-10-03**.
+3. **Our company's details** for Help > About: support email, phone, website
+   (placeholders until the company is registered).
+4. **The logo set as vector files**, including the product icon (`.ico`) for
+   the window and taskbar (backlog §47), once a designer redraws it.
