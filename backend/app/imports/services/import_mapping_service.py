@@ -106,6 +106,13 @@ def _opening_stock(_: Session) -> tuple[Column, ...]:
     return COLUMNS
 
 
+def _bank_statement(_: Session) -> tuple[Column, ...]:
+    """Return the bank statement import's columns (ACC-1)."""
+    from app.bank_reconciliation.services.statement_import import COLUMNS
+
+    return COLUMNS
+
+
 IMPORT_KINDS: dict[str, ImportKind] = {
     "products": ImportKind("Products", "PRODUCT_IMPORT", _products),
     "customers": ImportKind("Customers", "CUSTOMER_IMPORT", _customers),
@@ -120,6 +127,7 @@ IMPORT_KINDS: dict[str, ImportKind] = {
     "supplier-catalogue": ImportKind(
         "Supplier catalogue", "VENDOR_IMPORT", _supplier_catalogue
     ),
+    "bank-statement": ImportKind("Bank statement", "JOURNAL_POST", _bank_statement),
 }
 
 #: Rows shown on the mapping screen.

@@ -51,7 +51,9 @@ class BankStatement(BaseEntity):
 
     firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
     ledger_account_id: Mapped[UUID] = mapped_column(
-        UUIDType(), ForeignKey("ledger_accounts.id", ondelete="RESTRICT"), nullable=False
+        UUIDType(),
+        ForeignKey("ledger_accounts.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     #: What the person called it, or the file's name.
     name: Mapped[str] = mapped_column(String(200), nullable=False)

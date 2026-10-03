@@ -253,7 +253,10 @@ class StockAdjustmentApprovalService:
                 StockAdjustmentRequest.status == status,
                 StockAdjustmentRequest.is_deleted.is_(False),
             )
-            .order_by(StockAdjustmentRequest.created_at.desc())
+            .order_by(
+                StockAdjustmentRequest.created_at.desc(),
+                StockAdjustmentRequest.id.desc(),
+            )
             .limit(500)
         ).all()
         return [self.response(row) for row in rows]
