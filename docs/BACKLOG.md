@@ -5294,7 +5294,15 @@ notes, Receipts, Customer Statements; today 27), with "All Sell screens (20)"
 one click away, the set-up lists behind the gear, stages the firm switched off
 never shown, Approvals waiting on Home's to-do list, and favourites and Ctrl+K
 reaching everything. Same for Buy, Stock, Accounts and Masters. **Owner
-chose the light menu on 2026-10-03.** Screenshots 12-21 in `Branding wireframes -
+chose the light menu on 2026-10-03.** Drawn the same day for review before it
+is built (steps 4 and 7-9 of the branding wireframes): "Returns & notes" opens
+a short list beside it; **favourites** -- a star on every menu item, the
+person's own list on Home and first in Ctrl+K, kept on the server (D-UI-3);
+**Settings > Set up** -- today's Settings plus SET UP (Pricing, Territories &
+routes, Account structure, Party lists, Item lists, Locations) and PLATFORM
+(Admin's People, Firms, System), each section a set of cards, with a search
+box; and **My preferences** (§73). View "Menu and Setup" of the phase 2
+wireframes is retired. Screenshots 12-21 in `Branding wireframes -
 screenshots\`.
 
 Owner, 2026-09-29: separate configuration from the menu items people use
@@ -5410,7 +5418,9 @@ is missing is one place: a **My preferences** dialog (view 11) -- start-in
 firm, first screen, theme, text size, date format, rows per page -- opened
 from the user menu and from Setup's *This PC and me* (§72), with "switching
 firm on the bar is for this session; Start in firm is for next time" said on
-it.
+it. Redrawn 2026-10-03 as step 9 of `dist\windows\Design\Branding
+wireframes.html`, with the user menu that opens it; favourites are kept with
+these preferences.
 
 ## 74. Money against a full ERP checklist: what else to consider
 

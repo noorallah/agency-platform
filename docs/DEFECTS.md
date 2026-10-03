@@ -319,7 +319,7 @@ None open (2026-10-02). D-TEST-2 and D-UI-2 are under Fixed.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
-| D-UI-3 | Medium | **Favourites cannot be chosen** (owner, 2026-10-03: "favourites not working or not shown"). UI_PHASE_2_DESIGN.md 4.3 promises a star on each drop-down item, favourites on Home and at the top of the command box; none of it was built. Home's FAVOURITES box is a fixed list of thirteen "daily" screens (`Phase2HomePage.screens`) cut to what the user may open -- nobody can add or remove one, there is no star anywhere, and the box disappears for a user who may open none of them. Matters more now the owner chose the light menu (backlog §72), which leans on favourites and Ctrl+K to reach everything else. | `desktop/lib/phase2/home_page.dart` (`screens`, `_yourScreens`: "Until the star of 4.3 lets somebody choose") |
+| D-UI-3 | Medium | **Favourites cannot be chosen** (owner, 2026-10-03: "favourites not working or not shown"). UI_PHASE_2_DESIGN.md 4.3 promises a star on each drop-down item, favourites on Home and at the top of the command box; none of it was built. Home's FAVOURITES box is a fixed list of thirteen "daily" screens (`Phase2HomePage.screens`) cut to what the user may open -- nobody can add or remove one, there is no star anywhere, and the box disappears for a user who may open none of them. Matters more now the owner chose the light menu (backlog §72), which leans on favourites and Ctrl+K to reach everything else. | `desktop/lib/phase2/home_page.dart` (`screens`, `_yourScreens`: "Until the star of 4.3 lets somebody choose"); the fix is drawn as step 7 of `dist\windows\Design\Branding wireframes.html` |
 
 ---
 
