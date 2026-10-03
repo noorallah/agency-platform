@@ -300,3 +300,46 @@ search compares text columns without a cast so the planner can use them.
 A column added to a search definition later wants its own index in a
 migration, and a name in the migration's `SEARCHED` that does not exist is
 caught by `test_trigram_search_columns.py`.
+
+## GST returns and outstanding (PLT-4, 2026-10-03)
+
+Measured on the service, warm, on PERF01 (109,566 invoices), on a machine
+with about 3 GB free and the dev server and Docker running -- so the
+absolute numbers are high and noisy; the before/after pairs were taken
+back to back. Every answer was snapshotted before and after and compared
+byte for byte: GSTR-1 and 3B for September and for the July-September
+quarter, and Record Receipt's, Record Payment's and Customer Outstanding's
+lists on PERF01 and WHOLE01. All identical.
+
+| Read | Before | After |
+| --- | ---: | ---: |
+| GSTR-1, a month | 6.4 s | 3.7 s |
+| GSTR-3B, a month | 4.9 s | 2.9 s |
+| GSTR-1, a quarter | 14.1 s | 9.5 s |
+| GSTR-3B, a quarter | 18.0 s | 7.5 s |
+| Customer Outstanding | 3.8 s | 2.7 s |
+| Record Receipt's list, every customer | 3.4 s | 2.6 s |
+| Record Payment's list, every supplier | 1.3 s | 1.1 s |
+
+What changed:
+
+- **The returns read the columns they use.** An invoice is loaded with the
+  nine columns the returns read (`_INVOICE_COLUMNS`), a customer with its
+  name, GSTIN and registration type, and a product not as an entity at all
+  but as its code and name. Anything else still loads on touch, so a missed
+  column costs a statement rather than a wrong figure -- and the statement
+  count per return did not move. 3B reads no product at all.
+- **A bill its allocations alone already cover is skipped in SQL.** Points,
+  returns, credit notes, write-offs and supplier returns only ever take more
+  off a bill; only a debit note to a customer adds to one, so a bill a debit
+  note names is always read. `test_outstanding_skips_covered_bills.py` holds
+  that case, and fails with the debit-note clause removed.
+
+**Not done, deliberately:** moving the GST arithmetic itself into grouped
+SQL, as the plan proposed. Each bill's tax is rounded to paise as one sum
+and the residual put on its last line (`settle_to_ledger`, D-CMP-4), so the
+returns carry the ledger's paise; a grouped `SUM(ROUND(...))` would need
+the same rounding in PostgreSQL and in SQLite (which the unit suite runs and
+which rounds floats), and a paisa wrong in a filed return costs more than a
+second saved. What is left is that arithmetic over 22,000 lines and 45,000
+tax rows a month: about 2 s of Python. A quarter stays over 3 s.

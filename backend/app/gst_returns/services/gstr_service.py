@@ -47,7 +47,7 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from sqlalchemy import ColumnElement, Row, Select, func, select, true
-from sqlalchemy.orm import Session, lazyload
+from sqlalchemy.orm import Session, lazyload, load_only
 
 from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ValidationError
@@ -101,6 +101,11 @@ def _bucket(component_code: str, amount: Decimal) -> GstBuckets:
     if CESS in code:
         return GstBuckets(cess=amount)
     return GstBuckets()
+
+
+def _decimal(value: object) -> Decimal:
+    """Return a column's value as a Decimal; a Numeric one already is one."""
+    return value if isinstance(value, Decimal) else Decimal(str(value))
 
 
 def _filed(value: Decimal) -> float:
@@ -231,6 +236,19 @@ class _PricedTax(Protocol):
 #: What `_priced` reads of each line: the columns, never the whole row, since
 #: a year of lines as ORM objects was a large part of the 64 s GSTR-1 took on
 #: the volume firm (backlog 56 C, step 4).
+#: What the returns read off an invoice (PLT-4) -- by name, here, and through
+#: ``getattr`` in ``_is_zero_rated``.
+_INVOICE_COLUMNS = (
+    SalesInvoice.firm_id,
+    SalesInvoice.customer_id,
+    SalesInvoice.invoice_number,
+    SalesInvoice.invoice_date,
+    SalesInvoice.status,
+    SalesInvoice.grand_total,
+    SalesInvoice.cancel_reason,
+    SalesInvoice.place_of_supply,
+    SalesInvoice.buyer_gst_registration_type,
+)
 _LINE_COLUMNS = (
     SalesInvoiceLine.id,
     SalesInvoiceLine.sales_invoice_id,
@@ -602,7 +620,10 @@ class GstReturnService:
         zero_rated_buckets = GstBuckets()
         nil_or_exempt = non_gst = ZERO
         for invoice, customer, lines in self._invoices(
-            firm_scope=firm_scope, from_date=from_date, to_date=to_date
+            firm_scope=firm_scope,
+            from_date=from_date,
+            to_date=to_date,
+            with_products=False,
         ):
             # Exports and supplies to an SEZ are zero-rated, 3.1(b), whether
             # IGST was paid on them or they went under an LUT (backlog 75).
@@ -1222,7 +1243,14 @@ class GstReturnService:
                 unplaced.add(invoice.id)
         return unplaced
 
-    def _invoices(self, *, firm_scope: UUID, from_date: date, to_date: date) -> list[
+    def _invoices(
+        self,
+        *,
+        firm_scope: UUID,
+        from_date: date,
+        to_date: date,
+        with_products: bool = True,
+    ) -> list[
         tuple[
             SalesInvoice,
             Customer,
@@ -1235,6 +1263,10 @@ class GstReturnService:
         was due: that month was filed with the bill in it, and the
         cancellation belongs to the month it happened in (D-CMP-11). One
         cancelled before the due date is dropped, as it always was.
+
+        ``with_products`` is False where nothing reads the product (3B): the
+        HSN summary is the only reader, and loading a month's products was a
+        tenth of the return (PLT-4).
         """
         declared = (
             SalesInvoice.firm_id == firm_scope,
@@ -1247,6 +1279,10 @@ class GstReturnService:
             self._session.scalars(
                 select(SalesInvoice)
                 .where(*declared)
+                # The columns the return reads, not the hundred an invoice
+                # carries: loading whole rows was the larger half of reading
+                # a month (PLT-4). Any other attribute still loads on touch.
+                .options(load_only(*_INVOICE_COLUMNS), lazyload("*"))
                 .order_by(SalesInvoice.invoice_date.asc())
             ).all()
         )
@@ -1261,6 +1297,7 @@ class GstReturnService:
                 or self._cancelled_after_filing(row, cancelled_on.get(row.id))
             ],
             among=select(SalesInvoice.id).where(*declared),
+            with_products=with_products,
         )
 
     def _cancelled_after_filing(self, invoice: SalesInvoice, on: date | None) -> bool:
@@ -1415,6 +1452,7 @@ class GstReturnService:
         invoices: list[SalesInvoice],
         *,
         among: Select[tuple[UUID]] | None = None,
+        with_products: bool = True,
     ) -> list[
         tuple[
             SalesInvoice,
@@ -1475,7 +1513,11 @@ class GstReturnService:
                 ).where(part, SalesInvoiceLineTax.is_deleted.is_(False))
             ).all():
                 taxes[component.sales_invoice_line_id].append(component)
-        products = self._products(list({line.product_id for line in lines}))
+        products = (
+            self._products(list({line.product_id for line in lines}))
+            if with_products
+            else {}
+        )
         customers = self._customers(list({invoice.customer_id for invoice in invoices}))
         by_invoice: dict[UUID, list[Row[Any]]] = defaultdict(list)
         for line in lines:
@@ -1493,14 +1535,14 @@ class GstReturnService:
                         [
                             TaxComponent(
                                 code=component.component_code,
-                                percentage=Decimal(str(component.percentage)),
-                                amount=Decimal(str(component.amount)),
+                                percentage=_decimal(component.percentage),
+                                amount=_decimal(component.amount),
                             )
                             for component in taxes.get(line.id, [])
                         ]
                     ),
                     self._billed(line.hsn_sac, products.get(line.product_id)),
-                    Decimal(str(line.current_invoice_quantity)),
+                    _decimal(line.current_invoice_quantity),
                     self._kind(line, taxes.get(line.id, [])),
                 )
                 for line in sorted(
@@ -1924,8 +1966,8 @@ class GstReturnService:
                         [
                             TaxComponent(
                                 code=component.component_code,
-                                percentage=Decimal(str(component.percentage)),
-                                amount=Decimal(str(component.amount)),
+                                percentage=_decimal(component.percentage),
+                                amount=_decimal(component.amount),
                             )
                             for component in taxes.get(line.id, [])
                             if not component.included_in_price
@@ -2158,7 +2200,7 @@ class GstReturnService:
         }
 
     @staticmethod
-    def _billed(code: str | None, product: Product | None) -> _Billed | None:
+    def _billed(code: str | None, product: _Billed | None) -> _Billed | None:
         """Return one line's code as billed, falling back to the product's."""
         if product is None and not code:
             return None
@@ -2349,17 +2391,20 @@ class GstReturnService:
         return crossed
 
     @over_chunks("ids")
-    def _products(self, ids: list[UUID]) -> dict[UUID, Product]:
-        """Return the products named by a set of lines."""
+    def _products(self, ids: list[UUID]) -> dict[UUID, _Billed]:
+        """Return the code and name of the products named by a set of lines.
+
+        Two columns, not the product: a month names thousands of products,
+        and building each as an entity was a tenth of the return (PLT-4).
+        """
         if not ids:
             return {}
         return {
-            row.id: row
-            for row in self._session.scalars(
-                select(Product).where(Product.id.in_(ids))
-                # Its eager collections are never read here, and loading them
-                # cost as much again as the rows (backlog 56 C, step 4).
-                .options(lazyload("*"))
+            row.id: _Billed(hsn_sac=row.hsn_sac, name=row.name)
+            for row in self._session.execute(
+                select(Product.id, Product.hsn_sac, Product.name).where(
+                    Product.id.in_(ids)
+                )
             ).all()
         }
 
@@ -2373,8 +2418,17 @@ class GstReturnService:
             for row in self._session.scalars(
                 select(Customer).where(Customer.id.in_(ids))
                 # Its eager collections are never read here, and loading them
-                # cost as much again as the rows (backlog 56 C, step 4).
-                .options(lazyload("*"))
+                # cost as much again as the rows (backlog 56 C, step 4); nor
+                # is more than who they are for GST (PLT-4). Anything else
+                # still loads on touch.
+                .options(
+                    load_only(
+                        Customer.name,
+                        Customer.gst_number,
+                        Customer.gst_registration_type,
+                    ),
+                    lazyload("*"),
+                )
             ).all()
         }
 
