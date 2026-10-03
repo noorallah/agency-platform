@@ -5278,6 +5278,8 @@ so every PC still reads one place -- see "Current state" above.)*
 
 ## 72. Configuration apart from the daily menu, shown by permission
 
+**Status, 2026-10-04: built.** Light menu and Settings > Set up in #1060, favourites (D-UI-3) in #1061. Each makes the server calls in the rules table below and no more.
+
 **Reopened by the owner 2026-10-03** while reviewing the branding wireframes:
 "some menu items have settings also". The comparison now lives in
 `dist\windows\Design\Branding wireframes.html`, step 4, switch "Set-up
@@ -5387,6 +5389,8 @@ list; whether Price Lists and Promotions (changed weekly by some sales
 managers) stay in Sell.
 
 ## 73. One standard for dialogs, and the review of every dialog against it
+
+**Status, 2026-10-04: My preferences built (#1062).** It holds start-in firm, first screen, theme, text size (this PC only) and date format. It opens from the user menu, where it replaces Primary firm in phase 2, and from Settings > This PC and me. Opening it makes no request; saving makes one PATCH of the changed fields, plus the primary-firm call when that changes. Two decisions were made by convention. **Rows per page** is left out because no screen reads it yet. The **date format** defaults to dd-MM-yyyy, the phase 2 convention; migration `20261004_0299` moves accounts still on the old ISO default, which nobody could have chosen. The dialog fixes (D-DLG-*) below are still open.
 
 Owner, 2026-09-29: review, for the new UI, every form that opens on a click,
 like Change password; and a user sets his own preferences -- theme, and the
@@ -5725,6 +5729,8 @@ built the same day (migration 0224), and row 7, the batch's own MRP and
 selling price (decision A41, migration 0225). §79 is complete.
 
 ## 80. Fewer server calls: a client-side cache for preferences and reference data
+
+**Status, 2026-10-04: deferred by the owner** ("we will do it later"), after UI items 1-4 were built.
 
 Owner, 2026-10-04, approving Settings > Set up and My preferences (§72, §73):
 "make sure we reduce server calls and keep performance" -- and asked whether
