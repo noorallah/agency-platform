@@ -321,6 +321,7 @@ abstract final class MenuLayout {
             AppModule.accounting, 'contra-vouchers', 'Contra Vouchers'),
         MenuItemSpec(
             AppModule.accounting, 'bank-reconciliation', 'Bank Reconciliation'),
+        MenuItemSpec(AppModule.accounting, 'tally-export', 'Export to Tally'),
       ]),
       MenuGroupSpec('Statements', [
         MenuItemSpec(AppModule.accounting, 'trial-balance', 'Trial Balance'),

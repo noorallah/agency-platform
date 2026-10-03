@@ -15,6 +15,7 @@ import 'contra_voucher_page.dart';
 import 'bank_details_page.dart';
 import 'payment_runs_page.dart';
 import 'post_dated_cheque_page.dart';
+import 'tally_export_page.dart';
 import 'tds_challan_page.dart';
 import 'expenses_page.dart';
 import 'journal_entries_page.dart';
@@ -318,6 +319,12 @@ class _FinanceWorkspaceState extends State<FinanceWorkspace> {
               hasActiveFirm: widget.hasActiveFirm,
             ),
           'bank-reconciliation' => BankReconciliationPage(
+              api: widget.api,
+              preferences: widget.preferences,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
+            ),
+          'tally-export' => TallyExportPage(
               api: widget.api,
               preferences: widget.preferences,
               permissions: widget.permissions,

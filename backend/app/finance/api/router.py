@@ -120,6 +120,11 @@ from app.finance.services.opening_balances import (
     OpeningLineInput,
     OpeningTrialBalanceService,
 )
+from app.finance.services.tally_export import (
+    TallyExportService,
+    TallyMappingResponse,
+    TallyMappingsWrite,
+)
 from app.finance.services.tds_194q import Tds194QService
 from app.finance.services.tds_challans import TdsChallanService
 from app.finance.services.tds_register import TdsRegisterService
@@ -1789,3 +1794,49 @@ def remove_journal_attachment(
     )
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/tally/mappings", response_model=ApiResponse[list[TallyMappingResponse]])
+def tally_mappings(
+    scope: LedgerViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[TallyMappingResponse]]:
+    """Return every account with its name and group in the CA's Tally (MSG-5)."""
+    return ApiResponse(data=TallyExportService(db).mappings(scope.firm_id))
+
+
+@router.put("/tally/mappings", response_model=ApiResponse[list[TallyMappingResponse]])
+def replace_tally_mappings(
+    data: TallyMappingsWrite,
+    scope: JournalPostScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[TallyMappingResponse]]:
+    """Replace the firm's Tally ledger names and groups (MSG-5)."""
+    return ApiResponse(
+        data=TallyExportService(db).replace_mappings(
+            scope.firm_id, data, actor_id=scope.actor_id
+        ),
+        message="Tally names saved.",
+    )
+
+
+@router.get("/tally/export", response_class=Response)
+def tally_export(
+    scope: LedgerViewScope,
+    from_date: Annotated[date, Query()],
+    to_date: Annotated[date, Query()],
+    db: Session = Depends(get_db),
+) -> Response:
+    """Download a period's ledgers and vouchers as TallyPrime import XML."""
+    content = TallyExportService(db).export(
+        scope.firm_id, from_date=from_date, to_date=to_date
+    )
+    return Response(
+        content=content,
+        media_type="application/xml",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="tally-{from_date:%Y%m%d}-{to_date:%Y%m%d}.xml"'
+            )
+        },
+    )

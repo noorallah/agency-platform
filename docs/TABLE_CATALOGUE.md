@@ -230,6 +230,7 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
+| `tally_ledger_mappings` | firm store ¹ | What one account is called and grouped under in the CA's Tally (MSG-5). | `ledger_accounts` |
 | `account_groups` | firm store ¹ | Group ledger accounts for classification and report rollups. | `firms` |
 | `accounting_periods` | firm store ¹ | Represent one posting period inside a financial year. | `firms`, `financial_years` |
 | `ageing_settings` | firm store ¹ | The ageing bands a firm reads what it is owed and owes in (ACC-6). |  |
