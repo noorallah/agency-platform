@@ -140,6 +140,9 @@ abstract final class MenuLayout {
   static const String loyaltySchemeRoute = 'settings/loyalty-scheme';
   static const String tcsSettingsRoute = 'settings/tcs';
 
+  /// TDS on purchases under 194Q (ACC-8). A dialog, under Tax.
+  static const String tds194qSettingsRoute = 'settings/tds-194q';
+
   /// The Buying setting behind the gear: the largest order each role may
   /// approve (backlog 68 row 4). A dialog, like the Selling ones.
   static const String approvalLimitsRoute = 'settings/purchase-approval-limits';
@@ -453,6 +456,8 @@ abstract final class MenuLayout {
       MenuItemSpec(AppModule.administration, 'tax-settings', 'Tax Settings'),
       MenuItemSpec.setting(gstDocumentsRoute, 'GST Documents',
           permission: 'TAX_VIEW'),
+      MenuItemSpec.setting(tds194qSettingsRoute, 'TDS on Purchases (194Q)',
+          permission: 'ACCOUNT_VIEW'),
     ]),
     MenuGroupSpec('Business profile', [
       MenuItemSpec(

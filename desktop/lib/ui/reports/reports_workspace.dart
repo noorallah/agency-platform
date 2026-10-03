@@ -98,7 +98,7 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
 
   /// A dated or quarterly report is paged; a snapshot is not.
   static bool _paged(ReportDefinition report) =>
-      report.needsPeriod || report.quarterly;
+      (report.needsPeriod && report.onDateParam == null) || report.quarterly;
 
   static String _iso(DateTime value) =>
       value.toIso8601String().split('T').first;
@@ -197,7 +197,9 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
                 'page': '$page',
                 'page_size': '$_pageSize',
               }
-            : report.needsPeriod
+            : report.onDateParam != null
+                ? {report.onDateParam!: _to.text.trim()}
+                : report.needsPeriod
                 ? {
                     'from_date': _from.text.trim(),
                     'to_date': _to.text.trim(),

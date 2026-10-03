@@ -19,6 +19,7 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.pagination.reports import ReportWindow, mapped_like
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.core.utils.dates import utc_now
 from app.document_framework.schemas.bulk_actions import (
     BulkActionResult,
     BulkApproveRequest,
@@ -76,6 +77,11 @@ from app.finance.schemas import (
     VoucherTypeCreate,
     VoucherTypeResponse,
 )
+from app.finance.schemas.tds_194q import (
+    Supplier194QRecord,
+    Tds194QSettingsResponse,
+    Tds194QSettingsWrite,
+)
 from app.finance.services import (
     FinanceService,
     GeneralLedgerService,
@@ -93,6 +99,7 @@ from app.finance.services.opening_balances import (
     OpeningLineInput,
     OpeningTrialBalanceService,
 )
+from app.finance.services.tds_194q import Tds194QService
 from app.finance.services.tds_register import TdsRegisterService
 from app.finance.services.tds_return import (
     TdsReturnService,
@@ -1192,6 +1199,78 @@ def account_summaries(
 TdsReportScope = Annotated[
     ResolvedFirmScope, firm_any_permission_scope("ACCOUNT_VIEW", "REPORT_VIEW")
 ]
+
+
+#: The payment screen asks what to deduct, so whoever records a payment may.
+Tds194QReadScope = Annotated[
+    ResolvedFirmScope,
+    firm_any_permission_scope("ACCOUNT_VIEW", "PAYMENT_VIEW", "PAYMENT_CREATE"),
+]
+
+
+@router.get("/tds-194q/settings", response_model=ApiResponse[Tds194QSettingsResponse])
+def tds_194q_settings(
+    scope: MasterViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[Tds194QSettingsResponse]:
+    """Return the firm's 194Q settings; off where never saved (ACC-8)."""
+    settings = Tds194QService(db).settings(scope.firm_id)
+    return ApiResponse(data=Tds194QSettingsResponse.model_validate(settings))
+
+
+@router.put("/tds-194q/settings", response_model=ApiResponse[Tds194QSettingsResponse])
+def save_tds_194q_settings(
+    payload: Tds194QSettingsWrite,
+    scope: MasterManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[Tds194QSettingsResponse]:
+    """Switch 194Q on or off and set its threshold and rates."""
+    settings = Tds194QService(db).save_settings(
+        scope.firm_id,
+        actor_id=scope.actor_id,
+        is_enabled=payload.is_enabled,
+        threshold_amount=payload.threshold_amount,
+        rate_percent=payload.rate_percent,
+        rate_without_pan_percent=payload.rate_without_pan_percent,
+    )
+    return ApiResponse(
+        data=Tds194QSettingsResponse.model_validate(settings),
+        message="194Q settings saved.",
+    )
+
+
+@router.get(
+    "/tds-194q/suppliers/{vendor_id}",
+    response_model=ApiResponse[Supplier194QRecord],
+)
+def tds_194q_supplier(
+    vendor_id: UUID,
+    scope: Tds194QReadScope,
+    on: date | None = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[Supplier194QRecord]:
+    """Return what a payment to this supplier should deduct under 194Q.
+
+    ``on`` is the payment's date; absent is today (UTC).
+    """
+    row = Tds194QService(db).supplier(
+        vendor_id, firm_id=scope.firm_id, on=on or utc_now().date()
+    )
+    return ApiResponse(data=Supplier194QRecord.model_validate(row))
+
+
+@router.get(
+    "/reports/tds-194q",
+    response_model=ApiResponse[list[Supplier194QRecord]],
+)
+def tds_194q_register(
+    scope: TdsReportScope,
+    on: date | None = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[Supplier194QRecord]]:
+    """Every supplier bought from this Income-tax year: bought, due, deducted."""
+    rows = Tds194QService(db).register(firm_id=scope.firm_id, on=on or utc_now().date())
+    return ApiResponse(data=[Supplier194QRecord.model_validate(r) for r in rows])
 
 
 @router.get(

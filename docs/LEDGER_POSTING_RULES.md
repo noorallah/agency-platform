@@ -258,6 +258,11 @@ unchanged; only the journal splits the money leg:
 held anywhere**: rates and thresholds change every Finance Act, so the person
 recording states the amount deducted, as the challan and the return will.
 
+**194Q is suggested, never posted on its own** (ACC-8): `tds_194q.py` reads a
+supplier's approved bills (without GST) and its 194Q payments for the
+April-March year and suggests what the next payment deducts. The deduction
+is still the payment's, posted as every TDS is; nothing journals at the bill.
+
 **The two registers** (`app/finance/services/tds_register.py`, read from the
 documents, storing nothing): *TDS deducted* (`/finance/reports/tds-deducted`)
 -- payments and expenses, by deductee, PAN and section, with the return

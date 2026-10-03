@@ -53,6 +53,7 @@ class ReportDefinition {
     this.columns = const [],
     this.needsPeriod = false,
     this.asOnDate = false,
+    this.onDateParam,
     this.rowsKey,
     this.openToReportView = true,
     this.quarterly = false,
@@ -114,6 +115,11 @@ class ReportDefinition {
   /// stock valuation, a balance. The workspace then offers one "As on" box
   /// (its To date) instead of From and To; the route ignores `from_date`.
   final bool asOnDate;
+
+  /// The query parameter that carries the "As on" date, for a route that
+  /// takes one day under its own name rather than `from_date`/`to_date`
+  /// (194Q's `on`). Such a route is not paged and gets nothing else.
+  final String? onDateParam;
 
   /// Where the rows are when the endpoint answers with one object rather than
   /// a list -- the commission report carries its totals beside `rows`.

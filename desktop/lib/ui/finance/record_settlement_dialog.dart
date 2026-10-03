@@ -110,6 +110,14 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   bool get _hasInstrumentDate =>
       _mode == 'CHEQUE' || _mode == 'DEMAND_DRAFT';
   DateTime _date = DateTime.now();
+
+  /// Section 194Q (ACC-8): the chosen supplier's position this Income-tax
+  /// year, asked for when a supplier or date is chosen on a payment. Advice
+  /// that prefills the TDS boxes; a typed figure is never overwritten.
+  Json? _tds194q;
+  bool _tdsTyped = false;
+  bool _tdsPrefilled = false;
+  String? _tdsNote;
   List<OutstandingInvoice> _invoices = const [];
 
   /// What the chosen supplier owes the firm from returns and debit notes,
@@ -204,6 +212,49 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
           in _allocations.entries) {
         entry.value.text = spread[entry.key] ?? '';
       }
+    });
+  }
+
+  Future<void> _loadTds194q() async {
+    if (widget.direction != SettlementDirection.payment) return;
+    if (!Phase2Scope.of(context)) return;
+    final String partyId = _partyId;
+    if (partyId.isEmpty) return;
+    try {
+      final Json answer = await widget.api.tds194qSupplier(
+        partyId,
+        on: _date.toIso8601String().substring(0, 10),
+      );
+      if (!mounted || _partyId != partyId) return;
+      _tds194q = answer;
+      _applyTds194q();
+    } on ApiException {
+      // Advice, not a gate: failing to read it changes nothing.
+    }
+  }
+
+  static double _figure(Object? value) =>
+      double.tryParse('${value ?? ''}') ?? 0;
+
+  /// Prefill the TDS boxes from the 194Q position, unless somebody has typed
+  /// a deduction. Re-run when the amount changes, since it caps the figure.
+  void _applyTds194q() {
+    final Json? position = _tds194q;
+    if (position == null || _tdsTyped) return;
+    final double toDeduct = _figure(position['to_deduct']);
+    if (position['applies'] != true || toDeduct <= 0) return;
+    final double amount = _amountEntered;
+    double deduct = toDeduct;
+    if (amount > 0 && deduct >= amount) deduct = amount - 0.01;
+    if (deduct <= 0) return;
+    setState(() {
+      _tds.text = deduct.toStringAsFixed(2);
+      _tdsSection = '194Q';
+      _tdsPrefilled = true;
+      _tdsNote = '194Q: ₹${_figure(position['purchases']).toStringAsFixed(2)}'
+          ' bought this year, ₹${_figure(position['due']).toStringAsFixed(2)}'
+          ' due, ₹${_figure(position['deducted']).toStringAsFixed(2)}'
+          ' already deducted';
     });
   }
 
@@ -515,10 +566,15 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
           key: const ValueKey('settlement-tds-amount'),
           controller: _tds,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          onChanged: (_) => setState(() {}),
+          onChanged: (_) => setState(() {
+            _tdsTyped = true;
+            _tdsPrefilled = false;
+            _tdsNote = null;
+          }),
           decoration: InputDecoration(
             labelText: 'TDS deducted',
-            helperText: receipt ? 'By the customer' : 'By us',
+            helperText: _tdsNote ?? (receipt ? 'By the customer' : 'By us'),
+            helperMaxLines: 3,
           ),
         ),
       ),
@@ -794,7 +850,18 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
       _orderId = '';
       _orders = const <Json>[];
       _tcs = null;
+      // The previous supplier's 194Q position is not this one's.
+      _tds194q = null;
+      _tdsNote = null;
+      if (_tdsPrefilled) {
+        _tds.clear();
+        _tdsSection = null;
+        _tdsPrefilled = false;
+      }
     });
+    if (widget.direction == SettlementDirection.payment) {
+      unawaited(_loadTds194q());
+    }
     if (widget.direction.allocates) unawaited(_loadInvoices(party.id));
     if (widget.direction == SettlementDirection.payment) {
       unawaited(_loadCredits(party.id));
@@ -816,6 +883,8 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
           setState(() {});
           if (widget.direction == SettlementDirection.receipt) {
             unawaited(_loadTcs());
+          } else {
+            _applyTds194q();
           }
         },
       );
@@ -878,6 +947,9 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
           );
           if (picked == null) return;
           setState(() => _date = picked);
+          if (widget.direction == SettlementDirection.payment) {
+            unawaited(_loadTds194q());
+          }
           // The threshold resets with the financial year, so the date is
           // part of the answer.
           if (widget.direction == SettlementDirection.receipt) {

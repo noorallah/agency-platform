@@ -484,6 +484,7 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `tcs_collections` | firm store ¹ | One receipt's worth of tax collected at source. | `customers`, `settlements`, `journal_entries` |
 | `tcs_settings` | firm store ¹ | One firm's 206C(1H) parameters. |  |
+| `tds_194q_settings` | firm store ¹ | One firm's 194Q switch, threshold and rates (ACC-8). |  |
 
 ### `app/trade_licences`
 
