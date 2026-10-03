@@ -26,6 +26,7 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.pagination.reports import ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.customers.schemas.statement import CashDiscountRow
 from app.finance.schemas import LedgerAttachmentResponse, LedgerAttachmentsAdd
 from app.finance.services.ledger_attachments import (
     PAYMENT_DIRECTIONS,
@@ -287,6 +288,41 @@ def customer_outstanding_invoices(
         firm_id=scope.firm_id, party_id=customer_id
     )
     return ApiResponse(data=rows)
+
+
+@receipts_router.get(
+    "/cash-discounts", response_model=ApiResponse[list[CashDiscountRow]]
+)
+def customer_cash_discounts(
+    customer_id: UUID,
+    on: date,
+    scope: ReceiptViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[CashDiscountRow]]:
+    """Return the bills a receipt dated ``on`` may take a cash discount on.
+
+    The customer's own terms, else the firm's (SEL-14); the discount goes on
+    the receipt as the discount allowed deduction.
+    """
+    from app.customers.services.payment_terms import PaymentTermsService
+
+    rows = PaymentTermsService(db).cash_discounts(
+        customer_id, firm_id=scope.firm_id, on=on
+    )
+    return ApiResponse(
+        data=[
+            CashDiscountRow(
+                invoice_id=row.invoice_id,
+                invoice_number=row.invoice_number,
+                invoice_date=row.invoice_date,
+                outstanding=row.outstanding,
+                percent=row.percent,
+                discount_until=row.discount_until,
+                amount=row.amount,
+            )
+            for row in rows
+        ]
+    )
 
 
 @receipts_router.get(

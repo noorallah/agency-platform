@@ -32,6 +32,7 @@ from app.customers.schemas.statement import (
     CustomerAgeing,
     CustomerStatement,
     CustomerStatementLine,
+    OverdueInterestRow,
     OverdueInvoice,
 )
 from app.sales_invoice.models import SalesInvoice
@@ -143,7 +144,27 @@ class CustomerStatementService:
                 )
             )
 
+        from app.customers.services.payment_terms import PaymentTermsService
+
+        interest = PaymentTermsService(self._session).overdue_interest(
+            customer.id, firm_id=firm_scope, as_of=to_date
+        )
         return CustomerStatement(
+            overdue_interest=[
+                OverdueInterestRow(
+                    invoice_id=row.invoice_id,
+                    invoice_number=row.invoice_number,
+                    due_date=row.due_date,
+                    outstanding=row.outstanding,
+                    days=row.days,
+                    rate=row.rate,
+                    interest=row.interest,
+                )
+                for row in interest
+            ],
+            interest_accrued=quantize_ledger(
+                sum((row.interest for row in interest), ZERO)
+            ),
             customer_id=customer.id,
             customer_code=customer.code,
             customer_name=customer.name,

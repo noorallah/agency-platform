@@ -169,6 +169,11 @@ class CreditControlService:
             enforcement=CreditEnforcement(policy.enforcement),
             warn_at_percent=policy.warn_at_percent,
             block_at_percent=policy.block_at_percent,
+            cash_discount_days=getattr(policy, "cash_discount_days", None),
+            cash_discount_percent=getattr(policy, "cash_discount_percent", None),
+            overdue_interest_rate=getattr(policy, "overdue_interest_rate", None)
+            or Decimal("0"),
+            interest_grace_days=getattr(policy, "interest_grace_days", None) or 0,
             is_configured=stored is not None,
         )
 
@@ -199,6 +204,15 @@ class CreditControlService:
         row.enforcement = data.enforcement.value
         row.warn_at_percent = data.warn_at_percent
         row.block_at_percent = data.block_at_percent
+        sent = data.model_fields_set
+        if "cash_discount_days" in sent:
+            row.cash_discount_days = data.cash_discount_days
+        if "cash_discount_percent" in sent:
+            row.cash_discount_percent = data.cash_discount_percent
+        if data.overdue_interest_rate is not None:
+            row.overdue_interest_rate = data.overdue_interest_rate
+        if data.interest_grace_days is not None:
+            row.interest_grace_days = data.interest_grace_days
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -217,15 +231,18 @@ class CreditControlService:
                 "enforcement": row.enforcement,
                 "warn_at_percent": str(row.warn_at_percent),
                 "block_at_percent": str(row.block_at_percent),
+                "cash_discount_days": row.cash_discount_days,
+                "cash_discount_percent": (
+                    None
+                    if row.cash_discount_percent is None
+                    else str(row.cash_discount_percent)
+                ),
+                "overdue_interest_rate": str(row.overdue_interest_rate),
+                "interest_grace_days": row.interest_grace_days,
             },
         )
         self._session.commit()
-        return CreditControlSettingsResponse(
-            enforcement=CreditEnforcement(row.enforcement),
-            warn_at_percent=row.warn_at_percent,
-            block_at_percent=row.block_at_percent,
-            is_configured=True,
-        )
+        return self.settings_response(firm_id)
 
     def status_for(
         self, customer: Customer, *, additional_amount: Decimal = _ZERO

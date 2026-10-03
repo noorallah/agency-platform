@@ -155,6 +155,8 @@ class Customer {
     required this.openingBalance,
     required this.paymentTermsDays,
     this.minimumShelfLifeDays,
+    this.cashDiscountDays,
+    this.cashDiscountPercent,
     required this.currencyCode,
     required this.currentOutstanding,
     required this.unappliedAdvanceBalance,
@@ -222,6 +224,12 @@ class Customer {
   /// The fewest days of shelf life a batch may have left when it is sent
   /// to this customer; null means no minimum.
   final int? minimumShelfLifeDays;
+
+  /// Early-payment discount for this customer (SEL-14): pay within this many
+  /// days of the bill and take [cashDiscountPercent] off. Null days means the
+  /// firm's own terms; 0 days means no discount for this customer.
+  final int? cashDiscountDays;
+  final String? cashDiscountPercent;
   final String currencyCode;
   final String currentOutstanding;
   final String unappliedAdvanceBalance;
@@ -295,6 +303,10 @@ class Customer {
             : stringValue(json['opening_balance']),
         paymentTermsDays: (json['payment_terms_days'] as num?)?.toInt() ?? 0,
         minimumShelfLifeDays: (json['minimum_shelf_life_days'] as num?)?.toInt(),
+        cashDiscountDays: (json['cash_discount_days'] as num?)?.toInt(),
+        cashDiscountPercent: json['cash_discount_percent'] == null
+            ? null
+            : stringValue(json['cash_discount_percent']),
         currencyCode: stringValue(json['currency_code']),
         currentOutstanding: stringValue(json['current_outstanding']).isEmpty
             ? '0.00'
@@ -512,6 +524,10 @@ class CreditControlSettings {
     required this.warnAtPercent,
     required this.blockAtPercent,
     required this.isConfigured,
+    this.cashDiscountDays,
+    this.cashDiscountPercent,
+    this.overdueInterestRate = '0',
+    this.interestGraceDays = 0,
   });
 
   final String enforcement;
@@ -521,17 +537,40 @@ class CreditControlSettings {
   /// False while the firm is still on the platform default.
   final bool isConfigured;
 
+  /// The firm's early-payment terms (SEL-14): a customer paying within the
+  /// days takes the percent off. Null when the firm offers none.
+  final int? cashDiscountDays;
+  final String? cashDiscountPercent;
+
+  /// Interest on overdue bills, percent a year; 0 is off.
+  final String overdueInterestRate;
+
+  /// Days past the due date before interest starts to run.
+  final int interestGraceDays;
+
   factory CreditControlSettings.fromJson(Json json) => CreditControlSettings(
         enforcement: stringValue(json['enforcement']),
         warnAtPercent: stringValue(json['warn_at_percent']),
         blockAtPercent: stringValue(json['block_at_percent']),
         isConfigured: boolValue(json['is_configured']),
+        cashDiscountDays: (json['cash_discount_days'] as num?)?.toInt(),
+        cashDiscountPercent: json['cash_discount_percent'] == null
+            ? null
+            : stringValue(json['cash_discount_percent']),
+        overdueInterestRate: stringValue(json['overdue_interest_rate']).isEmpty
+            ? '0'
+            : stringValue(json['overdue_interest_rate']),
+        interestGraceDays: (json['interest_grace_days'] as num?)?.toInt() ?? 0,
       );
 
   Json toJson() => <String, dynamic>{
         'enforcement': enforcement,
         'warn_at_percent': warnAtPercent,
         'block_at_percent': blockAtPercent,
+        'cash_discount_days': cashDiscountDays,
+        'cash_discount_percent': cashDiscountPercent,
+        'overdue_interest_rate': overdueInterestRate,
+        'interest_grace_days': interestGraceDays,
       };
 }
 

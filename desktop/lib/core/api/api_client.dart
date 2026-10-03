@@ -6061,6 +6061,53 @@ class ApiClient {
         : const <Json>[];
   }
 
+  /// Bills a receipt dated [on] may take an early-payment discount on
+  /// (SEL-14). Advice for the cashier, never applied by itself.
+  Future<List<Json>> cashDiscountOffers({
+    required String customerId,
+    required String on,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/receipts/cash-discounts',
+      query: <String, String>{'customer_id': customerId, 'on': on},
+    );
+    final dynamic data = response['data'];
+    return data is List
+        ? data.whereType<Map>().map(Map<String, dynamic>.from).toList()
+        : const <Json>[];
+  }
+
+  /// What the customer's overdue bills have accrued in interest as of a date
+  /// (SEL-14).
+  Future<List<Json>> customerOverdueInterest(
+    String customerId, {
+    required String asOf,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/customers/$customerId/overdue-interest',
+      query: <String, String>{'as_of': asOf},
+    );
+    final dynamic data = response['data'];
+    return data is List
+        ? data.whereType<Map>().map(Map<String, dynamic>.from).toList()
+        : const <Json>[];
+  }
+
+  /// Raises a draft debit note for one bill's overdue interest (SEL-14);
+  /// answers `{id, debit_note_number}`.
+  Future<Json> raiseOverdueInterestDebitNote(
+    String customerId, {
+    required String invoiceId,
+    required String asOf,
+  }) async =>
+      _unwrapMap(await request(
+        'POST',
+        '/api/v1/customers/$customerId/overdue-interest/debit-note',
+        body: <String, dynamic>{'invoice_id': invoiceId, 'as_of': asOf},
+      ));
+
   // ---- supplier statement and balance confirmations ------------------
 
   /// One supplier's account movement over a period. A positive balance is

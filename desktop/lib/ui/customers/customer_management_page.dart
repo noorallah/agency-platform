@@ -1101,6 +1101,10 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     'opening_balance': _controller(widget.customer?.openingBalance ?? '0.00'),
     'payment_terms_days':
         _controller(widget.customer?.paymentTermsDays.toString() ?? '0'),
+    'cash_discount_days': _controller(
+        widget.customer?.cashDiscountDays?.toString() ?? ''),
+    'cash_discount_percent':
+        _controller(widget.customer?.cashDiscountPercent ?? ''),
     'currency_code': _controller(widget.customer?.currencyCode ?? 'INR'),
     'minimum_shelf_life_days': _controller(
         widget.customer?.minimumShelfLifeDays?.toString() ?? ''),
@@ -1561,6 +1565,11 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         'opening_balance': _fields['opening_balance']!.text.trim(),
         'payment_terms_days':
             int.tryParse(_fields['payment_terms_days']!.text.trim()) ?? 0,
+        // Blank days = the firm's terms, sent as null so it clears a prior
+        // arrangement; 0 days = no discount for this customer.
+        'cash_discount_days':
+            int.tryParse(_fields['cash_discount_days']!.text.trim()),
+        'cash_discount_percent': _nullable('cash_discount_percent'),
         'currency_code': _fields['currency_code']!.text.trim().toUpperCase(),
         // Blank means no minimum, sent as null so it clears a prior one.
         'minimum_shelf_life_days':
@@ -1805,6 +1814,23 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
               'Payment terms (days)',
               integer: true,
               nonNegative: true,
+            ),
+            _number(
+              'cash_discount_days',
+              'Cash discount (days)',
+              integer: true,
+              blankIsNone: true,
+              nonNegative: true,
+              maximum: 365,
+              helper: "Blank: the firm's terms; 0 days: none",
+            ),
+            _number(
+              'cash_discount_percent',
+              'Cash discount %',
+              blankIsNone: true,
+              nonNegative: true,
+              maximum: 100,
+              helper: 'Taken off a bill paid within those days',
             ),
             _text('currency_code', 'Currency', required: true),
             _number(

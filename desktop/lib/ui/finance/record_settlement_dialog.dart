@@ -125,6 +125,11 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   String? _tdsNote;
   List<OutstandingInvoice> _invoices = const [];
 
+  /// Bills a receipt on this date may take an early-payment discount on
+  /// (SEL-14). Advice shown beside the deductions; the discount box is filled
+  /// only when the person presses Apply.
+  List<Json> _offers = const <Json>[];
+
   /// What the chosen supplier owes the firm from returns and debit notes,
   /// not yet set against a bill. Said before the money goes, because paying a bill
   /// in full while a credit stands pays the supplier twice (D-FIN-19).
@@ -193,6 +198,80 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _loadCashDiscounts() async {
+    if (widget.direction != SettlementDirection.receipt) return;
+    final String partyId = _partyId;
+    if (partyId.isEmpty) return;
+    try {
+      final List<Json> rows = await widget.api.cashDiscountOffers(
+        customerId: partyId,
+        on: _date.toIso8601String().substring(0, 10),
+      );
+      if (!mounted || _partyId != partyId) return;
+      setState(() => _offers = rows);
+    } on ApiException {
+      // Advice, not a gate: failing to read it must not stop a receipt.
+      if (mounted) setState(() => _offers = const <Json>[]);
+    }
+  }
+
+  /// The offers on bills this receipt is actually applied to.
+  List<Json> get _applicableOffers => [
+        for (final Json offer in _offers)
+          if ((double.tryParse(
+                      _allocations['${offer['invoice_id']}']?.text.trim() ??
+                          '') ??
+                  0) >
+              0)
+            offer,
+      ];
+
+  static const List<String> _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  static String _dayMonth(String iso) {
+    final DateTime? parsed = DateTime.tryParse(iso);
+    return parsed == null ? iso : '${parsed.day} ${_months[parsed.month - 1]}';
+  }
+
+  /// "Cash discount available: ₹X (2% until 30 Apr)" with an Apply action.
+  Widget _cashDiscountNotice(BuildContext context) {
+    final List<Json> offers = _applicableOffers;
+    if (offers.isEmpty) return const SizedBox.shrink();
+    final double total =
+        offers.fold(0.0, (sum, offer) => sum + _figure(offer['amount']));
+    if (total <= 0) return const SizedBox.shrink();
+    final String detail = offers
+        .map((offer) => '${_figure(offer['percent']).toString().replaceAll(RegExp(r'\.0$'), '')}% '
+            'until ${_dayMonth('${offer['discount_until']}')}')
+        .toSet()
+        .join(', ');
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.sm),
+      child: Row(
+        key: const ValueKey('settlement-cash-discount-offer'),
+        children: [
+          Expanded(
+            child: Text(
+              'Cash discount available: ₹${total.toStringAsFixed(2)} '
+              '($detail)',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+          TextButton(
+            key: const ValueKey('settlement-cash-discount-apply'),
+            onPressed: () => setState(
+              () => _discount.text = total.toStringAsFixed(2),
+            ),
+            child: const Text('Apply'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _loadCredits(String partyId) async {
@@ -500,6 +579,8 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
                 _tdsRow(context, amount),
                 const SizedBox(height: AppSpacing.md),
                 _deductionsRow(context, amount),
+                if (widget.direction == SettlementDirection.receipt)
+                  _cashDiscountNotice(context),
               ],
               if (widget.direction == SettlementDirection.receipt) ...[
                 const SizedBox(height: AppSpacing.md),
@@ -888,6 +969,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
       // The previous customer's orders and tax are not this one's.
       _orderId = '';
       _orders = const <Json>[];
+      _offers = const <Json>[];
       _tcs = null;
       // The previous supplier's 194Q position is not this one's.
       _tds194q = null;
@@ -916,6 +998,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
     if (widget.direction == SettlementDirection.receipt) {
       unawaited(_loadTcs());
       unawaited(_loadOrders(party.id));
+      unawaited(_loadCashDiscounts());
     }
   }
 
@@ -926,6 +1009,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
         onChanged: (_) {
           setState(() {});
           if (widget.direction == SettlementDirection.receipt) {
+            unawaited(_loadCashDiscounts());
             unawaited(_loadTcs());
           } else {
             _applyTds194q();
