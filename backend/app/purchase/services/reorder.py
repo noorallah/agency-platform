@@ -57,6 +57,7 @@ from app.purchase.models import (
     PurchaseOrder,
     ReorderPlanningSettings,
 )
+from app.purchase.models.requisition import PurchaseRequisition
 from app.purchase.schemas import (
     PurchaseLineWrite,
     PurchaseOrderCreate,
@@ -525,6 +526,61 @@ class ReorderService:
             )
         self._session.commit()
         return orders
+
+    def raise_requisitions(
+        self, firm_id: UUID, picks: list[ReorderPick], *, actor_id: UUID
+    ) -> list[PurchaseRequisition]:
+        """Raise one draft requisition per warehouse for ``picks`` (BUY-7).
+
+        For a firm whose storeman asks and whose buyer orders: the same rows
+        and quantities as ``raise_drafts``, committed once, but onto a
+        requisition rather than an order.
+        """
+        from app.purchase.services.requisitions import requisition_from_picks
+
+        if not picks:
+            raise ValidationError("Choose at least one row to ask for.")
+        rows = {
+            (row.warehouse_id, row.product_id): row
+            for row in self.below_reorder(firm_id)
+        }
+        grouped: dict[UUID, list[tuple[ReorderRow, Decimal, UUID | None]]]
+        grouped = defaultdict(list)
+        problems: list[str] = []
+        for pick in picks:
+            row = rows.get((pick.warehouse_id, pick.product_id))
+            if row is None:
+                problems.append(
+                    f"{pick.product_id} is no longer below its reorder level in "
+                    "that warehouse."
+                )
+                continue
+            quantity = (
+                pick.quantity if pick.quantity is not None else row.suggested_quantity
+            )
+            if quantity <= ZERO:
+                problems.append(f"{row.product_code} comes to nothing to ask for.")
+                continue
+            grouped[pick.warehouse_id].append(
+                (row, quantity, pick.supplier_id or row.supplier_id)
+            )
+        if problems:
+            raise ValidationError(" ".join(problems))
+        raised: list[PurchaseRequisition] = []
+        for warehouse, items in grouped.items():
+            raised.append(
+                requisition_from_picks(
+                    self._session,
+                    firm_id=firm_id,
+                    branch_id=items[0][0].branch_id,
+                    warehouse_id=warehouse,
+                    lines=[(row.product_id, qty, vendor) for row, qty, vendor in items],
+                    actor_id=actor_id,
+                    on=utc_now().date(),
+                )
+            )
+        self._session.commit()
+        return raised
 
     def _on_order(
         self, firm_id: UUID, warehouse_ids: set[UUID], product_ids: set[UUID]

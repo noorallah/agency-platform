@@ -69,6 +69,11 @@ from app.purchase.schemas import (
     SupplierPerformanceRecord,
     SupplierPriceTrendPoint,
 )
+from app.purchase.schemas.requisition import (
+    PurchaseRequisitionCancel,
+    PurchaseRequisitionResponse,
+    PurchaseRequisitionWrite,
+)
 from app.purchase.services import PurchaseService
 from app.purchase.services.approval_limit import PurchaseApprovalLimitService
 from app.purchase.services.budgets import PurchaseBudgetService
@@ -80,6 +85,7 @@ from app.purchase.services.reorder import (
     ReorderPick,
     ReorderService,
 )
+from app.purchase.services.requisitions import PurchaseRequisitionService
 from app.purchase.services.supplier_performance import (
     supplier_performance,
     supplier_price_trend,
@@ -128,6 +134,14 @@ PurchaseApproveScope = Annotated[
 ]
 PurchaseCancelScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PURCHASE_CANCEL")
+]
+#: Raising a requisition (BUY-7); reading them also takes the purchase view.
+RequisitionCreateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("PURCHASE_REQUISITION_CREATE")
+]
+RequisitionViewScope = Annotated[
+    ResolvedFirmScope,
+    firm_any_permission_scope("PURCHASE_VIEW", "PURCHASE_REQUISITION_CREATE"),
 ]
 PurchaseWorkflowSettingsScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PURCHASE_MANAGE_SETTINGS")
@@ -498,6 +512,194 @@ def purchase_orders_by_product(
     )
 
 
+class ReorderPickWrite(BaseModel):
+    """One row to order; quantity and supplier default to the suggestion."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    warehouse_id: UUID
+    product_id: UUID
+    quantity: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, decimal_places=4
+    )
+    supplier_id: UUID | None = None
+
+
+class ReorderDraftsRequest(BaseModel):
+    """The rows a buyer ticked on Below reorder level."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[ReorderPickWrite] = Field(min_length=1, max_length=1000)
+
+
+# Requisitions (BUY-7), declared above `/{order_id}` like the settings below.
+@router.get(
+    "/requisitions", response_model=ApiResponse[list[PurchaseRequisitionResponse]]
+)
+def list_purchase_requisitions(
+    scope: RequisitionViewScope,
+    status_filter: Annotated[str | None, Query(alias="status", max_length=20)] = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PurchaseRequisitionResponse]]:
+    """Return the firm's requisitions, newest first."""
+    service = PurchaseRequisitionService(db)
+    return ApiResponse(
+        data=service.responses(service.list_rows(scope.firm_id, status=status_filter))
+    )
+
+
+@router.post(
+    "/requisitions",
+    response_model=ApiResponse[PurchaseRequisitionResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_purchase_requisition(
+    data: PurchaseRequisitionWrite,
+    scope: RequisitionCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PurchaseRequisitionResponse]:
+    """Raise a draft requisition."""
+    service = PurchaseRequisitionService(db)
+    row = service.create(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    return ApiResponse(data=service.responses([row])[0])
+
+
+@router.post(
+    "/requisitions/from-reorder",
+    response_model=ApiResponse[list[PurchaseRequisitionResponse]],
+    status_code=status.HTTP_201_CREATED,
+)
+def raise_requisitions_from_reorder(
+    data: ReorderDraftsRequest,
+    scope: RequisitionCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PurchaseRequisitionResponse]]:
+    """Raise one draft requisition per warehouse for the ticked reorder rows."""
+    service = PurchaseRequisitionService(db)
+    rows = ReorderService(db).raise_requisitions(
+        scope.firm_id,
+        [
+            ReorderPick(
+                warehouse_id=item.warehouse_id,
+                product_id=item.product_id,
+                quantity=item.quantity,
+                supplier_id=item.supplier_id,
+            )
+            for item in data.items
+        ],
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(
+        data=service.responses(rows),
+        message=f"{len(rows)} requisition(s) raised.",
+    )
+
+
+@router.get(
+    "/requisitions/{requisition_id}",
+    response_model=ApiResponse[PurchaseRequisitionResponse],
+)
+def get_purchase_requisition(
+    requisition_id: UUID,
+    scope: RequisitionViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PurchaseRequisitionResponse]:
+    """Return one requisition."""
+    service = PurchaseRequisitionService(db)
+    return ApiResponse(
+        data=service.responses([service.get(requisition_id, firm_id=scope.firm_id)])[0]
+    )
+
+
+@router.put(
+    "/requisitions/{requisition_id}",
+    response_model=ApiResponse[PurchaseRequisitionResponse],
+)
+def update_purchase_requisition(
+    requisition_id: UUID,
+    data: PurchaseRequisitionWrite,
+    scope: RequisitionCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PurchaseRequisitionResponse]:
+    """Change a draft or submitted requisition."""
+    service = PurchaseRequisitionService(db)
+    row = service.update(
+        requisition_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=service.responses([row])[0])
+
+
+@router.post(
+    "/requisitions/{requisition_id}/submit",
+    response_model=ApiResponse[PurchaseRequisitionResponse],
+)
+def submit_purchase_requisition(
+    requisition_id: UUID,
+    scope: RequisitionCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PurchaseRequisitionResponse]:
+    """Send a draft requisition for approval."""
+    service = PurchaseRequisitionService(db)
+    row = service.submit(requisition_id, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    return ApiResponse(data=service.responses([row])[0])
+
+
+@router.post(
+    "/requisitions/{requisition_id}/approve",
+    response_model=ApiResponse[PurchaseRequisitionResponse],
+)
+def approve_purchase_requisition(
+    requisition_id: UUID,
+    scope: PurchaseApproveScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PurchaseRequisitionResponse]:
+    """Approve a submitted requisition."""
+    service = PurchaseRequisitionService(db)
+    row = service.approve(
+        requisition_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=service.responses([row])[0])
+
+
+@router.post(
+    "/requisitions/{requisition_id}/cancel",
+    response_model=ApiResponse[PurchaseRequisitionResponse],
+)
+def cancel_purchase_requisition(
+    requisition_id: UUID,
+    data: PurchaseRequisitionCancel,
+    scope: RequisitionCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PurchaseRequisitionResponse]:
+    """Call off a requisition not yet ordered."""
+    service = PurchaseRequisitionService(db)
+    row = service.cancel(
+        requisition_id, data.reason, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=service.responses([row])[0])
+
+
+@router.post(
+    "/requisitions/{requisition_id}/convert",
+    response_model=ApiResponse[list[PurchaseOrderResponse]],
+    status_code=status.HTTP_201_CREATED,
+)
+def convert_purchase_requisition(
+    requisition_id: UUID,
+    scope: PurchaseCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PurchaseOrderResponse]]:
+    """Raise one draft order per supplier for an approved requisition."""
+    orders = PurchaseRequisitionService(db).convert_to_orders(
+        requisition_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(
+        data=PurchaseService(db).order_responses(orders),
+        message=f"{len(orders)} draft purchase order(s) raised.",
+    )
+
+
 # Both declared above `/{order_id}`: FastAPI matches in declaration order, and
 # below it "workflow-settings" is read as an order id and answered 422.
 @router.get(
@@ -687,27 +889,6 @@ class ReorderPlanningWrite(BaseModel):
     lead_time_days: int = Field(ge=0, le=365)
     safety_days: int = Field(ge=0, le=365)
     cover_days: int = Field(ge=1, le=365)
-
-
-class ReorderPickWrite(BaseModel):
-    """One row to order; quantity and supplier default to the suggestion."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    warehouse_id: UUID
-    product_id: UUID
-    quantity: Decimal | None = Field(
-        default=None, gt=0, max_digits=18, decimal_places=4
-    )
-    supplier_id: UUID | None = None
-
-
-class ReorderDraftsRequest(BaseModel):
-    """The rows a buyer ticked on Below reorder level."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    items: list[ReorderPickWrite] = Field(min_length=1, max_length=1000)
 
 
 @router.get(

@@ -238,6 +238,8 @@ abstract final class MenuLayout {
     ]),
     MenuAreaSpec('buy', 'Buy', [
       MenuGroupSpec('Documents', [
+        MenuItemSpec(
+            AppModule.purchases, 'purchase-requisitions', 'Requisitions'),
         MenuItemSpec(AppModule.purchases, 'purchase-orders', 'Purchase Orders'),
         MenuItemSpec(AppModule.goodsReceipts, 'receipts', 'Goods Receipts'),
         MenuItemSpec.module(AppModule.purchaseInvoices, 'Purchase Invoices'),
