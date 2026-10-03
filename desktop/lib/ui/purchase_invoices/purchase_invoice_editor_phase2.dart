@@ -1160,6 +1160,7 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
         taxable: taxable,
         tax: tax,
         interstate: _preview?.interstate,
+        taxRule: LineTaxRule.fromJson(priced),
       ),
       if (order)
         ..._batchFields(
@@ -1250,6 +1251,7 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
                   _number(stringValue(priced['discount_amount'])),
           tax: priced == null ? 0 : _number(stringValue(priced['tax_amount'])),
           interstate: _preview?.interstate,
+          taxRule: LineTaxRule.fromJson(priced),
         ),
         ..._batchFields(
           context,

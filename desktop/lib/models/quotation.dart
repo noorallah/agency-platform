@@ -1,5 +1,6 @@
 import 'entities.dart';
 import 'document_preview.dart';
+import 'line_tax_rule.dart';
 export 'document_preview.dart';
 
 /// One line of an offer.
@@ -19,6 +20,8 @@ class QuotationLine {
     required this.taxAmount,
     required this.netAmount,
     required this.remarks,
+    this.taxRuleCode,
+    this.taxRuleVersion,
   });
 
   final String id;
@@ -52,6 +55,10 @@ class QuotationLine {
   final String netAmount;
   final String remarks;
 
+  /// The tax rule that decided this line's tax; null when none matched.
+  final String? taxRuleCode;
+  final int? taxRuleVersion;
+
   factory QuotationLine.fromJson(Json json) => QuotationLine(
         id: stringValue(json['id']),
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
@@ -69,6 +76,8 @@ class QuotationLine {
         taxAmount: stringValue(json['tax_amount']),
         netAmount: stringValue(json['net_amount']),
         remarks: stringValue(json['remarks']),
+        taxRuleCode: LineTaxRule.fromJson(json).code,
+        taxRuleVersion: LineTaxRule.fromJson(json).version,
       );
 }
 

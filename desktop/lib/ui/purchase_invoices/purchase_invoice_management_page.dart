@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../models/product.dart';
 import '../../models/purchase.dart';
+import '../../models/line_tax_rule.dart';
 import '../../models/vendor.dart';
 import '../../models/tax_framework.dart';
 import '../../models/uom_packaging.dart';
@@ -1131,6 +1132,8 @@ class _PurchaseInvoiceLine {
     required this.netAmount,
     required this.remarks,
     this.itcEligibility = '',
+    this.taxRuleCode,
+    this.taxRuleVersion,
   });
 
   final int lineNumber;
@@ -1149,6 +1152,10 @@ class _PurchaseInvoiceLine {
   /// The input credit status the server resolved for the line.
   final String itcEligibility;
 
+  /// The tax rule that decided this line's tax; null when none matched.
+  final String? taxRuleCode;
+  final int? taxRuleVersion;
+
   factory _PurchaseInvoiceLine.fromJson(Map<String, dynamic> json) =>
       _PurchaseInvoiceLine(
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
@@ -1164,5 +1171,7 @@ class _PurchaseInvoiceLine {
         netAmount: stringValue(json['net_amount']),
         remarks: stringValue(json['remarks']),
         itcEligibility: stringValue(json['itc_eligibility']),
+        taxRuleCode: LineTaxRule.fromJson(json).code,
+        taxRuleVersion: LineTaxRule.fromJson(json).version,
       );
 }

@@ -112,6 +112,7 @@ from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import SalesOrderStatus
 from app.tax.schemas import TaxRuleSimulationRequest
+from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.trade_licences.services.licence_check import (
@@ -1807,6 +1808,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         row.bill_discount_amount = resolved.amount
         return apportion(resolved.amount, taxables)
 
+    @stamps_tax_rules(DeliveryNoteLine, "delivery_note_id")
     def _replace_lines(
         self,
         row: DeliveryNote,

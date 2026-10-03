@@ -1,5 +1,6 @@
 import 'batch_serial.dart';
 import 'entities.dart';
+import 'line_tax_rule.dart';
 
 /// Where a sales return can be raised from.
 ///
@@ -45,6 +46,8 @@ class SalesReturnLine {
     required this.batchNumber,
     required this.remarks,
     this.serials = const [],
+    this.taxRuleCode,
+    this.taxRuleVersion,
   });
 
   final String id;
@@ -86,6 +89,10 @@ class SalesReturnLine {
     return (pending < 0 ? 0 : pending).toStringAsFixed(4);
   }
 
+  /// The tax rule that decided this line's tax; null when none matched.
+  final String? taxRuleCode;
+  final int? taxRuleVersion;
+
   factory SalesReturnLine.fromJson(Json json) => SalesReturnLine(
         id: stringValue(json['id']),
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
@@ -109,6 +116,8 @@ class SalesReturnLine {
         batchNumber: stringValue(json['batch_number']),
         remarks: stringValue(json['remarks']),
         serials: PickedSerial.listFrom(json['serials']),
+        taxRuleCode: LineTaxRule.fromJson(json).code,
+        taxRuleVersion: LineTaxRule.fromJson(json).version,
       );
 }
 

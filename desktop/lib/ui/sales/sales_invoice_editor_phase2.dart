@@ -1070,6 +1070,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
           taxable: double.tryParse(stringValue(priced?['net_amount'])) ?? 0,
           tax: double.tryParse(stringValue(priced?['tax_amount'])) ?? 0,
           interstate: _preview?.interstate,
+          taxRule: LineTaxRule.fromJson(priced),
         ),
         const DocumentSideHeading('Stock'),
         DocumentSidePair(
@@ -1134,6 +1135,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
           taxable: double.tryParse(stringValue(priced?['net_amount'])) ?? 0,
           tax: double.tryParse(stringValue(priced?['tax_amount'])) ?? 0,
           interstate: _preview?.interstate,
+          taxRule: LineTaxRule.fromJson(priced),
         ),
         if (_picksSerials(document, source)) ...[
           const DocumentSideHeading('Serial numbers'),

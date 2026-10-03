@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/design/design_tokens.dart';
 import '../models/customer.dart';
+import '../models/line_tax_rule.dart';
 import '../ui/workspace/workspace_components.dart';
 import 'indian_format.dart';
 
@@ -549,6 +550,7 @@ List<Widget> documentTaxLines({
   required double taxable,
   required double tax,
   required bool? interstate,
+  LineTaxRule? taxRule,
 }) {
   final double rate = taxable > 0 ? tax / taxable * 100 : 0;
   String percent(double value) {
@@ -576,6 +578,8 @@ List<Widget> documentTaxLines({
     const Divider(height: 12),
     DocumentSidePair('Line total', indianAmount(taxable + tax, full: true),
         bold: true),
+    if (taxRule != null && taxRule.code != null)
+      DocumentSideNote(taxRule.label),
   ];
 }
 

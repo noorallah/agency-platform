@@ -138,6 +138,7 @@ from app.tax.services.inclusive_rate import (
     derive_pre_tax,
 )
 from app.tax.services.place_of_supply import SALES_INTERSTATE
+from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.trade_licences.services.licence_check import (
@@ -2543,6 +2544,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         row.bill_discount_amount = resolved.amount
         return apportion(resolved.amount, taxables)
 
+    @stamps_tax_rules(SalesInvoiceLine, "sales_invoice_id")
     def _replace_lines(
         self,
         row: SalesInvoice,
@@ -4512,6 +4514,8 @@ class SalesInvoiceService(TransactionalDocumentService):
     ) -> SalesInvoiceLineResponse:
         return SalesInvoiceLineResponse(
             id=row.id,
+            tax_rule_code=row.tax_rule_code,
+            tax_rule_version=row.tax_rule_version,
             sales_invoice_id=row.sales_invoice_id,
             line_number=row.line_number,
             source_document_type=SalesInvoiceSourceType(row.source_document_type),

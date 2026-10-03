@@ -233,6 +233,10 @@ class PurchaseOrderLineResponse(PurchaseSchema):
     pending_receipt_quantity: Decimal = Decimal("0")
     #: Accepted, less returned, less invoiced.
     to_invoice_quantity: Decimal = Decimal("0")
+    #: The tax rule that decided the line and its version; null when the
+    #: profile alone did (GST-8).
+    tax_rule_code: str | None = None
+    tax_rule_version: int | None = None
 
 
 class PurchaseDeliveryScheduleResponse(PurchaseSchema):

@@ -11,6 +11,7 @@ import '../../models/product.dart';
 import '../../models/purchase.dart';
 import '../../models/vendor.dart';
 import '../../models/document_preview.dart';
+import '../../models/line_tax_rule.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../../phase2/source_tick_dialog.dart';

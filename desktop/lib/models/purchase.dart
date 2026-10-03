@@ -1,4 +1,5 @@
 import 'entities.dart';
+import 'line_tax_rule.dart';
 
 /// The largest purchase order one role may approve (backlog 68 row 4): the
 /// order's grand total, tax included.
@@ -65,6 +66,8 @@ class PurchaseOrderLine {
     this.invoicedQuantity = '',
     this.pendingReceiptQuantity = '',
     this.toInvoiceQuantity = '',
+    this.taxRuleCode,
+    this.taxRuleVersion,
   });
 
   final String id;
@@ -110,6 +113,10 @@ class PurchaseOrderLine {
   final String pendingReceiptQuantity;
   final String toInvoiceQuantity;
 
+  /// The tax rule that decided this line's tax; null when none matched.
+  final String? taxRuleCode;
+  final int? taxRuleVersion;
+
   factory PurchaseOrderLine.fromJson(Json json) => PurchaseOrderLine(
         id: stringValue(json['id']),
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
@@ -149,6 +156,8 @@ class PurchaseOrderLine {
         invoicedQuantity: stringValue(json['invoiced_quantity']),
         pendingReceiptQuantity: stringValue(json['pending_receipt_quantity']),
         toInvoiceQuantity: stringValue(json['to_invoice_quantity']),
+        taxRuleCode: LineTaxRule.fromJson(json).code,
+        taxRuleVersion: LineTaxRule.fromJson(json).version,
       );
 
   PurchaseOrderLine copyWith({

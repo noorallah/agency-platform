@@ -78,6 +78,7 @@ from app.purchase_invoice.models import (
 from app.purchase_invoice.schemas import PurchaseInvoiceStatus
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.gst_compliance import GstComplianceService
+from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.trade_licences.services.licence_check import (
@@ -1312,6 +1313,7 @@ class GoodsReceiptService(TransactionalDocumentService):
             )
         return "\n".join(lines)
 
+    @stamps_tax_rules(GoodsReceiptLine, "goods_receipt_id")
     def _replace_lines(
         self,
         receipt: GoodsReceipt,

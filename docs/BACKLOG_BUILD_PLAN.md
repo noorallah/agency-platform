@@ -660,6 +660,7 @@ otherwise it is built as written.
 - **What it is:** a reprint years later can say which tax rule applied, even after the logs are purged.
 - **What gets built:** migration: rule code and version on every line-tax table (sales and purchase invoices, orders, returns, notes), written from `TaxRuleService.simulate`'s result; shown on the line's tax detail. Tests.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A85): `tax_rule_code` and `tax_rule_version` on the nine line tables `simulate` taxes (migration 0257, all stores; history stays null). `TaxRuleService` remembers the rule each (document, line number) matched (`rule_for`), and `@stamps_tax_rules` (`app/tax/services/rule_stamp.py`) on each module's `_replace_lines` copies it onto the lines; the simulation response names `matched_rule_code` / `matched_rule_version`; every line response carries the two fields. Notes copy their tax from the invoice and are left out. Desktop: the line's tax detail names the rule. Tests: `test_line_tax_rule.py`, `line_tax_rule_test.dart`.
 
 ### Masters and configuration
 

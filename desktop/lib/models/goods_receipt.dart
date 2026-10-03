@@ -1,5 +1,6 @@
 import 'document_framework.dart';
 import 'entities.dart';
+import 'line_tax_rule.dart';
 
 class GoodsReceiptLine {
   const GoodsReceiptLine({
@@ -39,6 +40,8 @@ class GoodsReceiptLine {
     required this.updatedAt,
     this.mrp = '',
     this.sellingPrice = '',
+    this.taxRuleCode,
+    this.taxRuleVersion,
   });
 
   /// Per stock unit, tax included; empty when none was recorded.
@@ -82,6 +85,10 @@ class GoodsReceiptLine {
   final String createdAt;
   final String updatedAt;
 
+  /// The tax rule that decided this line's tax; null when none matched.
+  final String? taxRuleCode;
+  final int? taxRuleVersion;
+
   factory GoodsReceiptLine.fromJson(Json json) => GoodsReceiptLine(
         id: stringValue(json['id']),
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
@@ -121,6 +128,8 @@ class GoodsReceiptLine {
         updatedAt: stringValue(json['updated_at']),
         mrp: stringValue(json['mrp']),
         sellingPrice: stringValue(json['selling_price']),
+        taxRuleCode: LineTaxRule.fromJson(json).code,
+        taxRuleVersion: LineTaxRule.fromJson(json).version,
       );
 
   Json toJson() => {

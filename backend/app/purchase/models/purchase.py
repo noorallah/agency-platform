@@ -223,6 +223,11 @@ class PurchaseOrderLine(BaseEntity):
     status: Mapped[str] = mapped_column(
         String(30), nullable=False, default="ORDERED", server_default="ORDERED"
     )
+    #: The tax rule that decided the line, by code and version_number; null
+    #: when the profile alone did (GST-8). Kept here because the execution
+    #: log that also says so is purged.
+    tax_rule_code: Mapped[str | None] = mapped_column(String(50))
+    tax_rule_version: Mapped[int | None] = mapped_column(Integer)
 
 
 class PurchaseDeliverySchedule(BaseEntity):

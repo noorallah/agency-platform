@@ -60,6 +60,16 @@ class TaxRuleService:
         self._session = session
         self._staged = False
         self._supply: SupplyPlaceResolver | None = None
+        #: The rule each document line matched, by (document, line number),
+        #: for ``rule_stamp`` to keep on the line (GST-8).
+        self._matches: dict[tuple[UUID, int], tuple[str, int] | None] = {}
+
+    def rule_for(self, document_id: UUID, line_number: int) -> tuple[str, int] | None:
+        """Return the code and version of the rule that decided one line.
+
+        None when no rule matched, or the line was never simulated here.
+        """
+        return self._matches.get((document_id, line_number))
 
     @contextmanager
     def staged(self) -> Iterator[None]:
@@ -759,6 +769,10 @@ class TaxRuleService:
             transaction_type=str(context["transaction_type"]),
             transaction_date=transaction_date,
             matched_rule_id=matched_rule.id if matched_rule is not None else None,
+            matched_rule_code=matched_rule.code if matched_rule is not None else None,
+            matched_rule_version=(
+                matched_rule.version_number if matched_rule is not None else None
+            ),
             applied_tax_profile_id=applied_profile_id,
             applied_components=preview_components,
             total_tax_amount=total_tax_amount,
@@ -772,6 +786,12 @@ class TaxRuleService:
             matched_rule_reason=matched_reasons[0] if matched_reasons else None,
             decisions=decisions,
         )
+        if document_id is not None and line_number is not None:
+            self._matches[(document_id, line_number)] = (
+                None
+                if matched_rule is None
+                else (matched_rule.code, matched_rule.version_number)
+            )
         now = utc_now()
         named_document = data.additional_context.get("document_type")
         document_type = str(named_document) if named_document else None

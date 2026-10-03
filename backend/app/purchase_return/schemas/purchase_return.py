@@ -274,6 +274,10 @@ class PurchaseReturnLineResponse(PurchaseReturnSchema):
     accounting_event_reference: str | None
     created_at: datetime
     updated_at: datetime
+    #: The tax rule that decided the line and its version; null when the
+    #: profile alone did (GST-8).
+    tax_rule_code: str | None = None
+    tax_rule_version: int | None = None
 
 
 class PurchaseReturnResponse(PurchaseReturnSchema):
