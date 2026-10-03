@@ -4,6 +4,7 @@ import '../core/api/api_client.dart' show ApiException;
 import '../core/design/design_tokens.dart';
 
 import '../ui/workspace/save_in_dialog.dart';
+import 'favourites.dart';
 import 'indian_format.dart';
 import 'menu_layout.dart';
 
@@ -103,6 +104,7 @@ class Phase2HomePage extends StatefulWidget {
     this.hidden = const {},
     this.onCustomise,
     this.onOpenView,
+    this.favourites,
   });
 
   final String? firmName;
@@ -120,6 +122,10 @@ class Phase2HomePage extends StatefulWidget {
 
   /// The parts this user has chosen not to see ([sections] ids).
   final Set<String> hidden;
+
+  /// The user's starred screens (D-UI-3), which the FAVOURITES box shows and
+  /// lets them remove and reorder; null shows [screens] and offers neither.
+  final Favourites? favourites;
 
   /// Keep a new choice of hidden parts; null offers no Customise.
   final ValueChanged<Set<String>>? onCustomise;
@@ -184,8 +190,9 @@ class Phase2HomePage extends StatefulWidget {
     ),
   ];
 
-  /// The daily screens of 4.6. Favourites (4.3's star) will replace these
-  /// with the user's own choice.
+  /// The daily screens of 4.6: the favourites of somebody who has never
+  /// starred one (the wireframe's "they start with the common screens their
+  /// role may open").
   static const List<String> screens = [
     salesInvoices,
     'accounting/receipts',
@@ -417,7 +424,7 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
             _batches ||
             _licences)
           'todo',
-        if (_screens().isNotEmpty) 'screens',
+        if (widget.favourites != null || _screens().isNotEmpty) 'screens',
       };
 
   static List<Widget> _spaced(List<Widget> parts) => [
@@ -1108,52 +1115,53 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
     );
   }
 
+  /// The favourites this user may open, in their order. A starred screen
+  /// their role has since lost stays starred and is simply not drawn.
   List<MenuItemSpec> _screens() => [
-        for (final String path in Phase2HomePage.screens)
+        for (final String path
+            in widget.favourites?.paths ?? Phase2HomePage.screens)
           if (widget.allowed(path))
             if (MenuLayout.itemFor(path) case final MenuItemSpec item) item,
       ];
 
-  /// The wireframe's FAVOURITES: plain boxes of dark text in two columns.
-  /// Until the star of 4.3 lets somebody choose, they are the daily screens
-  /// of 4.6 the user may open.
+  /// The wireframe's FAVOURITES: plain boxes of dark text in two columns,
+  /// each with an x while pointed at, and dragged onto another to reorder.
   Widget _yourScreens(BuildContext context) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final Favourites? favourites = widget.favourites;
+    if (favourites == null) return _favouriteBoxes(context);
+    return ListenableBuilder(
+      listenable: favourites,
+      builder: (context, _) => _favouriteBoxes(context),
+    );
+  }
+
+  Widget _favouriteBoxes(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final List<MenuItemSpec> items = _screens();
     return _Section(
       title: 'FAVOURITES',
-      child: LayoutBuilder(builder: (context, constraints) {
-        final double width = (constraints.maxWidth - 6) / 2;
-        return Wrap(spacing: 6, runSpacing: 6, children: [
-          for (final MenuItemSpec item in _screens())
-            SizedBox(
-              width: width,
-              child: Material(
-                color: scheme.surfaceContainerLowest,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(6),
-                  side: BorderSide(color: scheme.outlineVariant),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: InkWell(
-                  key: ValueKey('home-open-${item.path}'),
-                  onTap: () => widget.onOpen(item),
-                  child: Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Text(
-                      item.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodyMedium
-                          ?.copyWith(color: scheme.onSurface),
+      child: items.isEmpty
+          ? Text(
+              'Point at a screen in any menu and click its star to keep it '
+              'here.',
+              key: const ValueKey('home-favourites-empty'),
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            )
+          : LayoutBuilder(builder: (context, constraints) {
+              final double width = (constraints.maxWidth - 6) / 2;
+              return Wrap(spacing: 6, runSpacing: 6, children: [
+                for (final MenuItemSpec item in items)
+                  SizedBox(
+                    width: width,
+                    child: _FavouriteBox(
+                      item: item,
+                      favourites: widget.favourites,
+                      onOpen: () => widget.onOpen(item),
                     ),
                   ),
-                ),
-              ),
-            ),
-        ]);
-      }),
+              ]);
+            }),
     );
   }
 
@@ -1342,6 +1350,104 @@ class _MarkFiledDialogState extends State<_MarkFiledDialog>
           child: const Text('Save'),
         ),
       ],
+    );
+  }
+}
+
+/// One box of Home's FAVOURITES. With [favourites] it shows an x while it is
+/// pointed at, and can be dragged onto another box to take its place.
+class _FavouriteBox extends StatefulWidget {
+  const _FavouriteBox({
+    required this.item,
+    required this.favourites,
+    required this.onOpen,
+  });
+
+  final MenuItemSpec item;
+  final Favourites? favourites;
+  final VoidCallback onOpen;
+
+  @override
+  State<_FavouriteBox> createState() => _FavouriteBoxState();
+}
+
+class _FavouriteBoxState extends State<_FavouriteBox> {
+  bool _hovered = false;
+
+  Widget _box(BuildContext context, {bool target = false}) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final Favourites? favourites = widget.favourites;
+    return Material(
+      color: scheme.surfaceContainerLowest,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(6),
+        side: BorderSide(
+          color: target ? scheme.primary : scheme.outlineVariant,
+          width: target ? 1.5 : 1,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        key: ValueKey('home-open-${widget.item.path}'),
+        onTap: widget.onOpen,
+        child: Row(children: [
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Text(
+                widget.item.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.copyWith(color: scheme.onSurface),
+              ),
+            ),
+          ),
+          if (favourites != null && _hovered)
+            IconButton(
+              key: ValueKey('home-unstar-${widget.item.path}'),
+              tooltip: 'Remove from favourites',
+              iconSize: 14,
+              padding: EdgeInsets.zero,
+              visualDensity: VisualDensity.compact,
+              constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+              onPressed: () => favourites.remove(widget.item.path),
+              icon: Icon(Icons.close, color: scheme.onSurfaceVariant),
+            ),
+        ]),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Favourites? favourites = widget.favourites;
+    final Widget box = MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: _box(context),
+    );
+    if (favourites == null) return box;
+    final String path = widget.item.path;
+    return DragTarget<String>(
+      onWillAcceptWithDetails: (details) => details.data != path,
+      onAcceptWithDetails: (details) => favourites.move(details.data, path),
+      builder: (context, candidates, _) => Draggable<String>(
+        key: ValueKey('home-drag-$path'),
+        data: path,
+        feedback: Material(
+          elevation: 4,
+          borderRadius: BorderRadius.circular(6),
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Text(widget.item.label),
+          ),
+        ),
+        childWhenDragging: Opacity(opacity: .4, child: _box(context)),
+        child: candidates.isEmpty ? box : _box(context, target: true),
+      ),
     );
   }
 }

@@ -143,11 +143,27 @@ List<CommandScreen> commandScreens(Iterable<MenuAreaSpec> areas) => [
 
 /// [screens] matching [query], best first: a name that starts with it, then
 /// a word of the name that does, then a synonym, then anywhere in the name or
-/// its place; the shorter name first among equals. Every word of a query of
-/// several must match somewhere.
-List<CommandScreen> matchScreens(List<CommandScreen> screens, String query) {
+/// its place; a starred screen ([favourites]) before one that is not, then the
+/// shorter name, among equals. Every word of a query of several must match
+/// somewhere. With nothing typed, the user's favourites lead, in their order
+/// (D-UI-3).
+List<CommandScreen> matchScreens(
+  List<CommandScreen> screens,
+  String query, {
+  List<String> favourites = const [],
+}) {
   final String q = query.trim().toLowerCase();
-  if (q.isEmpty) return screens;
+  if (q.isEmpty) {
+    final Map<String, CommandScreen> byPath = {
+      for (final CommandScreen screen in screens) screen.item.path: screen,
+    };
+    return [
+      for (final String path in favourites)
+        if (byPath[path] case final CommandScreen screen) screen,
+      for (final CommandScreen screen in screens)
+        if (!favourites.contains(screen.item.path)) screen,
+    ];
+  }
   final List<String> words = q.split(RegExp(r'\s+'));
   int? rank(CommandScreen screen) {
     final String name = screen.item.label.toLowerCase();
@@ -168,6 +184,10 @@ List<CommandScreen> matchScreens(List<CommandScreen> screens, String query) {
       if (rank(screens[i]) case final int r) (r, i, screens[i]),
   ]..sort((a, b) {
       if (a.$1 != b.$1) return a.$1 - b.$1;
+      final bool aStarred = favourites.contains(a.$3.item.path);
+      if (aStarred != favourites.contains(b.$3.item.path)) {
+        return aStarred ? -1 : 1;
+      }
       // Equally good matches: the shorter name is the closer one ("cust"
       // means Customers before Customer Statements), then menu order.
       final int length = a.$3.item.label.length - b.$3.item.label.length;
@@ -197,17 +217,22 @@ class SearchRecordsChoice extends CommandChoice {
 Future<CommandChoice?> showCommandBox(
   BuildContext context, {
   required List<CommandScreen> screens,
+  List<String> favourites = const [],
 }) =>
     showDialog<CommandChoice>(
       context: context,
       barrierColor: Colors.black26,
-      builder: (context) => _CommandBox(screens: screens),
+      builder: (context) =>
+          _CommandBox(screens: screens, favourites: favourites),
     );
 
 class _CommandBox extends StatefulWidget {
-  const _CommandBox({required this.screens});
+  const _CommandBox({required this.screens, required this.favourites});
 
   final List<CommandScreen> screens;
+
+  /// The user's starred screens' paths, which lead the list (D-UI-3).
+  final List<String> favourites;
 
   @override
   State<_CommandBox> createState() => _CommandBoxState();
@@ -228,7 +253,9 @@ class _CommandBoxState extends State<_CommandBox> {
   }
 
   List<CommandScreen> get _matches =>
-      matchScreens(widget.screens, _query.text).take(12).toList();
+      matchScreens(widget.screens, _query.text, favourites: widget.favourites)
+          .take(12)
+          .toList();
 
   bool get _offersRecords => _query.text.trim().isNotEmpty;
 
@@ -312,7 +339,10 @@ class _CommandBoxState extends State<_CommandBox> {
                               _row(
                                 context,
                                 index: i,
-                                icon: Icons.open_in_browser_outlined,
+                                icon: widget.favourites
+                                        .contains(matches[i].item.path)
+                                    ? Icons.star
+                                    : Icons.open_in_browser_outlined,
                                 title: matches[i].item.label,
                                 trailing: matches[i].place,
                               ),

@@ -3945,6 +3945,12 @@ so making those adapt changes every screen at once.
 
 **Status, 2026-10-02:** item 4 built -- *Receipts today* on Home, from the receipts list's date filter.
 
+**Status, 2026-10-04:** item 3 built (D-UI-3) -- the star on every drop-down
+item, Home's FAVOURITES with ✕ and drag to reorder, favourites first in
+Ctrl+K. Kept as `dashboard_layout.favourites` in the user's preferences
+(`desktop/lib/phase2/favourites.dart`): no read of its own, one debounced
+`PATCH /api/v1/me/preferences` per run of changes.
+
 Owner, 2026-09-26: Home as built (#695-#705, the approved wireframe) is fine
 for now; different gadgets come later. What exists: key figures, sales over
 14 days, recent invoices, to do, favourites, Customise to hide any of them,

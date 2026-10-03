@@ -452,6 +452,25 @@ class SessionController extends ChangeNotifier {
     }
   }
 
+  /// Keep the user's [layout] -- Home's favourites among it -- on the server.
+  ///
+  /// The whole object is sent, because the server replaces it rather than
+  /// merging. Like [saveLastWorkspace], a refusal is logged and not shown:
+  /// the screen already shows the change, and the next save carries it.
+  Future<void> saveDashboardLayout(Map<String, dynamic> layout) async {
+    if (_accessToken == null) return;
+    try {
+      final UserPreferences updated =
+          await api.updateUserPreferences({'dashboard_layout': layout});
+      _serverPreferences = updated;
+      await _preferences.cacheServerPreferences(updated.toJson());
+    } on ApiException catch (error) {
+      AppLog.warn('Favourites not saved on the server: ${error.message}');
+    } on FormatException catch (error) {
+      AppLog.warn('Favourites not saved on the server: ${error.message}');
+    }
+  }
+
   void registerActivity() {
     if (_accessToken == null) return;
     _sessionTimer?.cancel();
