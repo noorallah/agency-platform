@@ -52,6 +52,9 @@ class CustomerReceivableTransactionType(StrEnum):
     #: the money they have just paid -- taking it out of that money would
     #: leave the firm short by the tax on every collection.
     TCS = "TCS"
+    #: What the firm charged the customer for a cheque of theirs that
+    #: bounced (ACC-2). Owed on top, like TCS, and outside GST.
+    CHEQUE_RETURN_CHARGE = "CHEQUE_RETURN_CHARGE"
     #: Loyalty credit spent against a bill. It reduces what the customer owes
     #: exactly as a receipt does -- the firm has been paid, in credit it
     #: already owed rather than in cash. Its own type rather than RECEIPT

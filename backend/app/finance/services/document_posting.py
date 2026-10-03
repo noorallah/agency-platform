@@ -1766,6 +1766,113 @@ class DocumentPostingService:
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
 
+    def post_cheque_return_charges(
+        self,
+        *,
+        firm_id: UUID,
+        cheque_id: UUID,
+        reference: str,
+        bounced_on: date,
+        bank_account_id: UUID,
+        bank_charges_amount: Decimal,
+        customer_charge_amount: Decimal,
+        description: str,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Post what a bounced cheque cost (ACC-2), in one entry.
+
+        Two independent pairs, either of which may be absent:
+
+        * what the firm's bank took for the return -- Dr bank charges, Cr
+          the bank the cheque was paid into;
+        * what the firm charges the customer for it -- Dr receivable, Cr
+          cheque return charges, other income outside GST: a penalty for
+          dishonour is not consideration for a supply.
+
+        The reversal of the receipt itself is the settlement's own, posted
+        separately, so this entry never touches the money the cheque was for.
+
+        Args:
+            firm_id: The owning firm.
+            cheque_id: The source post-dated cheque.
+            reference: The journal reference.
+            bounced_on: The day the bank returned it.
+            bank_account_id: The bank the cheque was deposited into.
+            bank_charges_amount: The firm's bank's fee; may be zero.
+            customer_charge_amount: The charge to the customer; may be zero.
+            description: The narration every leg carries.
+            actor_id: The user recording it.
+
+        Returns:
+            The posted journal entry.
+
+        Raises:
+            ValidationError: If an account is unmapped or no period is open.
+
+        """
+        bank_charges = quantize_ledger(quantize_money(bank_charges_amount))
+        customer_charge = quantize_ledger(quantize_money(customer_charge_amount))
+        purposes: tuple[ControlAccountPurpose, ...] = ()
+        if bank_charges > ZERO:
+            purposes = (*purposes, ControlAccountPurpose.BANK_CHARGES)
+        if customer_charge > ZERO:
+            purposes = (
+                *purposes,
+                ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
+                ControlAccountPurpose.CHEQUE_RETURN_CHARGES,
+            )
+        accounts = self._require_mapping(firm_id, purposes)
+        context = self.context_for(firm_id, bounced_on)
+        lines: list[JournalLineData] = []
+        if bank_charges > ZERO:
+            lines += [
+                JournalLineData(
+                    ledger_account_id=accounts[ControlAccountPurpose.BANK_CHARGES],
+                    debit_amount=bank_charges,
+                    credit_amount=ZERO,
+                    description=description,
+                ),
+                JournalLineData(
+                    ledger_account_id=bank_account_id,
+                    debit_amount=ZERO,
+                    credit_amount=bank_charges,
+                    description=description,
+                ),
+            ]
+        if customer_charge > ZERO:
+            lines += [
+                JournalLineData(
+                    ledger_account_id=accounts[
+                        ControlAccountPurpose.ACCOUNTS_RECEIVABLE
+                    ],
+                    debit_amount=customer_charge,
+                    credit_amount=ZERO,
+                    description=description,
+                ),
+                JournalLineData(
+                    ledger_account_id=accounts[
+                        ControlAccountPurpose.CHEQUE_RETURN_CHARGES
+                    ],
+                    debit_amount=ZERO,
+                    credit_amount=customer_charge,
+                    description=description,
+                ),
+            ]
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=bounced_on,
+            reference_number=reference,
+            description=description,
+            lines=lines,
+            source_module="post_dated_cheque",
+            source_id=cheque_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
     def post_commission_accrual(
         self,
         *,

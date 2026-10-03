@@ -263,6 +263,16 @@ supplier's approved bills (without GST) and its 194Q payments for the
 April-March year and suggests what the next payment deducts. The deduction
 is still the payment's, posted as every TDS is; nothing journals at the bill.
 
+**A post-dated cheque posts nothing while it is held** (ACC-2,
+`post_dated_cheques.py`). Banking it posts the receipt or payment it becomes,
+dated the day it was banked, through the settlement service. A returned cheque
+reverses that settlement on the day the bank returned it, and its charges post
+one entry of their own -- source module `post_dated_cheque`, reference
+`<settlement number>-RTN`: Dr Bank charges / Cr the bank for the bank's fee,
+and Dr Receivable / Cr *Cheque Return Charges Recovered*
+(`CHEQUE_RETURN_CHARGES`) for what the customer is charged, written to the
+customer's account too. No GST on that charge (CBIC circular 178/10/2022).
+
 **A TDS challan empties TDS Payable** (ACC-7, `tds_challans.py`): Dr TDS
 Payable for the tax, Dr *Interest and Fees on TDS* (`TDS_INTEREST_AND_FEES`)
 for interest and the late fee, Cr the bank -- source module `tds_challan`,
@@ -864,7 +874,7 @@ beside `credit_notes_deducted`.
 ## `app/finance` and automatic GL posting
 
 `app/finance/` was rewritten on 2026-08-09 and is live at `/api/v1/finance` (migration `20260809_0042`). It uses the seeded `accounting` / `financial_year` permission codes rather than a `FINANCE_*` namespace. The prior `accounting_event_consumer.py`, which guessed accounts by name, was removed — see git history if you want its posting rules.
-**Automatic GL posting is built, and this line said for months that it was not.** It claimed the feature needed "a per-firm control-account mapping design" -- which is exactly what `firm_control_accounts` is, and it carries 44 purposes per firm as of 2026-10-03 -- count them with `len(ControlAccountPurpose)` rather than trusting this number (`ACCOUNTS_RECEIVABLE`, `INVENTORY`, `OUTPUT_TAX`, `INPUT_TAX_IGST`, `PURCHASE_PRICE_VARIANCE`, `LOYALTY_PAYABLE`, `COMMISSION_PAYABLE`, `TCS_PAYABLE` and the rest). **Eleven modules post through `DocumentPostingService`**: `delivery_note`, `sales_invoice`, `sales_return`, `credit_note`, `goods_receipt`, `purchase_invoice`, `purchase_return`, `settlements`, `loyalty`, `tcs` and `commission`. WHOLE01 alone holds 337 journal entries, and `verify_sample_data.py` fails the run if any approved invoice has not posted. A stale line like this is worse than no line: it talks the next reader out of checking, and it survived precisely because nobody re-derived it. Correct one when you find it rather than working around it.
+**Automatic GL posting is built, and this line said for months that it was not.** It claimed the feature needed "a per-firm control-account mapping design" -- which is exactly what `firm_control_accounts` is, and it carries 45 purposes per firm as of 2026-10-03 -- count them with `len(ControlAccountPurpose)` rather than trusting this number (`ACCOUNTS_RECEIVABLE`, `INVENTORY`, `OUTPUT_TAX`, `INPUT_TAX_IGST`, `PURCHASE_PRICE_VARIANCE`, `LOYALTY_PAYABLE`, `COMMISSION_PAYABLE`, `TCS_PAYABLE` and the rest). **Eleven modules post through `DocumentPostingService`**: `delivery_note`, `sales_invoice`, `sales_return`, `credit_note`, `goods_receipt`, `purchase_invoice`, `purchase_return`, `settlements`, `loyalty`, `tcs` and `commission`. WHOLE01 alone holds 337 journal entries, and `verify_sample_data.py` fails the run if any approved invoice has not posted. A stale line like this is worse than no line: it talks the next reader out of checking, and it survived precisely because nobody re-derived it. Correct one when you find it rather than working around it.
 
 ## Rule 37 reversals and reclaims (backlog 78 row 4, 2026-10-02)
 

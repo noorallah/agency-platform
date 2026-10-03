@@ -1373,6 +1373,7 @@ class SettlementService(TransactionalDocumentService):
         firm_id: UUID,
         actor_id: UUID,
         reason: str | None = None,
+        on: date | None = None,
     ) -> Settlement:
         """Take a settlement back, in the ledger and on the party's account.
 
@@ -1398,6 +1399,8 @@ class SettlementService(TransactionalDocumentService):
             firm_id: The owning firm.
             actor_id: The user reversing it.
             reason: Why, kept on the record.
+            on: The day the reversal is dated; blank is today. A bounced
+                cheque (ACC-2) is reversed on the day the bank returned it.
 
         Returns:
             The reversed settlement.
@@ -1414,6 +1417,7 @@ class SettlementService(TransactionalDocumentService):
             row.journal_entry_id,
             firm_id=firm_id,
             reference_number=f"{row.settlement_number}-REV",
+            journal_date=on,
             actor_id=actor_id,
         )
         if self.DIRECTION in (

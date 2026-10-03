@@ -189,6 +189,8 @@ abstract final class MenuLayout {
       ]),
       MenuGroupSpec('Money', [
         MenuItemSpec(AppModule.accounting, 'receipts', 'Receipts'),
+        MenuItemSpec(
+            AppModule.accounting, 'pdc-received', 'Post-dated Cheques'),
         MenuItemSpec(AppModule.accounting, 'refunds', 'Refunds'),
         MenuItemSpec(
             AppModule.masters, 'customer-statements', 'Customer Statements'),
@@ -236,6 +238,7 @@ abstract final class MenuLayout {
       ]),
       MenuGroupSpec('Money', [
         MenuItemSpec(AppModule.accounting, 'payments', 'Payments'),
+        MenuItemSpec(AppModule.accounting, 'pdc-issued', 'Post-dated Cheques'),
         MenuItemSpec(
             AppModule.masters, 'supplier-statements', 'Supplier Statements'),
       ]),

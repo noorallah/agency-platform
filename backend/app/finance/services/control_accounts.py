@@ -140,6 +140,10 @@ class ControlAccountPurpose(StrEnum):
     #: late return (234E), paid on a TDS challan (ACC-7). A cost of its own,
     #: never TDS payable: it was never deducted from anybody.
     TDS_INTEREST_AND_FEES = "TDS_INTEREST_AND_FEES"
+    #: What a customer is charged for a cheque of theirs that bounced
+    #: (ACC-2). Other income, outside GST: a penalty for dishonour is not
+    #: consideration for a supply (CBIC circular 178/10/2022).
+    CHEQUE_RETURN_CHARGES = "CHEQUE_RETURN_CHARGES"
 
 
 INPUT_TAX_PURPOSE_BY_COMPONENT.update(
@@ -262,6 +266,7 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     ControlAccountPurpose.STAFF_WELFARE: frozenset({"EXPENSE"}),
     ControlAccountPurpose.SAMPLES_AND_DISPLAY: frozenset({"EXPENSE"}),
     ControlAccountPurpose.TDS_INTEREST_AND_FEES: frozenset({"EXPENSE"}),
+    ControlAccountPurpose.CHEQUE_RETURN_CHARGES: frozenset({"INCOME"}),
 }
 
 
@@ -328,6 +333,7 @@ PURPOSE_LABELS: dict[ControlAccountPurpose, str] = {
     ControlAccountPurpose.STAFF_WELFARE: "Staff welfare",
     ControlAccountPurpose.SAMPLES_AND_DISPLAY: "Samples and display",
     ControlAccountPurpose.TDS_INTEREST_AND_FEES: "Interest and fees on TDS",
+    ControlAccountPurpose.CHEQUE_RETURN_CHARGES: "Cheque return charges",
 }
 
 
