@@ -501,6 +501,9 @@ class PurchaseWorkflowSettingsResponse(PurchaseSchema):
     goods_receipt_stage: bool
     default_branch_id: UUID | None
     default_warehouse_id: UUID | None
+    #: How far a bill may run over its order before it waits (BUY-10).
+    bill_price_tolerance_percent: Decimal | None = None
+    bill_tolerance_amount: Decimal | None = None
     is_configured: bool
 
 
@@ -517,6 +520,14 @@ class PurchaseWorkflowSettingsWrite(PurchaseSchema):
     goods_receipt_stage: bool
     default_branch_id: UUID | None = None
     default_warehouse_id: UUID | None = None
+    #: Absent keeps the firm's own; an explicit null switches the check off
+    #: (BUY-10).
+    bill_price_tolerance_percent: Decimal | None = Field(
+        default=None, ge=0, le=100, max_digits=7, decimal_places=4
+    )
+    bill_tolerance_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=2
+    )
 
 
 class RolePurchaseApprovalLimitItem(PurchaseSchema):

@@ -39,6 +39,8 @@ DEFAULT_SETTINGS = PurchaseWorkflowSettings(
     goods_receipt_stage=True,
     default_branch_id=None,
     default_warehouse_id=None,
+    bill_price_tolerance_percent=None,
+    bill_tolerance_amount=None,
 )
 
 
@@ -114,6 +116,10 @@ class PurchaseWorkflowService:
         row.goods_receipt_stage = data.goods_receipt_stage
         row.default_branch_id = branch_id
         row.default_warehouse_id = warehouse_id
+        if "bill_price_tolerance_percent" in sent:
+            row.bill_price_tolerance_percent = data.bill_price_tolerance_percent
+        if "bill_tolerance_amount" in sent:
+            row.bill_tolerance_amount = data.bill_tolerance_amount
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -195,6 +201,8 @@ class PurchaseWorkflowService:
             goods_receipt_stage=row.goods_receipt_stage,
             default_branch_id=row.default_branch_id,
             default_warehouse_id=row.default_warehouse_id,
+            bill_price_tolerance_percent=row.bill_price_tolerance_percent,
+            bill_tolerance_amount=row.bill_tolerance_amount,
             is_configured=is_configured,
         )
 
@@ -209,5 +217,15 @@ class PurchaseWorkflowService:
             ),
             "default_warehouse_id": (
                 str(row.default_warehouse_id) if row.default_warehouse_id else None
+            ),
+            "bill_price_tolerance_percent": (
+                None
+                if row.bill_price_tolerance_percent is None
+                else str(row.bill_price_tolerance_percent)
+            ),
+            "bill_tolerance_amount": (
+                None
+                if row.bill_tolerance_amount is None
+                else str(row.bill_tolerance_amount)
             ),
         }

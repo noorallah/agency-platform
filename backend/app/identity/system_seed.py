@@ -246,6 +246,9 @@ PERMISSION_GROUPS = {
         "PURCHASE_RESTORE",
         "PURCHASE_CANCEL",
         "PURCHASE_APPROVE",
+        # Approving a supplier bill priced past the firm's tolerance over its
+        # order (BUY-10): the purchase manager's call, not the executive's.
+        "PURCHASE_APPROVE_OVER_TOLERANCE",
         "PURCHASE_IMPORT",
         "PURCHASE_EXPORT",
         # Which of purchase order and goods receipt this firm raises by hand.
@@ -670,7 +673,14 @@ _SEEDED_ROLE_PERMISSION_CODES = {
         }
     ),
     "PURCHASE_EXECUTIVE": (
-        _codes("purchase") - frozenset({"PURCHASE_APPROVE", "PURCHASE_MANAGE_SETTINGS"})
+        _codes("purchase")
+        - frozenset(
+            {
+                "PURCHASE_APPROVE",
+                "PURCHASE_APPROVE_OVER_TOLERANCE",
+                "PURCHASE_MANAGE_SETTINGS",
+            }
+        )
     )
     | frozenset({"TRADE_LICENCE_VIEW"}),
     "INVENTORY_MANAGER": _codes("inventory", "batch_serial"),
