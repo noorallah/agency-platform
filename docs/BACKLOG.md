@@ -5723,3 +5723,47 @@ shelf life per customer (allocation passes over a short batch; a hand-picked
 one is blocked or warned, migration 0223). Row 4, pinning a batch on the order,
 built the same day (migration 0224), and row 7, the batch's own MRP and
 selling price (decision A41, migration 0225). §79 is complete.
+
+## 80. Fewer server calls: a client-side cache for preferences and reference data
+
+Owner, 2026-10-04, approving Settings > Set up and My preferences (§72, §73):
+"make sure we reduce server calls and keep performance" -- and asked whether
+preference and static calls can be cached on the UI side. **They can; today
+nothing is.** Kept with the UI backlog.
+
+**What the desktop does today** (survey of `desktop/lib`, 2026-10-04):
+
+- **No response cache at all.** `ApiClient.request` sends every call to the
+  network. Only two widgets memoise a read for their own lifetime.
+- **Reference data is re-read on every open, by every screen, unshared:**
+  branches (`/branches`, 21 call sites in 19 files), warehouses (19 in 18),
+  units (`/uom-framework/uoms`, 12 in 10), tax profiles (12 in 11), customer
+  groups (6), places (8), product categories (4), active features (2). Several
+  page through everything at the largest page size.
+- `DocumentLineLabels.load` reads products, units, tax profiles, branches and
+  warehouses **one after another** each time the sales order or sales invoice
+  list loads.
+- The shell already holds sales and purchase workflow settings and the active
+  modules, yet four document screens fetch them again.
+- **Home** fires 8 tiles plus 6 to-do summaries at once; the register and the
+  day's settlements page sequentially (up to 50 pages each) -- 14 requests at
+  least, well past 30 on a busy firm -- and all of it again on every firm
+  switch.
+- Sign-in reads `/me/preferences`, `/me/firms`, `/me` and the work defaults one
+  after another; they do not depend on each other.
+
+**The ask:**
+
+| # | Item | Detail |
+| --- | --- | --- |
+| 1 | **One reference-data cache** | A session store keyed by firm: branches, warehouses, units, tax profiles, customer groups, product categories, places, active features and modules, workflow settings. Read once on first use, shared by every screen and picker; cleared on firm switch and sign-out. |
+| 2 | **Kept fresh without polling** | A short expiry (about 10 minutes) as the safety net; the app's own saves invalidate the entry they touched (save a warehouse -> the warehouse list is dropped); the screen that manages a list always reads it fresh; a "Refresh" on any picker. |
+| 3 | **ETag revalidation** | Lists that publish a version answer `304 Not Modified` to `If-None-Match`, so a re-check costs no payload. Backend side: a list-level ETag on the reference endpoints. |
+| 4 | **Preferences and favourites** | Read once at sign-in, held in memory, written back with one debounced `PUT` of changed fields (§72 rules). |
+| 5 | **Sign-in in parallel** | The four sign-in reads together, not in a row. |
+| 6 | **Home lighter** | One summary endpoint for the tiles and to-do counts, or the existing ones read from the cache where they are reference data; no 50-page client-side paging for a total the server can sum. |
+| 7 | **Remove duplicates** | Document screens use the shell's workflow settings and active modules instead of re-reading them. |
+| 8 | **Guard** | Desktop tests that count requests for opening a document editor twice, switching firm and loading Home, so a later change cannot add calls unnoticed. |
+
+Never cached: documents, balances, stock, prices -- anything a person acts on
+must be read live.
