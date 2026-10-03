@@ -147,6 +147,9 @@ abstract final class MenuLayout {
   /// approve (backlog 68 row 4). A dialog, like the Selling ones.
   static const String approvalLimitsRoute = 'settings/purchase-approval-limits';
 
+  /// Monthly purchase budgets (BUY-14). A dialog, under Buying.
+  static const String purchaseBudgetsRoute = 'settings/purchase-budgets';
+
   /// GST documents (backlog 77.1): e-invoicing dates and the rule for
   /// dispatching a sale before its invoice. A dialog, under Tax.
   static const String gstDocumentsRoute = 'settings/gst-documents';
@@ -448,6 +451,8 @@ abstract final class MenuLayout {
       MenuItemSpec(
           AppModule.purchases, 'purchase-settings', 'Purchase Settings'),
       MenuItemSpec.setting(approvalLimitsRoute, 'Approval Limits',
+          permission: 'PURCHASE_VIEW'),
+      MenuItemSpec.setting(purchaseBudgetsRoute, 'Purchase Budgets',
           permission: 'PURCHASE_VIEW'),
     ]),
     MenuGroupSpec('Stock', [

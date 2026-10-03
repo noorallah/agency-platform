@@ -26,6 +26,77 @@ class RolePurchaseApprovalLimit {
       };
 }
 
+/// One month's purchase budget and how much of it is spent (BUY-14). A row
+/// with neither branch nor category is the firm-wide budget for the month.
+class PurchaseBudget {
+  const PurchaseBudget({
+    required this.id,
+    required this.budgetMonth,
+    required this.branchId,
+    required this.productCategoryId,
+    required this.label,
+    required this.amount,
+    required this.used,
+    required this.available,
+    this.version = 0,
+  });
+
+  final String id;
+
+  /// The first day of the month, `YYYY-MM-DD`.
+  final String budgetMonth;
+  final String? branchId;
+  final String? productCategoryId;
+  final String label;
+  final String amount;
+  final String used;
+  final String available;
+  final int version;
+
+  factory PurchaseBudget.fromJson(Json json) => PurchaseBudget(
+        id: stringValue(json['id']),
+        budgetMonth: stringValue(json['budget_month']),
+        branchId: _idOrNull(json['branch_id']),
+        productCategoryId: _idOrNull(json['product_category_id']),
+        label: stringValue(json['label']),
+        amount: stringValue(json['amount']),
+        used: stringValue(json['used']),
+        available: stringValue(json['available']),
+        version: _revisionInt(json['version']),
+      );
+}
+
+/// A budget as one order stands against it (BUY-14).
+class PurchaseOrderBudgetRow {
+  const PurchaseOrderBudgetRow({
+    required this.budgetId,
+    required this.label,
+    required this.amount,
+    required this.used,
+    required this.thisOrder,
+    required this.available,
+    required this.exceeded,
+  });
+
+  final String budgetId;
+  final String label;
+  final String amount;
+  final String used;
+  final String thisOrder;
+  final String available;
+  final bool exceeded;
+
+  factory PurchaseOrderBudgetRow.fromJson(Json json) => PurchaseOrderBudgetRow(
+        budgetId: stringValue(json['budget_id']),
+        label: stringValue(json['label']),
+        amount: stringValue(json['amount']),
+        used: stringValue(json['used']),
+        thisOrder: stringValue(json['this_order']),
+        available: stringValue(json['available']),
+        exceeded: boolValue(json['exceeded']),
+      );
+}
+
 class PurchaseOrderLine {
   const PurchaseOrderLine({
     required this.id,
@@ -923,6 +994,7 @@ class PurchaseWorkflowSettings {
     this.billPriceTolerancePercent,
     this.billToleranceAmount,
     this.orderQuantityPolicy = 'WARN',
+    this.budgetPolicy = 'WARN',
   });
 
   final bool purchaseOrderStage;
@@ -941,6 +1013,10 @@ class PurchaseWorkflowSettings {
   /// What an order off the supplier's minimum or multiple does (BUY-5):
   /// `WARN` (default) or `REFUSE`.
   final String orderQuantityPolicy;
+
+  /// What approving past a purchase budget does (BUY-14): `WARN` (default) or
+  /// `NEEDS_APPROVAL`.
+  final String budgetPolicy;
 
   /// False while the firm is still on the platform default: the whole chain.
   final bool isConfigured;
@@ -978,6 +1054,9 @@ class PurchaseWorkflowSettings {
             stringValue(json['order_quantity_policy']) == 'REFUSE'
                 ? 'REFUSE'
                 : 'WARN',
+        budgetPolicy: stringValue(json['budget_policy']) == 'NEEDS_APPROVAL'
+            ? 'NEEDS_APPROVAL'
+            : 'WARN',
       );
 
   /// The two switches and the two bill tolerances. The server leaves an
@@ -989,6 +1068,7 @@ class PurchaseWorkflowSettings {
         'bill_price_tolerance_percent': billPriceTolerancePercent,
         'bill_tolerance_amount': billToleranceAmount,
         'order_quantity_policy': orderQuantityPolicy,
+        'budget_policy': budgetPolicy,
       };
 
   /// [clearPercent] / [clearAmount] switch a tolerance off, which a null
@@ -1001,6 +1081,7 @@ class PurchaseWorkflowSettings {
     double? billToleranceAmount,
     bool clearAmount = false,
     String? orderQuantityPolicy,
+    String? budgetPolicy,
   }) =>
       PurchaseWorkflowSettings(
         purchaseOrderStage: purchaseOrderStage ?? this.purchaseOrderStage,
@@ -1015,6 +1096,7 @@ class PurchaseWorkflowSettings {
             ? null
             : billToleranceAmount ?? this.billToleranceAmount,
         orderQuantityPolicy: orderQuantityPolicy ?? this.orderQuantityPolicy,
+        budgetPolicy: budgetPolicy ?? this.budgetPolicy,
       );
 }
 

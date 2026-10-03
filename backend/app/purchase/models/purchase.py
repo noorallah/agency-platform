@@ -384,6 +384,12 @@ class PurchaseWorkflowSettings(BaseEntity):
     #: The most a whole bill may come to over its order's prices before it
     #: waits (BUY-10). Null: no check.
     bill_tolerance_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    #: What approving an order past a purchase budget does (BUY-14): ``WARN``
+    #: -- noted on its timeline -- or ``NEEDS_APPROVAL`` -- refused unless the
+    #: approver holds PURCHASE_APPROVE_OVER_BUDGET.
+    budget_policy: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="WARN", server_default="WARN"
+    )
     #: What an order line off the supplier's minimum or multiple does
     #: (BUY-5): ``WARN`` -- the editor suggests the quantity -- or ``REFUSE``.
     order_quantity_policy: Mapped[str] = mapped_column(
@@ -496,3 +502,30 @@ class PurchaseOrderRevision(BaseEntity):
     grand_total: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
     snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class PurchaseBudget(BaseEntity):
+    """What a firm means to spend on buying in one month (BUY-14, A106).
+
+    Optionally narrowed to one branch and one product category; a blank one
+    covers them all. What it has used is derived from approved orders, never
+    stored.
+    """
+
+    __tablename__ = "purchase_budgets"
+    __table_args__ = (
+        Index("IX_purchase_budgets_firm_month", "firm_id", "budget_month"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    #: The first day of the month it covers.
+    budget_month: Mapped[date] = mapped_column(Date, nullable=False)
+    branch_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("branches.id", ondelete="RESTRICT")
+    )
+    product_category_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("product_categories.id", ondelete="RESTRICT")
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)

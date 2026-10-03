@@ -1045,10 +1045,20 @@ class PurchaseService(TransactionalDocumentService):
         )
 
     def approve_order(
-        self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
+        self,
+        order_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        may_exceed_budget: bool = True,
     ) -> PurchaseOrder:
         """Approve a submitted order and commit."""
-        row = self.stage_approval(order_id, firm_scope=firm_scope, actor_id=actor_id)
+        row = self.stage_approval(
+            order_id,
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+            may_exceed_budget=may_exceed_budget,
+        )
         self._session.commit()
         return row
 
@@ -1059,6 +1069,7 @@ class PurchaseService(TransactionalDocumentService):
         firm_scope: UUID,
         actor_id: UUID,
         enforce_limit: bool = True,
+        may_exceed_budget: bool = True,
     ) -> PurchaseOrder:
         """Approve a submitted order, committing the firm to buy, unsaved.
 
@@ -1096,6 +1107,17 @@ class PurchaseService(TransactionalDocumentService):
         )
         if limit_details:
             licence_details = {**(licence_details or {}), **limit_details}
+        # Purchase budgets (BUY-14): not for an order nobody typed.
+        if enforce_limit:
+            budget_remark = self._check_budgets(
+                row, may_exceed_budget=may_exceed_budget
+            )
+            if budget_remark:
+                licence_remark = (
+                    f"{licence_remark} {budget_remark}"
+                    if licence_remark
+                    else budget_remark
+                )
         return self._transition(
             row,
             to_status=PurchaseOrderStatus.APPROVED,
@@ -1106,6 +1128,42 @@ class PurchaseService(TransactionalDocumentService):
             remarks=licence_remark,
             details=licence_details,
         )
+
+    def _check_budgets(
+        self, row: PurchaseOrder, *, may_exceed_budget: bool
+    ) -> str | None:
+        """Warn about, or refuse, an approval past a purchase budget (BUY-14).
+
+        Raises:
+            AuthorizationError: When the firm requires approval past a budget
+                and the approver may not give it.
+
+        """
+        from app.purchase.services.budgets import PurchaseBudgetService
+        from app.purchase.services.workflow_settings_service import (
+            PurchaseWorkflowService,
+        )
+
+        over = [
+            check
+            for check in PurchaseBudgetService(self._session).check_order(row)
+            if check.exceeded
+        ]
+        if not over:
+            return None
+        message = "; ".join(
+            f"{check.label} -- {check.used + check.this_order:.2f} of "
+            f"{check.amount:.2f}"
+            for check in over
+        )
+        policy = PurchaseWorkflowService(self._session).settings_response(row.firm_id)
+        if policy.budget_policy == "NEEDS_APPROVAL" and not may_exceed_budget:
+            raise AuthorizationError(
+                f"{row.po_number} takes a purchase budget past its amount "
+                f"({message}). Approving it needs the approve over budget "
+                "permission (PURCHASE_APPROVE_OVER_BUDGET)."
+            )
+        return f"Over budget: {message}."
 
     def _transition(
         self,

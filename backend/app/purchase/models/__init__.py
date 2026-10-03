@@ -2,6 +2,7 @@
 
 from app.purchase.models.purchase import (
     PurchaseAttachment,
+    PurchaseBudget,
     PurchaseDeliverySchedule,
     PurchaseNote,
     PurchaseOrder,
@@ -14,6 +15,7 @@ from app.purchase.models.purchase import (
 )
 
 __all__ = [
+    "PurchaseBudget",
     "PurchaseAttachment",
     "PurchaseDeliverySchedule",
     "PurchaseNote",

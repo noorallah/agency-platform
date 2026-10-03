@@ -74,6 +74,11 @@ const Map<String, List<String>> _synonyms = {
     'purchase limit',
     'order approval',
   ],
+  MenuLayout.purchaseBudgetsRoute: [
+    'purchase budget',
+    'monthly budget',
+    'spend limit',
+  ],
   MenuLayout.loyaltySchemeRoute: ['loyalty', 'reward points'],
   MenuLayout.workDefaultsRoute: ['usual branch', 'default warehouse', 'my defaults'],
   MenuLayout.tcsSettingsRoute: ['tcs', 'tax collected at source', '206c'],

@@ -63,6 +63,7 @@ import 'commission/sales_target_page.dart';
 import 'purchases/debit_note_page.dart';
 import 'purchases/quality_inspection_page.dart';
 import 'purchases/purchase_approval_limits_dialog.dart';
+import 'purchases/purchase_budgets_dialog.dart';
 import 'sales/credit_note_page.dart';
 import 'sales/customer_debit_note_page.dart';
 import 'sales/einvoice_page.dart';
@@ -453,6 +454,14 @@ class _DesktopShellState extends State<DesktopShell> {
         await showDialog<bool>(
           context: context,
           builder: (_) => PurchaseApprovalLimitsDialog(
+            api: api,
+            permissions: widget.permissions,
+          ),
+        );
+      case MenuLayout.purchaseBudgetsRoute:
+        await showDialog<void>(
+          context: context,
+          builder: (_) => PurchaseBudgetsDialog(
             api: api,
             permissions: widget.permissions,
           ),

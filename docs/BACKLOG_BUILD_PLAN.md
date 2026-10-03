@@ -439,6 +439,7 @@ otherwise it is built as written.
 - **What it is:** a spending budget by branch, category and month, shown and warned on the order.
 - **What gets built:** a budget table; used = approved orders in the period; the order editor shows used / available; warn at approval, optional approval when exceeded. Migration yes. Settings > Buying screen. Tests.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A106): `purchase_budgets`, `purchase_workflow_settings.budget_policy`, `PURCHASE_APPROVE_OVER_BUDGET` (migration 0271); `app/purchase/services/budgets.py`; `/purchases/budgets` CRUD and `/purchases/{id}/budget`; `PurchaseService._check_budgets` at approval (single and bulk). Desktop: *Purchase budgets* settings, the policy on the purchase settings, the budget panel on the order. Tests: `test_purchase_budget.py`, `purchase_budget_test.dart`.
 
 #### BUY-15. Supplier rating by people (§69 row 10)
 - **What it is:** users score suppliers, kept apart from the computed figures.

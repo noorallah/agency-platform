@@ -314,6 +314,32 @@ class _PurchaseWorkflowSettingsDialogState
                             .copyWith(orderQuantityPolicy: value))
                         : null,
                   ),
+                  const SizedBox(height: AppSpacing.lg),
+                  Text('Purchase budgets', style: theme.textTheme.titleSmall),
+                  const SizedBox(height: AppSpacing.sm),
+                  DropdownButtonFormField<String>(
+                    key: const ValueKey('budget-policy'),
+                    initialValue: _settings.budgetPolicy,
+                    decoration: const InputDecoration(
+                      labelText: 'Past a purchase budget',
+                      helperText: 'Approving an order that takes a month past '
+                          'its budget: warn, or need an approver who may go '
+                          'over budget.',
+                      helperMaxLines: 2,
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'WARN', child: Text('Warn')),
+                      DropdownMenuItem(
+                        value: 'NEEDS_APPROVAL',
+                        child: Text('Needs approval'),
+                      ),
+                    ],
+                    onChanged: _mayManage && _read && !_saving
+                        ? (value) => setState(() =>
+                            _settings = _settings.copyWith(budgetPolicy: value))
+                        : null,
+                  ),
                   if (_toleranceError != null) ...[
                     const SizedBox(height: AppSpacing.sm),
                     Text(

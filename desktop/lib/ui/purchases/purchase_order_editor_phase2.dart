@@ -1157,6 +1157,35 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
     return out;
   }
 
+  /// The budgets this saved order counts against (BUY-14): each as "label:
+  /// used X + this order Y of Z -- available W", in the error colour when the
+  /// order takes it past its amount. Nothing when no budget applies.
+  List<Widget> _budgetPanel(BuildContext context) {
+    if (_budgets.isEmpty) return const <Widget>[];
+    final ThemeData theme = Theme.of(context);
+    return <Widget>[
+      const DocumentSideHeading('Budget'),
+      for (final PurchaseOrderBudgetRow row in _budgets)
+        Padding(
+          key: ValueKey<String>('purchase-order-budget-${row.budgetId}'),
+          padding: const EdgeInsets.only(bottom: 4),
+          child: Text(
+            '${row.label}: used ${documentMoney(row.used)} + this order '
+            '${documentMoney(row.thisOrder)} of ${documentMoney(row.amount)}'
+            ' — available ${documentMoney(row.available)}'
+            '${row.exceeded ? ' (over budget)' : ''}',
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontSize: 11,
+              fontWeight: row.exceeded ? FontWeight.w600 : null,
+              color: row.exceeded
+                  ? theme.colorScheme.error
+                  : theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+    ];
+  }
+
   Widget _orderSidePanel(BuildContext context) {
     final int index = _current.clamp(0, _draft.lines.length - 1);
     final PurchaseOrderLine line = _draft.lines[index];
@@ -1178,6 +1207,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
         ? _number(line.discountAmount)
         : _number(shownDiscount);
     return DocumentSidePanel(children: [
+      ..._budgetPanel(context),
       ..._quantityHints(context),
       DocumentSideHeading('Line ${index + 1} · ${product?.name ?? ''}'),
       DocumentSidePair('Rate', shownRate.isEmpty ? '–' : documentMoney(shownRate)),

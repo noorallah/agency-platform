@@ -546,6 +546,8 @@ class PurchaseWorkflowSettingsResponse(PurchaseSchema):
     bill_tolerance_amount: Decimal | None = None
     #: ``WARN`` or ``REFUSE`` an order line off the supplier's terms (BUY-5).
     order_quantity_policy: str = "WARN"
+    #: ``WARN`` or ``NEEDS_APPROVAL`` past a purchase budget (BUY-14).
+    budget_policy: str = "WARN"
     is_configured: bool
 
 
@@ -570,6 +572,8 @@ class PurchaseWorkflowSettingsWrite(PurchaseSchema):
     bill_tolerance_amount: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=2
     )
+    #: Absent keeps the firm's own (BUY-14).
+    budget_policy: Literal["WARN", "NEEDS_APPROVAL"] | None = None
     #: Absent keeps the firm's own (BUY-5).
     order_quantity_policy: Literal["WARN", "REFUSE"] | None = None
 
@@ -592,3 +596,39 @@ class RolePurchaseApprovalLimitsResponse(PurchaseSchema):
     """The firm's approval limits, by role code."""
 
     limits: list[RolePurchaseApprovalLimitItem]
+
+
+class PurchaseBudgetWrite(PurchaseSchema):
+    """Create or change one purchase budget (BUY-14)."""
+
+    #: Any day of the month; stored as its first day.
+    budget_month: date
+    branch_id: UUID | None = None
+    product_category_id: UUID | None = None
+    amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
+
+
+class PurchaseBudgetResponse(PurchaseSchema):
+    """One budget with what approved orders have used of it."""
+
+    id: UUID
+    budget_month: date
+    branch_id: UUID | None
+    product_category_id: UUID | None
+    label: str
+    amount: Decimal
+    used: Decimal
+    available: Decimal
+    version: int
+
+
+class PurchaseBudgetCheckRow(PurchaseSchema):
+    """One budget an order touches, and what the order does to it."""
+
+    budget_id: UUID
+    label: str
+    amount: Decimal
+    used: Decimal
+    this_order: Decimal
+    available: Decimal
+    exceeded: bool

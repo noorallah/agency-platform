@@ -118,6 +118,7 @@ void main() {
       'bill_price_tolerance_percent': null,
       'bill_tolerance_amount': null,
       'order_quantity_policy': 'WARN',
+      'budget_policy': 'WARN',
     });
   });
 

@@ -39,6 +39,9 @@ from app.document_framework.schemas.bulk_actions import (
 from app.document_framework.services.bulk_actions import run_each
 from app.purchase.models import RolePurchaseApprovalLimit
 from app.purchase.schemas import (
+    PurchaseBudgetCheckRow,
+    PurchaseBudgetResponse,
+    PurchaseBudgetWrite,
     PurchaseOrderAmend,
     PurchaseOrderByBuyerRecord,
     PurchaseOrderByProductRecord,
@@ -66,6 +69,7 @@ from app.purchase.schemas import (
 )
 from app.purchase.services import PurchaseService
 from app.purchase.services.approval_limit import PurchaseApprovalLimitService
+from app.purchase.services.budgets import PurchaseBudgetService
 from app.purchase.services.purchase_print_service import (
     PurchaseOrderPrintService,
 )
@@ -478,6 +482,65 @@ def update_purchase_workflow_settings(
 
 
 # Declared above `/{order_id}` for the same reason as the settings above.
+@router.get("/budgets", response_model=ApiResponse[list[PurchaseBudgetResponse]])
+def list_purchase_budgets(
+    month: date,
+    scope: PurchaseViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PurchaseBudgetResponse]]:
+    """Return the month's purchase budgets with what each has used (BUY-14)."""
+    return ApiResponse(
+        data=PurchaseBudgetService(db).list_budgets(scope.firm_id, month)
+    )
+
+
+@router.post(
+    "/budgets",
+    response_model=ApiResponse[PurchaseBudgetResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_purchase_budget(
+    data: PurchaseBudgetWrite,
+    scope: PurchaseWorkflowSettingsScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PurchaseBudgetResponse]:
+    """Add one purchase budget (BUY-14)."""
+    return ApiResponse(
+        data=PurchaseBudgetService(db).create(
+            data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
+
+
+@router.put("/budgets/{budget_id}", response_model=ApiResponse[PurchaseBudgetResponse])
+def update_purchase_budget(
+    budget_id: UUID,
+    data: PurchaseBudgetWrite,
+    scope: PurchaseWorkflowSettingsScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PurchaseBudgetResponse]:
+    """Change one purchase budget (BUY-14)."""
+    return ApiResponse(
+        data=PurchaseBudgetService(db).update(
+            budget_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
+
+
+@router.delete("/budgets/{budget_id}", response_model=ApiResponse[None])
+def delete_purchase_budget(
+    budget_id: UUID,
+    scope: PurchaseWorkflowSettingsScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[None]:
+    """Remove one purchase budget (BUY-14)."""
+    PurchaseBudgetService(db).delete(
+        budget_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=None, message="Budget deleted.")
+
+
+# Declared above `/{order_id}` for the same reason as the settings above.
 @router.get(
     "/approval-limits",
     response_model=ApiResponse[RolePurchaseApprovalLimitsResponse],
@@ -697,7 +760,12 @@ def bulk_approve_purchase_orders(
             data.items,
             load=lambda order_id: service.get_order(order_id, firm_scope=scope.firm_id),
             act=lambda order_id: service.approve_order(
-                order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+                order_id,
+                firm_scope=scope.firm_id,
+                actor_id=scope.actor_id,
+                may_exceed_budget=scope.principal.has_permission(
+                    "PURCHASE_APPROVE_OVER_BUDGET"
+                ),
             ),
             number=lambda row: row.po_number,
         )
@@ -807,6 +875,19 @@ def submit_purchase_order(
     return ApiResponse(data=service.order_response(row))
 
 
+@router.get(
+    "/{order_id}/budget", response_model=ApiResponse[list[PurchaseBudgetCheckRow]]
+)
+def purchase_order_budget(
+    order_id: UUID,
+    scope: PurchaseViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PurchaseBudgetCheckRow]]:
+    """Return the budgets the order touches: used, this order, available."""
+    order = PurchaseService(db).get_order(order_id, firm_scope=scope.firm_id)
+    return ApiResponse(data=PurchaseBudgetService(db).check_order(order))
+
+
 @router.post("/{order_id}/approve", response_model=ApiResponse[PurchaseOrderResponse])
 def approve_purchase_order(
     order_id: UUID,
@@ -822,7 +903,12 @@ def approve_purchase_order(
     """
     service = PurchaseService(db)
     row = service.approve_order(
-        order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+        order_id,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        may_exceed_budget=scope.principal.has_permission(
+            "PURCHASE_APPROVE_OVER_BUDGET"
+        ),
     )
     return ApiResponse(data=service.order_response(row))
 
