@@ -5013,7 +5013,7 @@ bills; automatic posting (stock, GRNI, payable, price variance).
 | 8 | **Reverse charge on purchases** (GTA freight, legal fees, supplies from unregistered persons where notified) | To verify: the tax engine knows reverse charge; nothing found posting the liability on a bill or reporting 3B 3.1(d) | On such a bill: post output tax payable **and** the input credit, raise the self-invoice number, and report it in 3B; paid in cash (§63) |
 | 9 | **Payment run** | One payment at a time | Pick the bills due by a date across suppliers, approve the run, record every payment at once, and export the bank's bulk-payment file using the supplier bank accounts already stored |
 | 10 | **Supplier's own credit note** (rate difference, discount after billing) with no goods returned | Purchase return only; our debit note is §55 G8 | Record the supplier's credit note against a bill: reduces the payable and the input credit, reported in 3B |
-| 11 | **Supplier performance** | Nothing | On time %, short and rejected %, price trend per supplier (with §66's rate trend) |
+| 11 | **Supplier performance** -- **built 2026-10-03** (BUY-12, A107): on time, rejected, returned, short per supplier; monthly rate trend | Nothing | On time %, short and rejected %, price trend per supplier (with §66's rate trend) |
 | 12 | **Rate contracts / blanket orders** | Nothing | An agreed rate and total quantity for a period, drawn down by orders -- low for a distributor |
 | 13 | **Imports** | Nothing | Bill of entry, IGST paid at customs as input credit, customs duty into landed cost (§42.12) -- only for importers |
 

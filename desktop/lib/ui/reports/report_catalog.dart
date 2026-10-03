@@ -290,6 +290,43 @@ const List<ReportDefinition> reportCatalog = [
     permission: 'PURCHASE_VIEW',
     area: ReportArea.operational,
   ),
+  // BUY-12: how each supplier has kept its side, from the receipts.
+  ReportDefinition(
+    id: 'supplier-performance',
+    label: 'Supplier performance',
+    description: 'Per supplier in the dates: receipts on time, and the share '
+        'rejected, returned and short against what was ordered.',
+    path: '/api/v1/purchases/reports/supplier-performance',
+    needsPeriod: true,
+    permission: 'PURCHASE_VIEW',
+    area: ReportArea.operational,
+    columns: [
+      ReportColumn(key: 'vendor_name', label: 'Supplier'),
+      ReportColumn(key: 'receipts', label: 'Receipts', numeric: true),
+      ReportColumn(key: 'on_time_percent', label: 'On time %', numeric: true),
+      ReportColumn(
+          key: 'rejected_percent', label: 'Rejected %', numeric: true),
+      ReportColumn(
+          key: 'returned_percent', label: 'Returned %', numeric: true),
+      ReportColumn(key: 'short_percent', label: 'Short %', numeric: true),
+    ],
+  ),
+  ReportDefinition(
+    id: 'supplier-price-trend',
+    label: 'Supplier price trend',
+    description: 'What one supplier has charged month by month, from the '
+        'receipts: quantity and average rate.',
+    path: '/api/v1/purchases/reports/supplier-price-trend',
+    needsPeriod: true,
+    needsSupplier: true,
+    permission: 'PURCHASE_VIEW',
+    area: ReportArea.operational,
+    columns: [
+      ReportColumn(key: 'month', label: 'Month'),
+      ReportColumn(key: 'quantity', label: 'Quantity', numeric: true),
+      ReportColumn(key: 'average_rate', label: 'Average rate', numeric: true),
+    ],
+  ),
   ReportDefinition(
     id: 'purchase-order-by-buyer',
     label: 'Orders by buyer',

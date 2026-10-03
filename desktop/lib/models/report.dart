@@ -61,7 +61,14 @@ class ReportDefinition {
     this.drill,
     this.days,
     this.bandsKey,
+    this.needsSupplier = false,
   });
+
+  /// A report that is about one supplier and refuses to run without one
+  /// (BUY-12's price trend). The workspace offers a Supplier picker, sends
+  /// `vendor_id` with the dates, does not page, and asks for nothing until a
+  /// supplier is chosen.
+  final bool needsSupplier;
 
   /// The row key holding a list of `{label, amount}` bands -- the firm's own
   /// ageing columns (ACC-6). One numeric column is appended per band, keyed
