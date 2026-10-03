@@ -24,16 +24,23 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
     DocumentColumn('', 28),
   ];
 
-  static const List<String> _sections = [
+  static const List<String> _baseSections = [
     'Lines',
     'Delivery schedule',
     'Notes & files',
     'History',
   ];
 
+  /// An order that exists also lists its earlier versions (BUY-8).
+  List<String> get _sections => [
+        ..._baseSections,
+        if (!widget.isCreating) 'Revisions',
+      ];
+
   /// Nothing about an order that is only being looked at, or that the server
   /// will no longer let change, is typed.
-  bool get _locked => widget.isReadOnly || !_draft.isEditable;
+  bool get _locked =>
+      widget.isReadOnly || (!_draft.isEditable && !widget.isAmending);
 
   Widget _phase2Page(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -74,11 +81,14 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
                 title: switch (widget.mode) {
                   PurchaseDialogMode.create => 'New purchase order',
                   PurchaseDialogMode.duplicate => 'New purchase order (copy)',
+                  PurchaseDialogMode.amend => 'Amend purchase order',
                   _ => 'Purchase order',
                 },
                 chips: [
                   if (number.isNotEmpty)
                     widget.isCreating ? '$number (new)' : number,
+                  if (_draft.revisionNumber > 0)
+                    'Amendment ${_draft.revisionNumber}',
                   _statusWords(_draft.status),
                   if (_showsProgress && _draft.billingStatus.isNotEmpty)
                     _billingWords(_draft.billingStatus),
@@ -123,7 +133,11 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
                       key: const ValueKey('purchase-order-save'),
                       onPressed: _saving ? null : () => unawaited(_save()),
                       child: Text(
-                        widget.isCreating ? 'Save draft' : 'Save order',
+                        widget.isCreating
+                            ? 'Save draft'
+                            : widget.isAmending
+                                ? 'Save amendment'
+                                : 'Save order',
                       ),
                     ),
                 ],
@@ -639,13 +653,109 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
               const SizedBox(height: 16),
               _buildNotesTab(),
             ],
-          _ => [
+          3 => [
               _buildHistoryTab(),
               const SizedBox(height: 16),
               _buildAuditTab(),
             ],
+          _ => [_buildRevisionsTab(context)],
         },
       ),
+    );
+  }
+
+  /// BUY-8: the earlier versions of an amended order, newest first; picking
+  /// one shows its lines, read-only.
+  Widget _buildRevisionsTab(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    _revisionsFuture ??= widget.api.purchaseOrderRevisions(_draft.id);
+    return FutureBuilder<List<PurchaseOrderRevision>>(
+      future: _revisionsFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return const Text('The earlier versions could not be read.');
+        }
+        final List<PurchaseOrderRevision> revisions =
+            (snapshot.data ?? const <PurchaseOrderRevision>[]).toList()
+              ..sort((a, b) => b.revisionNumber.compareTo(a.revisionNumber));
+        if (revisions.isEmpty) {
+          return const StandardEmptyState(
+            type: EmptyStateType.noRecords,
+            title: 'No earlier versions',
+            message: 'This order has not been amended since it was approved.',
+          );
+        }
+        PurchaseOrderRevision? shown;
+        for (final PurchaseOrderRevision revision in revisions) {
+          if (revision.id == _revisionId) shown = revision;
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final PurchaseOrderRevision revision in revisions)
+              ListTile(
+                key: ValueKey<String>('purchase-order-revision-${revision.id}'),
+                dense: true,
+                selected: revision.id == _revisionId,
+                selectedTileColor: scheme.secondaryContainer,
+                title: Text(
+                  'Version ${revision.revisionNumber}  ·  '
+                  '${revision.grandTotal}',
+                ),
+                subtitle: Text(
+                  '${revision.amendedAt.length >= 10 ? revision.amendedAt.substring(0, 10) : revision.amendedAt}'
+                  '  ·  ${revision.reason}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                onTap: () => _setState(() => _revisionId = revision.id),
+              ),
+            if (shown != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Version ${shown.revisionNumber} lines',
+                style: theme.textTheme.titleSmall,
+              ),
+              const SizedBox(height: 4),
+              for (final Json line in shown.lines)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(children: [
+                    SizedBox(
+                      width: 28,
+                      child: Text('${line['line_number'] ?? ''}'),
+                    ),
+                    Expanded(
+                      child: Text(
+                        '${line['description'] ?? line['product_id'] ?? ''}',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    SizedBox(
+                      width: 140,
+                      child: Text(
+                        '${line['ordered_quantity'] ?? ''} x '
+                        '${line['unit_price'] ?? ''}',
+                        textAlign: TextAlign.right,
+                      ),
+                    ),
+                    SizedBox(
+                      width: 100,
+                      child: Text(
+                        '${line['net_amount'] ?? ''}',
+                        textAlign: TextAlign.right,
+                      ),
+                    ),
+                  ]),
+                ),
+            ],
+          ],
+        );
+      },
     );
   }
 

@@ -22,7 +22,12 @@ from app.common.audit.services import record_audit
 from app.common.firm_metadata import platform_reader
 from app.common.report_names import vendors_matching
 from app.core.database.batch import children_by_parent
-from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
+from app.core.exceptions import (
+    AuthorizationError,
+    ConflictError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.chunks import chunks
 from app.core.utils.dates import utc_now
@@ -53,12 +58,14 @@ from app.purchase.models import (
     PurchaseOrder,
     PurchaseOrderHistory,
     PurchaseOrderLine,
+    PurchaseOrderRevision,
 )
 from app.purchase.schemas import (
     PurchaseAttachmentResponse,
     PurchaseDeliveryScheduleResponse,
     PurchaseLineWrite,
     PurchaseNoteResponse,
+    PurchaseOrderAmend,
     PurchaseOrderByBuyerRecord,
     PurchaseOrderByProductRecord,
     PurchaseOrderByVendorRecord,
@@ -71,6 +78,7 @@ from app.purchase.schemas import (
     PurchaseOrderPreview,
     PurchaseOrderRegisterRecord,
     PurchaseOrderResponse,
+    PurchaseOrderRevisionResponse,
     PurchaseOrderStatus,
     PurchaseOrderUpdate,
     PurchaseSummary,
@@ -484,38 +492,7 @@ class PurchaseService(TransactionalDocumentService):
             vendor_id=data.vendor_id,
         )
         before_status = row.status
-        row.branch_id = data.branch_id
-        row.warehouse_id = data.warehouse_id
-        row.vendor_id = data.vendor_id
-        row.buyer_id = data.buyer_id
-        row.tax_profile_id = data.tax_profile_id
-        row.vendor_contact = data.vendor_contact
-        row.vendor_address = data.vendor_address
-        row.department = data.department
-        row.purchase_type = data.purchase_type.value
-        row.purchase_category = data.purchase_category
-        row.purchase_date = data.purchase_date
-        row.expected_delivery_date = data.expected_delivery_date
-        row.payment_terms = data.payment_terms
-        row.delivery_terms = data.delivery_terms
-        row.currency_code = data.currency_code
-        row.exchange_rate = data.exchange_rate
-        row.reference_number = data.reference_number
-        row.external_reference = data.external_reference
-        row.priority = data.priority
-        row.remarks = data.remarks
-        row.header_discount_amount = data.header_discount_amount
-        row.additional_charges = data.additional_charges
-        row.round_off = data.round_off
-        row.updated_by = actor_id
-        totals = self._replace_lines(row, data=data, actor_id=actor_id)
-        row.subtotal = totals["subtotal"]
-        row.line_discount_total = totals["line_discount_total"]
-        row.tax_total = totals["tax_total"]
-        row.grand_total = totals["grand_total"]
-        self._replace_schedules(row, data=data, actor_id=actor_id)
-        self._replace_attachments(row, data=data, actor_id=actor_id)
-        self._replace_notes(row, data=data, actor_id=actor_id)
+        self._write_version(row, data, actor_id=actor_id)
         self._history(
             order=row,
             action="purchase.updated",
@@ -552,6 +529,262 @@ class PurchaseService(TransactionalDocumentService):
         self._flush_or_conflict("Purchase order update conflicts with existing data.")
         self._session.commit()
         return row
+
+    def _write_version(
+        self,
+        row: PurchaseOrder,
+        data: PurchaseOrderUpdate | PurchaseOrderAmend,
+        *,
+        actor_id: UUID,
+    ) -> None:
+        """Write the header, lines and children an edit or amendment sends."""
+        row.branch_id = data.branch_id
+        row.warehouse_id = data.warehouse_id
+        row.vendor_id = data.vendor_id
+        row.buyer_id = data.buyer_id
+        row.tax_profile_id = data.tax_profile_id
+        row.vendor_contact = data.vendor_contact
+        row.vendor_address = data.vendor_address
+        row.department = data.department
+        row.purchase_type = data.purchase_type.value
+        row.purchase_category = data.purchase_category
+        row.purchase_date = data.purchase_date
+        row.expected_delivery_date = data.expected_delivery_date
+        row.payment_terms = data.payment_terms
+        row.delivery_terms = data.delivery_terms
+        row.currency_code = data.currency_code
+        row.exchange_rate = data.exchange_rate
+        row.reference_number = data.reference_number
+        row.external_reference = data.external_reference
+        row.priority = data.priority
+        row.remarks = data.remarks
+        row.header_discount_amount = data.header_discount_amount
+        row.additional_charges = data.additional_charges
+        row.round_off = data.round_off
+        row.updated_by = actor_id
+        totals = self._replace_lines(row, data=data, actor_id=actor_id)
+        row.subtotal = totals["subtotal"]
+        row.line_discount_total = totals["line_discount_total"]
+        row.tax_total = totals["tax_total"]
+        row.grand_total = totals["grand_total"]
+        self._replace_schedules(row, data=data, actor_id=actor_id)
+        self._replace_attachments(row, data=data, actor_id=actor_id)
+        self._replace_notes(row, data=data, actor_id=actor_id)
+
+    def amend_order(
+        self,
+        order_id: UUID,
+        data: PurchaseOrderAmend,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        may_approve: bool,
+    ) -> PurchaseOrder:
+        """Amend an approved order formally and commit (BUY-8, decision A102).
+
+        The version it replaces is kept in ``purchase_order_revisions`` and
+        the order's ``revision_number`` moves on, so the print reads
+        "Amendment N". The supplier cannot change; a line already received
+        keeps its product and cannot drop below what came in. An amendment
+        that raises the total is itself an approval of the new total, so it
+        needs PURCHASE_APPROVE (``may_approve``) within the amender's limit;
+        one that lowers it or moves only terms does not. The status is then
+        re-derived from what was received.
+
+        Raises:
+            ValidationError: For a draft, cancelled or closed order, a changed
+                supplier, or a received line cut or changed.
+            AuthorizationError: When the total rises and the amender may not
+                approve it.
+
+        """
+        from app.goods_receipt.services import GoodsReceiptService
+        from app.purchase.services.line_quantities import order_line_quantities
+
+        row = self.get_order(order_id, firm_scope=firm_scope)
+        amendable = {
+            PurchaseOrderStatus.APPROVED.value,
+            PurchaseOrderStatus.PARTIALLY_RECEIVED.value,
+            PurchaseOrderStatus.RECEIVED.value,
+        }
+        if row.status not in amendable:
+            raise ValidationError(
+                "Only an approved order is amended; a draft or submitted one is "
+                "simply edited, and a cancelled or closed one is history."
+            )
+        if data.vendor_id != row.vendor_id:
+            raise ValidationError(
+                "An amendment cannot change the supplier. Cancel the order and "
+                "raise a new one."
+            )
+        lines = list(
+            self._session.scalars(
+                select(PurchaseOrderLine)
+                .where(
+                    PurchaseOrderLine.purchase_order_id == row.id,
+                    PurchaseOrderLine.is_deleted.is_(False),
+                )
+                .order_by(PurchaseOrderLine.line_number.asc())
+            ).all()
+        )
+        received = order_line_quantities(self._session, lines)
+        sent = {number: line for number, line in enumerate(data.lines, start=1)}
+        problems: list[str] = []
+        for line in lines:
+            got = received.get(line.id)
+            if got is None or got.received <= ZERO:
+                continue
+            new = sent.get(line.line_number)
+            if new is None or new.product_id != line.product_id:
+                problems.append(
+                    f"line {line.line_number} has {got.received.normalize():f} "
+                    "received and must stay, for the same product"
+                )
+            elif new.ordered_quantity < got.received:
+                problems.append(
+                    f"line {line.line_number} cannot drop to "
+                    f"{new.ordered_quantity.normalize():f}; "
+                    f"{got.received.normalize():f} was received"
+                )
+        if problems:
+            raise ValidationError(
+                f"{row.po_number} cannot be amended that way: "
+                + "; ".join(problems)
+                + "."
+            )
+        before_total = Decimal(str(row.grand_total))
+        before_status = row.status
+        snapshot = self._snapshot(row, lines)
+        self._write_version(row, data, actor_id=actor_id)
+        self._session.flush()
+        if Decimal(str(row.grand_total)) > before_total:
+            if not may_approve:
+                raise AuthorizationError(
+                    f"The amendment raises {row.po_number} from "
+                    f"{self._q(before_total)} to {self._q(row.grand_total)}, "
+                    "which is an approval of the new total. It needs the "
+                    "approve purchases permission (PURCHASE_APPROVE)."
+                )
+            PurchaseApprovalLimitService(self._session).enforce(
+                firm_scope, actor_id, order_amount=row.grand_total
+            )
+        self._session.add(
+            PurchaseOrderRevision(
+                firm_id=firm_scope,
+                purchase_order_id=row.id,
+                revision_number=row.revision_number,
+                grand_total=before_total,
+                snapshot_json=json.dumps(snapshot, default=str),
+                reason=data.reason,
+                created_by=actor_id,
+                updated_by=actor_id,
+            )
+        )
+        row.revision_number += 1
+        GoodsReceiptService(self._session).resync_order_status(
+            row, firm_id=firm_scope, actor_id=actor_id
+        )
+        details = {
+            "po_number": row.po_number,
+            "revision_number": row.revision_number,
+            "reason": data.reason,
+            "grand_total_before": str(before_total),
+            "grand_total_after": str(row.grand_total),
+        }
+        self._history(
+            order=row,
+            action="purchase.amended",
+            from_status=before_status,
+            to_status=row.status,
+            actor_id=actor_id,
+            details=details,
+        )
+        self._record_document_event(
+            firm_id=firm_scope,
+            document_type=self._ensure_document_setup(
+                firm_id=firm_scope, actor_id=actor_id
+            )[0],
+            order=row,
+            action="AMENDED",
+            from_state=before_status,
+            to_state=row.status,
+            actor_id=actor_id,
+            details=details,
+        )
+        record_audit(
+            self._session,
+            action="purchase.amended",
+            entity_type="purchase_order",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            before_data={"grand_total": str(before_total)},
+            after_data=details,
+        )
+        self._flush_or_conflict(
+            "Purchase order amendment conflicts with existing data."
+        )
+        self._session.commit()
+        return row
+
+    def list_revisions(
+        self, order_id: UUID, *, firm_scope: UUID
+    ) -> list[PurchaseOrderRevisionResponse]:
+        """Return the order's earlier versions, oldest first (BUY-8)."""
+        row = self.get_order(order_id, firm_scope=firm_scope)
+        return [
+            PurchaseOrderRevisionResponse(
+                id=revision.id,
+                revision_number=revision.revision_number,
+                grand_total=revision.grand_total,
+                reason=revision.reason,
+                amended_by=revision.created_by,
+                amended_at=revision.created_at,
+                snapshot=json.loads(revision.snapshot_json),
+            )
+            for revision in self._session.scalars(
+                select(PurchaseOrderRevision)
+                .where(
+                    PurchaseOrderRevision.purchase_order_id == row.id,
+                    PurchaseOrderRevision.is_deleted.is_(False),
+                )
+                .order_by(PurchaseOrderRevision.revision_number.asc())
+            ).all()
+        ]
+
+    @staticmethod
+    def _snapshot(
+        row: PurchaseOrder, lines: list[PurchaseOrderLine]
+    ) -> dict[str, object]:
+        """Describe the order as it stands, for its revision row."""
+        return {
+            "revision_number": row.revision_number,
+            "purchase_date": row.purchase_date,
+            "expected_delivery_date": row.expected_delivery_date,
+            "payment_terms": row.payment_terms,
+            "delivery_terms": row.delivery_terms,
+            "header_discount_amount": row.header_discount_amount,
+            "additional_charges": row.additional_charges,
+            "subtotal": row.subtotal,
+            "tax_total": row.tax_total,
+            "grand_total": row.grand_total,
+            "remarks": row.remarks,
+            "lines": [
+                {
+                    "line_number": line.line_number,
+                    "product_id": line.product_id,
+                    "description": line.description,
+                    "ordered_quantity": line.ordered_quantity,
+                    "free_quantity": line.free_quantity,
+                    "unit_price": line.unit_price,
+                    "discount_percent": line.discount_percent,
+                    "discount_amount": line.discount_amount,
+                    "tax_amount": line.tax_amount,
+                    "net_amount": line.net_amount,
+                }
+                for line in lines
+            ],
+        }
 
     def get_order(
         self, order_id: UUID, *, firm_scope: UUID, include_deleted: bool = False
@@ -1461,7 +1694,7 @@ class PurchaseService(TransactionalDocumentService):
         self,
         order: PurchaseOrder,
         *,
-        data: PurchaseOrderCreate | PurchaseOrderUpdate,
+        data: PurchaseOrderCreate | PurchaseOrderUpdate | PurchaseOrderAmend,
         actor_id: UUID,
     ) -> dict[str, Decimal]:
         """Replace lines."""
@@ -1720,7 +1953,7 @@ class PurchaseService(TransactionalDocumentService):
         self,
         order: PurchaseOrder,
         *,
-        data: PurchaseOrderCreate | PurchaseOrderUpdate,
+        data: PurchaseOrderCreate | PurchaseOrderUpdate | PurchaseOrderAmend,
         actor_id: UUID,
     ) -> None:
         """Replace schedules."""
@@ -1765,7 +1998,7 @@ class PurchaseService(TransactionalDocumentService):
         self,
         order: PurchaseOrder,
         *,
-        data: PurchaseOrderCreate | PurchaseOrderUpdate,
+        data: PurchaseOrderCreate | PurchaseOrderUpdate | PurchaseOrderAmend,
         actor_id: UUID,
     ) -> None:
         """Replace attachments."""
@@ -1790,7 +2023,7 @@ class PurchaseService(TransactionalDocumentService):
         self,
         order: PurchaseOrder,
         *,
-        data: PurchaseOrderCreate | PurchaseOrderUpdate,
+        data: PurchaseOrderCreate | PurchaseOrderUpdate | PurchaseOrderAmend,
         actor_id: UUID,
     ) -> None:
         """Replace notes."""

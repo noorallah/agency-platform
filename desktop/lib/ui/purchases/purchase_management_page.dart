@@ -583,6 +583,10 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     if (mode == PurchaseDialogMode.edit && !await _mayEdit(seed!)) {
       return;
     }
+    if (mode == PurchaseDialogMode.amend &&
+        (!_canUpdate || seed == null || !seed.isAmendable)) {
+      return;
+    }
     if ((mode == PurchaseDialogMode.view ||
             mode == PurchaseDialogMode.duplicate) &&
         seed == null) {
@@ -626,7 +630,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     if (outcome.saved) {
       NotificationService.show(
         context,
-        'Purchase order ${mode == PurchaseDialogMode.create || mode == PurchaseDialogMode.duplicate ? 'created' : 'updated'}.',
+        'Purchase order ${mode == PurchaseDialogMode.create || mode == PurchaseDialogMode.duplicate ? 'created' : mode == PurchaseDialogMode.amend ? 'amended' : 'updated'}.',
         kind: AppNotificationKind.success,
       );
     }
@@ -1773,6 +1777,15 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
               : null,
         ),
         ToolbarCommand(
+          id: 'amend',
+          label: 'Amend',
+          icon: Icons.edit_note_outlined,
+          menuOnly: true,
+          onPressed: selected != null && selected.isAmendable && _canUpdate
+              ? () => _openEditor(PurchaseDialogMode.amend, selected)
+              : null,
+        ),
+        ToolbarCommand(
           id: 'mark-sent',
           label: 'Mark as sent',
           icon: Icons.send_outlined,
@@ -2301,7 +2314,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
       selectedIds: _selectedIds,
       onSelectionChanged: (value) => setState(() => _selectedIds = value),
       cells: (item) => [
-        item.poNumber,
+        item.numberLabel,
         _labelForVendor(item.vendorId),
         _labelForBranch(item.branchId),
         _labelForWarehouse(item.warehouseId),
@@ -2545,6 +2558,10 @@ class PurchaseOrderEditorDialog extends StatefulWidget {
   final bool canApprove;
 
   bool get isReadOnly => mode == PurchaseDialogMode.view;
+
+  /// Amending an approved or received order (BUY-8): typed as a draft is,
+  /// and saved with a reason to `/amend` rather than as an update.
+  bool get isAmending => mode == PurchaseDialogMode.amend;
   bool get isCreating =>
       mode == PurchaseDialogMode.create || mode == PurchaseDialogMode.duplicate;
 
@@ -2585,6 +2602,11 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
   /// rebuild -- every keystroke while editing -- and left no way to refresh it
   /// on purpose once an action had added an entry.
   Future<List<PurchaseOrderHistoryRecord>>? _historyFuture;
+
+  /// BUY-8: the earlier versions, read once when the Revisions section is
+  /// first opened, and the one whose lines are showing.
+  Future<List<PurchaseOrderRevision>>? _revisionsFuture;
+  String? _revisionId;
 
   /// Phase 2: the order as the server priced it last, the line the side
   /// panel follows, and which section shows under the header.
@@ -2638,7 +2660,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
   /// the vendor, where it is received, a product on every line -- is not
   /// sent, and one only being looked at shows what it stored.
   void _schedulePreview() {
-    if (!_phase2 || widget.isReadOnly || !_draft.isEditable) return;
+    if (!_phase2 || _locked) return;
     _previewTimer?.cancel();
     _previewTimer = Timer(const Duration(milliseconds: 350), () async {
       final PurchaseOrder draft = _draft;
@@ -2812,6 +2834,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
                     PurchaseDialogMode.view => 'Purchase Order',
                     PurchaseDialogMode.edit => 'Edit Purchase Order',
                     PurchaseDialogMode.duplicate => 'Duplicate Purchase Order',
+                    PurchaseDialogMode.amend => 'Amend Purchase Order',
                   },
                   subtitle: _draft.poNumber.ifEmpty('Draft workspace'),
                   onClose: _saving ? null : _close,
@@ -3733,6 +3756,21 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
       });
       return;
     }
+    String? amendReason;
+    if (widget.isAmending) {
+      amendReason = await askForReason(
+        context,
+        title: 'Amend ${_draft.poNumber}',
+        explanation: 'The order as it stands is kept as an earlier version, '
+            'with this reason beside it.',
+        confirmLabel: 'Amend',
+      );
+      if (amendReason == null || !mounted) return;
+      if (amendReason.trim().length < 3) {
+        setState(() => _error = 'Give a reason of at least 3 characters.');
+        return;
+      }
+    }
     setState(() {
       _saving = true;
       _error = null;
@@ -3740,7 +3778,9 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
     try {
       final PurchaseOrder saved = widget.isCreating
           ? await widget.api.createPurchaseOrder(_draft)
-          : await widget.api.updatePurchaseOrder(_draft);
+          : amendReason != null
+              ? await widget.api.amendPurchaseOrder(_draft, amendReason.trim())
+              : await widget.api.updatePurchaseOrder(_draft);
       if (!mounted) return;
       Navigator.of(
         context,
@@ -5053,7 +5093,7 @@ class _VendorSpend {
   final double total;
 }
 
-enum PurchaseDialogMode { create, view, edit, duplicate }
+enum PurchaseDialogMode { create, view, edit, duplicate, amend }
 
 enum _PurchaseExportScope { selected, currentView, filteredView }
 

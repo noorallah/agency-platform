@@ -4417,6 +4417,35 @@ class ApiClient {
         ),
       );
 
+  /// Change an approved or received order and keep what it said before
+  /// (BUY-8). The body is the update's, plus the reason the trail keeps.
+  Future<PurchaseOrder> amendPurchaseOrder(
+    PurchaseOrder order,
+    String reason,
+  ) async =>
+      PurchaseOrder.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/purchases/${order.id}/amend',
+            body: order.toUpdateJson()..['reason'] = reason,
+          ),
+        ),
+      );
+
+  /// The earlier versions of an amended order, oldest first as served.
+  Future<List<PurchaseOrderRevision>> purchaseOrderRevisions(String id) async {
+    final Json response =
+        await request('GET', '/api/v1/purchases/$id/revisions');
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) =>
+            PurchaseOrderRevision.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
   Future<void> deletePurchaseOrder(String id) =>
       request('DELETE', '/api/v1/purchases/$id');
 

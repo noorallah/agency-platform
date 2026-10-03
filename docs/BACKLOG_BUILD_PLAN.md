@@ -403,6 +403,7 @@ otherwise it is built as written.
 - **What it is:** change an approved order formally: revision number, what changed, reprinted as "Amendment 1".
 - **What gets built:** migration: `revision_number` and a revisions table holding each earlier version; *Amend* on an approved order, re-approval through `approval_limit.py` when the total rises; the print (`purchase_print_service.py`) names the amendment. Tests: receipts against the order survive, quantities never drop below received.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A102): `purchase_orders.revision_number` and `purchase_order_revisions` (migration 0268); `PurchaseService.amend_order` / `list_revisions` with the edit's write block shared as `_write_version`; `POST /purchases/{id}/amend`, `GET /purchases/{id}/revisions`; the print titles the amendment. Desktop: *Amend* and *Revisions* on the phase 2 order. Tests: `test_purchase_order_amendment.py`, `po_amendment_test.dart`.
 
 #### BUY-9. Quality inspection hold (§68 row 6)
 - **What it is:** for pharma or food, received stock is unusable until checked.

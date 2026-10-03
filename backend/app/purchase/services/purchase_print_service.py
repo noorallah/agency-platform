@@ -12,6 +12,7 @@ invoice must state.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 from uuid import UUID
 
@@ -62,6 +63,13 @@ class PurchaseOrderPrintService:
             raise ResourceNotFoundError("Purchase order not found.")
 
         template = self._template(firm_scope)
+        if order.revision_number:
+            # An amended order prints as such (BUY-8), so the supplier can
+            # tell the copy that replaces the one they already hold.
+            template = replace(
+                template,
+                title_text=f"{template.title_text} - AMENDMENT {order.revision_number}",
+            )
         document = self._document(order, firm_scope=firm_scope)
         pdf = InvoicePdfRenderer(template).render(document)
         safe = order.po_number.replace("/", "-").replace(" ", "-")
