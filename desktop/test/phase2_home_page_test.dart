@@ -115,6 +115,9 @@ class _Source implements HomeSource {
   Future<int> expiringLicences() => _answer('licences', 0);
 
   @override
+  Future<Map<String, dynamic>> stockAlerts() async => const {};
+
+  @override
   Future<List<Map<String, dynamic>>> taxCalendar() =>
       _answer('calendar', calendar);
 

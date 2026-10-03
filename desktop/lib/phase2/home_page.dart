@@ -33,6 +33,11 @@ abstract class HomeSource {
   /// that have run out or run out within the server's warning window.
   Future<int> expiringLicences();
 
+  /// What needs doing in stock (STK-14): counts of products out of stock,
+  /// below reorder level, over maximum, batches near expiry, goods in
+  /// transit and count sheets open (`GET /inventory/alerts`).
+  Future<Map<String, dynamic>> stockAlerts();
+
   /// The tax calendar: returns and deposits due, latest month first
   /// (backlog 63 item 4).
   Future<List<Map<String, dynamic>>> taxCalendar();
@@ -132,6 +137,7 @@ class Phase2HomePage extends StatefulWidget {
   static const String salesInvoices = 'salesInvoices/sales-invoices';
   static const String stock = 'inventory/inventory';
   static const String expiry = 'inventory/expiry-monitor';
+  static const String physicalCounts = 'inventory/physical-counts';
   static const String tradeLicences = 'masters/trade-licences';
   static const String receipts = 'accounting/receipts';
   static const String gstPayment = 'sales/gst-payment';
@@ -200,6 +206,17 @@ class Phase2HomePage extends StatefulWidget {
   State<Phase2HomePage> createState() => _Phase2HomePageState();
 }
 
+/// One stock line of the to-do list (STK-14).
+class _StockAlert {
+  const _StockAlert(this.key, this.label, this.count, this.path, this.alert);
+
+  final String key;
+  final String label;
+  final int count;
+  final String path;
+  final bool alert;
+}
+
 /// A figure being fetched: null while loading, [failed] if it could not be.
 class _Figure<T> {
   T? value;
@@ -214,6 +231,7 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
   final _Figure<double> _receiptsToday = _Figure();
   final _Figure<int> _expiring = _Figure();
   final _Figure<int> _licencesExpiring = _Figure();
+  final _Figure<Map<String, dynamic>> _stockAlerts = _Figure();
   final _Figure<List<Map<String, dynamic>>> _calendar = _Figure();
   final Map<String, _Figure<Map<String, dynamic>>> _summaries = {};
 
@@ -240,6 +258,7 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
       _load(_outstanding, widget.source.customerOutstanding());
     }
     if (_stock) _load(_belowReorder, widget.source.itemsBelowReorder());
+    if (_stock) _load(_stockAlerts, widget.source.stockAlerts());
     if (_receipts) _load(_receiptsToday, widget.source.receiptsOn(_day));
     if (_batches) _load(_expiring, widget.source.batchesExpiringIn30Days());
     if (_tax) _loadCalendar();
@@ -393,7 +412,11 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
         if (_sales || _stock) 'figures',
         if (_sales) ...{'chart', 'recent'},
         if (_tax) 'tax',
-        if (_todoRows().isNotEmpty || _batches || _licences) 'todo',
+        if (_todoRows().isNotEmpty ||
+            _stockAlertRows().isNotEmpty ||
+            _batches ||
+            _licences)
+          'todo',
         if (_screens().isNotEmpty) 'screens',
       };
 
@@ -982,6 +1005,57 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
           if (widget.allowed(todo.path)) todo,
       ];
 
+  /// One line per non-zero stock count; a failed or unanswered read draws
+  /// none, as the other to-do sources do not nag about what they could not
+  /// read.
+  List<_StockAlert> _stockAlertRows() {
+    final Map<String, dynamic>? data = _stockAlerts.value;
+    if (!_stock || data == null) return const [];
+    int count(String key) {
+      final Object? value = data[key];
+      return value is num ? value.toInt() : 0;
+    }
+
+    String plural(int n, String one, String many) => n == 1 ? one : many;
+    final int out = count('out');
+    final int low = count('low');
+    final int near = count('near_expiry');
+    final int over = count('over_maximum');
+    final int transit = count('in_transit');
+    final int counts = count('open_counts');
+    const String stock = Phase2HomePage.stock;
+    final String countsPath =
+        widget.allowed(Phase2HomePage.physicalCounts)
+            ? Phase2HomePage.physicalCounts
+            : stock;
+    final String expiryPath =
+        widget.allowed(Phase2HomePage.expiry) ? Phase2HomePage.expiry : stock;
+    return [
+      if (out > 0)
+        _StockAlert('out', '$out ${plural(out, 'product', 'products')} out of '
+            'stock', out, stock, true),
+      if (low > 0)
+        _StockAlert('low', '$low below reorder level', low, stock, true),
+      if (near > 0)
+        _StockAlert(
+            'near-expiry',
+            '$near ${plural(near, 'batch', 'batches')} near expiry',
+            near,
+            expiryPath,
+            true),
+      if (over > 0) _StockAlert('over', '$over over maximum', over, stock, false),
+      if (transit > 0)
+        _StockAlert('transit', '$transit in transit', transit, stock, false),
+      if (counts > 0)
+        _StockAlert(
+            'counts',
+            '$counts ${plural(counts, 'count sheet', 'count sheets')} open',
+            counts,
+            countsPath,
+            false),
+    ];
+  }
+
   Widget _todo(BuildContext context) {
     return _Section(
       title: 'TO DO',
@@ -997,6 +1071,16 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
             strong: true,
             alert: todo.alert && (_count(todo) ?? 0) > 0,
             onTap: () => _openTodo(todo),
+          ),
+        for (final _StockAlert alert in _stockAlertRows())
+          _row(
+            context,
+            key: 'todo-stock-${alert.key}',
+            left: alert.label,
+            right: '${alert.count}',
+            strong: true,
+            alert: alert.alert,
+            onTap: () => _open(alert.path),
           ),
         if (_batches)
           _row(

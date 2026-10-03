@@ -544,6 +544,7 @@ otherwise it is built as written.
 - **What it is:** warnings for low, out, over maximum, near expiry, pending transfers and counts, and Home figures for stock.
 - **What gets built:** an alerts query in `inventory_service.py` feeding Home's *To do* (`desktop/lib/phase2/home_page.dart`) and, once built, the bell; an inventory turnover figure per product in the stock ageing report (`stock_ageing.py`). No migration.
 - **Depends on:** PLT-2 for the bell (works on Home without it). **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A116, no migration): `app/inventory/services/stock_alerts.py` and `GET /inventory/alerts`; `StockAgeingService.ageing` gives `issued_last_year` and `turnover`. Desktop: stock lines on Home's to-do, the two ageing columns. Tests: `test_stock_alerts.py`, `stock_alerts_test.dart`.
 
 #### STK-15. Kits and combo packs (§42.13)
 - **What it is:** a gift pack stocked or sold as one item made of others.

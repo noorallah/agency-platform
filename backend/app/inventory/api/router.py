@@ -105,6 +105,7 @@ from app.inventory.services.repacking import (
     RepackWrite,
 )
 from app.inventory.services.stock_ageing import StockAgeingService
+from app.inventory.services.stock_alerts import stock_alerts
 from app.inventory.services.stock_evidence import StockEvidenceService
 from app.inventory.services.stock_valuation import (
     StockStatementService,
@@ -255,6 +256,47 @@ def free_goods(
     return window.respond(free_goods_report(db, firm_id=scope.firm_id, window=window))
 
 
+class StockAlertRowRecord(BaseModel):
+    """One stock alert row (STK-14)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    kind: str
+    product_code: str
+    product_name: str
+    quantity: Decimal
+    level: Decimal | None = None
+    detail: str = ""
+
+
+class StockAlertsRecord(BaseModel):
+    """What needs attention in the firm's stock (STK-14)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    low: int
+    out: int
+    over_maximum: int
+    near_expiry: int
+    in_transit: int
+    open_counts: int
+    rows: list[StockAlertRowRecord]
+
+
+@router.get("/alerts", response_model=ApiResponse[StockAlertsRecord])
+def inventory_alerts(
+    scope: StockValuationScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[StockAlertsRecord]:
+    """Return the stock alerts for Home's to-do list (STK-14).
+
+    Low, out, over maximum, near expiry, in transit, open counts -- each
+    counted, with the first rows of each kind.
+    """
+    alerts = stock_alerts(db, scope.firm_id, on=utc_now().date())
+    return ApiResponse(data=StockAlertsRecord.model_validate(alerts))
+
+
 @router.get(
     "/reports/stock-valuation",
     response_model=PaginatedResponse[StockValuationRecord],
@@ -360,6 +402,9 @@ class StockAgeingRecord(BaseModel):
     days_91_180: Decimal
     days_over_180: Decimal
     last_receipt_date: date | None
+    issued_last_year: Decimal = Decimal("0")
+    #: Times a year what is on hand turns over (STK-14).
+    turnover: Decimal | None = None
 
 
 class SlowStockRecord(BaseModel):

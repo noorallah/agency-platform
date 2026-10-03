@@ -92,6 +92,11 @@ class StockAgeingRow:
     days_91_180: Decimal
     days_over_180: Decimal
     last_receipt_date: date | None
+    #: Issued to customers over the year to the day asked about (STK-14).
+    issued_last_year: Decimal = ZERO
+    #: Times a year the stock on hand turns over at that pace: issued in
+    #: the year over what is on hand. None with nothing issued.
+    turnover: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -145,6 +150,7 @@ class StockAgeingService:
         last_receipts = self._last(firm_id, on, RECEIPT_TYPES)
         rates = StockValuationService(self._session).rates(firm_id, on)
         items = _items(self._session, product_ids=list(on_hand))
+        issued = self._issued(firm_id, on, since=on - timedelta(days=365))
 
         rows: list[StockAgeingRow] = []
         for product_id, quantity in on_hand.items():
@@ -170,10 +176,33 @@ class StockAgeingService:
                     days_91_180=split[3],
                     days_over_180=split[4],
                     last_receipt_date=last_receipts.get(product_id),
+                    issued_last_year=max(issued.get(product_id, ZERO), ZERO),
+                    turnover=(
+                        (max(issued.get(product_id, ZERO), ZERO) / quantity).quantize(
+                            Decimal("0.01"), rounding=ROUND_HALF_UP
+                        )
+                        if issued.get(product_id, ZERO) > ZERO
+                        else None
+                    ),
                 )
             )
         rows.sort(key=lambda row: (row.category, row.product_code))
         return rows
+
+    def _issued(self, firm_id: UUID, on: date, *, since: date) -> dict[UUID, Decimal]:
+        """Return each product's quantity issued to customers after ``since``."""
+        return {
+            product_id: -Decimal(str(quantity or 0))
+            for product_id, quantity in self._session.execute(
+                select(InventoryTransaction.product_id, func.sum(_owned()))
+                .where(
+                    *self._moved(firm_id, on),
+                    InventoryTransaction.transaction_date > since,
+                    InventoryTransaction.transaction_type.in_(ISSUE_TYPES),
+                )
+                .group_by(InventoryTransaction.product_id)
+            ).all()
+        }
 
     def slow_moving(
         self, firm_id: UUID, *, on: date, days: int, dead_only: bool = False

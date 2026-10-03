@@ -6475,6 +6475,9 @@ class _ShellHomeSource implements HomeSource {
       (await api.expiringTradeLicences()).length;
 
   @override
+  Future<Map<String, dynamic>> stockAlerts() => api.inventoryAlerts();
+
+  @override
   Future<List<Map<String, dynamic>>> taxCalendar() => api.gstTaxCalendar();
 
   @override
