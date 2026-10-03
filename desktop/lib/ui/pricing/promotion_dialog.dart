@@ -1393,6 +1393,8 @@ String _kindOfField(String fieldKey) {
     case 'line_quantity':
     case 'line_gross':
     case 'document_gross':
+    case 'customer_order_count':
+    case 'days_since_last_order':
       return 'number';
   }
   return 'text';

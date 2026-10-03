@@ -73,6 +73,13 @@ class PromotionField(StrEnum):
     #: Minutes after midnight, India time, when the document was raised
     #: (SEL-7): ``BETWEEN [960, 1079]`` is "4 to 6 pm".
     TIME_OF_DAY = "time_of_day"
+    #: How many approved bills the customer had by the document's date
+    #: (SEL-6): ``EQUALS 0`` is "first order only". A draft is not an order.
+    CUSTOMER_ORDER_COUNT = "customer_order_count"
+    #: Days from the customer's last approved bill to the document's date
+    #: (SEL-6): ``GREATER_OR_EQUAL 60`` is "not billed in 60 days". Absent
+    #: for a customer never billed, whom the order count catches instead.
+    DAYS_SINCE_LAST_ORDER = "days_since_last_order"
 
 
 class PromotionActionType(StrEnum):
