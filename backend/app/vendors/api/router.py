@@ -9,6 +9,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.business.schemas import AttributeValueResponse
@@ -949,6 +950,36 @@ def vendor_statement(
             from_date=from_date,
             to_date=to_date,
         )
+    )
+
+
+@router.get(
+    "/{vendor_id}/linked-customer",
+    response_model=ApiResponse[dict[str, str] | None],
+)
+def vendor_linked_customer(
+    vendor_id: UUID,
+    scope: VendorViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[dict[str, str] | None]:
+    """Name the customer this supplier is linked to, if any (ACC-11).
+
+    The link is held on the customer (``linked_vendor_id``); the supplier
+    editor reads it from here. Null when the supplier is linked to nobody.
+    """
+    from app.customers.models import Customer
+
+    row = db.execute(
+        select(Customer.id, Customer.code, Customer.name).where(
+            Customer.firm_id == scope.firm_id,
+            Customer.linked_vendor_id == vendor_id,
+            Customer.is_deleted.is_(False),
+        )
+    ).first()
+    if row is None:
+        return ApiResponse(data=None)
+    return ApiResponse(
+        data={"customer_id": str(row[0]), "code": row[1], "name": row[2]}
     )
 
 

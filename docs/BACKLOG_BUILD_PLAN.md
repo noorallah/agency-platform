@@ -606,6 +606,7 @@ otherwise it is built as written.
 - **What it is:** link the shop that buys from us and sells to us, and see one statement.
 - **What gets built:** migration: a linked vendor on the customer; a combined statement from both statement services; the set-off in `backend/app/party_adjustments` preselects the link. Customer and vendor editors show it. Tests.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A86): `customers.linked_vendor_id` with `UQ_customers_linked_vendor_active` (migration 0258), checked in `CustomerService` (the firm's, live, unclaimed, same PAN). `app/customers/services/combined_statement.py` merges `CustomerStatementService` and `SupplierStatementService` in date order with a running net; `GET /customers/{id}/combined-statement` (CUSTOMER_VIEW plus VENDOR_VIEW), `GET /vendors/{id}/linked-customer`. Desktop: *Also a supplier* on the customer editor, *Also a customer* on the supplier editor, *Combined statement*, and the set-off preselects the linked party. Tests: `test_linked_party.py`, `linked_party_test.dart`.
 
 #### ACC-12. Cheque printing (§55 S11)
 - **What it is:** print the payee, amount and words on a cheque leaf.

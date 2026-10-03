@@ -5953,6 +5953,28 @@ class ApiClient {
         query: {'from_date': fromDate, 'to_date': toDate},
       ));
 
+  /// A customer and the supplier that is the same business, on one page, net
+  /// of each other (ACC-11). Refused when no supplier is linked.
+  Future<Json> customerCombinedStatement(
+    String customerId, {
+    required String fromDate,
+    required String toDate,
+  }) async =>
+      _unwrapMap(await request(
+        'GET',
+        '/api/v1/customers/$customerId/combined-statement',
+        query: {'from_date': fromDate, 'to_date': toDate},
+      ));
+
+  /// The customer that is the same business as this supplier (ACC-11), as
+  /// `{customer_id, code, name}`, or null when there is none.
+  Future<Json?> linkedCustomerOfVendor(String vendorId) async {
+    final Json response =
+        await request('GET', '/api/v1/vendors/$vendorId/linked-customer');
+    final dynamic data = response['data'];
+    return data is Map ? Map<String, dynamic>.from(data) : null;
+  }
+
   /// What every customer still owes, by how long they have owed it.
   Future<List<Json>> customerAgeing({String? customerId, String? asOf}) async {
     final Json response = await request(

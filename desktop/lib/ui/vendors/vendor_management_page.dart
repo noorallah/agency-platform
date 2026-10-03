@@ -226,6 +226,12 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
                   ? null
                   : () => widget.api.withdrawMyVendorRating(vendor.id),
               loadMembers: widget.api.firmMembers,
+              // "Also a customer" (ACC-11): read-only, for somebody who may
+              // read customers.
+              loadLinkedCustomer: vendor != null &&
+                      widget.permissions.hasPermission('CUSTOMER_VIEW')
+                  ? () => widget.api.linkedCustomerOfVendor(vendor.id)
+                  : null,
             ),
           )
         : await showDialog<Json>(
@@ -615,6 +621,7 @@ class _VendorEditorDialog extends StatefulWidget {
     this.onRate,
     this.onWithdrawRating,
     this.loadMembers,
+    this.loadLinkedCustomer,
     this.onSave,
   });
 
@@ -656,6 +663,10 @@ class _VendorEditorDialog extends StatefulWidget {
   final Future<void> Function(Json body)? onRate;
   final Future<void> Function()? onWithdrawRating;
   final Future<List<FirmMember>> Function()? loadMembers;
+
+  /// The customer that is the same business as this supplier (ACC-11), as
+  /// `{customer_id, code, name}` or null. Null here hides the line.
+  final Future<Json?> Function()? loadLinkedCustomer;
 
   @override
   State<_VendorEditorDialog> createState() => _VendorEditorDialogState();
@@ -764,6 +775,9 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
   List<VendorOpeningBill>? _openingBills;
   bool _openingBillsRequested = false;
 
+  /// The customer of the same business, once read; null shows nothing.
+  Json? _linkedCustomer;
+
   /// Phase 2: the sections are one scroll rather than tabs.
   bool _flat = false;
   final Map<String, GlobalKey> _sectionKeys = {
@@ -799,6 +813,17 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
     _typeId =
         widget.vendor?.typeId.isNotEmpty == true ? widget.vendor!.typeId : null;
     unawaited(_loadClassifications());
+    unawaited(_loadLinkedCustomer());
+  }
+
+  Future<void> _loadLinkedCustomer() async {
+    if (widget.loadLinkedCustomer == null) return;
+    try {
+      final Json? linked = await widget.loadLinkedCustomer!();
+      if (mounted) setState(() => _linkedCustomer = linked);
+    } on Object {
+      // Read-only decoration: an unreadable answer shows nothing.
+    }
   }
 
   Future<void> _loadClassifications() async {

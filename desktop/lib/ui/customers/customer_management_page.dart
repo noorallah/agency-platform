@@ -18,6 +18,7 @@ import '../../models/geography.dart';
 import '../../models/product.dart';
 import '../../models/sales_territory.dart';
 import '../../models/trade_licence.dart';
+import '../../models/vendor.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/opening_bill_import_dialog.dart';
@@ -280,6 +281,13 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
               .then((page) => page.items),
           // The account manager picker (backlog 67 row 2), phase 2 only.
           loadMembers: phase2 ? widget.api.firmMembers : null,
+          // "Also a supplier" (ACC-11), phase 2 only, for somebody who may
+          // read suppliers at all.
+          loadVendors: phase2 && widget.permissions.hasPermission('VENDOR_VIEW')
+              ? () => fetchAllPages<Vendor>(
+                    (page) => widget.api.vendors(page: page),
+                  )
+              : null,
           // The server refuses a moved limit without it; the form says so first.
           mayChangeCreditLimit:
               widget.permissions.hasPermission('CUSTOMER_MANAGE_SETTINGS'),
@@ -923,6 +931,7 @@ class CustomerWorkspaceDialog extends StatefulWidget {
     this.loadAttributes,
     this.loadGroups,
     this.loadMembers,
+    this.loadVendors,
     this.mayChangeCreditLimit = true,
     this.mayChangeStandingDiscount = true,
     this.loadLicences,
@@ -969,6 +978,11 @@ class CustomerWorkspaceDialog extends StatefulWidget {
   /// The firm's people, for the account manager picker (backlog 67 row 2).
   /// Null omits the picker; the stored manager is still sent back unchanged.
   final Future<List<FirmMember>> Function()? loadMembers;
+
+  /// The firm's suppliers, for the "Also a supplier" picker (ACC-11). Null
+  /// omits the picker, and then `linked_vendor_id` is not sent at all, so a
+  /// save cannot clear a link the form never showed.
+  final Future<List<Vendor>> Function()? loadVendors;
 
   /// Whether the user holds `CUSTOMER_MANAGE_SETTINGS`. A credit limit is a
   /// credit control, so moving an existing customer's limit takes the code
@@ -1097,6 +1111,11 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   // Empty string is "nobody", sent as null.
   late String _salesmanId = widget.customer?.salesmanId ?? '';
   List<FirmMember> _members = const [];
+  // Empty string is "not a supplier", sent as null. Sent only once the
+  // supplier list arrived (`_vendorsLoaded`): absent leaves the link alone.
+  late String _linkedVendorId = widget.customer?.linkedVendorId ?? '';
+  List<Vendor> _vendors = const [];
+  bool _vendorsLoaded = false;
   late final CustomFieldsController? _customFields =
       widget.loadAttributes == null
           ? null
@@ -1143,6 +1162,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     _customFields?.start();
     _loadGroups();
     _loadMembers();
+    _loadVendors();
     for (final TextEditingController controller in _fields.values) {
       controller.addListener(_markDirty);
     }
@@ -1197,6 +1217,65 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
       // Unreadable leaves the picker with just the stored manager.
       if (mounted) setState(() => _members = const []);
     }
+  }
+
+  Future<void> _loadVendors() async {
+    if (widget.loadVendors == null) return;
+    try {
+      final List<Vendor> vendors = await widget.loadVendors!();
+      if (mounted) {
+        setState(() {
+          _vendors = vendors;
+          _vendorsLoaded = true;
+        });
+      }
+    } on Object {
+      // Unreadable: no picker, and nothing about the link is sent.
+      if (mounted) setState(() => _vendorsLoaded = false);
+    }
+  }
+
+  /// The "Also a supplier" picker (ACC-11). Values are vendor ids; '' is
+  /// "not a supplier". A stored link that is not in the loaded list stays
+  /// selectable as its own item so a save does not clear it.
+  Widget _linkedVendorDropdown() {
+    String label(Vendor vendor) =>
+        vendor.displayName.isNotEmpty ? vendor.displayName : vendor.name;
+    final List<DropdownMenuItem<String>> items = [
+      const DropdownMenuItem(value: '', child: Text('Not a supplier')),
+      for (final Vendor vendor in _vendors)
+        DropdownMenuItem(
+          value: vendor.id,
+          child: Text(
+            '${vendor.code}  ${label(vendor)}',
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+    ];
+    if (_linkedVendorId.isNotEmpty &&
+        !_vendors.any((vendor) => vendor.id == _linkedVendorId)) {
+      items.add(DropdownMenuItem(
+        value: _linkedVendorId,
+        child: const Text('Linked supplier'),
+      ));
+    }
+    return DropdownButtonFormField<String>(
+      key: const ValueKey('customer-linked-vendor'),
+      isExpanded: true,
+      initialValue: _linkedVendorId,
+      decoration: const InputDecoration(
+        labelText: 'Also a supplier',
+        helperText: 'The supplier record of the same business; the two '
+            'accounts can then be read and set off together',
+      ),
+      items: items,
+      onChanged: _readOnly
+          ? null
+          : (value) => setState(() {
+                _linkedVendorId = value ?? '';
+                _dirty = true;
+              }),
+    );
   }
 
   /// The account manager picker (backlog 67 row 2). Values are user ids;
@@ -1390,6 +1469,10 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         // Empty means "no group", sent as null so it clears any prior one.
         'customer_group_id': _customerGroupId.isEmpty ? null : _customerGroupId,
         'salesman_id': _salesmanId.isEmpty ? null : _salesmanId,
+        // Only once the supplier list arrived: absent means "leave the link
+        // alone" and null clears it.
+        if (widget.loadVendors != null && _vendorsLoaded)
+          'linked_vendor_id': _linkedVendorId.isEmpty ? null : _linkedVendorId,
         'credit_limit': _fields['credit_limit']!.text.trim(),
         'default_discount_percent':
             _fields['default_discount_percent']!.text.trim().isEmpty
@@ -1527,6 +1610,8 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
               }),
             ),
             if (widget.loadMembers != null) _managerDropdown(),
+            if (widget.loadVendors != null && _vendorsLoaded)
+              _linkedVendorDropdown(),
             _text('gst_number', 'GST number'),
             _gstTypePicker(),
             _text('pan_number', 'PAN number'),

@@ -172,6 +172,7 @@ class Customer {
     this.preferredChannel,
     this.whatsappOptIn = false,
     this.whatsappOptInAt = '',
+    this.linkedVendorId = '',
   });
 
   final String id;
@@ -249,6 +250,9 @@ class Customer {
   /// When they agreed (read-only, set by the server; never sent back).
   final String whatsappOptInAt;
 
+  /// The supplier record of the same business (ACC-11); empty when none.
+  final String linkedVendorId;
+
   String get city {
     final Iterable<CustomerAddress> defaults =
         addresses.where((address) => address.isDefaultBilling);
@@ -312,6 +316,7 @@ class Customer {
         preferredChannel: json['preferred_channel'] as String?,
         whatsappOptIn: boolValue(json['whatsapp_opt_in']),
         whatsappOptInAt: stringValue(json['whatsapp_opt_in_at']),
+        linkedVendorId: stringValue(json['linked_vendor_id']),
       );
 }
 

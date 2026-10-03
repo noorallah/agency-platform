@@ -173,6 +173,14 @@ class CustomerService:
             self._session, values, _CUSTOMER_REFERENCES, firm_id=firm_id
         )
         self._assert_account_manager(firm_id, data.salesman_id, current=None)
+        self._assert_linked_vendor(
+            firm_id,
+            data.linked_vendor_id,
+            customer_id=None,
+            pan=data.pan_number,
+            gstin=data.gst_number,
+            name=data.name,
+        )
         (
             values["current_outstanding"],
             values["unapplied_advance_balance"],
@@ -311,6 +319,17 @@ class CustomerService:
                 sent if isinstance(sent, UUID) else None,
                 current=customer.salesman_id,
             )
+        if "linked_vendor_id" in values:
+            linked = values["linked_vendor_id"]
+            if linked != customer.linked_vendor_id:
+                self._assert_linked_vendor(
+                    customer.firm_id,
+                    linked if isinstance(linked, UUID) else None,
+                    customer_id=customer.id,
+                    pan=_text(values.get("pan_number", customer.pan_number)),
+                    gstin=_text(values.get("gst_number", customer.gst_number)),
+                    name=str(values.get("name", customer.name)),
+                )
         self._assert_may_change_credit_limit(
             customer, values, allowed=may_change_credit_limit
         )
@@ -946,6 +965,50 @@ class CustomerService:
                     "(CUSTOMER_MANAGE_SETTINGS). Leave it at zero, or ask "
                     "somebody who holds it."
                 )
+
+    def _assert_linked_vendor(
+        self,
+        firm_id: UUID,
+        vendor_id: UUID | None,
+        *,
+        customer_id: UUID | None,
+        pan: str | None,
+        gstin: str | None,
+        name: str,
+    ) -> None:
+        """Refuse a supplier link that is not one business with this customer.
+
+        The supplier must be the firm's and live, not linked to another
+        customer, and -- where both carry a PAN, recorded or read off the
+        GSTIN -- carry the same one (ACC-11, the set-off's own test).
+        """
+        if vendor_id is None:
+            return
+        from app.party_adjustments.services.party_adjustment_service import _pan_of
+        from app.vendors.models import Vendor
+
+        vendor = self._session.get(Vendor, vendor_id)
+        if vendor is None or vendor.firm_id != firm_id or vendor.is_deleted:
+            raise ValidationError("The linked supplier is not one of the firm's.")
+        taken = self._session.scalar(
+            select(Customer.name).where(
+                Customer.firm_id == firm_id,
+                Customer.linked_vendor_id == vendor_id,
+                Customer.is_deleted.is_(False),
+                *(() if customer_id is None else (Customer.id != customer_id,)),
+            )
+        )
+        if taken is not None:
+            raise ValidationError(
+                f"{vendor.name} is already linked to the customer {taken}."
+            )
+        ours = _pan_of(pan, gstin)
+        theirs = _pan_of(vendor.pan, vendor.gstin)
+        if ours and theirs and ours != theirs:
+            raise ValidationError(
+                f"{name} (PAN {ours}) and {vendor.name} (PAN {theirs}) are "
+                "different businesses, so they cannot be linked."
+            )
 
     @staticmethod
     def _customer_values(

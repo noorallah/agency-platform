@@ -197,6 +197,16 @@ extension _Phase2VendorForm on _VendorEditorDialogState {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _heading(context, 'General', 'who they are and how to reach them'),
+            if (_linkedCustomer != null)
+              Padding(
+                key: const ValueKey('vendor-linked-customer'),
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  'Also a customer: ${stringValue(_linkedCustomer!['code'])}'
+                  ' — ${stringValue(_linkedCustomer!['name'])}',
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ),
             _generalTab(),
             _heading(context, 'Contacts', 'who to call there'),
             _contactsTab(),

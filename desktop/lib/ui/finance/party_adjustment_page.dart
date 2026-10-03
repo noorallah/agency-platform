@@ -15,6 +15,7 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/customer.dart';
+import '../../models/entities.dart';
 import '../../models/party_adjustment.dart';
 import '../../models/settlement.dart';
 import '../../models/vendor.dart';
@@ -701,6 +702,13 @@ class _PartyAdjustmentDialogState extends State<PartyAdjustmentDialog> {
   List<Vendor> _vendors = const <Vendor>[];
   String _customerId = '';
   String _vendorId = '';
+  // The menus show their own text, so a preselection has to write it.
+  final TextEditingController _customerMenu = TextEditingController();
+  final TextEditingController _vendorMenu = TextEditingController();
+  // True while the party on show was filled in from the other one's link
+  // (ACC-11), so choosing a different party on that side replaces it.
+  bool _customerPreselected = false;
+  bool _vendorPreselected = false;
   PartyAdjustmentOpenBills _bills = const PartyAdjustmentOpenBills();
   bool _loading = true;
   bool _loadingBills = false;
@@ -729,6 +737,8 @@ class _PartyAdjustmentDialogState extends State<PartyAdjustmentDialog> {
   void dispose() {
     _amount.dispose();
     _reason.dispose();
+    _customerMenu.dispose();
+    _vendorMenu.dispose();
     for (final TextEditingController controller in _allocations.values) {
       controller.dispose();
     }
@@ -758,6 +768,54 @@ class _PartyAdjustmentDialogState extends State<PartyAdjustmentDialog> {
         _error = error.message;
         _loading = false;
       });
+    }
+  }
+
+  String _vendorLabel(Vendor vendor) =>
+      vendor.displayName.isNotEmpty ? vendor.displayName : vendor.name;
+
+  /// A customer was chosen: when a set-off needs a supplier and none was
+  /// chosen by hand, preselect the customer's linked one (ACC-11). It stays
+  /// changeable.
+  void _preselectLinkedVendor(String customerId) {
+    if (!_needsVendor || _editing) return;
+    if (_vendorId.isNotEmpty && !_vendorPreselected) return;
+    String linkedId = '';
+    for (final Customer customer in _customers) {
+      if (customer.id == customerId) linkedId = customer.linkedVendorId;
+    }
+    for (final Vendor vendor in _vendors) {
+      if (vendor.id == linkedId) {
+        _vendorId = vendor.id;
+        _vendorMenu.text = _vendorLabel(vendor);
+        _vendorPreselected = true;
+        return;
+      }
+    }
+  }
+
+  /// A supplier was chosen: preselect the customer of the same business,
+  /// asked of the server, when none was chosen by hand (ACC-11).
+  Future<void> _preselectLinkedCustomer(String vendorId) async {
+    if (!_needsCustomer || _editing) return;
+    if (_customerId.isNotEmpty && !_customerPreselected) return;
+    try {
+      final Json? linked = await widget.api.linkedCustomerOfVendor(vendorId);
+      if (!mounted || linked == null || _vendorId != vendorId) return;
+      final String id = stringValue(linked['customer_id']);
+      for (final Customer customer in _customers) {
+        if (customer.id == id) {
+          setState(() {
+            _customerId = customer.id;
+            _customerMenu.text = customer.name;
+            _customerPreselected = true;
+          });
+          await _loadBills();
+          return;
+        }
+      }
+    } on Object {
+      // A convenience only: nothing is preselected.
     }
   }
 
@@ -1068,6 +1126,7 @@ class _PartyAdjustmentDialogState extends State<PartyAdjustmentDialog> {
           width: 240,
           child: DropdownMenu<String>(
             key: const ValueKey('pa-customer'),
+            controller: _customerMenu,
             initialSelection: _customerId.isEmpty ? null : _customerId,
             width: 240,
             enabled: !_saving,
@@ -1084,7 +1143,11 @@ class _PartyAdjustmentDialogState extends State<PartyAdjustmentDialog> {
             ],
             onSelected: (value) {
               if (value == null || value == _customerId) return;
-              setState(() => _customerId = value);
+              setState(() {
+                _customerId = value;
+                _customerPreselected = false;
+                _preselectLinkedVendor(value);
+              });
               unawaited(_loadBills());
             },
           ),
@@ -1095,6 +1158,7 @@ class _PartyAdjustmentDialogState extends State<PartyAdjustmentDialog> {
           width: 240,
           child: DropdownMenu<String>(
             key: const ValueKey('pa-vendor'),
+            controller: _vendorMenu,
             initialSelection: _vendorId.isEmpty ? null : _vendorId,
             width: 240,
             enabled: !_saving,
@@ -1113,8 +1177,12 @@ class _PartyAdjustmentDialogState extends State<PartyAdjustmentDialog> {
             ],
             onSelected: (value) {
               if (value == null || value == _vendorId) return;
-              setState(() => _vendorId = value);
+              setState(() {
+                _vendorId = value;
+                _vendorPreselected = false;
+              });
               unawaited(_loadBills());
+              unawaited(_preselectLinkedCustomer(value));
             },
           ),
         ),
