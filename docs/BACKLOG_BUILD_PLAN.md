@@ -558,6 +558,7 @@ otherwise it is built as written.
 - **What it is:** a gift pack stocked or sold as one item made of others.
 - **What gets built:** a component list on a product of type kit (migration); selling a kit dispatches its components in proportion, the invoice shows the kit; an assembled kit is made by a repack (STK-4). Product editor *Components* tab. Tests through order, note, invoice, return.
 - **Depends on:** STK-4. **Effort / Who:** L, Claude alone.
+- **Built 2026-10-03** (A134, migration `20261003_0296`): `product_kit_components` and `app/products/services/kits.py`; a kit is a product of type `BUNDLE`. `GET/PUT /products/{id}/components`, `POST /products/{id}/assemble` and `/disassemble` (INVENTORY_ADJUST), each a repack through the new `RepackService.stage_post`, so the kit carries its components' cost. The kit is stocked and sold as itself -- reservation, COGS, invoice cost and returns unchanged -- and `DeliveryNoteService._dispatch_inventory` assembles the shortfall of an unassembled kit from its components in the dispatch's own transaction. Fixed on the way (D-STK-16): the dispatch gate did not count the line's own reservation, which the same dispatch releases. Not done: a kit inside a kit, components priced on the bill. Desktop: Components on the product editor, Assemble / Disassemble on the products screen. Tests: `test_kits.py`, `kits_test.dart`.
 
 #### STK-16. Barcode label printing (§55 S8)
 - **What it is:** print price and barcode labels for products or a received batch.

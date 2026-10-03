@@ -3571,6 +3571,8 @@ TCS, an audit trail, currency and exchange-rate fields, and a low-stock view.
   already give free goods, which covers some of it; a kit that is stocked and
   sold as one item is a different thing.
 
+**Status, 2026-10-03: built** (STK-15, A134): a product of type *Kit / combo pack* lists its components; kits are assembled and broken by repack, and a delivery note shipping more kits than are assembled assembles the rest from the components.
+
 ### 42.14 A customer and vendor portal
 
 - **Who has it:** Zoho (customer and vendor portals, with approvals and

@@ -34,6 +34,7 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.imports.services import columns_for_kind, mapped_content, parse_mapping
+from app.inventory.services.repacking import RepackResponse, RepackService
 from app.products.models import Product
 from app.products.schemas import (
     BulkProductRequest,
@@ -62,6 +63,12 @@ from app.products.services.brands import (
     BrandWrite,
     PrincipalResponse,
     PrincipalWrite,
+)
+from app.products.services.kits import (
+    KitAssemblyWrite,
+    KitComponentResponse,
+    KitComponentsWrite,
+    KitService,
 )
 from app.products.services.price_revisions import COLUMNS as REVISION_COLUMNS
 from app.products.services.price_revisions import (
@@ -789,3 +796,82 @@ def _responses(
         )
         for row in rows
     ]
+
+
+#: Assembling kits moves stock, so it needs the stock adjustment code, as a
+#: repack does (STK-15).
+KitAssembleScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("INVENTORY_ADJUST")
+]
+
+
+@router.get(
+    "/{product_id}/components",
+    response_model=ApiResponse[list[KitComponentResponse]],
+)
+def list_kit_components(
+    product_id: UUID,
+    scope: ProductViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[KitComponentResponse]]:
+    """Return what goes into one of a kit (STK-15)."""
+    service = KitService(db)
+    return ApiResponse(
+        data=service.responses(service.components(product_id, firm_id=scope.firm_id))
+    )
+
+
+@router.put(
+    "/{product_id}/components",
+    response_model=ApiResponse[list[KitComponentResponse]],
+)
+def replace_kit_components(
+    product_id: UUID,
+    data: KitComponentsWrite,
+    scope: ProductUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[KitComponentResponse]]:
+    """Replace a kit's component list (STK-15)."""
+    service = KitService(db)
+    rows = service.replace(
+        product_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=service.responses(rows), message="Components saved.")
+
+
+@router.post("/{product_id}/assemble", response_model=ApiResponse[RepackResponse])
+def assemble_kits(
+    product_id: UUID,
+    data: KitAssemblyWrite,
+    scope: KitAssembleScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[RepackResponse]:
+    """Make kits from their components by a repack (STK-15)."""
+    repack = KitService(db).assemble(
+        product_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(
+        data=RepackService(db).responses([repack])[0],  # type: ignore[list-item]
+        message="Kits assembled.",
+    )
+
+
+@router.post("/{product_id}/disassemble", response_model=ApiResponse[RepackResponse])
+def disassemble_kits(
+    product_id: UUID,
+    data: KitAssemblyWrite,
+    scope: KitAssembleScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[RepackResponse]:
+    """Break kits back into their components by a repack (STK-15)."""
+    repack = KitService(db).assemble(
+        product_id,
+        data,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        disassemble=True,
+    )
+    return ApiResponse(
+        data=RepackService(db).responses([repack])[0],  # type: ignore[list-item]
+        message="Kits broken into components.",
+    )
