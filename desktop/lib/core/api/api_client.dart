@@ -1256,6 +1256,35 @@ class ApiClient {
     return message is String && message.isNotEmpty ? message : null;
   }
 
+  /// Customers that look like the one being typed (MST-3): the same GSTIN,
+  /// phone or name. A warning, never a refusal. [excluding] is the record
+  /// being edited.
+  Future<List<Json>> customerDuplicates({
+    String name = '',
+    String phone = '',
+    String gstin = '',
+    String? excluding,
+  }) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/customers/duplicates',
+          query: _duplicateQuery(name, phone, gstin, excluding),
+        ),
+        (Json row) => row,
+      );
+
+  /// Fold [Json] `{duplicate_id, reason}` into the customer [survivorId]; the
+  /// duplicate's documents move and balances add. It cannot be undone.
+  Future<Json> mergeCustomer(String survivorId, Json body) async =>
+      _unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/customers/$survivorId/merge',
+          body: body,
+        ),
+      );
+
   Future<Customer> createCustomer(Json data) async =>
       Customer.fromJson(_unwrapMap(
         await request('POST', '/api/v1/customers', body: data),
@@ -2107,6 +2136,45 @@ class ApiClient {
         descending: descending,
         additionalQuery: filters.toQuery(),
       );
+
+  /// Suppliers that look like the one being typed (MST-3); see
+  /// [customerDuplicates].
+  Future<List<Json>> vendorDuplicates({
+    String name = '',
+    String phone = '',
+    String gstin = '',
+    String? excluding,
+  }) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/vendors/duplicates',
+          query: _duplicateQuery(name, phone, gstin, excluding),
+        ),
+        (Json row) => row,
+      );
+
+  /// Fold a duplicate supplier into [survivorId]; see [mergeCustomer].
+  Future<Json> mergeVendor(String survivorId, Json body) async => _unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/vendors/$survivorId/merge',
+          body: body,
+        ),
+      );
+
+  Map<String, String> _duplicateQuery(
+    String name,
+    String phone,
+    String gstin,
+    String? excluding,
+  ) =>
+      {
+        if (name.trim().isNotEmpty) 'name': name.trim(),
+        if (phone.trim().isNotEmpty) 'phone': phone.trim(),
+        if (gstin.trim().isNotEmpty) 'gstin': gstin.trim(),
+        if (excluding != null) 'excluding': excluding,
+      };
 
   Future<Vendor> createVendor(Json data) async => Vendor.fromJson(_unwrapMap(
         await request('POST', '/api/v1/vendors', body: data),

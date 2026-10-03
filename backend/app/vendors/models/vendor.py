@@ -120,6 +120,11 @@ class Vendor(BaseEntity):
     firm_id: Mapped[UUID] = mapped_column(
         UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
     )
+    #: The record this one was merged into (MST-3); set on the duplicate,
+    #: which is soft-deleted, so its history points at the survivor.
+    merged_into_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("vendors.id", ondelete="SET NULL")
+    )
     code: Mapped[str] = mapped_column(String(50), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     legal_name: Mapped[str | None] = mapped_column(String(200))

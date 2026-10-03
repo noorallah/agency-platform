@@ -25,6 +25,7 @@ import '../workspace/bulk_action.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/opening_bill_import_dialog.dart';
+import '../workspace/party_merge.dart';
 import '../workspace/reason_prompt.dart';
 import '../workspace/trade_licence_quick_add.dart';
 import 'credit_settings_dialog.dart';
@@ -311,7 +312,18 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
     Widget form(BuildContext context) => CustomerWorkspaceDialog(
           mode: mode,
           customer: customer,
-          onSave: (payload) => _controller.save(customer, payload),
+          onSave: (payload) => customer == null
+              ? saveUnlessDuplicate<Customer>(
+                  context,
+                  noun: 'customer',
+                  check: () => widget.api.customerDuplicates(
+                    name: '${payload['name'] ?? ''}',
+                    phone: '${payload['phone'] ?? ''}',
+                    gstin: '${payload['gst_number'] ?? ''}',
+                  ),
+                  save: () => _controller.save(customer, payload),
+                )
+              : _controller.save(customer, payload),
           // Passed as loaders rather than the client itself, matching `onSave`:
           // the dialog stays a form and does not grow an API dependency.
           loadPlaces: widget.api.geoPlaces,
@@ -445,6 +457,43 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
     NotificationService.show(
       context,
       'Customer ${customer == null ? 'created' : 'updated'}.',
+      kind: AppNotificationKind.success,
+    );
+    await _controller.load();
+  }
+
+  /// Fold a duplicate into [survivor] (MST-3).
+  Future<void> _merge(Customer survivor) async {
+    if (!_canDelete || survivor.isDeleted) return;
+    final Json? result = await showPartyMergeDialog(
+      context,
+      noun: 'customer',
+      survivorId: survivor.id,
+      survivorLabel: survivor.displayName.isEmpty
+          ? survivor.name
+          : survivor.displayName,
+      likely: () => widget.api.customerDuplicates(
+        name: survivor.name,
+        phone: survivor.phone,
+        gstin: survivor.gstNumber,
+        excluding: survivor.id,
+      ),
+      search: (text) => widget.api
+          .customers(search: text)
+          .then((page) => [
+                for (final Customer row in page.items)
+                  <String, dynamic>{
+                    'id': row.id,
+                    'code': row.code,
+                    'name': row.displayName.isEmpty ? row.name : row.displayName,
+                  },
+              ]),
+      merge: (body) => widget.api.mergeCustomer(survivor.id, body),
+    );
+    if (result == null || !mounted) return;
+    NotificationService.show(
+      context,
+      mergeSummary(result),
       kind: AppNotificationKind.success,
     );
     await _controller.load();
@@ -676,6 +725,17 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
       // phase 1 keeps its button here.
       // D-GOLIVE-1. Phase 2 draws commands; phase 1 does not.
       commands: [
+        if (_canDelete && Phase2Scope.of(context))
+          ToolbarCommand(
+            id: 'merge',
+            label: 'Merge into...',
+            icon: Icons.merge_type,
+            tooltip: 'Fold a duplicate customer into the selected one',
+            onPressed:
+                _controller.loading || selected == null || selected.isDeleted
+                    ? null
+                    : () => unawaited(_merge(selected)),
+          ),
         if (_canApprove && Phase2Scope.of(context))
           if (_bulkMode)
             ToolbarCommand(

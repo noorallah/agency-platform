@@ -21,6 +21,12 @@ from app.common.file_import import (
     template_csv,
 )
 from app.common.pan_report import PanReportRow, vendor_pan_report
+from app.common.party_merge import (
+    DuplicateCandidate,
+    PartyMergeResult,
+    PartyMergeService,
+    PartyMergeWrite,
+)
 from app.common.scope import (
     ResolvedFirmScope,
     firm_any_permission_scope,
@@ -949,6 +955,48 @@ def withdraw_vendor_rating(
     """Take back the caller's own rating; it stays on file as history."""
     VendorRatingService(db).withdraw(
         vendor_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+
+
+@router.get("/duplicates", response_model=ApiResponse[list[DuplicateCandidate]])
+def vendor_duplicates(
+    scope: VendorViewScope,
+    db: Session = Depends(get_db),
+    name: Annotated[str | None, Query(max_length=200)] = None,
+    phone: Annotated[str | None, Query(max_length=20)] = None,
+    gstin: Annotated[str | None, Query(max_length=32)] = None,
+    excluding: Annotated[UUID | None, Query()] = None,
+) -> ApiResponse[list[DuplicateCandidate]]:
+    """Return suppliers that look like the one described (MST-3); a warning."""
+    return ApiResponse(
+        data=PartyMergeService(db).duplicates(
+            "VENDOR",
+            firm_id=scope.firm_id,
+            name=name,
+            phone=phone,
+            gstin=gstin,
+            excluding=excluding,
+        )
+    )
+
+
+@router.post("/{vendor_id}/merge", response_model=ApiResponse[PartyMergeResult])
+def merge_vendor(
+    vendor_id: UUID,
+    data: PartyMergeWrite,
+    scope: VendorDeleteScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PartyMergeResult]:
+    """Fold a duplicate supplier into this one, in one transaction (MST-3)."""
+    return ApiResponse(
+        data=PartyMergeService(db).merge(
+            "VENDOR",
+            vendor_id,
+            data,
+            firm_id=scope.firm_id,
+            actor_id=scope.actor_id,
+        ),
+        message="Merged.",
     )
 
 

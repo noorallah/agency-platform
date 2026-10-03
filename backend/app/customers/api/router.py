@@ -19,6 +19,12 @@ from app.common.file_import import (
     report_response,
 )
 from app.common.pan_report import PanReportRow, customer_pan_report
+from app.common.party_merge import (
+    DuplicateCandidate,
+    PartyMergeResult,
+    PartyMergeService,
+    PartyMergeWrite,
+)
 from app.common.scope import (
     ResolvedFirmScope,
     firm_any_permission_scope,
@@ -956,6 +962,48 @@ def remove_customer_file(
     """Remove one file from the customer's record; the trail keeps it."""
     CustomerRecordsService(db).remove_attachment(
         customer_id, attachment_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+
+
+@router.get("/duplicates", response_model=ApiResponse[list[DuplicateCandidate]])
+def customer_duplicates(
+    scope: CustomerViewScope,
+    db: Session = Depends(get_db),
+    name: Annotated[str | None, Query(max_length=200)] = None,
+    phone: Annotated[str | None, Query(max_length=20)] = None,
+    gstin: Annotated[str | None, Query(max_length=32)] = None,
+    excluding: Annotated[UUID | None, Query()] = None,
+) -> ApiResponse[list[DuplicateCandidate]]:
+    """Return customers that look like the one described (MST-3); a warning."""
+    return ApiResponse(
+        data=PartyMergeService(db).duplicates(
+            "CUSTOMER",
+            firm_id=scope.firm_id,
+            name=name,
+            phone=phone,
+            gstin=gstin,
+            excluding=excluding,
+        )
+    )
+
+
+@router.post("/{customer_id}/merge", response_model=ApiResponse[PartyMergeResult])
+def merge_customer(
+    customer_id: UUID,
+    data: PartyMergeWrite,
+    scope: CustomerDeleteScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PartyMergeResult]:
+    """Fold a duplicate customer into this one, in one transaction (MST-3)."""
+    return ApiResponse(
+        data=PartyMergeService(db).merge(
+            "CUSTOMER",
+            customer_id,
+            data,
+            firm_id=scope.firm_id,
+            actor_id=scope.actor_id,
+        ),
+        message="Merged.",
     )
 
 

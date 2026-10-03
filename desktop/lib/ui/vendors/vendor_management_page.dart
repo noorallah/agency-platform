@@ -20,6 +20,7 @@ import '../../models/vendor_opening_bill.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/opening_bill_import_dialog.dart';
+import '../workspace/party_merge.dart';
 import '../workspace/reason_prompt.dart';
 import '../workspace/trade_licence_quick_add.dart';
 import 'supplier_catalogue_section.dart';
@@ -168,7 +169,16 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
     // Phase 2 saves inside the page, so a refusal keeps what was typed (D-DLG-1).
     Future<void> saveIt(Json data) async {
       if (creating) {
-        await widget.api.createVendor(data);
+        await saveUnlessDuplicate<Vendor>(
+          context,
+          noun: 'supplier',
+          check: () => widget.api.vendorDuplicates(
+            name: '${data['name'] ?? ''}',
+            phone: '${data['phone'] ?? ''}',
+            gstin: '${data['gstin'] ?? ''}',
+          ),
+          save: () => widget.api.createVendor(data),
+        );
       } else {
         await widget.api.updateVendor(
           vendor.id,
@@ -262,6 +272,40 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
         kind: AppNotificationKind.error,
       );
     }
+  }
+
+  /// Fold a duplicate into [survivor] (MST-3).
+  Future<void> _merge(Vendor survivor) async {
+    if (!_canDelete || survivor.isDeleted) return;
+    final Json? result = await showPartyMergeDialog(
+      context,
+      noun: 'supplier',
+      survivorId: survivor.id,
+      survivorLabel:
+          survivor.displayName.isEmpty ? survivor.name : survivor.displayName,
+      likely: () => widget.api.vendorDuplicates(
+        name: survivor.name,
+        phone: survivor.phone,
+        gstin: survivor.gstin,
+        excluding: survivor.id,
+      ),
+      search: (text) => widget.api.vendors(search: text).then((page) => [
+            for (final Vendor row in page.items)
+              <String, dynamic>{
+                'id': row.id,
+                'code': row.code,
+                'name': row.displayName.isEmpty ? row.name : row.displayName,
+              },
+          ]),
+      merge: (body) => widget.api.mergeVendor(survivor.id, body),
+    );
+    if (result == null || !mounted) return;
+    NotificationService.show(
+      context,
+      mergeSummary(result),
+      kind: AppNotificationKind.success,
+    );
+    await _load();
   }
 
   Future<void> _delete(Vendor vendor) async {
@@ -388,6 +432,16 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
       ],
       // D-GOLIVE-1. Phase 2 draws commands; phase 1 does not.
       commands: [
+        if (_canDelete && Phase2Scope.of(context))
+          ToolbarCommand(
+            id: 'merge',
+            label: 'Merge into...',
+            icon: Icons.merge_type,
+            tooltip: 'Fold a duplicate supplier into the selected one',
+            onPressed: _loading || selected == null || selected.isDeleted
+                ? null
+                : () => unawaited(_merge(selected)),
+          ),
         if (_canImport)
           ToolbarCommand(
             id: 'import-opening-bills',
