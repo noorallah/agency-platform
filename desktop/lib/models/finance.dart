@@ -1031,3 +1031,79 @@ class OpeningTrialBalance {
         equityDifference: stringValue(json['equity_difference']),
       );
 }
+
+/// One account's effect on cash in the cash flow statement (ACC-9).
+class CashFlowLine {
+  const CashFlowLine({
+    required this.ledgerAccountId,
+    required this.accountCode,
+    required this.accountName,
+    required this.amount,
+  });
+
+  final String ledgerAccountId, accountCode, accountName;
+
+  /// Positive is cash in, negative is cash out.
+  final String amount;
+
+  factory CashFlowLine.fromJson(Json json) => CashFlowLine(
+        ledgerAccountId: stringValue(json['ledger_account_id']),
+        accountCode: stringValue(json['account_code']),
+        accountName: stringValue(json['account_name']),
+        amount: stringValue(json['amount']),
+      );
+}
+
+/// The cash flow statement over a run of months, by the indirect method.
+class CashFlowReport {
+  const CashFlowReport({
+    required this.fromDate,
+    required this.toDate,
+    required this.netProfit,
+    required this.operating,
+    required this.operatingTotal,
+    required this.investing,
+    required this.investingTotal,
+    required this.financing,
+    required this.financingTotal,
+    required this.netChange,
+    required this.openingCash,
+    required this.closingCash,
+    required this.isReconciled,
+  });
+
+  final String fromDate, toDate, netProfit;
+  final List<CashFlowLine> operating, investing, financing;
+  final String operatingTotal, investingTotal, financingTotal;
+  final String netChange, openingCash, closingCash;
+  final bool isReconciled;
+
+  factory CashFlowReport.fromJson(Json json) {
+    final Json d = json.containsKey('data')
+        ? Map<String, dynamic>.from(json['data'] as Map)
+        : json;
+    List<CashFlowLine> section(String key) {
+      final dynamic value = d[key];
+      return [
+        for (final dynamic line in value is List ? value : const [])
+          if (line is Map) CashFlowLine.fromJson(Map<String, dynamic>.from(line)),
+      ];
+    }
+
+    return CashFlowReport(
+      fromDate: stringValue(d['from_date']),
+      toDate: stringValue(d['to_date']),
+      netProfit: stringValue(d['net_profit']),
+      operating: section('operating'),
+      operatingTotal: stringValue(d['operating_total']),
+      investing: section('investing'),
+      investingTotal: stringValue(d['investing_total']),
+      financing: section('financing'),
+      financingTotal: stringValue(d['financing_total']),
+      netChange: stringValue(d['net_change']),
+      openingCash: stringValue(d['opening_cash']),
+      closingCash: stringValue(d['closing_cash']),
+      isReconciled: d['is_reconciled'] != false,
+    );
+  }
+}

@@ -1103,6 +1103,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['PROFIT_LOSS_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'cash-flow',
+          label: 'Cash Flow',
+          requiredPermissions: ['PROFIT_LOSS_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'balance-sheet',
           label: 'Balance Sheet',
           requiredPermissions: ['BALANCE_SHEET_VIEW'],

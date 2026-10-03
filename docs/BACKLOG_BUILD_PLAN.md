@@ -596,6 +596,7 @@ otherwise it is built as written.
 - **What it is:** where cash came from and went, for a bank loan file.
 - **What gets built:** a report by the indirect method in `backend/app/finance` from the trial balance movements (profit, change in receivables, payables, stock, then investing and financing by account group); phase 2 report beside the P&L. No migration. Tests that it reconciles to the change in cash and bank.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A87): `app/finance/services/cash_flow.py` over `GeneralLedgerService`'s span balances; `GET /finance/cash-flow?from_period_id&to_period_id` (PROFIT_LOSS_VIEW). Sections by account group (CA / CL current, other assets investing, other liabilities and equity financing), cash by the cash and bank purposes and the Cash-in-Hand / Bank Accounts groups, `is_reconciled`. No migration. Desktop: *Cash flow statement* beside the P&L. Tests: `test_cash_flow.py`, `cash_flow_test.dart`.
 
 #### ACC-10. Attachments on journals, receipts and payments (§74 row 7)
 - **What it is:** the scanned bill or letter kept with the entry.

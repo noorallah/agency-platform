@@ -8268,6 +8268,20 @@ class ApiClient {
         ),
       );
 
+  /// The cash flow statement over a run of months in one financial year
+  /// (ACC-9), indirect method.
+  Future<CashFlowReport> cashFlow({
+    required String fromPeriodId,
+    required String toPeriodId,
+  }) async =>
+      CashFlowReport.fromJson(
+        await request(
+          'GET',
+          '/api/v1/finance/cash-flow',
+          query: {'from_period_id': fromPeriodId, 'to_period_id': toPeriodId},
+        ),
+      );
+
   /// One account's statement for one period.
   ///
   /// The running balance comes down with the lines. It starts from the opening
