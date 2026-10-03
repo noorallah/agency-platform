@@ -306,6 +306,7 @@ otherwise it is built as written.
 - **What it is:** an offer only for a customer's first order, or for customers not billed in N days.
 - **What gets built:** new `PromotionField` keys derived while pricing (count of the customer's approved invoices; days since the last one), read in one query per document. Condition picker on the dialog. Tests for each, and that a draft does not count as an order.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A98): `PromotionField.CUSTOMER_ORDER_COUNT` and `DAYS_SINCE_LAST_ORDER`, from `PromotionService._customer_history` (one query per evaluation, approved and closed bills on or before the date); numeric equality in `_condition_holds`. No migration. Desktop: the two fields in the condition picker. Tests: `test_promotion_eligibility.py`, `promotion_eligibility_test.dart`.
 
 #### SEL-7. Day and time conditions (§60 row 9)
 - **What it is:** "weekends only", "4-6 pm".

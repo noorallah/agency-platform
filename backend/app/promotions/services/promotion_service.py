@@ -127,6 +127,7 @@ class PromotionService:
         ]
         document_gross = quantize_money(sum((s.gross for s in states), ZERO))
         products = self._products_for(data)
+        history = self._customer_history(data)
         bill_discount = ZERO
         # What was charged for delivery is either waived whole or not at all,
         # so this is a flag rather than a running total: a second offer cannot
@@ -250,6 +251,7 @@ class PromotionService:
                         state=state,
                         document_gross=document_gross,
                         products=products,
+                        history=history,
                     ),
                 )
             ]
@@ -501,6 +503,33 @@ class PromotionService:
             statement = statement.where(PromotionRedemption.coupon_id == coupon_id)
         return int(self._session.scalar(statement) or 0)
 
+    def _customer_history(
+        self, data: PromotionEvaluationRequest
+    ) -> tuple[int, int | None]:
+        """Return the customer's approved bills by the date, and days since the last.
+
+        SEL-6, read once per document. Only approved and closed bills count:
+        a draft is not an order, and a cancelled bill was undone.
+        """
+        if data.customer_id is None:
+            return 0, None
+        from sqlalchemy import func
+
+        from app.sales_invoice.models import SalesInvoice
+
+        count, last = self._session.execute(
+            select(
+                func.count(SalesInvoice.id), func.max(SalesInvoice.invoice_date)
+            ).where(
+                SalesInvoice.customer_id == data.customer_id,
+                SalesInvoice.is_deleted.is_(False),
+                SalesInvoice.status.in_(("APPROVED", "CLOSED")),
+                SalesInvoice.invoice_date <= data.transaction_date,
+            )
+        ).one()
+        days = None if last is None else (data.transaction_date - last).days
+        return int(count or 0), days
+
     def _products_for(
         self, data: PromotionEvaluationRequest
     ) -> dict[UUID, tuple[UUID | None, str | None]]:
@@ -523,6 +552,7 @@ class PromotionService:
         state: _LineState,
         document_gross: Decimal,
         products: dict[UUID, tuple[UUID | None, str | None]],
+        history: tuple[int, int | None] = (0, None),
     ) -> dict[str, object]:
         """Build what one line is matched against.
 
@@ -554,6 +584,10 @@ class PromotionService:
             PromotionField.TIME_OF_DAY.value: minutes_of_day_in_india(
                 data.transaction_time
             ),
+            PromotionField.CUSTOMER_ORDER_COUNT.value: (
+                history[0] if data.customer_id is not None else None
+            ),
+            PromotionField.DAYS_SINCE_LAST_ORDER.value: history[1],
         }
 
     def _matches(self, promotion: Promotion, *, context: dict[str, object]) -> bool:
@@ -596,10 +630,23 @@ class PromotionService:
         expected = self._expected(condition)
         if expected is None:
             return False
-        if operator == PromotionConditionOperator.EQUALS.value:
-            return str(actual) == str(expected)
-        if operator == PromotionConditionOperator.NOT_EQUALS.value:
-            return str(actual) != str(expected)
+        if operator in {
+            PromotionConditionOperator.EQUALS.value,
+            PromotionConditionOperator.NOT_EQUALS.value,
+        }:
+            # A count or a quantity is equal as a number: 0 is 0.0000 (SEL-6).
+            if isinstance(actual, int | Decimal) and not isinstance(actual, bool):
+                try:
+                    same = Decimal(str(actual)) == Decimal(str(expected))
+                except (ArithmeticError, TypeError, ValueError):
+                    same = False
+            else:
+                same = str(actual) == str(expected)
+            return (
+                same
+                if operator == PromotionConditionOperator.EQUALS.value
+                else (not same)
+            )
         # The four comparisons are numeric or date; anything else cannot be
         # ordered and is treated as not matching rather than raising, because a
         # bad condition must not make a document unsaveable.

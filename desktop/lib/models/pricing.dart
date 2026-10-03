@@ -413,6 +413,8 @@ const Map<String, String> promotionFieldLabels = <String, String>{
   'document_gross': 'Order value',
   'weekday': 'Days of the week',
   'time_of_day': 'Time of day',
+  'customer_order_count': "Customer's approved orders so far",
+  'days_since_last_order': "Days since the customer's last order",
 };
 
 /// ISO weekday numbers (1 Monday .. 7 Sunday) and their short names.
@@ -469,6 +471,8 @@ String describePromotionCondition(PromotionConditionRecord condition) {
   if (promotionUnaryOperators.contains(condition.operator)) {
     return '$field $test';
   }
+  final String? eligibility = _eligibilitySummary(condition);
+  if (eligibility != null) return eligibility;
   if (condition.fieldKey == 'weekday' && condition.valueList.isNotEmpty) {
     final List<int> days = <int>[
       for (final String item in condition.valueList)
@@ -504,6 +508,23 @@ String describePromotionCondition(PromotionConditionRecord condition) {
               ? condition.valueDate
               : _plainNumber(condition.valueNumber);
   return '$field $test $value';
+}
+
+/// SEL-6: "first order only" / "not billed in 60 days" for the two customer
+/// history fields, in the two shapes the presets save; null for anything else.
+String? _eligibilitySummary(PromotionConditionRecord condition) {
+  final double? value = double.tryParse(condition.valueNumber);
+  if (condition.fieldKey == 'customer_order_count' &&
+      condition.operator == 'EQUALS' &&
+      value == 0) {
+    return 'First order only';
+  }
+  if (condition.fieldKey == 'days_since_last_order' &&
+      condition.operator == 'GREATER_OR_EQUAL' &&
+      value != null) {
+    return 'Not billed in ${_plainNumber(condition.valueNumber)} days';
+  }
+  return null;
 }
 
 /// `25.0000` as `25`, `12.50` as `12.5`: the server's four decimals, trimmed.
