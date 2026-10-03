@@ -68,6 +68,8 @@ class CustomFieldsController extends ChangeNotifier {
     notifyListeners();
     try {
       final ApplicableAttributesRecord answer = await load();
+      // The form may have closed while the answer was on its way.
+      if (_disposed) return;
       definitions = answer.definitions;
       mandatoryIds = answer.mandatoryIds.toSet();
       for (final AttributeDefinitionRecord definition in definitions) {
@@ -90,9 +92,11 @@ class CustomFieldsController extends ChangeNotifier {
       loaded = false;
     } finally {
       loading = false;
-      notifyListeners();
+      if (!_disposed) notifyListeners();
     }
   }
+
+  bool _disposed = false;
 
   /// Whether the form has something to send. False until the definitions
   /// arrived, so a save cannot clear values it never saw.
@@ -130,6 +134,7 @@ class CustomFieldsController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     for (final AttributeFieldController controller in controllers.values) {
       controller.dispose();
     }
