@@ -10,6 +10,10 @@ is the rule.
 `docs/SALES_TO_RECEIPT_FLOW.md` is the walkthrough; these are the rules the
 chain enforces.
 
+## An enquiry comes before the chain, and a prospect is not a customer
+
+SEL-10 (A133). An enquiry records who asked and what for; it raises nothing. A prospect becomes a customer only when the enquiry is converted to a quotation, and the customer and the quotation are staged together and committed once -- a refused quotation leaves no stray customer. The quotation becoming an order marks the enquiry won.
+
 ## Document lines are reconciled on their line number
 
 **Document lines are reconciled on their line number, not deleted and re-inserted**, in `sales_order`, `purchase`, `goods_receipt` and `delivery_note`. Downstream documents record `source_document_line_id` as a bare UUID with **no foreign key**, so re-inserting lines silently left those references dangling. The three invoice modules still re-insert; their lines are terminal.

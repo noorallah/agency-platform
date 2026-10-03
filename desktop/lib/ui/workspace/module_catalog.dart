@@ -562,6 +562,12 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['SALES_APPROVE', 'PURCHASE_APPROVE'],
           requiresAnyPermission: true,
         ),
+        // What a prospect asked for before there is a quotation (SEL-10).
+        ModuleTabDefinition(
+          id: 'enquiries',
+          label: 'Enquiries',
+          requiredPermissions: ['SALES_VIEW'],
+        ),
         ModuleTabDefinition(
           id: 'price-lists',
           label: 'Price Lists',
@@ -1922,6 +1928,12 @@ abstract final class ModuleCatalog {
           label: 'Principal Claims',
           path: 'principal-claims',
           icon: Icons.request_page_outlined,
+        ),
+      if (visibleTabIds.contains('approvals'))
+        const WorkspaceNavigationNode(
+          label: 'Approvals',
+          path: 'approvals',
+          icon: Icons.approval_outlined,
         ),
       if (visibleTabIds.contains('purchase-analytics'))
         const WorkspaceNavigationNode(

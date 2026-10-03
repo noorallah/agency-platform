@@ -212,6 +212,14 @@ trigger each schema owns its own copy of.
 | `einvoice_settings` | firm store ¹ | How one firm registers its e-invoices (decision A42). |  |
 | `eway_bills` | firm store ¹ | One consignment's e-way bill, raised against an invoice or a challan. | `sales_invoices`, `delivery_notes` |
 
+### `app/enquiry`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `enquiries` | firm store ¹ | A buyer's enquiry before any quotation: customer or prospect, value, follow-up, status (SEL-10). | `branches`, `customers`, `sales_quotations` |
+| `enquiry_lines` | firm store ¹ | What was asked for. | `enquiries`, `products` |
+| `enquiry_follow_ups` | firm store ¹ | One contact with the buyer and the next date. | `enquiries` |
+
 ### `app/expenses`
 
 | Table | Store | Holds | Points at |

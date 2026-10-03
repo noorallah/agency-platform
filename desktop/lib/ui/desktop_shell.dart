@@ -52,6 +52,7 @@ import 'purchase_invoices/purchase_invoice_management_page.dart';
 import 'purchase_returns/purchase_return_management_page.dart';
 import 'sales/beat_plan_management_page.dart';
 import 'sales/call_list_page.dart';
+import 'sales/enquiries_page.dart';
 import 'sales/geography_master_page.dart';
 import 'sales/route_builder_page.dart';
 import 'sales/territory_coverage_page.dart';
@@ -2902,6 +2903,14 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           api: widget.api,
           permissions: widget.permissions,
         ),
+      'enquiries' => EnquiriesPage(
+          api: widget.api,
+          preferences: widget.preferences,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+          onOpenQuotations: () =>
+              widget.router.navigate(AppModule.quotations.name),
+        ),
       'route-types' => RouteTypeManagementPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -3032,6 +3041,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
       'territories' => (
           'Geography Management',
           'Configure multi-level territory hierarchy, assignments, and routing foundation.',
+        ),
+      'enquiries' => (
+          'Enquiries',
+          'What prospects and customers asked for before there is a '
+              'quotation: follow up, then quote it or record why it was lost.',
         ),
       'route-types' => (
           'Route Types',
