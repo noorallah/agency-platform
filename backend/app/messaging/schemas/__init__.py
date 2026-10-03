@@ -174,7 +174,16 @@ class MessageResponse(MessagingSchema):
 class ManualSendRequest(MessagingSchema):
     """Send one document by hand, now, on one channel."""
 
-    document_type: Literal["SALES_INVOICE"] = "SALES_INVOICE"
+    #: The invoice goes on any channel; the rest by email only (MSG-4).
+    #: A statement's ``document_id`` is the customer's.
+    document_type: Literal[
+        "SALES_INVOICE",
+        "SALES_QUOTATION",
+        "SALES_ORDER",
+        "CUSTOMER_STATEMENT",
+        "RECEIPT",
+        "PURCHASE_ORDER",
+    ] = "SALES_INVOICE"
     document_id: UUID
     channel: MessagingChannel
     #: Blank sends to the customer's own address or number.

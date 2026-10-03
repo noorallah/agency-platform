@@ -12,6 +12,8 @@ import '../../models/settlement.dart';
 import '../../models/settlement_direction.dart';
 import '../workspace/cheque_print_dialog.dart';
 import '../workspace/desktop_framework.dart';
+import '../settings/send_message_dialog.dart';
+import '../workspace/printed_document.dart';
 import 'ledger_files_dialog.dart';
 import 'record_settlement_dialog.dart';
 import 'supplier_credit_refunds.dart';
@@ -367,6 +369,26 @@ class _SettlementsPageState extends State<SettlementsPage> {
                   ? () => unawaited(_reverse(selected))
                   : null,
             ),
+            // A receipt as a PDF, or emailed to the customer (MSG-4).
+            if (widget.direction == SettlementDirection.receipt) ...[
+              ToolbarCommand(
+                id: 'print',
+                label: 'Print',
+                icon: Icons.print_outlined,
+                onPressed: selected != null
+                    ? () => unawaited(_printReceipt(selected))
+                    : null,
+              ),
+              if (widget.permissions.hasPermission('DOCUMENT_SEND'))
+                ToolbarCommand(
+                  id: 'send',
+                  label: 'Send',
+                  icon: Icons.send_outlined,
+                  onPressed: selected != null && !selected.isReversed
+                      ? () => unawaited(_sendReceipt(selected))
+                      : null,
+                ),
+            ],
             // Papers kept with a receipt or payment (ACC-10); a refund has
             // no files endpoint.
             if (widget.direction.allocates)
@@ -482,6 +504,37 @@ class _SettlementsPageState extends State<SettlementsPage> {
           canEdit: _canCreate,
         ),
       );
+
+  Future<void> _printReceipt(Settlement row) async {
+    try {
+      final List<int> pdf = await widget.api.receiptPdf(row.id);
+      if (!mounted) return;
+      await printDocument(
+        context,
+        bytes: pdf,
+        documentName: row.settlementNumber,
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        exception.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
+  Future<void> _sendReceipt(Settlement row) async {
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => SendMessageDialog(
+        api: widget.api,
+        invoiceId: row.id,
+        invoiceNumber: row.settlementNumber,
+        documentType: 'RECEIPT',
+      ),
+    );
+  }
 
   Future<void> _printCheque(Settlement row) async {
     await showDialog<Object>(

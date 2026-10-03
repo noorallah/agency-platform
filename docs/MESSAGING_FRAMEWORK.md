@@ -317,3 +317,14 @@ balance of nothing, refuse both. `app/messaging/services/reminders.py`.
 - [A2P SMS pricing in India, 2026 -- Message Central](https://www.messagecentral.com/blog/a2p-sms-pricing-india)
 - [DLT registration, 2026 -- SMSGatewayHub](https://www.smsgatewayhub.com/dlt-registration)
 - [Meta WhatsApp Cloud API documentation](https://developers.facebook.com/docs/whatsapp/cloud-api)
+
+## Documents sent by hand beyond the invoice (MSG-4, 2026-10-03)
+
+`POST /api/v1/messaging/send` takes `document_type` SALES_QUOTATION,
+SALES_ORDER, CUSTOMER_STATEMENT (the `document_id` is the customer's), RECEIPT
+or PURCHASE_ORDER as well as SALES_INVOICE. Those five go by **email only**,
+because WhatsApp and SMS from the firm's account send templates registered for
+events; each is queued with a covering note naming it and its PDF rendered when
+the worker sends it (`app/messaging/services/hand_documents.py`). The recipient
+is the customer's address, or the supplier's email for a purchase order, unless
+one is typed. A cancelled document, or a reversed receipt, is refused.

@@ -18,6 +18,8 @@ import '../../models/bulk_action.dart';
 import '../../phase2/indian_format.dart';
 import '../workspace/bulk_action.dart';
 import '../workspace/reason_prompt.dart';
+import '../settings/send_message_dialog.dart';
+import '../workspace/printed_document.dart';
 import 'credit_notice.dart';
 import 'price_floor_check_dialog.dart';
 import 'sales_order_editor_dialog.dart';
@@ -678,6 +680,23 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
       commands: _bulkMode
           ? _bulkCommands()
           : [
+        ToolbarCommand(
+          id: 'print',
+          label: 'Print',
+          icon: Icons.print_outlined,
+          onPressed: selected == null
+              ? null
+              : () => unawaited(_printOrder(selected)),
+        ),
+        if (widget.permissions.hasPermission('DOCUMENT_SEND'))
+          ToolbarCommand(
+            id: 'send',
+            label: 'Send',
+            icon: Icons.send_outlined,
+            onPressed: selected == null || _loading || status == 'CANCELLED'
+                ? null
+                : () => unawaited(_sendOrder(selected)),
+          ),
         _command(DocumentToolbarAction.approve, '/approve'),
         ToolbarCommand(
           id: 'hold',
@@ -693,6 +712,39 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         _command(DocumentToolbarAction.cancel, '/cancel'),
         _command(DocumentToolbarAction.close, '/close'),
               ],
+    );
+  }
+
+  /// Render the order and hand it to whatever prints on this machine.
+  Future<void> _printOrder(Map<String, dynamic> order) async {
+    try {
+      final List<int> pdf = await widget.api.salesOrderPdf('${order['id']}');
+      if (!mounted) return;
+      await printDocument(
+        context,
+        bytes: pdf,
+        documentName: '${order['order_number'] ?? 'sales order'}',
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        exception.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
+  /// Email the order to its customer (MSG-4).
+  Future<void> _sendOrder(Map<String, dynamic> order) async {
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => SendMessageDialog(
+        api: widget.api,
+        invoiceId: '${order['id']}',
+        invoiceNumber: '${order['order_number'] ?? 'sales order'}',
+        documentType: 'SALES_ORDER',
+      ),
     );
   }
 

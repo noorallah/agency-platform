@@ -1532,12 +1532,31 @@ class ApiClient {
     String? recipient,
     String? message,
   }) =>
+      sendDocumentMessage(
+        'SALES_INVOICE',
+        invoiceId,
+        channel,
+        recipient: recipient,
+        message: message,
+      );
+
+  /// Queues a document to go out by hand (MSG-4): [documentType] is
+  /// `SALES_INVOICE`, or -- by email only -- `SALES_QUOTATION`,
+  /// `SALES_ORDER`, `CUSTOMER_STATEMENT` (the id is the customer's),
+  /// `RECEIPT` or `PURCHASE_ORDER`.
+  Future<void> sendDocumentMessage(
+    String documentType,
+    String documentId,
+    String channel, {
+    String? recipient,
+    String? message,
+  }) =>
       request(
         'POST',
         '/api/v1/messaging/send',
         body: <String, dynamic>{
-          'document_type': 'SALES_INVOICE',
-          'document_id': invoiceId,
+          'document_type': documentType,
+          'document_id': documentId,
           'channel': channel,
           if (recipient != null && recipient.isNotEmpty) 'recipient': recipient,
           if (message != null && message.isNotEmpty) 'message': message,
@@ -8904,6 +8923,14 @@ class ApiClient {
         method: 'POST',
         body: <String, dynamic>{'note_ids': noteIds},
       );
+
+  /// The sales order as the PDF a customer is sent (MSG-4).
+  Future<List<int>> salesOrderPdf(String id) =>
+      downloadBytes('/api/v1/sales-orders/$id/print');
+
+  /// The receipt as the PDF a customer is sent (MSG-4).
+  Future<List<int>> receiptPdf(String id) =>
+      downloadBytes('/api/v1/receipts/$id/print');
 
   /// The offer a customer is sent.
   Future<List<int>> quotationPdf(String id) =>

@@ -816,6 +816,7 @@ otherwise it is built as written.
 - **What it is:** email the order, quotation, statement, receipt and purchase order, as the invoice already is.
 - **What gets built:** extend the messaging send to each printable type (`backend/app/document_framework/services/printable_types.py` lists them) with a covering message per type; *Send* on each phase 2 document bar. Tests per type.
 - **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A95): `ManualSendRequest.document_type` takes SALES_QUOTATION, SALES_ORDER, CUSTOMER_STATEMENT, RECEIPT and PURCHASE_ORDER beside the invoice; `app/messaging/services/hand_documents.py` loads each (refusing cancelled ones and reversed receipts), writes the covering note and renders the PDF at send time; email only. New prints: `SalesOrderPrintService` (`/sales-orders/{id}/print`, SALES_ORDER added to the printable types) and `ReceiptPrintService` (`/receipts/{id}/print`, A5). No migration. Desktop: *Send* (email) on the phase 2 quotation, order, statement, receipt and purchase order screens, and print for the order and receipt. Tests: `test_hand_documents.py`, `send_documents_test.dart`.
 
 #### MSG-5. Export to Tally (§55 G4)
 - **What it is:** the firm's CA, who keeps the books in Tally, imports our vouchers and ledgers.

@@ -744,6 +744,8 @@ class MessagingService:
         why_not = is_usable(channel_configs(self._session, firm_id).get(data.channel))
         if why_not is not None:
             raise ValidationError(f"{_label(data.channel)} cannot send: {why_not}.")
+        if data.document_type != "SALES_INVOICE":
+            return self._send_other(data, firm_id=firm_id, actor_id=actor_id)
         invoice = self._session.scalar(
             select(SalesInvoice).where(
                 SalesInvoice.id == data.document_id,
@@ -832,6 +834,76 @@ class MessagingService:
             after_data={
                 "document_number": invoice.invoice_number,
                 "channel": data.channel,
+                "recipient": recipient,
+            },
+        )
+        self._session.commit()
+        return row
+
+    def _send_other(
+        self, data: ManualSendRequest, *, firm_id: UUID, actor_id: UUID
+    ) -> MessagingOutbox:
+        """Queue a quotation, order, statement, receipt or PO by email (MSG-4).
+
+        Email only: WhatsApp and SMS from the firm's account send registered
+        templates, which are registered for events rather than documents. The
+        covering note names the document; a typed message replaces it.
+        """
+        from app.messaging.services.hand_documents import (
+            covering_note,
+            load_hand_document,
+        )
+
+        if data.channel != "EMAIL":
+            raise ValidationError(
+                "Only the invoice is sent on WhatsApp or SMS from the firm's "
+                "account; email this one, or share it from your own phone."
+            )
+        hand = load_hand_document(
+            self._session,
+            firm_id=firm_id,
+            document_type=data.document_type,
+            document_id=data.document_id,
+        )
+        recipient = (data.recipient or "").strip() or None
+        if recipient is None and hand.customer is not None:
+            recipient, why_not = recipient_for(self._session, hand.customer, "EMAIL")
+            if recipient is None:
+                raise ValidationError(f"Cannot send: {why_not}. Enter an address.")
+        if recipient is None:
+            recipient = (hand.vendor_email or "").strip() or None
+        if recipient is None:
+            raise ValidationError("Cannot send: no email address. Enter an address.")
+        subject, body = covering_note(self._session, firm_id, hand)
+        config = MessagingEventConfig(
+            firm_id=firm_id, event_code=MANUAL_SEND, channel="EMAIL", subject=subject
+        )
+        row = self._stage_row(
+            firm_id=firm_id,
+            event_code=MANUAL_SEND,
+            document=hand.document,
+            config=config,
+            values=self._variables(hand.document, hand.customer, firm_id),
+            status=QUEUED,
+            reason=None,
+            recipient=recipient,
+            fallback=[],
+            occurrence=None,
+            actor_id=actor_id,
+            attach=True,
+            body_override=(data.message or "").strip() or body,
+        )
+        record_audit(
+            self._session,
+            action="message.requested",
+            entity_type="messaging_outbox",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            after_data={
+                "document_type": data.document_type,
+                "document_number": hand.document.document_number,
+                "channel": "EMAIL",
                 "recipient": recipient,
             },
         )

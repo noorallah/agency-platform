@@ -69,6 +69,7 @@ from app.sales_order.schemas import (
 )
 from app.sales_order.services import SalesOrderService, SalesWorkflowService
 from app.sales_order.services.discount_limit import DiscountLimitService
+from app.sales_order.services.order_print_service import SalesOrderPrintService
 from app.sales_order.services.price_floor import PriceFloorService, order_lines
 from app.trade_licences.api.override import (
     LicenceOverrideReason,
@@ -588,6 +589,23 @@ def close_sales_order(
         reason=data.reason,
     )
     return ApiResponse(data=service.order_response(row))
+
+
+@router.get("/{order_id}/print", response_class=StreamingResponse)
+def print_sales_order(
+    order_id: UUID,
+    scope: SalesOrderViewScope,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Render one sales order as the confirmation a customer is sent (MSG-4)."""
+    pdf, filename = SalesOrderPrintService(db).render(
+        order_id, firm_scope=scope.firm_id
+    )
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @router.get("/{order_id}", response_model=ApiResponse[SalesOrderResponse])

@@ -21,6 +21,7 @@ import '../../models/tax_framework.dart';
 import '../../models/uom_packaging.dart';
 import '../../models/vendor.dart';
 import '../inventory/inventory_import_wizard.dart';
+import '../settings/send_message_dialog.dart';
 import 'purchase_import_sample.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../trade_licences/licence_check_dialog.dart';
@@ -1231,6 +1232,19 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     );
   }
 
+  /// Email the selected order to its supplier (MSG-4).
+  Future<void> _emailOrder(PurchaseOrder order) async {
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => SendMessageDialog(
+        api: widget.api,
+        invoiceId: order.id,
+        invoiceNumber: order.poNumber,
+        documentType: 'PURCHASE_ORDER',
+      ),
+    );
+  }
+
   /// Print the selected order.
   Future<void> _printOrder(PurchaseOrder order) async {
     try {
@@ -1774,6 +1788,17 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
           onPressed:
               selected == null ? null : () => unawaited(_printOrder(selected)),
         ),
+        // Emails the order to the supplier (MSG-4); "Mark as sent" above
+        // only moves the status.
+        if (widget.permissions.hasPermission('DOCUMENT_SEND'))
+          ToolbarCommand(
+            id: 'email',
+            label: 'Send',
+            icon: Icons.forward_to_inbox_outlined,
+            onPressed: selected == null || selected.isDeleted
+                ? null
+                : () => unawaited(_emailOrder(selected)),
+          ),
         ToolbarCommand(
           id: 'cancel',
           label: 'Cancel',

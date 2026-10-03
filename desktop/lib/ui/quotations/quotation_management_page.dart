@@ -15,6 +15,7 @@ import '../../models/product.dart';
 import '../../models/quotation.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/printed_document.dart';
+import '../settings/send_message_dialog.dart';
 import 'quotation_editor_dialog.dart';
 
 /// Prices offered to customers before anything is sold.
@@ -447,6 +448,16 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
                   ? null
                   : () => unawaited(_printQuotation(selected)),
             ),
+            // Emails the offer to the customer (MSG-4); "Mark as sent" only
+            // moves the status.
+            if (widget.permissions.hasPermission('DOCUMENT_SEND'))
+              ToolbarCommand(
+                id: 'email',
+                label: 'Send',
+                icon: Icons.forward_to_inbox_outlined,
+                onPressed:
+                    selected == null ? null : () => unawaited(_email(selected)),
+              ),
             ToolbarCommand(
               id: 'send',
               label: 'Mark as sent',
@@ -835,6 +846,19 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
           style: Theme.of(context).textTheme.bodySmall,
         ),
       ];
+
+  /// Email the offer to its customer (MSG-4).
+  Future<void> _email(Quotation row) async {
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => SendMessageDialog(
+        api: widget.api,
+        invoiceId: row.id,
+        invoiceNumber: row.quotationNumber,
+        documentType: 'SALES_QUOTATION',
+      ),
+    );
+  }
 
   /// Render the offer and hand it to whatever prints on this machine.
   Future<void> _printQuotation(Quotation row) async {

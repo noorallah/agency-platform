@@ -18,6 +18,7 @@ import '../../models/entities.dart';
 import '../../phase2/indian_format.dart';
 import '../workspace/balance_confirmation.dart';
 import '../workspace/desktop_framework.dart';
+import '../settings/send_message_dialog.dart';
 import '../workspace/remind_dialog.dart';
 import '../workspace/whatsapp_share.dart';
 
@@ -241,6 +242,21 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
     );
   }
 
+  /// Email the customer on show their statement, by hand (MSG-4).
+  Future<void> _sendStatement() async {
+    final String? id = _selectedCustomerId;
+    if (id == null) return;
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => SendMessageDialog(
+        api: widget.api,
+        invoiceId: id,
+        invoiceNumber: 'statement for $_selectedCustomerName',
+        documentType: 'CUSTOMER_STATEMENT',
+      ),
+    );
+  }
+
   Future<void> _everyone() => widget.letters.everyone(
         context,
         fetch: () => widget.api.customerBalanceConfirmations(asOf: _asOf),
@@ -311,6 +327,16 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
                     onPressed: _selectedCustomerId == null
                         ? null
                         : () => unawaited(_remind()),
+                  ),
+                if (widget.permissions.hasPermission('DOCUMENT_SEND'))
+                  ToolbarCommand(
+                    id: 'send-statement',
+                    label: 'Send',
+                    icon: Icons.send_outlined,
+                    tooltip: 'Email the customer their statement',
+                    onPressed: _selectedCustomerId == null
+                        ? null
+                        : () => unawaited(_sendStatement()),
                   ),
                 // Offered when the customer is also a supplier (ACC-11).
                 ToolbarCommand(
