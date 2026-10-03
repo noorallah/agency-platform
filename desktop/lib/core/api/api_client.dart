@@ -42,6 +42,7 @@ import '../../models/supplier_rebate.dart';
 import '../../models/post_dated_cheque.dart';
 import '../../models/purchase_requisition.dart';
 import '../../models/repack.dart';
+import '../../models/stock_transfer.dart';
 import '../../models/quality_inspection.dart';
 import '../../models/bank_account_details.dart';
 import '../../models/einvoice.dart';
@@ -3701,6 +3702,85 @@ class ApiClient {
           ),
         ),
       );
+
+  /// Stock transfers between warehouses (STK-1), optionally of one [status].
+  Future<List<StockTransferRecord>> stockTransfers({String? status}) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/inventory/stock-transfers',
+          query: {if (status != null && status.isNotEmpty) 'status': status},
+        ),
+        StockTransferRecord.fromJson,
+      );
+
+  Future<StockTransferRecord> stockTransfer(String id) async =>
+      StockTransferRecord.fromJson(
+        _unwrapMap(
+          await request('GET', '/api/v1/inventory/stock-transfers/$id'),
+        ),
+      );
+
+  /// Saves a draft transfer; nothing moves until it is dispatched.
+  Future<StockTransferRecord> createStockTransfer(Json data) async =>
+      StockTransferRecord.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/inventory/stock-transfers',
+              body: data),
+        ),
+      );
+
+  /// Rewrites a draft transfer.
+  Future<StockTransferRecord> updateStockTransfer(String id, Json data) async =>
+      StockTransferRecord.fromJson(
+        _unwrapMap(
+          await request('PUT', '/api/v1/inventory/stock-transfers/$id',
+              body: data),
+        ),
+      );
+
+  /// The goods leave the source warehouse and are in transit.
+  Future<StockTransferRecord> dispatchStockTransfer(
+          String id, Json data) async =>
+      StockTransferRecord.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/inventory/stock-transfers/$id/dispatch',
+            body: data,
+          ),
+        ),
+      );
+
+  /// The goods arrive; a shortage is written off by the server.
+  Future<StockTransferRecord> receiveStockTransfer(
+          String id, Json data) async =>
+      StockTransferRecord.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/inventory/stock-transfers/$id/receive',
+            body: data,
+          ),
+        ),
+      );
+
+  /// Cancels a draft, or brings dispatched goods back, with a reason.
+  Future<StockTransferRecord> cancelStockTransfer(
+          String id, String reason) async =>
+      StockTransferRecord.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/inventory/stock-transfers/$id/cancel',
+            body: <String, dynamic>{'reason': reason},
+          ),
+        ),
+      );
+
+  /// The delivery challan as a PDF, once the transfer has been dispatched.
+  Future<List<int>> stockTransferChallan(String id) =>
+      downloadBytes('/api/v1/inventory/stock-transfers/$id/challan');
 
   /// The largest movement each role may post directly (STK-8). Readable by
   /// any inventory viewer.

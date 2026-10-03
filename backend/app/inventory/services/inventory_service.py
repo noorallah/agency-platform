@@ -2267,6 +2267,87 @@ class InventoryService:
         value = Decimal(str(entry.total_cost or ZERO)) if entry else ZERO
         return transaction, value
 
+    def stage_transfer_leg(
+        self,
+        *,
+        firm_scope: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        product_id: UUID,
+        batch_id: UUID | None,
+        transaction_type: InventoryTransactionType,
+        quantity: Decimal,
+        reference_number: str,
+        transaction_date: date,
+        remarks: str,
+        actor_id: UUID,
+        current_delta: Decimal = ZERO,
+        in_transit_delta: Decimal = ZERO,
+        damaged_delta: Decimal = ZERO,
+        owned_delta: Decimal | None = None,
+        unit_cost: Decimal | None = None,
+        require_available: bool = False,
+    ) -> tuple[InventoryTransaction, Decimal]:
+        """Move one leg of a transfer document, unposted (STK-1).
+
+        The firm owns goods in transit. The source leg leaves at the moving
+        average; the in-transit leg at the destination owns them again at
+        that same figure (``owned_delta``, ``unit_cost``), so the pair is
+        value-neutral firm-wide and the destination's valuation shows what is
+        on its way. The receiving leg takes them out of transit onto the shelf
+        and gives up ownership only of what never arrived, at the average.
+        Damaged goods arrive blocked from sale, as on a goods receipt.
+        Returns the movement and the value it moved.
+
+        Raises:
+            ValidationError: If ``require_available`` and the location does
+                not hold that much free stock.
+
+        """
+        inventory = self._ensure_inventory_projection(
+            firm_id=firm_scope,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            storage_node_id=None,
+            product_id=product_id,
+            actor_id=actor_id,
+            batch_id=batch_id,
+        )
+        if require_available:
+            available = inventory.current_quantity - inventory.reserved_quantity
+            if quantity > available:
+                raise ValidationError(
+                    f"The source holds {available} available, so {quantity} "
+                    "cannot be sent from it."
+                )
+        transaction = self._stage_movement(
+            inventory,
+            actor_id=actor_id,
+            movement=_Movement(
+                transaction_type=transaction_type.value,
+                batch_id=batch_id,
+                reference_number=reference_number,
+                reference_type="STOCK_TRANSFER",
+                transaction_date=transaction_date,
+                quantity=quantity,
+                current_delta=current_delta,
+                in_transit_delta=in_transit_delta,
+                blocked_delta=damaged_delta,
+                damaged_delta=damaged_delta,
+                owned_delta=owned_delta,
+                unit_cost=unit_cost,
+                remarks=remarks,
+            ),
+        )
+        self._session.flush()
+        entry = self._session.scalar(
+            select(StockLedgerEntry).where(
+                StockLedgerEntry.transaction_id == transaction.id
+            )
+        )
+        value = Decimal(str(entry.total_cost or ZERO)) if entry else ZERO
+        return transaction, value
+
     def record_goods_receipt(
         self,
         *,

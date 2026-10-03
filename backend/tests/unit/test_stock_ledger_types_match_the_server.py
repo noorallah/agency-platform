@@ -28,13 +28,15 @@ _APP = _ROOT / "backend" / "app"
 #: A reversal is written as ``<original>_REVERSAL``, so these are the only
 #: twins that can appear -- ``reverse_transaction`` has no endpoint of its own.
 #: A cancelled receipt also reverses its inspection hold (BUY-9), and a
-#: cancelled repack its movements, which are adjustments (STK-4).
+#: cancelled repack its movements, which are adjustments (STK-4), and a
+#: cancelled transfer in transit both of its legs (STK-1).
 _REVERSED_BY: dict[str, tuple[str, ...]] = {
     "goods_receipt/services/goods_receipt_service.py": (
         "GOODS_RECEIPT",
         "QUARANTINE_HOLD",
     ),
     "inventory/services/repacking.py": ("ADJUSTMENT",),
+    "inventory/services/stock_transfers.py": ("TRANSFER_IN", "TRANSFER_OUT"),
     "purchase_return/services/purchase_return_service.py": ("RETURN",),
     "sales_return/services/sales_return_service.py": ("SALES_RETURN",),
 }

@@ -292,6 +292,8 @@ trigger each schema owns its own copy of.
 | `physical_counts` | firm store ¹ | Store one count sheet for one warehouse. | `firms` |
 | `product_valuations` | firm store ¹ | Track the moving weighted-average cost of a product for a firm. | `firms`, `products` |
 | `stock_attachments` | firm store ¹ | Store one file backing a movement or a count sheet -- never both. | `firms`, `inventory_transactions`, `physical_counts` |
+| `stock_transfer_lines` | firm store ¹ | One product sent on a transfer, and what arrived, arrived damaged or never arrived (STK-1). | `stock_transfers`, `products`, `batches`, `inventory_transactions` |
+| `stock_transfers` | firm store ¹ | A numbered transfer from one warehouse to another: draft, dispatched (in transit), received or cancelled (STK-1). | `branches`, `warehouses` |
 | `stock_ledger_entries` | firm store ¹ | Persist one immutable stock-ledger row per inventory transaction. | `inventory_transactions`, `inventories`, `batches`, `firms`, `branches`, `warehouses`, `warehouse_storage_nodes`, `products`, `business_profiles`, `uoms` |
 
 ### `app/loyalty`
