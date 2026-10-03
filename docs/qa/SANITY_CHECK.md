@@ -155,7 +155,7 @@ Fail, write what you saw.
 | Id | Do | Expect |
 | --- | --- | --- |
 | SAN-B1 | **Masters > Customers**, open **WHOLE01C02** Anand Agencies | GSTIN `29WHOLE01C023Z5`, credit limit 2,50,000, group Wholesaler |
-| SAN-B2 | Change its phone number to `9876500001`, Save; open it again | Saved; the new number shows. *Admin > Audit Logs* has the change with your name |
+| SAN-B2 | Change its phone number to `9876500001`, Save; open it again | Saved; the new number shows. *Settings (gear) > Platform > Audit Logs* has the change with your name |
 | SAN-B3 | **Masters > Products**, search `SHAMP` | Only **SHAMP180** Shampoo Bottle 180ml; selling price 116, MRP 120, HSN 330510 |
 | SAN-B4 | **Masters > Vendors**, open **WHOLE01V01** | BrightHome Consumer Goods opens with its details |
 | SAN-B5 | **Masters > Customers > New**: save with the name empty | Refused, naming the field; nothing is created |
@@ -241,7 +241,7 @@ Tax on every row is half CGST 9%, half SGST 9%.
 
 | Id | Do | Expect |
 | --- | --- | --- |
-| SAN-J1 | **Sell > Territories** | Chennai Region with North Zone and South Zone under it |
+| SAN-J1 | **Settings (gear) > Set up > Territories & routes > Territories** | Chennai Region with North Zone and South Zone under it |
 | SAN-J2 | **Sell > Beat Plans**, *South Sales Beat* | Its customers in visit order and the weekday it runs |
 | SAN-J3 | **Sell > Commission** and **Sell > Targets** | Both open with the seeded rules and targets; nothing errors |
 
@@ -249,11 +249,11 @@ Tax on every row is half CGST 9%, half SGST 9%.
 
 | Id | Do | Expect |
 | --- | --- | --- |
-| SAN-K1 | **Admin > Users**, open `whole01.sales1@agency.local` | Its firm (WHOLE01) and its roles show |
+| SAN-K1 | **Settings (gear) > Platform > Users**, open `whole01.sales1@agency.local` | Its firm (WHOLE01) and its roles show |
 | SAN-K2 | Sign in as `whole01.sales1@agency.local` (role *Sales Executive*) | Quotations, Sales Orders, Sales Invoices and Customers are offered; Buy, Accounts and Admin are not |
-| SAN-K3 | **Admin > Audit Logs**, today | The changes made in B2 and G4, with who and when |
+| SAN-K3 | **Settings (gear) > Platform > Audit Logs**, today | The changes made in B2 and G4, with who and when |
 | SAN-K4 | **Settings > Firm > Numbering Series** | Each document type with its next number; the invoice series is past the invoices made above |
-| SAN-K5 | As the platform administrator: **Admin > System > Backups**, take a backup | It completes and is listed with its size and time |
+| SAN-K5 | As the platform administrator: **Settings (gear) > Platform > Backups**, take a backup | It completes and is listed with its size and time |
 
 When every case passes, the installation is working and the detailed cases
 in sections 01-14 of this folder can be run.

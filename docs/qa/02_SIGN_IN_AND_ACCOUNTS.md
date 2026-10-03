@@ -217,12 +217,12 @@ being signed in and nothing else.
 - **Preconditions:** An ordinary user who is a member of QA01 and QA02, with a role in each.
 - **Steps**
   1. Sign in as the prepared **Two-firm user**.
-  2. Account menu → **Primary firm**.
-  3. Choose **QA02** → **Save**.
+  2. Account menu → **My preferences**.
+  3. **Start in firm** → **QA02** → **Save**.
   4. Open the firm switcher.
 - **Expect**
-  - Step 2: a dialog listing QA01 and QA02, **QA01 selected**, and **Save dead** until something else is chosen.
-  - Step 3: a notice says which firm you will start in next time. **Nothing on screen switches** — the primary is for next time, not for now.
+  - Step 2: the dialog opens at once, **Start in firm** reading **QA01** and listing only QA01 and QA02. The account menu has **no separate Primary firm entry** any more.
+  - Step 3: the dialog closes. **Nothing on screen switches** — the primary is for next time, not for now.
   - Step 4: **QA02** is labelled `primary` beside its code.
 ### TC-ME-003 — Signing in lands in the primary firm, not the last one used
 
@@ -259,12 +259,12 @@ being signed in and nothing else.
 - **Steps**
   1. Sign in as the prepared **Platform admin**.
   2. Open the account menu; open **My profile**.
-- **Expect:** **no Primary firm entry** — a platform administrator always starts on Platform, so there is nothing to choose. My profile shows a **Platform administrator** chip under the name.
+- **Expect:** the menu offers **My preferences**, and the dialog has **no Start in firm** box — a platform administrator always starts on Platform, so there is nothing to choose. My profile shows a **Platform administrator** chip under the name.
 ### TC-ME-007 — Somebody in one firm has no primary to choose
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
-- **Steps:** sign in as the prepared **Firm admin** and open the account menu.
-- **Expect:** **no Primary firm entry**. The menu offers it only to somebody with more than one firm who is not a platform administrator.
+- **Steps:** sign in as the prepared **Firm admin**, open the account menu → **My preferences**.
+- **Expect:** **no Start in firm** box. It is offered only to somebody with more than one firm who is not a platform administrator.
 ### TC-ME-008 — Changing your own password
 
 - **Preconditions:** An ordinary user who is a member of QA01 and QA02, with a role in each.
@@ -281,6 +281,80 @@ being signed in and nothing else.
   - Step 5: the server's refusal in the dialog — **"Current password is incorrect."** — and the dialog **stays open** for another try.
   - Step 6: both dialogs close and you land on the login screen with **"Password changed. Sign in with your new password."** The other window is signed out on its next click. Sign in with `Str0ng-Passw0rd!`.
   - No need to set it back: the account is yours.
+### TC-ME-009 — My preferences: theme, text size and date format apply at once
+
+- **Preconditions:** An ordinary user who is a member of QA01 and QA02, with a role in each.
+- **Steps**
+  1. Sign in as the prepared **Two-firm user**; open any sales invoice and note how its date is written.
+  2. Account menu → **My preferences**. Change nothing → **Save**.
+  3. Open it again: **Theme** → **Dark**, **Text size** → **Large**, **Date format** → the `yyyy-MM-dd` row → **Save**.
+  4. Open the same sales invoice again.
+  5. Open My preferences, change the theme, then press **Esc**.
+  6. Sign out, sign in on **another PC** (or another Windows account) as the same user.
+- **Expect**
+  - Step 1: dates read `dd-MM-yyyy` (for example `04-10-2026`) — the default for everybody after the 1.2.0 upgrade.
+  - Step 2: the dialog closes; nothing changes.
+  - Step 3: the dialog closes and, without restarting, the screen turns dark and the text grows. Each date-format row shows today's date written that way.
+  - Step 4: the invoice date now reads `2026-10-04` style.
+  - Step 5: the dialog closes and the theme stays as it was.
+  - Step 6: the dark theme and the `yyyy-MM-dd` dates follow the user; **text size does not** — it is this PC's setting, and the dialog says *This PC only*.
+### TC-ME-010 — My preferences: the first screen
+
+- **Preconditions:** An ordinary user who is a member of QA01 and QA02, with a role in each.
+- **Steps**
+  1. Sign in as the prepared **Two-firm user**. Account menu → **My preferences** → open the **First screen** list.
+  2. Choose **Sell › Sales Invoices** → **Save**.
+  3. Open Customers, then sign out and back in.
+  4. Set **First screen** back to **The screen I was last on**; open Customers; sign out and back in.
+- **Expect**
+  - Step 1: the first entry is **The screen I was last on** (selected); below it only screens this user's roles may open — no Users, Roles or Firms.
+  - Step 3: you land on **Sales Invoices**, not Customers.
+  - Step 4: you land on **Customers**, where you were last.
+### TC-ME-011 — Favourites: star a screen, find it on Home and in Ctrl+K
+
+- **Preconditions:** An ordinary user who is a member of QA01 and QA02, with a role in each.
+- **Steps**
+  1. Sign in as the prepared **Two-firm user**. Open **Sell**; point at **Sales Orders** and click the star that appears. Star one more screen in another drop-down.
+  2. Go to **Home**.
+  3. On Home, drag the last favourite before the first; point at another box and click its **x**.
+  4. Press **Ctrl+K** and type `s`.
+  5. Sign out; sign in on another PC (or another Windows account) as the same user.
+- **Expect**
+  - Step 1: each star turns gold as it is clicked; the drop-down stays open.
+  - Step 2: the **FAVOURITES** box shows the starred screens.
+  - Step 3: the order changes and the removed box goes; that screen's star in its drop-down is no longer gold.
+  - Step 4: starred screens are listed **first** among the matches.
+  - Step 5: the same favourites, in the same order.
+### TC-ME-012 — The light menu: daily work first, everything one click away
+
+- **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
+- **Steps**
+  1. Sign in as the prepared **Firm admin**. Open **Sell**.
+  2. Click **Returns & notes**.
+  3. Click **All Sell screens** at the foot.
+  4. Open **Buy**, **Stock**, **Accounts** and **Masters** the same way.
+  5. Look along the menu bar for **Admin**.
+- **Expect**
+  - Step 1: a short list — Quotations, Sales Orders, Delivery Notes, Sales Invoices, Returns & notes, Receipts, Customer Statements — and **All Sell screens (N)** at the foot. Price Lists, Promotions and Territories are **not** here.
+  - Step 2: a short list beside it: Sales Returns, Credit Notes, Customer Debit Notes.
+  - Step 3: every Sell screen this user may open, under its group (Documents, Money, Incentives, Insight, Field sales); any of them opens in a tab.
+  - Step 4: each area works the same way; Masters shows Customers, Vendors, Products, Branches and Warehouses, and its lists (Customer Groups, Product Categories, Units, Places …) are under Settings › Set up.
+  - Step 5: **no Admin** on the bar: Users, Roles, Firms, Audit Logs and Backups are under **Settings (gear) › Platform**, for those who may open them.
+### TC-ME-013 — Settings › Set up: cards and a search across every section
+
+- **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template). (, then `two-firm-user`)
+- **Steps**
+  1. Sign in as the prepared **Firm admin**. Click the **gear**.
+  2. Click **This PC and me**, then the **My Preferences** card.
+  3. Close it; in the search box type `price`.
+  4. Click **Price Lists**.
+  5. Sign in as the **Two-firm user** and click the gear.
+- **Expect**
+  - Step 1: Settings opens as a tab: sections down the left — This PC and me, Firm, Selling, Buying, Stock, Tax, Business profile, then **SET UP** (Pricing, Territories & routes, Account structure, Party lists, Item lists, Locations) and, for a platform administrator only, **PLATFORM**; the chosen section's screens as cards.
+  - Step 2: the My preferences dialog opens.
+  - Step 3: matches from every section — Price Lists, Price Levels, Price Floor …
+  - Step 4: Price Lists opens in its own tab.
+  - Step 5: only the sections this user's roles reach; **This PC and me** is always there.
 ---
 
 ## User tiers — what a platform operator may and may not reach

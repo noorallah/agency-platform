@@ -4,7 +4,7 @@ The complete manual test suite for an **installed** copy of the Agency
 Platform, one file per module area. Each file stands alone, so QA can take
 one module at a time, and each has a PDF beside the installer.
 
-Generated on 2026-10-03 from the product's own sources. The detailed cases
+Generated on 2026-10-04 from the product's own sources. The detailed cases
 come from `docs/INDEPENDENT_TEST_CASES.md`, whose every expectation was
 driven against a running server. The screen checks and the role matrix come
 from the application's screen catalogue and role seed. The files are
@@ -43,6 +43,8 @@ is settled. Nineteen cases that had been added to these files by hand on
 2026-10-02 (TC-MAST-009 and 010, TC-BUY-017 and 018, TC-SELL-022 to 026,
 TC-TERR-006, TC-COMP-009 to 019) are now also in
 `docs/INDEPENDENT_TEST_CASES.md`, so regenerating no longer drops them.
+
+**Release 1.2.0 (2026-10-04): the menu changed.** Each drop-down now shows daily work only; every other screen is behind **All <area> screens** at its foot, under the same group name, so a path such as *Sell > Insight > Sales Analysis* is now *Sell > All Sell screens > Insight > Sales Analysis*. **Returns & notes** opens the returns and notes. The **Admin** area has left the bar: Users, Roles, Firms, Audit Logs and Backups are under **Settings (gear) > Platform**; the set-up lists (price lists, promotions, territories, customer groups, product categories, units, places) are under **Settings > Set up**. Ctrl+K finds any screen by name. Cases TC-ME-009 to TC-ME-013 (`02_SIGN_IN_AND_ACCOUNTS`) cover the new menu, Settings > Set up, favourites and My preferences, which replaces the *Primary firm* menu entry. For one tester's book across every module, with sample data and what to check after each action, see `docs/QA_TEST_BOOK.md`.
 
 ## Start with the sanity check
 
