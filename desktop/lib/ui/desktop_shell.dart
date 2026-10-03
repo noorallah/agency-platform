@@ -149,6 +149,11 @@ const Map<String, String> _administrationDescriptions = {
   'attribute-definitions':
       'Define the custom fields a module carries, per business profile.',
   'profile-assignment': 'Assign a business profile to each firm.',
+  'firm-custom-fields':
+      'The extra fields this firm keeps on its own records, beside the shared '
+          'ones the platform provides.',
+  'firm-custom-field-rules':
+      "Say which of the firm's custom fields a product category must carry.",
 };
 
 /// What the header says for one Administration screen.
@@ -2282,6 +2287,8 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           'attribute-definitions',
           'category-attribute-rules',
           'profile-assignment',
+          'firm-custom-fields',
+          'firm-custom-field-rules',
           'tax-configuration',
           'tax-rules-page',
           'tax-rule-simulator',
@@ -2392,6 +2399,23 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
       'module-configuration' => ResourceManagementPage<BusinessModuleRecord>(
           api: widget.api,
           definition: _businessModuleDefinition(
+            widget.api,
+            widget.permissions,
+            showFrame: false,
+          ),
+        ),
+      'firm-custom-fields' => ResourceManagementPage<AttributeDefinitionRecord>(
+          api: widget.api,
+          definition: firmCustomFieldDefinition(
+            widget.api,
+            widget.permissions,
+            showFrame: false,
+          ),
+        ),
+      'firm-custom-field-rules' =>
+        ResourceManagementPage<CategoryAttributeRuleRecord>(
+          api: widget.api,
+          definition: firmCustomFieldRuleDefinition(
             widget.api,
             widget.permissions,
             showFrame: false,
@@ -6247,6 +6271,223 @@ ResourceDefinition<CategoryAttributeRuleRecord> categoryAttributeRuleDefinition(
     },
   );
 }
+
+/// The firm's own custom fields beside the shared catalogue (MST-8).
+///
+/// A shared row (null `firm_id`) is kept by the platform: the server answers
+/// 404 to a write on one, so the grid refuses it first and says why. The
+/// update replaces the whole record, so what the form does not edit -- the
+/// validation rule and the business profile -- is echoed back from the row.
+ResourceDefinition<AttributeDefinitionRecord> firmCustomFieldDefinition(
+  ApiClient api,
+  PermissionService permissions, {
+  bool showFrame = true,
+}) {
+  AttributeDefinitionRecord? editing;
+  return ResourceDefinition(
+    title: 'Custom Fields',
+    resource: 'business-framework/firm-custom-fields',
+    showFrame: showFrame,
+    description: 'The extra fields this firm keeps on its own records, beside '
+        'the shared ones the platform provides.',
+    searchHint: 'Search custom fields by code or name',
+    headers: const [
+      'Code',
+      'Name',
+      'Applies to',
+      'Type',
+      'Mandatory',
+      'Active',
+      'Owner',
+    ],
+    cells: (field) => [
+      field.code,
+      field.name,
+      field.entityType,
+      field.dataType,
+      field.mandatory ? 'Yes' : 'No',
+      field.isActive ? 'Yes' : 'No',
+      field.isShared ? 'Shared' : 'This firm',
+    ],
+    id: (field) => field.id,
+    load: api.firmCustomFieldsPage,
+    canEdit: (field) => !field.isShared,
+    editRefusal: (field) =>
+        field.isShared ? 'Shared fields are kept by the platform.' : null,
+    canUseAction: (action, _) => _canUseResourceAction(
+      permissions,
+      action,
+      view: const ['CUSTOM_FIELD_VIEW'],
+      create: const ['CUSTOM_FIELD_MANAGE'],
+      update: const ['CUSTOM_FIELD_MANAGE'],
+      delete: const ['CUSTOM_FIELD_MANAGE'],
+    ),
+    fields: const [
+      FieldSpec(
+        key: 'code',
+        label: 'Field code',
+        required: true,
+        readOnlyWhenEditing: true,
+        helperText: 'Capital letters, digits, underscore and hyphen.',
+      ),
+      FieldSpec(key: 'name', label: 'Name', required: true),
+      FieldSpec(
+        key: 'entity_type',
+        label: 'Applies to',
+        required: true,
+        choices: [
+          'PRODUCT',
+          'CUSTOMER',
+          'VENDOR',
+          'BRANCH',
+          'WAREHOUSE',
+          'TAX_PROFILE',
+          'UOM',
+        ],
+        helperText: 'Which record carries this field.',
+      ),
+      FieldSpec(
+        key: 'data_type',
+        label: 'Data type',
+        required: true,
+        choices: ['TEXT', 'NUMBER', 'DATE', 'BOOLEAN'],
+        helperText: 'Decides which column stores the value, and how it is '
+            'validated and reported on.',
+      ),
+      FieldSpec(key: 'description', label: 'Description', multiline: true),
+      FieldSpec(key: 'default_value', label: 'Default value'),
+      FieldSpec(
+        key: 'allowed_values',
+        label: 'Allowed values',
+        helperText: 'Comma-separated fixed choices for a TEXT field. Leave '
+            'empty for free text.',
+      ),
+      FieldSpec(key: 'mandatory', label: 'Mandatory', boolean: true),
+      FieldSpec(key: 'is_active', label: 'Active', boolean: true),
+      FieldSpec(
+        key: 'applicable_category',
+        label: 'Limit to product category',
+        optionsResource: 'products/categories',
+        singleSelection: true,
+        submitsCode: true,
+        section: 'Where it applies',
+        helperText: 'Leave empty to offer this field in every category.',
+      ),
+    ],
+    initialValues: (field) {
+      editing = field;
+      return field == null
+          ? {
+              'mandatory': false,
+              'is_active': true,
+              'entity_type': 'PRODUCT',
+              'data_type': 'TEXT',
+            }
+          : {
+              'code': field.code,
+              'name': field.name,
+              'entity_type': field.entityType,
+              'data_type': field.dataType,
+              'applicable_category': field.applicableCategory,
+              'mandatory': field.mandatory,
+              'description': field.description,
+              'default_value': field.defaultValue,
+              'allowed_values': field.allowedValues.join(', '),
+              'is_active': field.isActive,
+            };
+    },
+    payload: (values, isCreating) => {
+      'code': values['code'],
+      'name': values['name'],
+      'entity_type': values['entity_type'],
+      'data_type': values['data_type'],
+      'applicable_category': _blankToNull(values['applicable_category']),
+      // Not on this form; echoed so an update does not clear it.
+      'applicable_business_profile_id': isCreating
+          ? null
+          : _blankToNull(editing?.applicableBusinessProfileId),
+      'mandatory': values['mandatory'],
+      'description': _blankToNull(values['description']),
+      'default_value': _blankToNull(values['default_value']),
+      'is_active': values['is_active'],
+      'validation_rule': _validationRule(
+        isCreating ? null : editing?.validationRule,
+        values['allowed_values'],
+      ),
+    },
+  );
+}
+
+/// The firm's own category rules over its custom fields (MST-8). The server
+/// offers add and delete only, so a rule is changed by deleting it and adding
+/// another; the field picker lists the fields from the firm's own list.
+ResourceDefinition<CategoryAttributeRuleRecord> firmCustomFieldRuleDefinition(
+  ApiClient api,
+  PermissionService permissions, {
+  bool showFrame = true,
+}) =>
+    ResourceDefinition(
+      title: 'Custom Field Rules',
+      resource: 'business-framework/firm-custom-field-rules',
+      showFrame: showFrame,
+      description: 'Say which custom field a product category must carry. To '
+          'change a rule, delete it and add another.',
+      headers: const ['Category', 'Field', 'Required'],
+      cells: (rule) => [
+        rule.categoryCode,
+        rule.attributeName.isEmpty ? rule.attributeCode : rule.attributeName,
+        rule.isMandatory ? 'Yes' : 'No',
+      ],
+      id: (rule) => rule.id,
+      load: api.firmCustomFieldRulesPage,
+      canUseAction: (action, _) => action == ToolbarAction.edit
+          ? false
+          : _canUseResourceAction(
+              permissions,
+              action,
+              view: const ['CUSTOM_FIELD_VIEW'],
+              create: const ['CUSTOM_FIELD_MANAGE'],
+              update: const ['CUSTOM_FIELD_MANAGE'],
+              delete: const ['CUSTOM_FIELD_MANAGE'],
+            ),
+      fields: const [
+        FieldSpec(
+          key: 'category_code',
+          label: 'Product category',
+          required: true,
+          optionsResource: 'products/categories',
+          singleSelection: true,
+          submitsCode: true,
+          helperText: 'Which category of product this requirement is about.',
+        ),
+        FieldSpec(
+          key: 'attribute_definition_id',
+          label: 'Custom field',
+          required: true,
+          optionsResource: 'business-framework/firm-custom-fields',
+          singleSelection: true,
+          helperText: 'The field that must be filled in.',
+        ),
+        FieldSpec(
+          key: 'is_mandatory',
+          label: 'Required',
+          boolean: true,
+          helperText: 'Off records the pairing without enforcing it.',
+        ),
+      ],
+      initialValues: (rule) => rule == null
+          ? {'is_mandatory': true}
+          : {
+              'category_code': rule.categoryCode,
+              'attribute_definition_id': rule.attributeDefinitionId,
+              'is_mandatory': rule.isMandatory,
+            },
+      payload: (values, isCreating) => {
+        'category_code': values['category_code'],
+        'attribute_definition_id': values['attribute_definition_id'],
+        'is_mandatory': values['is_mandatory'],
+      },
+    );
 
 ResourceDefinition<AttributeDefinitionRecord> attributeDefinitionDefinition(
   ApiClient api,

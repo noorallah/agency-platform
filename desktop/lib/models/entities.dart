@@ -805,9 +805,16 @@ class AttributeDefinitionRecord {
     required this.defaultValue,
     required this.applicableBusinessProfileId,
     this.validationRule,
+    this.firmId,
   });
 
   final String id, code, name, dataType, applicableCategory;
+
+  /// The firm that owns this field, or null for one from the shared catalogue
+  /// (MST-8). A firm may read the shared ones and change only its own.
+  final String? firmId;
+
+  bool get isShared => firmId == null;
   final String entityType, description, defaultValue;
 
   /// The business profile this field is limited to, or empty for every one.
@@ -850,5 +857,6 @@ class AttributeDefinitionRecord {
         validationRule: json['validation_rule'] is Map
             ? Map<String, dynamic>.from(json['validation_rule'] as Map)
             : null,
+        firmId: json['firm_id'] == null ? null : stringValue(json['firm_id']),
       );
 }

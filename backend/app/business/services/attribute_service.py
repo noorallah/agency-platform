@@ -19,7 +19,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.business.gating import resolve_profile_id
@@ -81,6 +81,12 @@ class AttributeService:
             AttributeDefinition.entity_type == entity_type,
             AttributeDefinition.is_active.is_(True),
             AttributeDefinition.is_deleted.is_(False),
+            # The shared catalogue and this firm's own, never another firm's
+            # (MST-8): several firms share one store.
+            or_(
+                AttributeDefinition.firm_id.is_(None),
+                AttributeDefinition.firm_id == firm_id,
+            ),
         )
         rows = list(self._session.scalars(statement).all())
         applicable = [
@@ -122,6 +128,7 @@ class AttributeService:
                 rule.attribute_definition_id
                 for rule in rules
                 if rule.business_profile_id in (None, profile_id)
+                and rule.firm_id in (None, firm_id)
                 and rule.attribute_definition_id in allowed
             }
         return required

@@ -406,6 +406,12 @@ PERMISSION_GROUPS = {
     # selected and nowhere else, so a firm administrator may grant it to their
     # own roles -- which `AUDIT_LOG_VIEW`, a platform code, they cannot.
     "firm_audit": ("FIRM_AUDIT_LOG_VIEW",),
+    #: A firm's own custom fields (MST-8): firm administration, so the firm
+    #: administrator holds them and the firm manager does not.
+    "custom_fields": (
+        "CUSTOM_FIELD_VIEW",
+        "CUSTOM_FIELD_MANAGE",
+    ),
     "system_administration": (
         "AUDIT_LOG_VIEW",
         "DIAGNOSTICS_VIEW",
@@ -492,7 +498,7 @@ def _codes(*groups: str) -> frozenset[str]:
 
 _all_permissions = frozenset(SYSTEM_PERMISSION_CODES)
 _platform_administration = _codes("platform", "system_administration")
-_firm_administration = _codes("user", "role", "permission")
+_firm_administration = _codes("user", "role", "permission", "custom_fields")
 #: Running a firm's business, as opposed to administering its people. Held by
 #: `FIRM_ADMIN` and -- minus the administration codes -- by `FIRM_MANAGER`.
 #:

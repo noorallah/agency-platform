@@ -174,8 +174,31 @@ class AttributeDefinition(BaseEntity):
     """
 
     __tablename__ = "attribute_definitions"
+    __table_args__ = (
+        # A firm's code is its own (MST-8); the shared catalogue's codes are
+        # unique among themselves. The service also keeps a firm's code clear
+        # of the shared ones, which no single index can say.
+        Index(
+            "UQ_attribute_definitions_firm_code_active",
+            "firm_id",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false AND firm_id IS NOT NULL"),
+            sqlite_where=text("is_deleted = 0 AND firm_id IS NOT NULL"),
+        ),
+        Index(
+            "UQ_attribute_definitions_shared_code_active",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false AND firm_id IS NULL"),
+            sqlite_where=text("is_deleted = 0 AND firm_id IS NULL"),
+        ),
+    )
 
-    code: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    #: The firm whose own field this is (MST-8); null for the platform's
+    #: shared catalogue, offered to every firm.
+    firm_id: Mapped[UUID | None] = mapped_column(UUIDType(), index=True)
+    code: Mapped[str] = mapped_column(String(100), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     entity_type: Mapped[str] = mapped_column(
@@ -230,6 +253,8 @@ class CategoryAttributeRule(BaseEntity):
     business_profile_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("business_profiles.id")
     )
+    #: The firm whose own rule this is (MST-8); null for a shared rule.
+    firm_id: Mapped[UUID | None] = mapped_column(UUIDType(), index=True)
     category_code: Mapped[str] = mapped_column(String(100), nullable=False)
     attribute_definition_id: Mapped[UUID] = mapped_column(
         UUIDType(), ForeignKey("attribute_definitions.id"), nullable=False

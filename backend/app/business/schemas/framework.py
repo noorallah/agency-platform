@@ -242,6 +242,8 @@ class AttributeDefinitionResponse(BusinessFrameworkSchema):
     """Attribute definition API response."""
 
     id: UUID
+    #: The firm whose own field this is; null for a shared one (MST-8).
+    firm_id: UUID | None = None
     code: str
     name: str
     description: str | None
