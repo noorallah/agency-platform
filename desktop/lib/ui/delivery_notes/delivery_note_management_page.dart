@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../models/tax_framework.dart';
+import '../../models/line_tax_rule.dart';
 import '../../models/uom_packaging.dart';
 import '../document_framework/document_line_labels.dart';
 import '../../core/business/business_features.dart';
@@ -1438,6 +1439,8 @@ class _DeliveryNoteLine {
     required this.netAmount,
     required this.remarks,
     this.serialNumbers = const [],
+    this.taxRuleCode,
+    this.taxRuleVersion,
   });
 
   final int lineNumber;
@@ -1458,6 +1461,10 @@ class _DeliveryNoteLine {
   /// it is dispatched.
   final List<String> serialNumbers;
 
+  /// The tax rule that decided this line's tax; null when none matched.
+  final String? taxRuleCode;
+  final int? taxRuleVersion;
+
   factory _DeliveryNoteLine.fromJson(Json json) => _DeliveryNoteLine(
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
         productId: stringValue(json['product_id']),
@@ -1477,5 +1484,7 @@ class _DeliveryNoteLine {
               in PickedSerial.listFrom(json['serials']))
             unit.serialNumber,
         ],
+        taxRuleCode: LineTaxRule.fromJson(json).code,
+        taxRuleVersion: LineTaxRule.fromJson(json).version,
       );
 }

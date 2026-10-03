@@ -649,6 +649,9 @@ class TaxRuleSimulationResponse(TaxFrameworkSchema):
     transaction_type: str
     transaction_date: date
     matched_rule_id: UUID | None
+    #: The matched rule's code and version, as a line keeps them (GST-8).
+    matched_rule_code: str | None = None
+    matched_rule_version: int | None = None
     applied_tax_profile_id: UUID | None
     applied_components: list[TaxRuleComponentPreview] = Field(default_factory=list)
     # What the counterparty is billed on top of the line. Tax already inside the

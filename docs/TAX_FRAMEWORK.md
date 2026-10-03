@@ -411,3 +411,14 @@ more than 30 days old from `thirty_day_rule_from` and lists what is pending
 *Moved out of `CLAUDE.md` on 2026-09-15 when that file passed the 150k-character limit.*
 
 **Tax framework / rule engine** (`app/tax`) — `docs/TAX_FRAMEWORK.md` is the reference: how systems, components and profiles relate, what a profile actually holds, effective-dated rates, and the rule evaluation order (ACTIVE rules ordered by `priority ASC, code ASC, version_number DESC`, **first match wins and evaluation stops**). Rules attach to the transaction, never to a product; the product contributes `tax_profile_group_code`, `product_category_id` and `product_type` to the matching context. **A condition written against an id never matched until 2026-09-08**: the condition's value is stored as text and the context carries a UUID, and `_normalize_compare` uppercased the string while rendering the UUID lowercase -- so the seeded `INTERSTATE_GST_*` rules, each `tax_profile_id EQUALS <id>`, fired for nobody, and every interstate sale in every seeded firm was charged CGST and SGST instead of IGST. `docs/TAX_FRAMEWORK.md` had recorded IGST 180 for that case on 2026-08-12, so it regressed after being verified. Found by driving the GST template and reading the simulator's `decisions`, which said "tax_profile_id failed EQUALS" for a rule naming exactly the profile it had been given; `test_a_condition_written_against_a_profile_id_matches_that_profile` binds it.
+
+## The rule kept on each line (GST-8, 2026-10-03)
+
+The execution log that says which rule taxed a line is purged by the retention
+service, so every line `simulate` taxes also keeps `tax_rule_code` and
+`tax_rule_version` -- the matched rule's code and `version_number`, null when
+no rule matched. `TaxRuleService.rule_for(document_id, line_number)` answers
+what the last `simulate` for that line matched, and `@stamps_tax_rules`
+(`app/tax/services/rule_stamp.py`) on each module's `_replace_lines` copies it
+onto the lines once they are written. A module that gains line tax adds the
+decorator, the two columns and the two response fields (decision A85).

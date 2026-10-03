@@ -112,6 +112,7 @@ from app.sales_return.schemas import (
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.gst_time_limits import credit_note_time_limit_warning
 from app.tax.services.place_of_supply import SALES_INTERSTATE
+from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.schemas import ConversionRequest
@@ -1204,6 +1205,7 @@ class SalesReturnService(TransactionalDocumentService):
                 )
             )
 
+    @stamps_tax_rules(SalesReturnLine, "sales_return_id")
     def _replace_lines(
         self,
         row: SalesReturn,

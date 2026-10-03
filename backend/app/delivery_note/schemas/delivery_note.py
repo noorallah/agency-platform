@@ -308,6 +308,10 @@ class DeliveryNoteLineResponse(DeliveryNoteSchema):
     #: The batches the line takes, as chosen; empty means earliest expiry
     #: first at dispatch (backlog 79).
     batches: list[DeliveryNoteBatchPick] = Field(default_factory=list)
+    #: The tax rule that decided the line and its version; null when the
+    #: profile alone did (GST-8).
+    tax_rule_code: str | None = None
+    tax_rule_version: int | None = None
 
 
 class DeliveryNoteResponse(DeliveryNoteSchema):

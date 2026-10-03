@@ -82,6 +82,7 @@ from app.sales.services.document_preview import purchase_line_companions
 from app.tax.models import TaxProfile
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.place_of_supply import PURCHASE_INTERSTATE
+from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.trade_licences.services.licence_check import (
@@ -1451,6 +1452,7 @@ class PurchaseService(TransactionalDocumentService):
                 return line.line_number
         return 0
 
+    @stamps_tax_rules(PurchaseOrderLine, "purchase_order_id")
     def _replace_lines(
         self,
         order: PurchaseOrder,

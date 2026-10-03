@@ -101,6 +101,7 @@ from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.gst_compliance import GstComplianceService
 from app.tax.services.gst_time_limits import credit_time_limit_warning
 from app.tax.services.place_of_supply import PURCHASE_INTERSTATE
+from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.schemas import ConversionRequest
@@ -1552,6 +1553,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             )
             self._session.add(source)
 
+    @stamps_tax_rules(PurchaseInvoiceLine, "purchase_invoice_id")
     def _replace_lines(
         self,
         row: PurchaseInvoice,
@@ -2920,6 +2922,8 @@ class PurchaseInvoiceService(TransactionalDocumentService):
     ) -> PurchaseInvoiceLineResponse:
         return PurchaseInvoiceLineResponse(
             id=row.id,
+            tax_rule_code=row.tax_rule_code,
+            tax_rule_version=row.tax_rule_version,
             purchase_invoice_id=row.purchase_invoice_id,
             line_number=row.line_number,
             source_document_type=PurchaseInvoiceSourceType(row.source_document_type),

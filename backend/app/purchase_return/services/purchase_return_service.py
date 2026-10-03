@@ -91,6 +91,7 @@ from app.purchase_return.schemas import (
 from app.sales.services.document_preview import purchase_line_companions
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.place_of_supply import PURCHASE_INTERSTATE
+from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.schemas import ConversionRequest
@@ -1591,6 +1592,7 @@ class PurchaseReturnService(TransactionalDocumentService):
             )
             self._session.add(source)
 
+    @stamps_tax_rules(PurchaseReturnLine, "purchase_return_id")
     def _replace_lines(
         self,
         row: PurchaseReturn,
@@ -2437,6 +2439,8 @@ class PurchaseReturnService(TransactionalDocumentService):
     def _line_response(self, row: PurchaseReturnLine) -> PurchaseReturnLineResponse:
         return PurchaseReturnLineResponse(
             id=row.id,
+            tax_rule_code=row.tax_rule_code,
+            tax_rule_version=row.tax_rule_version,
             purchase_return_id=row.purchase_return_id,
             line_number=row.line_number,
             source_document_type=PurchaseReturnSourceType(row.source_document_type),

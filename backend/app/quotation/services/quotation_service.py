@@ -98,6 +98,7 @@ from app.tax.services.inclusive_rate import (
     lines_before_tax,
 )
 from app.tax.services.place_of_supply import SALES_INTERSTATE
+from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.services import assert_quantity_fits_unit
@@ -1126,6 +1127,7 @@ class QuotationService(TransactionalDocumentService):
         row.bill_discount_amount = resolved.amount
         return apportion(resolved.amount, taxables)
 
+    @stamps_tax_rules(SalesQuotationLine, "sales_quotation_id")
     def _replace_lines(
         self,
         row: SalesQuotation,

@@ -267,6 +267,11 @@ class SalesQuotationLine(BaseEntity):
         UUIDType(), ForeignKey("warehouses.id", ondelete="RESTRICT")
     )
     remarks: Mapped[str | None] = mapped_column(Text)
+    #: The tax rule that decided the line, by code and version_number; null
+    #: when the profile alone did (GST-8). Kept here because the execution
+    #: log that also says so is purged.
+    tax_rule_code: Mapped[str | None] = mapped_column(String(50))
+    tax_rule_version: Mapped[int | None] = mapped_column(Integer)
 
 
 class SalesQuotationAttachment(BaseEntity):
