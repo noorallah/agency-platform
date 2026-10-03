@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/design/design_tokens.dart';
+import 'favourites.dart';
 import 'menu_layout.dart';
 
 /// The phase 2 menu bar (UI_PHASE_2_DESIGN.md 4.1-4.3): the areas across the
@@ -21,6 +22,7 @@ class AppMenuBar extends StatelessWidget {
     required this.onOpenSetUp,
     required this.trailing,
     this.profile,
+    this.favourites,
   });
 
   /// The areas to show, already filtered; an area with nothing allowed is not
@@ -44,6 +46,10 @@ class AppMenuBar extends StatelessWidget {
 
   /// Who is signed in: last on the bar, after the gear, as the wireframe.
   final Widget? profile;
+
+  /// The user's starred screens, which every drop-down item can star or
+  /// unstar (D-UI-3); null draws no stars.
+  final Favourites? favourites;
 
   static const double height = 44;
 
@@ -200,6 +206,7 @@ class AppMenuBar extends StatelessWidget {
   Widget _panel(MenuAreaSpec area) => _AreaPanel(
         area: area,
         onOpen: onOpen,
+        favourites: favourites,
         setUp: [
           for (final String section in area.setUp)
             if (settings?.groups.any((group) => group.label == section) ??
@@ -280,10 +287,12 @@ class _AreaPanel extends StatefulWidget {
     required this.onOpen,
     required this.setUp,
     required this.onOpenSetUp,
+    this.favourites,
   });
 
   final MenuAreaSpec area;
   final ValueChanged<MenuItemSpec> onOpen;
+  final Favourites? favourites;
 
   /// The Settings sections linked from the foot, already cut to what the
   /// person is offered.
@@ -507,12 +516,17 @@ class _AreaPanelState extends State<_AreaPanel> {
     );
   }
 
-  Widget _item(BuildContext context, MenuItemSpec item) => MenuItemButton(
-        key: ValueKey('menu-item-${item.path}'),
-        style: _itemStyle(context),
-        onPressed: () => widget.onOpen(item),
-        child: Text(item.label),
-      );
+  Widget _item(BuildContext context, MenuItemSpec item) {
+    final Widget button = MenuItemButton(
+      key: ValueKey('menu-item-${item.path}'),
+      style: _itemStyle(context),
+      onPressed: () => widget.onOpen(item),
+      child: Text(item.label),
+    );
+    final Favourites? favourites = widget.favourites;
+    if (favourites == null) return button;
+    return _StarredItem(path: item.path, favourites: favourites, child: button);
+  }
 
   ButtonStyle _itemStyle(BuildContext context, {double minWidth = 160}) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
@@ -530,6 +544,70 @@ class _AreaPanelState extends State<_AreaPanel> {
           )),
     );
   }
+}
+
+/// A drop-down item with its star (D-UI-3, the wireframe's step 7): a gold
+/// star on a favourite, an outline one on any other item while it is pointed
+/// at. Clicking the star keeps the panel open -- somebody starring their
+/// screens stars several -- and opens nothing.
+class _StarredItem extends StatefulWidget {
+  const _StarredItem({
+    required this.path,
+    required this.favourites,
+    required this.child,
+  });
+
+  final String path;
+  final Favourites favourites;
+  final Widget child;
+
+  /// The gold of a starred screen, the wireframe's.
+  static const Color gold = Color(0xFFE0A100);
+
+  @override
+  State<_StarredItem> createState() => _StarredItemState();
+}
+
+class _StarredItemState extends State<_StarredItem> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: ListenableBuilder(
+          listenable: widget.favourites,
+          builder: (context, _) {
+            final bool starred = widget.favourites.contains(widget.path);
+            return Row(children: [
+              Expanded(child: widget.child),
+              // The room is kept when no star shows, so the panel does not
+              // change width under the pointer.
+              SizedBox(
+                width: 28,
+                child: starred || _hovered
+                    ? IconButton(
+                        key: ValueKey('menu-star-${widget.path}'),
+                        tooltip: starred
+                            ? 'Remove from favourites'
+                            : 'Add to favourites',
+                        iconSize: 16,
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => widget.favourites.toggle(widget.path),
+                        icon: Icon(
+                          starred ? Icons.star : Icons.star_border,
+                          color: starred
+                              ? _StarredItem.gold
+                              : Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      )
+                    : null,
+              ),
+            ]);
+          },
+        ),
+      );
 }
 
 /// The screens somebody has open, as tabs under the menu bar (decision 3).

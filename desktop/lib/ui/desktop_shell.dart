@@ -125,6 +125,7 @@ import 'resource_management_page.dart';
 import '../phase2/app_menu_bar.dart';
 import '../phase2/notification_bell.dart';
 import '../phase2/command_box.dart';
+import '../phase2/favourites.dart';
 import '../phase2/backups_page.dart';
 import '../phase2/customer_groups_page.dart';
 import '../phase2/home_page.dart';
@@ -281,6 +282,10 @@ class _DesktopShellState extends State<DesktopShell> {
   /// The section the Settings page shows, as its last link named it.
   String? _setUpSection;
 
+  /// The screens this user has starred (D-UI-3). Read off the preferences
+  /// sign-in already fetched, so it costs no request until it changes.
+  late final Favourites _favourites;
+
   /// The left of the phase 2 bottom bar: what the screen on show says about
   /// itself. Cleared on every change of screen, so a list's count never
   /// lingers under the next screen.
@@ -344,6 +349,15 @@ class _DesktopShellState extends State<DesktopShell> {
         });
       };
     _shownPath = _router.current.path;
+    _favourites = Favourites(
+      stored: Favourites.read(
+          widget.session.serverPreferences?.dashboardLayout),
+      defaults: Phase2HomePage.screens,
+      save: (paths) => widget.session.saveDashboardLayout({
+        ...?widget.session.serverPreferences?.dashboardLayout,
+        Favourites.layoutKey: paths,
+      }),
+    );
     _refreshBusinessModules();
     // Both server-driven filters, not just one. `_refreshSalesStages` was
     // called only from `_sessionChanged`, so between signing in and the first
@@ -361,6 +375,7 @@ class _DesktopShellState extends State<DesktopShell> {
   void dispose() {
     _statusLeft.dispose();
     _documents.dispose();
+    _favourites.dispose();
     _healthTimer?.cancel();
     widget.session.removeListener(_sessionChanged);
     _router
@@ -921,6 +936,7 @@ class _DesktopShellState extends State<DesktopShell> {
             settings: MenuLayout.visible(MenuLayout.settings, visibility),
             currentPath: current,
             onOpen: _openFromMenu,
+            favourites: _favourites,
             onOpenSetUp: (section) {
               _setUpSection = section;
               _openFromMenu(MenuLayout.setUpPage);
@@ -1131,6 +1147,7 @@ class _DesktopShellState extends State<DesktopShell> {
         source: _ShellHomeSource(widget.session.api),
         onOpen: _openFromMenu,
         onOpenView: (item, view) => _openFromMenu(item, view: view),
+        favourites: _favourites,
         hidden: _homeHidden(),
         onCustomise: (hidden) async {
           await widget.preferences.saveWorkspaceState(
@@ -1498,7 +1515,11 @@ class _DesktopShellState extends State<DesktopShell> {
     _globalSearchOpen = true;
     final CommandChoice? choice;
     try {
-      choice = await showCommandBox(context, screens: screens);
+      choice = await showCommandBox(
+        context,
+        screens: screens,
+        favourites: _favourites.paths,
+      );
     } finally {
       _globalSearchOpen = false;
     }

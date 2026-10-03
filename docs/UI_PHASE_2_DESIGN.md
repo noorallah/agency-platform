@@ -189,6 +189,11 @@ columns**, not a tree (a "mega menu"):
   menu bar while a panel is open switches to the next area's panel, as a
   Windows menu bar does; the keyboard's arrow keys do the same.
 - Favourites (star) appear on **Home** and at the top of the command box.
+  Built 2026-10-04 (D-UI-3): the star shows on a pointed-at item and stays
+  gold on a favourite; clicking it keeps the panel open. Somebody who has
+  never starred one starts with the daily screens of 4.6. The list is
+  `dashboard_layout.favourites` in the user's server preferences, saved once
+  after a run of changes.
 
 ### 4.4 The command box (Ctrl+K, also Alt+G for Tally users)
 
