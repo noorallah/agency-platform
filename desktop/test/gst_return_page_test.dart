@@ -296,6 +296,89 @@ void main() {
     expect(find.text('SI-2026-0001'), findsNothing);
   });
 
+  testWidgets('a filed period says its figures are as reported', (tester) async {
+    final Json one = <String, dynamic>{..._gstr1(), 'filed': true};
+    await _pump(tester, _ReturnsApi(one: one, summary: _gstr3b()));
+    expect(find.byKey(const ValueKey('gst-filed-banner')), findsOneWidget);
+    expect(find.textContaining('later changes appear as amendments'),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('gst-amendments')), findsNothing);
+  });
+
+  testWidgets('amendments and late additions are listed', (tester) async {
+    final Json one = <String, dynamic>{
+      ..._gstr1(),
+      'filed': false,
+      'amendments': <String, dynamic>{
+        'b2ba': <Json>[
+          <String, dynamic>{
+            'key': ['29AAACR5055K1Z5', 'SI-2026-0001'],
+            'original_period': '2026-08',
+            'declared': <String, dynamic>{
+              'invoice_number': 'SI-2026-0001',
+              'taxable_value': 1000.0,
+              'central_tax': 90.0,
+              'state_tax': 90.0,
+            },
+            'revised': <String, dynamic>{
+              'invoice_number': 'SI-2026-0001',
+              'taxable_value': 1200.0,
+              'central_tax': 108.0,
+              'state_tax': 108.0,
+            },
+          },
+        ],
+        'added': <Json>[
+          <String, dynamic>{
+            'key': ['SI-2026-0077'],
+            'section': 'B2B',
+            'row': <String, dynamic>{
+              'invoice_number': 'SI-2026-0077',
+              'invoice_date': '2026-08-30',
+              'taxable_value': 400.0,
+              'integrated_tax': 72.0,
+            },
+          },
+        ],
+      },
+    };
+    await _pump(tester, _ReturnsApi(one: one, summary: _gstr3b()));
+    expect(find.byKey(const ValueKey('gst-filed-banner')), findsNothing);
+    expect(find.byKey(const ValueKey('gst-amendments')), findsOneWidget);
+    expect(find.textContaining('B2BA'), findsOneWidget);
+    expect(find.text('2026-08'), findsOneWidget);
+    expect(find.text('1200.00'), findsOneWidget);
+    expect(find.textContaining('Added late'), findsOneWidget);
+    expect(find.text('SI-2026-0077'), findsOneWidget);
+    expect(find.text('72.00'), findsOneWidget);
+  });
+
+  testWidgets('GSTR-3B shows changes to earlier filed returns',
+      (tester) async {
+    final Json summary = <String, dynamic>{
+      ..._gstr3b(),
+      'amendments_to_earlier_returns': <String, dynamic>{
+        'taxable_value': 777.0,
+        'integrated_tax': 0.0,
+        'central_tax': 11.0,
+        'state_tax': 11.0,
+        'cess': 0.0,
+      },
+    };
+    await _pump(tester, _ReturnsApi(one: _gstr1(), summary: summary));
+    await tester.tap(find.text('GSTR-3B'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('gst-earlier-changes')), findsOneWidget);
+    expect(find.text('777.00'), findsOneWidget);
+  });
+
+  testWidgets('GSTR-3B hides the card when nothing changed', (tester) async {
+    await _pump(tester, _ReturnsApi(one: _gstr1(), summary: _gstr3b()));
+    await tester.tap(find.text('GSTR-3B'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('gst-earlier-changes')), findsNothing);
+  });
+
   testWidgets('the GSTIN picker shows only with two or more registrations',
       (tester) async {
     final _ReturnsApi one = _ReturnsApi(registrations: <Json>[

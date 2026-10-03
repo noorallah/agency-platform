@@ -5,7 +5,11 @@ from app.gst_returns.models.gst_cash_deposit import (
     GstCashDepositStatus,
 )
 from app.gst_returns.models.gst_payment import HEADS, GstPayment, GstPaymentStatus
-from app.gst_returns.models.gst_return_filing import GstReturnFiling, GstReturnType
+from app.gst_returns.models.gst_return_filing import (
+    GstReturnFiling,
+    GstReturnSnapshot,
+    GstReturnType,
+)
 from app.gst_returns.models.gstr2b import Gstr2bDocument, Gstr2bImport
 from app.gst_returns.models.itc_common_reversal import (
     CommonCreditKind,
@@ -23,6 +27,7 @@ __all__ = [
     "GstPayment",
     "GstPaymentStatus",
     "GstReturnFiling",
+    "GstReturnSnapshot",
     "GstReturnType",
     "Gstr2bDocument",
     "Gstr2bImport",

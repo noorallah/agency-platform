@@ -251,6 +251,7 @@ trigger each schema owns its own copy of.
 | `gst_cash_deposits` | firm store ¹ | A quarterly filer's PMT-06 deposit for month 1 or 2 of a quarter, per head (GST-7). | `ledger_accounts`, `journal_entries` |
 | `gst_payments` | firm store ¹ | A month's (or a quarterly filer's quarter's) GST liability, the credit set off, the cash paid by challan and from PMT-06 deposits. | `ledger_accounts`, `journal_entries` |
 | `gst_return_filings` | firm store ¹ | One return, for one month, filed on the portal. |  |
+| `gst_return_snapshots` | firm store ¹ | The GSTR-1 a filing reported, as it stood when marked filed; amendments are read against it (GST-6). | `gst_return_filings` |
 | `gstr2b_documents` | firm store ¹ | One supplier document in a month's GSTR-2B, and what it matched. | `gstr2b_imports` |
 | `gstr2b_imports` | firm store ¹ | One month's GSTR-2B, imported once; a re-import replaces it. |  |
 | `itc_common_reversals` | firm store ¹ | A rule 42 reversal of common credit for a period, or a year's true-up, with the turnover and credit it was worked from (GST-4). | `journal_entries` |
