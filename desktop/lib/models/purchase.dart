@@ -922,6 +922,7 @@ class PurchaseWorkflowSettings {
     this.defaultWarehouseId,
     this.billPriceTolerancePercent,
     this.billToleranceAmount,
+    this.orderQuantityPolicy = 'WARN',
   });
 
   final bool purchaseOrderStage;
@@ -936,6 +937,10 @@ class PurchaseWorkflowSettings {
   /// How far a whole bill may exceed its order's total, as an amount. Null
   /// means no check.
   final double? billToleranceAmount;
+
+  /// What an order off the supplier's minimum or multiple does (BUY-5):
+  /// `WARN` (default) or `REFUSE`.
+  final String orderQuantityPolicy;
 
   /// False while the firm is still on the platform default: the whole chain.
   final bool isConfigured;
@@ -969,6 +974,10 @@ class PurchaseWorkflowSettings {
             double.tryParse(stringValue(json['bill_price_tolerance_percent'])),
         billToleranceAmount:
             double.tryParse(stringValue(json['bill_tolerance_amount'])),
+        orderQuantityPolicy:
+            stringValue(json['order_quantity_policy']) == 'REFUSE'
+                ? 'REFUSE'
+                : 'WARN',
       );
 
   /// The two switches and the two bill tolerances. The server leaves an
@@ -979,6 +988,7 @@ class PurchaseWorkflowSettings {
         'goods_receipt_stage': goodsReceiptStage,
         'bill_price_tolerance_percent': billPriceTolerancePercent,
         'bill_tolerance_amount': billToleranceAmount,
+        'order_quantity_policy': orderQuantityPolicy,
       };
 
   /// [clearPercent] / [clearAmount] switch a tolerance off, which a null
@@ -990,6 +1000,7 @@ class PurchaseWorkflowSettings {
     bool clearPercent = false,
     double? billToleranceAmount,
     bool clearAmount = false,
+    String? orderQuantityPolicy,
   }) =>
       PurchaseWorkflowSettings(
         purchaseOrderStage: purchaseOrderStage ?? this.purchaseOrderStage,
@@ -1003,6 +1014,7 @@ class PurchaseWorkflowSettings {
         billToleranceAmount: clearAmount
             ? null
             : billToleranceAmount ?? this.billToleranceAmount,
+        orderQuantityPolicy: orderQuantityPolicy ?? this.orderQuantityPolicy,
       );
 }
 

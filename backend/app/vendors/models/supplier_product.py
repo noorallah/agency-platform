@@ -58,6 +58,9 @@ class SupplierProduct(BaseEntity):
     #: Units per pack or case, as they ship it.
     pack_size: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     minimum_order_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    #: They ship only in multiples of this (BUY-5): 115 of a multiple of 20
+    #: suggests 120.
+    order_multiple: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     lead_time_days: Mapped[int | None] = mapped_column(Integer)
     effective_from: Mapped[date] = mapped_column(Date, nullable=False)
     remarks: Mapped[str | None] = mapped_column(Text)

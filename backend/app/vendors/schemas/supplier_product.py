@@ -24,6 +24,9 @@ class SupplierProductWrite(BaseModel):
     minimum_order_quantity: Decimal | None = Field(
         default=None, gt=0, max_digits=18, decimal_places=4
     )
+    order_multiple: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, decimal_places=4
+    )
     lead_time_days: int | None = Field(default=None, ge=0, le=3650)
     effective_from: date
     remarks: str | None = Field(default=None, max_length=1000)
@@ -44,6 +47,7 @@ class SupplierProductResponse(BaseModel):
     unit_price: Decimal | None
     pack_size: Decimal | None
     minimum_order_quantity: Decimal | None
+    order_multiple: Decimal | None = None
     lead_time_days: int | None
     effective_from: date
     remarks: str | None

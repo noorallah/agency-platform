@@ -81,6 +81,7 @@ from app.purchase.schemas import (
     PurchaseOrderRevisionResponse,
     PurchaseOrderStatus,
     PurchaseOrderUpdate,
+    PurchaseQuantityHint,
     PurchaseSummary,
 )
 from app.purchase.services.approval_limit import PurchaseApprovalLimitService
@@ -104,6 +105,7 @@ from app.trade_licences.services.licence_check import (
 from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService, assert_quantity_fits_unit
 from app.vendors.models import Vendor
+from app.vendors.services.order_quantities import quantity_hints
 
 
 def _batch_is_expired(batch: BatchRecord) -> bool:
@@ -322,8 +324,31 @@ class PurchaseService(TransactionalDocumentService):
         back: no order, no number used up, no audit row. The request's session
         is its own, so there is nothing else in it to lose.
         """
+        hints = [
+            PurchaseQuantityHint(
+                line_number=hint.line_number,
+                product_id=hint.product_id,
+                quantity=hint.quantity,
+                minimum_order_quantity=hint.minimum_order_quantity,
+                order_multiple=hint.order_multiple,
+                suggested_quantity=hint.suggested_quantity,
+                message=hint.describe(),
+            )
+            for hint in quantity_hints(
+                self._session,
+                firm_id=firm_id,
+                vendor_id=data.vendor_id,
+                on=data.purchase_date,
+                lines=[
+                    (number, line.product_id, line.ordered_quantity)
+                    for number, line in enumerate(data.lines, start=1)
+                ],
+            )
+        ]
         try:
-            row = self.stage_order(data, firm_id=firm_id, actor_id=actor_id)
+            row = self.stage_order(
+                data, firm_id=firm_id, actor_id=actor_id, check_quantities=False
+            )
             response = self.order_response(row)
             interstate = (
                 self._tax.inward_transaction_type(
@@ -349,10 +374,17 @@ class PurchaseService(TransactionalDocumentService):
             )
         finally:
             self._session.rollback()
-        return PurchaseOrderPreview(order=response, interstate=interstate, lines=lines)
+        return PurchaseOrderPreview(
+            order=response, interstate=interstate, lines=lines, quantity_hints=hints
+        )
 
     def stage_order(
-        self, data: PurchaseOrderCreate, *, firm_id: UUID, actor_id: UUID
+        self,
+        data: PurchaseOrderCreate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        check_quantities: bool = True,
     ) -> PurchaseOrder:
         """Build one order as a draft without committing it.
 
@@ -430,6 +462,10 @@ class PurchaseService(TransactionalDocumentService):
         )
         self._session.add(row)
         self._flush_or_conflict("Purchase order number already exists in this firm.")
+        # An order a supplier bill raises records what was billed, so the
+        # supplier's terms are not for it to break (BUY-5).
+        if check_quantities:
+            self._assert_order_quantities(row, data.lines)
         totals = self._replace_lines(row, data=data, actor_id=actor_id)
         row.subtotal = totals["subtotal"]
         row.line_discount_total = totals["line_discount_total"]
@@ -562,6 +598,7 @@ class PurchaseService(TransactionalDocumentService):
         row.additional_charges = data.additional_charges
         row.round_off = data.round_off
         row.updated_by = actor_id
+        self._assert_order_quantities(row, data.lines)
         totals = self._replace_lines(row, data=data, actor_id=actor_id)
         row.subtotal = totals["subtotal"]
         row.line_discount_total = totals["line_discount_total"]
@@ -1690,6 +1727,40 @@ class PurchaseService(TransactionalDocumentService):
         return 0
 
     @stamps_tax_rules(PurchaseOrderLine, "purchase_order_id")
+    def _assert_order_quantities(
+        self, order: PurchaseOrder, lines: Sequence[PurchaseLineWrite]
+    ) -> None:
+        """Refuse lines off the supplier's terms, if the firm says so (BUY-5).
+
+        Raises:
+            ValidationError: Naming each line and the quantity that would do,
+                when the firm's order quantity policy is ``REFUSE``.
+
+        """
+        from app.purchase.services.workflow_settings_service import (
+            PurchaseWorkflowService,
+        )
+
+        policy = PurchaseWorkflowService(self._session).settings_response(order.firm_id)
+        if policy.order_quantity_policy != "REFUSE":
+            return
+        hints = quantity_hints(
+            self._session,
+            firm_id=order.firm_id,
+            vendor_id=order.vendor_id,
+            on=order.purchase_date,
+            lines=[
+                (number, line.product_id, line.ordered_quantity)
+                for number, line in enumerate(lines, start=1)
+            ],
+        )
+        if hints:
+            raise ValidationError(
+                "The supplier's order terms are not met -- "
+                + "; ".join(hint.describe() for hint in hints)
+                + "."
+            )
+
     def _replace_lines(
         self,
         order: PurchaseOrder,

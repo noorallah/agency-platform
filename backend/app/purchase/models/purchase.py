@@ -384,6 +384,11 @@ class PurchaseWorkflowSettings(BaseEntity):
     #: The most a whole bill may come to over its order's prices before it
     #: waits (BUY-10). Null: no check.
     bill_tolerance_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    #: What an order line off the supplier's minimum or multiple does
+    #: (BUY-5): ``WARN`` -- the editor suggests the quantity -- or ``REFUSE``.
+    order_quantity_policy: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="WARN", server_default="WARN"
+    )
 
 
 class ReorderPlanningSettings(BaseEntity):
