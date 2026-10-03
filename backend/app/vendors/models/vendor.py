@@ -165,6 +165,9 @@ class Vendor(BaseEntity):
     issues_e_invoices: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    #: The TDS section a payment to the supplier is usually deducted under
+    #: (ACC-7); the payment screen fills it in. NULL: none by default.
+    default_tds_section: Mapped[str | None] = mapped_column(String(10))
     license_number: Mapped[str | None] = mapped_column(String(64))
     registration_number: Mapped[str | None] = mapped_column(String(64))
     website: Mapped[str | None] = mapped_column(String(500))

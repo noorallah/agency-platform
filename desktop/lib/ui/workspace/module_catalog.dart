@@ -1039,6 +1039,14 @@ abstract final class ModuleCatalog {
           label: 'Contra Vouchers',
           requiredPermissions: ['JOURNAL_VIEW'],
         ),
+        // Tax deducted at source paid to the government, one challan at a
+        // time, against the deductions it covers (ACC-7).
+        ModuleTabDefinition(
+          id: 'tds-challans',
+          label: 'TDS Challans',
+          requiredPermissions: ['ACCOUNT_VIEW', 'JOURNAL_VIEW'],
+          requiresAnyPermission: true,
+        ),
         ModuleTabDefinition(
           id: 'ledgers',
           label: 'Ledgers',

@@ -7,24 +7,22 @@ it with the File Validation Utility (FVU) and writes the ``.fvu`` file that is
 uploaded.
 
 **Why a workbook and not the FVU text file.** The FVU's input is a caret-
-separated text file whose every deductee row hangs off a challan row, and a
-challan row needs the challan's BSR code, its serial number, the date the bank
-received it and the amount it carried. This product records each deduction
-but not the challan it was paid by -- that is still a journal (53.1, "Left: a
-challan screen"). A text file with those fields blank fails the FVU on its
-first row, and one with them guessed is worse. So the export is the part the
-firm's books know, in the shape the RPU asks for:
+separated text file whose every deductee row hangs off a challan row. Since
+ACC-7 each deduction names the challan that paid it (``tds_challans``), and
+the deductee rows carry its BSR code, date and serial; the FVU text file
+itself is the next step (BACKLOG_BUILD_PLAN 5.1). The export is laid out in
+the shape the RPU asks for:
 
 * **Deductor** -- the firm's name, TAN and PAN, the year, quarter and the
   assessment year, with the totals and anything that will stop the return
   (no TAN, deductees without a PAN).
 * **Deductees** -- Annexure I, one row per deduction, in the RPU deductee
   sheet's order: section, deductee code, PAN, name, date paid, amount paid,
-  tax deducted, the rate and the reason code for a higher rate. The challan
-  serial is left for the person filing to match, which the RPU does by
-  pasting these rows under the challan.
+  tax deducted, the rate and the reason code for a higher rate, and the
+  challan that paid it -- serial, BSR code and date -- where one is recorded.
 * **Challans due** -- what should have been deposited, by section and month
-  of deduction, with the due date, to tick against the challans actually paid.
+  of deduction, with the due date, what the recorded challans deposited and
+  what is still to deposit.
 * **Not in this return** -- deductions on a reversed payment or cancelled
   expense, and salary, so the accountant sees them rather than wondering
   where they went.
@@ -47,11 +45,13 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ValidationError
 from app.core.pagination.reports import ReportWindow
+from app.finance.models.tds_challan import TdsChallan, TdsChallanItem
 from app.finance.services.tds_register import NO_PAN, TdsRegisterService, TdsRow
 
 if TYPE_CHECKING:
@@ -91,6 +91,8 @@ DEDUCTEE_HEADINGS: tuple[str, ...] = (
     "Reason for Higher Deduction",
     "Our Document",
     "Party Code",
+    "Challan BSR Code",
+    "Challan Date",
 )
 
 
@@ -190,6 +192,10 @@ class DeducteeRow:
     higher_rate_reason: str
     document_type: str
     document_number: str
+    #: The live challan that paid it (ACC-7); blank where none is recorded.
+    challan_serial: str = ""
+    challan_bsr_code: str = ""
+    challan_date: date | None = None
 
 
 @dataclass(frozen=True)
@@ -202,6 +208,13 @@ class ChallanDue:
     deductions: int
     tds_amount: Decimal
     due_date: date
+    #: What the recorded challans deposited of it (ACC-7).
+    deposited: Decimal = ZERO
+
+    @property
+    def outstanding(self) -> Decimal:
+        """What is still to be deposited."""
+        return self.tds_amount - self.deposited
 
 
 @dataclass(frozen=True)
@@ -240,6 +253,13 @@ class TdsReturn:
                 f"{PAN_NOT_AVAILABLE} with reason {HIGHER_RATE_NO_PAN}: the "
                 "deduction must be at the higher rate (section 206AA)."
             )
+        unpaid = sum(1 for row in self.deductees if not row.challan_serial)
+        if unpaid:
+            found.append(
+                f"{unpaid} deduction(s) name no challan. Record the deposit "
+                "under Accounts > TDS challans: every deductee row is filed "
+                "under the challan that paid it."
+            )
         return found
 
 
@@ -276,6 +296,7 @@ class TdsReturnService:
         rows = TdsRegisterService(self._session).deducted_by_firm(
             firm_id, ReportWindow(period.start, period.end)
         )
+        paid_by = self._challans_by_document(firm_id)
         deductees: list[DeducteeRow] = []
         excluded: list[ExcludedRow] = []
         for row in rows:
@@ -292,7 +313,13 @@ class TdsReturnService:
                     )
                 )
                 continue
-            deductees.append(self._deductee(len(deductees) + 1, row))
+            deductees.append(
+                self._deductee(
+                    len(deductees) + 1,
+                    row,
+                    paid_by.get(row.document_id) if row.document_id else None,
+                )
+            )
         firm = FirmMetadataReader(self._session).get(firm_id)
         return TdsReturn(
             period=period,
@@ -304,8 +331,37 @@ class TdsReturnService:
             excluded=excluded,
         )
 
+    def _challans_by_document(self, firm_id: UUID) -> dict[UUID, tuple[str, date, str]]:
+        """Map each payment or expense to the live challan that paid its tax.
+
+        The value is the challan's BSR code, date deposited and serial.
+        """
+        found: dict[UUID, tuple[str, date, str]] = {}
+        rows = self._session.execute(
+            select(
+                TdsChallanItem.settlement_id,
+                TdsChallanItem.expense_id,
+                TdsChallan.bsr_code,
+                TdsChallan.deposited_on,
+                TdsChallan.challan_serial,
+            )
+            .join(TdsChallan, TdsChallan.id == TdsChallanItem.challan_id)
+            .where(
+                TdsChallan.firm_id == firm_id,
+                TdsChallan.is_deleted.is_(False),
+                TdsChallanItem.is_live.is_(True),
+            )
+        ).all()
+        for settlement_id, expense_id, bsr, deposited_on, serial in rows:
+            document = settlement_id or expense_id
+            if document is not None:
+                found[document] = (bsr, deposited_on, serial)
+        return found
+
     @staticmethod
-    def _deductee(serial: int, row: TdsRow) -> DeducteeRow:
+    def _deductee(
+        serial: int, row: TdsRow, challan: tuple[str, date, str] | None
+    ) -> DeducteeRow:
         pan = PAN_NOT_AVAILABLE if row.pan == NO_PAN else row.pan
         rate = (
             (row.tds_amount * 100 / row.gross_amount).quantize(Decimal("0.0001"))
@@ -327,18 +383,26 @@ class TdsReturnService:
             higher_rate_reason=(HIGHER_RATE_NO_PAN if pan == PAN_NOT_AVAILABLE else ""),
             document_type=row.document_type,
             document_number=row.document_number,
+            challan_serial=challan[2] if challan else "",
+            challan_bsr_code=challan[0] if challan else "",
+            challan_date=challan[1] if challan else None,
         )
 
 
 def _challans(rows: list[DeducteeRow]) -> list[ChallanDue]:
     """Total the deductions by section and month: one challan each is due."""
-    totals: dict[tuple[str, date], tuple[str, int, Decimal]] = {}
+    totals: dict[tuple[str, date], tuple[str, int, Decimal, Decimal]] = {}
     for row in rows:
         month = row.payment_date.replace(day=1)
-        name, count, amount = totals.get(
-            (row.section, month), (row.section_name, 0, ZERO)
+        name, count, amount, paid = totals.get(
+            (row.section, month), (row.section_name, 0, ZERO, ZERO)
         )
-        totals[(row.section, month)] = (name, count + 1, amount + row.tds_amount)
+        totals[(row.section, month)] = (
+            name,
+            count + 1,
+            amount + row.tds_amount,
+            paid + (row.tds_amount if row.challan_serial else ZERO),
+        )
     return [
         ChallanDue(
             section=section,
@@ -347,8 +411,9 @@ def _challans(rows: list[DeducteeRow]) -> list[ChallanDue]:
             deductions=count,
             tds_amount=amount,
             due_date=due_date(month),
+            deposited=paid,
         )
-        for (section, month), (name, count, amount) in sorted(
+        for (section, month), (name, count, amount, paid) in sorted(
             totals.items(), key=lambda item: (item[0][1], item[0][0])
         )
     ]
@@ -358,7 +423,7 @@ def _deductee_cells(row: DeducteeRow) -> list[object]:
     """One deductee row in the order of ``DEDUCTEE_HEADINGS``."""
     return [
         row.serial,
-        "",
+        row.challan_serial,
         row.section,
         row.deductee_code,
         row.pan,
@@ -374,6 +439,8 @@ def _deductee_cells(row: DeducteeRow) -> list[object]:
         row.higher_rate_reason,
         f"{row.document_type} {row.document_number}",
         row.party_code or "",
+        row.challan_bsr_code,
+        row.challan_date or "",
     ]
 
 
@@ -438,9 +505,9 @@ def return_workbook(tds_return: TdsReturn) -> bytes:
         "Return Preparation Utility, or hand this file to whoever files it.",
         "Enter each challan in the RPU from its counterfoil -- BSR code, date "
         "deposited, challan serial and amount -- then paste the Deductees "
-        "rows under the challan that paid them, filling Challan Serial No.",
-        "Challans due totals the tax by section and month, to tick against "
-        "the challans actually paid.",
+        "rows under the challan that paid them: each row names its challan.",
+        "Challans due totals the tax by section and month, with what the "
+        "recorded challans deposited and what is still to deposit.",
         "Not in this return lists deductions this return leaves out, and why.",
     ):
         deductor.append([note])
@@ -455,7 +522,16 @@ def return_workbook(tds_return: TdsReturn) -> bytes:
 
     challans = workbook.create_sheet("Challans due")
     challans.append(
-        ["Section", "Covers", "Month deducted", "Deductions", "TDS", "Due by"]
+        [
+            "Section",
+            "Covers",
+            "Month deducted",
+            "Deductions",
+            "TDS",
+            "Due by",
+            "Deposited",
+            "Still to deposit",
+        ]
     )
     for due in tds_return.challans:
         challans.append(
@@ -466,6 +542,8 @@ def return_workbook(tds_return: TdsReturn) -> bytes:
                 due.deductions,
                 due.tds_amount,
                 due.due_date,
+                due.deposited,
+                due.outstanding,
             ]
         )
     _style(challans, Font)

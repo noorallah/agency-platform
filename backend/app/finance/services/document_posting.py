@@ -1678,6 +1678,94 @@ class DocumentPostingService:
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
 
+    def post_tds_challan(
+        self,
+        *,
+        firm_id: UUID,
+        challan_id: UUID,
+        challan_number: str,
+        deposited_on: date,
+        bank_account_id: UUID,
+        tax_amount: Decimal,
+        charges_amount: Decimal,
+        description: str,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Post a TDS deposit (ACC-7): Dr TDS payable, Cr the bank.
+
+        Interest and the late fee paid on the same challan are a cost of
+        their own, debited to ``TDS_INTEREST_AND_FEES`` -- never to TDS
+        payable, which holds only what was deducted from somebody.
+
+        Args:
+            firm_id: The owning firm.
+            challan_id: The source challan.
+            challan_number: Its number, used as the journal reference.
+            deposited_on: The day the bank received it.
+            bank_account_id: The money account credited.
+            tax_amount: The tax deposited.
+            charges_amount: Interest and late fee together; may be zero.
+            description: The narration every leg carries.
+            actor_id: The user recording it.
+
+        Returns:
+            The posted journal entry.
+
+        Raises:
+            ValidationError: If an account is unmapped or no period is open.
+
+        """
+        purposes: tuple[ControlAccountPurpose, ...] = (
+            ControlAccountPurpose.TDS_PAYABLE,
+        )
+        if charges_amount > ZERO:
+            purposes = (*purposes, ControlAccountPurpose.TDS_INTEREST_AND_FEES)
+        accounts = self._require_mapping(firm_id, purposes)
+        context = self.context_for(firm_id, deposited_on)
+        tax = quantize_ledger(quantize_money(tax_amount))
+        charges = quantize_ledger(quantize_money(charges_amount))
+        lines = [
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.TDS_PAYABLE],
+                debit_amount=tax,
+                credit_amount=ZERO,
+                description=description,
+            )
+        ]
+        if charges > ZERO:
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=accounts[
+                        ControlAccountPurpose.TDS_INTEREST_AND_FEES
+                    ],
+                    debit_amount=charges,
+                    credit_amount=ZERO,
+                    description=description,
+                )
+            )
+        lines.append(
+            JournalLineData(
+                ledger_account_id=bank_account_id,
+                debit_amount=ZERO,
+                credit_amount=tax + charges,
+                description=description,
+            )
+        )
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=deposited_on,
+            reference_number=challan_number,
+            description=description,
+            lines=lines,
+            source_module="tds_challan",
+            source_id=challan_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
     def post_commission_accrual(
         self,
         *,

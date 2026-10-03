@@ -103,6 +103,13 @@ INDIRECT_EXPENSE_ACCOUNTS: tuple[SeedAccount, ...] = tuple(
         ("6900", "Stock Used in Business", ControlAccountPurpose.INTERNAL_USE),
         ("6910", "Staff Welfare", ControlAccountPurpose.STAFF_WELFARE),
         ("6920", "Samples and Display", ControlAccountPurpose.SAMPLES_AND_DISPLAY),
+        # Interest and late fee paid on a TDS challan (ACC-7); migration
+        # 20261003_0252 gives existing firms the same account.
+        (
+            "6930",
+            "Interest and Fees on TDS",
+            ControlAccountPurpose.TDS_INTEREST_AND_FEES,
+        ),
     )
 )
 

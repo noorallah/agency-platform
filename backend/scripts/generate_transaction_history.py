@@ -257,6 +257,11 @@ RESET_ORDER: tuple[str, ...] = (
     # a commission rule, and rebuilding the trading does not change whether
     # the firm is in scope for the section.
     "tcs_collections",
+    # A TDS challan names the payments and expenses whose tax it paid, and
+    # its journal, all RESTRICT (ACC-7); its items cascade with it but are
+    # listed so the order is plain.
+    "tds_challan_items",
+    "tds_challans",
     # Settlements next: their allocations reference the invoices below, so
     # clearing history without them fails on a foreign key. They arrived with
     # the receipts and payments module and this list did not know about them.

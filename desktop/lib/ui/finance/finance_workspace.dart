@@ -11,6 +11,7 @@ import '../workspace/module_catalog.dart';
 import 'balance_sheet_page.dart';
 import 'control_accounts_page.dart';
 import 'contra_voucher_page.dart';
+import 'tds_challan_page.dart';
 import 'expenses_page.dart';
 import 'journal_entries_page.dart';
 import 'ledger_statement_page.dart';
@@ -306,6 +307,12 @@ class _FinanceWorkspaceState extends State<FinanceWorkspace> {
               hasActiveFirm: widget.hasActiveFirm,
             ),
           'contra-vouchers' => ContraVoucherPage(
+              api: widget.api,
+              preferences: widget.preferences,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
+            ),
+          'tds-challans' => TdsChallanPage(
               api: widget.api,
               preferences: widget.preferences,
               permissions: widget.permissions,

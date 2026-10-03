@@ -403,11 +403,19 @@ Map<String, String> allocateOldestFirst(
 /// `VENDOR_VIEW`, which `CASHIER` does not hold, so reading them made the
 /// wrong permission the gate on recording a receipt.
 class PartyOption {
-  const PartyOption({required this.id, required this.code, required this.name});
+  const PartyOption({
+    required this.id,
+    required this.code,
+    required this.name,
+    this.defaultTdsSection = '',
+  });
 
   final String id;
   final String code;
   final String name;
+
+  /// The supplier's usual TDS section, when the list carries it (ACC-7).
+  final String defaultTdsSection;
 
   String get label => '$code  $name';
 }

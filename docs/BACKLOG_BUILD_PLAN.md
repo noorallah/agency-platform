@@ -109,7 +109,7 @@ and optimistic concurrency on UOM, tax and batch (section 5.3).
 | ACC-4 | §74.1 row 13 | The firm's bank details printed on bills; account numbers masked | Nothing | M | Claude alone |
 | ACC-5 | §74.1 row 14 | Checks before closing a month -- **built 2026-10-02** (A50) | Nothing | S | Claude alone |
 | ACC-6 | §74.1 row 16 | Ageing buckets set per firm; due today and this week -- **built 2026-10-03** (A51) | Nothing | S | Claude alone |
-| ACC-7 | §53.1 | TDS challan screen; a supplier's usual TDS section | Nothing | M | Claude alone |
+| ACC-7 | §53.1 | TDS challan screen; a supplier's usual TDS section -- **built 2026-10-03** (A79) | Nothing | M | Claude alone |
 | ACC-8 | §42.4 | TDS 194Q worked out automatically past ₹50 lakh per supplier -- **built 2026-10-03** (A78) | Nothing (CA confirms the rate at hand-over) | M | Claude alone |
 | ACC-9 | §74 row 5 | Cash flow statement | Nothing | M | Claude alone |
 | ACC-10 | §74 row 7 | Scanned bill or letter attached to a journal, receipt or payment | Nothing | M | Claude alone |
@@ -582,6 +582,7 @@ otherwise it is built as written.
 - **What it is:** record the TDS deposit as a challan, and stop typing the section on every payment.
 - **What gets built:** a challan document (CIN, BSR, date, period, section) that gathers the deductions it pays and posts Dr TDS payable / Cr bank; migration; a default TDS section on vendors filling payments and expenses. Phase 2 screen under Accounts > Tax filing. The 26Q export (`tds_return.py`) then names the challan per deduction. Tests.
 - **Depends on:** nothing. Unblocks the 26Q FVU file (section 5.1). **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A79): `tds_challans` + `tds_challan_items` and `vendors.default_tds_section` (migration 0252, all stores), and the control purpose `TDS_INTEREST_AND_FEES` (6930). `app/finance/services/tds_challans.py`: open deductions (posted payments and expenses no live challan carries), create (one section, tax = the deductions' sum, optional counterfoil check, one live challan per CIN), cancel with a mirror journal that frees them; `post_tds_challan` posts Dr TDS payable, Dr interest and fees, Cr bank. `/finance/tds-challans` (+ `/open-deductions`, `/{id}`, `/{id}/cancel`). `tds_return.py` fills each deductee row's challan serial, BSR code and date, and *Challans due* shows deposited and still to deposit. Desktop: *TDS Challans* under Accounts > Tax filing, the supplier's *Usual TDS section*, and the payment prefills it. Tests: `test_tds_challans.py`, `tds_challans_test.dart`.
 
 #### ACC-8. TDS 194Q worked out automatically (§42.4)
 - **What it is:** past ₹50 lakh of purchases from one supplier in a year, the 0.1% TDS is suggested on the bill or payment.
