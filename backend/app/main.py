@@ -24,7 +24,11 @@ from app.core.database.engine import DatabaseManager
 from app.core.exceptions.handlers import register_exception_handlers
 from app.core.logging.configuration import configure_logging
 from app.core.logging.retention import LogMaintenance
-from app.core.middleware import CoreRequestMiddleware
+from app.core.middleware import (
+    ConnectionBudgetMiddleware,
+    CoreRequestMiddleware,
+    request_slots,
+)
 from app.core.openapi import OPENAPI_TAGS, build_openapi_metadata
 from app.core.tenancy import (
     FirmConnectionResolver,
@@ -164,6 +168,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         shared_schema_name=settings.tenancy.shared_schema_name,
     )
     application.add_middleware(CoreRequestMiddleware)
+    # Added last, so it runs first: a request queues here before it holds any
+    # pooled connection (D-PERF-2).
+    application.add_middleware(
+        ConnectionBudgetMiddleware,
+        slots=request_slots(
+            settings.database_pool_size, settings.database_max_overflow
+        ),
+    )
     application.include_router(health_router)
     application.include_router(dashboard_router)
     application.include_router(identity_router)
