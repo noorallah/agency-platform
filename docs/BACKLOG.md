@@ -5181,6 +5181,12 @@ Decided by the owner on 2026-10-03:
   install only and takes the agency's name, tagline and logo (all optional)
   into the server's branding record. Our product name, company and product
   logo come from the package and are **locked** (no reseller white-label).
+- **First-run setup approved** (step 1 "Your agency", pre-filled from the
+  installer, skippable).
+- **Our identity is changed by our installers, never hard-coded.** Company
+  name, company logo, tagline (message) and product name are read from the
+  package's branding file, so a new installer **or an update installer** can
+  change them (a rebrand ships as an update); customers cannot edit them.
 - **Sign-in layout B** -- Home's frame, the dark bar carrying the agency's
   logo and name, one sign-in card in the middle.
 - **The sign-in screen must say whose product it is**: the window title
@@ -5197,15 +5203,15 @@ Decided by the owner on 2026-10-03:
 
 Still open with the owner: where the product mark sits on sign-in -- in the
 card's foot (recommended), at the right of the top bar, or a night-blue band
-at the foot; and a review of steps 3-6 (first-run setup, main app, Settings >
-Branding, Help > About).
+at the foot; and a review of steps 4-6 (main app, Settings > Branding, Help >
+About).
 
 **UI changes to build** (on top of rows 1-5 of the table below):
 
 | # | Change | Where |
 | --- | --- | --- |
 | U1 | Installer page 3 Branding (server install only), writing the server's branding record; client installs skip it | `packaging/AgencyPlatform.iss` + a first-start hand-off to the backend |
-| U2 | Product identity from one place: product name, company, tagline, product logo/icon, support phone/email/website/hours; placeholders until the trademark is filed | `desktop/config/branding.json` (package-built, not customer-edited), `Runner.rc`, `.iss` display strings only -- keep the ProgramData folder, service names and AppId |
+| U2 | Product identity from one place: product name, company name, company logo, tagline, product logo/icon, support phone/email/website/hours; placeholders until the trademark is filed. **Written by every installer and update installer** (an update replaces it, so a rebrand ships as an update); nothing in the code names the product or the company; customers cannot edit it | `desktop/config/branding.json` (package-built, not customer-edited), `Runner.rc`, `.iss` display strings only -- keep the ProgramData folder, service names and AppId |
 | U3 | Phase 2 sign-in, layout B: agency logo + name + tagline in the dark bar and the card head; window title "<product> - Sign in"; product mark (placement pending); status line with server state, version, "Powered by <product>" | phase 2 sign-in screen |
 | U4 | Support panel beside the sign-in card, with "Copy details for support" | phase 2 sign-in screen |
 | U5 | First-run setup step 1 "Your agency", pre-filled from the installer, skippable with a "Finish setting up" card on Home | phase 2, after the first administrator's first sign-in |

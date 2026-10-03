@@ -65,7 +65,7 @@ Sources:
 | --- | --- | --- | --- |
 | **The agency** (the customer who bought the product) | Sri Lakshmi Agencies | On the **server installer's Branding page** (optional); if left blank, the **first-run setup** asks after the first sign-in; changed any time in **Settings > Platform > Branding** | Sign-in screen; **left end of the menu bar on every screen**; window and taskbar title; "Licensed to" in About |
 | **The firm** (the business being worked in) | QA01 Traders | As today, when the firm is created | Firm switcher, Home greeting, the firm's letterhead on printed documents (unchanged) |
-| **Our company** (the maker) and **our product** | Jugnix / Jugnix Trade, shown as `[Company name]` / `[Product name]` with a placeholder logo until the trademark is filed | Fixed in the installer package's branding file; **locked at install** (approved 2026-10-03) | Installer and Windows' Apps list as publisher; exe properties; "Powered by <product>" on sign-in; right end of the status line; Help > About |
+| **Our company** (the maker) and **our product** | Jugnix / Jugnix Trade, shown as `[Company name]` / `[Product name]` with a placeholder logo until the trademark is filed | In the installer package's branding file; **locked at install** (approved 2026-10-03); **a new installer or an update installer can change any of them** -- company name, logo, tagline, product name -- so a rebrand ships as an update | Installer and Windows' Apps list as publisher; exe properties; "Powered by <product>" on sign-in; right end of the status line; Help > About |
 
 ### 4.1 The agency's branding
 
@@ -181,7 +181,10 @@ and 10-03 screenshot sets) are in `dist\windows\Design\_old (superseded)\`.
    with our support panel beside it. Still open: where the product mark sits
    -- card foot, top bar or band (card foot recommended).
 2. ~~Product name and logo at install~~ -- **decided 2026-10-03: locked**; the
-   installer wireframe is approved.
+   installer wireframe is approved. Our company name, logo, tagline and
+   product name are changed by us through an installer or update installer,
+   never hard-coded.
+2a. ~~First-run setup~~ -- **approved 2026-10-03**.
 3. **Our company's details** for Help > About: support email, phone, website
    (placeholders until the company is registered).
 4. **The logo set as vector files**, including the product icon (`.ico`) for
