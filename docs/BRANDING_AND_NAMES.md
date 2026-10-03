@@ -65,7 +65,7 @@ Sources:
 | --- | --- | --- | --- |
 | **The agency** (the customer who bought the product) | Sri Lakshmi Agencies | On the **server installer's Branding page** (optional); if left blank, the **first-run setup** asks after the first sign-in; changed any time in **Settings > Platform > Branding** | Sign-in screen; **left end of the menu bar on every screen**; window and taskbar title; "Licensed to" in About |
 | **The firm** (the business being worked in) | QA01 Traders | As today, when the firm is created | Firm switcher, Home greeting, the firm's letterhead on printed documents (unchanged) |
-| **Our company** (the maker) and **our product** | Jugnix / Jugnix Trade, shown as `[Company name]` / `[Product name]` with a placeholder logo until the trademark is filed | Fixed in the installer package's branding file; **locked at install** (recommended; see 7.2) | Installer and Windows' Apps list as publisher; exe properties; "Powered by <product>" on sign-in; right end of the status line; Help > About |
+| **Our company** (the maker) and **our product** | Jugnix / Jugnix Trade, shown as `[Company name]` / `[Product name]` with a placeholder logo until the trademark is filed | Fixed in the installer package's branding file; **locked at install** (approved 2026-10-03) | Installer and Windows' Apps list as publisher; exe properties; "Powered by <product>" on sign-in; right end of the status line; Help > About |
 
 ### 4.1 The agency's branding
 
@@ -96,8 +96,8 @@ of the installer).
   shows them. A client install never asks; it reads the server. (This answers
   the earlier objection: what is typed is not held on one PC.)
 - The right half of page 3 shows our product name, company and product logo
-  from the package, locked. An "editable" variant for a reseller is drawn for
-  comparison (decision 7.2).
+  from the package, **locked** (owner approved the installer 2026-10-03; the
+  "editable" reseller variant is not taken).
 - After the **first administrator signs in for the first time**, a short setup
   opens: **1. Your agency** > **2. First firm** > **3. Users** > **4. Done**.
   If the installer took the branding it is shown filled in to check; if it was
@@ -135,6 +135,12 @@ agency's logo, name and tagline.
 | **B. Home's frame, one card** *(recommended)* | The dark bar at the top carries the logo and name and **becomes the menu bar after sign-in**, so nothing jumps; one plain card in the middle | Closest to Home, Tally and Business Central; the quietest |
 | **C. Home's frame, pick who you are** | As B, plus tiles of the people who signed in on this PC; a person clicks their name and types only the password; "Someone else" gives the full form | Shared billing-counter PCs |
 
+**In every layout the product identifies itself** (owner, 2026-10-03): the
+product's mark -- product logo, product name, "by <company>" and the tagline --
+sits under the sign-in form, and the window title reads "<product> - Sign in",
+so anyone who sees the screen can tell which product it is and whose. The
+agency's branding stays the larger, upper element.
+
 In every layout: username or email, password with show/hide, remember
 username, keep me signed in, Sign in on Enter, Forgot password, the server's
 status and the version at the foot, Application Settings behind the gear, a
@@ -146,8 +152,7 @@ and a narrow-window form.
 Open `dist\windows\Design\Branding wireframes.html` in a browser. It holds
 only this subject, as six steps in the order a customer meets them:
 1. Installer, 2. Sign in, 3. First-run setup, 4. Main app,
-5. Settings > Branding, 6. Help > About. A box at the top lists the two open
-decisions. Switches show the agency's branding given or not, our product as a
+5. Settings > Branding, 6. Help > About. A box at the top lists what is still open. Switches show the agency's branding given or not, our product as a
 placeholder or as Jugnix Trade, the sign-in layout (A, B, C) and the product
 fields at install (locked or editable).
 
@@ -159,8 +164,8 @@ and 10-03 screenshot sets) are in `dist\windows\Design\_old (superseded)\`.
 ## 7. For the owner to decide or supply
 
 1. **Sign-in layout:** A, B or C (B recommended).
-2. **Product name and logo at install:** locked (recommended), or editable so a
-   reseller can sell it under its own name.
+2. ~~Product name and logo at install~~ -- **decided 2026-10-03: locked**; the
+   installer wireframe is approved.
 3. **Our company's details** for Help > About: support email, phone, website
    (placeholders until the company is registered).
 4. **The logo set as vector files**, including the product icon (`.ico`) for
