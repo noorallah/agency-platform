@@ -15,6 +15,7 @@ PRINTABLE_DOCUMENT_TYPES = frozenset(
         "DELIVERY_NOTE",
         "PURCHASE_ORDER",
         "SALES_INVOICE",
+        "SALES_ORDER",
         "SALES_QUOTATION",
         "SALES_RETURN",
     }

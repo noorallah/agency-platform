@@ -57,6 +57,7 @@ from app.settlements.services import (
 )
 from app.settlements.services.cheque_print import ChequeService
 from app.settlements.services.collection_report import CollectionReportService
+from app.settlements.services.receipt_print import ReceiptPrintService
 from app.settlements.services.supplier_credits import (
     SupplierCredit,
     apply_supplier_credit,
@@ -431,6 +432,21 @@ def collections_by_mode(
     """Money received by mode, cash or bank, reversals netted (67 row 9)."""
     window = ReportWindow(from_date, to_date, page, page_size)
     return _collections("method", scope.firm_id, db, window)
+
+
+@receipts_router.get("/{receipt_id}/print", response_class=StreamingResponse)
+def print_receipt(
+    receipt_id: UUID,
+    scope: ReceiptViewScope,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Render one receipt as the voucher the customer keeps (MSG-4)."""
+    pdf, filename = ReceiptPrintService(db).render(receipt_id, firm_scope=scope.firm_id)
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @receipts_router.get("/{receipt_id}", response_model=ApiResponse[SettlementResponse])

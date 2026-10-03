@@ -362,7 +362,20 @@ def _attachments(session: Session, row: MessagingOutbox) -> tuple[Attachment, ..
         )
         return (Attachment(filename=filename, content=pdf),)
     if row.document_type != "SALES_INVOICE":
-        return ()
+        # A document sent by hand (MSG-4): its own PDF, rendered now.
+        from app.messaging.services.hand_documents import render_attachment
+
+        rendered = render_attachment(
+            session,
+            firm_id=row.firm_id,
+            document_type=row.document_type or "",
+            document_id=row.document_id,
+            on=as_utc(row.created_at).date(),
+        )
+        if rendered is None:
+            return ()
+        pdf, filename = rendered
+        return (Attachment(filename=filename, content=pdf),)
     # Imported here: the print service pulls in reportlab, which a pass with
     # nothing to attach should not pay for.
     from app.sales_invoice.services.invoice_print_service import (

@@ -16,11 +16,19 @@ class SendMessageDialog extends StatefulWidget {
     required this.api,
     required this.invoiceId,
     required this.invoiceNumber,
+    this.documentType = 'SALES_INVOICE',
   });
 
   final ApiClient api;
   final String invoiceId;
   final String invoiceNumber;
+
+  /// What is being sent (MSG-4); [invoiceId] is then that document's id (the
+  /// customer's, for a statement). Anything but an invoice goes by email
+  /// only, so the channel picker is not offered.
+  final String documentType;
+
+  bool get _invoice => documentType == 'SALES_INVOICE';
 
   @override
   State<SendMessageDialog> createState() => _SendMessageDialogState();
@@ -40,7 +48,8 @@ class _SendMessageDialogState extends State<SendMessageDialog>
   }
 
   Future<void> _send() => saveAndClose<bool>(() async {
-        await widget.api.sendSalesInvoiceMessage(
+        await widget.api.sendDocumentMessage(
+          widget.documentType,
           widget.invoiceId,
           _channel,
           recipient: _recipient.text.trim(),
@@ -73,10 +82,13 @@ class _SendMessageDialogState extends State<SendMessageDialog>
                 isExpanded: true,
                 initialValue: _channel,
                 decoration: const InputDecoration(labelText: 'Channel'),
-                items: const [
-                  DropdownMenuItem(value: 'EMAIL', child: Text('Email')),
-                  DropdownMenuItem(value: 'WHATSAPP', child: Text('WhatsApp')),
-                  DropdownMenuItem(value: 'SMS', child: Text('SMS')),
+                items: [
+                  const DropdownMenuItem(value: 'EMAIL', child: Text('Email')),
+                  if (widget._invoice) ...const [
+                    DropdownMenuItem(
+                        value: 'WHATSAPP', child: Text('WhatsApp')),
+                    DropdownMenuItem(value: 'SMS', child: Text('SMS')),
+                  ],
                 ],
                 onChanged: saving
                     ? null
@@ -87,10 +99,14 @@ class _SendMessageDialogState extends State<SendMessageDialog>
                 key: const ValueKey('send-message-recipient'),
                 controller: _recipient,
                 enabled: !saving,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Send to',
-                  helperText: "Blank sends to the customer's own address "
-                      'or number',
+                  helperText: widget.documentType == 'PURCHASE_ORDER'
+                      ? "Blank sends to the supplier's own address"
+                      : widget._invoice
+                          ? "Blank sends to the customer's own address "
+                              'or number'
+                          : "Blank sends to the customer's own address",
                 ),
               ),
               if (_channel == 'EMAIL') ...[
