@@ -58,6 +58,11 @@ class ProductController extends ChangeNotifier {
   /// same as every other optional catalogue this bootstrap reads.
   List<TradeLicenceTypeRecord> licenceTypes = const [];
 
+  /// The firm's brand masters, for the Brand picker (MST-1). Null when they
+  /// could not be read: the form then keeps the free-text box and sends no
+  /// `brand_id`, so a failed fetch cannot unfile a product from its brand.
+  List<BrandRecord>? brands;
+
   /// The firm's active suppliers, for the "Preferred supplier" picker (A18).
   /// Null when the list could not be read (no `VENDOR_VIEW`): the picker is
   /// then disabled and the product's current choice is kept as it was.
@@ -126,6 +131,11 @@ class ProductController extends ChangeNotifier {
           (await _api.tradeLicenceTypes()).where((type) => type.isActive).toList();
     } on ApiException {
       licenceTypes = const [];
+    }
+    try {
+      brands = (await _api.brands()).where((brand) => brand.isActive).toList();
+    } on ApiException {
+      brands = null;
     }
     try {
       suppliers = (await fetchAllPages<Vendor>(
@@ -883,6 +893,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         categories: _controller.categories,
         uoms: _controller.uoms,
         licenceTypes: _controller.licenceTypes,
+        brands: _controller.brands,
         suppliers: _controller.suppliers,
         profileUomDefaults: _controller.profileUomDefaults,
         canManageTax: widget.permissions.hasPermission('PRODUCT_TAX_MANAGE'),
@@ -1775,6 +1786,7 @@ class ProductWorkspaceDialog extends StatefulWidget {
     required this.categories,
     required this.uoms,
     this.licenceTypes = const [],
+    this.brands,
     this.suppliers,
     required this.definitions,
     required this.metadata,
@@ -1817,6 +1829,10 @@ class ProductWorkspaceDialog extends StatefulWidget {
   /// (backlog 54).
   final List<TradeLicenceTypeRecord> licenceTypes;
 
+  /// Active brand masters for the Brand picker (MST-1); null keeps the
+  /// free-text box and sends no `brand_id`.
+  final List<BrandRecord>? brands;
+
   /// Active suppliers for the "Preferred supplier" picker (A18); null when
   /// the list could not be read, which disables the picker.
   final List<Vendor>? suppliers;
@@ -1850,6 +1866,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   late final TextEditingController _barcode;
   late final TextEditingController _qrCode;
   late final TextEditingController _brand;
+  late String _brandId;
   late final TextEditingController _model;
   late final TextEditingController _unit;
   late final TextEditingController _hsn;
@@ -1972,6 +1989,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     _barcode = TextEditingController(text: product?.barcode ?? '');
     _qrCode = TextEditingController(text: product?.qrCode ?? '');
     _brand = TextEditingController(text: product?.brand ?? '');
+    _brandId = product?.brandId ?? '';
     _model = TextEditingController(text: product?.model ?? '');
     _unit = TextEditingController(text: product?.unit ?? '');
     _hsn = TextEditingController(text: product?.hsnSac ?? '');
@@ -2411,7 +2429,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
             ),
           ),
           _field(_unit, 'Unit'),
-          _field(_brand, 'Brand'),
+          _brandField(),
           _field(_model, 'Model'),
           _field(_remarks, 'Remarks', width: 520),
           _field(_description, 'Description', width: 760, lines: 3),
@@ -3270,6 +3288,60 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         ),
       );
 
+  /// The brand picker (MST-1). A product with no brand row keeps its
+  /// free-text brand in a box beside the picker until one is chosen.
+  Widget _brandField() {
+    final List<BrandRecord>? brands = widget.brands;
+    if (brands == null) return _field(_brand, 'Brand');
+    final bool known = brands.any((brand) => brand.id == _brandId);
+    return SizedBox(
+      width: 260,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          DropdownButtonFormField<String?>(
+            key: const ValueKey('product-brand'),
+            isExpanded: true,
+            initialValue: known ? _brandId : null,
+            decoration: InputDecoration(
+              labelText: 'Brand',
+              helperText: _brandId.isEmpty && _brand.text.trim().isNotEmpty
+                  ? 'Free text: ${_brand.text.trim()}'
+                  : null,
+            ),
+            items: [
+              const DropdownMenuItem<String?>(
+                value: null,
+                child: Text('None'),
+              ),
+              for (final BrandRecord brand in brands)
+                DropdownMenuItem<String?>(
+                  value: brand.id,
+                  child: Text(
+                    brand.principalName.isEmpty
+                        ? brand.name
+                        : '${brand.name} (${brand.principalName})',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+            onChanged: _readOnly
+                ? null
+                : (value) => setState(() {
+                      _brandId = value ?? '';
+                      final BrandRecord? chosen = brands
+                          .cast<BrandRecord?>()
+                          .firstWhere((b) => b!.id == _brandId,
+                              orElse: () => null);
+                      if (chosen != null) _brand.text = chosen.name;
+                    }),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _field(
     TextEditingController controller,
     String label, {
@@ -3479,6 +3551,10 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       'allow_decimal': _allowDecimal,
       'unit': _unit.text.trim().isEmpty ? null : _unit.text.trim(),
       'brand': _brand.text.trim().isEmpty ? null : _brand.text.trim(),
+      // MST-1: sent only once the brand list arrived, so a failed fetch
+      // cannot unfile a product. Naming a brand makes the server set the
+      // brand text to its name.
+      if (widget.brands != null) 'brand_id': _brandId.isEmpty ? null : _brandId,
       'model': _model.text.trim().isEmpty ? null : _model.text.trim(),
       'hsn_sac': _hsn.text.trim().isEmpty ? null : _hsn.text.trim(),
       'purchase_price': _purchasePrice.text.trim().isEmpty
@@ -3526,6 +3602,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       _barcode.clear();
       _qrCode.clear();
       _brand.clear();
+      _brandId = '';
       _model.clear();
       _unit.clear();
       _hsn.clear();

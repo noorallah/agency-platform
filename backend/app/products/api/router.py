@@ -55,6 +55,13 @@ from app.products.services.barcode_labels import (
     BarcodeLabelService,
     LabelRequestItem,
 )
+from app.products.services.brands import (
+    BrandResponse,
+    BrandService,
+    BrandWrite,
+    PrincipalResponse,
+    PrincipalWrite,
+)
 from app.products.services.product_import import template_csv, template_workbook
 from app.products.services.product_service import PRODUCT_DUTIES
 
@@ -359,6 +366,119 @@ def print_product_labels(
         media_type="application/pdf",
         headers={"Content-Disposition": 'inline; filename="labels.pdf"'},
     )
+
+
+@router.get("/principals", response_model=ApiResponse[list[PrincipalResponse]])
+def list_principals(
+    scope: ProductViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PrincipalResponse]]:
+    """Return the firm's principals (MST-1)."""
+    return ApiResponse(data=BrandService(db).principals(scope.firm_id))
+
+
+@router.post(
+    "/principals",
+    response_model=ApiResponse[PrincipalResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_principal(
+    data: PrincipalWrite,
+    scope: ProductUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PrincipalResponse]:
+    """Add a principal (MST-1)."""
+    return ApiResponse(
+        data=BrandService(db).save_principal(
+            data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
+
+
+@router.put("/principals/{principal_id}", response_model=ApiResponse[PrincipalResponse])
+def update_principal(
+    principal_id: UUID,
+    data: PrincipalWrite,
+    scope: ProductUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PrincipalResponse]:
+    """Change a principal (MST-1)."""
+    return ApiResponse(
+        data=BrandService(db).save_principal(
+            data,
+            firm_id=scope.firm_id,
+            actor_id=scope.actor_id,
+            principal_id=principal_id,
+        )
+    )
+
+
+@router.delete("/principals/{principal_id}", response_model=ApiResponse[None])
+def delete_principal(
+    principal_id: UUID,
+    scope: ProductUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[None]:
+    """Remove a principal no brand names (MST-1)."""
+    BrandService(db).delete_principal(
+        principal_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=None, message="Principal deleted.")
+
+
+@router.get("/brands", response_model=ApiResponse[list[BrandResponse]])
+def list_brands(
+    scope: ProductViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[BrandResponse]]:
+    """Return the firm's brands (MST-1)."""
+    return ApiResponse(data=BrandService(db).brands(scope.firm_id))
+
+
+@router.post(
+    "/brands",
+    response_model=ApiResponse[BrandResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_brand(
+    data: BrandWrite,
+    scope: ProductUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BrandResponse]:
+    """Add a brand (MST-1)."""
+    return ApiResponse(
+        data=BrandService(db).save_brand(
+            data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
+
+
+@router.put("/brands/{brand_id}", response_model=ApiResponse[BrandResponse])
+def update_brand(
+    brand_id: UUID,
+    data: BrandWrite,
+    scope: ProductUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BrandResponse]:
+    """Rename or re-file a brand; its products' brand text follows (MST-1)."""
+    return ApiResponse(
+        data=BrandService(db).save_brand(
+            data, firm_id=scope.firm_id, actor_id=scope.actor_id, brand_id=brand_id
+        )
+    )
+
+
+@router.delete("/brands/{brand_id}", response_model=ApiResponse[None])
+def delete_brand(
+    brand_id: UUID,
+    scope: ProductUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[None]:
+    """Remove a brand no product carries (MST-1)."""
+    BrandService(db).delete_brand(
+        brand_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=None, message="Brand deleted.")
 
 
 @router.get("/categories", response_model=ApiResponse[list[ProductCategoryResponse]])

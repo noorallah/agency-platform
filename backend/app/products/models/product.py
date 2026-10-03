@@ -145,6 +145,10 @@ class Product(BaseEntity):
     )
     unit: Mapped[str | None] = mapped_column(String(20))
     brand: Mapped[str | None] = mapped_column(String(120))
+    #: The brand row (MST-1); ``brand`` keeps its name in step.
+    brand_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("brands.id", ondelete="RESTRICT")
+    )
     model: Mapped[str | None] = mapped_column(String(120))
     hsn_sac: Mapped[str | None] = mapped_column(String(20))
     tax_profile_group_code: Mapped[str | None] = mapped_column(String(50), index=True)

@@ -117,6 +117,58 @@ class ProductCategoryRecord {
       );
 }
 
+/// A principal -- the company whose brands the firm distributes (MST-1).
+class PrincipalRecord {
+  const PrincipalRecord({
+    required this.id,
+    required this.code,
+    required this.name,
+    required this.vendorId,
+    required this.isActive,
+  });
+
+  final String id;
+  final String code;
+  final String name;
+
+  /// The supplier this principal is bought through; empty when none.
+  final String vendorId;
+  final bool isActive;
+
+  factory PrincipalRecord.fromJson(Json json) => PrincipalRecord(
+        id: stringValue(json['id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        vendorId: stringValue(json['vendor_id']),
+        isActive: boolValue(json['is_active'], fallback: true),
+      );
+}
+
+/// A brand a product can carry, optionally filed under a principal (MST-1).
+class BrandRecord {
+  const BrandRecord({
+    required this.id,
+    required this.name,
+    required this.principalId,
+    required this.principalName,
+    required this.isActive,
+  });
+
+  final String id;
+  final String name;
+  final String principalId;
+  final String principalName;
+  final bool isActive;
+
+  factory BrandRecord.fromJson(Json json) => BrandRecord(
+        id: stringValue(json['id']),
+        name: stringValue(json['name']),
+        principalId: stringValue(json['principal_id']),
+        principalName: stringValue(json['principal_name']),
+        isActive: boolValue(json['is_active'], fallback: true),
+      );
+}
+
 class ProductFeatureState {
   const ProductFeatureState({required this.code, required this.enabled});
 
@@ -210,6 +262,7 @@ class Product {
     this.preferredVendorId = '',
     required this.unit,
     required this.brand,
+    this.brandId = '',
     required this.model,
     required this.hsnSac,
     this.taxProfileGroupCode = '',
@@ -290,6 +343,10 @@ class Product {
   final String preferredVendorId;
   final String unit;
   final String brand;
+
+  /// The brand master the product is filed under (MST-1); empty for a
+  /// product that only carries the free-text [brand].
+  final String brandId;
   final String model;
   final String hsnSac;
   final String taxProfileGroupCode;
@@ -382,6 +439,7 @@ class Product {
         preferredVendorId: stringValue(json['preferred_vendor_id']),
         unit: stringValue(json['unit']),
         brand: stringValue(json['brand']),
+        brandId: stringValue(json['brand_id']),
         model: stringValue(json['model']),
         hsnSac: stringValue(json['hsn_sac']),
         taxProfileGroupCode:

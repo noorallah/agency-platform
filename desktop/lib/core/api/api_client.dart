@@ -3756,6 +3756,54 @@ class ApiClient {
     return PagedResult(items: rows, total: rows.length);
   }
 
+  // Principals and brands (MST-1). Both lists come back unpaged and have no
+  // search, so each is wrapped into a page here as `productCategoryPage` is;
+  // writes go through the generic `create`/`update`/`delete` with
+  // `resource: 'products/principals'` / `'products/brands'`.
+  Future<List<PrincipalRecord>> principals() async => _unwrapList(
+        await request('GET', '/api/v1/products/principals'),
+        PrincipalRecord.fromJson,
+      );
+
+  Future<List<BrandRecord>> brands() async => _unwrapList(
+        await request('GET', '/api/v1/products/brands'),
+        BrandRecord.fromJson,
+      );
+
+  Future<PagedResult<PrincipalRecord>> principalsPage({
+    int page = 1,
+    String search = '',
+    String sortBy = 'code',
+    bool descending = false,
+  }) async {
+    final String needle = search.trim().toLowerCase();
+    final List<PrincipalRecord> rows = (await principals())
+        .where((row) =>
+            needle.isEmpty ||
+            row.code.toLowerCase().contains(needle) ||
+            row.name.toLowerCase().contains(needle))
+        .toList()
+      ..sort((a, b) => a.code.compareTo(b.code));
+    return PagedResult(items: rows, total: rows.length);
+  }
+
+  Future<PagedResult<BrandRecord>> brandsPage({
+    int page = 1,
+    String search = '',
+    String sortBy = 'name',
+    bool descending = false,
+  }) async {
+    final String needle = search.trim().toLowerCase();
+    final List<BrandRecord> rows = (await brands())
+        .where((row) =>
+            needle.isEmpty ||
+            row.name.toLowerCase().contains(needle) ||
+            row.principalName.toLowerCase().contains(needle))
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    return PagedResult(items: rows, total: rows.length);
+  }
+
   Future<Product> createProduct(Json data) async => Product.fromJson(_unwrapMap(
         await request('POST', '/api/v1/products', body: data),
       ));

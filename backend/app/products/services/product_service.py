@@ -353,8 +353,10 @@ class ProductService:
         self._validate_preferred_vendor(firm_id, data.preferred_vendor_id)
         self._validate_uom_references(data)
         self._validate_feature_gated_fields(data, firm_id)
+        values = self._product_values(data)
+        self._brand_text(values, firm_id=firm_id)
         product = Product(
-            **self._product_values(data),
+            **values,
             firm_id=firm_id,
             created_by=actor_id,
             updated_by=actor_id,
@@ -450,6 +452,7 @@ class ProductService:
         whole file once, exactly as ``stage_product`` does for a create.
         """
         values = self._product_values(data, partial=True)
+        self._brand_text(values, firm_id=firm_scope)
         if not may_write_cost_price:
             values.pop("purchase_price", None)
         self._assert_unique_code(firm_scope, data.code, current_id=product.id)
@@ -1696,6 +1699,16 @@ class ProductService:
             payload["issue_rule"] = str(payload["issue_rule"])
         return payload
 
+    def _brand_text(self, values: dict[str, object], *, firm_id: UUID) -> None:
+        """Keep the text brand in step with a brand row named (MST-1)."""
+        if values.get("brand_id") is None:
+            return
+        from app.products.services.brands import BrandService
+
+        values["brand"] = BrandService(self._session).brand_name(
+            self._as_uuid(values["brand_id"]), firm_id=firm_id
+        )
+
     @staticmethod
     def _as_uuid(value: object) -> UUID | None:
         """Read an id out of the untyped dump."""
@@ -1853,6 +1866,7 @@ class ProductService:
             "require_batch_on_receipt": product.require_batch_on_receipt,
             "inspection_required": product.inspection_required,
             "free_issue_only": product.free_issue_only,
+            "brand_id": product.brand_id,
             "expiry_stop_sale_days": product.expiry_stop_sale_days,
             "expiry_alert_days": product.expiry_alert_days,
             "expiry_return_days": product.expiry_return_days,

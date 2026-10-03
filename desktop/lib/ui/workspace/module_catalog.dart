@@ -430,6 +430,16 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['PRODUCT_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'principals',
+          label: 'Principals',
+          requiredPermissions: ['PRODUCT_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'brands',
+          label: 'Brands',
+          requiredPermissions: ['PRODUCT_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'vendors',
           label: 'Vendors',
           requiredPermissions: ['VENDOR_VIEW'],
@@ -1639,6 +1649,19 @@ abstract final class ModuleCatalog {
           label: 'Product Categories',
           path: 'product-categories',
           icon: Icons.account_tree_outlined,
+        ),
+      // Principals and the brands filed under them (MST-1).
+      if (visibleTabIds.contains('principals'))
+        const WorkspaceNavigationNode(
+          label: 'Principals',
+          path: 'principals',
+          icon: Icons.business_outlined,
+        ),
+      if (visibleTabIds.contains('brands'))
+        const WorkspaceNavigationNode(
+          label: 'Brands',
+          path: 'brands',
+          icon: Icons.sell_outlined,
         ),
       // Vendors and the two masters a vendor record points at. `category_id`
       // and `type_id` have been columns on `vendors` from the start and the

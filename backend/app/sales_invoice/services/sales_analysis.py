@@ -33,6 +33,7 @@ from app.credit_note.models import CreditNote, CreditNoteLine
 from app.customer_debit_note.models import CustomerDebitNote, CustomerDebitNoteLine
 from app.customers.models import Customer, CustomerGroup
 from app.products.models import Product, ProductCategory
+from app.products.models.brand import Brand, Principal
 from app.sales.models.territory import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_return.models import SalesReturn, SalesReturnLine
@@ -42,6 +43,8 @@ TIME_DIMENSIONS = ("day", "week", "month", "quarter", "year")
 ENTITY_DIMENSIONS = (
     "product",
     "category",
+    "brand",
+    "principal",
     "customer",
     "customer_group",
     "salesman",
@@ -103,6 +106,9 @@ class AnalysisFilters:
 
     product_id: UUID | None = None
     category_id: UUID | None = None
+    #: The brand and the principal behind it (MST-1).
+    brand_id: UUID | None = None
+    principal_id: UUID | None = None
     customer_id: UUID | None = None
     customer_group_id: UUID | None = None
     salesman_id: UUID | None = None
@@ -318,6 +324,7 @@ class SalesAnalysisService:
                 SalesInvoiceLine, SalesInvoiceLine.sales_invoice_id == SalesInvoice.id
             )
             .join(Product, Product.id == SalesInvoiceLine.product_id)
+            .outerjoin(Brand, Brand.id == Product.brand_id)
             .join(Customer, Customer.id == SalesInvoice.customer_id)
             .where(
                 *self._invoice_scope(firm_id, from_date, to_date),
@@ -416,6 +423,10 @@ class SalesAnalysisService:
             return _bucket(self._session, dimension, source["date"])
         if dimension == "category":
             return cast(Product.category_id, String)
+        if dimension == "brand":
+            return cast(Product.brand_id, String)
+        if dimension == "principal":
+            return cast(Brand.principal_id, String)
         if dimension == "customer_group":
             return cast(Customer.customer_group_id, String)
         return cast(source[dimension], String)
@@ -438,6 +449,10 @@ class SalesAnalysisService:
                 clauses.append(source[name] == value)
         if filters.category_id is not None:
             clauses.append(Product.category_id == filters.category_id)
+        if filters.brand_id is not None:
+            clauses.append(Product.brand_id == filters.brand_id)
+        if filters.principal_id is not None:
+            clauses.append(Brand.principal_id == filters.principal_id)
         if filters.customer_group_id is not None:
             clauses.append(Customer.customer_group_id == filters.customer_group_id)
         return clauses
@@ -516,6 +531,7 @@ class SalesAnalysisService:
             ]
         query = (
             query.join(Product, Product.id == source["product"])
+            .outerjoin(Brand, Brand.id == Product.brand_id)
             .join(Customer, Customer.id == source["customer"])
             .where(*scope, *self._filter_clauses(kind, filters))
             .group_by(row_expr, column_expr)
@@ -563,6 +579,7 @@ class SalesAnalysisService:
                 SalesInvoiceLine, SalesInvoiceLine.sales_invoice_id == SalesInvoice.id
             )
             .join(Product, Product.id == SalesInvoiceLine.product_id)
+            .outerjoin(Brand, Brand.id == Product.brand_id)
             .join(Customer, Customer.id == SalesInvoice.customer_id)
             .where(
                 *self._invoice_scope(firm_id, from_date, to_date),
@@ -607,6 +624,20 @@ class SalesAnalysisService:
                     select(ProductCategory.id, ProductCategory.name).where(
                         ProductCategory.id.in_(ids)
                     )
+                ).all()
+            }
+        if dimension == "brand":
+            return {
+                str(i): name
+                for i, name in self._session.execute(
+                    select(Brand.id, Brand.name).where(Brand.id.in_(ids))
+                ).all()
+            }
+        if dimension == "principal":
+            return {
+                str(i): name
+                for i, name in self._session.execute(
+                    select(Principal.id, Principal.name).where(Principal.id.in_(ids))
                 ).all()
             }
         if dimension == "customer":
