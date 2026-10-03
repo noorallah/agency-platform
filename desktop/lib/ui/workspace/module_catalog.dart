@@ -857,6 +857,12 @@ abstract final class ModuleCatalog {
           label: 'Principal Claims',
           requiredPermissions: ['PURCHASE_VIEW'],
         ),
+        // Freight and clearing bills moved into the goods' cost (BUY-16).
+        ModuleTabDefinition(
+          id: 'landed-costs',
+          label: 'Landed Costs',
+          requiredPermissions: ['PURCHASE_VIEW'],
+        ),
         ModuleTabDefinition(
           id: 'purchase-analytics',
           label: 'Analytics',
@@ -1872,6 +1878,12 @@ abstract final class ModuleCatalog {
           label: 'Debit Notes',
           path: 'debit-notes',
           icon: Icons.request_page_outlined,
+        ),
+      if (visibleTabIds.contains('landed-costs'))
+        const WorkspaceNavigationNode(
+          label: 'Landed Costs',
+          path: 'landed-costs',
+          icon: Icons.local_shipping_outlined,
         ),
       if (visibleTabIds.contains('purchase-requisitions'))
         const WorkspaceNavigationNode(

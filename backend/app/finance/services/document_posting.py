@@ -1836,6 +1836,73 @@ class DocumentPostingService:
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
 
+    def post_landed_cost(
+        self,
+        *,
+        firm_id: UUID,
+        voucher_id: UUID,
+        reference_number: str,
+        voucher_date: date,
+        inventory_amount: Decimal,
+        cogs_amount: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Move a freight or clearing charge into the cost of goods (BUY-16).
+
+        Dr inventory for the share still on hand, Dr cost of goods sold for
+        the share already sold, Cr expenses included in valuation -- where
+        the charge's own bill was booked -- for the whole.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        clearing = ControlAccountPurpose.LANDED_COST_CLEARING
+        stock = ControlAccountPurpose.INVENTORY
+        sold = ControlAccountPurpose.COST_OF_GOODS_SOLD
+        held = quantize_ledger(quantize_money(inventory_amount))
+        gone = quantize_ledger(quantize_money(cogs_amount))
+        wanted = [clearing]
+        if held > ZERO:
+            wanted.append(stock)
+        if gone > ZERO:
+            wanted.append(sold)
+        accounts = self._require_mapping(firm_id, tuple(wanted))
+        context = self.context_for(firm_id, voucher_date)
+        describe = f"Landed cost {reference_number}"
+        lines = [
+            JournalLineData(
+                ledger_account_id=accounts[purpose],
+                debit_amount=value,
+                credit_amount=ZERO,
+                description=describe,
+            )
+            for purpose, value in ((stock, held), (sold, gone))
+            if value > ZERO
+        ]
+        lines.append(
+            JournalLineData(
+                ledger_account_id=accounts[clearing],
+                debit_amount=ZERO,
+                credit_amount=held + gone,
+                description=describe,
+            )
+        )
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=voucher_date,
+            reference_number=f"LCV-{reference_number}",
+            description=describe,
+            lines=lines,
+            source_module="landed_costs",
+            source_id=voucher_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
     def post_principal_claim_receipt(
         self,
         *,

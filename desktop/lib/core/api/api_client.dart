@@ -39,6 +39,7 @@ import '../../models/bank_reconciliation.dart';
 import '../../models/tds_challan.dart';
 import '../../models/payment_run.dart';
 import '../../models/supplier_gift.dart';
+import '../../models/landed_cost.dart';
 import '../../models/principal_claim.dart';
 import '../../models/supplier_rebate.dart';
 import '../../models/post_dated_cheque.dart';
@@ -8466,6 +8467,29 @@ class ApiClient {
   /// The claim statement as a PDF.
   Future<List<int>> principalClaimStatement(String id) =>
       downloadBytes('/api/v1/principal-claims/$id/print');
+
+  // ---- landed cost vouchers (BUY-16) ------------------------------------
+
+  Future<List<LandedCost>> landedCosts() async => _unwrapList(
+        await request('GET', '/api/v1/landed-costs'),
+        LandedCost.fromJson,
+      );
+
+  Future<LandedCost> landedCost(String id) async => LandedCost.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/landed-costs/$id')),
+      );
+
+  /// Posts the voucher at once: spreads the charges and revalues the stock.
+  Future<LandedCost> postLandedCost(Json body) async =>
+      LandedCost.fromJson(_unwrapMap(
+          await request('POST', '/api/v1/landed-costs', body: body)));
+
+  Future<LandedCost> cancelLandedCost(String id, String reason) async =>
+      LandedCost.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/landed-costs/$id/cancel',
+        body: {'reason': reason},
+      )));
 
   // ---- quality inspection hold (BUY-9) ----------------------------------
 

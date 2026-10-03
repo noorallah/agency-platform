@@ -296,6 +296,14 @@ trigger each schema owns its own copy of.
 | `stock_transfers` | firm store ¹ | A numbered transfer from one warehouse to another: draft, dispatched (in transit), received or cancelled (STK-1). | `branches`, `warehouses` |
 | `stock_ledger_entries` | firm store ¹ | Persist one immutable stock-ledger row per inventory transaction. | `inventory_transactions`, `inventories`, `batches`, `firms`, `branches`, `warehouses`, `warehouse_storage_nodes`, `products`, `business_profiles`, `uoms` |
 
+### `app/landed_costs`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `landed_cost_vouchers` | firm store ¹ | Freight or clearing spread over completed receipts: the basis, what went to stock and to cost of goods sold, and the journal (BUY-16). | `journal_entries` |
+| `landed_cost_charges` | firm store ¹ | One charge on a voucher, with the party and bill it came from. | `landed_cost_vouchers`, `vendors` |
+| `landed_cost_allocations` | firm store ¹ | The share one receipt line carried, split between stock on hand and goods sold. | `landed_cost_vouchers`, `goods_receipts`, `goods_receipt_lines`, `products`, `inventory_transactions` |
+
 ### `app/loyalty`
 
 | Table | Store | Holds | Points at |

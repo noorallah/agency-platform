@@ -259,6 +259,7 @@ abstract final class MenuLayout {
             AppModule.purchases, 'supplier-rebates', 'Supplier Rebates'),
         MenuItemSpec(
             AppModule.purchases, 'principal-claims', 'Principal Claims'),
+        MenuItemSpec(AppModule.purchases, 'landed-costs', 'Landed Costs'),
       ]),
       MenuGroupSpec('Insight', [
         MenuItemSpec(

@@ -415,12 +415,13 @@ class StockStatementService:
         result: dict[
             str, tuple[Decimal, Decimal, Decimal, tuple[str, str, str] | None]
         ] = {}
-        for code, name, quantity, value in self._session.execute(
+        for code, name, quantity, value, kind in self._session.execute(
             select(
                 Product.code,
                 Product.name,
                 owned,
                 func.coalesce(cost.c.cost, 0),
+                InventoryTransaction.transaction_type,
             )
             .join(Product, Product.id == InventoryTransaction.product_id)
             .outerjoin(cost, cost.c.transaction_id == InventoryTransaction.id)
@@ -433,6 +434,10 @@ class StockStatementService:
             if moved > ZERO:
                 inward += moved
                 inward_value += abs(Decimal(str(value or 0)))
+            elif kind == "LANDED_COST":
+                # Freight added to stock on hand (BUY-16): value in, no
+                # quantity; a cancelled voucher's movement takes it out.
+                inward_value += Decimal(str(value or 0))
             elif moved < ZERO:
                 outward += -moved
             result[code] = (

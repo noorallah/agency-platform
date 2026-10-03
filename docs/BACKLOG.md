@@ -3561,6 +3561,8 @@ TCS, an audit trail, currency and exchange-rate fields, and a low-stock view.
   expense account and the stock's cost -- and so the margin on it -- is
   understated.
 
+**Status, 2026-10-03: built** (BUY-16, A129): *Landed Costs* under Buy. Book the freight or clearing bill to *Expenses Included in Valuation*; a landed cost voucher spreads it over completed receipts by value, quantity or weight, raises the average cost of what is still on hand and sends the share already sold to cost of goods sold.
+
 ### 42.13 Kits and composite items
 
 - **Who has it:** Zoho Inventory (composite items, assembled or bundled).
@@ -4888,7 +4890,7 @@ supplier bill -> payment, with returns off the receipt or the bill.
 | 8 | **Scheme claims** from the principal | Nothing | §42.7 |
 | 9 | **Input credit at risk**: bills matched to GSTR-2B | 3B table 4 from the bills | §42.5 |
 | 10 | **TDS on purchases (194Q)** above 50 lakh a year per supplier | Nothing | §42.4, §53 |
-| 11 | **Landed cost**: freight, loading and duty added to stock cost | Nothing | §42.12 |
+| 11 | **Landed cost**: freight, loading and duty added to stock cost -- **built 2026-10-03** (BUY-16, A129) | Nothing | §42.12 |
 | 12 | **Reorder**: what to buy, from stock levels and sales | Nothing | §42.9 |
 | 13 | **Purchase analysis by any combination** | Fixed reports by vendor, buyer, product | **Built** -- §66, #886 |
 | 14 | **RFQ and supplier quotations** | Nothing (removed from the screens 2026-08-22) | Low for a distributor; validate |
