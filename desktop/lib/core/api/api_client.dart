@@ -1791,6 +1791,55 @@ class ApiClient {
         ),
       );
 
+  /// The month's purchase budgets with what is used and left (BUY-14).
+  /// [month] is any date in it; readable with `PURCHASE_VIEW`.
+  Future<List<PurchaseBudget>> purchaseBudgets(String month) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/purchases/budgets',
+      query: {'month': month},
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return [
+      for (final item in data.whereType<Map>())
+        PurchaseBudget.fromJson(Map<String, dynamic>.from(item)),
+    ];
+  }
+
+  /// Adds a budget, or changes one when [id] is given. Needs
+  /// `PURCHASE_MANAGE_SETTINGS`; a second budget for the same month, branch
+  /// and category is refused.
+  Future<PurchaseBudget> savePurchaseBudget(Json body, {String? id}) async =>
+      PurchaseBudget.fromJson(
+        _unwrapMap(
+          await request(
+            id == null ? 'POST' : 'PUT',
+            id == null
+                ? '/api/v1/purchases/budgets'
+                : '/api/v1/purchases/budgets/$id',
+            body: body,
+          ),
+        ),
+      );
+
+  Future<void> deletePurchaseBudget(String id) =>
+      request('DELETE', '/api/v1/purchases/budgets/$id');
+
+  /// The budgets a saved order counts against, with its own share.
+  Future<List<PurchaseOrderBudgetRow>> purchaseOrderBudget(
+    String orderId,
+  ) async {
+    final Json response =
+        await request('GET', '/api/v1/purchases/$orderId/budget');
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return [
+      for (final item in data.whereType<Map>())
+        PurchaseOrderBudgetRow.fromJson(Map<String, dynamic>.from(item)),
+    ];
+  }
+
   static List<RolePurchaseApprovalLimit> _approvalLimitsFrom(Json data) {
     final Object? raw = data['limits'];
     return raw is List

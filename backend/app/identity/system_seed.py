@@ -252,6 +252,9 @@ PERMISSION_GROUPS = {
         # Passing or rejecting received goods held for inspection (BUY-9):
         # not the executive who counted them in; the inventory manager too.
         "PURCHASE_INSPECT",
+        # Approving an order past a purchase budget where the firm requires
+        # it (BUY-14): the purchase manager's call, not the executive's.
+        "PURCHASE_APPROVE_OVER_BUDGET",
         "PURCHASE_IMPORT",
         "PURCHASE_EXPORT",
         # Which of purchase order and goods receipt this firm raises by hand.
@@ -685,6 +688,7 @@ _SEEDED_ROLE_PERMISSION_CODES = {
                 "PURCHASE_APPROVE",
                 "PURCHASE_APPROVE_OVER_TOLERANCE",
                 "PURCHASE_INSPECT",
+                "PURCHASE_APPROVE_OVER_BUDGET",
                 "PURCHASE_MANAGE_SETTINGS",
             }
         )

@@ -2608,6 +2608,11 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
   Future<List<PurchaseOrderRevision>>? _revisionsFuture;
   String? _revisionId;
 
+  /// BUY-14: the budgets a saved order counts against, read once when the
+  /// editor opens and again after a lifecycle action; empty when none apply
+  /// or the read failed (the panel is advice, never a gate).
+  List<PurchaseOrderBudgetRow> _budgets = const [];
+
   /// Phase 2: the order as the server priced it last, the line the side
   /// panel follows, and which section shows under the header.
   PurchaseOrderPreviewRecord? _preview;
@@ -2628,6 +2633,18 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
   void initState() {
     super.initState();
     _historyFuture = _loadHistory();
+    unawaited(_loadBudgets());
+  }
+
+  Future<void> _loadBudgets() async {
+    if (_draft.id.isEmpty) return;
+    try {
+      final List<PurchaseOrderBudgetRow> rows =
+          await widget.api.purchaseOrderBudget(_draft.id);
+      if (mounted) setState(() => _budgets = rows);
+    } on ApiException {
+      if (mounted) setState(() => _budgets = const []);
+    }
   }
 
   @override
@@ -4273,6 +4290,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
         _acted = true;
         _historyFuture = _loadHistory();
       });
+      unawaited(_loadBudgets());
       NotificationService.show(
         context,
         done,

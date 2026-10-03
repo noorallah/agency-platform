@@ -42,6 +42,7 @@ DEFAULT_SETTINGS = PurchaseWorkflowSettings(
     bill_price_tolerance_percent=None,
     bill_tolerance_amount=None,
     order_quantity_policy="WARN",
+    budget_policy="WARN",
 )
 
 
@@ -121,6 +122,8 @@ class PurchaseWorkflowService:
             row.bill_price_tolerance_percent = data.bill_price_tolerance_percent
         if "bill_tolerance_amount" in sent:
             row.bill_tolerance_amount = data.bill_tolerance_amount
+        if data.budget_policy is not None:
+            row.budget_policy = data.budget_policy
         if data.order_quantity_policy is not None:
             row.order_quantity_policy = data.order_quantity_policy
         row.updated_by = actor_id
@@ -207,6 +210,7 @@ class PurchaseWorkflowService:
             bill_price_tolerance_percent=row.bill_price_tolerance_percent,
             bill_tolerance_amount=row.bill_tolerance_amount,
             order_quantity_policy=row.order_quantity_policy or "WARN",
+            budget_policy=row.budget_policy or "WARN",
             is_configured=is_configured,
         )
 
@@ -233,4 +237,5 @@ class PurchaseWorkflowService:
                 else str(row.bill_tolerance_amount)
             ),
             "order_quantity_policy": row.order_quantity_policy,
+            "budget_policy": row.budget_policy,
         }
