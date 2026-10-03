@@ -32,7 +32,8 @@ from app.identity.system_seed import (
 #: holds them and `FIRM_MANAGER` deliberately does not, which is the whole
 #: distinction between the two roles. Listing them here rather than adding them
 #: to the operational set is what keeps that distinction.
-_FIRM_ADMINISTRATION = frozenset({"user", "role", "permission"})
+# Custom fields are firm configuration and the administrator's (MST-8).
+_FIRM_ADMINISTRATION = frozenset({"user", "role", "permission", "custom_fields"})
 
 
 def _operational_groups() -> frozenset[str]:

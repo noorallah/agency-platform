@@ -590,13 +590,19 @@ class BusinessProfileFrameworkService:
             "name": AttributeDefinition.name,
             "created_at": AttributeDefinition.created_at,
         }
+        # The platform's catalogue is the shared fields; a firm's own are its
+        # business (MST-8).
         statement = select(AttributeDefinition).where(
-            AttributeDefinition.is_deleted.is_(False)
+            AttributeDefinition.is_deleted.is_(False),
+            AttributeDefinition.firm_id.is_(None),
         )
         count = (
             select(func.count())
             .select_from(AttributeDefinition)
-            .where(AttributeDefinition.is_deleted.is_(False))
+            .where(
+                AttributeDefinition.is_deleted.is_(False),
+                AttributeDefinition.firm_id.is_(None),
+            )
         )
         if search:
             condition = or_(

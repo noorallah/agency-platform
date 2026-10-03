@@ -739,6 +739,7 @@ otherwise it is built as written.
 - **What it is:** a firm administrator adds fields to their own products and customers, without touching another firm's.
 - **What gets built:** migration: nullable `firm_id` on `attribute_definitions` and `category_attribute_rules`, shared rows copied per firm, code unique per firm among live rows; `attribute_service.py` scoped to the caller's firm; two permission codes seeded and granted to `FIRM_ADMIN` with a migration; the tabs leave the platform view. Lifecycle guards are already built (B2). Integration test across two firms in `firm_shared`.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A120, migration `20261003_0283`): `FirmCustomFieldService` (`app/business/services/firm_custom_fields.py`) behind `/business-framework/firm-custom-fields` and `/firm-custom-field-rules`. Existing rows were **not** copied per firm -- they stay the shared catalogue, since copies would orphan the values held against them. The platform's attribute list shows shared rows only. Tests: `test_firm_custom_fields.py`.
 
 ### Reports
 

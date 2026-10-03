@@ -49,6 +49,7 @@ from app.business.schemas import (
     ProfileStoreOutcome,
 )
 from app.business.services import AttributeService, BusinessProfileFrameworkService
+from app.business.services.firm_custom_fields import FirmCustomFieldService
 from app.business.services.profile_replication import (
     other_profile_stores,
     replicate,
@@ -59,6 +60,7 @@ from app.business.services.profile_replication import (
 from app.business.services.profile_replication import (
     summary as replication_summary,
 )
+from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import (
@@ -425,6 +427,130 @@ def delete_module(
         else replicate_module(row, other_profile_stores(request, platform_db), actor_id)
     )
     return ApiResponse(data=outcomes, message=replication_summary(outcomes))
+
+
+#: A firm's own custom fields (MST-8).
+CustomFieldViewScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("CUSTOM_FIELD_VIEW")
+]
+CustomFieldManageScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("CUSTOM_FIELD_MANAGE")
+]
+
+
+@router.get(
+    "/firm-custom-fields",
+    response_model=ApiResponse[list[AttributeDefinitionResponse]],
+)
+def list_firm_custom_fields(
+    scope: CustomFieldViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[AttributeDefinitionResponse]]:
+    """Return the firm's own fields and the shared ones (MST-8).
+
+    A row with ``firm_id`` is the firm's own and its to change; one without
+    is the shared catalogue, read-only here.
+    """
+    return ApiResponse(
+        data=[
+            AttributeDefinitionResponse.model_validate(row)
+            for row in FirmCustomFieldService(db).list_fields(scope.firm_id)
+        ]
+    )
+
+
+@router.post(
+    "/firm-custom-fields",
+    response_model=ApiResponse[AttributeDefinitionResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_firm_custom_field(
+    data: AttributeDefinitionCreate,
+    scope: CustomFieldManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[AttributeDefinitionResponse]:
+    """Add a custom field of the firm's own (MST-8)."""
+    row = FirmCustomFieldService(db).create(
+        data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=AttributeDefinitionResponse.model_validate(row))
+
+
+@router.put(
+    "/firm-custom-fields/{field_id}",
+    response_model=ApiResponse[AttributeDefinitionResponse],
+)
+def update_firm_custom_field(
+    field_id: UUID,
+    data: AttributeDefinitionUpdate,
+    scope: CustomFieldManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[AttributeDefinitionResponse]:
+    """Change a field of the firm's own; a held type cannot change (MST-8)."""
+    row = FirmCustomFieldService(db).update(
+        field_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=AttributeDefinitionResponse.model_validate(row))
+
+
+@router.delete("/firm-custom-fields/{field_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_firm_custom_field(
+    field_id: UUID,
+    scope: CustomFieldManageScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Remove a field of the firm's own that holds no values (MST-8)."""
+    FirmCustomFieldService(db).delete(
+        field_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/firm-custom-field-rules",
+    response_model=ApiResponse[list[CategoryAttributeRuleResponse]],
+)
+def list_firm_custom_field_rules(
+    scope: CustomFieldViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[CategoryAttributeRuleResponse]]:
+    """Return the firm's own category rules (MST-8)."""
+    service = _service(db)
+    rows = FirmCustomFieldService(db).list_rules(scope.firm_id)
+    described = service.describe_category_rules(rows)
+    return ApiResponse(data=[_rule_response(row, service, described) for row in rows])
+
+
+@router.post(
+    "/firm-custom-field-rules",
+    response_model=ApiResponse[CategoryAttributeRuleResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_firm_custom_field_rule(
+    data: CategoryAttributeRuleCreate,
+    scope: CustomFieldManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CategoryAttributeRuleResponse]:
+    """Require a field in one category, for this firm alone (MST-8)."""
+    row = FirmCustomFieldService(db).create_rule(
+        data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=_rule_response(row, _service(db)))
+
+
+@router.delete(
+    "/firm-custom-field-rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+def delete_firm_custom_field_rule(
+    rule_id: UUID,
+    scope: CustomFieldManageScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Remove one of the firm's own category rules (MST-8)."""
+    FirmCustomFieldService(db).delete_rule(
+        rule_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get(

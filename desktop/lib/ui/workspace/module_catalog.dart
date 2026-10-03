@@ -272,6 +272,16 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['SETTINGS_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'firm-custom-fields',
+          label: 'Custom Fields',
+          requiredPermissions: ['CUSTOM_FIELD_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'firm-custom-field-rules',
+          label: 'Custom Field Rules',
+          requiredPermissions: ['CUSTOM_FIELD_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'business-profiles',
           label: 'Business Profiles',
           requiredPermissions: ['PLATFORM_VIEW'],
@@ -1447,6 +1457,8 @@ abstract final class ModuleCatalog {
         'conversion-rules',
         'industry-templates',
         'numbering-series',
+        'firm-custom-fields',
+        'firm-custom-field-rules',
       ]))
         WorkspaceNavigationNode(
           label: 'Configuration',
@@ -1589,6 +1601,19 @@ abstract final class ModuleCatalog {
                 label: 'Numbering Series',
                 path: 'numbering-series',
                 icon: Icons.confirmation_number_outlined,
+              ),
+            // The firm's own custom fields (MST-8).
+            if (visibleTabIds.contains('firm-custom-fields'))
+              const WorkspaceNavigationNode(
+                label: 'Custom Fields',
+                path: 'firm-custom-fields',
+                icon: Icons.tune_outlined,
+              ),
+            if (visibleTabIds.contains('firm-custom-field-rules'))
+              const WorkspaceNavigationNode(
+                label: 'Custom Field Rules',
+                path: 'firm-custom-field-rules',
+                icon: Icons.rule_outlined,
               ),
           ],
         ),

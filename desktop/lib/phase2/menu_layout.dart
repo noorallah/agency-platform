@@ -442,6 +442,10 @@ abstract final class MenuLayout {
       MenuItemSpec(AppModule.masters, 'financial-years', 'Financial Years'),
       MenuItemSpec(
           AppModule.administration, 'numbering-series', 'Numbering Series'),
+      MenuItemSpec(
+          AppModule.administration, 'firm-custom-fields', 'Custom Fields'),
+      MenuItemSpec(AppModule.administration, 'firm-custom-field-rules',
+          'Custom Field Rules'),
       MenuItemSpec.setting(workDefaultsRoute, 'My Branch and Warehouse'),
       MenuItemSpec.setting(messagingRoute, 'Messaging',
           permission: 'SETTINGS_VIEW'),

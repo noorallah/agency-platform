@@ -1286,6 +1286,8 @@ whoever hits it.
 
 ## 16. A firm cannot configure its own custom fields
 
+**Built 2026-10-03** (MST-8, A120): a firm's own fields and category rules (`firm_id`), managed under Settings > Custom fields by the firm administrator (`CUSTOM_FIELD_VIEW` / `CUSTOM_FIELD_MANAGE`); the shared catalogue stays the platform's and is read-only to a firm.
+
 **Status, 2026-10-02:** the lifecycle guards are built -- a field's type cannot change and it cannot be deleted while it holds values; making it mandatory warns how many records lack it. The per-firm ownership part and the two decisions above are still open (`docs/OWNER_DECISIONS.md` B2).
 
 `FIRM_ADMIN` writes its own tax rules, UOM conversions and numbering series,

@@ -686,6 +686,98 @@ class ApiClient {
         descending: descending,
       );
 
+  // A firm's own custom fields and the category rules over them (MST-8).
+  // The list is the firm's own fields plus the shared catalogue, which comes
+  // back with a null `firm_id` and is read-only. Both lists are unpaged, so
+  // each is wrapped into a page here as `principalsPage` is. The grid's own
+  // writes go through the generic `create`/`update`/`delete` with
+  // `resource: 'business-framework/firm-custom-fields'`; these are the same
+  // routes by name.
+  Future<List<AttributeDefinitionRecord>> firmCustomFields() async =>
+      _unwrapList(
+        await request('GET', '/api/v1/business-framework/firm-custom-fields'),
+        AttributeDefinitionRecord.fromJson,
+      );
+
+  Future<AttributeDefinitionRecord> createFirmCustomField(Json data) async =>
+      AttributeDefinitionRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/business-framework/firm-custom-fields',
+        body: data,
+      )));
+
+  Future<AttributeDefinitionRecord> updateFirmCustomField(
+    String id,
+    Json data,
+  ) async =>
+      AttributeDefinitionRecord.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/business-framework/firm-custom-fields/$id',
+        body: data,
+      )));
+
+  Future<void> deleteFirmCustomField(String id) => request(
+        'DELETE',
+        '/api/v1/business-framework/firm-custom-fields/$id',
+      );
+
+  Future<List<CategoryAttributeRuleRecord>> firmCustomFieldRules() async =>
+      _unwrapList(
+        await request(
+            'GET', '/api/v1/business-framework/firm-custom-field-rules'),
+        CategoryAttributeRuleRecord.fromJson,
+      );
+
+  Future<CategoryAttributeRuleRecord> createFirmCustomFieldRule(
+    Json data,
+  ) async =>
+      CategoryAttributeRuleRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/business-framework/firm-custom-field-rules',
+        body: data,
+      )));
+
+  Future<void> deleteFirmCustomFieldRule(String id) => request(
+        'DELETE',
+        '/api/v1/business-framework/firm-custom-field-rules/$id',
+      );
+
+  Future<PagedResult<AttributeDefinitionRecord>> firmCustomFieldsPage({
+    int page = 1,
+    String search = '',
+    String sortBy = 'code',
+    bool descending = false,
+  }) async {
+    final String needle = search.trim().toLowerCase();
+    final List<AttributeDefinitionRecord> rows = (await firmCustomFields())
+        .where((row) =>
+            needle.isEmpty ||
+            row.code.toLowerCase().contains(needle) ||
+            row.name.toLowerCase().contains(needle))
+        .toList()
+      ..sort((a, b) => a.code.compareTo(b.code));
+    return PagedResult(items: rows, total: rows.length);
+  }
+
+  Future<PagedResult<CategoryAttributeRuleRecord>> firmCustomFieldRulesPage({
+    int page = 1,
+    String search = '',
+    String sortBy = 'category_code',
+    bool descending = false,
+  }) async {
+    final String needle = search.trim().toLowerCase();
+    final List<CategoryAttributeRuleRecord> rows =
+        (await firmCustomFieldRules())
+            .where((row) =>
+                needle.isEmpty ||
+                row.categoryCode.toLowerCase().contains(needle) ||
+                row.attributeCode.toLowerCase().contains(needle) ||
+                row.attributeName.toLowerCase().contains(needle))
+            .toList()
+          ..sort((a, b) => a.categoryCode.compareTo(b.categoryCode));
+    return PagedResult(items: rows, total: rows.length);
+  }
+
   /// The custom fields a form should offer for one entity type, resolved
   /// for the current firm the way a save resolves them.
   Future<ApplicableAttributesRecord> applicableAttributeDefinitions(
