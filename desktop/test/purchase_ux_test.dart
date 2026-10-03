@@ -414,10 +414,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
 
-    // Vendor, branch and warehouse are filled, and the first line starts at
-    // the product's purchase price, so it is priced at once.
+    // Vendor, branch and warehouse are filled, and the first line is priced
+    // at once -- by the server, since no rate was typed (BUY-3).
     expect(api.previews, isNotEmpty);
-    expect(api.previews.last['lines'][0]['unit_price'], '100');
+    expect(api.previews.last['lines'][0]['unit_price'], isNull);
     expect(find.text('PO-0002 (new)'), findsOneWidget);
     expect(find.byKey(const ValueKey('document-side-panel')), findsOneWidget);
     expect(find.text('Last from this vendor'), findsOneWidget);
@@ -674,8 +674,10 @@ class _PricingPurchaseApi extends _PurchaseApi {
   ) async {
     previews.add(order.toCreateJson());
     final PurchaseOrderLine line = order.lines.first;
+    // The server fills a blank rate from the supplier's list or the product.
+    final String rate = line.unitPrice.isEmpty ? '100' : line.unitPrice;
     final double gross = (double.tryParse(line.orderedQuantity) ?? 0) *
-        (double.tryParse(line.unitPrice) ?? 0);
+        (double.tryParse(rate) ?? 0);
     final double tax = gross * .18;
     final Json priced = order.toCreateJson()
       ..['po_number'] = 'PO-0002'
@@ -686,6 +688,10 @@ class _PricingPurchaseApi extends _PurchaseApi {
       ..['lines'] = [
         {
           ...line.toWriteJson(),
+          'unit_price': rate,
+          'discount_percent': line.discountPercent.isEmpty
+              ? '0'
+              : line.discountPercent,
           'line_number': 1,
           'gross_amount': gross.toStringAsFixed(2),
           'discount_amount': '0',

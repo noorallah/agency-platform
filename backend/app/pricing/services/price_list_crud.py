@@ -95,6 +95,8 @@ class PriceListService:
             statement = statement.where(PriceList.customer_id == filters.customer_id)
         if filters.territory_id is not None:
             statement = statement.where(PriceList.territory_id == filters.territory_id)
+        if filters.vendor_id is not None:
+            statement = statement.where(PriceList.vendor_id == filters.vendor_id)
         if filters.status:
             statement = statement.where(PriceList.status == filters.status)
         return statement
@@ -112,6 +114,7 @@ class PriceListService:
             description=data.description,
             customer_id=data.customer_id,
             territory_id=data.territory_id,
+            vendor_id=data.vendor_id,
             effective_from=data.effective_from,
             effective_to=data.effective_to,
             status=data.status,
@@ -265,6 +268,13 @@ class PriceListService:
             if row.territory_id is not None
             else None
         )
+        from app.vendors.models import Vendor
+
+        vendor = (
+            self._session.get(Vendor, row.vendor_id)
+            if row.vendor_id is not None
+            else None
+        )
         return PriceListResponse(
             id=row.id,
             version=row.version,
@@ -278,6 +288,8 @@ class PriceListService:
             ),
             territory_id=row.territory_id,
             territory_name=None if territory is None else territory.name,
+            vendor_id=row.vendor_id,
+            vendor_name=None if vendor is None else vendor.name,
             effective_from=row.effective_from,
             effective_to=row.effective_to,
             status=row.status,

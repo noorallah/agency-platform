@@ -1,5 +1,6 @@
 """Firm-scoped vendor and child persistence models."""
 
+from decimal import Decimal
 from typing import ClassVar
 from uuid import UUID
 
@@ -9,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -171,6 +173,12 @@ class Vendor(BaseEntity):
     license_number: Mapped[str | None] = mapped_column(String(64))
     registration_number: Mapped[str | None] = mapped_column(String(64))
     website: Mapped[str | None] = mapped_column(String(500))
+    #: What this supplier normally takes off a line (BUY-3): a purchase line
+    #: with no discount of its own starts at it, below the supplier's price
+    #: list and above nothing. Zero is no arrangement.
+    standing_discount_percent: Mapped[Decimal] = mapped_column(
+        Numeric(9, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
     email: Mapped[str | None] = mapped_column(String(320))
     phone: Mapped[str | None] = mapped_column(String(20))
     mobile: Mapped[str | None] = mapped_column(String(20))

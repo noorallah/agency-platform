@@ -376,6 +376,7 @@ otherwise it is built as written.
 - **What it is:** a supplier's standing discount and price list fill the order line.
 - **What gets built:** migration: `standing_discount_percent` on vendors; price lists with a supplier scope (purchase side) in `backend/app/pricing`; the purchase branch of `backend/app/core/utils/pricing.py` ranks them as sales does. Vendor editor field; price list dialog's purchase mode. Tests mirroring the sales ranking.
 - **Depends on:** nothing; BUY-4 extends it. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A97): `vendors.standing_discount_percent` and `price_lists.vendor_id` (migration 0264); `SupplierPriceResolver` in `app/pricing/services/price_list_service.py` (the sales resolver now skips supplier lists); `PurchaseService._priced_from_supplier` fills a blank price and discount on each order line before totals. `PurchaseLineWrite.unit_price` / `discount_percent` are now optional. Desktop: standing discount on the supplier editor, supplier scope on price lists, blank price and discount on the order editor. Tests: `test_supplier_rates.py`, `supplier_rates_test.dart`.
 
 #### BUY-4. Supplier catalogue (§69 row 1)
 - **What it is:** per supplier and product: their name and code, price with history, pack size, minimum order, lead time.

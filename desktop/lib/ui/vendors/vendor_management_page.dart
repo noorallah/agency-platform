@@ -734,6 +734,8 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
       TextEditingController(text: widget.vendor?.blockedReason ?? '');
   late final TextEditingController _creditDays = TextEditingController(
       text: '${widget.vendor?.paymentTermsDays ?? 0}');
+  late final TextEditingController _standingDiscount = TextEditingController(
+      text: '${widget.vendor?.standingDiscountPercent ?? 0}');
   late final TextEditingController _udyam =
       TextEditingController(text: widget.vendor?.udyamNumber ?? '');
   late String _msmeCategory = widget.vendor?.msmeCategory ?? '';
@@ -1130,6 +1132,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
     _gstin.dispose();
     _pan.dispose();
     _creditDays.dispose();
+    _standingDiscount.dispose();
     _blockedReason.dispose();
     _udyam.dispose();
     _email.dispose();
@@ -1349,6 +1352,12 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
           const SizedBox(height: 12),
           Row(
             children: [
+              Expanded(
+                child: _field(_standingDiscount, 'Standing discount %',
+                    helper: 'Taken off every purchase line that names no '
+                        'discount of its own'),
+              ),
+              const SizedBox(width: 12),
               Expanded(
                 child: _field(_creditDays, 'Credit days',
                     helper: "A bill's due date defaults from this"),
@@ -1852,6 +1861,8 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         'gstin': _gstin.text.trim().toUpperCase(),
         'pan': _pan.text.trim().toUpperCase(),
         'payment_terms_days': int.tryParse(_creditDays.text.trim()) ?? 0,
+        'standing_discount_percent':
+            double.tryParse(_standingDiscount.text.trim()) ?? 0,
         'udyam_number': _udyam.text.trim().isEmpty
             ? null
             : _udyam.text.trim().toUpperCase(),

@@ -297,6 +297,7 @@ class Vendor {
     required this.pan,
     this.blockedReason = '',
     this.paymentTermsDays = 0,
+    this.standingDiscountPercent = 0,
     this.udyamNumber = '',
     this.msmeCategory = '',
     this.defaultTdsSection = '',
@@ -372,6 +373,9 @@ class Vendor {
   /// Days of credit; a bill's due date defaults from it (backlog 68 row 1).
   final int paymentTermsDays;
 
+  /// Taken off every purchase line that names no discount of its own.
+  final double standingDiscountPercent;
+
   /// Udyam registration and MSME category (MICRO, SMALL, MEDIUM or empty),
   /// and whether a written agreement allows up to 45 days (backlog 68 row 2).
   final String udyamNumber;
@@ -428,6 +432,8 @@ class Vendor {
         pan: stringValue(json['pan']),
         blockedReason: stringValue(json['blocked_reason']),
         paymentTermsDays: (json['payment_terms_days'] as num?)?.toInt() ?? 0,
+        standingDiscountPercent:
+            double.tryParse('${json['standing_discount_percent'] ?? 0}') ?? 0,
         udyamNumber: stringValue(json['udyam_number']),
         msmeCategory: stringValue(json['msme_category']),
         defaultTdsSection: stringValue(json['default_tds_section']),

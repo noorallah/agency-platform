@@ -64,9 +64,16 @@ class PurchaseLineWrite(PurchaseSchema):
     free_quantity: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
-    unit_price: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
-    discount_percent: Decimal = Field(
-        default=Decimal("0"), ge=0, le=100, max_digits=9, decimal_places=4
+    #: Blank takes the supplier's price (BUY-3): a fixed rate on the
+    #: supplier's price list, else the product's purchase price. Zero is a
+    #: price, not a silence.
+    unit_price: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
+    )
+    #: Blank takes the supplier's arrangement (BUY-3): its price list's rate,
+    #: else its standing discount. Zero refuses both.
+    discount_percent: Decimal | None = Field(
+        default=None, ge=0, le=100, max_digits=9, decimal_places=4
     )
     discount_amount: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
