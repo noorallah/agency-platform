@@ -119,6 +119,11 @@ class Customer(BaseEntity):
     firm_id: Mapped[UUID] = mapped_column(
         UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
     )
+    #: The record this one was merged into (MST-3); set on the duplicate,
+    #: which is soft-deleted, so its history points at the survivor.
+    merged_into_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("customers.id", ondelete="SET NULL")
+    )
     code: Mapped[str] = mapped_column(String(50), nullable=False)
     customer_type: Mapped[str] = mapped_column(String(20), nullable=False)
     #: The commercial segment this shop belongs to, if the firm groups them.
