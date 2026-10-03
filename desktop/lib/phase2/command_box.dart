@@ -44,6 +44,7 @@ const Map<String, List<String>> _synonyms = {
   'masters/supplier-statements': ['statement', 'payable', 'creditor'],
   'sales/gst-returns': ['gstr', 'gstr-1', 'gstr-3b', 'gst'],
   'sales/gst-deposits': ['pmt-06', 'pmt06', 'qrmp', 'quarterly deposit'],
+  'sales/rule42': ['rule 42', 'common credit', 'exempt sales', 'itc reversal'],
   'sales/gst-checks': [
     'gst checks',
     'gst exceptions',

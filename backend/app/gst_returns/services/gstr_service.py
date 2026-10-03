@@ -922,6 +922,15 @@ class GstReturnService:
         )
         reversed_ = reversed_.plus(rule37_reversed)
         claimed = claimed.plus(reclaimed)
+        # Rule 42 (GST-4): common credit given back for exempt supplies is
+        # 4(B)(1), beside blocked credit; a year's true-up that claims some
+        # back is 4(A)(5). Kept in keys of their own, because the rule 42
+        # arithmetic reads the claimed and blocked figures without itself.
+        from app.gst_returns.services.rule42 import Rule42Service
+
+        rule42_reversed, rule42_reclaimed = Rule42Service(
+            self._session
+        ).movements_between(firm_id=firm_scope, from_date=from_date, to_date=to_date)
 
         return {
             # 3.1(d): inward supplies on which the firm pays the tax itself.
@@ -970,6 +979,20 @@ class GstReturnService:
                 "state_tax": _filed(reclaimed.sgst),
                 "cess": _filed(reclaimed.cess),
             },
+            # Of 4(B)(1), the common credit given back under rule 42.
+            "itc_reversed_rule42": {
+                "integrated_tax": _filed(rule42_reversed.igst),
+                "central_tax": _filed(rule42_reversed.cgst),
+                "state_tax": _filed(rule42_reversed.sgst),
+                "cess": _filed(rule42_reversed.cess),
+            },
+            # Of 4(A)(5), credit a rule 42 year-end true-up claimed back.
+            "itc_reclaimed_rule42": {
+                "integrated_tax": _filed(rule42_reclaimed.igst),
+                "central_tax": _filed(rule42_reclaimed.cgst),
+                "state_tax": _filed(rule42_reclaimed.sgst),
+                "cess": _filed(rule42_reclaimed.cess),
+            },
             # Of 4(B)(2), the part reversed under rule 37.
             "itc_reversed_rule37": {
                 "integrated_tax": _filed(rule37_reversed.igst),
@@ -992,19 +1015,40 @@ class GstReturnService:
                 "unplaced_reversals": _filed(unplaced),
                 "unplaced_return_count": unplaced_count,
             },
-            # Table 4(C): 4(A)(3) plus 4(A)(5), less 4(B)(1) and 4(B)(2).
+            # Table 4(C): 4(A)(3) plus 4(A)(5), less 4(B)(1) and 4(B)(2);
+            # rule 42 is in both halves (4(B)(1) and, reclaimed, 4(A)(5)).
             "net_itc": {
                 "integrated_tax": _filed(
-                    claimed.igst + rcm_credit.igst - blocked.igst - reversed_.igst
+                    claimed.igst
+                    + rcm_credit.igst
+                    + rule42_reclaimed.igst
+                    - blocked.igst
+                    - rule42_reversed.igst
+                    - reversed_.igst
                 ),
                 "central_tax": _filed(
-                    claimed.cgst + rcm_credit.cgst - blocked.cgst - reversed_.cgst
+                    claimed.cgst
+                    + rcm_credit.cgst
+                    + rule42_reclaimed.cgst
+                    - blocked.cgst
+                    - rule42_reversed.cgst
+                    - reversed_.cgst
                 ),
                 "state_tax": _filed(
-                    claimed.sgst + rcm_credit.sgst - blocked.sgst - reversed_.sgst
+                    claimed.sgst
+                    + rcm_credit.sgst
+                    + rule42_reclaimed.sgst
+                    - blocked.sgst
+                    - rule42_reversed.sgst
+                    - reversed_.sgst
                 ),
                 "cess": _filed(
-                    claimed.cess + rcm_credit.cess - blocked.cess - reversed_.cess
+                    claimed.cess
+                    + rcm_credit.cess
+                    + rule42_reclaimed.cess
+                    - blocked.cess
+                    - rule42_reversed.cess
+                    - reversed_.cess
                 ),
             },
         }

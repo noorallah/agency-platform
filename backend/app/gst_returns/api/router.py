@@ -22,7 +22,13 @@ from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.responses.models import ApiResponse
 from app.core.utils.dates import utc_now
-from app.gst_returns.models import HEADS, GstCashDeposit, GstPayment, GstReturnType
+from app.gst_returns.models import (
+    HEADS,
+    GstCashDeposit,
+    GstPayment,
+    GstReturnType,
+    ItcCommonReversal,
+)
 from app.gst_returns.schemas import (
     FilingCheckRowResponse,
     FilingChecksResponse,
@@ -45,6 +51,11 @@ from app.gst_returns.schemas import (
     Rule37Post,
     Rule37Response,
     Rule37RowResponse,
+    Rule42AnnualPost,
+    Rule42AnnualResponse,
+    Rule42PeriodPost,
+    Rule42RecordResponse,
+    Rule42Response,
     TaxCalendarItemResponse,
 )
 from app.gst_returns.services import GstReturnService
@@ -58,6 +69,7 @@ from app.gst_returns.services.gst_payment_service import (
 from app.gst_returns.services.gstr2b import Gstr2bService
 from app.gst_returns.services.qrmp import QrmpReturnService
 from app.gst_returns.services.rule37 import Rule37Row, Rule37Service
+from app.gst_returns.services.rule42 import Rule42Figures, Rule42Service
 from app.gst_returns.services.tax_calendar import TaxCalendarService
 
 router = APIRouter(
@@ -698,3 +710,156 @@ def reverse_gst_cash_deposit(
     )
     db.commit()
     return ApiResponse(data=_deposit_response(row))
+
+
+def _rule42_record(row: ItcCommonReversal) -> Rule42RecordResponse:
+    """Describe one posted rule 42 reversal."""
+    return Rule42RecordResponse(
+        id=row.id,
+        kind=row.kind,
+        period_from=row.period_from,
+        period_to=row.period_to,
+        movement_date=row.movement_date,
+        exempt_turnover=row.exempt_turnover,
+        total_turnover=row.total_turnover,
+        common=_heads_of({h: getattr(row, f"common_{h}") for h in HEADS}),
+        reversed=_heads_of({h: getattr(row, f"reversed_{h}") for h in HEADS}),
+        status=row.status,
+        journal_entry_id=row.journal_entry_id,
+        reversal_journal_entry_id=row.reversal_journal_entry_id,
+        reversal_reason=row.reversal_reason,
+        reversed_at=row.reversed_at,
+        version=row.version,
+    )
+
+
+def _rule42_posted(
+    service: Rule42Service, firm_id: UUID, kind: str, figures: Rule42Figures
+) -> Rule42RecordResponse | None:
+    """Return the standing posted reversal of a period, if any."""
+    for row in service.list_posted(firm_id):
+        if (
+            row.kind == kind
+            and row.status == "POSTED"
+            and row.period_from == figures.period_from
+        ):
+            return _rule42_record(row)
+    return None
+
+
+def _rule42_fields(mode: str, figures: Rule42Figures) -> dict[str, object]:
+    """Return the fields a period and a year share."""
+    return {
+        "mode": mode,
+        "period_from": figures.period_from,
+        "period_to": figures.period_to,
+        "exempt_turnover": figures.exempt_turnover,
+        "total_turnover": figures.total_turnover,
+        "exempt_share": figures.share.quantize(Decimal("0.000001")),
+        "common": _heads_of(figures.common),
+        "reversal": _heads_of(figures.reversal),
+    }
+
+
+@router.get("/rule42", response_model=ApiResponse[Rule42Response])
+def rule42_period(
+    scope: GstPaymentViewScope,
+    return_period: ReturnPeriod,
+    db: Session = Depends(get_db),
+) -> ApiResponse[Rule42Response]:
+    """Work out a period's common credit to give back for exempt supplies.
+
+    D1 = C2 x E / F (CGST rule 42); a quarterly filer's month reads its
+    quarter. Writes nothing (GST-4).
+    """
+    service = Rule42Service(db)
+    figures = service.period(scope.firm_id, return_period)
+    return ApiResponse(
+        data=Rule42Response(
+            **_rule42_fields(service.mode(scope.firm_id), figures),
+            posted=_rule42_posted(service, scope.firm_id, "MONTHLY", figures),
+        )
+    )
+
+
+@router.post("/rule42", response_model=ApiResponse[Rule42RecordResponse])
+def rule42_post_period(
+    data: Rule42PeriodPost,
+    scope: GstPaymentPostScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[Rule42RecordResponse]:
+    """Post a period's rule 42 reversal: Dr not claimable, Cr input tax."""
+    row = Rule42Service(db).post_period(
+        scope.firm_id,
+        data.return_period,
+        posting_date=data.posting_date,
+        actor_id=scope.actor_id,
+    )
+    db.commit()
+    return ApiResponse(data=_rule42_record(row))
+
+
+@router.get("/rule42/annual", response_model=ApiResponse[Rule42AnnualResponse])
+def rule42_annual(
+    scope: GstPaymentViewScope,
+    financial_year: Annotated[str, Query(pattern=r"^\d{4}-\d{2}$")],
+    db: Session = Depends(get_db),
+) -> ApiResponse[Rule42AnnualResponse]:
+    """Work out a year whole against what its periods gave back (42(2))."""
+    service = Rule42Service(db)
+    found = service.annual(scope.firm_id, financial_year)
+    return ApiResponse(
+        data=Rule42AnnualResponse(
+            **_rule42_fields(service.mode(scope.firm_id), found.figures),
+            posted=_rule42_posted(service, scope.firm_id, "ANNUAL", found.figures),
+            already_reversed=_heads_of(found.already),
+            difference=_heads_of(found.difference),
+        )
+    )
+
+
+@router.post("/rule42/annual", response_model=ApiResponse[Rule42RecordResponse])
+def rule42_post_annual(
+    data: Rule42AnnualPost,
+    scope: GstPaymentPostScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[Rule42RecordResponse]:
+    """Post a year's rule 42 true-up: more reversed, or claimed back."""
+    row = Rule42Service(db).post_annual(
+        scope.firm_id,
+        data.financial_year,
+        posting_date=data.posting_date,
+        actor_id=scope.actor_id,
+    )
+    db.commit()
+    return ApiResponse(data=_rule42_record(row))
+
+
+@router.get("/rule42/posted", response_model=ApiResponse[list[Rule42RecordResponse]])
+def rule42_posted(
+    scope: GstPaymentViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[Rule42RecordResponse]]:
+    """Every rule 42 reversal the firm has posted, newest period first."""
+    return ApiResponse(
+        data=[
+            _rule42_record(row) for row in Rule42Service(db).list_posted(scope.firm_id)
+        ]
+    )
+
+
+@router.post(
+    "/rule42/{reversal_id}/reverse", response_model=ApiResponse[Rule42RecordResponse]
+)
+def rule42_take_back(
+    reversal_id: UUID,
+    data: GstPaymentReverse,
+    scope: GstPaymentPostScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[Rule42RecordResponse]:
+    """Take back a posted rule 42 reversal, posting the mirror journal."""
+    row = Rule42Service(db).reverse(
+        reversal_id, firm_id=scope.firm_id, actor_id=scope.actor_id, reason=data.reason
+    )
+    db.commit()
+    return ApiResponse(data=_rule42_record(row))

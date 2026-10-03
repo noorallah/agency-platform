@@ -113,6 +113,12 @@ class _Api extends ApiClient {
         },
       };
     }
+    // The GSTR-3B page asks how the firm files (GST-7): monthly here.
+    if (path.endsWith('/filing-plan')) {
+      return <String, dynamic>{
+        'data': {'filing_frequency': 'MONTHLY'},
+      };
+    }
     throw StateError('unexpected $method $path');
   }
 

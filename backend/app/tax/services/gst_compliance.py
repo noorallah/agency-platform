@@ -83,6 +83,7 @@ class GstComplianceService:
                 filing_frequency="MONTHLY",
                 quarterly_from=None,
                 qrmp_payment_method="FIXED_SUM",
+                rule42_mode="REPORT",
                 is_configured=False,
             )
         return GstComplianceSettingsResponse(
@@ -98,6 +99,7 @@ class GstComplianceService:
             filing_frequency=stored.filing_frequency or "MONTHLY",
             quarterly_from=stored.quarterly_from,
             qrmp_payment_method=stored.qrmp_payment_method or "FIXED_SUM",
+            rule42_mode=stored.rule42_mode or "REPORT",
             is_configured=True,
         )
 
@@ -133,6 +135,8 @@ class GstComplianceService:
             )
         if data.qrmp_payment_method is not None:
             row.qrmp_payment_method = data.qrmp_payment_method
+        if data.rule42_mode is not None:
+            row.rule42_mode = data.rule42_mode
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -178,6 +182,7 @@ class GstComplianceService:
                 row.quarterly_from.isoformat() if row.quarterly_from else None
             ),
             "qrmp_payment_method": row.qrmp_payment_method,
+            "rule42_mode": row.rule42_mode,
         }
 
     def dispatch_check(

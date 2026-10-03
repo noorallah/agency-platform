@@ -6280,6 +6280,64 @@ class ApiClient {
         },
       ));
 
+  // ---- rule 42: common credit for exempt sales (GST-4) -----------------
+
+  /// The month's exempt share and the common credit it takes back.
+  Future<Json> rule42Period(String returnPeriod) async =>
+      _unwrapMap(await request(
+        'GET',
+        '/api/v1/gst-returns/rule42',
+        query: {'return_period': returnPeriod},
+      ));
+
+  /// Post the month's reversal; [postingDate] (YYYY-MM-DD) defaults to the
+  /// period's last day on the server.
+  Future<Json> postRule42Period(
+    String returnPeriod, {
+    String? postingDate,
+  }) async =>
+      _unwrapMap(await request(
+        'POST',
+        '/api/v1/gst-returns/rule42',
+        body: {
+          'return_period': returnPeriod,
+          if (postingDate != null) 'posting_date': postingDate,
+        },
+      ));
+
+  /// The year's true-up against what the months already gave back.
+  Future<Json> rule42Annual(String financialYear) async =>
+      _unwrapMap(await request(
+        'GET',
+        '/api/v1/gst-returns/rule42/annual',
+        query: {'financial_year': financialYear},
+      ));
+
+  /// Post the annual true-up on [postingDate] (YYYY-MM-DD).
+  Future<Json> postRule42Annual(
+    String financialYear,
+    String postingDate,
+  ) async =>
+      _unwrapMap(await request(
+        'POST',
+        '/api/v1/gst-returns/rule42/annual',
+        body: {'financial_year': financialYear, 'posting_date': postingDate},
+      ));
+
+  /// Every rule 42 reversal posted.
+  Future<List<Json>> rule42Posted() async => _unwrapList(
+        await request('GET', '/api/v1/gst-returns/rule42/posted'),
+        (Json row) => row,
+      );
+
+  /// Take a posted rule 42 reversal back, with the reason the trail keeps.
+  Future<Json> reverseRule42(String id, String reason) async =>
+      _unwrapMap(await request(
+        'POST',
+        '/api/v1/gst-returns/rule42/$id/reverse',
+        body: {'reason': reason},
+      ));
+
   // ---- paying the tax (backlog 63) -------------------------------------
 
   /// A month's set-off and cash payable, by the statutory order; writes

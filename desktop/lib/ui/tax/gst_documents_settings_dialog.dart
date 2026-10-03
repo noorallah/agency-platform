@@ -40,6 +40,7 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
   bool _routeSaleNeedsInvoice = false;
   String _itcBasis = 'ALL';
   String _rule37 = 'REPORT';
+  String _rule42 = 'REPORT';
   String _supplierIrn = 'WARN';
   String _frequency = 'MONTHLY';
   String? _quarterlyFrom;
@@ -94,6 +95,9 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
         _rule37 = const ['OFF', 'REPORT', 'POST'].contains(settings.rule37Mode)
             ? settings.rule37Mode
             : 'REPORT';
+        _rule42 = const ['OFF', 'REPORT', 'POST'].contains(settings.rule42Mode)
+            ? settings.rule42Mode
+            : 'REPORT';
         _supplierIrn = settings.supplierIrnCheck == 'OFF' ? 'OFF' : 'WARN';
         _frequency =
             settings.filingFrequency == 'QUARTERLY' ? 'QUARTERLY' : 'MONTHLY';
@@ -125,6 +129,7 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
             isConfigured: true,
             itcClaimBasis: _itcBasis,
             rule37Mode: _rule37,
+            rule42Mode: _rule42,
             supplierIrnCheck: _supplierIrn,
             gstr2bTolerance: _tolerance.text.trim().isEmpty
                 ? '1.00'
@@ -381,6 +386,34 @@ class _GstDocumentsSettingsDialogState extends State<GstDocumentsSettingsDialog>
                       ],
                       onChanged: editable && !saving
                           ? (value) => setState(() => _rule37 = value ?? _rule37)
+                          : null,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    DropdownButtonFormField<String>(
+                      key: const ValueKey('gst-rule42-mode'),
+                      isExpanded: true,
+                      initialValue: _rule42,
+                      decoration: const InputDecoration(
+                        labelText:
+                            'Rule 42 — common credit for exempt sales',
+                        helperText: 'Gives back the share of common input '
+                            'credit that exempt, nil-rated and non-GST sales '
+                            'take (D1 = C2 × E / F)',
+                        helperMaxLines: 2,
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'OFF', child: Text('Off')),
+                        DropdownMenuItem(
+                          value: 'REPORT',
+                          child: Text('Report'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'POST',
+                          child: Text('Report and post'),
+                        ),
+                      ],
+                      onChanged: editable && !saving
+                          ? (value) => setState(() => _rule42 = value ?? _rule42)
                           : null,
                     ),
                     const SizedBox(height: AppSpacing.md),

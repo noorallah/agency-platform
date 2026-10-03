@@ -244,6 +244,7 @@ trigger each schema owns its own copy of.
 | `gst_return_filings` | firm store ¹ | One return, for one month, filed on the portal. |  |
 | `gstr2b_documents` | firm store ¹ | One supplier document in a month's GSTR-2B, and what it matched. | `gstr2b_imports` |
 | `gstr2b_imports` | firm store ¹ | One month's GSTR-2B, imported once; a re-import replaces it. |  |
+| `itc_common_reversals` | firm store ¹ | A rule 42 reversal of common credit for a period, or a year's true-up, with the turnover and credit it was worked from (GST-4). | `journal_entries` |
 | `itc_reversals` | firm store ¹ | One reversal of a bill's credit, or one reclaim of it. | `purchase_invoices`, `journal_entries` |
 
 ### `app/identity`

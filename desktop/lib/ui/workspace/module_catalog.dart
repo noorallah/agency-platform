@@ -594,6 +594,13 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['ACCOUNT_VIEW', 'SALES_VIEW'],
           requiresAnyPermission: true,
         ),
+        // Common credit given back for exempt sales (GST-4).
+        ModuleTabDefinition(
+          id: 'rule42',
+          label: 'Rule 42',
+          requiredPermissions: ['ACCOUNT_VIEW', 'SALES_VIEW'],
+          requiresAnyPermission: true,
+        ),
         // What a return would get wrong, found before filing (GST-5).
         ModuleTabDefinition(
           id: 'gst-checks',

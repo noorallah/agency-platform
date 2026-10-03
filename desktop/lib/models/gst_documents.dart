@@ -64,6 +64,7 @@ class GstComplianceSettings {
     this.filingFrequency = 'MONTHLY',
     this.quarterlyFrom,
     this.qrmpPaymentMethod = 'FIXED_SUM',
+    this.rule42Mode = 'REPORT',
   });
 
   /// ISO dates (`2026-04-01`), or null when not set.
@@ -103,6 +104,9 @@ class GstComplianceSettings {
   /// FIXED_SUM or SELF_ASSESSMENT: how the PMT-06 deposits are worked out.
   final String qrmpPaymentMethod;
 
+  /// OFF, REPORT or POST: common credit given back for exempt sales (GST-4).
+  final String rule42Mode;
+
   factory GstComplianceSettings.fromJson(Json json) {
     String? date(dynamic value) {
       final String text = stringValue(value);
@@ -137,10 +141,13 @@ class GstComplianceSettings {
       qrmpPaymentMethod: stringValue(json['qrmp_payment_method']).isEmpty
           ? 'FIXED_SUM'
           : stringValue(json['qrmp_payment_method']),
+      rule42Mode: stringValue(json['rule42_mode']).isEmpty
+          ? 'REPORT'
+          : stringValue(json['rule42_mode']),
     );
   }
 
-  /// Exactly the twelve keys the server declares; it refuses any other.
+  /// Exactly the thirteen keys the server declares; it refuses any other.
   Json toJson() => <String, dynamic>{
         'einvoice_applicable_from': einvoiceApplicableFrom,
         'thirty_day_rule_from': thirtyDayRuleFrom,
@@ -154,5 +161,6 @@ class GstComplianceSettings {
         'filing_frequency': filingFrequency,
         'quarterly_from': quarterlyFrom,
         'qrmp_payment_method': qrmpPaymentMethod,
+        'rule42_mode': rule42Mode,
       };
 }

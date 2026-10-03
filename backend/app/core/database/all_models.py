@@ -51,6 +51,7 @@ from app.gst_returns.models import (
     gst_payment,  # noqa: F401
     gst_return_filing,  # noqa: F401
     gstr2b,  # noqa: F401
+    itc_common_reversal,  # noqa: F401
     itc_reversal,  # noqa: F401
 )
 from app.identity.models import identity  # noqa: F401
