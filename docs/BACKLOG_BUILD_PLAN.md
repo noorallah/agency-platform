@@ -412,6 +412,7 @@ otherwise it is built as written.
 - **What it is:** a supplier bill priced or counted beyond the agreed tolerance waits for approval.
 - **What gets built:** firm tolerance (% and amount) in purchase settings (`workflow_settings_service.py`, migration); the purchase invoice approval in `backend/app/purchase_invoice` compares to receipt and order, refuses without a permission and names the lines; bulk approval reports it per row. Tests.
 - **Depends on:** nothing. **Effort / Who:** M, Claude alone.
+- **Built 2026-10-03** (A99): `bill_price_tolerance_percent` and `bill_tolerance_amount` on `purchase_workflow_settings`, `PURCHASE_APPROVE_OVER_TOLERANCE` (migration 0265). `PurchaseInvoiceService.tolerance_breaches` / `_assert_within_tolerance`; `approve_invoice(may_exceed_tolerance=...)` from both the single and the bulk route. Desktop: *Bill matching* on the purchase settings. Tests: `test_bill_tolerance.py`, `bill_tolerance_test.dart`.
 
 #### BUY-11. Payment run and bank bulk file (§68 row 9)
 - **What it is:** pay all bills due by Friday across suppliers in one go, and upload one file to the bank.

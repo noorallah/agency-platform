@@ -371,6 +371,13 @@ class PurchaseWorkflowSettings(BaseEntity):
     default_warehouse_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("warehouses.id", ondelete="RESTRICT")
     )
+    #: How far a supplier bill's rate may run over its order's rate, as a
+    #: percentage, before the bill waits for somebody holding
+    #: PURCHASE_APPROVE_OVER_TOLERANCE (BUY-10). Null: no check.
+    bill_price_tolerance_percent: Mapped[Decimal | None] = mapped_column(Numeric(7, 4))
+    #: The most a whole bill may come to over its order's prices before it
+    #: waits (BUY-10). Null: no check.
+    bill_tolerance_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
 
 
 class ReorderPlanningSettings(BaseEntity):

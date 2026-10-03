@@ -115,6 +115,8 @@ void main() {
     expect(api.saved.single, <String, dynamic>{
       'purchase_order_stage': false,
       'goods_receipt_stage': false,
+      'bill_price_tolerance_percent': null,
+      'bill_tolerance_amount': null,
     });
   });
 

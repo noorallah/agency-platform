@@ -864,12 +864,22 @@ class PurchaseWorkflowSettings {
     required this.isConfigured,
     this.defaultBranchId,
     this.defaultWarehouseId,
+    this.billPriceTolerancePercent,
+    this.billToleranceAmount,
   });
 
   final bool purchaseOrderStage;
   final bool goodsReceiptStage;
   final String? defaultBranchId;
   final String? defaultWarehouseId;
+
+  /// How far a bill's rate may exceed its order's, in percent (BUY-10). Null
+  /// means no check.
+  final double? billPriceTolerancePercent;
+
+  /// How far a whole bill may exceed its order's total, as an amount. Null
+  /// means no check.
+  final double? billToleranceAmount;
 
   /// False while the firm is still on the platform default: the whole chain.
   final bool isConfigured;
@@ -899,18 +909,31 @@ class PurchaseWorkflowSettings {
         defaultBranchId: _idOrNull(json['default_branch_id']),
         defaultWarehouseId: _idOrNull(json['default_warehouse_id']),
         isConfigured: boolValue(json['is_configured']),
+        billPriceTolerancePercent:
+            double.tryParse(stringValue(json['bill_price_tolerance_percent'])),
+        billToleranceAmount:
+            double.tryParse(stringValue(json['bill_tolerance_amount'])),
       );
 
-  /// The two switches only. The server leaves an omitted default as it is,
-  /// so a stages save cannot clear one (the rule D-CFG-14 taught sales).
+  /// The two switches and the two bill tolerances. The server leaves an
+  /// omitted default as it is, so a save cannot clear one (the rule D-CFG-14
+  /// taught sales); an explicit null tolerance switches that check off.
   Json toJson() => <String, dynamic>{
         'purchase_order_stage': purchaseOrderStage,
         'goods_receipt_stage': goodsReceiptStage,
+        'bill_price_tolerance_percent': billPriceTolerancePercent,
+        'bill_tolerance_amount': billToleranceAmount,
       };
 
+  /// [clearPercent] / [clearAmount] switch a tolerance off, which a null
+  /// argument cannot say.
   PurchaseWorkflowSettings copyWith({
     bool? purchaseOrderStage,
     bool? goodsReceiptStage,
+    double? billPriceTolerancePercent,
+    bool clearPercent = false,
+    double? billToleranceAmount,
+    bool clearAmount = false,
   }) =>
       PurchaseWorkflowSettings(
         purchaseOrderStage: purchaseOrderStage ?? this.purchaseOrderStage,
@@ -918,6 +941,12 @@ class PurchaseWorkflowSettings {
         defaultBranchId: defaultBranchId,
         defaultWarehouseId: defaultWarehouseId,
         isConfigured: isConfigured,
+        billPriceTolerancePercent: clearPercent
+            ? null
+            : billPriceTolerancePercent ?? this.billPriceTolerancePercent,
+        billToleranceAmount: clearAmount
+            ? null
+            : billToleranceAmount ?? this.billToleranceAmount,
       );
 }
 

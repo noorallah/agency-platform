@@ -51,6 +51,49 @@ class _PurchaseWorkflowSettingsDialogState
   /// prove it read the settings before it may write them.
   bool _read = false;
 
+  final TextEditingController _percent = TextEditingController();
+  final TextEditingController _amount = TextEditingController();
+  String? _toleranceError;
+
+  @override
+  void dispose() {
+    _percent.dispose();
+    _amount.dispose();
+    super.dispose();
+  }
+
+  static String _shown(double? value) {
+    if (value == null) return '';
+    return value == value.roundToDouble()
+        ? value.toStringAsFixed(0)
+        : value.toString();
+  }
+
+  /// Blank is no check (null); anything else must be a number in range.
+  /// Returns false, with [_toleranceError] set, when a box is not valid.
+  bool _applyTolerances() {
+    final String p = _percent.text.trim();
+    final String a = _amount.text.trim();
+    final double? percent = p.isEmpty ? null : double.tryParse(p);
+    final double? amount = a.isEmpty ? null : double.tryParse(a);
+    if (p.isNotEmpty && (percent == null || percent < 0 || percent > 100)) {
+      _toleranceError = 'The rate tolerance is a percentage from 0 to 100.';
+      return false;
+    }
+    if (a.isNotEmpty && (amount == null || amount < 0)) {
+      _toleranceError = 'The bill tolerance is an amount of 0 or more.';
+      return false;
+    }
+    _toleranceError = null;
+    _settings = _settings.copyWith(
+      billPriceTolerancePercent: percent,
+      clearPercent: percent == null,
+      billToleranceAmount: amount,
+      clearAmount: amount == null,
+    );
+    return true;
+  }
+
   bool get _mayManage =>
       widget.permissions.hasPermission('PURCHASE_MANAGE_SETTINGS');
 
@@ -76,6 +119,8 @@ class _PurchaseWorkflowSettingsDialogState
       if (!mounted) return;
       setState(() {
         _settings = settings;
+        _percent.text = _shown(settings.billPriceTolerancePercent);
+        _amount.text = _shown(settings.billToleranceAmount);
         _read = true;
         _loading = false;
       });
@@ -91,6 +136,10 @@ class _PurchaseWorkflowSettingsDialogState
 
   Future<void> _save() async {
     if (!_read) return;
+    if (!_applyTolerances()) {
+      setState(() {});
+      return;
+    }
     setState(() {
       _saving = true;
       _error = null;
@@ -206,6 +255,49 @@ class _PurchaseWorkflowSettingsDialogState
                           : 'Goods come into this firm’s default branch and '
                               'warehouse. Without those, a bill cannot decide '
                               'where its stock goes.',
+                    ),
+                  ],
+                  const SizedBox(height: AppSpacing.lg),
+                  Text('Bill matching', style: theme.textTheme.titleSmall),
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    'A supplier bill priced past either limit over its order '
+                    'is refused at approval, unless the approver may approve '
+                    'over tolerance. Leave a box blank for no check.',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  TextField(
+                    key: const ValueKey('bill-tolerance-percent'),
+                    controller: _percent,
+                    enabled: _mayManage && _read && !_saving,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Rate may exceed the order by (%)',
+                      helperText: 'Blank means no check on the rate.',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  TextField(
+                    key: const ValueKey('bill-tolerance-amount'),
+                    controller: _amount,
+                    enabled: _mayManage && _read && !_saving,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Whole bill may exceed the order by (amount)',
+                      helperText: 'Blank means no check on the bill total.',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  if (_toleranceError != null) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      _toleranceError!,
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: theme.colorScheme.error),
                     ),
                   ],
                   if (!_mayManage) ...[

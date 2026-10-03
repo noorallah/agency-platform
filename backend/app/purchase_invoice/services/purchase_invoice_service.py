@@ -23,7 +23,11 @@ from app.common.report_names import (
     vendors_matching,
 )
 from app.core.database.batch import children_by_parent
-from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.exceptions import (
+    AuthorizationError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.core.pagination import WHOLE_HISTORY, ReportRows, ReportWindow, mapped_like
 from app.core.utils.chunks import chunks
 from app.core.utils.dates import utc_now
@@ -656,12 +660,24 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         return row
 
     def approve_invoice(
-        self, invoice_id: UUID, *, firm_scope: UUID, actor_id: UUID
+        self,
+        invoice_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        may_exceed_tolerance: bool = True,
     ) -> PurchaseInvoice:
-        """Approve one purchase invoice."""
+        """Approve one purchase invoice.
+
+        ``may_exceed_tolerance`` says the caller holds
+        PURCHASE_APPROVE_OVER_TOLERANCE; without it a bill priced past the
+        firm's tolerance over its order is refused, naming the lines (BUY-10).
+        """
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status != PurchaseInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft purchase invoices can be approved.")
+        if not may_exceed_tolerance:
+            self._assert_within_tolerance(row, firm_id=firm_scope)
         # A bill that raised its own receipt brings the goods in now: its
         # approval is the receipt's completion -- stock in, Dr inventory / Cr
         # goods received not invoiced -- and the bill below clears that
@@ -736,6 +752,90 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         )
         self._session.commit()
         return row
+
+    def tolerance_breaches(self, row: PurchaseInvoice, *, firm_id: UUID) -> list[str]:
+        """Return how a bill runs over its order beyond the firm's tolerance.
+
+        BUY-10. Each line continuing an order -- directly, or through the
+        receipt that received it -- is compared with the order line's rate:
+        past ``bill_price_tolerance_percent`` it is named. The bill's total
+        excess over the order prices past ``bill_tolerance_amount`` is named
+        too. A bill typed with no order behind it has nothing to compare.
+        """
+        from app.goods_receipt.models import GoodsReceiptLine
+        from app.purchase.models import PurchaseOrderLine
+        from app.purchase.services.workflow_settings_service import (
+            PurchaseWorkflowService,
+        )
+
+        policy = PurchaseWorkflowService(self._session).settings_response(firm_id)
+        percent = policy.bill_price_tolerance_percent
+        amount = policy.bill_tolerance_amount
+        if percent is None and amount is None:
+            return []
+        breaches: list[str] = []
+        excess = ZERO
+        for line in self._session.scalars(
+            select(PurchaseInvoiceLine)
+            .where(
+                PurchaseInvoiceLine.purchase_invoice_id == row.id,
+                PurchaseInvoiceLine.is_deleted.is_(False),
+            )
+            .order_by(PurchaseInvoiceLine.line_number.asc())
+        ).all():
+            order_line_id = None
+            if line.source_document_type == "PURCHASE_ORDER":
+                order_line_id = line.source_document_line_id
+            elif line.source_document_type == "GOODS_RECEIPT":
+                received = self._session.get(
+                    GoodsReceiptLine, line.source_document_line_id
+                )
+                order_line_id = (
+                    None if received is None else received.purchase_order_line_id
+                )
+            ordered = (
+                self._session.get(PurchaseOrderLine, order_line_id)
+                if order_line_id is not None
+                else None
+            )
+            if ordered is None:
+                continue
+            agreed = Decimal(str(ordered.unit_price))
+            billed = Decimal(str(line.unit_price))
+            over = billed - agreed
+            if over <= ZERO:
+                continue
+            excess += over * Decimal(str(line.current_invoice_quantity))
+            if percent is not None and agreed > ZERO:
+                share = over / agreed * Decimal("100")
+                if share > Decimal(str(percent)):
+                    breaches.append(
+                        f"line {line.line_number}: billed at {billed:.2f} against "
+                        f"{agreed:.2f} ordered ({share:.1f}% over, tolerance "
+                        f"{Decimal(str(percent)):.1f}%)"
+                    )
+        if amount is not None and excess > Decimal(str(amount)):
+            breaches.append(
+                f"the bill runs {self._q(excess):.2f} over its order's prices "
+                f"(tolerance {Decimal(str(amount)):.2f})"
+            )
+        return breaches
+
+    def _assert_within_tolerance(self, row: PurchaseInvoice, *, firm_id: UUID) -> None:
+        """Refuse a bill past the firm's tolerance over its order (BUY-10).
+
+        Raises:
+            AuthorizationError: Naming each line and the total that run over.
+
+        """
+        breaches = self.tolerance_breaches(row, firm_id=firm_id)
+        if breaches:
+            raise AuthorizationError(
+                f"{row.invoice_number} is priced past the firm's tolerance over "
+                f"its order -- {'; '.join(breaches)}. Approving it needs the "
+                "approve over tolerance permission (PURCHASE_APPROVE_OVER_"
+                "TOLERANCE), or correct the bill."
+            )
 
     def set_supplier_irn(
         self,

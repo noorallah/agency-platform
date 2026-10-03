@@ -361,7 +361,12 @@ def bulk_approve_purchase_invoices(
 
     def act(document_id: UUID) -> None:
         service.approve_invoice(
-            document_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+            document_id,
+            firm_scope=scope.firm_id,
+            actor_id=scope.actor_id,
+            may_exceed_tolerance=scope.principal.has_permission(
+                "PURCHASE_APPROVE_OVER_TOLERANCE"
+            ),
         )
         db.commit()
 
@@ -455,7 +460,14 @@ def approve_purchase_invoice(
     """Approve one purchase invoice."""
     service = PurchaseInvoiceService(db)
     row = service.approve_invoice(
-        invoice_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+        invoice_id,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        # A bill priced past the firm's tolerance over its order waits for
+        # somebody who may approve it anyway (BUY-10).
+        may_exceed_tolerance=scope.principal.has_permission(
+            "PURCHASE_APPROVE_OVER_TOLERANCE"
+        ),
     )
     return ApiResponse(data=service.invoice_response(row))
 
