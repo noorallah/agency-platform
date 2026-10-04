@@ -51,6 +51,7 @@ from app.enquiry.api import router as enquiry_router
 from app.expenses.api.router import router as expenses_router
 from app.finance.api import router as finance_router
 from app.firms.api import router as firms_router
+from app.fixed_assets.api import router as fixed_assets_router
 from app.goods_receipt.api import router as goods_receipt_router
 from app.gst_returns.api.router import router as gst_returns_router
 from app.identity.api import router as identity_router
@@ -207,6 +208,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(rfqs_router)
     application.include_router(rate_contracts_router)
     application.include_router(bills_of_entry_router)
+    application.include_router(fixed_assets_router)
     application.include_router(supplier_schemes_router)
     application.include_router(sales_invoices_router)
     application.include_router(sales_returns_router)

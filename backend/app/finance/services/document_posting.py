@@ -2133,6 +2133,158 @@ class DocumentPostingService:
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
 
+    def post_depreciation(
+        self,
+        *,
+        firm_id: UUID,
+        run_id: UUID,
+        reference_number: str,
+        on: date,
+        legs: list[tuple[UUID, UUID, Decimal]],
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Book a depreciation run (PG-13): Dr expense, Cr accumulated.
+
+        ``legs`` is one (expense account, accumulated depreciation account,
+        amount) per pair of accounts the run's asset classes post to, each
+        amount already the sum of per-asset charges rounded to the paisa. The
+        accounts are the class's own or the firm's ``DEPRECIATION_EXPENSE``
+        and ``ACCUMULATED_DEPRECIATION`` control accounts, resolved by the
+        caller.
+
+        Raises:
+            ValidationError: If no open period covers ``on``.
+
+        """
+        context = self.context_for(firm_id, on)
+        describe = f"Depreciation {reference_number}"
+        lines: list[JournalLineData] = []
+        for expense_account, accumulated_account, amount in legs:
+            value = quantize_ledger(amount)
+            if value <= ZERO:
+                continue
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=expense_account,
+                    debit_amount=value,
+                    credit_amount=ZERO,
+                    description=describe,
+                )
+            )
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=accumulated_account,
+                    debit_amount=ZERO,
+                    credit_amount=value,
+                    description=describe,
+                )
+            )
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=on,
+            reference_number=reference_number,
+            description=describe,
+            lines=lines,
+            source_module="depreciation_run",
+            source_id=run_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_asset_disposal(
+        self,
+        *,
+        firm_id: UUID,
+        asset_id: UUID,
+        reference_number: str,
+        on: date,
+        asset_account_id: UUID,
+        accumulated_account_id: UUID,
+        money_account_id: UUID,
+        cost: Decimal,
+        accumulated: Decimal,
+        sale_amount: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Take a sold or scrapped asset off the books (PG-13).
+
+        Dr accumulated depreciation for all that was charged, Dr the cash or
+        bank account for the sale money, Cr the asset account for its cost;
+        the difference -- sale money less book value -- is a gain (Cr) or a
+        loss (Dr) on ``ASSET_DISPOSAL_GAIN_LOSS``. Each leg is rounded on its
+        own and the gain is what balances them.
+
+        Raises:
+            ValidationError: If the gain/loss account or an open period is
+                missing.
+
+        """
+        gain_purpose = ControlAccountPurpose.ASSET_DISPOSAL_GAIN_LOSS
+        accounts = self._require_mapping(firm_id, (gain_purpose,))
+        context = self.context_for(firm_id, on)
+        describe = f"Disposal of {reference_number}"
+        ledger_cost = quantize_ledger(cost)
+        ledger_accumulated = quantize_ledger(accumulated)
+        ledger_sale = quantize_ledger(sale_amount)
+        gain = ledger_sale - (ledger_cost - ledger_accumulated)
+        lines: list[JournalLineData] = []
+        if ledger_accumulated > ZERO:
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=accumulated_account_id,
+                    debit_amount=ledger_accumulated,
+                    credit_amount=ZERO,
+                    description=describe,
+                )
+            )
+        if ledger_sale > ZERO:
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=money_account_id,
+                    debit_amount=ledger_sale,
+                    credit_amount=ZERO,
+                    description=describe,
+                )
+            )
+        lines.append(
+            JournalLineData(
+                ledger_account_id=asset_account_id,
+                debit_amount=ZERO,
+                credit_amount=ledger_cost,
+                description=describe,
+            )
+        )
+        if gain != ZERO:
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=accounts[gain_purpose],
+                    debit_amount=-gain if gain < ZERO else ZERO,
+                    credit_amount=gain if gain > ZERO else ZERO,
+                    description=(
+                        f"Gain on {describe.lower()}"
+                        if gain > ZERO
+                        else f"Loss on {describe.lower()}"
+                    ),
+                )
+            )
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=on,
+            reference_number=f"{reference_number}-DISPOSAL",
+            description=describe,
+            lines=lines,
+            source_module="fixed_asset",
+            source_id=asset_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
     def post_principal_claim_receipt(
         self,
         *,
@@ -3439,6 +3591,7 @@ class DocumentPostingService:
         blocked_tax_amount: Decimal = ZERO,
         tds_amount: Decimal = ZERO,
         tcs_amount: Decimal = ZERO,
+        capital_amounts: list[tuple[UUID, Decimal]] | None = None,
     ) -> JournalEntry:
         """Turn a supplier invoice into a payable and clear the receipt accrual.
 
@@ -3483,6 +3636,11 @@ class DocumentPostingService:
             tcs_amount: TCS the supplier charged on the bill (PG-6, 206C(1H)):
                 debited to TCS Receivable and added to the payable. Outside
                 the goods and the tax, so it moves no stock and no GST.
+            capital_amounts: The capital-goods lines (PG-13), one (asset
+                account, rupee value) each: debited to the asset's cost
+                account instead of being left to the accrual or the price
+                variance, since such a line put nothing into stock. Their
+                tax is claimed with the rest of the bill's.
 
         Returns:
             The posted journal entry.
@@ -3530,7 +3688,12 @@ class DocumentPostingService:
         accrued = (
             ledger_goods if accrued_amount is None else quantize_ledger(accrued_amount)
         )
-        variance = ledger_goods - accrued
+        capital = [
+            (account_id, quantize_ledger(amount))
+            for account_id, amount in capital_amounts or []
+            if quantize_ledger(amount) > ZERO
+        ]
+        variance = ledger_goods - accrued - sum((value for _, value in capital), ZERO)
         lines = [
             JournalLineData(
                 ledger_account_id=accounts[
@@ -3545,6 +3708,15 @@ class DocumentPostingService:
                 description=f"Supplier invoice {invoice_number}",
             ),
         ]
+        for account_id, value in capital:
+            # Capital goods (PG-13): the asset's cost, never stock.
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=account_id,
+                    debit_amount=value,
+                    description=f"Capital goods on {invoice_number}",
+                )
+            )
         if ledger_tcs > ZERO:
             # Charged by the supplier on top of the bill (PG-6): the firm owes
             # it to the supplier and claims it back against its own tax.

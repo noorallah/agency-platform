@@ -67,6 +67,9 @@ GROUPS: tuple[tuple[str, str, AccountTypeEnum], ...] = (
     # 2026-09-27: what the Expenses screen records against).
     ("IEXP", "Indirect Expenses", AccountTypeEnum.EXPENSE),
     ("EQ", "Equity", AccountTypeEnum.EQUITY),
+    # What the firm owns to use rather than to sell (PG-13): the assets'
+    # cost and the depreciation charged against it.
+    ("FA", "Fixed Assets", AccountTypeEnum.ASSET),
 )
 
 #: Groups inside another, created only with the first account that needs them
@@ -503,6 +506,38 @@ CHART: tuple[SeedAccount, ...] = (
         "REV",
         ControlAccountPurpose.CHEQUE_RETURN_CHARGES,
     ),
+    SeedAccount(
+        # Fixed assets (PG-13): their cost, the depreciation charged against
+        # it, and the year's charge. Migration 20261005_0315 gives existing
+        # firms the same accounts.
+        "1500",
+        "Fixed Assets",
+        AccountTypeEnum.ASSET,
+        "FA",
+        ControlAccountPurpose.FIXED_ASSET_COST,
+    ),
+    SeedAccount(
+        "1590",
+        "Accumulated Depreciation",
+        AccountTypeEnum.ASSET,
+        "FA",
+        ControlAccountPurpose.ACCUMULATED_DEPRECIATION,
+    ),
+    SeedAccount(
+        "6950",
+        "Depreciation",
+        AccountTypeEnum.EXPENSE,
+        "IEXP",
+        ControlAccountPurpose.DEPRECIATION_EXPENSE,
+    ),
+    SeedAccount(
+        # Sale money less book value when an asset leaves (PG-13).
+        "4960",
+        "Profit/Loss on Sale of Assets",
+        AccountTypeEnum.INCOME,
+        "REV",
+        ControlAccountPurpose.ASSET_DISPOSAL_GAIN_LOSS,
+    ),
     *INDIRECT_EXPENSE_ACCOUNTS,
 )
 
@@ -694,6 +729,12 @@ def seed_finance_setup(
         controls.assign(firm_id, entry.purpose, accounts[entry.code], actor_id=actor_id)
         created["mappings"] += 1
 
+    # The common asset classes (PG-13), each posting to the accounts above
+    # until the firm names its own. Imported here: fixed assets read finance.
+    # Not counted: the counts say what of the books themselves was created.
+    from app.fixed_assets.services.defaults import seed_asset_classes
+
+    seed_asset_classes(session, firm_id=firm_id, actor_id=actor_id)
     session.flush()
     return created
 

@@ -320,6 +320,11 @@ RESET_ORDER: tuple[str, ...] = (
     "bill_of_entry_documents",
     "bill_of_entry_lines",
     "bills_of_entry",
+    # The asset register (PG-13): raised by bills, charged by runs whose
+    # journals go below. The asset classes are masters and stay.
+    "depreciation_run_lines",
+    "depreciation_runs",
+    "fixed_assets",
     "purchase_return_accounting_events",
     "purchase_return_attachments",
     "purchase_return_notes",

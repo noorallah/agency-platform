@@ -805,6 +805,8 @@ class GstPurchaseRegisterRecord(BaseModel):
     itc_not_claimable: Decimal
     reverse_charge_tax: Decimal
     invoice_total: Decimal
+    #: Tax on capital-goods lines (PG-13), part of ``total_tax``.
+    capital_goods_tax: Decimal = Decimal("0")
 
 
 @router.get(

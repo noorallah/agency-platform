@@ -478,6 +478,59 @@ of Entry, typed as a `DRAFT` and posted (`PURCHASE_APPROVE`).
   `boe_date` on every read (`itc_import_goods`), and net ITC includes it
   (`docs/TAX_FRAMEWORK.md`).
 
+## A fixed asset is debited at cost, depreciated by run, and leaves at book value
+
+PG-13 (2026-10-05, migration `20261005_0315`, module `app/fixed_assets`,
+`/api/v1/fixed-assets`), decided by Companies Act Schedule II, Income-tax Act
+s.32 and Tally/ERPNext practice. Four purposes, each a default an asset class
+may override with its own account: `FIXED_ASSET_COST` (*1500 Fixed Assets*),
+`ACCUMULATED_DEPRECIATION` (*1590*, a contra asset, both in a *Fixed Assets*
+group), `DEPRECIATION_EXPENSE` (*6950*) and `ASSET_DISPOSAL_GAIN_LOSS`
+(*4960*, income or expense).
+
+- **A capital-goods bill line is an asset, never stock.** A purchase-bill
+  line marked `is_capital_goods` names an `asset_class_id`; approving the bill
+  raises one asset per such line at the line's value before tax (in rupees at
+  the bill's rate) and the bill's journal debits the class's asset account
+  for it. The bill's own receipt (a firm typing only the bill) is completed
+  with **no stock movement and no accrual** for that line, so the goods value
+  is not left to *Goods Received Not Invoiced* or price variance. A line
+  billing a receipt a person already completed is refused: the goods are in
+  stock, and taking them out is a stock issue, not the bill's business.
+- **Its GST is claimed in full** (current law, no five-year split) through
+  the same input-tax legs as any line, and GSTR-3B counts it in 4(A)(5); the
+  GST purchase register shows it apart as `capital_goods_tax`. Blocked or
+  ineligible credit stays a cost, as on any line.
+- **Cancelling the bill** takes its assets off the register (soft delete) and
+  mirrors its journal, unless an asset has since been depreciated or
+  disposed, which refuses the cancellation.
+- **An asset typed by hand posts nothing**: an *opening* asset (with its
+  depreciation to `opening_as_of`) or one bought outside a bill reached the
+  ledger by the opening trial balance or the journal that brought it.
+- **A depreciation run** (`POST /fixed-assets/depreciation-runs`, Companies
+  Act book) charges every active asset from the later of the period start,
+  its put-to-use day and the day after its last charge, to the period end:
+  SLM `(cost - residual) / life` (or `cost x rate`), WDV `rate x book value`,
+  each pro rata over a 365-day year and never below the residual value, each
+  rounded on its own. **One journal per run**, reference `DEP-<number>`,
+  source module `depreciation_run`: Dr expense / Cr accumulated per pair of
+  accounts, dated the period end. Runs go forward and never overlap;
+  cancelling (latest first, never under a disposal) reverses the journal
+  (`DEP-<number>-REV`).
+- **Disposal** (`POST /fixed-assets/{id}/dispose`) first charges depreciation
+  to the day (a `DISPOSAL` run of one asset), then posts reference
+  `FA-<number>-DISPOSAL`, source module `fixed_asset`: Dr accumulated
+  depreciation (opening plus every charge), Dr *Cash* or *Bank* (`method`) for
+  the sale money, Cr the asset account at cost, and the difference -- sale
+  money less book value -- Cr (gain) or Dr (loss) to
+  `ASSET_DISPOSAL_GAIN_LOSS`. GST on the sale is a sales invoice's business,
+  not the disposal's.
+- **The Income-tax block schedule posts nothing.** It is read on every call
+  from the register for one of the firm's financial years: per block rate,
+  opening WDV, additions at the full rate (used 180 days or more in the year)
+  and at half the rate, sale proceeds, depreciation, closing WDV, and the
+  short-term capital gain when proceeds exceed the block.
+
 ## A balance is cleared without money by a deduction or a party adjustment, never by tax
 
 Backlog 74 row 2 (2026-10-01). A receipt three rupees short, a bank charge the

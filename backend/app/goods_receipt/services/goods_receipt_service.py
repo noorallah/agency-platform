@@ -450,9 +450,19 @@ class GoodsReceiptService(TransactionalDocumentService):
         return row
 
     def stage_complete(
-        self, receipt_id: UUID, *, firm_scope: UUID, actor_id: UUID
+        self,
+        receipt_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        capital_line_ids: frozenset[UUID] = frozenset(),
     ) -> GoodsReceipt:
-        """Complete receipt -- stock in, accrual posted -- without committing."""
+        """Complete receipt -- stock in, accrual posted -- without committing.
+
+        ``capital_line_ids`` names lines a bill completing its own receipt
+        marked capital goods (PG-13): received, but put into no stock and
+        accrued nothing, since the bill debits them to a fixed asset.
+        """
         row = self.get_receipt(receipt_id, firm_scope=firm_scope)
         if row.status == GoodsReceiptStatus.COMPLETED.value:
             return row
@@ -488,7 +498,12 @@ class GoodsReceiptService(TransactionalDocumentService):
         licence_remark, licence_details = LicenceCheckService(
             self._session
         ).approve_purchase(LicenceDocument.GOODS_RECEIPT, row.id, firm_id=firm_scope)
-        self._post_inventory(row, purchase_order=purchase_order, actor_id=actor_id)
+        self._post_inventory(
+            row,
+            purchase_order=purchase_order,
+            actor_id=actor_id,
+            capital_line_ids=capital_line_ids,
+        )
         before = row.status
         row.status = GoodsReceiptStatus.COMPLETED.value
         row.completed_at = utc_now()
@@ -1793,9 +1808,14 @@ class GoodsReceiptService(TransactionalDocumentService):
             )
 
     def _post_inventory(
-        self, receipt: GoodsReceipt, *, purchase_order: PurchaseOrder, actor_id: UUID
+        self,
+        receipt: GoodsReceipt,
+        *,
+        purchase_order: PurchaseOrder,
+        actor_id: UUID,
+        capital_line_ids: frozenset[UUID] = frozenset(),
     ) -> None:
-        """Post inventory."""
+        """Post inventory, skipping capital-goods lines (PG-13)."""
         received_cost = ZERO
         # An order in another currency priced its lines as the supplier bills
         # (PG-12); the stock is valued in rupees at the order's rate, which
@@ -1810,6 +1830,9 @@ class GoodsReceiptService(TransactionalDocumentService):
                 GoodsReceiptLine.is_deleted.is_(False),
             )
         ).all():
+            if line.id in capital_line_ids:
+                # A fixed asset, not stock: no movement, nothing accrued.
+                continue
             # The batch number is typed off the carton. Resolving it to a real
             # batch is what puts the goods in that batch's stock row instead of
             # the product's single one; without it the batch register and the

@@ -881,12 +881,21 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         # goods received not invoiced -- and the bill below clears that
         # accrual in the same transaction. Only its own draft receipts; a
         # receipt a person raised was completed by them.
+        # Capital goods (PG-13) are an asset, not stock: the bill's own
+        # receipt brings them in without a stock movement or an accrual.
+        capital_lines = self._capital_lines(row.id)
         receipts = GoodsReceiptService(self._session)
         for receipt in self._raised_receipts(row):
             if receipt.status == GoodsReceiptStatus.DRAFT.value:
                 receipts.stage_complete(
-                    receipt.id, firm_scope=firm_scope, actor_id=actor_id
+                    receipt.id,
+                    firm_scope=firm_scope,
+                    actor_id=actor_id,
+                    capital_line_ids=frozenset(
+                        line.source_document_line_id for line in capital_lines
+                    ),
                 )
+        self._refuse_capital_goods_in_stock(capital_lines)
         # Checked again where the payable is raised, so a draft saved before
         # the check existed cannot post against a line it does not own.
         self._refuse_foreign_lines(row, firm_id=firm_scope)
@@ -946,6 +955,9 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             total_amount = self._q(row.grand_total)
             by_component = self._tax_by_component(row.id)
             blocked = self._blocked_tax(row.id)
+        capital_amounts = self._stage_assets(
+            row, capital_lines, firm_id=firm_scope, actor_id=actor_id
+        )
         DocumentPostingService(self._session).post_purchase_invoice(
             firm_id=firm_scope,
             invoice_id=row.id,
@@ -961,6 +973,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             blocked_tax_amount=blocked,
             tds_amount=row.tds_amount,
             tcs_amount=row.tcs_amount,
+            capital_amounts=capital_amounts,
         )
         # Warned, not refused: the bill is owed whatever its terms say, and
         # paying it in time is what the warning is for (backlog 68 row 2).
@@ -991,6 +1004,105 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         )
         self._session.flush()
         return row
+
+    def _capital_lines(self, invoice_id: UUID) -> list[PurchaseInvoiceLine]:
+        """Return the bill's capital-goods lines (PG-13), in line order."""
+        return list(
+            self._session.scalars(
+                select(PurchaseInvoiceLine)
+                .where(
+                    PurchaseInvoiceLine.purchase_invoice_id == invoice_id,
+                    PurchaseInvoiceLine.is_deleted.is_(False),
+                    PurchaseInvoiceLine.is_capital_goods.is_(True),
+                )
+                .order_by(PurchaseInvoiceLine.line_number)
+            ).all()
+        )
+
+    def _refuse_capital_goods_in_stock(
+        self, lines: Sequence[PurchaseInvoiceLine]
+    ) -> None:
+        """Refuse a capital-goods line whose receipt already put it in stock.
+
+        Capital goods never enter stock (PG-13). The bill's own receipt is
+        completed without a movement for them; a receipt a person completed
+        earlier has already moved the goods in, and taking them out again is
+        a stock issue, not a bill's business.
+
+        Raises:
+            ValidationError: Naming the line and the receipt.
+
+        """
+        receipt_lines = [
+            line.source_document_line_id
+            for line in lines
+            if line.source_document_type
+            == PurchaseInvoiceSourceType.GOODS_RECEIPT.value
+        ]
+        if not receipt_lines:
+            return
+        stocked = set(
+            self._session.scalars(
+                select(GoodsReceiptLine.id).where(
+                    GoodsReceiptLine.id.in_(receipt_lines),
+                    GoodsReceiptLine.inventory_transaction_id.is_not(None),
+                )
+            ).all()
+        )
+        for line in lines:
+            if line.source_document_line_id in stocked:
+                raise ValidationError(
+                    f"Line {line.line_number} is capital goods, but "
+                    f"{line.source_document_number} already took it into "
+                    "stock. Capital goods are received on the bill itself: "
+                    "untick capital goods, or bill it without a completed "
+                    "receipt.",
+                    details={"field": "is_capital_goods"},
+                )
+
+    def _stage_assets(
+        self,
+        row: PurchaseInvoice,
+        lines: Sequence[PurchaseInvoiceLine],
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> list[tuple[UUID, Decimal]]:
+        """Raise the bill's fixed assets and return the legs to debit (PG-13).
+
+        Each asset costs its line's value before tax, in rupees: a bill in
+        another currency is converted at its own rate, as its journal is.
+        """
+        if not lines:
+            return []
+        # Imported here: fixed assets read this module's models.
+        from app.fixed_assets.services import FixedAssetService
+
+        rate = (
+            row.exchange_rate
+            if is_foreign(row.currency_code) and row.exchange_rate is not None
+            else Decimal("1")
+        )
+        return FixedAssetService(self._session).stage_from_invoice(
+            firm_id=firm_id,
+            invoice_id=row.id,
+            invoice_date=row.invoice_date,
+            vendor_id=row.vendor_id,
+            branch_id=row.branch_id,
+            lines=[
+                (
+                    line.id,
+                    line.asset_class_id,
+                    line.product_id,
+                    line.description,
+                    line.current_invoice_quantity,
+                    (line.net_amount - line.tax_amount) * rate,
+                )
+                for line in lines
+                if line.asset_class_id is not None
+            ],
+            actor_id=actor_id,
+        )
 
     @staticmethod
     def _stage_tcs(
@@ -1305,6 +1417,13 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             # clearing the same accrual a second time (D-BUY-2, driven on
             # TEST01: 2300 left debited 600 on its own). The entry faces the
             # supplier, not the stock, so a mirror is the right reversal.
+            # The assets its capital-goods lines raised go with it (PG-13),
+            # unless one has been depreciated or disposed since.
+            from app.fixed_assets.services import FixedAssetService
+
+            FixedAssetService(self._session).stage_withdraw_for_invoice(
+                row.id, invoice_number=row.invoice_number, actor_id=actor_id
+            )
             self._reverse_invoice_posting(row, firm_scope=firm_scope, actor_id=actor_id)
         # Supplier credit set against this bill is free again: the bill's
         # payable is gone, the return's debit still stands (D-FIN-19). Nothing
@@ -2237,6 +2356,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 + charges_amount
                 + tax_amount
             )
+            capital, asset_class_id = self._capital_goods(spec, firm_id=firm_id)
             line = PurchaseInvoiceLine(
                 purchase_invoice_id=row.id,
                 firm_id=firm_id,
@@ -2259,6 +2379,8 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 gross_amount=gross_amount,
                 tax_profile_id=line_tax.profile_id,
                 itc_eligibility=eligibility,
+                is_capital_goods=capital,
+                asset_class_id=asset_class_id,
                 tax_amount=tax_amount,
                 net_amount=net_amount,
                 packaging_type_id=spec.get("packaging_type_id"),
@@ -2747,6 +2869,45 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             )
         )
         return self._q(Decimal(str(total or 0)))
+
+    def _capital_goods(
+        self, spec: dict[str, object], *, firm_id: UUID
+    ) -> tuple[bool, UUID | None]:
+        """Return whether a line is capital goods, and its asset class (PG-13).
+
+        A class on a line that is not capital goods is dropped rather than
+        kept, so the two cannot disagree.
+
+        Raises:
+            ValidationError: If a capital-goods line names no class, or one
+                that is not the firm's live, active class.
+
+        """
+        if not spec.get("is_capital_goods"):
+            return False, None
+        # Imported here: fixed assets read this module's models.
+        from app.fixed_assets.models import AssetClass
+
+        class_id = _optional_uuid(spec.get("asset_class_id"))
+        line_number = spec.get("line_number")
+        if class_id is None:
+            raise ValidationError(
+                f"Line {line_number} is capital goods: choose its asset class.",
+                details={"field": "asset_class_id"},
+            )
+        klass = self._session.get(AssetClass, class_id)
+        if (
+            klass is None
+            or klass.is_deleted
+            or klass.firm_id != firm_id
+            or not klass.is_active
+        ):
+            raise ValidationError(
+                f"Line {line_number} names an asset class that is not one of "
+                "this firm's active classes.",
+                details={"field": "asset_class_id"},
+            )
+        return True, class_id
 
     def _itc_eligibility(
         self,
@@ -3607,6 +3768,8 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             gross_amount=row.gross_amount,
             tax_profile_id=row.tax_profile_id,
             itc_eligibility=row.itc_eligibility or "ELIGIBLE",
+            is_capital_goods=bool(row.is_capital_goods),
+            asset_class_id=row.asset_class_id,
             tax_amount=row.tax_amount,
             net_amount=row.net_amount,
             packaging_type_id=row.packaging_type_id,

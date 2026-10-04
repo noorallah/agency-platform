@@ -183,6 +183,18 @@ class ControlAccountPurpose(StrEnum):
     #: receipt carries (PG-12 part B): a cost with no credit, booked as an
     #: expense because there is no stock to revalue with it.
     CUSTOMS_DUTY = "CUSTOMS_DUTY"
+    #: What fixed assets cost (PG-13): debited by a bill's capital-goods
+    #: line, credited when the asset is disposed. An asset class may name its
+    #: own account instead; this is the default.
+    FIXED_ASSET_COST = "FIXED_ASSET_COST"
+    #: Depreciation charged on fixed assets so far, a contra asset (PG-13):
+    #: credited by each depreciation run, cleared at disposal.
+    ACCUMULATED_DEPRECIATION = "ACCUMULATED_DEPRECIATION"
+    #: The year's depreciation charge (PG-13), debited by each run.
+    DEPRECIATION_EXPENSE = "DEPRECIATION_EXPENSE"
+    #: Sale money less book value when an asset leaves (PG-13): a gain is a
+    #: credit and a loss a debit to the same account.
+    ASSET_DISPOSAL_GAIN_LOSS = "ASSET_DISPOSAL_GAIN_LOSS"
 
 
 INPUT_TAX_PURPOSE_BY_COMPONENT.update(
@@ -319,6 +331,11 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     ControlAccountPurpose.EXCHANGE_GAIN_LOSS: frozenset({"INCOME", "EXPENSE"}),
     ControlAccountPurpose.CUSTOMS_PAYABLE: frozenset({"LIABILITY"}),
     ControlAccountPurpose.CUSTOMS_DUTY: frozenset({"EXPENSE"}),
+    ControlAccountPurpose.FIXED_ASSET_COST: frozenset({"ASSET"}),
+    # A contra asset: it reduces the assets it sits beside.
+    ControlAccountPurpose.ACCUMULATED_DEPRECIATION: frozenset({"ASSET"}),
+    ControlAccountPurpose.DEPRECIATION_EXPENSE: frozenset({"EXPENSE"}),
+    ControlAccountPurpose.ASSET_DISPOSAL_GAIN_LOSS: frozenset({"INCOME", "EXPENSE"}),
 }
 
 
@@ -399,6 +416,10 @@ PURPOSE_LABELS: dict[ControlAccountPurpose, str] = {
     ControlAccountPurpose.EXCHANGE_GAIN_LOSS: "Exchange gain/loss",
     ControlAccountPurpose.CUSTOMS_PAYABLE: "Customs duty payable",
     ControlAccountPurpose.CUSTOMS_DUTY: "Customs duty",
+    ControlAccountPurpose.FIXED_ASSET_COST: "Fixed assets",
+    ControlAccountPurpose.ACCUMULATED_DEPRECIATION: "Accumulated depreciation",
+    ControlAccountPurpose.DEPRECIATION_EXPENSE: "Depreciation",
+    ControlAccountPurpose.ASSET_DISPOSAL_GAIN_LOSS: "Profit/loss on sale of assets",
 }
 
 
