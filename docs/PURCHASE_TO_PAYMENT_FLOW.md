@@ -254,6 +254,26 @@ Dr  2100 Trade Payables     450.00        Dr  2100 Trade Payables     600.00
 Either may name the open bills it clears; those bills then owe less on Record
 Payment and the vendor outstanding and overdue reports. No tax leg, ever.
 
+### What is owed, by supplier and month, against 2100
+
+`GET /api/v1/purchase-invoices/reports/payables` (backlog §85, PG-2;
+`app/purchase_invoice/services/payables_report.py`) answers "what do we owe
+each supplier" as at any date: one row per supplier, each open bill's
+outstanding in its invoice month (or due month, `basis=due`), older bills in
+**Older**, and a **Credits** column for everything on the supplier's account
+that names no bill -- a return off a goods receipt, the part of a return or
+debit note its bill could not absorb, and money paid on account -- less the
+credit already set against bills and what suppliers paid back. **Outstanding**
+therefore sums every document that posts to 2100, and the report checks its
+total against the 2100 balance at the as-of date read from the journal
+(`books_check.ledger_balance`, `books_check.difference`); a difference is
+shown, never hidden. `view=paid` shows the payments per supplier per month,
+checked against what they debited 2100 with. It replaces the old *Vendor
+outstanding* report (`/reports/outstanding`, kept one release), which listed
+bills alone and so overstated what was owed by the supplier credits
+(D-BUY-32). A branch filter drops the books check: payments and refunds name
+no branch.
+
 ---
 
 ## The whole chain, netted

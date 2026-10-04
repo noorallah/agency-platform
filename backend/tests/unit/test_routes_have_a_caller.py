@@ -135,6 +135,11 @@ _ACCEPTED: dict[str, str] = {
     "DELETE /api/v1/finance/financial-years/{year_id}": _SCREEN_GAP,
     "GET /api/v1/branch-warehouse/settings": _SCREEN_GAP,
     "GET /api/v1/sales-returns/summary": _SCREEN_GAP,
+    # Desktop in PG-2 part 2: delete this line when its report page lands.
+    "GET /api/v1/purchase-invoices/reports/payables": (
+        "the server half of PG-2 (§85) merges first; its report page is the "
+        "desktop half"
+    ),
 }
 
 
