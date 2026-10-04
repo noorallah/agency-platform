@@ -91,6 +91,7 @@ from app.purchase.services.line_quantities import (
     LineQuantities,
     billing_status,
     is_complete,
+    line_status,
     order_line_quantities,
 )
 from app.sales.services.document_preview import purchase_line_companions
@@ -1756,6 +1757,9 @@ class PurchaseService(TransactionalDocumentService):
                 **PurchaseOrderLineResponse.model_validate(item).model_dump(
                     mode="python"
                 ),
+                # Derived from the quantities, never read from the column,
+                # which nothing writes after creation (D-BUY-24).
+                "status": line_status(row.status, figure),
                 "received_quantity": figure.received,
                 "accepted_quantity": figure.accepted,
                 "rejected_quantity": figure.rejected,

@@ -159,3 +159,49 @@ def test_received_and_billed_in_full_is_complete() -> None:
     assert done.billing_status == "INVOICED"
     assert done.is_complete is True
     assert session.scalars(select(GoodsReceiptLine)).one().accepted_quantity == D("10")
+
+
+def test_a_line_status_follows_what_was_received() -> None:
+    """D-BUY-24: ORDERED, then PARTIALLY_RECEIVED, then RECEIVED, never stored."""
+    session, order, po_line = _order()
+    service = PurchaseService(session)
+    [untouched] = service.order_response(order).lines
+    assert untouched.status == "ORDERED"
+
+    receipt, receipt_line = bills._received(session, po_line)
+    receipt_line.current_receipt_quantity = D("4")
+    receipt_line.accepted_quantity = D("4")
+    session.commit()
+    [partial] = service.order_response(order).lines
+    assert partial.received_quantity == D("4")
+    assert partial.pending_receipt_quantity == D("6")
+    assert partial.status == "PARTIALLY_RECEIVED"
+
+    receipt_line.current_receipt_quantity = D("10")
+    receipt_line.accepted_quantity = D("10")
+    session.commit()
+    [full] = service.order_response(order).lines
+    assert full.status == "RECEIVED"
+
+    # A cancelled receipt walks the line back, as it does the order.
+    receipt.status = "CANCELLED"
+    session.commit()
+    [back] = service.order_response(order).lines
+    assert back.status == "ORDERED"
+
+
+def test_a_cancelled_or_closed_order_says_so_on_every_line() -> None:
+    """The order's end overrides how far receiving got."""
+    session, order, po_line = _order()
+    _, receipt_line = bills._received(session, po_line)
+    receipt_line.current_receipt_quantity = D("4")
+    session.commit()
+    service = PurchaseService(session)
+
+    order.status = "CLOSED"
+    [closed] = service.order_response(order).lines
+    assert closed.status == "CLOSED"
+
+    order.status = "CANCELLED"
+    [cancelled] = service.order_response(order).lines
+    assert cancelled.status == "CANCELLED"
