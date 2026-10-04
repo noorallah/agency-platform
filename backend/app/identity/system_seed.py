@@ -551,6 +551,26 @@ _all_read_permissions = frozenset(
     code for code in SYSTEM_PERMISSION_CODES if code.endswith("_VIEW")
 )
 
+#: The masters a purchase document is typed from (D-ROLE-1). The buying
+#: editors read these lists to fill their pickers -- `GET /vendors`
+#: (`VENDOR_VIEW`), `/products` (`PRODUCT_VIEW`), `/branches` (`BRANCH_VIEW`),
+#: `/warehouses` and their storage nodes (`WAREHOUSE_VIEW`),
+#: `/tax-framework/profiles` (`TAX_VIEW`) and `/uom-framework/uoms`
+#: (`UOM_VIEW`). Without them the Purchasing job opened a purchase order and
+#: was told it had no vendor and no product to order. A supplier's bank
+#: accounts (`VENDOR_VIEW_FINANCIAL_DETAILS`) and a product's cost
+#: (`PRODUCT_VIEW_COST_PRICE`) stay out: neither is needed to raise the order.
+_purchase_document_masters = frozenset(
+    {
+        "VENDOR_VIEW",
+        "PRODUCT_VIEW",
+        "BRANCH_VIEW",
+        "WAREHOUSE_VIEW",
+        "TAX_VIEW",
+        "UOM_VIEW",
+    }
+)
+
 _SEEDED_ROLE_PERMISSION_CODES = {
     "PLATFORM_ADMIN": _all_permissions,
     "SUPPORT_ADMIN": _all_permissions,
@@ -627,6 +647,14 @@ _SEEDED_ROLE_PERMISSION_CODES = {
     | frozenset(
         {
             "PRODUCT_VIEW",
+            # D-ROLE-1: a quotation, an order, a delivery note and a return
+            # name a branch and a warehouse, and a delivery note's lines a tax
+            # profile and a unit -- `/branches`, `/warehouses`,
+            # `/tax-framework/profiles`, `/uom-framework/uoms`.
+            "BRANCH_VIEW",
+            "WAREHOUSE_VIEW",
+            "TAX_VIEW",
+            "UOM_VIEW",
             "TERRITORY_VIEW",
             "TERRITORY_ASSIGN_CUSTOMERS",
             # Reads the offers their team sells under. Setting them is not
@@ -683,6 +711,12 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             "SALES_VIEW",
             # Sees why a line needing a licence is flagged on a customer.
             "TRADE_LICENCE_VIEW",
+            # D-ROLE-1: a quotation and an order are typed from the product
+            # list and name a branch and a warehouse -- `/products`,
+            # `/branches`, `/warehouses`.
+            "PRODUCT_VIEW",
+            "BRANCH_VIEW",
+            "WAREHOUSE_VIEW",
         }
     ),
     # A vendor's licence is vendor master data, which the purchase manager
@@ -698,6 +732,16 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             "DEBIT_NOTE_VIEW",
             "DEBIT_NOTE_MANAGE",
         }
+    )
+    | _purchase_document_masters
+    # D-ROLE-1: the job template says this role "owns the vendor masters", and
+    # it held no vendor code at all. It keeps them now the way `SALES_MANAGER`
+    # keeps customers -- everything but where the money goes. Changing a
+    # supplier's bank account is a payment instruction (MST-4), and reading it
+    # is for whoever pays (`ACCOUNTANT`), so both stay out.
+    | (
+        _codes("vendor")
+        - frozenset({"VENDOR_MANAGE_BANK_DETAILS", "VENDOR_VIEW_FINANCIAL_DETAILS"})
     ),
     "PURCHASE_EXECUTIVE": (
         _codes("purchase")
@@ -711,11 +755,28 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             }
         )
     )
-    | frozenset({"TRADE_LICENCE_VIEW"}),
+    | frozenset({"TRADE_LICENCE_VIEW"})
+    # D-ROLE-1: the masters every buying editor picks from.
+    | _purchase_document_masters,
     "INVENTORY_MANAGER": (
         _codes("inventory", "batch_serial") - frozenset({"INVENTORY_MANAGE_SETTINGS"})
     )
-    | frozenset({"PURCHASE_INSPECT", "PURCHASE_REQUISITION_CREATE"}),
+    | frozenset(
+        {
+            "PURCHASE_INSPECT",
+            "PURCHASE_REQUISITION_CREATE",
+            # D-ROLE-1: an adjustment, a transfer, a count, a repack and a
+            # requisition are typed from `/products`, `/branches` and
+            # `/warehouses`; a requisition loads `/vendors` with them, and
+            # writing stock off as a free gift must name the customer it went
+            # to (`/customers`).
+            "PRODUCT_VIEW",
+            "BRANCH_VIEW",
+            "WAREHOUSE_VIEW",
+            "VENDOR_VIEW",
+            "CUSTOMER_VIEW",
+        }
+    ),
     "CASHIER": frozenset(
         # A cashier who can record money and not look at what they recorded
         # cannot do the job; the view codes went in with the receipts and
@@ -724,7 +785,14 @@ _SEEDED_ROLE_PERMISSION_CODES = {
     ),
     # Whoever raises the bill can send it to the customer (backlog 51).
     "BILLING_EXECUTIVE": frozenset(
-        {"SALES_INVOICE_CREATE", "SALES_VIEW", "DOCUMENT_SEND"}
+        {
+            "SALES_INVOICE_CREATE",
+            "SALES_VIEW",
+            "DOCUMENT_SEND",
+            # D-ROLE-1: the invoice editor reads `/customers` and `/products`.
+            "CUSTOMER_VIEW",
+            "PRODUCT_VIEW",
+        }
     ),
     "CUSTOMER_SUPPORT": frozenset({"CUSTOMER_VIEW", "CUSTOMER_UPDATE", "PRODUCT_VIEW"}),
     "VIEWER": _all_read_permissions
