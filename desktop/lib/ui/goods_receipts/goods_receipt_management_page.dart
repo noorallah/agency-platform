@@ -326,6 +326,7 @@ class _GoodsReceiptManagementPageState
         existing: existing,
         features: _features,
         steps: _steps,
+        canAttach: _canCreate,
       ),
     );
     if (outcome is DocumentStepDone) return _afterWindow(outcome);
@@ -716,6 +717,13 @@ class _GoodsReceiptManagementPageState
         column: const GridColumn(key: 'grn', label: 'GRN Number'),
         cell: (item) => item.grnNumber,
         required: true,
+      ),
+      // The supplier's bill kept with this receipt (PG-4): a clip and a count.
+      ChoosableColumn(
+        column: const GridColumn(key: 'files', label: 'Files'),
+        cell: (item) =>
+            item.attachedFileCount > 0 ? '\u{1F4CE} ${item.attachedFileCount}' : '',
+        shownByDefault: true,
       ),
       ChoosableColumn(
         column: const GridColumn(key: 'vendor', label: 'Supplier', priority: 1),

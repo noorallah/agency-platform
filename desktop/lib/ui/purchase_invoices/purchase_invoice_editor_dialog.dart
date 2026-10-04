@@ -18,6 +18,8 @@ import '../../phase2/source_tick_dialog.dart';
 import '../document_framework/document_steps.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
+import '../../models/document_file.dart';
+import '../purchases/document_attachments_dialog.dart';
 import 'supplier_irn_dialog.dart';
 
 part 'purchase_invoice_editor_phase2.dart';
@@ -196,9 +198,14 @@ class PurchaseInvoiceEditorDialog extends StatefulWidget {
     this.orders = const [],
     this.vendors = const [],
     this.steps = const [],
+    this.canAttach = true,
   });
 
   final ApiClient api;
+
+  /// Whether the user may add and delete files on the bill
+  /// (`PURCHASE_CREATE` or `PURCHASE_UPDATE`); without it they can only look.
+  final bool canAttach;
 
   /// The bill's next steps, as the list toolbar offers them (D-BUY-22):
   /// *Save & approve* where the user may approve. Empty offers none.

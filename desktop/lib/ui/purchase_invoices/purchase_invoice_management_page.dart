@@ -232,6 +232,8 @@ class _PurchaseInvoiceManagementPageState
         stages: _stages,
         orders: _billableOrders,
         vendors: _vendors,
+        canAttach: widget.permissions.hasAnyPermission(
+            const ['PURCHASE_CREATE', 'PURCHASE_UPDATE']),
         steps: [
           for (final DocumentStep<DocumentRef> step
               in purchaseInvoiceSteps(widget.api, widget.permissions))
@@ -704,6 +706,13 @@ class _PurchaseInvoiceManagementPageState
         cell: (item) => item.invoiceNumber,
         required: true,
       ),
+      // The supplier's bill kept with this one (PG-4): a clip and a count.
+      ChoosableColumn(
+        column: const GridColumn(key: 'files', label: 'Files'),
+        cell: (item) =>
+            item.attachedFileCount > 0 ? '\u{1F4CE} ${item.attachedFileCount}' : '',
+        shownByDefault: true,
+      ),
       ChoosableColumn(
         column: const GridColumn(key: 'vendor', label: 'Supplier', priority: 1),
         cell: (item) => item.vendorName,
@@ -946,6 +955,7 @@ class _PurchaseInvoiceRecord {
     required this.exchangeRate,
     required this.paymentTerms,
     required this.remarks,
+    this.attachedFileCount = 0,
     required this.lines,
     required this.sources,
   });
@@ -980,6 +990,7 @@ class _PurchaseInvoiceRecord {
   final String exchangeRate;
   final String paymentTerms;
   final String remarks;
+  final int attachedFileCount;
   final List<_PurchaseInvoiceLine> lines;
   final List<Json> sources;
 
@@ -1015,6 +1026,8 @@ class _PurchaseInvoiceRecord {
       exchangeRate: stringValue(json['exchange_rate']),
       paymentTerms: stringValue(json['payment_terms']),
       remarks: stringValue(json['remarks']),
+      attachedFileCount:
+          int.tryParse(stringValue(json['attached_file_count'])) ?? 0,
       lines: lines,
       sources: (json['sources'] is List)
           ? (json['sources'] as List)

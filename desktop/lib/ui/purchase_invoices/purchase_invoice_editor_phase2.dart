@@ -112,6 +112,25 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
                         _saving ? null : () => Navigator.pop(context, saved),
                     child: Text(saved == null ? 'Cancel' : 'Close'),
                   ),
+                  TextButton.icon(
+                    key: const ValueKey('purchase-invoice-attachments'),
+                    onPressed: _saving
+                        ? null
+                        : () => showDialog<void>(
+                              context: context,
+                              builder: (_) => DocumentAttachmentsDialog(
+                                api: widget.api,
+                                kind: AttachableDocument.purchaseInvoice,
+                                documentId: saved == null
+                                    ? null
+                                    : stringValue(saved['id']),
+                                subtitle: stringValue(saved?['invoice_number']),
+                                canEdit: widget.canAttach,
+                              ),
+                            ),
+                    icon: const Icon(Icons.attach_file, size: 16),
+                    label: const Text('Attachments'),
+                  ),
                   if (saved != null)
                     DocumentStepStrip<Json>(
                       record: saved,
