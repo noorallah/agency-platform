@@ -6,7 +6,10 @@ to record the expenses no document raises -- rent, fuel, salaries, electricity,
 telephone -- so the profit it shows is the firm's real profit.
 
 Written 2026-09-26 against the version 2 screens (Accounts menu in the top
-bar). The steps were taken from the product's own tested cases
+bar), with its menu paths brought up to release 1.3.0 on 2026-10-04: the
+Accounts drop-down shows daily work only (Journal Entries, Expenses, Ledgers,
+Bank Reconciliation, Trial Balance, Profit & Loss, Balance Sheet, GST Returns)
+and every other screen is behind **All Accounts screens** at its foot. The steps were taken from the product's own tested cases
 (`INDEPENDENT_TEST_CASES.md`, TC-FIN-001 and TC-FIN-003).
 
 ## 1. What the Profit & Loss screen shows
@@ -51,7 +54,7 @@ the expense once, then enter a journal each time it is paid.
 
 ### Step A -- open an expense account (once per kind of expense)
 
-**Accounts → Chart of Accounts → + New.**
+**Accounts → All Accounts screens → Books → Chart of Accounts → + New.**
 
 | Field | What to enter |
 | --- | --- |
@@ -128,7 +131,8 @@ Salaries carry no GST.
 
 ### Splitting expenses by branch or department
 
-**Accounts → Cost Centres** (a branch, a van, a department). An account can be
+**Settings (the gear) → Set up → Account structure → Cost Centres** (a branch, a van, a
+department). An account can be
 set to require one, and each journal line then says which centre it belongs
 to, so the cost of running each branch can be read separately.
 
@@ -148,12 +152,13 @@ A posted entry is not edited or deleted: a mistake is put right with
 
 Recorded so a decision can be made; none of these stops the steps above.
 
-1. **No Expenses screen.** Tally's payment voucher and Zoho Books' *Expenses*
-   let a clerk pick an expense, an amount and "paid from", with the journal
-   made for them. Here the journal is typed by hand, which needs an
-   accountant's permission (post journals). Recommended next: an **Accounts →
-   Expenses** screen that writes and posts the journal, with its own
-   permission, so a manager can record rent without the journal screen.
+1. **The Expenses screen -- built since this guide was written.** Tally's
+   payment voucher and Zoho Books' *Expenses* let a clerk pick an expense, an
+   amount and "paid from", with the journal made for them. In 1.3.0 that is
+   **Accounts → Expenses → New** (it also takes the TDS deducted, the section
+   and the payee's PAN; see `docs/GO_LIVE_GUIDE.md`), so a manager can record
+   rent without the journal screen. The hand-typed journal in section 3 still
+   works and needs an accountant's permission (post journals).
 2. **Indirect Expenses -- built 2026-09-27.** The books open with an
    *Indirect Expenses* group holding Rent, Salaries and Wages, Electricity,
    Telephone and Internet, Travel and Conveyance, Office and General Expenses,

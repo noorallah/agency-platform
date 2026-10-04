@@ -8,7 +8,8 @@ charges nothing for messages.
 You can set up one channel, two or all three. Email costs nothing and takes ten
 minutes, so most firms start there.
 
-Everything below is done once, under **Settings → Messaging**.
+Everything below is done once, under **Settings → Firm → Messaging** (the gear at
+the right of the menu bar, then the Firm section).
 
 ## 1. Switch messaging on
 
@@ -137,7 +138,7 @@ one fails. For example *Invoice approved*: Email, then WhatsApp.
 ## 6. Day to day
 
 - Every message -- sent, failed or skipped, and why -- is on the document's
-  history and in the **Message log** under Settings → Messaging.
+  history and in the **Message log** under Settings → Firm → Messaging.
 - **Send** on an approved invoice sends it now, on the channel you choose.
 - **Resend** in the Message log sends a message again. Nothing is ever sent
   twice except by Resend or Send.

@@ -3,8 +3,18 @@
 How a person gets an account, and how they get the access their job needs.
 
 Written 2026-09-06, after PRs #235–#240, and brought up to date on 2026-09-08
-through PR #285. Every screen and endpoint named here was driven against a
-running backend rather than read off the code.
+through PR #285, and its menu paths brought up to release 1.3.0 on
+2026-10-04 (the gear's Settings page replaced the Admin area). Every screen and
+endpoint named here was driven against a running backend rather than read off
+the code; the 1.3.0 menu paths were read from the menu definition.
+
+**Where the screens are in 1.3.0.** The Admin area is gone from the menu bar.
+What it held is on the Settings page, behind the **gear** at the right of the
+bar, under the **Platform** heading: *People* (Users, Roles, Permissions, User
+Templates, User-Firm Assignments), *Firms* (Firms, Business Profiles), *Agency*
+(Branding) and *System* (Audit Logs, Diagnostics, Licensing, Backups, Platform
+Dashboard). A person sees only what their role may open. Older sections below
+that say "Administration" now mean this.
 
 ---
 
@@ -48,7 +58,7 @@ Everything a user record holds, and who changes each part. The rest of this
 guide is the how-to; this is the map.
 
 **Held about a person, and an administrator's to change** — all under
-Administration → Users unless said otherwise:
+Settings → Platform → People → Users unless said otherwise:
 
 | What | Where | Who |
 | --- | --- | --- |
@@ -64,16 +74,16 @@ Administration → Users unless said otherwise:
 | Restore | **Status** filter → **Deleted** → open → **Restore** (§8b) | Platform administrator only |
 | Find who is switched off | **Status** filter → **Inactive** (combines with a firm) | Platform administrator only |
 
-**The person's own** — gated on being signed in and nothing else. The first
-three are in the account menu (top right); the theme control sits at the
-foot of the sidebar, beside Sign out:
+**The person's own** — gated on being signed in and nothing else. All are in
+the account menu (top right); My preferences is also under the gear, in
+Settings > This PC and me:
 
 | What | Where | Note |
 | --- | --- | --- |
 | See what is held about them, and every role they hold | **My profile** | Read-only; the details above are the administrator's to change |
 | Change their password | My profile → **Change password** | Needs the current one; ends every session, this window included |
-| Choose where the next sign-in lands | **Primary firm** | Offered only to somebody in more than one firm. The switcher is for the session; the primary is for next time (§3d) |
-| Theme: palette, light or dark, contrast | The theme control at the foot of the sidebar | Saved to the server, so it follows them to any machine |
+| Choose where the next sign-in lands | **My preferences** > **Start in firm** (this replaced the *Primary firm* menu entry) | Offered only to somebody in more than one firm, and never to a platform administrator, who always starts on Platform. The switcher is for the session; this is for next time (§3d) |
+| First screen, theme (Light, Dark, Follow Windows), text size (this PC only), date format (default dd-MM-yyyy) | **My preferences** | Saved to the server, so all but text size follow them to any machine |
 
 Two things a person cannot do, by design: edit their own name or contact
 details, and unlock their own account — the one locked out is the one who
@@ -172,7 +182,7 @@ point, a role is a standing grant.
 
 ## 3. Hiring somebody into a job
 
-**Administration → Users → New.** You need `USER_CREATE`, `USER_UPDATE`,
+**Settings → Platform → People → Users → New.** You need `USER_CREATE`, `USER_UPDATE`,
 `ROLE_ASSIGN` and `ROLE_VIEW`; `FIRM_ADMIN` holds all four.
 
 Fill in the name, email and an initial password, then **name the job in
@@ -191,7 +201,7 @@ which: **naming a job decides the roles**, and the helper text on Roles says so.
 ### Applying a job to somebody who already exists
 
 `Job template` is on the New form only. Afterwards the person is an ordinary
-user, and **Administration → Users → select → Apply job template** is how a job
+user, and **Settings → Platform → People → Users → select → Apply job template** is how a job
 is applied or changed. The picker names the roles beside each job, because
 choosing by name alone is a permission decision made blind.
 
@@ -254,7 +264,7 @@ firm did.
 ## 3c. Hiring somebody who already has an account
 
 Somebody who already works at another firm — a person moving within a group, or
-working across two. **Administration → Users → Add existing user.**
+working across two. **Settings → Platform → People → Users → Add existing user.**
 
 Search by **name or email**, at least three characters. Pick them, optionally
 name a job, and **Add to this firm**.
@@ -292,8 +302,8 @@ the other firm's staff. Their row shows this, and **Edit** is disabled.
 
 A sign-in lands in the person's **primary firm**. Switching firms in the
 header is for the session; the primary is for next time, and it is **the
-person's own to choose** from the account menu (top right → **Primary firm**),
-among the firms they belong to. An administrator can still set it when adding
+person's own to choose** from the account menu (top right → **My preferences**
+→ **Start in firm**), among the firms they belong to. An administrator can still set it when adding
 them to firms, which is where a new hire's first primary comes from. Somebody
 with one firm has nothing to choose and sees no such entry; a platform
 administrator always starts on Platform.
@@ -308,7 +318,7 @@ dialog says so.
 
 The more common case: you have a person in mind rather than a written-down job.
 
-**Administration → Users → select somebody → Hire like this person.**
+**Settings → Platform → People → Users → select somebody → Hire like this person.**
 
 Give the new person a name, an email and an initial password. That is all that
 crosses over from you.
@@ -336,7 +346,7 @@ stay invisible.
 ## 5. Writing your own role
 
 A template can only give what its roles carry, so if none of the twelve seeded
-roles fits the job, write one. **Administration → Roles & Permissions → Roles →
+roles fits the job, write one. **Settings → Platform → People → Roles →
 New.** Needs
 `ROLE_CREATE`; `FIRM_ADMIN` has it.
 
@@ -364,12 +374,12 @@ Some things worth knowing:
 - **Deleting a role does not check who holds it.** The role is retired, every
   holder's session is ended, and they come back without those permissions and
   with nothing to tell them why. Check who is on a role before you delete it —
-  Administration → Users, and look at each person's roles. There is no "who
+  Settings → Platform → People → Users, and look at each person's roles. There is no "who
   holds this role" list yet.
 
 ## 6. Writing your own template
 
-**Administration → User Templates → New.** Needs `ROLE_CREATE` and
+**Settings → Platform → People → User Templates → New.** Needs `ROLE_CREATE` and
 `ROLE_VIEW`. A template may bundle any role you may assign — the seeded
 twelve, and any you wrote yourself in §5.
 
@@ -403,14 +413,24 @@ a decision about future hires.
 When a firm is created, its people and their templates are the operator's job.
 
 **You start on the platform.** A platform administrator signs in with no firm
-selected — the firm control in the header reads **Platform** — and the sidebar
-shows platform work only. That is where the first three steps happen.
+selected — the firm control in the header reads **Platform** — and only
+platform work is offered; firm-owned screens are not. That is where the first
+three steps happen.
 
-1. **Create the firm.** Administration → Firms → New.
+**Step 0, on the first sign-in: the agency's name.** If nobody has given the
+agency's branding yet (the installer's Branding page, on a fresh server install,
+is the other way), a dialog asks **Set up your agency**: name (required),
+tagline and logo (PNG or JPG, at most 1 MB). It is shown only to a holder of
+`PLATFORM_SETTINGS`; **Skip for now** is remembered for that user and leaves a
+**Finish setting up** card on Home until the branding is given. Give it later under **Settings
+→ Platform → Agency → Branding**. A firm administrator is never asked: the
+branding belongs to the whole installation and shows on every firm's screens.
+
+1. **Create the firm.** Settings → Platform → Firms → New.
    * **Provision storage** if it is not a shared-database firm. A dedicated
      schema or database has no tables until you do, so nothing about the firm
      works before this and the firm cannot be opened.
-2. **Write its templates.** Administration → User Templates → New, and set
+2. **Write its templates.** Settings → Platform → People → User Templates → New, and set
    **Offered to** to that firm.
    * Leave **Offered to** blank and the template is offered to **every firm**
      on the platform. That is right for a job every firm has and wrong for one
@@ -418,8 +438,8 @@ shows platform work only. That is where the first three steps happen.
 3. **Create its administrator**, put them in the firm, and apply the
    `firm-administrator` template.
 4. **Open the firm and finish setting it up.** Select it in the Firms grid and
-   press **Open this firm** — the sidebar grows that firm's application. Its
-   business profile (Masters → Firm Settings), financial year and chart of
+   press **Open this firm** — that firm's screens appear in the menus. Its
+   business profile (Settings → Firm → Firm Settings), financial year and chart of
    accounts all live in the firm's own store, so none of them can be set from
    the platform side. **A firm with no business profile silently trades as
    GENERIC**, which is why the message after creating one says so.
@@ -434,7 +454,7 @@ itself silently.
 
 A tier-1 operator can do steps 1 to 3 and is still refused the firm's books —
 `GET /api/v1/customers` answers 403 for them, by design, and **Open this firm**
-would give them a sidebar of refusals. Step 4 is a tier-2 job, or the firm's
+would give them menus of refusals. Step 4 is a tier-2 job, or the firm's
 own administrator's.
 
 ---
@@ -450,7 +470,7 @@ Four ways a person ends up in a firm, and it is worth knowing which is which:
 | **Hire like this person** | They get the same firms as the person you copied, within your reach. |
 | **Users → Edit → Firms** | You set which of *your* firms they are in. |
 
-**Administration → User-Firm Assignments** is a platform administrator's
+**Settings → Platform → People → User-Firm Assignments** is a platform administrator's
 screen: the same Firms and Primary firm boxes on their own, for attaching
 people to firms across the platform without the whole user form. It is not
 offered to a firm administrator, who has the four ways above.
@@ -467,7 +487,7 @@ in is untouched, and you are not told about it.
 
 A firm administrator of two firms can put a person in both.
 
-**Administration → Users → select → Edit → Firms.** The picker lists the firms
+**Settings → Platform → People → Users → select → Edit → Firms.** The picker lists the firms
 you belong to; tick the ones this person should be in.
 
 Two rules, both enforced server-side:
@@ -517,7 +537,7 @@ password is refused. The lock lifts by itself, and a successful sign-in
 resets the count to zero. The count is *not* reset by the lock lifting --
 only by a successful sign-in or an unlock.
 
-**Unlocking early.** Administration → Users → Edit the person → tick **Clear
+**Unlocking early.** Settings → Platform → People → Users → Edit the person → tick **Clear
 login lock** under Security → Save. Needs `USER_UPDATE`. A firm administrator
 can unlock their own firm's people; somebody who also belongs to another
 firm is a platform administrator's to unlock, like the rest of their profile.
@@ -559,7 +579,7 @@ activity. Changing somebody's roles, firms or password signs them out
 everywhere at once -- their next request re-authenticates. Sign out revokes
 the refresh token on the server and clears it from the vault.
 
-**Deleting.** Administration → Users → select → **Delete**. Needs
+**Deleting.** Settings → Platform → People → Users → select → **Delete**. Needs
 `USER_DELETE`. It is a soft delete: the row and its audit trail stay, every
 session is revoked, and the email address is released so the same person can
 be onboarded again later. Always refused for a platform administrator, and
@@ -616,7 +636,8 @@ the ones to use for testing.
 | Users → Reset password | The platform designation | no |
 | User-Firm Assignments | The platform designation | no |
 | Firms (see, create) | The platform designation | no |
-| My profile, Change password, Primary firm, theme | Signed in | yes, and so can everybody else |
+| My profile, Change password, My preferences | Signed in | yes, and so can everybody else |
+| Agency branding (Settings > Platform > Agency > Branding) | `PLATFORM_SETTINGS` | no |
 
 `FIRM_VIEW` is deliberately **not** in any of these. It is a platform code —
 one of the set a firm administrator may not even grant — and it used to be

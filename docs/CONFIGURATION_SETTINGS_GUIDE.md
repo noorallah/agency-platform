@@ -1,10 +1,13 @@
 # Configuration Settings Guide
 
-Every setting a firm can change in version 1.2.0: **why it exists, what each
+Every setting a firm can change in version 1.3.0, and the settings of the
+agency itself that the platform administrator sees: **why it exists, what each
 choice does, what a person sees when it acts, and who may change it.**
 
 Written 2026-10-04 from the code (the schemas, the defaults and the services
-that read each field), not from earlier documents. The messages quoted are the
+that read each field), not from earlier documents, and brought up to release
+1.3.0 (the light menu, Settings > Set up and Platform, My preferences and the
+agency's branding) the same day. The messages quoted are the
 ones the application shows. Where this guide and the application disagree,
 the application is right and this guide is out of date -- say so and it will
 be corrected.
@@ -25,15 +28,22 @@ be corrected.
 10. [Accounts: closing months, ageing, adjustments](#10-accounts-closing-months-ageing-adjustments)
 11. [Settings that live on a customer, product or supplier](#11-settings-that-live-on-a-customer-product-or-supplier)
 12. [Before sign-in: Application Settings](#12-before-sign-in-application-settings)
-13. [Things worth knowing](#13-things-worth-knowing)
+13. [Platform: the agency's branding](#13-platform-the-agencys-branding)
+14. [Things worth knowing](#14-things-worth-knowing)
 
 ---
 
 ## 1. How settings work
 
-Open them from the **gear (Settings)** at the right of the menu bar. The
-groups are in the same order as this guide. A few settings sit on the screen
-they govern instead; each entry below says where.
+Open them from the **gear (Settings)** at the right of the menu bar. It opens
+the Settings page in a tab of its own: cards grouped under three headings, with
+a search box. **Settings** holds *This PC and me*, Firm, Selling, Buying, Stock,
+Tax and Business profile (the groups of this guide, in the same order);
+**Set up** holds the lists set up once and changed rarely (Pricing, Territories
+& routes, Account structure, Party lists, Item lists, Locations); **Platform**
+holds People, Firms, Agency and System, for the platform tier. Each group is
+offered only to a person whose role may open it. A few settings sit on the
+screen they govern instead; each entry below says where.
 
 Seven rules hold for every setting:
 
@@ -87,21 +97,22 @@ Seven rules hold for every setting:
 | Loyalty Scheme | Settings > Selling | **Off** | `LOYALTY_MANAGE_SETTINGS` |
 | TCS Settings | Settings > Selling | **Off** | `TCS_MANAGE` |
 | Purchase Settings | Settings > Buying | Every stage typed; no tolerance check | `PURCHASE_MANAGE_SETTINGS` |
-| Reorder planning | Buying > Below reorder level | Typed levels | `PURCHASE_MANAGE_SETTINGS` |
+| Reorder planning | Reports > Operational > Below reorder level | Typed levels | `PURCHASE_MANAGE_SETTINGS` |
 | Approval Limits (purchase) | Settings > Buying | No limits | `PURCHASE_MANAGE_SETTINGS` |
 | Purchase Budgets | Settings > Buying | None | `PURCHASE_MANAGE_SETTINGS` |
 | Inventory Settings | Settings > Stock | Per person, this PC | Each person |
 | Adjustment Reasons | Settings > Stock | Eight standard reasons | `INVENTORY_MANAGE_REASONS` |
 | Adjustment Limits | Settings > Stock | No limits | `INVENTORY_MANAGE_SETTINGS` |
 | Batch Rules | Settings > Stock | Warn / record; shelf life **blocks** | `SALES_MANAGE_SETTINGS` |
-| Licence Check | Settings > Party lists | **Warn** | `TRADE_LICENCE_MANAGE_SETTINGS` |
+| Licence Check | Settings > Set up > Party lists | **Warn** | `TRADE_LICENCE_MANAGE_SETTINGS` |
 | Tax Configuration, Tax Rules | Settings > Tax | From the GST template | `TAX_CREATE` / `TAX_UPDATE` |
 | Tax Settings (labels) | Settings > Tax | "Tax", "Component", "Profile" | `TAX_MANAGE_SETTINGS` |
 | GST Documents (+ e-invoice route) | Settings > Tax | Dispatch before invoice **warns**; e-invoice not applicable; sandbox | `TAX_MANAGE_SETTINGS` |
 | TDS on Purchases (194Q) | Settings > Tax | **Off** | `ACCOUNT_MANAGE` |
-| Party adjustment limits | Accounts > Party Adjustments | 1,000 / rounding 10 | `PARTY_ADJUSTMENT_APPROVE` |
+| Party adjustment limits | Accounts > All Accounts screens > Books > Party Adjustments | 1,000 / rounding 10 | `PARTY_ADJUSTMENT_APPROVE` |
 | Print settings | The Print button on a document | Standard layout | `SETTINGS_UPDATE` |
 | Application Settings | The gear on the sign-in screen | This PC's server | Anyone at this PC |
+| Agency branding (name, tagline, logo) | Settings > Platform > Agency > Branding | Not set: Agency Platform's own name shows | `PLATFORM_SETTINGS` |
 
 ---
 
@@ -130,23 +141,27 @@ These are starting points, not rules. Agree the tax ones with the firm's CA.
 
 ### My Preferences
 
-**Where:** Settings > This PC and me > My Preferences. Every signed-in person;
-no permission needed.
+**Where:** the user menu (your name, top right) > My preferences, or Settings >
+This PC and me > My Preferences. Every signed-in person, with or without a firm
+chosen; no permission needed. (The *Primary firm* entry the earlier menu had is
+gone: *Start in firm* below replaces it.)
 
 **Why:** each person starts their day differently. These choices are personal
 and change nothing for anyone else.
 
 | Choice | Options | What it does |
 | --- | --- | --- |
-| Start in firm | Firms you belong to | The firm you land in at your next sign-in. Shown only when you belong to more than one firm. Switching firm from the menu bar lasts for this session only; this is for next time. |
-| First screen | *The screen I was last on* (default), or any screen your role may open | Where the application opens after sign-in. |
+| Start in firm | Firms you belong to | The firm you land in at your next sign-in. Shown only when you belong to more than one firm; a platform administrator always starts in none. Switching firm from the menu bar lasts for this session only; this is for next time. |
+| First screen | *The screen I was last on* (default), or any screen your role may open | Where the application opens after sign-in. A choice your role can no longer open reads as the default. |
 | Theme | Light, Dark, Follow Windows | Colours. |
 | Text size | Small, Default, Large | **This PC only**; useful on a small laptop or a large shared screen. |
-| Date format | dd-MM-yyyy (default), dd/MM/yyyy, yyyy-MM-dd, MM/dd/yyyy | How dates are shown and typed. |
+| Date format | dd-MM-yyyy (default), dd/MM/yyyy, yyyy-MM-dd, MM/dd/yyyy | How dates are shown on the new screens. Anyone coming from an earlier build is moved to dd-MM-yyyy on first sign-in, because nobody could choose one before. |
 
 Everything except text size follows you to every PC you sign in to, and your
-favourites (the star in the menus) are kept with them. Saving sends one small
-update containing only what you changed.
+favourites (the star in the menus) are kept with them. Opening the dialog asks
+the server nothing, and saving sends one small update containing only what you
+changed (saving with nothing changed sends nothing). A refusal leaves the
+dialog open with the server's message. There is no *Rows per page* in 1.3.0.
 
 ---
 
@@ -165,7 +180,7 @@ use.
 **What happens:** choose a profile and press **Apply profile**. Menus and
 optional fields follow it. A firm with no profile runs as *Generic* and a
 warning says so. The firm's name, GSTIN and address are not here; they are on
-the platform **Firms** screen.
+the platform **Firms** screen (Settings > Platform > Firms).
 
 ### Financial Years
 
@@ -348,7 +363,7 @@ stages on later.
 
 | Field | Default | What it does |
 | --- | --- | --- |
-| Quotation | On | Recorded for the firm's own reference. **In 1.2.0 it changes nothing**; quotations stay available either way (see section 13). |
+| Quotation | On | Recorded for the firm's own reference. **In 1.3.0 it changes nothing**; quotations stay available either way (see section 13). |
 | Sales order | On | On: people type orders. |
 | Delivery note | On | On: people raise and dispatch delivery notes. Off: billing an order raises and dispatches the note itself. |
 | Default branch / warehouse | Firm's default | Where goods ship from when the bill raises the delivery note itself. |
@@ -503,7 +518,7 @@ documents had been typed.
 
 ### Reorder planning
 
-**Where:** the **Below reorder level** screen in Buying (not on the gear).
+**Where:** the **Below reorder level** report, Reports > Operational (not on the gear).
 Changing needs `PURCHASE_MANAGE_SETTINGS`.
 
 | Field | Default | What it does |
@@ -612,7 +627,7 @@ expired batch never leaves.
 
 ### Licence Check (trade licences)
 
-**Where:** Settings > Party lists > Licence Check, beside *Licence Types*.
+**Where:** Settings > Set up > Party lists > Licence Check, beside *Licence Types*.
 Changing needs `TRADE_LICENCE_MANAGE_SETTINGS`; overriding a block needs
 `TRADE_LICENCE_OVERRIDE`.
 
@@ -765,8 +780,8 @@ registers and 26Q work as before.
 
 - **Month close check** and **ageing columns** -- on Settings > Firm >
   Financial Years; see [section 5](#financial-years).
-- **Party adjustment limits** -- on the **Party Adjustments** screen, button
-  *Adjustment limits*. Changing needs `PARTY_ADJUSTMENT_APPROVE`.
+- **Party adjustment limits** -- on the **Party Adjustments** screen (Accounts >
+  All Accounts screens > Books), button *Adjustment limits*. Changing needs `PARTY_ADJUSTMENT_APPROVE`.
 
 | Field | Default | What it does |
 | --- | --- | --- |
@@ -861,20 +876,84 @@ component, the tax summary and the amount in words always print.
 
 ---
 
-## 13. Things worth knowing
+## 13. Platform: the agency's branding
+
+These are settings of the **installation**, not of a firm: one record for the
+whole agency, read by every PC and every firm. They belong to the platform
+tier, so no firm needs to be chosen to see or change them.
+
+### Agency branding (name, tagline, logo)
+
+**Where:** Settings (gear) > Platform > Agency > Branding. Offered only to a
+person holding `PLATFORM_SETTINGS` (the platform administrator); no firm needs
+to be open. Anyone, signed in or not, can *read* the branding, because the
+sign-in screen shows it.
+
+**Why:** the agency's own name, tagline and logo lead the sign-in screen and
+the top of every screen, and Agency Platform's own name is shown quietly beside
+them.
+
+| Field | Default | What it does |
+| --- | --- | --- |
+| Agency name | **Required** (up to 150 characters; spaces alone are refused) | Shown on the sign-in screen, in the header strip and in the window title (*agency > firm*). |
+| Tagline | None (up to 200 characters; blank is stored as none) | Shown under the name on the sign-in card and in the header from 1280 px wide. |
+| Logo | None: the agency's initials show instead | **PNG or JPG, at most 1 MB.** Checked by its content, not its file name: a text file renamed `.png` is refused (*The logo must be a PNG or JPG image.*), and an over-size picture is refused naming its size. A logo needs the name to be given first. The server does not check its shape; the screens fit it into a square. **Remove logo** goes back to the initials. |
+| Accent colour | None | **Kept but not asked or applied** in 1.3.0: the form has no box for it, and a saved colour goes back to the server unchanged. |
+
+The form shows a live preview of the sign-in card and the header strip, and
+beneath it, read-only, the product, its company and its logo (*set by the
+installer; changed only by an update*). Saving shows *Saved.* and the header
+changes at once on this PC; another PC sees the new branding at its next
+sign-in screen.
+
+**Two people editing at once:** the second save is refused with the
+somebody-else-saved message and keeps what was typed, so nothing is lost.
+
+**Every change is audited** in the platform trail (Settings > Platform > System
+> Audit Logs, no firm chosen): `agency_branding.created`,
+`agency_branding.updated` and `agency_branding.logo_changed`, each naming who. A
+logo change records its type and size, never the image.
+
+#### How the branding is first given
+
+- **On a fresh server install,** the installer has a **Branding** page after
+  *This PC* (agency name, tagline, a logo file, all optional; a tagline or logo
+  without a name is refused). It does not appear for an app-only PC, an upgrade
+  or a repair. A refused logo never fails the install: the name is saved, the
+  logo is skipped and the install log holds a warning; add the logo later here.
+- **At the first sign-in, if it is still not set,** the platform administrator
+  (a holder of `PLATFORM_SETTINGS`) is asked **Set up your agency** (name,
+  tagline, logo and a preview). *Skip for now* closes it; it does not reopen for
+  that user, and Home shows a **Finish setting up** card until the branding is
+  given. A firm administrator, or anyone without platform settings rights, is
+  never shown the dialog.
+- **After an upgrade** the branding is empty, so the first platform
+  administrator to sign in is asked in the same way. Until it is set, the
+  sign-in screen and header show Agency Platform's own name.
+
+**Not part of it:** the product's own name, company, logos and the support
+phone, WhatsApp, hours, email and website on the sign-in screen come from the
+package, not from this form; the support details are blank in 1.3.0, so none
+shows. The *Finish setting up* card stands in for the later first-run steps,
+which are not built.
+
+---
+
+## 14. Things worth knowing
 
 Found while checking this guide against the code on 2026-10-04:
 
 - **Quotation stage changes nothing yet.** It is saved and shown, but no part
-  of the application acts on it in 1.2.0. Quotations stay available whatever
+  of the application acts on it in 1.3.0. Quotations stay available whatever
   it says.
 - **TCS under 206C(1H) collects nothing on receipts from 1 April 2025**,
   because the section was omitted by the Finance Act 2025.
 - **Tax Settings is labels only.** It does not change any tax calculation;
   Tax Configuration and Tax Rules do.
 - **Inventory Settings is per person and per PC**, not a firm setting.
-- **Four settings are not behind the gear:** Reorder planning (Below reorder
-  level screen), Party adjustment limits (Party Adjustments screen), the
+- **Four settings are not behind the gear:** Reorder planning (Reports >
+  Operational > Below reorder level), Party adjustment limits (Party Adjustments
+  screen), the
   month close check and ageing columns (Financial Years page), and Print
   settings (the Print button).
 

@@ -7,10 +7,17 @@ permission and a table, so somebody can operate the platform or specify a
 change to it.
 
 Filled in one module at a time, and **complete as of 2026-09-16**: all 28
-sections are written. The order below is the order a firm actually does things
+sections are written; section 29 (Branding) was added with release 1.3.0. The order below is the order a firm actually does things
 in, which is **not** the code-dependency order in
 [`LEARNING_PATH.md`](LEARNING_PATH.md): you cannot raise an invoice before
 there is a tax rate, and you cannot set a tax rate before there is a firm.
+
+**Brought up to release 1.3.0 on 2026-10-04.** Release 1.2.0 (the light menu,
+Settings > Set up, favourites, My preferences and the whole backlog build) was
+never shipped, so 1.3.0 is the first release after 1.1.0 and carries both it and
+the agency's branding (section 29). Every "how to use it" path below is written
+as the **1.3.0 menu** shows it; **What 1.3.0 changed in the menu** below the
+module table translates an older path.
 
 The backlog build of 2026-10-02 and 2026-10-03 (96 items in three waves) is
 folded in as **What shipped on 2026-10-02 and 2026-10-03** below the module
@@ -41,7 +48,7 @@ never typed: `uv run python scripts/dump_route_permissions.py --markdown <module
 
 **In a hurry?** [Runbook — a new firm, from nothing to trading](#runbook--a-new-firm-from-nothing-to-trading)
 is the five steps that take an empty installation to a firm that can raise and
-settle a document. **Administration › Firms › Set up** shows where a firm
+settle a document. **Settings › Platform › Firms › Firms › Set up** shows where a firm
 stands on all of them and does two of them in place.
 
 ## The order
@@ -81,6 +88,7 @@ nothing about a document stops it happening here.
 | | 26 | E-invoicing and e-way bills | ✅ |
 | **G — Running it** | 27 | Inventory operations | ✅ |
 | | 28 | Reports, search, audit and diagnostics | ✅ |
+| **H — The agency** | 29 | Branding: the agency's name, tagline and logo | ✅ |
 
 ## What shipped after this guide was started
 
@@ -91,14 +99,14 @@ already does — a promotion prices an order, a credit note follows an invoice.
 
 | Module | Routes | What it does | Where it surfaces |
 | --- | ---: | --- | --- |
-| `promotions` | 11 | Offers that stack, with coupons and a redemption ledger | Pricing workspace, coupon dialog |
-| `loyalty` | 7 | Points a customer earns and spends, as one ledger | Customers › Loyalty |
-| `credit_note` | 6 | A document that reverses the tax it credits | Sales › Credit Notes |
-| `proforma` | 6 | A stated bill that posts nothing | Sales › Proforma |
-| `sales_targets` | 6 | What a firm expects to sell, and how it went | Sales |
-| `einvoice` | 7 | Invoice registration and e-way bills, in sandbox | Sales › E-Invoice |
-| `tcs` | 4 | Tax collected at source, charged on the receipt | Sales › TCS |
-| `gst_returns` | 2 | GSTR-1 and 3B, derived on read and stored nowhere | Sales › GST Returns |
+| `promotions` | 11 | Offers that stack, with coupons and a redemption ledger | Settings › Set up › Pricing › Promotions, coupon dialog |
+| `loyalty` | 7 | Points a customer earns and spends, as one ledger | Settings › Set up › Pricing › Loyalty |
+| `credit_note` | 6 | A document that reverses the tax it credits | Sell › Returns & notes › Credit Notes |
+| `proforma` | 6 | A stated bill that posts nothing | Sell › All Sell screens › Documents › Proforma |
+| `sales_targets` | 6 | What a firm expects to sell, and how it went | Sell › All Sell screens › Incentives › Targets |
+| `einvoice` | 7 | Invoice registration and e-way bills, in sandbox | Accounts › All Accounts screens › Tax filing › E-Invoice |
+| `tcs` | 4 | Tax collected at source, charged on the receipt | Accounts › All Accounts screens › Tax filing › TCS |
+| `gst_returns` | 2 | GSTR-1 and 3B, derived on read and stored nowhere | Accounts › GST Returns |
 
 **None of the eight is a business-profile capability**, and that is worth
 knowing before anybody asks to switch one off for an industry. The module
@@ -111,7 +119,7 @@ industry wants them or not. The catalogue is working as designed; the product
 has simply outgrown its granularity.
 
 A ninth module followed on 2026-10-02: `customer_debit_note` (more charged to a
-customer on an invoice already raised, **Sales › Debit Notes**). It is folded
+customer on an invoice already raised, **Sell › Returns & notes › Customer Debit Notes**). It is folded
 into module 18 beside the credit note it mirrors. The same day's GST work for
 the sales and purchase chains is folded into modules 15, 16, 18 and 25.
 
@@ -125,14 +133,14 @@ are in `MODULE_STATUS.md`.
 
 | Module | What it does | Where it surfaces | Main tables |
 | --- | --- | --- | --- |
-| `enquiry` | Leads and enquiries with follow-ups; **convert** stages the customer from the prospect and a quotation and commits once; won when the quotation becomes an order; lost with a reason from a fixed list. Numbered `ENQ`; the quotation's own permissions | Sell › Enquiries | `enquiries`, `enquiry_lines`, `enquiry_follow_ups` |
-| `approvals` | Up to three sign-off levels by document type, amount and role, over sales orders, sales invoices, purchase orders and purchase bills; bulk reject | Sell/Buy › Approvals; Settings › Firm › Approval Levels | `approval_rules`, `approval_decisions` |
-| `principal_claims` | What a principal owes: scheme redemptions at its share, expiry write-offs and damaged returns, each source claimed once; settled by its credit note or payment | Buy › Money › Principal Claims | `principal_claims`, `principal_claim_lines`, `principal_claim_receipts` |
-| `landed_costs` | Freight, duty and handling spread over completed receipts by value, quantity or weight; the on-hand share revalues stock, the rest goes to cost of goods sold | Buy › Money › Landed Costs | `landed_cost_vouchers`, `landed_cost_charges`, `landed_cost_allocations` |
-| `supplier_rebates` | Volume rebate agreements, accrued and reversed, settled by a party adjustment of kind `SUPPLIER_REBATE` | Buy › Money › Supplier Rebates | `supplier_rebate_agreements`, `supplier_rebate_slabs` |
-| `bank_reconciliation` | Statements imported on the shared importer, matched to postings on the bank ledger, a reconciliation statement as on a date | Accounts › Books › Bank Reconciliation | `bank_statements`, `bank_statement_lines`, `bank_reconciliation_matches` |
-| `notifications` | The bell: derived on read, only what was read is stored | Menu bar | `notification_reads` |
-| `report_layouts` | A person's saved layouts of the analysis screens | Sales and Purchase Analysis | `report_layouts` |
+| `enquiry` | Leads and enquiries with follow-ups; **convert** stages the customer from the prospect and a quotation and commits once; won when the quotation becomes an order; lost with a reason from a fixed list. Numbered `ENQ`; the quotation's own permissions | Sell › All Sell screens › Documents › Enquiries | `enquiries`, `enquiry_lines`, `enquiry_follow_ups` |
+| `approvals` | Up to three sign-off levels by document type, amount and role, over sales orders, sales invoices, purchase orders and purchase bills; bulk reject | Sell › All Sell screens › Documents › Approvals, Buy › All Buy screens › Documents › Approvals; Settings › Firm › Approval Levels | `approval_rules`, `approval_decisions` |
+| `principal_claims` | What a principal owes: scheme redemptions at its share, expiry write-offs and damaged returns, each source claimed once; settled by its credit note or payment | Buy › All Buy screens › Money › Principal Claims | `principal_claims`, `principal_claim_lines`, `principal_claim_receipts` |
+| `landed_costs` | Freight, duty and handling spread over completed receipts by value, quantity or weight; the on-hand share revalues stock, the rest goes to cost of goods sold | Buy › All Buy screens › Money › Landed Costs | `landed_cost_vouchers`, `landed_cost_charges`, `landed_cost_allocations` |
+| `supplier_rebates` | Volume rebate agreements, accrued and reversed, settled by a party adjustment of kind `SUPPLIER_REBATE` | Buy › All Buy screens › Money › Supplier Rebates | `supplier_rebate_agreements`, `supplier_rebate_slabs` |
+| `bank_reconciliation` | Statements imported on the shared importer, matched to postings on the bank ledger, a reconciliation statement as on a date | Accounts › Bank Reconciliation | `bank_statements`, `bank_statement_lines`, `bank_reconciliation_matches` |
+| `notifications` | The bell: derived on read, only what was read is stored | The bell on the menu bar | `notification_reads` |
+| `report_layouts` | A person's saved layouts of the analysis screens | Sell › All Sell screens › Insight › Sales Analysis; Buy › All Buy screens › Insight › Purchase Analysis | `report_layouts` |
 
 The settlements package also gained the **post-dated cheque** registers
 (`post_dated_cheques`), **payment runs** (`payment_runs`) and **cheque
@@ -261,6 +269,52 @@ e-invoice and e-way bill through NIC or a GSP, real messaging sends, payment
 links, a bank's own payment-run layout, rule 43, and the licence and installer
 items; `BACKLOG_BUILD_PLAN.md` section 5.1 says what unblocks each.
 
+## What 1.3.0 changed in the menu
+
+Release 1.3.0 changed where every screen is reached, not what any of them does.
+`APPLICATION_FEATURES_GUIDE.md` sections 2 and 12 describe it in full; this is
+what a module section below needs.
+
+- **The light menu.** Each of Sell, Buy, Stock, Accounts and Masters opens a
+  short drop-down of daily screens; **All <Area> screens (N)** at its foot opens
+  the rest under their group names (`Sell › All Sell screens › Insight › Sales
+  Analysis`). The **Admin** area is gone from the bar. Reports is unchanged.
+- **The Settings page** (the gear) is one tab: **Settings** (This PC and me,
+  Firm, Selling, Buying, Stock, Tax, Business profile), **Set up** (Pricing,
+  Territories & routes, Account structure, Party lists, Item lists, Locations)
+  and **Platform** (People, Firms, Agency, System), as cards with a search box.
+  It is built in the app from the permissions held; opening it asks the server
+  nothing.
+- **Favourites.** A star on every drop-down item; the list is on Home, first in
+  Ctrl+K, and kept on the server with the person's preferences
+  (`dashboard_layout`), so it follows them to another PC.
+- **My preferences** (user menu, or Settings › This PC and me): start in firm,
+  first screen, theme, text size (this PC only) and date format (default
+  dd-MM-yyyy). One save of the changed fields.
+- **The agency's branding** (module 29): the sign-in screen, the header and the
+  first-run dialog.
+
+An older path in this guide translates as:
+
+| An older path says | In 1.3.0 |
+| --- | --- |
+| Administration › Users, Roles & Permissions, User Templates, User-Firm Assignments | Settings › Platform › People › Users, Roles, Permissions, User Templates, User-Firm Assignments |
+| Administration › Firms, Masters › Firms | Settings › Platform › Firms › Firms |
+| Administration › Business Profiles | Settings › Platform › Firms › Business Profiles |
+| Administration › Feature Management, Module Configuration, Attribute Definitions, Mandatory Attributes, Profile Assignment, Industry Templates | Settings › Business profile › the same names |
+| Settings › Audit Log(s), Diagnostics; Administration › Licensing | Settings › Platform › System › Audit Logs, Diagnostics, Licensing |
+| Masters › Firm Settings, Financial Years; Settings › Numbering Series | Settings › Firm › Firm Settings, Financial Years, Numbering Series |
+| Tax configuration, rules, simulator, log, settings | Settings › Tax › the same names |
+| Sales › Proforma, Credit Notes, Debit Notes | Sell › All Sell screens › Documents › Proforma; Sell › Returns & notes › Credit Notes, Customer Debit Notes |
+| Sales › GST Returns, GSTR-2B, E-Invoice, TCS | Accounts › GST Returns; Accounts › All Accounts screens › Tax filing › the rest (TCS settings: Settings › Selling › TCS Settings) |
+| Sales workspace tabs: price lists, promotions, territories | Settings › Set up › Pricing, Territories & routes |
+| Purchases workspace | Buy › Purchase Orders, Goods Receipts, Purchase Invoices; the rest under Buy › All Buy screens |
+| Inventory › Inventory, Stock Ledger, Opening Stock, Physical Count | Stock › All Stock screens › Stock › Inventory; Stock › Stock Ledger; Stock › All Stock screens › Movements › Opening Stock; Stock › Physical Count |
+| Finance › Journal Entries; Control Accounts, Cost and Profit Centres | Accounts › Journal Entries; Settings › Set up › Account structure |
+| Masters › Branches, Warehouses | Unchanged (Masters drop-down) |
+| Masters › Storage Areas, Branch Types, Warehouse Types; Geography masters | Settings › Set up › Locations › Storage Areas, Branch Types, Warehouse Types, Places |
+| Masters › Vendor Categories, Vendor Types; Customer Groups | Settings › Set up › Party lists |
+
 ---
 
 # 1. Firm setup and access
@@ -351,15 +405,16 @@ Three separate grants, held by different people on purpose:
 
 | Task | Where |
 | --- | --- |
-| Create, edit, provision firms | **Masters › Firms** (`FIRM_VIEW`) |
-| A firm's own details and preferences | **Masters › Firm Settings** (`FIRM_VIEW`) |
-| Create, edit, delete users; unlock a login; assign roles in every firm or in one | **Administration › Users** (`USER_VIEW`) |
-| Reset somebody's password, restore a deleted user | **Administration › Users**, platform administrators only |
-| Your own profile, password, primary firm | The account menu (top right), signed in |
-| Define roles | **Administration › Roles & Permissions › Roles** (`ROLE_VIEW`) |
-| See the permission catalogue | **Administration › Roles & Permissions › Permissions** (`PERMISSION_VIEW`) |
-| Attach people to firms | **Administration › User-Firm Assignments** (`USER_VIEW` + `USER_UPDATE`, platform administrators only); a firm administrator uses **Users › Edit › Firms** or **Add existing user** |
-| Read who changed what | **Settings › Audit Log** (`AUDIT_LOG_VIEW`) |
+| Create, edit, provision firms | **Settings › Platform › Firms › Firms** (`FIRM_VIEW`) |
+| A firm's own details and preferences | **Settings › Firm › Firm Settings** (`FIRM_VIEW`) |
+| Create, edit, delete users; unlock a login; assign roles in every firm or in one | **Settings › Platform › People › Users** (`USER_VIEW`) |
+| Reset somebody's password, restore a deleted user | **Settings › Platform › People › Users**, platform administrators only |
+| Your own profile, password | The account menu (top right), signed in |
+| Your own start-in firm, first screen, theme, text size, date format | **User menu › My preferences**, or Settings › This PC and me |
+| Define roles | **Settings › Platform › People › Roles** (`ROLE_VIEW`) |
+| See the permission catalogue | **Settings › Platform › People › Permissions** (`PERMISSION_VIEW`) |
+| Attach people to firms | **Settings › Platform › People › User-Firm Assignments** (`USER_VIEW` + `USER_UPDATE`, platform administrators only); a firm administrator uses **Users › Edit › Firms** or **Add existing user** |
+| Read who changed what | **Settings › Platform › System › Audit Logs** (`AUDIT_LOG_VIEW`) |
 
 The firm switcher lives in the shell header and lists only firms the signed-in
 user is an active member of.
@@ -429,7 +484,7 @@ than assuming.
 
 # Runbook — a new firm, from nothing to trading
 
-Five steps. **Administration › Firms › select the firm › Set up** is the
+Five steps. **Settings › Platform › Firms › Firms › select the firm › Set up** is the
 panel that shows where a firm stands on every one of them -- storage, business
 profile, books, tax, geography, branches and warehouses, people -- with
 *Required* against the two the platform refuses to post without and
@@ -444,7 +499,7 @@ disagree about what finished means.
 
 ## 1. Record the firm
 
-**Masters › Firms › New** (platform admin), or `POST /api/v1/firms`.
+**Settings › Platform › Firms › Firms › New** (platform admin), or `POST /api/v1/firms`.
 
 Required: `name`, `code` (uppercase `A-Z0-9_-`, 2–50 characters), `country`
 (2 letters), `currency_code` (3 letters), `financial_year_start`. GST, PAN,
@@ -479,7 +534,7 @@ target server must not fail the creation of a firm record.
 
 ## 2. Provision the storage — dedicated firms only
 
-**Masters › Firms › Provision** (the action appears for any firm that is not
+**Settings › Platform › Firms › Firms › Provision** (the action appears for any firm that is not
 SHARED, and stays enabled until its storage is ready), or
 `POST /api/v1/firms/{id}/provision`.
 
@@ -499,9 +554,8 @@ service's seed hook has no handler wired to it.
 
 ## 3. Assign a business profile
 
-**Administration › Firms › Set up › Business profile row › choose › Assign**,
-or **Administration › Configuration › Business Profiles › Profile
-Assignment** (module 2). Decides the firm's features, modules and custom
+**Settings › Platform › Firms › Firms › Set up › Business profile row › choose
+› Assign**, or **Settings › Business profile › Profile Assignment** (module 2). Decides the firm's features, modules and custom
 fields. The panel reads the catalogue from the firm's **own** store
 (`GET /api/v1/business-framework/firms/{id}/profiles`), which is why it works
 from platform mode where the Profile Assignment screen needs some firm open.
@@ -511,7 +565,7 @@ store has no default either, **nothing is enforced at all**.
 
 ## 4. Open the books
 
-**Administration › Firms › select the firm › Set up › Open the books**
+**Settings › Platform › Firms › Firms › select the firm › Set up › Open the books**
 (platform administrator), or `POST /api/v1/firms/{id}/open-books`. One
 press gives the firm the default chart of accounts (24 accounts in five
 groups), the financial year running now with twelve monthly periods, a
@@ -530,7 +584,7 @@ The chart is the one the demo firms are built with (`CHART` in
 `app/finance/services/opening_setup.py`), a conventional distribution chart
 and not a claim about any firm's conventions. A firm that wants a different
 one builds it through the finance API and remaps its control accounts on
-**Finance › Control Accounts**: every purpose, the account it posts to, and
+**Settings › Set up › Account structure › Control Accounts**: every purpose, the account it posts to, and
 how many lines have posted there. A purpose with posted lines is **held** --
 re-pointing it would leave two accounts each holding part of one story, so
 the screen shows the count and no picker, and the API refuses by name; a
@@ -562,9 +616,9 @@ Three grants, deliberately held by different people (module 1):
 
 | Step | Where | Permission |
 | --- | --- | --- |
-| Create the account | **Administration › Users** | `USER_CREATE` |
-| Assign roles — *what* they may do | **Administration › Roles & Permissions › Roles** | `ROLE_ASSIGN` |
-| Assign the firm — *whose data* | **Administration › User-Firm Assignments** (platform admin), or **Users › Edit › Firms** | `USER_UPDATE` plus `USER_CREATE` in the firm |
+| Create the account | **Settings › Platform › People › Users** | `USER_CREATE` |
+| Assign roles — *what* they may do | **Settings › Platform › People › Roles** | `ROLE_ASSIGN` |
+| Assign the firm — *whose data* | **Settings › Platform › People › User-Firm Assignments** (platform admin), or **Users › Edit › Firms** | `USER_UPDATE` plus `USER_CREATE` in the firm |
 
 Mark one membership `is_primary`: that is the firm that opens by default. A
 platform admin still has to pick a firm to open firm-owned screens.
@@ -583,7 +637,7 @@ Each depends on the one before it:
 
 **Document numbering needs no setup.** Each module creates its document type,
 states and numbering rule lazily on the first save, and the series can be edited
-afterwards in **Settings › Numbering Series**.
+afterwards in **Settings › Firm › Numbering Series**.
 
 ## Checking it worked
 
@@ -712,16 +766,17 @@ any freshly migrated database.
 
 ## How to use it
 
-All under **Administration**, each needing `PLATFORM_VIEW`:
+Under **Settings** (the gear), each needing `PLATFORM_VIEW`:
 
 | Task | Where |
 | --- | --- |
-| Create industries, set what each enables | **Business Profiles** |
-| The feature catalogue | **Feature Management** |
-| The module catalogue, menu order and visibility | **Module Configuration** |
-| Define custom fields | **Attribute Definitions** |
-| Make a field mandatory for a category | **Mandatory Attributes** |
-| Point a firm at an industry | **Profile Assignment** (`FIRM_VIEW` + `PLATFORM_VIEW`) |
+| Create industries, set what each enables | **Platform › Firms › Business Profiles** |
+| The feature catalogue | **Business profile › Feature Management** |
+| The module catalogue, menu order and visibility | **Business profile › Module Configuration** |
+| Define custom fields | **Business profile › Attribute Definitions** |
+| Make a field mandatory for a category | **Business profile › Mandatory Attributes** |
+| Point a firm at an industry | **Business profile › Profile Assignment** (`FIRM_VIEW` + `PLATFORM_VIEW`) |
+| The industry templates | **Business profile › Industry Templates** |
 
 ## What each profile enables today
 
@@ -916,7 +971,7 @@ quotation and credit note.
 
 | Task | Where | Permission |
 | --- | --- | --- |
-| Change a prefix, padding, or what a number includes | **Settings › Numbering Series** | `SETTINGS_VIEW` to see; platform admin to change |
+| Change a prefix, padding, or what a number includes | **Settings › Firm › Numbering Series** | `SETTINGS_VIEW` to see; platform admin to change |
 | See what the next number will look like before saving | `GET /numbering-rules/{id}/preview` | firm membership |
 | Read a document's history | The document's timeline panel | firm membership |
 | Restyle the printed copy | Print template per document type | firm membership |
@@ -982,7 +1037,7 @@ first year's numbers: `SI-000001` in 2025-26 and `SI-000001` again in 2026-27.
 duplicate. Two invoices, same firm, same number, no error.
 
 That combination is a defect rather than a gap: the configuration is offered,
-it is reachable from **Settings › Numbering Series**, and taking it silently
+it is reachable from **Settings › Firm › Numbering Series**, and taking it silently
 corrupts the series.
 
 **`manual_allowed` is unreachable.** The plumbing is complete — `reserve_number`
@@ -1160,11 +1215,11 @@ discovered in a report.
 
 | Task | Where |
 | --- | --- |
-| Open and close years and periods | **Masters › Financial Years** |
-| Post and reverse journal entries | **Finance › Journal Entries** |
-| Trial balance, P&L, balance sheet, ledger statement | **Finance** workspace |
-| Map control accounts | **Finance › Control Accounts** (`ACCOUNT_VIEW` to read, `ACCOUNT_MANAGE` to write) |
-| Cost centres and profit centres | **Finance › Cost Centres**, **Finance › Profit Centres**. An account's *Requires a cost centre* / *Requires a profit centre* flag on the chart makes a journal line on it name one |
+| Open and close years and periods | **Settings › Firm › Financial Years** |
+| Post and reverse journal entries | **Accounts › Journal Entries** |
+| Trial balance, P&L, balance sheet, ledger statement | **Accounts › Trial Balance, Profit & Loss, Balance Sheet, Ledgers**; Cash Flow under **All Accounts screens › Statements** |
+| Map control accounts | **Settings › Set up › Account structure › Control Accounts** (`ACCOUNT_VIEW` to read, `ACCOUNT_MANAGE` to write) |
+| Cost centres and profit centres | **Settings › Set up › Account structure › Cost Centres**, **Profit Centres**. An account's *Requires a cost centre* / *Requires a profit centre* flag on the chart makes a journal line on it name one |
 
 ## Tables
 
@@ -1278,15 +1333,15 @@ check.
 
 ## How to use it
 
-All under **Masters**:
+In the **Masters** drop-down, and under Settings for the set-up lists:
 
 | Task | Where | Permission |
 | --- | --- | --- |
 | Branches | **Masters › Branches** | `BRANCH_VIEW` |
 | Warehouses | **Masters › Warehouses** | `WAREHOUSE_VIEW` |
-| Zones, racks and bins | **Masters › Storage Areas** | `STORAGE_AREA_MANAGE` |
-| Classification | **Masters › Branch Types**, **Warehouse Types** | `BRANCH_VIEW` / `WAREHOUSE_VIEW` |
-| What this deployment can do | **Masters › Branch & Warehouse Settings** | `BRANCH_VIEW` |
+| Zones, racks and bins | **Settings › Set up › Locations › Storage Areas** | `STORAGE_AREA_MANAGE` |
+| Classification | **Settings › Set up › Locations › Branch Types**, **Warehouse Types** | `BRANCH_VIEW` / `WAREHOUSE_VIEW` |
+| What this deployment can do | Not offered in the menu: its screen was a placeholder with nothing to change | `BRANCH_VIEW` |
 
 ## Tables
 
@@ -1347,13 +1402,6 @@ platform has.
 
 ---
 
-# Still to write
-
-Modules 6–28 in the table above. Each gets the same six parts.
-
-
----
-
 # 6. Geography
 
 ## What it does
@@ -1376,7 +1424,7 @@ Nothing. The masters are seeded, and a firm can add to them.
 
 ## Workflow
 
-Administration › Geography masters. Add a country, then its states, then
+Settings › Set up › Locations › Places. Add a country, then its states, then
 districts, then cities. A postal code hangs off a city; a locality off a postal
 code.
 
@@ -1455,6 +1503,13 @@ each level carrying its own `barcode`, `gtin`, `ean` and `upc`.
 `GET /barcode-lookup` resolves a code across all four columns and then the
 product's own barcode, and answers with the product **and how many base units
 one scan is**.
+
+## How to use it (1.3.0 menu)
+
+| Task | Where |
+| --- | --- |
+| Units, groups, conversion rules | **Settings › Set up › Item lists › Units of Measure, UOM Groups, Conversion Rules** |
+| Packing hierarchy and barcodes | **Settings › Set up › Item lists › Packaging Types, Packaging Levels** |
 
 ## Tables
 
@@ -1557,6 +1612,14 @@ either and rules scoped that way would otherwise never match.
 `inclusive_tax_amount` and `reverse_charge_tax_amount`, and must not be added
 to a document total.
 
+## How to use it (1.3.0 menu)
+
+| Task | Where |
+| --- | --- |
+| Tax systems, components, rates | **Settings › Tax › Tax Configuration** |
+| Rules, trying one, what a calculation decided | **Settings › Tax › Tax Rules, Rule Simulator, Execution Log** |
+| Tax defaults; GST documents (dispatch policy, e-invoice route, return filing) | **Settings › Tax › Tax Settings, GST Documents**; **TDS on Purchases (194Q)** |
+
 ## Tables
 
 `tax_systems` · `tax_components` · `tax_profiles` · `tax_profile_components` ·
@@ -1641,6 +1704,15 @@ takes the batch nearest expiry first.
 
 **No demo firm serialises.** `serial_numbers` and `lots` hold no rows in any
 store, so that half of the module runs on unit tests alone.
+
+## How to use it (1.3.0 menu)
+
+| Task | Where |
+| --- | --- |
+| Products | **Masters › Products** |
+| Categories, brands, principals | **Settings › Set up › Item lists › Product Categories, Principals, Brands** |
+| Custom fields and which are mandatory | **Settings › Business profile › Attribute Definitions, Mandatory Attributes**; a firm's own: **Settings › Firm › Custom Fields, Custom Field Rules** |
+| Batches, lots, serials, expiry | **Stock › Batches, Expiry Monitor**; **All Stock screens › Tracking** |
 
 ## Tables
 
@@ -1743,6 +1815,15 @@ enforce a rule the firm may not have chosen, and could be bypassed by any other
 client. It also stays silent when the server would refuse anyway, because the
 refusal carries the same sentence.
 
+## How to use it (1.3.0 menu)
+
+| Task | Where |
+| --- | --- |
+| Customers | **Masters › Customers** |
+| Customer groups | **Settings › Set up › Party lists › Customer Groups** |
+| Credit policy | **Settings › Selling › Credit Control** (`CUSTOMER_MANAGE_SETTINGS`) |
+| Statements and ageing | **Sell › Customer Statements** |
+
 ## Tables
 
 `customers` · `customer_addresses` · `customer_contacts` ·
@@ -1821,8 +1902,8 @@ it back with its children, because the children were never hard-deleted either.
 | Task | Where |
 | --- | --- |
 | Create, edit, retire, restore, duplicate vendors | **Masters › Vendors** (`VENDOR_VIEW`) |
-| Group them | **Masters › Vendor Categories** (`VENDOR_MANAGE_CATEGORIES` to write) |
-| Manufacturer, stockist, importer… | **Masters › Vendor Types** (same code) |
+| Group them | **Settings › Set up › Party lists › Vendor Categories** (`VENDOR_MANAGE_CATEGORIES` to write) |
+| Manufacturer, stockist, importer… | **Settings › Set up › Party lists › Vendor Types** (same code) |
 | Import a list, export the grid | The toolbar (`VENDOR_IMPORT`, `VENDOR_EXPORT`) |
 | Change many at once — status, category, profile | The grid's bulk actions (`VENDOR_UPDATE`) |
 
@@ -1941,6 +2022,13 @@ A plan may name its own stops in `sales_beat_plan_customer_stops`, which is
 **additive**: a plan listing none falls back to the customers on its territory
 in `visit_sequence` order. That is the ordinary case and needs no rows at all.
 
+## How to use it (1.3.0 menu)
+
+| Task | Where |
+| --- | --- |
+| Territories, route types, routes | **Settings › Set up › Territories & routes › Territories, Route Types, Route Builder** |
+| Beat plans, call lists, coverage | **Sell › All Sell screens › Field sales** |
+
 ## Tables
 
 `sales_hierarchy_configs` · `sales_hierarchy_levels` · `sales_territories` ·
@@ -2019,6 +2107,13 @@ customer's standing rate → customer group rate
 
 **A promotion outranks it**, which is the thing to remember when a list appears
 not to work. An unconditional offer means the list is never consulted at all.
+
+## How to use it (1.3.0 menu)
+
+| Task | Where |
+| --- | --- |
+| Price lists and price levels | **Settings › Set up › Pricing › Price Lists, Price Levels** |
+| The lowest price, each role's discount limit | **Settings › Selling › Price Floor, Discount Limits** |
 
 ## Tables
 
@@ -2130,6 +2225,13 @@ the order is what gets approved.
 
 **An unrecognised code leaves the order saveable and simply gives nothing.** A
 typo in a field that gives money away must not refuse a sale.
+
+## How to use it (1.3.0 menu)
+
+| Task | Where |
+| --- | --- |
+| Offers, coupons, copy with new dates, try offers | **Settings › Set up › Pricing › Promotions** |
+| How several matching offers combine | **Settings › Selling › Sales Stages** |
 
 ## Tables
 
@@ -2254,7 +2356,7 @@ set is taxed by the rules as before, because a GSTIN nobody typed in does not
 make a supplier unregistered. Reverse charge still applies to any of them.
 
 **GSTR-2B** (the portal's file of what suppliers reported) is imported under
-**Sales › GSTR-2B Reconciliation** and matched to the firm's approved bills by supplier
+**Accounts › All Accounts screens › Tax filing › GSTR-2B Reconciliation** and matched to the firm's approved bills by supplier
 GSTIN, bill number and date, with a ₹1 tolerance. Each document reads Matched,
 Different, In 2B only or In books only. By default 3B keeps claiming **every**
 bill and lists what 2B lacks; a firm can switch to claiming **matched bills
@@ -2275,8 +2377,14 @@ and expired reports filter on exactly those flags.
 
 ## How to use it
 
-Purchases workspace. New → lines → Submit → Approve. Receive from the order's
-own dialog; bill from the receipt; return from the receipt.
+**Buy › Purchase Orders**, then **Goods Receipts** and **Purchase Invoices**
+(all in the Buy drop-down; **Returns & notes** opens Purchase Returns and Debit
+Notes). New → lines → Submit → Approve. Receive from the order's own dialog;
+bill from the receipt; return from the receipt. Requisitions, Approvals and
+Quality Inspection are under **Buy › All Buy screens › Documents**; the
+purchase-side money screens (Payment Runs, Post-dated Cheques, Supplier Gifts,
+Supplier Rebates, Principal Claims, Landed Costs) under **Money**; Purchase
+Settings, Approval Limits and Purchase Budgets under **Settings › Buying**.
 
 Six reports: register, orders not yet received, overdue, and by supplier, by
 buyer and by product.
@@ -2421,7 +2529,7 @@ Other with words. It prints on the challan. A transfer between branches is a
 stock transfer, not a delivery note, so it is not a reason.
 
 **Dispatch before an invoice is a firm policy** (Settings › Tax › GST
-documents): **Off** says nothing, **Warn** (the default) lets a Sale note go and
+Documents): **Off** says nothing, **Warn** (the default) lets a Sale note go and
 records the warning on the dispatch, **Block** refuses and points at *Dispatch
 and invoice*. A van or route sale is not judged unless the firm switches on
 *route sales need the invoice first*. **Dispatch and invoice** is one action
@@ -2455,8 +2563,11 @@ splits into 300 and 200, and only that row remembers the split.
 
 ## How to use it
 
-Sales workspace, one tab per document. The invoice can be raised from the
-billable-notes picker; the order carries deposits and promotion claims in its
+**Sell** drop-down, one tab per document: **Quotations, Sales Orders, Delivery
+Notes, Sales Invoices** and **Returns & notes** (Sales Returns, Credit Notes,
+Customer Debit Notes); Enquiries, Proforma and Approvals under **All Sell
+screens › Documents**; which stages the firm types under **Settings › Selling ›
+Sales Stages**. The invoice can be raised from the billable-notes picker; the order carries deposits and promotion claims in its
 own dialog.
 
 ## Tables
@@ -2532,7 +2643,7 @@ and a tax invoice exactly as it would have.
 
 ## How to use it
 
-**Sales › Proforma** (`PROFORMA_VIEW`). Two reports sit beside the register:
+**Sell › All Sell screens › Documents › Proforma** (`PROFORMA_VIEW`). Two reports sit beside the register:
 **Register** lists what was issued over a period, and **Outstanding** lists
 proformas that have not yet turned into an invoice — the follow-up list for
 whoever is chasing an advance.
@@ -2617,7 +2728,7 @@ that the firm owes money back should not be the only person who agrees it.
 
 ## How to use it
 
-**Sales › Credit Notes** (`CREDIT_NOTE_VIEW`). Three reports: **Register**,
+**Sell › Returns & notes › Credit Notes** (`CREDIT_NOTE_VIEW`; customer debit notes beside it). Three reports: **Register**,
 **By customer**, and **By reason** — the last is the one that tells a firm
 whether it is crediting for quality, for pricing, or for its own billing
 mistakes.
@@ -2662,7 +2773,7 @@ uv run python scripts/dump_route_permissions.py --markdown credit_note
 
 The credit note turned the other way: **more** charged on an invoice already
 raised — a price that rose after billing, a short-billed quantity, an extra
-charge. **Sales › Debit Notes**, `/api/v1/customer-debit-notes`, number prefix
+charge. **Sell › Returns & notes › Customer Debit Notes**, `/api/v1/customer-debit-notes`, number prefix
 `SDN` (`DN` is the delivery note's).
 
 - It names an **approved** invoice and the lines being charged more, moves no
@@ -2726,6 +2837,15 @@ A settlement is **reversed, never edited or deleted**. A mirror journal cancels
 it, the allocations stop clearing invoices but still record what they had
 cleared, and the customer's balances go back **by the deltas stored on the
 original row** — never recomputed, because only that row remembers the split.
+
+## How to use it (1.3.0 menu)
+
+| Task | Where |
+| --- | --- |
+| Receipts, customer statements | **Sell › Receipts**, **Sell › Customer Statements** |
+| Payments, supplier statements | **Buy › Payments**, **Buy › Supplier Statements** |
+| Refunds, post-dated cheques | **Sell › All Sell screens › Money › Refunds, Post-dated Cheques**; **Buy › All Buy screens › Money › Post-dated Cheques** |
+| Payment runs | **Buy › All Buy screens › Money › Payment Runs** |
 
 ## Tables
 
@@ -2795,6 +2915,13 @@ over the ledger with no floor, and the sweep was the only way below zero.
 
 `expiry_months` NULL means points **never expire**. Zero would mean they expire
 the day they are earned.
+
+## How to use it (1.3.0 menu)
+
+| Task | Where |
+| --- | --- |
+| The scheme (earn rate, value of a point, expiry) | **Settings › Selling › Loyalty Scheme** |
+| Balances and movements | **Settings › Set up › Pricing › Loyalty** |
 
 ## Tables
 
@@ -2882,6 +3009,10 @@ approved payout is a liability that outlives the month it was earned in.
 **`COMMISSION_PAY` is separate from `COMMISSION_MANAGE`** and not granted to
 `SALES_MANAGER`: whoever states a debt must not be the one who moves the cash.
 
+## How to use it (1.3.0 menu)
+
+**Sell › All Sell screens › Incentives › Commission** (rates, collected, payouts).
+
 ## Tables
 
 `commission_rules` · `commission_rule_slabs` · `commission_payouts`
@@ -2930,6 +3061,10 @@ bonus: nobody set them a number, so there is nothing they failed.
 Seeded targets are **reset with the history**, because a target derived from
 what was sold would otherwise be measured against sales that no longer exist.
 
+## How to use it (1.3.0 menu)
+
+**Sell › All Sell screens › Incentives › Targets**.
+
 ---
 
 # 23. Journals, ledgers and financial reports
@@ -2972,6 +3107,15 @@ find its control account is refused rather than posted to a guess.**
 4. **Cost and profit centres exist and are used by nothing.**
    `ledger_accounts.requires_cost_center` is a flag no account sets.
 
+## How to use it (1.3.0 menu)
+
+| Task | Where |
+| --- | --- |
+| Journal entries, expenses, ledgers, bank reconciliation | **Accounts** drop-down |
+| Trial balance, profit and loss, balance sheet | **Accounts** drop-down; Cash Flow under **All Accounts screens › Statements** |
+| Chart of accounts, opening balances, party adjustments, contra vouchers, Tally export | **Accounts › All Accounts screens › Books** |
+| Control accounts, cost and profit centres | **Settings › Set up › Account structure** |
+
 ## Tables
 
 `financial_years` · `accounting_periods` · `account_groups` ·
@@ -2997,7 +3141,7 @@ arrives against an older bill.
 
 ## Configure first
 
-**Sales › TCS › Settings** (`TCS_MANAGE`), per firm:
+**Settings › Selling › TCS Settings** (`TCS_MANAGE`), per firm:
 
 | Setting | Means |
 | --- | --- |
@@ -3022,7 +3166,7 @@ cycle, and netting the two would put a quarterly payment inside a monthly one.
 
 ## How to use it
 
-**Sales › TCS** (`TCS_VIEW`) — settings, a preview calculator, and the
+**Accounts › All Accounts screens › Tax filing › TCS** (`TCS_VIEW`) — settings, a preview calculator, and the
 collections register.
 
 ```powershell
@@ -3112,7 +3256,7 @@ and 18).
 
 ## How to use it
 
-**Sales › GST Returns** (`SALES_VIEW`).
+**Accounts › GST Returns** (`SALES_VIEW`); the rest of tax filing (GSTR-2B Reconciliation, Rule 37, Rule 42, GST checks, GST Payment, PMT-06 deposits, TDS Challans, Bank Details) under **Accounts › All Accounts screens › Tax filing**; the GST settings under **Settings › Tax › GST Documents**.
 
 ```powershell
 uv run python scripts/dump_route_permissions.py --markdown gst_returns
@@ -3189,7 +3333,7 @@ module is shaped around.
 
 ## How to use it
 
-**Sales › E-Invoice** (`EINVOICE_VIEW`).
+**Accounts › All Accounts screens › Tax filing › E-Invoice** (`EINVOICE_VIEW`); the route and dates under **Settings › Tax › GST Documents**.
 
 ```powershell
 uv run python scripts/dump_route_permissions.py --markdown einvoice
@@ -3284,11 +3428,14 @@ journal.
 
 | Task | Where |
 | --- | --- |
-| What is on hand | **Inventory › Inventory** and **Stock Summary** (`INVENTORY_VIEW`), with by-firm, by-branch, by-warehouse and by-product reads |
-| How it got there | **Inventory › Stock Ledger** (`INVENTORY_LEDGER_VIEW`) and **Transactions** (`INVENTORY_TRANSACTION_VIEW`) |
-| Opening balances | **Inventory › Opening Stock** |
-| Adjust, transfer, write off, quarantine | **Inventory**, each its own action (`INVENTORY_ADJUST`) |
-| Count the shelves | **Inventory › Physical Count** |
+| What is on hand | **Stock › Stock Summary**, and **Stock › All Stock screens › Stock › Inventory** (`INVENTORY_VIEW`), with by-firm, by-branch, by-warehouse and by-product reads |
+| How it got there | **Stock › Stock Ledger** (`INVENTORY_LEDGER_VIEW`) and **All Stock screens › Stock › Transactions** (`INVENTORY_TRANSACTION_VIEW`) |
+| Opening balances | **Stock › All Stock screens › Movements › Opening Stock** |
+| Adjust, transfer, write off, quarantine | **Inventory**, each its own action (`INVENTORY_ADJUST`); large adjustments wait under **All Stock screens › Movements › Adjustment Approvals** |
+| Stock transfers, repacking | **Stock › Stock Transfers**; **All Stock screens › Movements › Repacking** |
+| Batches, expiry, lots, serial numbers | **Stock › Batches**, **Expiry Monitor**; **All Stock screens › Tracking › Lots, Serial Numbers** |
+| The firm's stock rules | **Settings › Stock** (Inventory Settings, Adjustment Reasons, Adjustment Limits, Batch Rules) |
+| Count the shelves | **Stock › Physical Count** |
 
 ```powershell
 uv run python scripts/dump_route_permissions.py --markdown inventory
@@ -3377,8 +3524,8 @@ knowing:
 | --- | --- | --- |
 | Every report the signed-in user may open | **Reports** | per report |
 | Find a record across modules | The shell's global search | firm scope; results are filtered by what you may see |
-| Who changed what | **Settings › Audit Logs** | `AUDIT_LOG_VIEW` |
-| What the client crashed on | **Settings › Diagnostics** | `DIAGNOSTICS_VIEW` |
+| Who changed what | **Settings › Platform › System › Audit Logs** | `AUDIT_LOG_VIEW` |
+| What the client crashed on | **Settings › Platform › System › Diagnostics** | `DIAGNOSTICS_VIEW` |
 
 ```powershell
 uv run python scripts/dump_route_permissions.py --markdown search
@@ -3425,3 +3572,117 @@ Search and reports own no tables — both read the modules'.
    missing here.
 
 ---
+
+---
+
+# 29. Branding: the agency's name, tagline and logo
+
+## What it does
+
+The agency that bought the product has a **name, a tagline and a logo**. They
+lead the sign-in screen and the header of every screen, so every PC shows the
+same, and the product's own name stays beside them, quietly. Sign-in happens
+before a firm is chosen, so the record sits above the firms: **one live row per
+installation, in the platform store**, with no `firm_id`. No row means *not yet
+given*: the desktop then falls back to the name in `desktop/config/branding.json`
+and the agency's initials.
+
+**Our product's identity is a different thing and comes from a different
+place.** The product and company names, tagline, logos, support details (phone,
+WhatsApp, hours, email, website; blank in 1.3.0, an empty row is hidden) and
+the eight strengths on the sign-in panel come only from `config/branding.json`,
+which the package builds and every installer replaces. The agency can never
+change them from the app. Backlog 71; `docs/BRANDING_AND_NAMES.md` section 8 is
+the record of what was built.
+
+It is not a business-profile capability and a firm cannot switch it off.
+
+## Configure first
+
+Nothing. An installation with no branding works as it always did, showing
+Agency Platform's own name. The record is given in one of three ways (the
+workflow below), by somebody holding `PLATFORM_SETTINGS`, which only the
+platform tier holds.
+
+## Workflow
+
+| Step | Who | Result |
+| --- | --- | --- |
+| **Fresh server install**: the Branding page after *This PC* (agency name, tagline, logo file; all optional) | Whoever installs | Setup writes the values as UTF-8 JSON to a temporary file (never on a command line), passes `-BrandingFile` to `server_setup.ps1`, which runs **`agency-server set-branding --file`** once the server answers `/health`, then deletes the file. It saves through the same service as the Settings screen, so it is audited. The page is not shown for an app-only PC, an upgrade or a repair |
+| A logo the server refuses | — | **A branding problem never fails an install**: the name is saved, the logo is skipped and a warning goes to the install log; the logo can be added later. A tagline or logo without a name is refused at Next |
+| **First sign-in** while branding is not set | A platform administrator, or a holder of `PLATFORM_SETTINGS` | *Set up your agency* opens once, after sign-in: name, tagline, logo, live preview. **Skip for now** is kept per user (workspace state `phase2.first_run`, `agency_skipped`) and Home then shows a *Finish setting up* card until it is given. A firm administrator never sees either |
+| **Any time** | `PLATFORM_SETTINGS` | **Settings › Platform › Agency › Branding**: one form; Save, **Remove logo** |
+| Read it | Anyone, signed out | The sign-in screen reads name, tagline and whether there is a logo, then the logo only when this PC's cached copy is of another version |
+
+An upgrade leaves the record **empty**: no Branding page is shown on an upgrade,
+so the first administrator to sign in is asked *Set up your agency*.
+
+The endpoints, all under `/api/v1/branding` (a platform path):
+
+| Route | Who | Does |
+| --- | --- | --- |
+| `GET /api/v1/branding` | anyone, signed out | `is_set`, name, tagline, colour, `has_logo`, `version` (also the `ETag`) |
+| `GET /api/v1/branding/logo` | anyone, signed out | the image, `image/png` or `image/jpeg`; 404 when none |
+| `PUT /api/v1/branding` | `PLATFORM_SETTINGS` | replace name, tagline, colour; the first save creates the record |
+| `PUT /api/v1/branding/logo` | `PLATFORM_SETTINGS` | multipart `file`; PNG or JPG by its bytes, not its name; at most 1 MB |
+| `DELETE /api/v1/branding/logo` | `PLATFORM_SETTINGS` | remove the logo; initials show instead |
+
+## How to use it
+
+| Task | Where |
+| --- | --- |
+| Give or change the name, tagline, logo | **Settings › Platform › Agency › Branding** (`PLATFORM_SETTINGS`; no firm needed) |
+| Give it on a new PC | The installer's Branding page; or `agency-server set-branding --file branding.json` on the server PC |
+| See it | The sign-in screen (logo or initials, name, tagline; the strengths panel at the left; **More help**); the header, before Home; the window title **<agency> > <firm>** |
+| See the changes made | **Settings › Platform › System › Audit Logs**, no firm chosen |
+
+The form takes the agency name (required), tagline and logo (PNG or JPG), shows a
+live preview of the sign-in card and the top of every screen, and lists our
+product, company and logo read-only. There is **no accent-colour box**: the
+stored colour is sent back unchanged. Save shows *Saved.* and the header changes
+at once, with no read.
+
+## Tables
+
+`agency_branding`, **platform store only** (migration `20261004_0300`), plus the
+`BaseEntity` columns:
+
+| Column | Holds |
+| --- | --- |
+| `branding_key` | Always `AGENCY`; exists only so a unique index can hold *one live row* |
+| `agency_name` | Required, up to 150 characters |
+| `tagline` | Up to 200 characters |
+| `accent_color` | `#RRGGBB` or none; stored, not yet asked or applied |
+| `logo`, `logo_content_type` | The image itself (so every PC reads the same one from the server) and `image/png` or `image/jpeg` |
+
+Audit actions, in the platform trail: **`agency_branding.created`** (the first
+save), **`agency_branding.updated`** and **`agency_branding.logo_changed`** (the
+type and size, never the image).
+
+## Rules that bite
+
+- **One live row is held by the database, not by a read.**
+  `UQ_agency_branding_key_active` is a unique index on the constant key where
+  `is_deleted = false`; two first saves at once cannot both find none and insert.
+- **The logo's type is read from its bytes, never its file name**: a text file
+  renamed `.png` is refused (*The logo must be a PNG or JPG image.*). At most 1
+  MB, an over-size one is refused naming its size. **A logo needs the name to be
+  given first.** The server does not check the logo's shape; the screens fit it
+  into a square.
+- **Every write honours `If-Match`** with the `ETag` it was given, so two PCs
+  editing at once: the second is refused with the somebody-else-saved message
+  and keeps what was typed. The desktop sends `PUT`/`DELETE` of the logo only
+  when the logo changed.
+- **Reading is public, writing is not.** `GET` needs no sign-in because the
+  sign-in screen shows the agency; every write needs `PLATFORM_SETTINGS`. The
+  route is a platform path, so it never needs an `X-Firm-ID`.
+- **The desktop holds a copy.** The last answer is kept per server on the PC, so
+  the sign-in screen opens at once and survives a server that is not answering
+  (the agency's own logo from the last visit, or Agency Platform's own on a PC
+  that never had one). When a PC holds *no* copy the first-run dialog asks the
+  server once before opening, because an empty form saved without a version
+  would otherwise replace the agency's branding.
+- **A branding problem must never fail an install.** The installer path
+  reports what it skipped and carries on.
+- **Not built:** Help > About, first-run steps 2 to 4, the "PRACTICE" mark, the
+  accent colour in use, and support details (blank by design).
