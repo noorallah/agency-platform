@@ -245,6 +245,14 @@ class PurchaseOrderLine(BaseEntity):
     #: id, as other cross-document line references are; the contract line is
     #: never re-inserted, so it does not dangle.
     rate_contract_line_id: Mapped[UUID | None] = mapped_column(UUIDType(), index=True)
+    #: The supplier scheme the line's free goods came from (PG-11): filled
+    #: by the scheme on the same product, or a line of another product's
+    #: free goods the scheme earned. A bare id; the receipt and the bill
+    #: reach it through the order line.
+    scheme_id: Mapped[UUID | None] = mapped_column(UUIDType(), index=True)
+    #: The scheme as it read when the line took it ("10+2"); kept because the
+    #: scheme itself may change or go.
+    scheme_name: Mapped[str | None] = mapped_column(String(120))
 
 
 class PurchaseDeliverySchedule(BaseEntity):
