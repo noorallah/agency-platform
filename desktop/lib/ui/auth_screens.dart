@@ -31,6 +31,31 @@ const double _tightHeight = 580;
 const double _cardWidth = 520;
 const double _introWidth = 420;
 
+/// What a replacement layout (the phase 2 sign-in) is handed to place: the
+/// real form card, and the two things around it that belong to the same
+/// screen state.
+class LoginScreenParts {
+  const LoginScreenParts({
+    required this.card,
+    required this.openSettings,
+    required this.typed,
+  });
+
+  /// The sign-in form, with every behaviour of the standard screen.
+  final Widget card;
+
+  /// Opens Application Settings.
+  final VoidCallback openSettings;
+
+  /// True once the user has changed either field, and stays true.
+  final ValueListenable<bool> typed;
+}
+
+typedef LoginLayoutBuilder = Widget Function(
+  BuildContext context,
+  LoginScreenParts parts,
+);
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({
     super.key,
@@ -42,6 +67,10 @@ class LoginScreen extends StatefulWidget {
     this.notice,
     this.lockedUntil,
     this.capsLockEnabled,
+    this.layoutBuilder,
+    this.cardHeader,
+    this.cardFooter,
+    this.cardMaxWidth = _cardWidth,
   });
 
   final SessionController session;
@@ -55,6 +84,15 @@ class LoginScreen extends StatefulWidget {
   /// down to it rather than repeating the minutes the server quoted once.
   final DateTime? lockedUntil;
   final bool Function()? capsLockEnabled;
+
+  /// Replaces the whole screen around the form; null keeps the standard one.
+  final LoginLayoutBuilder? layoutBuilder;
+
+  /// Replace the card's brand mark and greeting, and add a foot to it. Both
+  /// null leaves the card as it has always been.
+  final Widget? cardHeader;
+  final Widget? cardFooter;
+  final double cardMaxWidth;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -74,6 +112,9 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _capsLockOn = false;
   Timer? _lockTicker;
   int _lockSecondsLeft = 0;
+  final ValueNotifier<bool> _typed = ValueNotifier<bool>(false);
+  String _seenUsername = '';
+  final String _seenPassword = '';
 
   @override
   void initState() {
@@ -88,6 +129,9 @@ class _LoginScreenState extends State<LoginScreen> {
                 : '')
         : widget.session.attemptedUsername ?? '';
     _errorVisible = widget.error != null;
+    _seenUsername = _username.text;
+    _username.addListener(_noteTyping);
+    _password.addListener(_noteTyping);
     _usernameFocus.addListener(_handleFocusChanged);
     _passwordFocus.addListener(_handleFocusChanged);
     _syncCapsLockState();
@@ -160,8 +204,18 @@ class _LoginScreenState extends State<LoginScreen> {
         'You can try again in $clock.';
   }
 
+  /// A change of text, not a click into the field: controllers also notify
+  /// for the cursor, which is not typing.
+  void _noteTyping() {
+    if (_typed.value) return;
+    if (_username.text != _seenUsername || _password.text != _seenPassword) {
+      _typed.value = true;
+    }
+  }
+
   @override
   void dispose() {
+    _typed.dispose();
     _lockTicker?.cancel();
     _usernameFocus.removeListener(_handleFocusChanged);
     _passwordFocus.removeListener(_handleFocusChanged);
@@ -216,7 +270,22 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _selectMode(ThemeMode mode) => widget.themes.selectMode(mode);
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) {
+    final LoginLayoutBuilder? layout = widget.layoutBuilder;
+    if (layout != null) {
+      return layout(
+        context,
+        LoginScreenParts(
+          card: _buildCard(showBrandMark: false),
+          openSettings: _showApplicationSettings,
+          typed: _typed,
+        ),
+      );
+    }
+    return _standardLayout(context);
+  }
+
+  Widget _standardLayout(BuildContext context) => Scaffold(
         backgroundColor: widget.branding.loginBackgroundColor,
         body: SafeArea(
           child: Stack(
@@ -279,6 +348,9 @@ class _LoginScreenState extends State<LoginScreen> {
         branding: widget.branding,
         preferences: widget.preferences,
         showBrandMark: showBrandMark,
+        header: widget.cardHeader,
+        footer: widget.cardFooter,
+        maxWidth: widget.cardMaxWidth,
         errorVisible: _errorVisible,
         error: _displayedError,
         notice: widget.notice,
@@ -784,6 +856,9 @@ class _LoginCard extends StatelessWidget {
     required this.branding,
     required this.preferences,
     required this.showBrandMark,
+    required this.header,
+    required this.footer,
+    required this.maxWidth,
     required this.errorVisible,
     required this.error,
     required this.notice,
@@ -813,6 +888,9 @@ class _LoginCard extends StatelessWidget {
   /// Carried by the card only when the introduction panel is hidden, so the
   /// brand appears exactly once at every width.
   final bool showBrandMark;
+  final Widget? header;
+  final Widget? footer;
+  final double maxWidth;
   final bool errorVisible;
   final String? error;
   final String? notice;
@@ -838,7 +916,7 @@ class _LoginCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: _cardWidth),
+      constraints: BoxConstraints(maxWidth: maxWidth),
       child: Card(
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.xl),
@@ -862,23 +940,36 @@ class _LoginCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (showBrandMark) ...[
-                        Center(child: _BrandMark(branding: branding, size: 36)),
-                        const SizedBox(height: AppSpacing.md),
-                      ],
-                      Text(
-                        'Welcome back',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.headlineMedium,
-                      ),
-                      const SizedBox(height: AppSpacing.xs),
-                      Text(
-                        'Sign in to continue to ${branding.appName}.',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
+                      if (header != null) ...[
+                        header!,
+                        const SizedBox(height: AppSpacing.lg),
+                        Text(
+                          'SIGN IN',
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            letterSpacing: 1.2,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
                         ),
-                      ),
+                      ] else ...[
+                        if (showBrandMark) ...[
+                          Center(
+                              child: _BrandMark(branding: branding, size: 36)),
+                          const SizedBox(height: AppSpacing.md),
+                        ],
+                        Text(
+                          'Welcome back',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.headlineMedium,
+                        ),
+                        const SizedBox(height: AppSpacing.xs),
+                        Text(
+                          'Sign in to continue to ${branding.appName}.',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                       if (error != null && errorVisible) ...[
                         const SizedBox(height: AppSpacing.lg),
                         _ErrorBanner(
@@ -888,7 +979,9 @@ class _LoginCard extends StatelessWidget {
                         const SizedBox(height: AppSpacing.lg),
                         _NoticeBanner(message: notice!),
                       ],
-                      const SizedBox(height: AppSpacing.xl),
+                      SizedBox(
+                          height:
+                              header != null ? AppSpacing.md : AppSpacing.xl),
                       _UsernameField(
                         controller: usernameController,
                         focusNode: usernameFocus,
@@ -950,6 +1043,10 @@ class _LoginCard extends StatelessWidget {
                         isSubmitting: isSubmitting,
                         onPressed: onSubmit,
                       ),
+                      if (footer != null) ...[
+                        const SizedBox(height: AppSpacing.lg),
+                        footer!,
+                      ],
                     ],
                   ),
                 ),

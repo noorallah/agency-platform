@@ -228,3 +228,27 @@ step 1 only; U8 Help > About stays parked).
   phone, WhatsApp, hours, email and website (blank for now; an empty row is
   hidden), and the eight sign-in strengths for the S2 panel.
 
+### 8.2 Sign-in (U3, U4, S2)
+
+- **Phase 2 only**: `desktop/lib/phase2/sign_in_screen.dart` wraps the same
+  `LoginScreen` form through its `layoutBuilder`, so every sign-in behaviour
+  (Enter, show/hide, remember, lockout, caps lock, settings) is one
+  implementation; phase 1 keeps its layout untouched.
+- **Layout S2**: night-blue showcase on the left cycling the strengths from
+  `branding.json` every 8 s, stopping for good once either field is typed
+  in; previous/next and dots; no strengths, no carousel. Below 900 px the
+  card stands alone.
+- **Agency**: name, tagline and logo from `GET /api/v1/branding` (one call
+  on opening) and `GET /api/v1/branding/logo` (only when `has_logo` and the
+  cached copy is of another version). The last answer is cached per server
+  in `agency_branding.json` and `agency_branding_logo.bin` under the app's
+  storage root, so the next start shows it at once. Not set, or no answer:
+  `branding.json`'s name and logo; no logo: the agency's initials.
+- **Product**: window title "<product> - Sign in"; the product mark (logo,
+  name, "by <company>", tagline) in the card's foot; the status line shows
+  the server state, version and "Powered by <product>".
+- **More help** (U4, folded to one line by the owner): support rows, each
+  hidden while blank; "Your administrator resets a forgotten password"; and
+  "Copy details for support" (product, version, server, computer name).
+- Wireframe colours that are not design tokens (the gold glow) are not used.
+
