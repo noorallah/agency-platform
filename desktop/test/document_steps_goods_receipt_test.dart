@@ -221,6 +221,20 @@ void main() {
     expect(find.text('Save & complete'), findsOneWidget);
   });
 
+  testWidgets('saving is the coloured button, completing the outlined one', (
+    tester,
+  ) async {
+    // The owner pressed the coloured button to save a draft and posted the
+    // stock (D-UI-8): the button people press must only save.
+    final _Api api = _Api();
+    await _open(tester, _editor(api, const ['PURCHASE_RECEIVE']));
+    expect(
+      tester.widget(find.byKey(const ValueKey('goods-receipt-save'))),
+      isA<FilledButton>(),
+    );
+    expect(tester.widget(find.byKey(_saveComplete)), isA<OutlinedButton>());
+  });
+
   testWidgets('whoever cannot complete is not offered it', (tester) async {
     final _Api api = _Api();
     await _open(
