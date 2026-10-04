@@ -58,6 +58,10 @@ from app.purchase_invoice.services import PurchaseInvoiceService
 from app.purchase_invoice.services.gst_purchase_register import (
     GstPurchaseRegisterService,
 )
+from app.purchase_invoice.services.payables_report import (
+    MAX_MONTHS as MAX_PAYABLES_MONTHS,
+)
+from app.purchase_invoice.services.payables_report import PayablesReportService
 from app.purchase_invoice.services.price_variance import PriceVarianceService
 from app.purchase_invoice.services.purchase_analysis import (
     PurchaseAnalysisService,
@@ -839,10 +843,104 @@ def vendor_outstanding_placeholder(
     scope: PurchaseInvoiceReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseInvoiceVendorOutstandingRecord]]:
-    """Report the balance still owing per vendor."""
+    """Report the balance still owing per vendor.
+
+    Superseded by ``/reports/payables`` (§85, PG-2), which nets supplier
+    credits and checks its total against the books (D-BUY-32). Kept for one
+    release, then removed with its caller.
+    """
     return ApiResponse(
-        data=PurchaseInvoiceService(db).outstanding_report(firm_scope=scope.firm_id)
+        data=PurchaseInvoiceService(db).outstanding_report(firm_scope=scope.firm_id),
+        message="Superseded by /purchase-invoices/reports/payables.",
     )
+
+
+class PayablesRowRecord(BaseModel):
+    """One supplier's row of the payables report, or the total row (§85)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    #: None on the total row.
+    vendor_id: UUID | None
+    vendor_code: str
+    vendor_name: str
+    #: Owed: bills dated (or due) before the first month shown. Paid: 0.
+    older: Decimal
+    #: One per entry of ``months``, in order.
+    amounts: list[Decimal]
+    #: Owed by due date: bills due after the last month shown. Otherwise 0.
+    later: Decimal
+    #: Owed: returns, debit notes and advances not set against a bill, as a
+    #: negative figure. Paid: 0.
+    credits: Decimal
+    #: The row's sum: Outstanding on the Owed view, paid on the Paid view.
+    total: Decimal
+    #: Bills owing (Owed) or payments made (Paid) per month.
+    counts: list[int]
+    documents: int
+
+
+class PayablesBooksCheckRecord(BaseModel):
+    """The report's total against the payables account (§85 row 4)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    #: Owed: the payables balance at the as-of date. Paid: what payments
+    #: debited payables with in the window. None when it cannot be compared.
+    ledger_balance: Decimal | None
+    #: The total row's ``total`` less ``ledger_balance``; zero when they agree.
+    difference: Decimal | None
+    note: str | None
+
+
+class PayablesReportRecord(BaseModel):
+    """Payables by supplier and month (§85, PG-2)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    as_of: date
+    basis: str
+    view: str
+    #: ``YYYY-MM``, oldest first, the as-of month last.
+    months: list[str]
+    rows: list[PayablesRowRecord]
+    total: PayablesRowRecord
+    books_check: PayablesBooksCheckRecord
+
+
+@router.get(
+    "/reports/payables",
+    response_model=ApiResponse[PayablesReportRecord],
+)
+def payables_report(
+    scope: PurchaseInvoiceReportScope,
+    as_of: date | None = None,
+    basis: Literal["invoice", "due"] = "invoice",
+    months: Annotated[int, Query(ge=1, le=MAX_PAYABLES_MONTHS)] = 6,
+    vendor_id: UUID | None = None,
+    branch_id: UUID | None = None,
+    view: Literal["owed", "paid"] = "owed",
+    db: Session = Depends(get_db),
+) -> ApiResponse[PayablesReportRecord]:
+    """Report what each supplier is owed, or was paid, by month (§85, PG-2).
+
+    Owed: each bill's outstanding (what ``settlement_allocations``, returns,
+    debit notes, write-backs and applied credit leave) in its invoice or due
+    month, older bills in Older, supplier credits in Credits, and a total
+    checked against Trade Payables at ``as_of`` (today by default). Paid:
+    payments per supplier per month, checked against what they debited
+    payables with. Replaces ``/reports/outstanding`` (D-BUY-32).
+    """
+    report = PayablesReportService(db).report(
+        scope.firm_id,
+        as_of=as_of or utc_now().date(),
+        basis=basis,
+        months=months,
+        vendor_id=vendor_id,
+        branch_id=branch_id,
+        view=view,
+    )
+    return ApiResponse(data=PayablesReportRecord.model_validate(report))
 
 
 class VendorAgeingBandRecord(BaseModel):
