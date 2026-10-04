@@ -6061,9 +6061,20 @@ section stays the place it is built from and this row points to it.
 | 22 | **Batch-wise PTR / PTS** | Partial: MRP and selling price per batch | Rates to retailer and stockist per batch (pharma, FMCG) | High for pharma | §55 G5 |
 | 23 | **Supplier portal** | Missing | Suppliers see their orders, confirm dates, upload invoices, see payments | Low | §42.14 |
 | 24 | **Purchase entry on the phone** | Missing | Receive goods and record a quick purchase on Android | Parked by the owner | §42.6, §48 |
+| 25 | **Supplier free-scheme on the item** | Missing: free goods are typed per line | A scheme on the product or the supplier's catalogue ("10+2", or "soap free with shampoo": a different product) fills the free quantity, or adds the free product's line, on the order and the receipt by itself -- as Marg's item-wise and other-free schemes do | Medium (distribution) | §61 |
+| 26 | **"10+2" printed on the order** | Missing | The purchase order and receipt print paid + free as `10+2`, as Marg's bill formats do | Low | none |
+| 27 | **A free-only order line prices live** | Partial: the server accepts a line with ordered 0 and free goods only, and the receipt keeps it (D-BUY-33, #1111) | The order editor's live price check skips any line with nothing ordered, so an order with a free product of its own shows stale totals until saved; count a line with free goods as complete | Low | none |
 
 **Suggested order** (by who is held up without it): #17 GST purchase register
 and HSN, #20 payables (§85), #19 cash purchase, #16 attach the bill, #10 TDS
 194C/194J, #9 TCS on purchases, #3 PO on WhatsApp, #1 RFQ, #2 rate contracts,
 #11 serials, #4-#5 imports, #7 fixed assets, then the low rows.
+
+**Free goods compared** (owner, same day: "add this if other tools also
+support in this way"). A different product given free is recorded at **zero
+value** by Tally (zero-valued entries), ERPNext ("Allow Zero Valuation Rate" on
+the receipt line) and Marg (other-free scheme) -- as here: the free line costs
+nothing and the paid line keeps its cost. Same-product free goods match
+Tally's actual-versus-billed quantities, and here the paid amount is spread
+over paid and free units. What the others add is rows 25 and 26 above.
 
