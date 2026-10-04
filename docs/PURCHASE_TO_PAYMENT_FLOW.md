@@ -179,6 +179,21 @@ the bill has none (`supplier_irn_check`, CGST rule 48(4)), and, whatever the
 setting, when another bill already carries the same IRN. Warned, never refused:
 the firm still owes the money (§78 row 5).
 
+**The supplier's bill itself** (PG-4, §86 row 16) is kept with the bill, and
+the delivery challan or a photo of the goods with the receipt:
+`POST /api/v1/purchase-invoices/{id}/files` and
+`POST /api/v1/goods-receipts/{id}/files` take one multipart `file` (PDF, JPG or
+PNG, at most 10 MB, checked by its contents) and an optional `caption`;
+`GET .../files` lists them without their bytes, `GET .../files/{file_id}/content`
+downloads one under its own name and type, and `DELETE .../files/{file_id}`
+removes one, soft and audited. Viewing needs the document's view code
+(`PURCHASE_VIEW`; on a receipt `PURCHASE_RECEIVE` also reads); uploading and
+removing need `PURCHASE_CREATE` or `PURCHASE_UPDATE` on a bill and
+`PURCHASE_RECEIVE` on a receipt. Files can be added at any status -- a paid
+bill still needs its paper -- and posting never reads them. List rows carry
+`attached_file_count` for a paper clip. The bytes live in the firm's own store
+(`docs/API_AND_PERSISTENCE_CONVENTIONS.md`).
+
 ### 6. Approve the invoice — **the payable appears**
 
 `POST /api/v1/purchase-invoices/{id}/approve`

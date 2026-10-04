@@ -167,6 +167,29 @@ is the guard.
 
 `refresh_tokens`, `login_history` and `password_history` have no automatic cleanup of their own, and neither does `tax_rule_execution_logs`. **`scripts/purge_retention.py` is the one to run**: it enumerates every firm store from the registry — dedicated schemas and dedicated databases included — and applies both retention services, so it cannot miss a store the way running the two single-purpose scripts by hand does. `--dry-run` reports, `--yes` applies. The `retention` service in `docker-compose.yml` runs it on a loop, and is **opt-in**: `docker compose --profile retention up -d`, because bringing the stack up should not start deleting rows on its own. Until someone enables it nothing prunes these tables, which is how they grew unbounded to begin with. `AGENCY_RETENTION_INTERVAL_SECONDS` sets the period (default daily) and `AGENCY_RETENTION_MODE=--dry-run` makes it report instead of delete. `scripts/purge_identity_history.py` and `scripts/purge_tax_execution_logs.py` remain for pruning one store on its own. `tax_rule_execution_logs` is the same shape and grows fastest — one row holding three JSON documents per document line — and is pruned per firm store by `scripts/purge_retention.py` (every store at once) or `scripts/purge_tax_execution_logs.py` (one store, selected with `AGENCY_DATABASE_SCHEMA` the way a migration does).
 
+## An uploaded file's bytes live in the firm's own store
+
+Decided 2026-10-05 for PG-4 (the supplier's bill on a purchase bill and a goods
+receipt), when the platform first kept file *content*. Until then every
+`*_attachments` table (`purchase_invoice_attachments`, `goods_receipt_attachments`,
+`ledger_attachments`, `stock_attachments` and their siblings) recorded only a
+`file_path` the client typed, and the document tables among them are rewritten
+wholesale on every edit, so an uploaded file could not live there. **The bytes
+go in the firm's store**: `document_files` holds name, type, size, SHA-256 and
+caption, and `document_file_contents` holds the bytes in a separate table keyed
+by the file, so a list, or the per-page `attached_file_count` on bill and
+receipt list rows, never reads a file. This keeps a firm's paper inside its
+own database, where the isolation and per-firm backup and restore already
+apply, and needs no file server, path or second backup. **At most 10 MB a
+file, and only PDF, JPG and PNG**: the type stored and served is the one the
+file's first bytes name, and the name's extension and the declared multipart
+type (unless it says only `application/octet-stream`) must agree with it, so
+an `.exe` renamed `.pdf` is refused by its contents. A removal is a soft delete
+and is audited; the bytes stay with the row. A download is served under the
+stored type with `X-Content-Type-Options: nosniff`. `app/document_files` is
+the one implementation; a new document that takes uploads adds a nullable
+parent key and a check, not a new table.
+
 ## `TaxRuleService.simulate` is the tax calculation, not a preview
 
 **`TaxRuleService.simulate` is the tax calculation, not a preview.** **Nine** modules call it once per line while building a document -- the eight above and `quotation`, which prices with tax even though it converts no units -- on their own session, so it must never commit — the `/simulate` endpoint owns that. It also derives `country_id` from the applied profile's tax system and `business_profile_id` from the firm's assignment, because no document sends either and rules scoped that way otherwise never match. `total_tax_amount` is only what the counterparty is billed: tax `included_in_price` and tax under `REVERSE_CHARGE` are reported in `inclusive_tax_amount` / `reverse_charge_tax_amount` and must not be added to a document total.

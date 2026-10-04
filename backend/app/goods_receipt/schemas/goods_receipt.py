@@ -261,6 +261,9 @@ class GoodsReceiptResponse(GoodsReceiptSchema):
     #: header because a list carries many records and a header carries
     #: one — and this desktop edits from list rows.
     version: int
+    #: How many uploaded files the receipt carries (PG-4), so a list can show
+    #: a paper clip without asking per row. Counted once for the page.
+    attached_file_count: int = 0
     firm_id: UUID
     purchase_order_id: UUID
     purchase_order_number: str

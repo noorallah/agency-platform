@@ -41,6 +41,7 @@ from app.customers.models import opening_bill as _customer_opening_bill  # noqa:
 from app.debit_note.models import debit_note as _debit_note  # noqa: F401
 from app.delivery_note.models import delivery_note  # noqa: F401
 from app.diagnostics.models import error_report  # noqa: F401
+from app.document_files.models import document_file  # noqa: F401
 from app.document_framework.models import document_framework  # noqa: F401
 from app.einvoice.models import einvoice as _einvoice  # noqa: F401
 from app.enquiry import models as _enquiry  # noqa: F401

@@ -32,6 +32,9 @@ from app.core.pagination import PaginationParams, ReportWindow
 from app.core.pagination.reports import ReportRows
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.core.utils.dates import utc_now
+from app.document_files.api import download_response, read_upload
+from app.document_files.schemas import DocumentFileResponse
+from app.document_files.services import DocumentFileService, FileParent
 from app.document_framework.schemas import DocumentLifecycleEventResponse
 from app.document_framework.schemas.bulk_actions import (
     BulkActionResult,
@@ -1065,3 +1068,86 @@ async def import_purchase_invoices(
         actor_id=scope.actor_id,
     )
     return ApiResponse(data=service.invoice_responses(rows))
+
+
+# ---- the supplier's bill itself: uploaded files (PG-4) ----------------------
+
+#: Whoever may enter or edit a bill may keep its paper with it.
+PurchaseInvoiceFileScope = Annotated[
+    ResolvedFirmScope,
+    firm_any_permission_scope("PURCHASE_CREATE", "PURCHASE_UPDATE"),
+]
+
+
+@router.get(
+    "/{invoice_id}/files", response_model=ApiResponse[list[DocumentFileResponse]]
+)
+def list_purchase_invoice_files(
+    invoice_id: UUID,
+    scope: PurchaseInvoiceViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[DocumentFileResponse]]:
+    """List the files uploaded onto one bill; metadata only."""
+    rows = DocumentFileService(db).list_files(
+        FileParent.PURCHASE_INVOICE, invoice_id, firm_id=scope.firm_id
+    )
+    return ApiResponse(data=[DocumentFileResponse.model_validate(r) for r in rows])
+
+
+@router.post(
+    "/{invoice_id}/files",
+    response_model=ApiResponse[DocumentFileResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_purchase_invoice_file(
+    invoice_id: UUID,
+    scope: PurchaseInvoiceFileScope,
+    file: Annotated[UploadFile, File()],
+    caption: Annotated[str | None, Form(max_length=200)] = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[DocumentFileResponse]:
+    """Keep the supplier's PDF or a photo of it with the bill (10 MB, PDF/JPG/PNG)."""
+    content = await read_upload(file)
+    row = DocumentFileService(db).attach(
+        FileParent.PURCHASE_INVOICE,
+        invoice_id,
+        file_name=file.filename or "",
+        declared_type=file.content_type,
+        content=content,
+        caption=caption,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(data=DocumentFileResponse.model_validate(row))
+
+
+@router.get("/{invoice_id}/files/{file_id}/content")
+def download_purchase_invoice_file(
+    invoice_id: UUID,
+    file_id: UUID,
+    scope: PurchaseInvoiceViewScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Download one file kept with a bill, under its own name and type."""
+    row, content = DocumentFileService(db).download(
+        FileParent.PURCHASE_INVOICE, invoice_id, file_id, firm_id=scope.firm_id
+    )
+    return download_response(row, content)
+
+
+@router.delete("/{invoice_id}/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_purchase_invoice_file(
+    invoice_id: UUID,
+    file_id: UUID,
+    scope: PurchaseInvoiceFileScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Remove one file from a bill; the trail keeps that it was there."""
+    DocumentFileService(db).remove(
+        FileParent.PURCHASE_INVOICE,
+        invoice_id,
+        file_id,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
