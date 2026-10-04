@@ -1,6 +1,7 @@
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/models/india_states.dart';
 import 'package:agency_desktop/ui/desktop_shell.dart';
 import 'package:agency_desktop/ui/resource_management_page.dart';
 import 'package:flutter/material.dart';
@@ -33,6 +34,7 @@ class _FirmApi extends ApiClient {
 
 void main() {
   _firmSetupTests();
+  _firmStateTests();
 
   group('financial year default', () {
     test('on or after 1 April it is this year', () {
@@ -299,6 +301,117 @@ void _firmSetupTests() {
 
       expect(followUp, contains('Open this firm'));
       expect(followUp, contains('Set up'));
+    });
+  });
+}
+
+/// Backlog 81: the firm's State is chosen, not typed, and the GST number
+/// proposes it. The stored value stays the state's NAME.
+void _firmStateTests() {
+  group('the firm form picks its state', () {
+    test('a GSTIN names its state by the first two digits', () {
+      expect(indiaStateForGstin('33AAACX1234A1Z5')?.name, 'Tamil Nadu');
+      expect(indiaStateForGstin('29AAACX1234A1Z5')?.name, 'Karnataka');
+      expect(indiaStateForGstin('07')?.name, 'Delhi');
+      // Daman and Diu (25) merged into 26.
+      expect(indiaStateForGstin('25AAACX1234A1Z5')?.gstCode, '26');
+      expect(indiaStateForGstin('3'), isNull);
+      expect(indiaStateForGstin('99AAACX1234A1Z5'), isNull);
+    });
+
+    test('every state has its own code and spellings compare alike', () {
+      expect(indiaStates.map((state) => state.gstCode).toSet().length,
+          indiaStates.length);
+      expect(indiaStateKey('Tamilnadu'), indiaStateKey('Tamil Nadu'));
+      expect(indiaStateKey('Andaman & Nicobar Islands'),
+          indiaStateKey('Andaman and Nicobar Islands'));
+    });
+
+    Future<Map<String, dynamic>> open(
+      WidgetTester tester,
+      Map<String, dynamic> values,
+    ) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1600, 1000);
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+      final ResourceDefinition<Firm> definition =
+          firmDefinition(_FirmApi(), PermissionService(), showFrame: false);
+      final Map<String, dynamic> saved = <String, dynamic>{};
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: CrudWorkspaceDialog(
+              title: 'Firms',
+              mode: CrudDialogMode.create,
+              api: _FirmApi(),
+              twoColumn: true,
+              values: values,
+              fields: [
+                for (final FieldSpec field in definition.fields)
+                  if (const ['gst_number', 'state', 'country']
+                      .contains(field.key))
+                    field,
+              ],
+              onSave: (payload) async => saved.addAll(payload),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return saved;
+    }
+
+    testWidgets('the state is a dropdown of the Indian states', (tester) async {
+      await open(tester, const {'country': 'IN'});
+      final Finder dropdown = find.byType(DropdownButtonFormField<String>);
+      expect(dropdown, findsOneWidget);
+      await tester.tap(dropdown);
+      await tester.pumpAndSettle();
+      expect(find.text('Andhra Pradesh').hitTestable(), findsOneWidget);
+      expect(find.text('Not set'), findsWidgets);
+    });
+
+    testWidgets('typing a GST number proposes the state when blank',
+        (tester) async {
+      await open(tester, const {'country': 'IN'});
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'GST number'), '33AAACX1234A1Z5');
+      await tester.pumpAndSettle();
+      expect(find.text('Tamil Nadu'), findsOneWidget);
+      expect(find.textContaining('check this state'), findsNothing);
+    });
+
+    testWidgets('a state already chosen is kept and a disagreement warns',
+        (tester) async {
+      await open(tester, const {'country': 'IN', 'state': 'Tamil Nadu'});
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'GST number'), '29AAACX1234A1Z5');
+      await tester.pumpAndSettle();
+      expect(find.text('Tamil Nadu'), findsOneWidget);
+      expect(find.textContaining('registered in Karnataka (29)'),
+          findsOneWidget);
+    });
+
+    testWidgets('a firm saved with free text still reads as it was',
+        (tester) async {
+      await open(tester, const {'country': 'IN', 'state': 'Tamilnadu'});
+      expect(find.text('Tamilnadu'), findsOneWidget);
+      // Spelled differently, the same state: no warning.
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'GST number'), '33AAACX1234A1Z5');
+      await tester.pumpAndSettle();
+      expect(find.textContaining('check this state'), findsNothing);
+    });
+
+    testWidgets('outside India it is a plain text box', (tester) async {
+      await open(tester, const {'country': 'GB', 'state': 'Surrey'});
+      expect(find.byType(DropdownButtonFormField<String>), findsNothing);
+      expect(find.widgetWithText(TextFormField, 'State / province'),
+          findsOneWidget);
+      expect(find.text('Surrey'), findsOneWidget);
     });
   });
 }

@@ -8,13 +8,18 @@ import '../core/design/design_tokens.dart';
 import '../core/dialogs/app_dialogs.dart';
 import '../core/notifications/notification_service.dart';
 import '../models/entities.dart';
+import '../models/india_states.dart';
 import 'workspace/enterprise_form_kit.dart';
 import 'workspace/desktop_framework.dart';
 
 /// Field "kind" for composite/specialized enterprise widgets that go beyond
 /// a plain text/boolean/options control. Plain fields (the historical
 /// default) keep using [FieldSpec.boolean]/[FieldSpec.optionsResource].
-enum FieldKind { text, date, addressList, documentList }
+/// How a field is drawn. [indiaState] is a dropdown of the Indian states for
+/// a firm in India (backlog 81); it proposes the state from a GST number
+/// field and warns when the two disagree, and for any other country it is a
+/// plain text box.
+enum FieldKind { text, date, addressList, documentList, indiaState }
 
 class FieldSpec {
   const FieldSpec({
@@ -1434,7 +1439,31 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
         in _controllers.entries) {
       entry.value.addListener(() => _fieldEdited(entry.key));
     }
+    for (final FieldSpec field
+        in widget.fields.where((field) => field.kind == FieldKind.indiaState)) {
+      _controllers['gst_number']?.addListener(() => _proposeState(field));
+    }
     _loadOptions();
+  }
+
+  /// Whether the form's country is India (`IN` or `India`). A blank country
+  /// counts: the product is built for India and the form defaults it to `IN`.
+  bool _inIndia() {
+    final String country =
+        (_controllers['country']?.text ?? '').trim().toLowerCase();
+    return country.isEmpty || country == 'in' || country == 'india';
+  }
+
+  /// Fills a BLANK state from the GST number's first two digits. A state
+  /// somebody already chose is never overwritten; a disagreement is shown as
+  /// a warning under the box instead.
+  void _proposeState(FieldSpec field) {
+    final TextEditingController? state = _controllers[field.key];
+    if (state == null || state.text.trim().isNotEmpty || !_inIndia()) return;
+    if (_locked(field)) return;
+    final IndiaState? proposed =
+        indiaStateForGstin(_controllers['gst_number']?.text ?? '');
+    if (proposed != null) state.text = proposed.name;
   }
 
   @override
@@ -1733,6 +1762,87 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
     ];
   }
 
+  /// The firm's State (backlog 81): the Indian states as a dropdown that
+  /// stores the NAME, so a firm saved with free text before still reads as it
+  /// was -- a stored value that is not in the list stays as an item of its own
+  /// rather than vanishing. Outside India it is the plain text box it was.
+  Widget _indiaStateField(FieldSpec field) {
+    final TextEditingController? controller = _controllers[field.key];
+    return ListenableBuilder(
+      listenable: Listenable.merge(<Listenable>[
+        for (final TextEditingController? each in <TextEditingController?>[
+          controller,
+          _controllers['gst_number'],
+          _controllers['country'],
+        ])
+          if (each != null) each,
+      ]),
+      builder: (BuildContext context, Widget? _) {
+        final ThemeData theme = Theme.of(context);
+        final String current = (controller?.text ?? '').trim();
+        if (!_inIndia()) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: TextFormField(
+              controller: controller,
+              readOnly: _locked(field),
+              decoration: InputDecoration(
+                labelText: field.label,
+                helperText: field.helperText,
+              ),
+            ),
+          );
+        }
+        final IndiaState? registered =
+            indiaStateForGstin(_controllers['gst_number']?.text ?? '');
+        final bool disagrees = registered != null &&
+            current.isNotEmpty &&
+            indiaStateKey(registered.name) != indiaStateKey(current);
+        final List<String> names = <String>[
+          for (final IndiaState state in indiaStates) state.name,
+        ];
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: DropdownButtonFormField<String>(
+            key: ValueKey<String>('india-state-$current'),
+            initialValue: current.isEmpty ? null : current,
+            isExpanded: true,
+            menuMaxHeight: 360,
+            decoration: InputDecoration(
+              labelText: field.label,
+              helperText: disagrees
+                  ? 'The GST number is registered in ${registered.name} '
+                      '(${registered.gstCode}); check this state.'
+                  : (registered != null && current.isEmpty
+                      ? null
+                      : 'Chosen from the Indian states; the GST number '
+                          'proposes it when this is blank.'),
+              helperMaxLines: 2,
+              helperStyle: disagrees
+                  ? TextStyle(color: theme.colorScheme.error)
+                  : null,
+            ),
+            items: [
+              const DropdownMenuItem<String>(value: '', child: Text('Not set')),
+              for (final String name in <String>[
+                // A saved value the list does not name (`Tamilnadu`, `TN`).
+                if (current.isNotEmpty && !names.contains(current)) current,
+                ...names,
+              ])
+                DropdownMenuItem<String>(
+                  value: name,
+                  child: Text(name, overflow: TextOverflow.ellipsis),
+                ),
+            ],
+            onChanged: _locked(field)
+                ? null
+                : (String? value) => controller?.text = value ?? '',
+          ),
+        );
+      },
+    );
+  }
+
   Widget _field(FieldSpec field) {
     if (field.alwaysReadOnly) {
       final String value = widget.values[field.key]?.toString() ?? '';
@@ -1889,6 +1999,7 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
         ),
       );
     }
+    if (field.kind == FieldKind.indiaState) return _indiaStateField(field);
     final List<String>? choices = field.choices;
     if (choices != null) {
       final String current = _controllers[field.key]?.text ?? '';

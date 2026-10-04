@@ -5792,7 +5792,7 @@ must be read live.
 
 ## 81. The firm form's State is typed, not chosen -- low priority
 
-**Status, 2026-10-04: open, low priority.** Owner, during the purchasing
+**Status, 2026-10-04: built, PR #PRNUM (items 1-2; item 3 city and postal code not done). The list is carried by the desktop, not read from a store: the platform store holds no geography tables, so `desktop/lib/models/india_states.dart` holds the 36 states with GST codes and `test_firm_state_list.py` pins it to the seeded master.** Owner, during the purchasing
 walkthrough on QA01: "in firm creation at least we can show states in master
 table".
 
