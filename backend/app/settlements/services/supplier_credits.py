@@ -277,10 +277,16 @@ def _all_credits(
             Decimal(str(amount))
         )
     spilled = _spilled_over(session, firm_id=firm_id, source_ids=ids)
+    from app.purchase_return.services.purchase_return_service import (
+        return_billed_amounts,
+    )
+
+    # What went back before billing raised no payable (D-BUY-26).
+    payable = return_billed_amounts(session, returns)
     credits: list[SupplierCredit] = []
     for row in returns:
         # What the posting debited payables with, at the ledger's scale.
-        posted = quantize_ledger(quantize_money(row.grand_total))
+        posted = quantize_ledger(quantize_money(payable[row.id][0]))
         credit = max(posted - quantize_ledger(billed.get(row.id, ZERO)), ZERO)
         credit += spilled.get(row.id, ZERO)
         credits.append(

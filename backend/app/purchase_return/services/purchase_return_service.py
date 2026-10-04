@@ -26,7 +26,7 @@ from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
-from app.core.utils.money import quantize_money
+from app.core.utils.money import quantize_ledger, quantize_money
 from app.core.utils.pricing import (
     LineDiscount,
     inherited_share,
@@ -46,6 +46,12 @@ from app.document_framework.services.transactional_document_service import (
 )
 from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
+from app.goods_receipt.billing import (
+    BILLED_STATES,
+    ReceiptLineBilling,
+    receipt_line_billing,
+    receipt_line_costs,
+)
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.goods_receipt.rules import posted_receipt_line, require_posted_receipt
 from app.inventory.models import StockLedgerEntry
@@ -655,6 +661,11 @@ class PurchaseReturnService(TransactionalDocumentService):
             )
             or ZERO
         )
+        # What went back before any bill reached it reverses the receipt's
+        # accrual; only the rest is a debit note (D-BUY-26).
+        grni_amount = self._split_against_billing(lines)
+        self._session.flush()
+        billed_total, billed_tax = return_billed_amounts(self._session, [row])[row.id]
         # Posting runs before the commit and may fail the completion, matching
         # every other document: goods that left stock with no journal behind
         # them are how the inventory control account stops reconciling.
@@ -664,8 +675,9 @@ class PurchaseReturnService(TransactionalDocumentService):
             return_number=row.return_number,
             return_date=row.return_date,
             stock_value=stock_value,
-            tax_amount=row.tax_total,
-            total_amount=row.grand_total,
+            tax_amount=billed_tax,
+            total_amount=billed_total,
+            grni_amount=grni_amount,
             actor_id=actor_id,
             tax_by_component=self._tax_by_component(row.id),
             blocked_tax_amount=sum(
@@ -706,6 +718,157 @@ class PurchaseReturnService(TransactionalDocumentService):
         )
         self._session.commit()
         return row
+
+    def _split_against_billing(self, lines: Sequence[PurchaseReturnLine]) -> Decimal:
+        """Take each receipt line's return off what was still to bill first.
+
+        A return raised off a goods receipt line is set first against the part
+        of that line no approved bill has reached -- accepted, less billed,
+        less what earlier returns took off it -- and only the rest against
+        what was billed (D-BUY-26, the purchase-receipt return of ERPNext and
+        Tally). The first part never became a payable or an input credit, so
+        it comes off goods received not invoiced at the receipt's own cost and
+        lowers what the supplier may still bill; the rest is the debit note.
+
+        Each line's share of the accrual is in proportion to the quantity; the
+        return that leaves nothing to bill or return on its receipt takes what
+        the bills and earlier returns left, so the receipt's accrual nets to
+        exactly zero, as the bill that completes a receipt does.
+
+        Returns:
+            What the return takes off goods received not invoiced.
+
+        """
+        for line in lines:
+            line.unbilled_quantity = ZERO
+            line.grni_amount = ZERO
+        on_receipts = [
+            line
+            for line in lines
+            if line.source_document_type == PurchaseReturnSourceType.GOODS_RECEIPT.value
+        ]
+        if not on_receipts:
+            return ZERO
+        receipt_ids = set(
+            self._session.scalars(
+                select(GoodsReceiptLine.goods_receipt_id).where(
+                    GoodsReceiptLine.id.in_(
+                        {line.source_document_line_id for line in on_receipts}
+                    )
+                )
+            ).all()
+        )
+        receipt_lines = {
+            line.id: line
+            for line in self._session.scalars(
+                select(GoodsReceiptLine).where(
+                    GoodsReceiptLine.goods_receipt_id.in_(list(receipt_ids)),
+                    GoodsReceiptLine.is_deleted.is_(False),
+                )
+            ).all()
+        }
+        positions = receipt_line_billing(self._session, receipt_lines.values())
+        costs = receipt_line_costs(self._session, receipt_lines.values())
+        taken: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
+        for line in sorted(on_receipts, key=lambda item: item.line_number):
+            source_id = line.source_document_line_id
+            position = positions.get(source_id)
+            if position is None:
+                continue
+            open_quantity = max(position.left_to_bill - taken[source_id], ZERO)
+            unbilled = self._q(
+                min(Decimal(str(line.current_return_quantity)), open_quantity)
+            )
+            if unbilled <= ZERO:
+                continue
+            taken[source_id] += unbilled
+            line.unbilled_quantity = unbilled
+            if position.accepted > ZERO:
+                line.grni_amount = quantize_ledger(
+                    costs.get(source_id, ZERO) * unbilled / position.accepted
+                )
+        for receipt_id in receipt_ids:
+            self._settle_receipt_residual(
+                [
+                    line
+                    for line in on_receipts
+                    if line.unbilled_quantity > ZERO
+                    and receipt_lines[line.source_document_line_id].goods_receipt_id
+                    == receipt_id
+                ],
+                [
+                    line_id
+                    for line_id, line in receipt_lines.items()
+                    if line.goods_receipt_id == receipt_id
+                ],
+                positions=positions,
+                costs=costs,
+                taken=taken,
+            )
+        return sum((Decimal(str(line.grni_amount)) for line in on_receipts), ZERO)
+
+    def _settle_receipt_residual(
+        self,
+        mine: list[PurchaseReturnLine],
+        receipt_line_ids: list[UUID],
+        *,
+        positions: dict[UUID, ReceiptLineBilling],
+        costs: dict[UUID, Decimal],
+        taken: dict[UUID, Decimal],
+    ) -> None:
+        """Give the receipt's rounding residual to the return that finishes it.
+
+        Only when this return leaves nothing on the receipt to bill or to
+        return before billing: then its accrual is what the receipt posted,
+        less what every approved bill cleared -- each its own rounded share,
+        none of them having finished the receipt -- less earlier returns.
+        """
+        if not mine:
+            return
+        if any(
+            positions[line_id].billed
+            + positions[line_id].returned_unbilled
+            + taken.get(line_id, ZERO)
+            < positions[line_id].accepted
+            for line_id in receipt_line_ids
+        ):
+            return
+        posted = quantize_ledger(
+            sum((costs.get(line_id, ZERO) for line_id in receipt_line_ids), ZERO)
+        )
+        bills: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
+        for bill_id, line_id, quantity in self._session.execute(
+            select(
+                PurchaseInvoiceLine.purchase_invoice_id,
+                PurchaseInvoiceLine.source_document_line_id,
+                PurchaseInvoiceLine.current_invoice_quantity,
+            )
+            .join(
+                PurchaseInvoice,
+                PurchaseInvoice.id == PurchaseInvoiceLine.purchase_invoice_id,
+            )
+            .where(
+                PurchaseInvoiceLine.source_document_type
+                == PurchaseReturnSourceType.GOODS_RECEIPT.value,
+                PurchaseInvoiceLine.source_document_line_id.in_(receipt_line_ids),
+                PurchaseInvoiceLine.is_deleted.is_(False),
+                PurchaseInvoice.is_deleted.is_(False),
+                PurchaseInvoice.status.in_(BILLED_STATES),
+            )
+        ).all():
+            accepted = positions[line_id].accepted
+            if accepted > ZERO:
+                bills[bill_id] += (
+                    costs.get(line_id, ZERO) * Decimal(str(quantity)) / accepted
+                )
+        cleared = sum((quantize_ledger(share) for share in bills.values()), ZERO)
+        cleared += sum(
+            (positions[line_id].returned_cost for line_id in receipt_line_ids), ZERO
+        )
+        residual = posted - quantize_ledger(cleared)
+        others = sum((Decimal(str(line.grni_amount)) for line in mine[:-1]), ZERO)
+        if residual - others >= ZERO:
+            mine[-1].grni_amount = residual - others
 
     def _resolve_return_batch(self, line: PurchaseReturnLine) -> UUID | None:
         """Return the batch this line is sending back, if it names one.
@@ -2454,6 +2617,8 @@ class PurchaseReturnService(TransactionalDocumentService):
             already_returned_quantity=row.already_returned_quantity,
             current_return_quantity=row.current_return_quantity,
             rejected_quantity=row.rejected_quantity,
+            unbilled_quantity=row.unbilled_quantity,
+            grni_amount=row.grni_amount,
             reason_code=row.reason_code,
             item_condition=row.item_condition,
             replacement_required=row.replacement_required,
@@ -2550,6 +2715,77 @@ def _billed_lines(
     return named
 
 
+def _billed_share(line: PurchaseReturnLine) -> Decimal:
+    """Return the part of a line that reverses a bill, as a fraction of it.
+
+    What went back before billing (``unbilled_quantity``, D-BUY-26) took no
+    input credit and raised no payable, so it reverses neither.
+    """
+    quantity = Decimal(str(line.current_return_quantity))
+    if quantity <= ZERO:
+        return Decimal("1")
+    unbilled = min(Decimal(str(line.unbilled_quantity or ZERO)), quantity)
+    return (quantity - unbilled) / quantity
+
+
+def return_billed_amounts(
+    session: Session, rows: Sequence[PurchaseReturn]
+) -> dict[UUID, tuple[Decimal, Decimal]]:
+    """Return what each return takes off payables, and the tax in it.
+
+    The debit note part only (D-BUY-26): the document total and its tax, less
+    the value of what went back before any bill reached it, which came off
+    goods received not invoiced instead. A return wholly against unbilled
+    goods takes nothing off payables -- its rounding and charges included.
+    The posting and the supplier's credit both read this, so the payable the
+    journal debited and the credit the supplier is shown cannot drift.
+    """
+    if not rows:
+        return {}
+    parts: dict[UUID, list[tuple[Decimal, Decimal, Decimal, Decimal]]] = defaultdict(
+        list
+    )
+    for return_id, quantity, unbilled, net, tax in session.execute(
+        select(
+            PurchaseReturnLine.purchase_return_id,
+            PurchaseReturnLine.current_return_quantity,
+            PurchaseReturnLine.unbilled_quantity,
+            PurchaseReturnLine.net_amount,
+            PurchaseReturnLine.tax_amount,
+        ).where(
+            PurchaseReturnLine.purchase_return_id.in_([row.id for row in rows]),
+            PurchaseReturnLine.is_deleted.is_(False),
+        )
+    ).all():
+        parts[return_id].append(
+            (
+                Decimal(str(quantity)),
+                Decimal(str(unbilled or ZERO)),
+                Decimal(str(net)),
+                Decimal(str(tax)),
+            )
+        )
+    amounts: dict[UUID, tuple[Decimal, Decimal]] = {}
+    for row in rows:
+        total = Decimal(str(row.grand_total))
+        tax_total = Decimal(str(row.tax_total))
+        lines = parts.get(row.id, [])
+        if lines and all(
+            quantity > ZERO and unbilled >= quantity
+            for quantity, unbilled, _, _ in lines
+        ):
+            amounts[row.id] = (ZERO, ZERO)
+            continue
+        for quantity, unbilled, net, tax in lines:
+            if unbilled <= ZERO or quantity <= ZERO:
+                continue
+            share = min(unbilled, quantity) / quantity
+            total -= quantize_money(net * share)
+            tax_total -= quantize_money(tax * share)
+        amounts[row.id] = (max(total, ZERO), max(tax_total, ZERO))
+    return amounts
+
+
 def return_tax_by_component(
     session: Session, return_id: UUID, *, claimable: bool = True
 ) -> dict[str, Decimal]:
@@ -2620,7 +2856,7 @@ def return_tax_by_component(
             if recoverable is not claimable:
                 continue
             totals[code] = totals.get(code, ZERO) + quantize_money(
-                Decimal(str(line.tax_amount)) * amount / charged
+                Decimal(str(line.tax_amount)) * _billed_share(line) * amount / charged
             )
     return totals
 
@@ -2647,6 +2883,7 @@ def return_reverse_charge(session: Session, return_id: UUID) -> ReverseChargeSha
             (
                 bill_line_id,
                 (Decimal(str(line.net_amount)) - Decimal(str(line.tax_amount)))
+                * _billed_share(line)
                 * weight,
             )
             for line in lines

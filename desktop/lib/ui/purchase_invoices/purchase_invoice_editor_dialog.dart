@@ -47,6 +47,7 @@ class PurchaseInvoiceDraftLine {
     this.expiryDate = '',
     this.unitPrice = '',
     this.remarks = '',
+    this.returnedBeforeBilling = '',
   });
 
   /// `GOODS_RECEIPT`, or `PURCHASE_ORDER` for a firm whose bill receives the
@@ -59,6 +60,10 @@ class PurchaseInvoiceDraftLine {
   final String description;
   final String receivedQuantity;
   final String alreadyInvoiced;
+
+  /// What went back off the receipt line before any bill reached it: the
+  /// supplier bills only what the firm kept (D-BUY-26).
+  final String returnedBeforeBilling;
 
   /// What the receipt recorded, which is what a blank price box takes.
   final String receiptUnitPrice;
@@ -85,7 +90,8 @@ class PurchaseInvoiceDraftLine {
   double get outstanding {
     final double received = double.tryParse(receivedQuantity) ?? 0;
     final double invoiced = double.tryParse(alreadyInvoiced) ?? 0;
-    final double left = received - invoiced;
+    final double returned = double.tryParse(returnedBeforeBilling) ?? 0;
+    final double left = received - invoiced - returned;
     return left < 0 ? 0 : left;
   }
 
@@ -562,6 +568,7 @@ class _PurchaseInvoiceEditorDialogState
       description: line.description,
       receivedQuantity: line.acceptedQuantity,
       alreadyInvoiced: _trim(alreadyInvoiced),
+      returnedBeforeBilling: line.returnedUnbilledQuantity,
       receiptUnitPrice: line.unitPrice,
       purchaseUomId: line.purchaseUomId,
       taxProfileId: line.taxProfileId,

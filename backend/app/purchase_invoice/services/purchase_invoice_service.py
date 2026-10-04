@@ -54,6 +54,7 @@ from app.document_framework.services.transactional_document_service import (
 from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
+from app.goods_receipt.billing import receipt_line_billing
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.goods_receipt.rules import posted_receipt_line, require_posted_receipt
 from app.goods_receipt.schemas import GoodsReceiptStatus
@@ -737,6 +738,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         # Checked again where the payable is raised, so a draft saved before
         # the check existed cannot post against a line it does not own.
         self._refuse_foreign_lines(row, firm_id=firm_scope)
+        self._refuse_past_left_to_bill(row)
         before = row.status
         row.status = PurchaseInvoiceStatus.APPROVED.value
         row.approved_at = utc_now()
@@ -1779,12 +1781,29 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 firm_id=firm_id,
                 source_document_line_id=source_line.id,
             )
+            returned_unbilled = ZERO
+            if isinstance(source_line, GoodsReceiptLine):
+                # Goods sent back before any bill reached them are not the
+                # supplier's to bill (D-BUY-26).
+                returned_unbilled = self._q(
+                    receipt_line_billing(self._session, [source_line])[
+                        source_line.id
+                    ].returned_unbilled
+                )
             # No request can lift this cap: a body flag the caller set switched
             # it off entirely, and 60 was billed against a receipt of 6
             # (D-BUY-15).
-            if invoice_quantity + already_invoiced > source_quantity:
+            if (
+                invoice_quantity + already_invoiced
+                > source_quantity - returned_unbilled
+            ):
+                left = max(source_quantity - returned_unbilled - already_invoiced, ZERO)
                 raise ValidationError(
-                    "Invoice quantity exceeds the available source quantity."
+                    "Invoice quantity exceeds the available source quantity: "
+                    f"line {index} bills {invoice_quantity} where {left} is left "
+                    f"to bill ({source_quantity} received, {already_invoiced} "
+                    f"on other bills, {returned_unbilled} returned before "
+                    "billing)."
                 )
             # What the line says wins; where it says nothing, the receipt's or
             # order's price carries over, as its discount rate does. It used to
@@ -2211,6 +2230,68 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                     line_id=line.source_document_line_id,
                     verb="billed",
                 )
+
+    def _refuse_past_left_to_bill(self, row: PurchaseInvoice) -> None:
+        """Refuse a bill for more of a receipt line than is left to bill.
+
+        Checked at approval as well as on save, because a return can complete
+        between the two: a draft bill for all 6 of a receipt line is refused
+        once 2 of them have gone back before billing (D-BUY-26). Left to bill
+        is what was accepted, less approved bills, less what went back first.
+        """
+        quantities: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
+        for line_id, quantity in self._session.execute(
+            select(
+                PurchaseInvoiceLine.source_document_line_id,
+                PurchaseInvoiceLine.current_invoice_quantity,
+            ).where(
+                PurchaseInvoiceLine.purchase_invoice_id == row.id,
+                PurchaseInvoiceLine.source_document_type
+                == PurchaseInvoiceSourceType.GOODS_RECEIPT.value,
+                PurchaseInvoiceLine.is_deleted.is_(False),
+            )
+        ).all():
+            quantities[line_id] += self._q(quantity)
+        if not quantities:
+            return
+        receipt_lines = self._session.scalars(
+            select(GoodsReceiptLine).where(GoodsReceiptLine.id.in_(list(quantities)))
+        ).all()
+        positions = receipt_line_billing(
+            self._session, receipt_lines, except_invoice_id=row.id
+        )
+        numbers: dict[UUID, str] = {
+            receipt_id: number
+            for receipt_id, number in self._session.execute(
+                select(GoodsReceipt.id, GoodsReceipt.grn_number).where(
+                    GoodsReceipt.id.in_(
+                        {line.goods_receipt_id for line in receipt_lines}
+                    )
+                )
+            ).all()
+        }
+        refused: list[str] = []
+        for line in sorted(
+            receipt_lines, key=lambda item: (item.goods_receipt_id, item.line_number)
+        ):
+            position = positions[line.id]
+            if quantities[line.id] <= self._q(position.left_to_bill):
+                continue
+            refused.append(
+                f"{numbers.get(line.goods_receipt_id, 'the receipt')} line "
+                f"{line.line_number} bills {quantities[line.id]} where "
+                f"{self._q(position.left_to_bill)} is left to bill "
+                f"({self._q(position.accepted)} received, "
+                f"{self._q(position.billed)} billed, "
+                f"{self._q(position.returned_unbilled)} returned before billing)"
+            )
+        if refused:
+            raise ValidationError(
+                f"{row.invoice_number} bills more than is left to bill: "
+                + "; ".join(refused)
+                + ". Change the bill's quantity to what the supplier billed for "
+                "the goods the firm kept."
+            )
 
     def _validate_line_sources(
         self, lines: list[dict[str, object]], source_ids: set[UUID]
@@ -2770,11 +2851,39 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 self._q(accepted),
                 self._q(Decimal(str(cost or 0))),
             )
+        # What went back before billing already took its share of the
+        # accrual off (D-BUY-26), and is never billed: the bill that completes
+        # the receipt clears what is left after it.
+        positions = receipt_line_billing(
+            self._session,
+            self._session.scalars(
+                select(GoodsReceiptLine).where(
+                    GoodsReceiptLine.goods_receipt_id.in_(list(receipts)),
+                    GoodsReceiptLine.is_deleted.is_(False),
+                )
+            ).all(),
+        )
         accrued = ZERO
         for receipt_id, receipt_lines in lines.items():
             bills = self._posted_bills_on(receipt_lines, except_invoice_id=invoice_id)
             bills.append(receipts[receipt_id])
-            accrued += self._replay_accrual(receipt_lines, bills)[-1]
+            accrued += self._replay_accrual(
+                receipt_lines,
+                bills,
+                returned={
+                    line_id: self._q(positions[line_id].returned_unbilled)
+                    for line_id in receipt_lines
+                    if line_id in positions
+                },
+                returned_cost=sum(
+                    (
+                        positions[line_id].returned_cost
+                        for line_id in receipt_lines
+                        if line_id in positions
+                    ),
+                    ZERO,
+                ),
+            )[-1]
         return accrued
 
     def _receipts_billed_by(self, invoice_id: UUID) -> dict[UUID, dict[UUID, Decimal]]:
@@ -2851,6 +2960,9 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         self,
         receipt_lines: dict[UUID, tuple[Decimal, Decimal]],
         bills: list[dict[UUID, Decimal]],
+        *,
+        returned: dict[UUID, Decimal] | None = None,
+        returned_cost: Decimal = ZERO,
     ) -> list[Decimal]:
         """Return what each bill in turn clears of one receipt's accrual.
 
@@ -2859,11 +2971,18 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         whatever the earlier ones left, so the rounding residual lands on the
         last bill and the receipt nets to zero; a bill after that takes
         nothing.
+
+        ``returned`` is what each line sent back before billing, and
+        ``returned_cost`` what those returns took off the accrual (D-BUY-26):
+        the goods count toward completing the receipt, and their cost is not
+        the completing bill's to clear.
         """
         posted = quantize_ledger(
             sum((cost for _, cost in receipt_lines.values()), ZERO)
-        )
-        billed: dict[UUID, Decimal] = dict.fromkeys(receipt_lines, ZERO)
+        ) - quantize_ledger(returned_cost)
+        billed: dict[UUID, Decimal] = {
+            line_id: (returned or {}).get(line_id, ZERO) for line_id in receipt_lines
+        }
         cleared = ZERO
         complete = False
         shares: list[Decimal] = []

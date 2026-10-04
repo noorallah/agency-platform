@@ -205,6 +205,20 @@ class PurchaseReturnLine(BaseEntity):
     rejected_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: The part of ``current_return_quantity`` taken off what the receipt
+    #: line still had to bill, decided when the return completes (D-BUY-26).
+    #: That part never reached a bill, so it reverses the receipt's accrual
+    #: (Dr goods received not invoiced) and lowers what is left to bill; only
+    #: the rest is a debit note -- payable, input tax. Zero on a line raised
+    #: off a bill or an order, and on any line not yet completed.
+    unbilled_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: What the unbilled part took off goods received not invoiced, at the
+    #: receipt's own cost -- the figure the receipt accrued (D-BUY-26).
+    grni_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
     reason_code: Mapped[str | None] = mapped_column(String(80))
     item_condition: Mapped[str | None] = mapped_column(String(80))
     replacement_required: Mapped[bool] = mapped_column(
