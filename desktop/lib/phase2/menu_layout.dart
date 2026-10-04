@@ -336,6 +336,8 @@ abstract final class MenuLayout {
             AppModule.purchases, 'purchase-requisitions', 'Requisitions'),
         MenuItemSpec(AppModule.purchases, 'rfqs', 'Requests for quotation'),
         MenuItemSpec(AppModule.purchases, 'rate-contracts', 'Rate contracts'),
+        MenuItemSpec(
+            AppModule.purchases, 'supplier-schemes', 'Supplier schemes'),
         MenuItemSpec(AppModule.purchases, 'purchase-orders', 'Purchase Orders'),
         MenuItemSpec(AppModule.goodsReceipts, 'receipts', 'Goods Receipts'),
         MenuItemSpec.module(AppModule.purchaseInvoices, 'Purchase Invoices'),

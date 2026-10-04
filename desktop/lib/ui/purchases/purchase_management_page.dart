@@ -2635,6 +2635,10 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
   int _previewSerial = 0;
   bool _phase2 = false;
 
+  /// Schemes (`scheme_id|free_product_id`) whose gift line was taken off by
+  /// hand, so a later preview does not put it back (PG-11).
+  final Set<String> _dismissedSchemes = <String>{};
+
   /// Bumped when a line goes, or a rate is set for the user, so the boxes
   /// re-read their figures rather than keep what they held.
   int _lineEpoch = 0;
@@ -2710,7 +2714,9 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
           draft.lines.any(
             (line) =>
                 line.productId.isEmpty ||
-                (double.tryParse(line.orderedQuantity.trim()) ?? 0) <= 0,
+                // A free-only line (paid 0, free n) is a line (PG-11).
+                ((double.tryParse(line.orderedQuantity.trim()) ?? 0) <= 0 &&
+                    (double.tryParse(line.freeQuantity.trim()) ?? 0) <= 0),
           )) {
         return;
       }
@@ -2720,6 +2726,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
             await widget.api.previewPurchaseOrder(draft);
         if (!mounted || serial != _previewSerial) return;
         setState(() => _preview = priced);
+        _applySchemeSuggestions(priced.schemeSuggestions);
       } on ApiException {
         // An order the server refuses as it stands keeps the last figures;
         // saving it says why.
@@ -2800,7 +2807,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
             conversionFactor: '1',
             conversionVersion: null,
             orderedQuantity: '1',
-            freeQuantity: '0',
+            freeQuantity: '',
             baseQuantity: '1',
             unitPrice: '0',
             discountPercent: '0',
@@ -3872,7 +3879,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
         conversionFactor: '1',
         conversionVersion: null,
         orderedQuantity: '1',
-        freeQuantity: '0',
+        freeQuantity: '',
         baseQuantity: '0',
         unitPrice: '0',
         discountPercent: '0',
@@ -3898,6 +3905,10 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
   }
 
   void _removeLine(int index) {
+    final PurchaseOrderLine gone = _draft.lines[index];
+    if (gone.schemeId.isNotEmpty) {
+      _dismissedSchemes.add('${gone.schemeId}|${gone.productId}');
+    }
     final List<PurchaseOrderLine> lines = [..._draft.lines]..removeAt(index);
     setState(
       () => _draft = _draft.copyWith(

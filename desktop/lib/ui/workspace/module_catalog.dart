@@ -865,6 +865,12 @@ abstract final class ModuleCatalog {
           label: 'Rate contracts',
           requiredPermissions: ['RATE_CONTRACT_VIEW'],
         ),
+        // Free goods a supplier gives for buying so many (PG-11).
+        ModuleTabDefinition(
+          id: 'supplier-schemes',
+          label: 'Supplier schemes',
+          requiredPermissions: ['SUPPLIER_SCHEME_VIEW'],
+        ),
         // Goods held in quarantine until passed (BUY-9).
         ModuleTabDefinition(
           id: 'quality-inspection',
@@ -1947,6 +1953,12 @@ abstract final class ModuleCatalog {
           label: 'Rate contracts',
           path: 'rate-contracts',
           icon: Icons.handshake_outlined,
+        ),
+      if (visibleTabIds.contains('supplier-schemes'))
+        const WorkspaceNavigationNode(
+          label: 'Supplier schemes',
+          path: 'supplier-schemes',
+          icon: Icons.card_giftcard_outlined,
         ),
       if (visibleTabIds.contains('quality-inspection'))
         const WorkspaceNavigationNode(
