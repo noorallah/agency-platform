@@ -175,6 +175,14 @@ class Vendor(BaseEntity):
     #: The TDS section a payment to the supplier is usually deducted under
     #: (ACC-7); the payment screen fills it in. NULL: none by default.
     default_tds_section: Mapped[str | None] = mapped_column(String(10))
+    #: For 194C (PG-5): the supplier is an individual or HUF, deducted at the
+    #: lower rate. NULL reads it off the PAN's fourth letter (P or H).
+    tds_individual_huf: Mapped[bool | None] = mapped_column(Boolean)
+    #: For 194J (PG-5): the fees are for technical services, deducted at the
+    #: lower rate, rather than professional ones.
+    tds_technical_services: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     license_number: Mapped[str | None] = mapped_column(String(64))
     registration_number: Mapped[str | None] = mapped_column(String(64))
     website: Mapped[str | None] = mapped_column(String(500))

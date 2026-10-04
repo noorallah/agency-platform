@@ -21,6 +21,7 @@ from app.core.pagination.reports import ReportWindow
 from app.customers.models import Customer
 from app.expenses.models import Expense
 from app.finance.tds import TDS_SECTIONS
+from app.purchase_invoice.models import PurchaseInvoice
 from app.settlements.models import Settlement
 from app.vendors.models import Vendor
 
@@ -126,6 +127,36 @@ class TdsRegisterService:
                     tds=expense.tds_amount,
                     status=expense.status,
                     document_id=expense.id,
+                )
+            )
+        # Bills that bore 194C or 194J at approval (PG-5): deducted when
+        # credited, on the bill before GST. A cancelled bill is listed with its
+        # status, as a reversed payment is.
+        bills = self._session.execute(
+            select(PurchaseInvoice, Vendor)
+            .join(Vendor, Vendor.id == PurchaseInvoice.vendor_id)
+            .where(
+                PurchaseInvoice.firm_id == firm_id,
+                PurchaseInvoice.is_deleted.is_(False),
+                PurchaseInvoice.tds_amount > 0,
+                *window.dated(PurchaseInvoice.invoice_date),
+            )
+        ).all()
+        for bill, vendor in bills:
+            rows.append(
+                self._row(
+                    on=bill.invoice_date,
+                    kind="Bill",
+                    number=bill.invoice_number,
+                    party_code=vendor.code,
+                    party_name=vendor.name,
+                    pan=vendor.pan,
+                    tan=None,
+                    section=bill.tds_section,
+                    gross=bill.tds_base_amount,
+                    tds=bill.tds_amount,
+                    status=bill.status,
+                    document_id=bill.id,
                 )
             )
         return _ordered(rows)

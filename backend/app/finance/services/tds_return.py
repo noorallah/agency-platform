@@ -69,7 +69,8 @@ HIGHER_RATE_NO_PAN = "C"
 #: The sections filed on another form: salary is Form 24Q.
 _NOT_26Q = frozenset({"192"})
 #: The states of a document whose deduction stands.
-_LIVE = frozenset({"POSTED"})
+#: A payment or expense stands while posted; a bill (PG-5) while approved.
+_LIVE = frozenset({"POSTED", "APPROVED", "CLOSED"})
 _FINANCIAL_YEAR = re.compile(r"^(\d{4})-(\d{2}|\d{4})$")
 _QUARTER = re.compile(r"^Q?([1-4])$")
 
@@ -341,6 +342,7 @@ class TdsReturnService:
             select(
                 TdsChallanItem.settlement_id,
                 TdsChallanItem.expense_id,
+                TdsChallanItem.purchase_invoice_id,
                 TdsChallan.bsr_code,
                 TdsChallan.deposited_on,
                 TdsChallan.challan_serial,
@@ -352,8 +354,8 @@ class TdsReturnService:
                 TdsChallanItem.is_live.is_(True),
             )
         ).all()
-        for settlement_id, expense_id, bsr, deposited_on, serial in rows:
-            document = settlement_id or expense_id
+        for settlement_id, expense_id, bill_id, bsr, deposited_on, serial in rows:
+            document = settlement_id or expense_id or bill_id
             if document is not None:
                 found[document] = (bsr, deposited_on, serial)
         return found

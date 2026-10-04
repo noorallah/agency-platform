@@ -263,6 +263,36 @@ supplier's approved bills (without GST) and its 194Q payments for the
 April-March year and suggests what the next payment deducts. The deduction
 is still the payment's, posted as every TDS is; nothing journals at the bill.
 
+**194C and 194J are worked out the way 194Q is, but deducted on the bill**
+(PG-5, `tds_sections.py`). The Act deducts them at the earlier of credit and
+payment, so a bill from a supplier whose master names 194C or 194J proposes
+the deduction when it is **approved**, and a payment proposes it only for
+money ahead of any bill. Each proposal is the year's tax due less what the
+year already deducted (bills and payments, the April-March year, read from the
+documents, never a counter), so it is deducted **once** whichever comes first:
+a payment against a bill that bore TDS proposes nothing, and a bill after an
+advance that bore it finds it deducted. An advance counts only for what the
+supplier's open bills do not cover. Thresholds: 194C one bill past 30,000 or
+the year past 1,00,000; 194J the year past 30,000. **Past the year's limit the
+tax is on the whole year, not the excess** (unlike 194Q), so the bill that
+crosses it carries the earlier bills' tax. Rates are per firm
+(`tds_section_settings`, defaults where never saved): 194C 1% individual/HUF
+(the supplier's flag, else the PAN's fourth letter P or H) and 2% others; 194J
+10% professional and 2% technical; 20% with no PAN (206AA).
+
+- **Bill:** Dr the accrual/input tax as before; Cr Payables `grand_total - tds`;
+  Cr TDS Payable `tds`. The bill keeps `tds_section`, `tds_base_amount` (before
+  GST), `tds_proposed_amount` and `tds_amount`; it owes the supplier
+  `grand_total - tds_amount` everywhere a payable is read
+  (`_purchase_bill_taken`, the payables report). Cancelling mirrors the journal,
+  and is refused while a live challan carries the bill's deduction.
+- **Override:** the approve request's `tds_amount` (0 deducts nothing) and a
+  payment's own `tds_amount`; the proposal stays beside it
+  (`tds_proposed_amount`) and the audit row records both and `tds_overridden`.
+- **Challans and 26Q** take a bill's deduction as a third kind (`BILL`,
+  `tds_challan_items.purchase_invoice_id`), filed under the bill's section
+  with the base before GST as the amount credited.
+
 **A post-dated cheque posts nothing while it is held** (ACC-2,
 `post_dated_cheques.py`). Banking it posts the receipt or payment it becomes,
 dated the day it was banked, through the settlement service. A returned cheque

@@ -130,6 +130,20 @@ class PurchaseInvoice(BaseEntity):
     #: The self-invoice the firm raises for a reverse-charge supply (rule
     #: 47A), from its own series, issued when the bill is approved.
     self_invoice_number: Mapped[str | None] = mapped_column(String(60))
+    #: TDS deducted on the bill at approval (PG-5): 194C or 194J, worked out
+    #: as the earlier of credit and payment. ``tds_base_amount`` is what it
+    #: was deducted on -- the bill before GST. ``tds_proposed_amount`` is what
+    #: the server worked out; ``tds_amount`` what was deducted, which differs
+    #: only where somebody overrode it. The payable is ``grand_total`` less
+    #: ``tds_amount``; the rest is owed to the government (TDS Payable).
+    tds_section: Mapped[str | None] = mapped_column(String(10))
+    tds_base_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    tds_proposed_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    tds_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancel_reason: Mapped[str | None] = mapped_column(Text)

@@ -119,13 +119,16 @@ class TdsChallan(BaseEntity):
 
 
 class TdsChallanItem(BaseEntity):
-    """One deduction a challan paid: a payment's or an expense's."""
+    """One deduction a challan paid: a payment's, an expense's or a bill's."""
 
     __tablename__ = "tds_challan_items"
     __table_args__ = (
+        # Exactly one document: a payment, an expense or a bill (PG-5).
         CheckConstraint(
-            "(settlement_id IS NULL) <> (expense_id IS NULL)",
-            name="CK_tds_challan_items_one_source",
+            "(CASE WHEN settlement_id IS NULL THEN 0 ELSE 1 END"
+            " + CASE WHEN expense_id IS NULL THEN 0 ELSE 1 END"
+            " + CASE WHEN purchase_invoice_id IS NULL THEN 0 ELSE 1 END) = 1",
+            name="CK_tds_challan_items_one_document",
         ),
         CheckConstraint("tds_amount > 0", name="CK_tds_challan_items_positive"),
         # A deduction is paid once. The key, not a read, holds it: two
@@ -144,6 +147,13 @@ class TdsChallanItem(BaseEntity):
             postgresql_where=text("is_live = true AND expense_id IS NOT NULL"),
             sqlite_where=text("is_live = 1 AND expense_id IS NOT NULL"),
         ),
+        Index(
+            "UQ_tds_challan_items_purchase_invoice_live",
+            "purchase_invoice_id",
+            unique=True,
+            postgresql_where=text("is_live = true AND purchase_invoice_id IS NOT NULL"),
+            sqlite_where=text("is_live = 1 AND purchase_invoice_id IS NOT NULL"),
+        ),
     )
 
     firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
@@ -158,6 +168,10 @@ class TdsChallanItem(BaseEntity):
     )
     expense_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("expenses.id", ondelete="RESTRICT")
+    )
+    #: A bill that bore the deduction at approval (PG-5, 194C and 194J).
+    purchase_invoice_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("purchase_invoices.id", ondelete="RESTRICT")
     )
     tds_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     #: False once the challan is cancelled, which frees the deduction.

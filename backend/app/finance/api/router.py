@@ -1,6 +1,7 @@
 """Firm-scoped REST endpoints for finance masters, journals, and reports."""
 
 from datetime import date
+from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -97,6 +98,11 @@ from app.finance.schemas.tds_challans import (
     TdsChallanCreate,
     TdsChallanResponse,
 )
+from app.finance.schemas.tds_sections import (
+    TdsProposalRecord,
+    TdsSectionSettingsResponse,
+    TdsSectionSettingsWrite,
+)
 from app.finance.services import (
     FinanceService,
     GeneralLedgerService,
@@ -134,6 +140,7 @@ from app.finance.services.tds_return import (
     return_quarter,
     return_workbook,
 )
+from app.finance.services.tds_sections import TdsSectionService
 
 router = APIRouter(
     prefix="/api/v1/finance",
@@ -1347,6 +1354,83 @@ def tds_194q_register(
     """Every supplier bought from this Income-tax year: bought, due, deducted."""
     rows = Tds194QService(db).register(firm_id=scope.firm_id, on=on or utc_now().date())
     return ApiResponse(data=[Supplier194QRecord.model_validate(r) for r in rows])
+
+
+@router.get(
+    "/tds-sections/settings",
+    response_model=ApiResponse[list[TdsSectionSettingsResponse]],
+)
+def tds_section_settings(
+    scope: MasterViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[TdsSectionSettingsResponse]]:
+    """Return the firm's 194C and 194J settings; the defaults where unsaved (PG-5)."""
+    rows = TdsSectionService(db).all_settings(scope.firm_id)
+    return ApiResponse(
+        data=[TdsSectionSettingsResponse.model_validate(row) for row in rows]
+    )
+
+
+@router.put(
+    "/tds-sections/settings/{section}",
+    response_model=ApiResponse[TdsSectionSettingsResponse],
+)
+def save_tds_section_settings(
+    section: str,
+    payload: TdsSectionSettingsWrite,
+    scope: MasterManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[TdsSectionSettingsResponse]:
+    """Change 194C's or 194J's switch, thresholds or rates (PG-5).
+
+    Only the fields sent change; the rest keep what is saved.
+    """
+    code = section.strip().upper()
+    settings = TdsSectionService(db).save_settings(
+        scope.firm_id,
+        code,
+        payload.model_dump(exclude_unset=True),
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(
+        data=TdsSectionSettingsResponse.model_validate(settings),
+        message=f"{code} settings saved.",
+    )
+
+
+@router.get(
+    "/tds-sections/suppliers/{vendor_id}",
+    response_model=ApiResponse[TdsProposalRecord],
+)
+def tds_section_proposal(
+    vendor_id: UUID,
+    scope: Tds194QReadScope,
+    on: date | None = None,
+    bill_amount: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
+    bill_total: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
+    advance_amount: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
+    allocating: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
+    invoice_id: UUID | None = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[TdsProposalRecord]:
+    """Return what a bill or payment to this supplier should deduct (PG-5).
+
+    For a bill: ``bill_amount`` before GST, ``bill_total`` with it, and
+    ``invoice_id`` so a draft is not counted as its own past. For a payment:
+    ``advance_amount`` -- the part no bill takes -- and ``allocating``, what it
+    clears off open bills. ``on`` is the document's date; absent is today (UTC).
+    """
+    row = TdsSectionService(db).supplier(
+        vendor_id,
+        firm_id=scope.firm_id,
+        on=on or utc_now().date(),
+        bill_amount=bill_amount,
+        bill_total=bill_total,
+        advance_amount=advance_amount,
+        allocating=allocating,
+        exclude_invoice_id=invoice_id,
+    )
+    return ApiResponse(data=TdsProposalRecord.model_validate(row))
 
 
 @router.get(

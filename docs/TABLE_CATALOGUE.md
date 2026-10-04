@@ -262,6 +262,7 @@ trigger each schema owns its own copy of.
 | `profit_centers` | firm store ¹ | Represent a profit centre used to attribute revenue. | `firms` |
 | `tally_ledger_mappings` | firm store ¹ | What one of our accounts is called in the CA's Tally, and its group. | `ledger_accounts` |
 | `tds_194q_settings` | firm store ¹ | One firm's 194Q switch, threshold and rates. |  |
+| `tds_section_settings` | firm store ¹ | One firm's 194C or 194J switch, thresholds and rates (PG-5); no row reads as the defaults. |  |
 | `tds_challan_items` | firm store ¹ | One deduction a challan paid: a payment's or an expense's. | `tds_challans`, `settlements`, `expenses` |
 | `tds_challans` | firm store ¹ | One deposit of TDS under one section. | `ledger_accounts`, `journal_entries` |
 | `vendor_ledgers` | firm store ¹ | Hold derived payable totals for one vendor and period. | `firms`, `vendors`, `accounting_periods` |

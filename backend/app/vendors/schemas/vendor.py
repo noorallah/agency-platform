@@ -193,6 +193,12 @@ class VendorWrite(VendorSchema):
     issues_e_invoices: bool = False
     #: The TDS section a payment to it is usually deducted under (ACC-7).
     default_tds_section: str | None = Field(default=None, max_length=10)
+    #: For 194C (PG-5): an individual or HUF, deducted at the lower rate.
+    #: Null reads it off the PAN's fourth letter (P or H).
+    tds_individual_huf: bool | None = None
+    #: For 194J (PG-5): technical services (the lower rate) rather than
+    #: professional fees.
+    tds_technical_services: bool = False
     #: What the supplier normally takes off a line (BUY-3); a purchase line
     #: with no discount of its own starts at it.
     standing_discount_percent: Decimal = Field(
@@ -486,6 +492,8 @@ class VendorResponse(VendorSchema):
     msme_written_agreement: bool = False
     issues_e_invoices: bool = False
     default_tds_section: str | None = None
+    tds_individual_huf: bool | None = None
+    tds_technical_services: bool = False
     standing_discount_percent: Decimal = Decimal("0")
     license_number: str | None
     registration_number: str | None

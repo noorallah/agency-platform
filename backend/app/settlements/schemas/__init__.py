@@ -220,6 +220,10 @@ class SettlementResponse(SettlementSchema):
     #: through the cash or bank account.
     tds_amount: Decimal = Decimal("0")
     tds_section: str | None = None
+    #: What the server proposed a payment deduct under 194C or 194J (PG-5),
+    #: kept beside ``tds_amount`` so an override shows; null where nothing
+    #: was proposed (a receipt, or a supplier under neither section).
+    tds_proposed_amount: Decimal | None = None
     #: What settled the bills without moving as money (backlog 74 row 2).
     rounding_amount: Decimal = Decimal("0")
     bank_charges_amount: Decimal = Decimal("0")

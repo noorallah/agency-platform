@@ -3240,6 +3240,7 @@ class DocumentPostingService:
         tax_by_component: dict[str, Decimal] | None = None,
         reverse_charge_by_component: dict[str, Decimal] | None = None,
         blocked_tax_amount: Decimal = ZERO,
+        tds_amount: Decimal = ZERO,
     ) -> JournalEntry:
         """Turn a supplier invoice into a payable and clear the receipt accrual.
 
@@ -3278,6 +3279,9 @@ class DocumentPostingService:
             blocked_tax_amount: The part of ``tax_amount`` the firm may not
                 claim (backlog 78 row 1), debited to `INELIGIBLE_INPUT_TAX`
                 instead of input tax.
+            tds_amount: Tax deducted at source on the bill (PG-5, 194C or
+                194J): taken out of the payable and credited to TDS Payable,
+                which the challan clears. The supplier is owed the rest.
 
         Returns:
             The posted journal entry.
@@ -3310,6 +3314,11 @@ class DocumentPostingService:
         ledger_total = quantize_ledger(total)
         ledger_tax = quantize_ledger(tax)
         ledger_goods = ledger_total - ledger_tax
+        ledger_tds = quantize_ledger(quantize_money(tds_amount))
+        if ledger_tds < ZERO or (ledger_tds > ZERO and ledger_tds >= ledger_total):
+            raise ValidationError(
+                f"TDS on invoice {invoice_number} must be less than what it owes."
+            )
 
         accrued = (
             ledger_goods if accrued_amount is None else quantize_ledger(accrued_amount)
@@ -3325,10 +3334,22 @@ class DocumentPostingService:
             ),
             JournalLineData(
                 ledger_account_id=accounts[ControlAccountPurpose.ACCOUNTS_PAYABLE],
-                credit_amount=ledger_total,
+                credit_amount=ledger_total - ledger_tds,
                 description=f"Supplier invoice {invoice_number}",
             ),
         ]
+        if ledger_tds > ZERO:
+            # Deducted at the earlier of credit and payment (PG-5): the
+            # supplier is owed the rest, the government this part.
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=self._require_mapping(
+                        firm_id, (ControlAccountPurpose.TDS_PAYABLE,)
+                    )[ControlAccountPurpose.TDS_PAYABLE],
+                    credit_amount=ledger_tds,
+                    description=f"TDS on supplier invoice {invoice_number}",
+                )
+            )
         # What the bill may not claim is a cost, not input tax (78 row 1).
         ledger_blocked = min(
             quantize_ledger(quantize_money(blocked_tax_amount)), ledger_tax

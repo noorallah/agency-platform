@@ -162,6 +162,7 @@ def _to_responses(
                 amount=row.amount,
                 tds_amount=row.tds_amount,
                 tds_section=row.tds_section,
+                tds_proposed_amount=row.tds_proposed_amount,
                 rounding_amount=row.rounding_amount,
                 bank_charges_amount=row.bank_charges_amount,
                 discount_amount=row.discount_amount,
