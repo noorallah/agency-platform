@@ -135,21 +135,6 @@ _ACCEPTED: dict[str, str] = {
     "DELETE /api/v1/finance/financial-years/{year_id}": _SCREEN_GAP,
     "GET /api/v1/branch-warehouse/settings": _SCREEN_GAP,
     "GET /api/v1/sales-returns/summary": _SCREEN_GAP,
-    # Requests for quotation (PG-8): the server half merged first; desktop in
-    # PG-8 part 2, which takes these entries out again.
-    "GET /api/v1/rfqs": "desktop in PG-8 part 2",
-    "POST /api/v1/rfqs": "desktop in PG-8 part 2",
-    "POST /api/v1/rfqs/from-requisition/{requisition_id}": "desktop in PG-8 part 2",
-    "GET /api/v1/rfqs/{rfq_id}": "desktop in PG-8 part 2",
-    "PUT /api/v1/rfqs/{rfq_id}": "desktop in PG-8 part 2",
-    "POST /api/v1/rfqs/{rfq_id}/send": "desktop in PG-8 part 2",
-    "POST /api/v1/rfqs/{rfq_id}/cancel": "desktop in PG-8 part 2",
-    "POST /api/v1/rfqs/{rfq_id}/close": "desktop in PG-8 part 2",
-    "GET /api/v1/rfqs/{rfq_id}/quotations": "desktop in PG-8 part 2",
-    "PUT /api/v1/rfqs/{rfq_id}/quotations/{vendor_id}": "desktop in PG-8 part 2",
-    "GET /api/v1/rfqs/{rfq_id}/comparison": "desktop in PG-8 part 2",
-    "PUT /api/v1/rfqs/{rfq_id}/selections": "desktop in PG-8 part 2",
-    "POST /api/v1/rfqs/{rfq_id}/raise-orders": "desktop in PG-8 part 2",
 }
 
 
