@@ -66,19 +66,31 @@ class ActionReasonRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
 
 
+#: Whoever receives goods reads the receipts they raise (D-ROLE-3): Warehouse
+#: holds `PURCHASE_RECEIVE` and not `PURCHASE_VIEW`, which would open the
+#: bills and returns too.
 GoodsReceiptViewScope = Annotated[
-    ResolvedFirmScope, firm_permission_scope("PURCHASE_VIEW")
+    ResolvedFirmScope, firm_any_permission_scope("PURCHASE_VIEW", "PURCHASE_RECEIVE")
 ]
 #: A report opens to whoever may read the module or holds `REPORT_VIEW`
 #: (D-RPT-4).
 GoodsReceiptReportScope = Annotated[
     ResolvedFirmScope, firm_any_permission_scope("PURCHASE_VIEW", "REPORT_VIEW")
 ]
+#: Raising, editing and completing a receipt is the receiver's job, under its
+#: own code (D-ROLE-3). It used to take `PURCHASE_CREATE` / `PURCHASE_UPDATE`
+#: and completing it `PURCHASE_APPROVE` -- the code that approves orders and
+#: bills -- so Purchasing was refused at Complete and Warehouse could not
+#: raise one at all. Closing a completed receipt and cancelling one, which
+#: takes the stock and the accrual back off the books, keep their own codes.
 GoodsReceiptCreateScope = Annotated[
-    ResolvedFirmScope, firm_permission_scope("PURCHASE_CREATE")
+    ResolvedFirmScope, firm_permission_scope("PURCHASE_RECEIVE")
 ]
 GoodsReceiptUpdateScope = Annotated[
-    ResolvedFirmScope, firm_permission_scope("PURCHASE_UPDATE")
+    ResolvedFirmScope, firm_permission_scope("PURCHASE_RECEIVE")
+]
+GoodsReceiptCompleteScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("PURCHASE_RECEIVE")
 ]
 #: Passing or rejecting goods held for inspection (BUY-9): whoever counted
 #: them in should not be the one who passes them.
@@ -269,7 +281,7 @@ def set_goods_receipt_eway_bill(
 @router.post("/{receipt_id}/complete", response_model=ApiResponse[GoodsReceiptResponse])
 def complete_goods_receipt(
     receipt_id: UUID,
-    scope: GoodsReceiptCloseScope,
+    scope: GoodsReceiptCompleteScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GoodsReceiptResponse]:
     """Complete goods receipt."""

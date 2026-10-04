@@ -255,6 +255,12 @@ PERMISSION_GROUPS = {
         # Approving an order past a purchase budget where the firm requires
         # it (BUY-14): the purchase manager's call, not the executive's.
         "PURCHASE_APPROVE_OVER_BUDGET",
+        # Receiving goods against an order (D-ROLE-3): raising, editing and
+        # completing a goods receipt, which puts the stock on the shelf. The
+        # job of whoever counts the goods in -- Purchasing and Warehouse --
+        # rather than of whoever approves the order or the bill, the split
+        # ERPNext draws with Stock User and Zoho with *Purchase Receives*.
+        "PURCHASE_RECEIVE",
         # Raising a purchase requisition (BUY-7): asking for goods, which a
         # storeman does without being able to order them.
         "PURCHASE_REQUISITION_CREATE",
@@ -765,6 +771,17 @@ _SEEDED_ROLE_PERMISSION_CODES = {
         {
             "PURCHASE_INSPECT",
             "PURCHASE_REQUISITION_CREATE",
+            # D-ROLE-3: Warehouse "receives, stores, picks and dispatches
+            # stock", so it raises and completes the goods receipt. It reads
+            # the receipts and the orders it receives against through this
+            # code, not through `PURCHASE_VIEW`, so the bills and returns stay
+            # out of its reach -- and `PURCHASE_CREATE` stays out: ordering is
+            # not the storeman's. The receipt editor's lines name a tax
+            # profile and a unit (`/tax-framework/profiles`,
+            # `/uom-framework/uoms`).
+            "PURCHASE_RECEIVE",
+            "TAX_VIEW",
+            "UOM_VIEW",
             # D-ROLE-1: an adjustment, a transfer, a count, a repack and a
             # requisition are typed from `/products`, `/branches` and
             # `/warehouses`; a requisition loads `/vendors` with them, and
