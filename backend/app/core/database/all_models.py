@@ -53,6 +53,7 @@ from app.finance.models import (  # noqa: F401
     tally,
     tds_194q,
     tds_challan,
+    tds_sections,
 )
 from app.firms.models import firm  # noqa: F401
 from app.goods_receipt.models import goods_receipt  # noqa: F401

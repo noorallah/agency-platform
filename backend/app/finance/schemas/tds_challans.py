@@ -16,6 +16,8 @@ class DeductionKind(StrEnum):
 
     PAYMENT = "PAYMENT"
     EXPENSE = "EXPENSE"
+    #: A supplier's bill that bore 194C or 194J at approval (PG-5).
+    BILL = "BILL"
 
 
 class DeductionRef(BaseModel):

@@ -122,6 +122,10 @@ class Settlement(BaseEntity):
     )
     #: The section it is filed under (``app.finance.tds.TDS_SECTIONS``).
     tds_section: Mapped[str | None] = mapped_column(String(10))
+    #: What the server worked out a payment should deduct under 194C or 194J
+    #: (PG-5), kept beside what was deducted so an override shows. NULL where
+    #: nothing was proposed: a receipt, or a supplier under neither section.
+    tds_proposed_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     #: The rest of ``amount`` that settled the bills without moving as money
     #: (backlog 74 row 2), each posted to its own account: a receipt a few
     #: rupees short or a payment rounded off (``ROUNDING``), what a customer's

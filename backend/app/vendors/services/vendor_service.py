@@ -1505,6 +1505,10 @@ class VendorService:
             "code": vendor.code,
             "name": vendor.name,
             "status": vendor.status,
+            # What the TDS a bill or payment proposes rests on (PG-5).
+            "default_tds_section": vendor.default_tds_section,
+            "tds_individual_huf": vendor.tds_individual_huf,
+            "tds_technical_services": vendor.tds_technical_services,
             "contact_count": sum(not item.is_deleted for item in vendor.contacts),
             "address_count": sum(not item.is_deleted for item in vendor.addresses),
             "bank_count": sum(not item.is_deleted for item in vendor.bank_accounts),

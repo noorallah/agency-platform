@@ -664,6 +664,15 @@ class SettlementService(TransactionalDocumentService):
             firm_id=firm_id, invoice_ids=invoice_ids
         ).items():
             taken[invoice_id] = taken.get(invoice_id, ZERO) + quantize_ledger(amount)
+        # TDS deducted on the bill itself (PG-5): the journal credited it to
+        # TDS Payable rather than the supplier, so the bill owes that less.
+        for invoice_id, deducted in self._session.execute(
+            select(PurchaseInvoice.id, PurchaseInvoice.tds_amount).where(
+                PurchaseInvoice.id.in_(invoice_ids),
+                PurchaseInvoice.tds_amount > 0,
+            )
+        ).all():
+            taken[invoice_id] = taken.get(invoice_id, ZERO) + quantize_ledger(deducted)
         for source in (
             credit_applied_against(
                 self._session, firm_id=firm_id, invoice_ids=invoice_ids
@@ -916,6 +925,23 @@ class SettlementService(TransactionalDocumentService):
             data, firm_id=firm_id, party_id=data.party_id, amount=amount
         )
         deductions = self._deductions(data, firm_id=firm_id, allocated=allocated)
+        # 194C and 194J are deducted at the earlier of credit and payment
+        # (PG-5): what this payment should deduct is worked out before it is
+        # written, so it is not its own past, and kept beside what it did.
+        tds_proposed: Decimal | None = None
+        if self.DIRECTION == SettlementDirection.PAYMENT and isinstance(party, Vendor):
+            # Imported here: the finance services read this module's models.
+            from app.finance.services.tds_sections import TdsSectionService
+
+            proposal = TdsSectionService(self._session).propose(
+                party,
+                firm_id=firm_id,
+                on=data.settlement_date,
+                advance_amount=amount - allocated,
+                allocating=allocated,
+            )
+            if proposal.section is not None:
+                tds_proposed = proposal.proposed
         money_account_id = self._money_account(
             firm_id=firm_id, method=SettlementMethod(data.method.value)
         )
@@ -976,6 +1002,7 @@ class SettlementService(TransactionalDocumentService):
             amount=amount,
             tds_amount=tds_amount,
             tds_section=data.tds_section if tds_amount > ZERO else None,
+            tds_proposed_amount=tds_proposed,
             rounding_amount=deductions.get(ControlAccountPurpose.ROUNDING, ZERO),
             bank_charges_amount=deductions.get(
                 ControlAccountPurpose.BANK_CHARGES, ZERO
@@ -1089,6 +1116,12 @@ class SettlementService(TransactionalDocumentService):
                 "amount": str(amount),
                 "tds_amount": str(tds_amount),
                 "tds_section": data.tds_section if tds_amount > ZERO else None,
+                "tds_proposed_amount": (
+                    None if tds_proposed is None else str(tds_proposed)
+                ),
+                "tds_overridden": (
+                    tds_proposed is not None and tds_amount != tds_proposed
+                ),
                 "deductions": {
                     purpose.value: str(value) for purpose, value in deductions.items()
                 },

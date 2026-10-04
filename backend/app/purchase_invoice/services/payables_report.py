@@ -324,7 +324,9 @@ class PayablesReportService:
             PurchaseInvoice.vendor_id.label("vendor_id"),
             PurchaseInvoice.invoice_date.label("bill_date"),
             PurchaseInvoice.due_date.label("due_date"),
-            PurchaseInvoice.grand_total.label("total"),
+            # TDS deducted on the bill went to TDS Payable, not the supplier
+            # (PG-5), so the bill is owed that less.
+            (PurchaseInvoice.grand_total - PurchaseInvoice.tds_amount).label("total"),
         ).where(
             PurchaseInvoice.firm_id == firm_id,
             PurchaseInvoice.is_deleted.is_(False),

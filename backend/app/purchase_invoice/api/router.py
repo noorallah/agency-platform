@@ -547,12 +547,15 @@ def approve_purchase_invoice(
     may_exceed_tolerance = scope.principal.has_permission(
         "PURCHASE_APPROVE_OVER_TOLERANCE"
     )
+    # The TDS the bill proposes may be overridden here (PG-5).
+    tds_amount = None if data is None else data.tds_amount
     if data is None or data.payment is None:
         row = service.approve_invoice(
             invoice_id,
             firm_scope=scope.firm_id,
             actor_id=scope.actor_id,
             may_exceed_tolerance=may_exceed_tolerance,
+            tds_amount=tds_amount,
         )
         return ApiResponse(data=service.invoice_response(row))
     if not scope.principal.has_permission("PAYMENT_CREATE"):
@@ -567,6 +570,7 @@ def approve_purchase_invoice(
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
         may_exceed_tolerance=may_exceed_tolerance,
+        tds_amount=tds_amount,
     )
     return ApiResponse(
         data=service.invoice_response(row),

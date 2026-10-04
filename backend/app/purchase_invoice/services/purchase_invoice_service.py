@@ -719,18 +719,22 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         firm_scope: UUID,
         actor_id: UUID,
         may_exceed_tolerance: bool = True,
+        tds_amount: Decimal | None = None,
     ) -> PurchaseInvoice:
         """Approve one purchase invoice.
 
         ``may_exceed_tolerance`` says the caller holds
         PURCHASE_APPROVE_OVER_TOLERANCE; without it a bill priced past the
         firm's tolerance over its order is refused, naming the lines (BUY-10).
+        ``tds_amount`` overrides the 194C/194J deduction the bill proposes
+        (PG-5); None takes the proposal.
         """
         row = self.stage_approve(
             invoice_id,
             firm_scope=firm_scope,
             actor_id=actor_id,
             may_exceed_tolerance=may_exceed_tolerance,
+            tds_amount=tds_amount,
         )
         self._session.commit()
         return row
@@ -743,6 +747,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         firm_scope: UUID,
         actor_id: UUID,
         may_exceed_tolerance: bool = True,
+        tds_amount: Decimal | None = None,
     ) -> tuple[PurchaseInvoice, Settlement]:
         """Approve a bill and pay it over the counter, in one commit (PG-3).
 
@@ -767,6 +772,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 firm_scope=firm_scope,
                 actor_id=actor_id,
                 may_exceed_tolerance=may_exceed_tolerance,
+                tds_amount=tds_amount,
             )
             payments = PaymentService(self._session)
             owing = next(
@@ -822,6 +828,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         firm_scope: UUID,
         actor_id: UUID,
         may_exceed_tolerance: bool = True,
+        tds_amount: Decimal | None = None,
     ) -> PurchaseInvoice:
         """Approve one purchase invoice and flush, leaving the commit to the caller.
 
@@ -855,6 +862,10 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         # the check existed cannot post against a line it does not own.
         self._refuse_foreign_lines(row, firm_id=firm_scope)
         self._refuse_past_left_to_bill(row)
+        # TDS under 194C or 194J is deducted at the earlier of credit and
+        # payment (PG-5), so the bill proposes it as it is credited -- worked
+        # out before the bill counts as approved, so it is not its own past.
+        tds = self._stage_tds(row, firm_id=firm_scope, override=tds_amount)
         before = row.status
         row.status = PurchaseInvoiceStatus.APPROVED.value
         row.approved_at = utc_now()
@@ -886,6 +897,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             tax_by_component=self._tax_by_component(row.id),
             reverse_charge_by_component=reverse_charge,
             blocked_tax_amount=self._blocked_tax(row.id),
+            tds_amount=row.tds_amount,
         )
         # Warned, not refused: the bill is owed whatever its terms say, and
         # paying it in time is what the warning is for (backlog 68 row 2).
@@ -912,9 +924,71 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            after_data=tds,
         )
         self._session.flush()
         return row
+
+    def _stage_tds(
+        self, row: PurchaseInvoice, *, firm_id: UUID, override: Decimal | None
+    ) -> dict[str, object] | None:
+        """Stamp the bill's 194C/194J deduction; return what the trail keeps.
+
+        The proposal is always worked out and kept on the bill, so an
+        override shows beside the figure it replaced, and the trail records
+        both. An override of more than nothing needs the supplier to be under
+        194C or 194J -- the section is what the challan and the return file
+        it under.
+
+        Raises:
+            ValidationError: If the override is negative, not less than the
+                bill, or names a deduction for a supplier under neither
+                section.
+
+        """
+        # Imported here: the finance services read this module's models.
+        from app.finance.services.tds_sections import TdsSectionService
+
+        vendor = self._session.get(Vendor, row.vendor_id)
+        if vendor is None:
+            return None
+        base = quantize_ledger(row.subtotal + row.additional_charges)
+        proposal = TdsSectionService(self._session).propose(
+            vendor,
+            firm_id=firm_id,
+            on=row.invoice_date,
+            bill_amount=base,
+            bill_total=row.grand_total,
+            exclude_invoice_id=row.id,
+        )
+        if proposal.section is None:
+            if override is not None and override > ZERO:
+                raise ValidationError(
+                    "TDS on a bill is worked out under 194C or 194J. Set the "
+                    "supplier's TDS section first, or deduct on the payment.",
+                    details={"field": "tds_amount"},
+                )
+            return None
+        deducted = proposal.proposed if override is None else quantize_ledger(override)
+        if deducted < ZERO or (deducted > ZERO and deducted >= row.grand_total):
+            raise ValidationError(
+                "TDS deducted must be less than what the bill owes.",
+                details={"field": "tds_amount"},
+            )
+        row.tds_proposed_amount = proposal.proposed
+        row.tds_amount = deducted
+        row.tds_base_amount = base
+        row.tds_section = proposal.section if deducted > ZERO else None
+        return {
+            "tds_section": proposal.section,
+            "tds_base_amount": str(base),
+            "tds_rate_percent": str(proposal.rate_percent),
+            "tds_rate_basis": proposal.rate_basis,
+            "tds_threshold_crossed": proposal.threshold_crossed,
+            "tds_proposed_amount": str(proposal.proposed),
+            "tds_amount": str(deducted),
+            "tds_overridden": override is not None and deducted != proposal.proposed,
+        }
 
     def tolerance_breaches(self, row: PurchaseInvoice, *, firm_id: UUID) -> list[str]:
         """Return how a bill runs over its order beyond the firm's tolerance.
@@ -1312,6 +1386,10 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             grand_total=row.grand_total,
             reverse_charge_tax_total=row.reverse_charge_tax_total,
             self_invoice_number=row.self_invoice_number,
+            tds_section=row.tds_section,
+            tds_base_amount=row.tds_base_amount,
+            tds_proposed_amount=row.tds_proposed_amount,
+            tds_amount=row.tds_amount,
             approved_at=row.approved_at,
             closed_at=row.closed_at,
             cancel_reason=row.cancel_reason,
@@ -3192,6 +3270,22 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         ).all()
         if notes:
             blockers.append("debit note " + ", ".join(sorted(notes)))
+        # TDS deducted on the bill and already deposited (PG-5): cancelling
+        # would take the deduction off a challan the government holds.
+        from app.finance.models.tds_challan import TdsChallan, TdsChallanItem
+
+        challans = self._session.scalars(
+            select(TdsChallan.challan_number)
+            .join(TdsChallanItem, TdsChallanItem.challan_id == TdsChallan.id)
+            .where(
+                TdsChallanItem.purchase_invoice_id == row.id,
+                TdsChallanItem.is_live.is_(True),
+                TdsChallan.is_deleted.is_(False),
+            )
+            .distinct()
+        ).all()
+        if challans:
+            blockers.append("TDS challan " + ", ".join(sorted(challans)))
         if blockers:
             raise ValidationError(
                 f"{row.invoice_number} cannot be cancelled while it has "

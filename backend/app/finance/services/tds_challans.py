@@ -56,10 +56,13 @@ from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.finance.services.tds_return import due_date
 from app.finance.tds import TDS_SECTIONS
+from app.purchase_invoice.models import PurchaseInvoice
 from app.settlements.models import Settlement
 from app.vendors.models import Vendor
 
 _LIVE = "POSTED"
+#: A bill's deduction stands while the bill does (PG-5).
+_LIVE_BILLS = ("APPROVED", "CLOSED")
 
 
 def challan_cin(bsr_code: str, deposited_on: date, serial: str) -> str:
@@ -91,8 +94,14 @@ class TdsChallanService(TransactionalDocumentService):
 
     # ---- open deductions -----------------------------------------------
 
-    def _carried(self) -> tuple[Select[tuple[UUID | None]], Select[tuple[UUID | None]]]:
-        """Select the payments and expenses a live challan already carries."""
+    def _carried(
+        self,
+    ) -> tuple[
+        Select[tuple[UUID | None]],
+        Select[tuple[UUID | None]],
+        Select[tuple[UUID | None]],
+    ]:
+        """Select the payments, expenses and bills a live challan carries."""
         live = TdsChallanItem.is_live.is_(True)
         return (
             select(TdsChallanItem.settlement_id).where(
@@ -100,6 +109,9 @@ class TdsChallanService(TransactionalDocumentService):
             ),
             select(TdsChallanItem.expense_id).where(
                 live, TdsChallanItem.expense_id.is_not(None)
+            ),
+            select(TdsChallanItem.purchase_invoice_id).where(
+                live, TdsChallanItem.purchase_invoice_id.is_not(None)
             ),
         )
 
@@ -115,7 +127,7 @@ class TdsChallanService(TransactionalDocumentService):
 
         Oldest first, so the challan due soonest is at the top.
         """
-        carried_payments, carried_expenses = self._carried()
+        carried_payments, carried_expenses, carried_bills = self._carried()
         payments = select(Settlement, Vendor).join(
             Vendor, Vendor.id == Settlement.vendor_id
         )
@@ -134,15 +146,31 @@ class TdsChallanService(TransactionalDocumentService):
             Expense.tds_amount > 0,
             Expense.id.not_in(carried_expenses),
         )
+        # Bills that bore 194C or 194J at approval (PG-5): deducted when
+        # credited, so they are paid over like any other deduction.
+        bills = (
+            select(PurchaseInvoice, Vendor)
+            .join(Vendor, Vendor.id == PurchaseInvoice.vendor_id)
+            .where(
+                PurchaseInvoice.firm_id == firm_id,
+                PurchaseInvoice.is_deleted.is_(False),
+                PurchaseInvoice.status.in_(_LIVE_BILLS),
+                PurchaseInvoice.tds_amount > 0,
+                PurchaseInvoice.id.not_in(carried_bills),
+            )
+        )
         if section:
             payments = payments.where(Settlement.tds_section == section)
             expenses = expenses.where(Expense.tds_section == section)
+            bills = bills.where(PurchaseInvoice.tds_section == section)
         if date_from is not None:
             payments = payments.where(Settlement.settlement_date >= date_from)
             expenses = expenses.where(Expense.expense_date >= date_from)
+            bills = bills.where(PurchaseInvoice.invoice_date >= date_from)
         if date_to is not None:
             payments = payments.where(Settlement.settlement_date <= date_to)
             expenses = expenses.where(Expense.expense_date <= date_to)
+            bills = bills.where(PurchaseInvoice.invoice_date <= date_to)
         rows = [
             OpenDeductionRecord(
                 kind=DeductionKind.PAYMENT,
@@ -172,6 +200,21 @@ class TdsChallanService(TransactionalDocumentService):
                 due_date=due_date(expense.expense_date),
             )
             for expense in self._session.scalars(expenses).all()
+        )
+        rows.extend(
+            OpenDeductionRecord(
+                kind=DeductionKind.BILL,
+                id=bill.id,
+                document_number=bill.invoice_number,
+                document_date=bill.invoice_date,
+                party_name=vendor.display_name or vendor.name,
+                pan=vendor.pan,
+                section=bill.tds_section or "",
+                gross_amount=bill.tds_base_amount,
+                tds_amount=bill.tds_amount,
+                due_date=due_date(bill.invoice_date),
+            )
+            for bill, vendor in self._session.execute(bills).all()
         )
         rows.sort(key=lambda row: (row.document_date, row.document_number))
         return rows
@@ -363,6 +406,9 @@ class TdsChallanService(TransactionalDocumentService):
                         item.id if item.kind == DeductionKind.PAYMENT else None
                     ),
                     expense_id=item.id if item.kind == DeductionKind.EXPENSE else None,
+                    purchase_invoice_id=(
+                        item.id if item.kind == DeductionKind.BILL else None
+                    ),
                     tds_amount=item.tds_amount,
                     is_live=True,
                     created_by=actor_id,
@@ -537,6 +583,18 @@ class TdsChallanService(TransactionalDocumentService):
                 )
             ).all()
         }
+        bills = {
+            bill.id: (bill, vendor)
+            for bill, vendor in self._session.execute(
+                select(PurchaseInvoice, Vendor)
+                .join(Vendor, Vendor.id == PurchaseInvoice.vendor_id)
+                .where(
+                    PurchaseInvoice.id.in_(
+                        {i.purchase_invoice_id for i in items if i.purchase_invoice_id}
+                    )
+                )
+            ).all()
+        }
         by_challan: dict[UUID, list[TdsChallanItemResponse]] = {}
         for item in items:
             if item.settlement_id is not None and item.settlement_id in payments:
@@ -559,6 +617,19 @@ class TdsChallanService(TransactionalDocumentService):
                     document_date=expense.expense_date,
                     party_name=expense.payee or "",
                     pan=expense.payee_pan,
+                    tds_amount=item.tds_amount,
+                )
+            elif item.purchase_invoice_id is not None and (
+                item.purchase_invoice_id in bills
+            ):
+                bill, vendor = bills[item.purchase_invoice_id]
+                line = TdsChallanItemResponse(
+                    kind=DeductionKind.BILL,
+                    document_id=bill.id,
+                    document_number=bill.invoice_number,
+                    document_date=bill.invoice_date,
+                    party_name=vendor.display_name or vendor.name,
+                    pan=vendor.pan,
                     tds_amount=item.tds_amount,
                 )
             else:

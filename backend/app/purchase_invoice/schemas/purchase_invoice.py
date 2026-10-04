@@ -245,6 +245,12 @@ class PurchaseInvoiceApproveRequest(PurchaseInvoiceSchema):
     """Approve a bill, optionally paying it in the same transaction (PG-3)."""
 
     payment: PurchaseInvoicePaymentNow | None = None
+    #: Overrides the TDS the bill proposes under 194C or 194J (PG-5). Absent
+    #: or null takes the proposal; 0 deducts nothing. The bill keeps the
+    #: proposal beside it and the trail records both.
+    tds_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=2
+    )
 
 
 class PurchaseInvoiceUpdate(PurchaseInvoiceCreate):
@@ -422,6 +428,13 @@ class PurchaseInvoiceResponse(PurchaseInvoiceSchema):
     #: (backlog 68 row 8), and the self-invoice raised for it.
     reverse_charge_tax_total: Decimal = Decimal("0")
     self_invoice_number: str | None = None
+    #: TDS deducted on the bill at approval (PG-5): the section, what it was
+    #: deducted on (the bill before GST), what the server proposed and what
+    #: was deducted. The supplier is owed ``grand_total - tds_amount``.
+    tds_section: str | None = None
+    tds_base_amount: Decimal = Decimal("0")
+    tds_proposed_amount: Decimal | None = None
+    tds_amount: Decimal = Decimal("0")
     approved_at: datetime | None
     closed_at: datetime | None
     cancel_reason: str | None
