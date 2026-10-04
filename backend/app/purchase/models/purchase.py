@@ -226,6 +226,9 @@ class PurchaseOrderLine(BaseEntity):
         UUIDType(), ForeignKey("warehouse_storage_nodes.id", ondelete="RESTRICT")
     )
     remarks: Mapped[str | None] = mapped_column(Text)
+    #: Not authoritative: nothing writes it after creation. Responses derive
+    #: the line's status from its received quantity (``line_status`` in
+    #: ``purchase/services/line_quantities.py``, D-BUY-24).
     status: Mapped[str] = mapped_column(
         String(30), nullable=False, default="ORDERED", server_default="ORDERED"
     )

@@ -69,6 +69,25 @@ class LineQuantities:
         return max(self.accepted - self.returned - self.invoiced, ZERO)
 
 
+def line_status(order_status: str, quantities: LineQuantities) -> str:
+    """Return a line's status, derived from its quantities (D-BUY-24).
+
+    ``RECEIVED`` once the received quantity reaches what was ordered,
+    ``PARTIALLY_RECEIVED`` while something has arrived, and ``ORDERED`` while
+    nothing has. An order that was cancelled or closed says so on every line,
+    because the order's end overrides how far receiving got. Summed from the
+    receipts on every read, the way the order's own status is, so cancelling a
+    receipt walks the line back and the stored column cannot disagree.
+    """
+    if order_status in ("CANCELLED", "CLOSED"):
+        return order_status
+    if quantities.ordered > ZERO and quantities.received >= quantities.ordered:
+        return "RECEIVED"
+    if quantities.received > ZERO:
+        return "PARTIALLY_RECEIVED"
+    return "ORDERED"
+
+
 def billing_status(quantities: Sequence[LineQuantities]) -> str:
     """Return ``NOT_INVOICED``, ``PARTIALLY_INVOICED`` or ``INVOICED``.
 
