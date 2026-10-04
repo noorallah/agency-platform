@@ -173,24 +173,37 @@ where the role was granted, not who owns it. See
 Four are platform-tier and twelve are firm-tier. `SUPPORT_ADMIN` is in
 `HIDDEN_SYSTEM_ROLE_CODES` and is not offered in listings.
 
+Counts re-derived from `ROLE_PERMISSION_CODES` on 2026-10-04 (D-ROLE-1);
+re-run the command under the tree below rather than trusting them.
+
 | Role | Tier | Codes | What it is for | Deliberately withheld |
 | --- | --- | ---: | --- | --- |
-| `PLATFORM_ADMIN` | platform | 189 | Every code that exists | — |
-| `SUPPORT_ADMIN` | platform | 189 | Support access; hidden from role listings | — |
+| `PLATFORM_ADMIN` | platform | 210 | Every code that exists | — |
+| `SUPPORT_ADMIN` | platform | 210 | Support access; hidden from role listings | — |
 | `LICENSE_ADMIN` | platform | 3 | `LICENSE_MANAGE`, `FIRM_VIEW`, `REPORT_VIEW` | everything else |
 | `SYSTEM_AUDITOR` | platform | 5 | Reads the trails: `AUDIT_LOG_VIEW`, `DIAGNOSTICS_VIEW`, `FIRM_VIEW`, `USER_VIEW`, `REPORT_VIEW` | every write |
-| `FIRM_ADMIN` | firm | 170 | Runs the firm: every operational module **plus** users, roles, permissions, `SETTINGS_VIEW`/`SETTINGS_UPDATE` | platform codes, `high_risk`, and the six areas in [Part 11](#part-11--what-the-seeded-grants-do-not-cover) |
-| `FIRM_MANAGER` | firm | 150 | Everything `FIRM_ADMIN` operates, **minus** administering the firm's people | `user`, `role`, `permission`, `SETTINGS_*` |
-| `ACCOUNTANT` | firm | 25 | The books: `accounting`, `commission`, `report`, plus `CUSTOMER_MANAGE_SETTINGS` and `VENDOR_VIEW_FINANCIAL_DETAILS` | sales and purchase writes, `VENDOR_MANAGE_BANK_DETAILS` |
-| `SALES_MANAGER` | firm | 35 | Owns the sales desk: customers, the sales chain, territory assignment, credit notes (draft), proforma, loyalty spend | the ten controls in the table below |
-| `SALES_EXECUTIVE` | firm | 6 | Works a beat: view customers and territory; raise quotation, order, invoice | approval, cancellation, every master write |
-| `PURCHASE_MANAGER` | firm | 9 | All nine `purchase` codes | everything outside purchasing |
-| `PURCHASE_EXECUTIVE` | firm | 8 | The same, minus `PURCHASE_APPROVE` | approval |
-| `INVENTORY_MANAGER` | firm | 16 | `inventory` + `batch_serial` | everything else |
-| `CASHIER` | firm | 4 | `PAYMENT_CREATE`/`PAYMENT_VIEW`, `RECEIPT_CREATE`/`RECEIPT_VIEW` | see [Part 11](#part-11--what-the-seeded-grants-do-not-cover) |
-| `BILLING_EXECUTIVE` | firm | 2 | `SALES_INVOICE_CREATE`, `SALES_VIEW` | everything else |
+| `FIRM_ADMIN` | firm | 196 | Runs the firm: every operational module **plus** users, roles, permissions, `SETTINGS_VIEW`/`SETTINGS_UPDATE` | platform codes, `high_risk`, and the six areas in [Part 11](#part-11--what-the-seeded-grants-do-not-cover) |
+| `FIRM_MANAGER` | firm | 179 | Everything `FIRM_ADMIN` operates, **minus** administering the firm's people | `user`, `role`, `permission`, `SETTINGS_*` |
+| `ACCOUNTANT` | firm | 33 | The books: `accounting`, `commission`, `report`, plus `CUSTOMER_MANAGE_SETTINGS` and `VENDOR_VIEW_FINANCIAL_DETAILS` | sales and purchase writes, `VENDOR_MANAGE_BANK_DETAILS` |
+| `SALES_MANAGER` | firm | 45 | Owns the sales desk: customers, the sales chain, territory assignment, credit notes (draft), proforma, loyalty spend; reads products, branches, warehouses, tax profiles and units for its documents | the ten controls in the table below |
+| `SALES_EXECUTIVE` | firm | 10 | Works a beat: view customers and territory; raise quotation, order, invoice; reads products, branches and warehouses | approval, cancellation, every master write |
+| `PURCHASE_MANAGER` | firm | 30 | The `purchase` codes less settings, drafting debit notes, and **the vendor masters** (create, edit, retire, import, categories); reads products, branches, warehouses, tax profiles and units | `PURCHASE_MANAGE_SETTINGS`, `VENDOR_MANAGE_BANK_DETAILS`, `VENDOR_VIEW_FINANCIAL_DETAILS` |
+| `PURCHASE_EXECUTIVE` | firm | 16 | The same purchasing codes minus approval and inspection; **reads** vendors, products, branches, warehouses, tax profiles and units | approval, every master write |
+| `INVENTORY_MANAGER` | firm | 24 | `inventory` + `batch_serial`, inspection, requisitions; reads products, branches, warehouses, vendors (requisition) and customers (a gift write-off names one) | everything else |
+| `CASHIER` | firm | 4 | `PAYMENT_CREATE`/`PAYMENT_VIEW`, `RECEIPT_CREATE`/`RECEIPT_VIEW` -- the money screens read their own party list, so no master is needed | see [Part 11](#part-11--what-the-seeded-grants-do-not-cover) |
+| `BILLING_EXECUTIVE` | firm | 5 | `SALES_INVOICE_CREATE`, `SALES_VIEW`, `DOCUMENT_SEND`; reads customers and products | everything else |
 | `CUSTOMER_SUPPORT` | firm | 3 | `CUSTOMER_VIEW`, `CUSTOMER_UPDATE`, `PRODUCT_VIEW` | everything else |
-| `VIEWER` | firm | 37 | Every `*_VIEW` code **except** `PLATFORM_VIEW`, `USER_VIEW`, `ROLE_VIEW`, `PERMISSION_VIEW`, `AUDIT_LOG_VIEW`, `FIRM_AUDIT_LOG_VIEW`, `SETTINGS_VIEW` | every write |
+| `VIEWER` | firm | 43 | Every `*_VIEW` code **except** `PLATFORM_VIEW`, `USER_VIEW`, `ROLE_VIEW`, `PERMISSION_VIEW`, `AUDIT_LOG_VIEW`, `FIRM_AUDIT_LOG_VIEW`, `SETTINGS_VIEW` | every write |
+
+**A role that raises a document reads what its editor picks from** (D-ROLE-1,
+2026-10-04). The master view codes are enforced (D-MST-10) and for a while
+were granted to none of the job roles whose editors read them: the Purchasing
+job opened a purchase order and was told it had no vendor and no product.
+`tests/unit/test_job_roles_read_their_masters.py` names, per document, the
+create route, the codes that create it and the master lists its editor loads,
+checks both against the built application, and fails when a role holding the
+create code lacks a list's view code. `20261004_0301` granted the gap in
+databases that already exist.
 
 ### The twelve firm roles form a containment tree
 
@@ -203,20 +216,25 @@ uv run python -c "from app.identity.system_seed import ROLE_PERMISSION_CODES as 
 ```
 
 ```
-FIRM_ADMIN (170)          runs the firm and its people
-└── FIRM_MANAGER (150)    every module, none of the people
-    ├── SALES_MANAGER (35)
-    │   ├── SALES_EXECUTIVE (6)
-    │   │   └── BILLING_EXECUTIVE (2)
+FIRM_ADMIN (196)          runs the firm and its people
+└── FIRM_MANAGER (179)    every module, none of the people
+    ├── SALES_MANAGER (45)
+    │   ├── SALES_EXECUTIVE (10)
+    │   ├── BILLING_EXECUTIVE (5)
     │   └── CUSTOMER_SUPPORT (3)
-    ├── PURCHASE_MANAGER (9)
-    │   └── PURCHASE_EXECUTIVE (8)
-    ├── ACCOUNTANT (25)
+    ├── PURCHASE_MANAGER (30)
+    │   └── PURCHASE_EXECUTIVE (16)
+    ├── ACCOUNTANT (33)
     │   └── CASHIER (4)
-    └── INVENTORY_MANAGER (16)
+    └── INVENTORY_MANAGER (24)
 
-VIEWER (37)               outside the tree
+VIEWER (43)               outside the tree
 ```
+
+Re-derived 2026-10-04. `BILLING_EXECUTIVE` is no longer drawn under
+`SALES_EXECUTIVE`: it has held `DOCUMENT_SEND` since backlog 51 and a sales
+executive does not, so the drawing had stopped matching the command before
+D-ROLE-1 touched either role.
 
 Two things the shape says that the names do not.
 
@@ -226,7 +244,7 @@ take money -- whoever agrees the price does not handle the cash. It is the same
 separation that keeps `COMMISSION_PAY` away from whoever states the debt and
 `TCS_MANAGE` away from the role the threshold constrains.
 
-**`VIEWER` is a parallel axis rather than a rung.** It holds 37 read codes and
+**`VIEWER` is a parallel axis rather than a rung.** It holds 43 read codes and
 no writes, so it contains nothing -- not even `CUSTOMER_SUPPORT`, which can
 update a customer -- and nothing contains it, because no operational role holds
 every `*_VIEW`. Reading "VIEWER is the bottom of the ladder" out of the numbers
@@ -253,6 +271,7 @@ able to switch the control off.**
 | `SALES_MANAGER` | `LOYALTY_MANAGE_SETTINGS` | The conversion rate decides what every customer's credit is worth; and a goodwill adjustment (`POST /loyalty/adjust`) takes this code too, because points given are redeemed against a bill like any others -- a receivable write-off by the role denied approving a credit note (D-CFG-17). `LOYALTY_MANAGE` still spends credit and sweeps lapsed points |
 | `SALES_MANAGER` | `TCS_MANAGE` | The policy decides what every buyer is charged on every receipt |
 | `SALES_MANAGER` | `EINVOICE_MANAGE` | Reading a registration is running a sales desk; filing with the authority is not |
+| `PURCHASE_MANAGER` | `VENDOR_MANAGE_BANK_DETAILS`, `VENDOR_VIEW_FINANCIAL_DETAILS` | It owns the vendor masters (D-ROLE-1), but where a supplier is paid is a payment instruction, the redirection fraud `SALES_MANAGER` is kept from on customers (MST-4); reading the account is for whoever pays (`ACCOUNTANT`) |
 | `FIRM_MANAGER` | `user` / `role` / `permission` | Operating the firm and deciding who may operate it are different jobs |
 | `ACCOUNTANT` | *(holds)* `CUSTOMER_MANAGE_SETTINGS` | Credit policy governs receivables, so it belongs to the role that owns them rather than to the role it constrains |
 | `ACCOUNTANT` | *(holds)* `VENDOR_VIEW_FINANCIAL_DETAILS`, **not** `VENDOR_MANAGE_BANK_DETAILS` | Whoever pays a supplier has to read the account the money goes to, and must not be the one who says where it goes. The vendor router withholds the bank accounts without the read code and refuses a change to them without the manage code (D-MST-10); `VIEWER` holds neither, so a read-only user is served a vendor with no accounts |
