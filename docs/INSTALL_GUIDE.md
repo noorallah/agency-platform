@@ -58,13 +58,24 @@ it on the last page.
    this network to connect** if anyone else will use the system from another
    PC. Without the tick, the server answers only this PC and the firewall
    stays closed. You can add it later by running Setup again.
-4. **Shortcuts**: leave *Create a desktop shortcut* ticked.
-5. Click **Install**. Setup copies the files, installs the Microsoft Visual
+4. **Branding** (server install only): the agency's name, a tagline and a
+   logo file, shown on the sign-in screen and at the top of every screen on
+   every PC. **All three are optional**; leave them blank to give them after
+   the first sign-in. A tagline or logo needs a name, and a logo file that
+   does not exist is refused when you press Next. Below them Setup shows,
+   read-only, the product and its maker, which come from the package. A logo
+   must be a PNG or JPG of at most 1 MB; if it is not, **the install carries
+   on**, the name is still saved, the logo is skipped and the install log
+   says why. Everything here can be changed later in **Settings > Platform >
+   Agency > Branding**. This page does not appear on an app-only PC, an
+   upgrade or a repair.
+5. **Shortcuts**: leave *Create a desktop shortcut* ticked.
+6. Click **Install**. Setup copies the files, installs the Microsoft Visual
    C++ runtime if the PC lacks it, and then shows *Setting up the database and
    the server. This can take a few minutes.* It creates the private PostgreSQL
    database, generates its passwords, registers two Windows services and waits
    until the server answers.
-6. **The finished page shows the first sign-in.** Write it down or click
+7. **The finished page shows the first sign-in.** Write it down or click
    **Copy**:
    - Sign in as: `platform-admin@agency.local`
    - Password: generated for this installation, shown once here
@@ -72,8 +83,10 @@ it on the last page.
    The same details are saved in
    `C:\ProgramData\Agency Platform\first-login.txt`, which only administrators
    of the PC can open. Delete that file once the password has been changed.
-7. Leave *Launch Agency Platform* ticked and click **Finish**. The app opens
-   on the sign-in screen.
+8. Leave *Launch Agency Platform* ticked and click **Finish**. The app opens
+   on the sign-in screen. If no agency name was given, the first platform
+   administrator to sign in is asked to *Set up your agency*; **Skip for now**
+   leaves a *Finish setting up* card on Home.
 
 Setup registered two services that start with Windows and restart themselves
 if they stop:

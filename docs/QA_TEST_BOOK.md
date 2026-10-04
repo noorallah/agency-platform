@@ -1,11 +1,11 @@
 # QA Test Book -- Agency Platform
 
-Release 1.2.0 -- written 2026-10-04 from the product documentation; cases marked (confirm) need the figure checked on the first run.
+Release 1.3.0 -- written 2026-10-04 from the product documentation; cases marked (confirm) need the figure checked on the first run.
 
 ## How to use this book
 
 **Who it is for.** A tester at a Windows PC with the installed desktop app
-(release 1.2.0), connected to a working server. You need to know the trade
+(release 1.3.0), connected to a working server. You need to know the trade
 (wholesale distribution, GST) but nothing about databases or code.
 
 **One firm, built by you.** Every case runs in one test firm, **QA Book
@@ -14,6 +14,11 @@ cases QA-FRM-01 to QA-FRM-12 (module *Firm set-up & configuration*) before
 anything else, because every other case, sign-in included, needs that firm
 and its administrator. Nothing else on the server is touched, except the
 platform cases at the end.
+
+**The first sign-in as platform administrator may open a *Set up your
+agency* dialog** (the agency's branding is not yet given). Press **Skip for
+now** and carry on with QA-FRM-01; the branding cases (module *Agency
+branding*, QA-BRD) come back to it.
 
 **Who to sign in as.** The firm and its people are created by the
 **platform administrator** (the account set up when the server was
@@ -196,7 +201,7 @@ admin@qb01.test.
 
 | ID | Action (with the exact sample values) | Verify on this screen | Verify elsewhere | Result |
 | --- | --- | --- | --- | --- |
-| QA-SIG-01 | Open the app; read the sign-in screen; sign in as admin@qb01.test | The version on the sign-in screen reads 1.2.0. Home opens on QA Book Traders; menu bar: Home, Sell, Buy, Stock, Accounts, Masters, Reports, gear. **No Admin** on the bar | Firm switcher (right) reads QA Book Traders | |
+| QA-SIG-01 | Open the app; read the sign-in screen; sign in as admin@qb01.test | The version on the sign-in screen reads 1.3.0. Home opens on QA Book Traders; menu bar: Home, Sell, Buy, Stock, Accounts, Masters, Reports, gear. **No Admin** on the bar | Firm switcher (right) reads QA Book Traders | |
 | QA-SIG-02 | Sign out; sign in with password `Wrong@Password1` | Refused: "Invalid email or password." Nothing says whether the account exists | -- | |
 | QA-SIG-03 | Open **Sell** | Short list: Quotations, Sales Orders, Delivery Notes, Sales Invoices, Returns & notes, Receipts, Customer Statements; **All Sell screens (N)** at the foot. No Price Lists, Promotions or Territories here | -- | |
 | QA-SIG-04 | In Sell, click **Returns & notes** | A short list opens beside it: Sales Returns, Credit Notes, Customer Debit Notes | Buy > Returns & notes offers Purchase Returns and Debit Notes | |
@@ -576,7 +581,7 @@ case says otherwise.
 
 | ID | Action (with the exact sample values) | Verify on this screen | Verify elsewhere | Result |
 | --- | --- | --- | --- | --- |
-| QA-PLT-01 | Sign in as the platform administrator; open Settings | Starts on Platform. PLATFORM section: People (Users, Roles, Permissions, User Templates, User-Firm Assignments), Firms (Firms, Business Profiles), System (Audit Logs, Diagnostics, Licensing, Backups, Platform Dashboard) | -- | |
+| QA-PLT-01 | Sign in as the platform administrator; open Settings | Starts on Platform. PLATFORM section: People (Users, Roles, Permissions, User Templates, User-Firm Assignments), Firms (Firms, Business Profiles), System (Audit Logs, Diagnostics, Licensing, Backups, Platform Dashboard), Agency (Branding) | -- | |
 | QA-PLT-02 | Settings > Platform > **Firms** > QB01 > Set up | **Finished. Every step is done.** | -- | |
 | QA-PLT-03 | Firms > QB01 > **Delete** | Refused: "Assigned firms cannot be deleted." | QB01 still works | |
 | QA-PLT-04 | Settings > Platform > **Backups** > **Back up now** | Completes; listed with time, size and who took it | The installation guide names where backups are kept on the server PC | |
@@ -590,6 +595,45 @@ case says otherwise.
 
 ---
 
+## Agency branding
+
+**Before you start:** the platform administrator and QB01 exist (FRM cases).
+QA-BRD-01 to 05 need a **spare PC** for a fresh server install and are best
+run last; QA-BRD-11 to 14 need a server whose branding is **not yet set**,
+which is how a fresh install without a name leaves it (run them before
+QA-BRD-13 sets it, or on the spare PC). The rest need the branding set.
+The agency's name and logo are the agency's own; the product stays **Agency
+Platform**.
+
+| ID | Action (with the exact sample values) | Verify on this screen | Verify elsewhere | Result |
+| --- | --- | --- | --- | --- |
+| QA-BRD-01 | **Fresh server install on a spare PC** (not the PC the other cases run on): run `AgencyPlatform-1.3.0-Setup.exe`, choose **This PC: server and app**, Next | A **Branding** page follows *This PC* with *Your agency's name and logo*: Agency name, Tagline, a Logo box with Browse, and a read-only line *This product: Agency Platform, by* its company. Every box is optional | Leave all blank, Next, finish the install: no error; first sign-in opens the *Set up your agency* dialog (QA-BRD-11) | |
+| QA-BRD-02 | Repeat the fresh install; type only Agency name `QA Book Traders Agency`, Next, finish, sign in as the platform administrator | No *Set up your agency* dialog; the sign-in screen and the top of the app show *QA Book Traders Agency* with its initials in place of a logo | Settings > Platform > Audit Logs (no firm): `agency_branding.created` by the installer's run | |
+| QA-BRD-03 | On the Branding page type a Tagline `Quality in bulk` and no name; press Next. Then clear it, give a Logo path `C:\nowhere\x.png` and a name, press Next | First: *Type the agency's name too; the tagline and logo are saved with it.* Second: *The logo file was not found. Choose it again or leave it blank.* Next does not move on either time | -- | |
+| QA-BRD-04 | Give a name and, as the logo, a text file renamed `fake.png`; then (another run) a PNG larger than 1 MB. Finish each install | **The install still completes.** The name is saved and shows after sign-in; no logo is saved (initials show) | The newest file in `C:\ProgramData\Agency Platform\logs\install` holds a warning that the logo was not saved or could not be read; the administrator can add a logo later (QA-BRD-16) | |
+| QA-BRD-05 | Run the setup again on the same PC (repair or upgrade), and run it on a second PC choosing **App only** | **No Branding page** in either (it is shown on a fresh server install only) | The agency's branding is unchanged after the repair or upgrade | |
+| QA-BRD-06 | Open the app with the agency's branding set; do not touch the boxes for 20 seconds | The agency's logo (or initials), name and tagline sit above the form; a night-blue panel at the left shows one strength (title and a line) and moves to the next about every 8 seconds | Click the arrows and a dot: one strength at a time. Type one letter in the email box: cycling **stops for good**, even after clearing the box | |
+| QA-BRD-07 | Narrow the window below 900 px wide, then widen it again | The left panel goes and the sign-in card stands alone with nothing cut off; wide again, the panel returns | -- | |
+| QA-BRD-08 | At the foot of the sign-in card read the product mark; read the window's title bar and the status line | Mark: Agency Platform, *by* its company, and its tagline. Title bar: **Agency Platform - Sign in**. Status line: server state, version (1.3.0) and *Powered by Agency Platform* | After signing in the title bar changes to the agency's name (QA-BRD-20) | |
+| QA-BRD-09 | Open **More help**; click **Copy details for support**; paste into Notepad | Support rows (phone, WhatsApp, hours, email, website) show only when filled: **all blank in this release, so none appears** (this is by design). *Forgot your password? Your administrator resets it.* does appear. The button reports it copied | The pasted text names the product, version 1.3.0, the server address and this PC's name; no password | |
+| QA-BRD-10 | Stop the server (Services > Agency Platform Server > Stop), close and reopen the app | The sign-in screen still opens at once with the agency's name, tagline and logo from this PC's last visit; no error box. On a PC that never connected, it shows Agency Platform's own name and logo | Start the server, reopen: the current branding shows | |
+| QA-BRD-11 | On a server whose branding is **not** set, sign in as the platform administrator | A dialog **Set up your agency** opens over Home: Agency name, Tagline, Logo, a live preview, **Skip for now** and **Save** | Press Save with the name blank: refused beside the box, nothing saved | |
+| QA-BRD-12 | Press **Skip for now**; look at Home; sign out and in | The dialog closes and saves nothing. Home shows a **Finish setting up** card, *Give your agency's name and logo, so every PC shows them.*, with a **Set up your agency** button. After signing in again the dialog does not reopen for this user | Sign in as another platform administrator (if you have one): the dialog opens for them once | |
+| QA-BRD-13 | Click **Set up your agency** on the card; type `QA Book Traders Agency`, tagline `Quality in bulk`, choose a valid PNG under 1 MB; **Save** | *Saved.*, the form closes, the Home card disappears, and the logo, name and tagline lead the menu strip at once | Settings > Platform > Audit Logs (no firm): `agency_branding.created` and `agency_branding.logo_changed` naming the platform administrator; the logo entry gives type and size, not the image | |
+| QA-BRD-14 | Sign in as admin@qb01.test (firm administrator) while branding is still not set | No dialog and no **Finish setting up** card; Settings offers no Platform section | -- | |
+| QA-BRD-15 | Sign in as the platform administrator; Settings > **Platform > Agency > Branding** | Agency name (starred), Tagline, Logo, a **Preview** of the *Sign-in screen* and *Top of every screen*, and our product, company and logo read-only (*Set by the installer; changed only by an update*). **No colour box** | Type in the name box: the preview follows each keystroke | |
+| QA-BRD-16 | Change the tagline to `Quality, in bulk`; **Save**. Then **Change logo**, pick a different valid PNG or JPG; Save. Then **Remove logo**; Save | Each save shows *Saved.* and the menu strip changes with no refresh. After Remove the initials of the name show in the preview and the header | Audit Logs (no firm): `agency_branding.updated`, `agency_branding.logo_changed` (twice: set, removed). On another PC the new tagline and logo show at its next sign-in screen | |
+| QA-BRD-17 | Choose as the logo a text file named `fake.png`; then a PNG or JPG larger than 1 MB | Text file: *The logo must be a PNG or JPG image.* (the contents are judged, not the name). Large file: a message giving its size in MB and the 1 MB limit. The form keeps everything typed and nothing is saved | Audit Logs: no new entry | |
+| QA-BRD-18 | Two PCs (or two windows) open the page. On the first change the tagline and Save; on the second change the name and Save | The first saves. The second is refused inside the form with the somebody-else-saved message, keeping what was typed | Reopen: the first person's tagline | |
+| QA-BRD-19 | Sign in as admin@qb01.test; open Settings | No **Platform** section and no Agency or Branding card | Ctrl+K `Branding` does not offer the screen | |
+| QA-BRD-20 | Sign in as admin@qb01.test with the agency's branding set; look at the left of the menu strip and the window's title bar | The agency's logo, name and tagline lead the strip before Home, then **QA Book Traders** as plain text; the firm switcher is still at the right. Title bar: **QA Book Traders Agency > QA Book Traders** | Menu strip height is unchanged from before (nothing pushed down) | |
+| QA-BRD-21 | Sign in as the platform administrator (no firm chosen) | Title bar reads the agency's name alone, with no *>*; no firm name beside the agency in the strip | Switch into QB01: the title becomes *agency > QB01* | |
+| QA-BRD-22 | Narrow the window below 820 px; then widen it past 1280 px | Below 820 px only the logo shows (no name); the tagline appears only from 1280 px; nothing overflows | -- | |
+| QA-BRD-23 | Open Masters > Customers; click the agency's logo or name at the left of the strip | Home opens | -- | |
+| QA-BRD-24 | Read the right end of the status line; point at it; click it | Our product's mark, *Agency Platform 1.3.0 by* its company; a tooltip repeats it. **Clicking does nothing** (Help > About is not built yet) | -- | |
+
+---
+
 ## Defect report template
 
 Copy this block for each failure.
@@ -600,7 +644,7 @@ Copy this block for each failure.
 | Case ID | e.g. QA-SELL-11 |
 | Date and time | |
 | Tester | |
-| App version | As shown on the sign-in screen (1.2.0) |
+| App version | As shown on the sign-in screen (1.3.0) |
 | Firm and user | e.g. QB01, admin@qb01.test |
 | Steps | The case's action, plus anything you did differently |
 | Expected | Copy from the case |
@@ -630,11 +674,12 @@ Copy this block for each failure.
 | Reports | 13 | | | | | | |
 | Approvals & notifications | 11 | | | | | | |
 | Platform administration | 11 | | | | | | |
-| **Total** | **257** | | | | | | |
+| Agency branding | 24 | | | | | | |
+| **Total** | **281** | | | | | | |
 
 **Not covered in this book** (each has detailed cases in `docs/qa/`): landed
 costs, payment runs, supplier rebates and ratings, principal claims, quality
 inspection, purchase budgets and bill tolerance, serial numbers, count plans,
 quarterly (QRMP) filing, rule 42, filed-return amendments, branch GSTINs,
 cheque printing, TDS challans, price levels, bulk coupons, messaging sends,
-and the installer itself (`docs/INSTALLER_QA_CHECKLIST.md`).
+and the installer itself apart from its Branding page (`docs/INSTALLER_QA_CHECKLIST.md`).

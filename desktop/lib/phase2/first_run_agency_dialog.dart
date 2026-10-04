@@ -90,7 +90,7 @@ class FirstRunAgencyDialog extends StatelessWidget {
                   Text(
                     'Your name and logo show on the sign-in screen and at the '
                     'top of every screen, on every PC. You can change them '
-                    'later in Settings > Platform > Branding.',
+                    'later in Settings > Platform > Agency > Branding.',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
