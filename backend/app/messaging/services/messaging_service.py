@@ -15,6 +15,7 @@ and the worker sends it after.
 
 import json
 from datetime import date
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -67,6 +68,9 @@ from app.messaging.services.common import (
     record_on_timeline,
 )
 from app.sales_invoice.models import SalesInvoice
+
+if TYPE_CHECKING:
+    from app.messaging.services.hand_documents import HandDocument
 
 
 def dedupe_key(
@@ -680,8 +684,12 @@ class MessagingService:
         body_override: str | None = None,
     ) -> MessagingOutbox:
         """Add one outbox row, rendered, to the session."""
+        # A hand-sent document borrows its template's event for the variables.
         event = (
-            EVENTS_BY_CODE.get(event_code) or EVENTS_BY_CODE["SALES_INVOICE_APPROVED"]
+            EVENTS_BY_CODE.get(
+                config.event_code if event_code == MANUAL_SEND else event_code
+            )
+            or EVENTS_BY_CODE["SALES_INVOICE_APPROVED"]
         )
         account = channel_configs(self._session, firm_id).get(config.channel)
         row = MessagingOutbox(
@@ -854,7 +862,9 @@ class MessagingService:
             load_hand_document,
         )
 
-        if data.channel != "EMAIL":
+        if data.channel == "SMS" or (
+            data.channel == "WHATSAPP" and data.document_type != "PURCHASE_ORDER"
+        ):
             raise ValidationError(
                 "Only the invoice is sent on WhatsApp or SMS from the firm's "
                 "account; email this one, or share it from your own phone."
@@ -866,6 +876,10 @@ class MessagingService:
             document_id=data.document_id,
         )
         recipient = (data.recipient or "").strip() or None
+        if data.channel == "WHATSAPP":
+            return self._send_po_whatsapp(
+                data, hand, recipient, firm_id=firm_id, actor_id=actor_id
+            )
         if recipient is None and hand.customer is not None:
             recipient, why_not = recipient_for(self._session, hand.customer, "EMAIL")
             if recipient is None:
@@ -909,6 +923,99 @@ class MessagingService:
         )
         self._session.commit()
         return row
+
+    def _send_po_whatsapp(
+        self,
+        data: ManualSendRequest,
+        hand: "HandDocument",
+        recipient: str | None,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> MessagingOutbox:
+        """Queue a purchase order on WhatsApp, to the supplier (PG-7).
+
+        Meta delivers only approved templates, so the firm names one for
+        "Purchase order sent to the supplier" first. The supplier's number is
+        its own mobile, else a contact's; no customer opt-in applies.
+        """
+        template = next(
+            (
+                row
+                for row in self._event_rows(firm_id)
+                if row.event_code == "PURCHASE_ORDER_SENT" and row.channel == "WHATSAPP"
+            ),
+            None,
+        ) or MessagingEventConfig(
+            firm_id=firm_id, event_code="PURCHASE_ORDER_SENT", channel="WHATSAPP"
+        )
+        if not template.template_name:
+            raise ValidationError(
+                "Name the WhatsApp template for 'Purchase order sent to the "
+                "supplier' under Settings > Messaging first; WhatsApp sends "
+                "only registered templates."
+            )
+        recipient = recipient or (hand.vendor_phone or "").strip() or None
+        if recipient is None:
+            raise ValidationError(
+                "Cannot send: the supplier has no mobile number. Enter a number."
+            )
+        values = self._variables(hand.document, None, firm_id)
+        values["customer_name"] = hand.party_name
+        row = self._stage_row(
+            firm_id=firm_id,
+            event_code=MANUAL_SEND,
+            document=hand.document,
+            config=template,
+            values=values,
+            status=QUEUED,
+            reason=None,
+            recipient=recipient,
+            fallback=[],
+            occurrence=None,
+            actor_id=actor_id,
+            attach=True,
+            body_override=(data.message or "").strip() or None,
+        )
+        record_audit(
+            self._session,
+            action="message.requested",
+            entity_type="messaging_outbox",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            after_data={
+                "document_type": data.document_type,
+                "document_number": hand.document.document_number,
+                "channel": "WHATSAPP",
+                "recipient": recipient,
+            },
+        )
+        self._session.commit()
+        self._record_po_sent(
+            hand.document.document_id,
+            firm_id=firm_id,
+            actor_id=actor_id,
+            via="WHATSAPP",
+        )
+        return row
+
+    def _record_po_sent(
+        self, document_id: UUID, *, firm_id: UUID, actor_id: UUID, via: str
+    ) -> None:
+        """Mark the order sent by ``via``, as its own *mark sent* does (PG-7).
+
+        An order not yet approved is queued but not marked: only an approved
+        order can have been sent.
+        """
+        from app.purchase.services.purchase_service import PurchaseService
+
+        try:
+            PurchaseService(self._session).mark_sent(
+                document_id, via=via, firm_scope=firm_id, actor_id=actor_id
+            )
+        except ValidationError:
+            self._session.rollback()
 
     def resend(
         self, message_id: UUID, *, firm_id: UUID, actor_id: UUID

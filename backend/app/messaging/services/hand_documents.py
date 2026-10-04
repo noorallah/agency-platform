@@ -7,11 +7,12 @@ the purchase order to a supplier. Each goes the same way -- queued in the
 outbox, sent by the worker, logged on the document's timeline -- with its own
 PDF attached and a covering note that names it.
 
-Only email carries them. WhatsApp and SMS from the firm's own account send
-registered templates, and the templates are registered for events (an invoice
-approved, a payment due); a document sent by hand that way would need a
-template per document type nobody has registered. A person who wants to send
-one on WhatsApp shares it from their own phone (MSG-1).
+Only email carries them, with one exception: a purchase order also goes on
+WhatsApp (PG-7), under the template the firm names for the "Purchase order
+sent to the supplier" event. WhatsApp and SMS from the firm's own account send
+registered templates, so the rest would need a template per document type
+nobody has registered; a person who wants to send one of those on WhatsApp
+shares it from their own phone (MSG-1).
 """
 
 from __future__ import annotations
@@ -48,6 +49,8 @@ class HandDocument:
     vendor_email: str | None
     label: str
     party_name: str
+    #: The supplier's WhatsApp number, for a purchase order (PG-7).
+    vendor_phone: str | None = None
 
 
 def load_hand_document(
@@ -156,6 +159,7 @@ def load_hand_document(
             vendor_email=None if vendor is None else vendor.email,
             label=LABELS[document_type],
             party_name="" if vendor is None else vendor.name,
+            vendor_phone=_vendor_number(session, vendor),
         )
     raise ValidationError(f"{document_type} cannot be sent from here.")
 
@@ -209,6 +213,33 @@ def render_attachment(
         return CustomerStatementPdfService(session).render(
             document_id, firm_id=firm_id, to_date=on
         )
+    return None
+
+
+def _vendor_number(session: Session, vendor: object | None) -> str | None:
+    """Return the supplier's mobile (or phone), else its primary contact's."""
+    from sqlalchemy import select
+
+    from app.vendors.models import Vendor, VendorContact
+
+    if not isinstance(vendor, Vendor):
+        return None
+    own = (vendor.mobile or vendor.phone or "").strip()
+    if own:
+        return own
+    contacts = sorted(
+        session.scalars(
+            select(VendorContact).where(
+                VendorContact.vendor_id == vendor.id,
+                VendorContact.is_deleted.is_(False),
+            )
+        ).all(),
+        key=lambda contact: (not contact.is_primary, contact.created_at),
+    )
+    for contact in contacts:
+        number = (contact.mobile or contact.phone or "").strip()
+        if number:
+            return number
     return None
 
 

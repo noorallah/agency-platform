@@ -24,11 +24,15 @@ class SendMessageDialog extends StatefulWidget {
   final String invoiceNumber;
 
   /// What is being sent (MSG-4); [invoiceId] is then that document's id (the
-  /// customer's, for a statement). Anything but an invoice goes by email
-  /// only, so the channel picker is not offered.
+  /// customer's, for a statement). Anything but an invoice or a purchase order
+  /// goes by email only, so the other channels are not offered.
   final String documentType;
 
   bool get _invoice => documentType == 'SALES_INVOICE';
+
+  /// A purchase order also goes on WhatsApp, to the supplier (PG-7); SMS is
+  /// for the invoice alone.
+  bool get _order => documentType == 'PURCHASE_ORDER';
 
   @override
   State<SendMessageDialog> createState() => _SendMessageDialogState();
@@ -84,11 +88,11 @@ class _SendMessageDialogState extends State<SendMessageDialog>
                 decoration: const InputDecoration(labelText: 'Channel'),
                 items: [
                   const DropdownMenuItem(value: 'EMAIL', child: Text('Email')),
-                  if (widget._invoice) ...const [
-                    DropdownMenuItem(
+                  if (widget._invoice || widget._order)
+                    const DropdownMenuItem(
                         value: 'WHATSAPP', child: Text('WhatsApp')),
-                    DropdownMenuItem(value: 'SMS', child: Text('SMS')),
-                  ],
+                  if (widget._invoice)
+                    const DropdownMenuItem(value: 'SMS', child: Text('SMS')),
                 ],
                 onChanged: saving
                     ? null
@@ -101,8 +105,9 @@ class _SendMessageDialogState extends State<SendMessageDialog>
                 enabled: !saving,
                 decoration: InputDecoration(
                   labelText: 'Send to',
-                  helperText: widget.documentType == 'PURCHASE_ORDER'
-                      ? "Blank sends to the supplier's own address"
+                  helperText: widget._order
+                      ? "Blank sends to the supplier's own address or "
+                          'WhatsApp number'
                       : widget._invoice
                           ? "Blank sends to the customer's own address "
                               'or number'
