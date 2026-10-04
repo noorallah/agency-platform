@@ -971,3 +971,123 @@ export; MST-3 duplicate merge.
 **Total:** about 300 working days of build at one item per session, before
 review and the owner's test pass. Wave 1 alone closes 34 rows in about seven
 weeks of sessions, and nothing in it waits on the owner.
+
+## 7. Purchasing gaps against other tools (`docs/BACKLOG.md` §86) -- owner 2026-10-04
+
+**Scope, chosen by the owner after purchasing round 2:** every **High** and
+**Medium** row of §86, in the order below, **one PR each, merged on targeted
+tests** (CI once a day). The **Low** rows (recurring bills, job work,
+drop-ship, consignment, supplier credit limit, early-payment discount, goods
+in transit, scheme-to-customer link, "10+2" printing, free-only line pricing,
+supplier portal) stay in §86 **for a later phase**; mobile stays parked.
+Decisions below are taken by market standard (Tally, Zoho, ERPNext, Busy,
+Marg) unless marked *owner*. Each item ends with its §86 row marked built and
+the PR named. **Start each item in a fresh session**, reading this section
+first. The phase 2 UI only.
+
+| Order | Id | §86 row | Item | Effort | Depends on |
+| --- | --- | --- | --- | --- | --- |
+| 1 | PG-1 | #17 | GST purchase register and HSN summary of purchases | S-M | -- (**started**: branch `feat/gst-purchase-register`) |
+| 2 | PG-2 | #20, §85 | Payables by supplier and month, Owed and Paid, chart (fixes **D-BUY-32**) | M+ | -- |
+| 3 | PG-3 | #19 | Cash purchase in one step ("paid now" on the bill) | M | -- |
+| 4 | PG-4 | #16 | Attach the supplier's bill (PDF or photo) to a bill and a receipt | M | -- |
+| 5 | PG-5 | #10 | TDS 194C / 194J worked out, as 194Q is | M | -- |
+| 6 | PG-6 | #9 | TCS charged by a supplier, recorded on the bill | M | -- |
+| 7 | PG-7 | #3 | Send the purchase order by WhatsApp | S | messaging on (§51) |
+| 8 | PG-8 | #1 | RFQ to several suppliers and a quote comparison | L | -- |
+| 9 | PG-9 | #2 | Rate contracts / blanket orders and their releases | M-L | -- |
+| 10 | PG-10 | #11 | Serial numbers captured at receipt | M | -- |
+| 11 | PG-11 | #25 | Supplier free-scheme on the item, filled in by itself | M | -- |
+| 12 | PG-12 | #4, #5 | Imports: foreign currency, Bill of Entry, customs duty, IGST on import, exchange gain/loss | L | PG-9 not needed |
+| 13 | PG-13 | #7 | Fixed assets: register, depreciation, capital goods ITC, disposal | L | -- |
+| 14 | PG-14 | #22 | Batch-wise PTR / PTS | M | -- |
+
+**About 75 working days** at S = 1, M = 3.5, L = 8; review and the owner's
+test pass come after. A QA round on QA01 follows every three or four items
+(the owner tests once at the end of a batch).
+
+### PG-1. GST purchase register and HSN summary of purchases (§86 #17)
+- **What it is:** the bills of a period by tax head -- supplier GSTIN, taxable value, IGST, CGST, SGST, cess, tax not claimable (blocked / ineligible), reverse-charge tax, total -- and inward supplies folded by HSN code and unit (quantity, taxable, heads, bills). What a CA asks for every month.
+- **Decided:** approved and closed bills only; heads read off `purchase_invoice_line_taxes` through `gstr_service._bucket`, the same reader GSTR-3B and the 2B reconciliation use, leaving out included-in-price components; taxable = grand total less tax, as 2B reads it; a product with no HSN groups under an empty code so the gap shows. **Supplier debit notes** (their credit notes) are a second block of negative rows -- add them in this item if `DebitNote` carries per-line components the same way, otherwise record the limitation in the report's description and §86.
+- **Already on the branch** (`feat/gst-purchase-register`, one WIP commit, pushed, not merged): `backend/app/purchase_invoice/services/gst_purchase_register.py` (`GstPurchaseRegisterService.register` / `.hsn_summary`) and routes `GET /purchase-invoices/reports/gst-register` and `/reports/hsn-summary` in `backend/app/purchase_invoice/api/router.py` (paged with `ReportWindow`, `PurchaseInvoiceReportScope`). mypy and ruff clean; route-order guard passes.
+- **Still to build:** unit tests `tests/unit/test_gst_purchase_register.py` -- a bill at 18% within the state (CGST + SGST), one interstate (IGST), a blocked-credit line (counts in *not claimable*), a draft and a cancelled bill (left out), two lines of one HSN in two units (two rows), a product without HSN, statements constant in the number of bills; desktop: two `ReportDefinition`s in `desktop/lib/ui/reports/report_catalog.dart` (area financial, `needsPeriod: true`, `PURCHASE_VIEW`, named columns, numeric heads) -- `test_reports_have_a_screen.py` and `test_routes_have_a_caller.py` read them; a line in `docs/PURCHASE_TO_PAYMENT_FLOW.md` (GST on the purchase); §86 row 17 marked built.
+- **Effort:** S-M. **Tests to run:** the new file, `test_reports_have_a_screen.py`, `test_routes_have_a_caller.py`, `test_route_declaration_order.py`, `test_list_pages_are_batched.py`; desktop `reports_*` tests.
+
+### PG-2. Payables by supplier and month (§85; §86 #20; fixes D-BUY-32)
+- **What it is:** §85 as designed with the owner -- supplier rows, month columns plus *Older*, invoice-date or due-date months, a **Credits** column, **Outstanding**, a total row checked against **2100 Trade Payables**, an as-of date, supplier and branch filters, drill-down to the bills; an **Owed / Paid** switch (payments per supplier per month, checked against the bank and cash books); a stacked bar chart by month (top five suppliers plus others).
+- **Decided:** outstanding per bill is what `settlement_allocations` leave (never stored); credits = completed returns after billing and approved debit notes not yet set against a bill, plus unapplied advances, all dated on or before the as-of date; the books check reads the 2100 balance at the as-of date from the journal. The old *Vendor outstanding* entry points at the new report (route kept for one release, then removed with its caller).
+- **What gets built:** backend `backend/app/purchase_invoice/services/payables_report.py` (grouped in SQL: one statement for bills, one for allocations, one for credits, one for the ledger), `GET /purchase-invoices/reports/payables?as_of&basis=invoice|due&months&vendor_id&branch_id&view=owed|paid`; desktop: a dedicated report page (filter bar, grid with total row, books-check line, chart via the `dataviz` skill and `design_tokens.dart`), opened from Reports > Financial and Buy > Money. **D-BUY-32** moves to Fixed.
+- **Tests:** total equals 2100 on a fixture with a part payment, a return after billing, a debit note and an advance; as-of excludes later documents; due-date basis; paid view equals payments; statement count constant; widget test for the grid total and the books-check warning; 1366x768 and 800x600.
+- **Effort:** M+ (two PRs: server, then desktop).
+
+### PG-3. Cash purchase in one step (§86 #19)
+- **What it is:** a small trader buys over the counter and pays at once: one bill with **Paid now** (cash or a bank account, amount defaulting to the bill total) posts the bill and the payment together.
+- **Decided:** the payment is an ordinary `/payments` row allocated to the bill in the same transaction (`stage_*` composed, one commit) so reversing either is the usual action; works with the buying stage switches (§38) so order and receipt are raised too; a part payment leaves the rest outstanding; refused when the user lacks the payment permission (the bill still saves without it).
+- **What gets built:** an optional `payment` block on the bill's approve request (or on *Save & approve*) in `backend/app/purchase_invoice`, calling the settlements service's stage method; desktop: a *Paid now* section on the bill window (method, account, amount, reference).
+- **Tests:** bill + payment in one commit; a refusal of the payment rolls back both; part payment; reversal; permission. **Effort:** M.
+
+### PG-4. Attach the supplier's bill (§86 #16)
+- **What it is:** attach the supplier's PDF or a phone photo to a purchase bill and to a goods receipt; view and download it later. (OCR stays Low, later.)
+- **Decided:** reuse whatever store the PO's Attachments tab and `purchase_invoice_attachments` already use; check first whether a file-content store exists (the model holds metadata). If none exists, store files in the firm's store under a size limit (10 MB, PDF/JPG/PNG) and record that decision in `docs/API_AND_PERSISTENCE_CONVENTIONS.md`.
+- **What gets built:** upload / list / download / delete routes for bills and receipts (audited, permission = the document's), an Attachments panel in both phase 2 windows, the clip shown in the list.
+- **Tests:** round trip, size and type refusal, another firm's file refused, delete audited. **Effort:** M.
+
+### PG-5. TDS 194C / 194J worked out (§86 #10)
+- **What it is:** today 194C (contractors) and 194J (professional fees) are typed by hand on payments and expenses; work them out as 194Q is.
+- **Decided:** the section, rate (with and without PAN) and thresholds (194C: 30,000 single / 1,00,000 a year; 194J: 30,000 a year) live in the existing TDS settings per firm; the supplier carries its default section; deducted at the earlier of bill and payment (credit or payment, as the Act says); the existing challans and 26Q pick it up.
+- **What gets built:** extend `backend/app/finance/tds*.py` and the 194Q service pattern; the bill and the payment propose the deduction; supplier master field; desktop shows the proposal with an override that the trail records.
+- **Tests:** thresholds crossed mid-year, no-PAN rate, deducted once whichever comes first, 26Q includes it. **Effort:** M.
+
+### PG-6. TCS charged by a supplier (§86 #9)
+- **What it is:** a supplier selling above 50 lakh may charge us TCS (206C(1H)) on the bill; we must record it and claim it against our own tax.
+- **Decided:** a *TCS charged* amount on the bill header (rate shown), posted Dr **TCS receivable** (a new control-account purpose) / part of the payable; reported per quarter for the return; not part of GST taxable value.
+- **What gets built:** bill field + posting + control account purpose (migration for the purpose, idempotent), a *TCS paid to suppliers* report; desktop field on the bill.
+- **Tests:** posting, report, cancel reverses. **Effort:** M.
+
+### PG-7. Send the purchase order by WhatsApp (§86 #3)
+- **What it is:** the PO's *Send* offers WhatsApp beside email, as the sales invoice does.
+- **Decided:** through the messaging framework (`docs/MESSAGING_FRAMEWORK.md`), only when the firm has switched WhatsApp on; the PDF from `GET /purchases/{id}/print`; *mark sent* records the channel.
+- **What gets built:** allow `PURCHASE_ORDER` on the WhatsApp channel in the send service and `send_message_dialog.dart`; the supplier's WhatsApp number from the vendor contact.
+- **Tests:** refused when off; sent and recorded when on. **Effort:** S.
+
+### PG-8. RFQ and quote comparison (§86 #1)
+- **What it is:** ask several suppliers for prices on a list of items, enter their quotes, compare side by side, and raise the PO from the chosen quote(s).
+- **Decided:** new module `app/rfq` with the five layers; documents RFQ (draft, sent, closed) and supplier quotation (one per supplier, lines with rate, lead time, validity); comparison picks per line (lowest landed rate by default, overridable with a reason); "raise orders" creates one PO per chosen supplier through the purchase service; numbering through the document framework; RFQ can start from a requisition.
+- **What gets built:** models + migration (idempotent, firm stores), routes, services, comparison endpoint; desktop: RFQ window, quote entry, comparison grid, catalog entry under Buy > Documents; sending the RFQ by email.
+- **Tests:** comparison choice, PO raised per supplier, closed RFQ refuses quotes, permissions. **Effort:** L.
+
+### PG-9. Rate contracts and blanket orders (§86 #2)
+- **What it is:** an agreement with a supplier for a period: items, agreed rate, optional total quantity; orders drawn from it (releases) take its rate and count against it.
+- **Decided:** a contract document (draft, active, closed, expired by date); the PO line offers the contract rate first in the pricing order (above the supplier price list); quantity drawn is derived from approved PO lines, never stored; over-drawing warns.
+- **What gets built:** module or a part of `app/purchase` with migration; pricing resolver hook in `app/core/utils/pricing.py`'s supplier side; desktop window and the rate's source shown on the line.
+- **Tests:** rate taken, expiry respected, drawn quantity derived, cancel of a release gives it back. **Effort:** M-L.
+
+### PG-10. Serial numbers at receipt (§86 #11)
+- **What it is:** capture serials (scan, type or a range) on the receipt line for serial-tracked products; the serial trail starts at purchase.
+- **Decided:** serial count must equal the accepted quantity for a serial-tracked product; duplicates refused firm-wide; a return removes them; uses `app/batch_serial`.
+- **What gets built:** receipt line serial capture (server validation + storage via batch_serial), desktop entry panel with range fill and scanner input; the serial trail report shows the receipt.
+- **Tests:** count mismatch refused, duplicate refused, return, trail. **Effort:** M.
+
+### PG-11. Supplier free-scheme on the item (§86 #25)
+- **What it is:** a scheme set once ("10+2", or "free bucket with 10 soap") on the product or the supplier's catalogue fills free goods on the PO and the receipt by itself, as Marg does.
+- **Decided:** scheme = buy quantity, free quantity, free product (same or other), valid dates, per supplier (catalogue) or for all suppliers (product); applied when the line is priced (the supplier side of the pricing resolver), editable on the line; a different free product adds its own line (paid 0, free n) -- the receipt already keeps such a line (D-BUY-33).
+- **What gets built:** scheme table + migration, resolver hook, PO/receipt editors show "scheme applied"; fix the free-only line's live pricing (§86 #27) here since it is the same code.
+- **Tests:** same-product scheme, other-product scheme, dates, override kept. **Effort:** M.
+
+### PG-12. Imports (§86 #4, #5)
+- **What it is:** a foreign-currency purchase and its customs side: the supplier's bill in USD at a rate, a **Bill of Entry** (assessable value, basic customs duty, social welfare surcharge, IGST on import), duty into landed cost, IGST on import claimed (3B 4(A)(1)), payment in currency with exchange gain or loss.
+- **Decided:** payables carried in the bill's currency and in rupees; exchange difference posted at payment to *Exchange gain/loss*; period-end revaluation as a separate action; BoE as its own document linked to the bill and receipts; customs duty is a cost (no credit), import IGST is credit.
+- **What gets built:** currency-aware settlement, BoE module, landed-cost hook, 3B line, desktop windows. Likely two or three PRs.
+- **Tests:** rupee value at bill vs payment, gain and loss, BoE credit in 3B, duty in stock value. **Effort:** L.
+
+### PG-13. Fixed assets (§86 #7)
+- **What it is:** an asset register fed from bill lines of type capital goods; depreciation (Companies Act SLM/WDV and Income-tax block WDV), capital goods ITC, disposal with gain/loss.
+- **Decided:** asset created when a capital-goods bill line is approved; monthly or yearly depreciation run posts journals; disposal posts; assets in their own accounts; reports: register, depreciation schedule, block-wise IT schedule.
+- **What gets built:** `app/fixed_assets` module with migration, posting rules in `docs/LEDGER_POSTING_RULES.md`, desktop screens under Accounts.
+- **Tests:** register from bill, depreciation both methods, disposal, half-year rule for the IT block. **Effort:** L.
+
+### PG-14. Batch-wise PTR / PTS (§86 #22, §55 G5)
+- **What it is:** pharma and FMCG rates per batch: price to retailer and price to stockist beside MRP, captured at receipt and offered when selling from that batch.
+- **Decided:** fields on the batch (receipt line already stores MRP and selling price); the sales pricing resolver prefers the batch's PTR/PTS by customer type (retailer or stockist) when the batch is chosen; gated on the pharma/FMCG business features.
+- **What gets built:** batch fields + migration, receipt capture, resolver hook, desktop columns.
+- **Tests:** rate by customer type, missing batch rate falls back. **Effort:** M.
