@@ -6101,16 +6101,20 @@ class ApiClient {
   /// its (always empty) body -- `licence_override_reason` on the sales
   /// approve endpoints (backlog 54) and `price_override_reason` (backlog 64)
   /// are the examples today.
+  ///
+  /// [body] replaces the empty one where an action takes a payload: approving
+  /// a supplier bill with `{"payment": {...}}` pays it in the same step (PG-3).
   Future<Json> documentAction(
     String resource,
     String id,
     String action, {
     Map<String, String>? query,
+    Json? body,
   }) =>
       request(
         'POST',
         '/api/v1/$resource/$id/${action.startsWith('/') ? action.substring(1) : action}',
-        body: const <String, dynamic>{},
+        body: body ?? const <String, dynamic>{},
         query: query,
       );
 
