@@ -56,7 +56,7 @@ class GstFilingCheckRow {
         'SALES_INVOICE' => 'Sales invoice',
         'CREDIT_NOTE' => 'Credit note',
         'CUSTOMER_DEBIT_NOTE' => 'Debit note',
-        'PURCHASE_INVOICE' => 'Purchase bill',
+        'PURCHASE_INVOICE' => 'Purchase invoice',
         'FIRM' => 'Firm',
         _ => documentType,
       };

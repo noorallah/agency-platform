@@ -113,7 +113,7 @@ void main() {
     expect(find.text('Error'), findsNWidgets(5));
     expect(find.text('Warning'), findsNWidgets(3));
     expect(find.text('INV-1'), findsOneWidget);
-    expect(find.text('Purchase bill'), findsOneWidget);
+    expect(find.text('Purchase invoice'), findsOneWidget);
     expect(
       find.text("5 errors, 3 warnings · HSN needs 4 digits at this firm's "
           'turnover'),
