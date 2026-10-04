@@ -26,7 +26,7 @@ from app.common.scope import (
 )
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
-from app.core.exceptions import ValidationError
+from app.core.exceptions import AuthorizationError, ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams, ReportWindow
 from app.core.pagination.reports import ReportRows
@@ -40,6 +40,7 @@ from app.document_framework.schemas.bulk_actions import (
 )
 from app.document_framework.services.bulk_actions import run_each
 from app.purchase_invoice.schemas import (
+    PurchaseInvoiceApproveRequest,
     PurchaseInvoiceCreate,
     PurchaseInvoiceImportRequest,
     PurchaseInvoiceListFilters,
@@ -528,21 +529,49 @@ def set_purchase_invoice_supplier_irn(
 def approve_purchase_invoice(
     invoice_id: UUID,
     scope: PurchaseInvoiceApproveScope,
+    data: PurchaseInvoiceApproveRequest | None = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseInvoiceResponse]:
-    """Approve one purchase invoice."""
+    """Approve one purchase invoice, paying it now if a payment block is sent.
+
+    The block (PG-3) records an ordinary payment allocated to the bill in the
+    same commit, so it needs PAYMENT_CREATE as ``POST /payments`` does. With no
+    block the approval is exactly what it always was.
+    """
     service = PurchaseInvoiceService(db)
-    row = service.approve_invoice(
+    # A bill priced past the firm's tolerance over its order waits for
+    # somebody who may approve it anyway (BUY-10).
+    may_exceed_tolerance = scope.principal.has_permission(
+        "PURCHASE_APPROVE_OVER_TOLERANCE"
+    )
+    if data is None or data.payment is None:
+        row = service.approve_invoice(
+            invoice_id,
+            firm_scope=scope.firm_id,
+            actor_id=scope.actor_id,
+            may_exceed_tolerance=may_exceed_tolerance,
+        )
+        return ApiResponse(data=service.invoice_response(row))
+    if not scope.principal.has_permission("PAYMENT_CREATE"):
+        raise AuthorizationError(
+            "Paying a bill as it is approved records a payment, which needs "
+            "PAYMENT_CREATE. Approve it without the payment, or ask somebody "
+            "who may record payments."
+        )
+    row, payment = service.approve_and_pay(
         invoice_id,
+        data.payment,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
-        # A bill priced past the firm's tolerance over its order waits for
-        # somebody who may approve it anyway (BUY-10).
-        may_exceed_tolerance=scope.principal.has_permission(
-            "PURCHASE_APPROVE_OVER_TOLERANCE"
+        may_exceed_tolerance=may_exceed_tolerance,
+    )
+    return ApiResponse(
+        data=service.invoice_response(row),
+        message=(
+            f"Bill approved and payment {payment.settlement_number} of "
+            f"{payment.amount} recorded."
         ),
     )
-    return ApiResponse(data=service.invoice_response(row))
 
 
 @router.post(

@@ -254,6 +254,23 @@ Dr  2100 Trade Payables     450.00        Dr  2100 Trade Payables     600.00
 Either may name the open bills it clears; those bills then owe less on Record
 Payment and the vendor outstanding and overdue reports. No tax leg, ever.
 
+**Paid over the counter: approve and pay in one step** (PG-3, §86 #19).
+`POST /api/v1/purchase-invoices/{id}/approve` takes an optional body
+`{"payment": {"method": "CASH"|"BANK", "payment_mode", "amount",
+"payment_date", "instrument_reference", "instrument_date", "narration"}}`.
+With it, approving the bill (step 6) also records an ordinary payment -- the
+row `POST /payments` writes, numbered from the same series -- allocated to that
+bill, and both are staged and committed once (`stage_approve` then
+`PaymentService.create`, which never commits). The amount defaults to what the
+bill owes once approved (its grand total) and the date to the bill's own; less
+leaves the rest outstanding, and more is refused rather than kept as an
+advance, which is recorded on its own through Payments. Any refusal -- more
+than the bill owes, no cash or bank account mapped -- rolls back the approval
+too, including the receipt a bill typed alone (§38) would have completed. The
+block needs `PAYMENT_CREATE` on top of `PURCHASE_APPROVE` (403 without it);
+without the block the approval is unchanged. Undoing the money is the usual
+`POST /payments/{id}/reverse`, which leaves the bill approved and owing.
+
 ### What is owed, by supplier and month, against 2100
 
 `GET /api/v1/purchase-invoices/reports/payables` (backlog §85, PG-2;
