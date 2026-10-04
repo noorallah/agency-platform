@@ -279,6 +279,16 @@ CHART: tuple[SeedAccount, ...] = (
         ControlAccountPurpose.ROUNDING,
     ),
     SeedAccount(
+        # What the rupee moved by between a foreign bill and its payment
+        # (PG-12). Migration 20261005_0313 gives existing firms the same
+        # account.
+        "4950",
+        "Exchange Gain/Loss",
+        AccountTypeEnum.INCOME,
+        "REV",
+        ControlAccountPurpose.EXCHANGE_GAIN_LOSS,
+    ),
+    SeedAccount(
         "5000",
         "Purchases",
         AccountTypeEnum.EXPENSE,

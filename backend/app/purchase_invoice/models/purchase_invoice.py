@@ -153,6 +153,14 @@ class PurchaseInvoice(BaseEntity):
     tcs_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: A bill in another currency (PG-12): ``currency_code`` and
+    #: ``exchange_rate`` (rupees per unit) say what it was typed in, and its
+    #: lines and totals stay as typed. These are the rupees the ledger posts
+    #: at the bill's rate -- the goods and the tax each rounded to the ledger
+    #: on its own, so ``base_grand_total`` is their sum. NULL on a rupee bill,
+    #: whose own totals are already rupees.
+    base_tax_total: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    base_grand_total: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancel_reason: Mapped[str | None] = mapped_column(Text)

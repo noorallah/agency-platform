@@ -183,6 +183,9 @@ class Vendor(BaseEntity):
     tds_technical_services: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    #: The currency the supplier bills in (PG-12), an ISO code; a new bill
+    #: from it starts in this currency. NULL is rupees.
+    currency_code: Mapped[str | None] = mapped_column(String(3))
     license_number: Mapped[str | None] = mapped_column(String(64))
     registration_number: Mapped[str | None] = mapped_column(String(64))
     website: Mapped[str | None] = mapped_column(String(500))

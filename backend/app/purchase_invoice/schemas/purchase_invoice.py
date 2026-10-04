@@ -155,6 +155,11 @@ class PurchaseInvoiceCreate(PurchaseInvoiceSchema):
     #: The IRN on the supplier's e-invoice (backlog 78 row 5). Absent on an
     #: edit keeps the one on file; null clears it.
     supplier_irn: str | None = None
+    #: The currency the supplier billed in (PG-12), an ISO code. Blank or INR
+    #: is rupees; absent on a new bill takes the supplier's currency, absent
+    #: on an edit keeps the bill's. Any other currency needs
+    #: ``exchange_rate``: the rupees one unit was worth on the bill's date.
+    #: Rates and totals are typed in the bill's currency.
     currency_code: str | None = Field(default=None, max_length=10)
     exchange_rate: Decimal | None = Field(
         default=None, gt=0, max_digits=18, decimal_places=6
@@ -450,6 +455,14 @@ class PurchaseInvoiceResponse(PurchaseInvoiceSchema):
     tcs_rate_percent: Decimal | None = None
     tcs_amount: Decimal = Decimal("0")
     amount_owed: Decimal = Decimal("0")
+    #: The bill in rupees (PG-12). For a bill in another currency -- whose
+    #: ``currency_code``, ``exchange_rate`` and every figure above are as the
+    #: supplier billed -- these are what the ledger posted at the bill's
+    #: rate, the goods and the tax each rounded on their own. For a rupee
+    #: bill they repeat its own totals.
+    base_tax_total: Decimal = Decimal("0")
+    base_grand_total: Decimal = Decimal("0")
+    base_amount_owed: Decimal = Decimal("0")
     approved_at: datetime | None
     closed_at: datetime | None
     cancel_reason: str | None

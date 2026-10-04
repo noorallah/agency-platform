@@ -321,6 +321,38 @@ bills alone and so overstated what was owed by the supplier credits
 (D-BUY-32). A branch filter drops the books check: payments and refunds name
 no branch.
 
+### A supplier abroad: the bill and the payment in its currency (PG-12 part A)
+
+A supplier with `currency_code` set (say USD) starts each new bill in it; a
+bill may also name `currency_code` and must then carry `exchange_rate`, the
+rupees one unit was worth on the bill's date. Rates and totals stay in USD as
+typed; `base_tax_total` and `base_grand_total` are the rupees, each leg
+converted and rounded on its own. A bill of 10 at 100 USD booked at 83:
+
+```
+receipt   Dr 1200 Inventory           83,000.00   (the order's rate)
+          Cr 2300 GRNI                83,000.00
+bill      Dr 2300 GRNI                83,000.00
+          Cr 2100 Payables            83,000.00
+```
+
+Paid in full in USD at 84 (`POST /payments` with `currency_code` "USD",
+`exchange_rate` 84, `amount` 1000 and the allocation in USD):
+
+```
+          Dr 2100 Payables            83,000.00   (the bill's rupee value)
+          Dr 4950 Exchange Gain/Loss   1,000.00   (a loss; a gain is a credit)
+          Cr 1000 Cash                84,000.00   (1,000 x 84)
+```
+
+Part of it pays in proportion: 400 USD at 84 clears 33,200 (400 x 83) and
+costs 33,600, leaving 600 USD and 49,800 owed. The outstanding list shows both;
+the allocation keeps `currency_amount`, `base_amount` and the rupees paid as
+`amount`. Reversing the payment mirrors all three legs. Rupees cannot be set
+against the bill, and *Paid now* refuses it. `POST /finance/fx-revaluation`
+restates the open USD at a period end and reverses itself the next day. The
+ledger rules are in `docs/LEDGER_POSTING_RULES.md`.
+
 ---
 
 ## The whole chain, netted

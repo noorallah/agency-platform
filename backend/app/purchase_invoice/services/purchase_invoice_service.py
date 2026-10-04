@@ -52,6 +52,12 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
+from app.finance.currency import (
+    check_currency,
+    is_foreign,
+    normalize_currency,
+    to_base,
+)
 from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
@@ -448,6 +454,9 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         )
 
         chain = PurchaseChainService(self._session)
+        # Before the chain, so an order and receipt it raises carry the
+        # bill's currency and rate and the stock lands in rupees (PG-12).
+        data = self._with_supplier_currency(data, vendor_id=data.vendor_id)
         data = chain.ensure_invoice_source(data, firm_id=firm_id, actor_id=actor_id)
         own_receipts = frozenset(receipt.id for receipt in chain.raised_receipts)
         document_type, numbering_rule = self._ensure_document_setup(
@@ -464,6 +473,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         self._refuse_blocked(vendor_id)
         if branch_id != header["branch_id"]:
             raise ValidationError("Invoice branch must match all source documents.")
+        data = self._with_supplier_currency(data, vendor_id=vendor_id)
         self._validate_supplier_invoice_number(
             firm_id=firm_id,
             vendor_id=vendor_id,
@@ -489,9 +499,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             supplier_invoice_number=data.supplier_invoice_number.strip(),
             supplier_invoice_date=data.supplier_invoice_date,
             supplier_irn=data.supplier_irn,
-            currency_code=(
-                data.currency_code.strip().upper() if data.currency_code else None
-            ),
+            currency_code=normalize_currency(data.currency_code),
             exchange_rate=data.exchange_rate,
             payment_terms=data.payment_terms,
             due_date=default_due_date(
@@ -544,6 +552,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             + row.round_off
         )
         self._stage_tcs(row, data, previous_total=None)
+        self._stage_currency(row)
         self._replace_attachments(
             row, data.attachments, actor_id=actor_id, firm_id=firm_id
         )
@@ -592,6 +601,15 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         # clear it. Read before the chain may hand back a rebuilt request.
         if "supplier_irn" in data.model_fields_set:
             row.supplier_irn = data.supplier_irn
+        # Absent keeps the bill's currency and rate (PG-12); filled in before
+        # the chain so an order it raises again carries them too.
+        kept = {
+            field: getattr(row, field)
+            for field in ("currency_code", "exchange_rate")
+            if field not in data.model_fields_set
+        }
+        if kept:
+            data = data.model_copy(update=kept)
         self._delete_children(row.id)
         own_receipts = frozenset(receipt.id for receipt in self._raised_receipts(row))
         if any(line.source_document_line_id is None for line in data.lines):
@@ -626,9 +644,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         row.invoice_date = data.invoice_date
         row.supplier_invoice_number = data.supplier_invoice_number.strip()
         row.supplier_invoice_date = data.supplier_invoice_date
-        row.currency_code = (
-            data.currency_code.strip().upper() if data.currency_code else None
-        )
+        row.currency_code = normalize_currency(data.currency_code)
         row.exchange_rate = data.exchange_rate
         row.payment_terms = data.payment_terms
         vendor = self._session.get(Vendor, row.vendor_id)
@@ -681,6 +697,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             + row.round_off
         )
         self._stage_tcs(row, data, previous_total=previous_total)
+        self._stage_currency(row)
         self._replace_attachments(
             row, data.attachments, actor_id=actor_id, firm_id=firm_scope
         )
@@ -769,6 +786,15 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         # Imported here: the settlements service reads this module's models.
         from app.settlements.services import PaymentService
 
+        bill = self.get_invoice(invoice_id, firm_scope=firm_scope)
+        if is_foreign(bill.currency_code):
+            # Paid now is rupees over the counter; a bill in another currency
+            # is paid in that currency at the day's rate (PG-12).
+            raise ValidationError(
+                f"Bill {bill.invoice_number} is in {bill.currency_code}. "
+                "Approve it, then pay it through Payments in "
+                f"{bill.currency_code} at the day's rate."
+            )
         try:
             row = self.stage_approve(
                 invoice_id,
@@ -868,7 +894,21 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         # TDS under 194C or 194J is deducted at the earlier of credit and
         # payment (PG-5), so the bill proposes it as it is credited -- worked
         # out before the bill counts as approved, so it is not its own past.
-        tds = self._stage_tds(row, firm_id=firm_scope, override=tds_amount)
+        # A bill in another currency is from a supplier abroad, outside both
+        # sections (PG-12): nothing is proposed and a deduction is refused.
+        foreign = is_foreign(row.currency_code)
+        if foreign and tds_amount is not None and tds_amount > ZERO:
+            raise ValidationError(
+                "TDS under 194C or 194J is not deducted on a bill in another "
+                "currency. A payment abroad is withheld under section 195, "
+                "which is not worked out here.",
+                details={"field": "tds_amount"},
+            )
+        tds = (
+            None
+            if foreign
+            else self._stage_tds(row, firm_id=firm_scope, override=tds_amount)
+        )
         before = row.status
         row.status = PurchaseInvoiceStatus.APPROVED.value
         row.approved_at = utc_now()
@@ -887,19 +927,38 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         # Posting runs before the commit and may fail the approval, matching the
         # sales side. Goods value clears the receipt accrual rather than touching
         # inventory, which was already valued at what the receipt cost.
+        # A bill in another currency posts in rupees at its own rate (PG-12),
+        # each leg converted on its own; the accrual is what the receipt's
+        # movement cost, so any gap is a price variance as on any bill.
+        if foreign and row.exchange_rate is not None:
+            rate = row.exchange_rate
+            base_tax = row.base_tax_total or ZERO
+            base_total = row.base_grand_total or ZERO
+            goods_amount = base_total - base_tax
+            tax_amount = base_tax
+            total_amount = base_total
+            by_component = self._in_rupees(self._tax_by_component(row.id), rate)
+            reverse_charge = self._in_rupees(reverse_charge, rate)
+            blocked = to_base(self._blocked_tax(row.id), rate)
+        else:
+            goods_amount = self._q(row.grand_total - row.tax_total)
+            tax_amount = self._q(row.tax_total)
+            total_amount = self._q(row.grand_total)
+            by_component = self._tax_by_component(row.id)
+            blocked = self._blocked_tax(row.id)
         DocumentPostingService(self._session).post_purchase_invoice(
             firm_id=firm_scope,
             invoice_id=row.id,
             invoice_number=row.invoice_number,
             invoice_date=row.invoice_date,
-            goods_amount=self._q(row.grand_total - row.tax_total),
+            goods_amount=goods_amount,
             accrued_amount=self._accrued_cost(row.id),
-            tax_amount=self._q(row.tax_total),
-            total_amount=self._q(row.grand_total),
+            tax_amount=tax_amount,
+            total_amount=total_amount,
             actor_id=actor_id,
-            tax_by_component=self._tax_by_component(row.id),
+            tax_by_component=by_component,
             reverse_charge_by_component=reverse_charge,
-            blocked_tax_amount=self._blocked_tax(row.id),
+            blocked_tax_amount=blocked,
             tds_amount=row.tds_amount,
             tcs_amount=row.tcs_amount,
         )
@@ -976,6 +1035,54 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             row.tcs_amount = quantize_ledger(row.grand_total * rate / Decimal("100"))
         else:
             row.tcs_amount = ZERO
+
+    def _with_supplier_currency(
+        self, data: PurchaseInvoiceCreate, *, vendor_id: UUID | None
+    ) -> PurchaseInvoiceCreate:
+        """Start a bill that names no currency in its supplier's (PG-12)."""
+        if "currency_code" in data.model_fields_set or vendor_id is None:
+            return data
+        vendor = self._session.get(Vendor, vendor_id)
+        if vendor is None or vendor.currency_code is None:
+            return data
+        return data.model_copy(update={"currency_code": vendor.currency_code})
+
+    @staticmethod
+    def _stage_currency(row: PurchaseInvoice) -> None:
+        """Check the bill's currency and stamp its rupee totals (PG-12).
+
+        A bill in rupees carries none: its own totals are rupees. One in
+        another currency needs its rate, and its goods and its tax are each
+        converted and rounded to the ledger on their own, then summed --
+        rounding the sum is not rounding the parts. TCS under 206C(1H) is
+        charged by an Indian seller, so a foreign bill carrying one is
+        refused rather than posted.
+
+        Raises:
+            ValidationError: If a foreign currency has no rate, the code is
+                not ISO, or a foreign bill carries TCS.
+
+        """
+        check_currency(row.currency_code, row.exchange_rate)
+        if not is_foreign(row.currency_code) or row.exchange_rate is None:
+            row.base_tax_total = None
+            row.base_grand_total = None
+            return
+        if row.tcs_amount > ZERO:
+            raise ValidationError(
+                "TCS under 206C(1H) is charged by a seller in India; a bill in "
+                "another currency carries none.",
+                details={"field": "tcs_amount"},
+            )
+        base_tax = to_base(row.tax_total, row.exchange_rate)
+        base_goods = to_base(row.grand_total - row.tax_total, row.exchange_rate)
+        row.base_tax_total = base_tax
+        row.base_grand_total = base_goods + base_tax
+
+    @staticmethod
+    def _in_rupees(amounts: dict[str, Decimal], rate: Decimal) -> dict[str, Decimal]:
+        """Convert each tax head of a foreign bill at its rate, one by one."""
+        return {code: to_base(amount, rate) for code, amount in amounts.items()}
 
     def _stage_tds(
         self, row: PurchaseInvoice, *, firm_id: UUID, override: Decimal | None
@@ -1441,6 +1548,25 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             tcs_rate_percent=row.tcs_rate_percent,
             tcs_amount=row.tcs_amount,
             amount_owed=quantize_ledger(row.grand_total)
+            + quantize_ledger(row.tcs_amount)
+            - quantize_ledger(row.tds_amount),
+            # In rupees (PG-12): at the bill's rate for a bill in another
+            # currency, the bill's own figures for a rupee one.
+            base_tax_total=(
+                row.base_tax_total
+                if row.base_tax_total is not None
+                else quantize_ledger(row.tax_total)
+            ),
+            base_grand_total=(
+                row.base_grand_total
+                if row.base_grand_total is not None
+                else quantize_ledger(row.grand_total)
+            ),
+            base_amount_owed=(
+                row.base_grand_total
+                if row.base_grand_total is not None
+                else quantize_ledger(row.grand_total)
+            )
             + quantize_ledger(row.tcs_amount)
             - quantize_ledger(row.tds_amount),
             approved_at=row.approved_at,

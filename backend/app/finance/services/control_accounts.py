@@ -170,6 +170,11 @@ class ControlAccountPurpose(StrEnum):
     #: Beside TDS receivable rather than inside it -- a different section,
     #: a different line of 26AS.
     TCS_RECEIVABLE = "TCS_RECEIVABLE"
+    #: What the rupee moved by between a foreign-currency bill and its
+    #: payment (PG-12): a loss debited, a gain credited, so the payable
+    #: clears at the bill's own rupee value. Also the unrealised difference
+    #: a period-end revaluation posts and reverses the next day.
+    EXCHANGE_GAIN_LOSS = "EXCHANGE_GAIN_LOSS"
 
 
 INPUT_TAX_PURPOSE_BY_COMPONENT.update(
@@ -301,6 +306,9 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     ControlAccountPurpose.CHEQUE_RETURN_CHARGES: frozenset({"INCOME"}),
     ControlAccountPurpose.GST_CASH_LEDGER: frozenset({"ASSET"}),
     ControlAccountPurpose.TCS_RECEIVABLE: frozenset({"ASSET"}),
+    # A gain is a credit and a loss a debit to the same account, so either
+    # classification serves, as with rounding.
+    ControlAccountPurpose.EXCHANGE_GAIN_LOSS: frozenset({"INCOME", "EXPENSE"}),
 }
 
 
@@ -378,6 +386,7 @@ PURPOSE_LABELS: dict[ControlAccountPurpose, str] = {
     ControlAccountPurpose.CHEQUE_RETURN_CHARGES: "Cheque return charges",
     ControlAccountPurpose.GST_CASH_LEDGER: "GST electronic cash ledger",
     ControlAccountPurpose.TCS_RECEIVABLE: "TCS receivable",
+    ControlAccountPurpose.EXCHANGE_GAIN_LOSS: "Exchange gain/loss",
 }
 
 
