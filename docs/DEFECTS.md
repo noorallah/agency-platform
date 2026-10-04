@@ -322,6 +322,12 @@ None open (2026-10-02). D-TEST-2 and D-UI-2 are under Fixed.
 
 None (2026-10-04). D-UI-3 is under Fixed.
 
+### Purchasing walkthrough on QA01 -- found testing 1.3.0 with the owner, 2026-10-04
+
+| Id | Found | Summary | Severity | Evidence | Where |
+| --- | --- | --- | --- | --- | --- |
+| D-UI-4 | 2026-10-04 | The header's firm switcher does not offer a firm created in the same session. `session.firms` is read once at sign-in (`SessionController.refreshFirms`); only *Open this firm* on the Firms grid re-reads it. The platform admin created QA01 and could not switch into it until signing out and in again. Fix: re-read the list when the switcher opens (one call). | Low | Live: QA01 missing from the switcher, present after sign-out and sign-in; the platform admin holds ALL_FIRMS, so `/me/firms` already returned it | `desktop/lib/ui/desktop_shell.dart` `_openFirmPicker` |
+
 ---
 
 ## Fixed
