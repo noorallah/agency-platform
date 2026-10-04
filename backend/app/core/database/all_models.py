@@ -57,6 +57,7 @@ from app.finance.models import (  # noqa: F401
     tds_sections,
 )
 from app.firms.models import firm  # noqa: F401
+from app.fixed_assets.models import fixed_asset  # noqa: F401
 from app.goods_receipt.models import goods_receipt  # noqa: F401
 from app.gst_returns.models import (
     gst_cash_deposit,  # noqa: F401

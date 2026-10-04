@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**318 tables**, of which **17** live only in the platform store.
+**322 tables**, of which **17** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -284,6 +284,15 @@ trigger each schema owns its own copy of.
 | `firm_storage_mappings` | platform ¹ | Persist tenant storage routing details for a firm. | `firms` |
 | `firms` | platform ¹ | Represent an organization available to one or more platform users. |  |
 
+### `app/fixed_assets`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `asset_classes` | firm store ¹ | A kind of asset and how it is depreciated in each book. | `firms`, `ledger_accounts` |
+| `depreciation_run_lines` | firm store ¹ | What one run charged one asset, and over which days. | `depreciation_runs`, `fixed_assets`, `asset_classes` |
+| `depreciation_runs` | firm store ¹ | One posting of Companies Act depreciation for a period. | `firms`, `journal_entries` |
+| `fixed_assets` | firm store ¹ | One asset on the register. | `firms`, `asset_classes`, `vendors`, `branches`, `journal_entries` |
+
 ### `app/goods_receipt`
 
 | Table | Store | Holds | Points at |
@@ -464,7 +473,7 @@ trigger each schema owns its own copy of.
 | `purchase_invoice_accounting_events` | firm store ¹ | Store reusable accounting placeholder events. | `purchase_invoices`, `firms` |
 | `purchase_invoice_attachments` | firm store ¹ | Store purchase invoice attachments. | `purchase_invoices`, `firms` |
 | `purchase_invoice_line_taxes` | firm store ¹ | Store the tax components one bill line was actually charged. | `purchase_invoice_lines` |
-| `purchase_invoice_lines` | firm store ¹ | Store one purchase invoice line. | `purchase_invoices`, `firms`, `products`, `tax_profiles`, `packaging_types`, `uoms`, `warehouses`, `warehouse_storage_nodes` |
+| `purchase_invoice_lines` | firm store ¹ | Store one purchase invoice line. | `purchase_invoices`, `firms`, `products`, `tax_profiles`, `packaging_types`, `uoms`, `warehouses`, `warehouse_storage_nodes`, `asset_classes` |
 | `purchase_invoice_notes` | firm store ¹ | Store purchase invoice notes. | `purchase_invoices`, `firms` |
 | `purchase_invoice_sources` | firm store ¹ | Store supplier invoice source document references. | `purchase_invoices`, `firms`, `vendors`, `branches` |
 | `purchase_invoices` | firm store ¹ | Store one supplier invoice header. | `firms`, `vendors`, `branches`, `business_profiles` |

@@ -74,6 +74,9 @@ class GstPurchaseRegisterRow:
     #: Tax the firm itself pays under reverse charge, on top of the bill.
     reverse_charge_tax: Decimal
     invoice_total: Decimal
+    #: Tax charged on capital-goods lines (PG-13): claimed in full with the
+    #: rest, shown apart because GSTR-9 and an audit ask for it apart.
+    capital_goods_tax: Decimal = ZERO
 
 
 @dataclass
@@ -169,6 +172,7 @@ class GstPurchaseRegisterService:
                     PurchaseInvoiceLine.id,
                     PurchaseInvoiceLine.purchase_invoice_id,
                     PurchaseInvoiceLine.itc_eligibility,
+                    PurchaseInvoiceLine.is_capital_goods,
                 ).where(
                     PurchaseInvoiceLine.purchase_invoice_id.in_(ids),
                     PurchaseInvoiceLine.is_deleted.is_(False),
@@ -179,14 +183,16 @@ class GstPurchaseRegisterService:
         )
         line_heads = _heads_by_line(self._session, [line[0] for line in lines])
         per_bill: dict[UUID, dict[str, Decimal]] = defaultdict(
-            lambda: dict.fromkeys((*HEADS, "not_claimable"), ZERO)
+            lambda: dict.fromkeys((*HEADS, "not_claimable", "capital"), ZERO)
         )
-        for line_id, bill_id, eligibility in lines:
+        for line_id, bill_id, eligibility, capital in lines:
             heads = line_heads[line_id]
             for head in HEADS:
                 per_bill[bill_id][head] += heads[head]
             if (eligibility or "ELIGIBLE") != "ELIGIBLE":
                 per_bill[bill_id]["not_claimable"] += sum(heads.values(), ZERO)
+            if capital:
+                per_bill[bill_id]["capital"] += sum(heads.values(), ZERO)
         vendors = _vendors(self._session, {bill.vendor_id for bill in bills})
         rows = []
         for bill in bills:
@@ -217,6 +223,7 @@ class GstPurchaseRegisterService:
                         Decimal(str(bill.reverse_charge_tax_total or ZERO))
                     ),
                     invoice_total=quantize_money(total),
+                    capital_goods_tax=quantize_money(heads["capital"]),
                 )
             )
         if isinstance(bills, ReportRows):

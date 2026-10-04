@@ -397,6 +397,11 @@ PERMISSION_GROUPS = {
         "TRIAL_BALANCE_VIEW",
         "PROFIT_LOSS_VIEW",
         "BALANCE_SHEET_VIEW",
+        # The fixed asset register (PG-13): reading it and its reports, and
+        # keeping classes and assets. A depreciation run, cancelling one and
+        # a disposal post journals, so they also need `JOURNAL_POST`.
+        "FIXED_ASSET_VIEW",
+        "FIXED_ASSET_MANAGE",
     ),
     "expenses": (
         "EXPENSE_VIEW",

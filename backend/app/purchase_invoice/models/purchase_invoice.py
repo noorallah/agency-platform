@@ -311,6 +311,15 @@ class PurchaseInvoiceLine(BaseEntity):
     #: log that also says so is purged.
     tax_rule_code: Mapped[str | None] = mapped_column(String(50))
     tax_rule_version: Mapped[int | None] = mapped_column(Integer)
+    #: Capital goods (PG-13): approving the bill raises an asset in
+    #: ``asset_class_id`` and debits its asset account; the line puts nothing
+    #: into stock. Its GST is claimed in full like any other line's.
+    is_capital_goods: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    asset_class_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("asset_classes.id", ondelete="RESTRICT")
+    )
 
 
 class PurchaseInvoiceLineTax(BaseEntity):

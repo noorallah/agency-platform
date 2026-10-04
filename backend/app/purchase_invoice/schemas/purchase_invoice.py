@@ -128,6 +128,12 @@ class PurchaseInvoiceLineWrite(PurchaseInvoiceSchema):
     #: Whether this line's tax is claimable (backlog 78 row 1). None takes the
     #: product's setting, then a tax rule's *Input credit blocked*.
     itc_eligibility: Literal["ELIGIBLE", "BLOCKED", "INELIGIBLE"] | None = None
+    #: Capital goods (PG-13): approving the bill raises a fixed asset in
+    #: ``asset_class_id`` instead of putting the goods into stock. The line
+    #: must bill the bill's own receipt (a firm typing only the bill) or an
+    #: order line; a receipt already completed has put the goods in stock.
+    is_capital_goods: bool = False
+    asset_class_id: UUID | None = None
     packaging_type_id: UUID | None = None
     purchase_uom_id: UUID | None = None
     invoice_uom_id: UUID | None = None
@@ -377,6 +383,8 @@ class PurchaseInvoiceLineResponse(PurchaseInvoiceSchema):
     gross_amount: Decimal
     tax_profile_id: UUID | None
     itc_eligibility: str = "ELIGIBLE"
+    is_capital_goods: bool = False
+    asset_class_id: UUID | None = None
     tax_amount: Decimal
     net_amount: Decimal
     packaging_type_id: UUID | None
