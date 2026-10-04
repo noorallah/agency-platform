@@ -70,6 +70,7 @@ from app.purchase_invoice.services.price_variance import PriceVarianceService
 from app.purchase_invoice.services.purchase_analysis import (
     PurchaseAnalysisService,
 )
+from app.purchase_invoice.services.tcs_paid_report import TcsPaidReportService
 from app.purchase_invoice.services.vendor_ageing import VendorAgeingService
 from app.sales_invoice.api.router import SalesAnalysisResponse, analysis_response
 from app.sales_invoice.services.sales_analysis import (
@@ -417,6 +418,51 @@ def purchase_analysis_bills(
                 net=net,
             )
             for bill, net in rows
+        ]
+    )
+
+
+class TcsPaidRecord(BaseModel):
+    """One bill that bore a supplier's TCS, or a quarter's total (PG-6).
+
+    ``row_type`` is ``BILL`` or ``QUARTER_TOTAL``; a total row names the
+    quarter and sums its bases and TCS, the rest of its fields empty.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    row_type: str
+    quarter: str
+    invoice_id: UUID | None
+    invoice_number: str | None
+    supplier_invoice_number: str | None
+    invoice_date: date | None
+    vendor_id: UUID | None
+    vendor_name: str | None
+    vendor_pan: str | None
+    base_amount: Decimal
+    tcs_rate_percent: Decimal | None
+    tcs_amount: Decimal
+
+
+@router.get(
+    "/reports/tcs-paid",
+    response_model=PaginatedResponse[TcsPaidRecord],
+)
+def tcs_paid_to_suppliers(
+    scope: PurchaseInvoiceReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[TcsPaidRecord]:
+    """Return the TCS suppliers charged on approved bills, by quarter (PG-6)."""
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        [
+            TcsPaidRecord.model_validate(row)
+            for row in TcsPaidReportService(db).rows(scope.firm_id, window)
         ]
     )
 

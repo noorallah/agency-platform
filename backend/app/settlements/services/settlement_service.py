@@ -441,9 +441,16 @@ class SettlementService(TransactionalDocumentService):
         # customer adds to a bill, so a bill one names is always read. Left
         # in SQL, two years of paid bills never reach Python -- they were
         # nine in ten of Customer Outstanding's rows (PLT-4).
+        # What the bill is worth to the party: a supplier's bill carries the
+        # TCS it charged on top (PG-6), which the payable was credited with.
+        owed: Any = (
+            invoice.grand_total
+            if is_receipt
+            else PurchaseInvoice.grand_total + PurchaseInvoice.tcs_amount
+        )
         open_bills: list[Any] = [
             allocated.c.total.is_(None),
-            allocated.c.total < invoice.grand_total,
+            allocated.c.total < owed,
         ]
         if is_receipt:
             # Imported here, as in `debited_against`.
@@ -465,7 +472,7 @@ class SettlementService(TransactionalDocumentService):
                 invoice.id,
                 invoice.invoice_number,
                 invoice.invoice_date,
-                invoice.grand_total,
+                owed.label("grand_total"),
                 invoice.due_date,
                 party_column.label("party_id"),
                 func.coalesce(allocated.c.total, 0),
@@ -706,7 +713,13 @@ class SettlementService(TransactionalDocumentService):
         if not invoice_ids:
             return {}
         rows = self._session.execute(
-            select(PurchaseInvoice.id, PurchaseInvoice.grand_total).where(
+            select(
+                PurchaseInvoice.id,
+                # The TCS the supplier charged is owed with the bill (PG-6).
+                (PurchaseInvoice.grand_total + PurchaseInvoice.tcs_amount).label(
+                    "grand_total"
+                ),
+            ).where(
                 PurchaseInvoice.firm_id == firm_id,
                 PurchaseInvoice.id.in_(invoice_ids),
                 PurchaseInvoice.is_deleted.is_(False),

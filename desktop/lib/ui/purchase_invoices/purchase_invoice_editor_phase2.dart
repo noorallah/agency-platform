@@ -648,6 +648,39 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
           onChanged: (value) => _remarks = value,
         ),
       ),
+      // PG-6: TCS the supplier charged under 206C(1H), outside GST. Blank
+      // is none; the amount, if typed, wins over the rate.
+      DocumentField(
+        label: 'TCS charged by supplier %',
+        width: 170,
+        child: TextFormField(
+          key: const ValueKey('purchase-invoice-tcs-rate'),
+          initialValue: _tcsRate,
+          readOnly: _saving,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: documentBoxDecoration(context, hint: 'e.g. 0.1'),
+          onChanged: (value) {
+            _setState(() => _tcsRate = value);
+            _schedulePreview();
+          },
+        ),
+      ),
+      DocumentField(
+        label: 'TCS amount',
+        width: 150,
+        child: TextFormField(
+          key: const ValueKey('purchase-invoice-tcs-amount'),
+          initialValue: _tcsAmount,
+          readOnly: _saving,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration:
+              documentBoxDecoration(context, hint: 'blank: rate x total'),
+          onChanged: (value) {
+            _setState(() => _tcsAmount = value);
+            _schedulePreview();
+          },
+        ),
+      ),
     ]);
   }
 
@@ -1026,6 +1059,10 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
     final double total = invoice == null
         ? taxable
         : _number(stringValue(invoice['grand_total']));
+    final double tds =
+        invoice == null ? 0 : _number(stringValue(invoice['tds_amount']));
+    final double tcs =
+        invoice == null ? 0 : _number(stringValue(invoice['tcs_amount']));
     final bool? interstate = _preview?.interstate;
     return DocumentTotalsBar(
       total: invoice == null ? null : total,
@@ -1049,17 +1086,12 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
           ('SGST', tax / 2),
         ],
         ('Total', total),
-        // PG-5: what was deducted at approval, and so what is owed.
-        if (invoice != null &&
-            _number(stringValue(invoice['tds_amount'])) > 0) ...[
-          (
-            'TDS ${stringValue(invoice['tds_section'])}',
-            _number(stringValue(invoice['tds_amount'])),
-          ),
-          (
-            'Net payable',
-            total - _number(stringValue(invoice['tds_amount'])),
-          ),
+        // PG-5: what was deducted at approval; PG-6: the TCS the supplier
+        // charged on top -- and so what is owed.
+        if (invoice != null && (tds > 0 || tcs > 0)) ...[
+          if (tds > 0) ('TDS ${stringValue(invoice['tds_section'])}', tds),
+          if (tcs > 0) ('TCS charged', tcs),
+          ('Net payable', total + tcs - tds),
         ],
       ],
     );

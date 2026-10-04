@@ -407,6 +407,16 @@ CHART: tuple[SeedAccount, ...] = (
         ControlAccountPurpose.PRINCIPAL_CLAIM_RECEIVABLE,
     ),
     SeedAccount(
+        # TCS a supplier charged on a bill (206C(1H), PG-6), claimed against
+        # the firm's income tax. Migration 20261005_0308 gives existing firms
+        # the same account.
+        "1430",
+        "TCS Receivable",
+        AccountTypeEnum.ASSET,
+        "CA",
+        ControlAccountPurpose.TCS_RECEIVABLE,
+    ),
+    SeedAccount(
         "5700",
         "Loyalty Expense",
         AccountTypeEnum.EXPENSE,

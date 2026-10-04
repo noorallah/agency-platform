@@ -215,6 +215,21 @@ P&L rather than sitting in the accrual forever explaining nothing.
 **Tax on a line the firm may not claim does not go to Input Tax.** It posts to
 5450 Input Tax Not Claimable; see "GST on the purchase" below.
 
+**TCS the supplier charged (206C(1H), PG-6)** is typed on the bill as a rate,
+an amount or both (a typed amount wins; a rate alone is taken on the grand
+total including GST). It is not GST and changes no taxable value. Approving
+adds one leg and grows the payable by it -- on the bill above with 1.18 of TCS:
+
+```
+Dr  1430 TCS Receivable                    1.18
+    Cr  2100 Trade Payables                     1181.18   (with the lines above)
+```
+
+The supplier is owed `grand_total + tcs_amount - tds_amount`; the payment,
+the outstanding list and the payables report all read that figure, and
+*TCS paid to suppliers* (`/reports/tcs-paid`) totals it by quarter for the
+26AS match.
+
 Note the accounting shape: `GRNI` is debited and credited by equal amounts
 across steps 4 and 6, so it nets to zero once the invoice arrives. A balance
 sitting in that account is exactly "goods we have but have not been billed for".

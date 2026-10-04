@@ -543,6 +543,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             + row.additional_charges
             + row.round_off
         )
+        self._stage_tcs(row, data, previous_total=None)
         self._replace_attachments(
             row, data.attachments, actor_id=actor_id, firm_id=firm_id
         )
@@ -644,6 +645,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
         row.updated_by = actor_id
+        previous_total = row.grand_total
         self._validate_supplier_invoice_number(
             firm_id=firm_scope,
             vendor_id=row.vendor_id,
@@ -678,6 +680,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             + row.additional_charges
             + row.round_off
         )
+        self._stage_tcs(row, data, previous_total=previous_total)
         self._replace_attachments(
             row, data.attachments, actor_id=actor_id, firm_id=firm_scope
         )
@@ -898,6 +901,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             reverse_charge_by_component=reverse_charge,
             blocked_tax_amount=self._blocked_tax(row.id),
             tds_amount=row.tds_amount,
+            tcs_amount=row.tcs_amount,
         )
         # Warned, not refused: the bill is owed whatever its terms say, and
         # paying it in time is what the warning is for (backlog 68 row 2).
@@ -928,6 +932,50 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         )
         self._session.flush()
         return row
+
+    @staticmethod
+    def _stage_tcs(
+        row: PurchaseInvoice,
+        data: PurchaseInvoiceCreate,
+        *,
+        previous_total: Decimal | None,
+    ) -> None:
+        """Stamp the TCS the supplier charged on the bill (206C(1H), PG-6).
+
+        A typed amount wins; with only a rate the amount is the rate on the
+        grand total, which is the section's base -- the bill including GST.
+        An edit naming neither field keeps the bill's: a rate-worked amount
+        follows the new total, a typed one stays as typed. TCS is never part
+        of GST's taxable value, so nothing here touches the lines or the tax.
+        ``previous_total`` is the grand total before an edit; None on create.
+        """
+        sent = data.model_fields_set
+        if previous_total is None or sent & {"tcs_rate_percent", "tcs_amount"}:
+            rate = (
+                data.tcs_rate_percent
+                if previous_total is None or "tcs_rate_percent" in sent
+                else row.tcs_rate_percent
+            )
+            # Absent beside a sent rate means "work it out from the rate".
+            typed = data.tcs_amount
+        else:
+            rate = row.tcs_rate_percent
+            worked = (
+                None
+                if rate is None
+                else quantize_ledger(previous_total * rate / Decimal("100"))
+            )
+            # Still what the rate gave on the old total: it follows the new one.
+            typed = (
+                None if worked == quantize_ledger(row.tcs_amount) else row.tcs_amount
+            )
+        row.tcs_rate_percent = rate
+        if typed is not None:
+            row.tcs_amount = quantize_ledger(typed)
+        elif rate is not None:
+            row.tcs_amount = quantize_ledger(row.grand_total * rate / Decimal("100"))
+        else:
+            row.tcs_amount = ZERO
 
     def _stage_tds(
         self, row: PurchaseInvoice, *, firm_id: UUID, override: Decimal | None
@@ -1390,6 +1438,11 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             tds_base_amount=row.tds_base_amount,
             tds_proposed_amount=row.tds_proposed_amount,
             tds_amount=row.tds_amount,
+            tcs_rate_percent=row.tcs_rate_percent,
+            tcs_amount=row.tcs_amount,
+            amount_owed=quantize_ledger(row.grand_total)
+            + quantize_ledger(row.tcs_amount)
+            - quantize_ledger(row.tds_amount),
             approved_at=row.approved_at,
             closed_at=row.closed_at,
             cancel_reason=row.cancel_reason,

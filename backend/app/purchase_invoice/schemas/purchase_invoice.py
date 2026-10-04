@@ -167,6 +167,16 @@ class PurchaseInvoiceCreate(PurchaseInvoiceSchema):
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
     round_off: Decimal = Field(default=Decimal("0"), max_digits=18, decimal_places=4)
+    #: TCS the supplier charged on the bill (206C(1H), PG-6). A typed
+    #: ``tcs_amount`` wins; with only the rate the amount is the rate on the
+    #: grand total. Both absent on an edit keep what the bill has; null
+    #: clears.
+    tcs_rate_percent: Decimal | None = Field(
+        default=None, ge=0, le=100, max_digits=9, decimal_places=4
+    )
+    tcs_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=2
+    )
     invoice_number: str | None = Field(default=None, max_length=60)
     source_documents: list[PurchaseInvoiceSourceWrite] = Field(
         default_factory=list, max_length=100
@@ -435,6 +445,11 @@ class PurchaseInvoiceResponse(PurchaseInvoiceSchema):
     tds_base_amount: Decimal = Decimal("0")
     tds_proposed_amount: Decimal | None = None
     tds_amount: Decimal = Decimal("0")
+    #: TCS the supplier charged (PG-6), outside GST; the supplier is owed
+    #: ``amount_owed``: ``grand_total + tcs_amount - tds_amount``.
+    tcs_rate_percent: Decimal | None = None
+    tcs_amount: Decimal = Decimal("0")
+    amount_owed: Decimal = Decimal("0")
     approved_at: datetime | None
     closed_at: datetime | None
     cancel_reason: str | None
