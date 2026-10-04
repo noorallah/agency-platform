@@ -5812,3 +5812,34 @@ saved as `Tamilnadu`, `TN` or `Tamil Nadu`, and nothing reads it as a place.
 
 **Check first:** whether the platform store holds the India states (§32 seeds
 every *firm* store; the platform store may hold only the country).
+
+## 82. Copy a product to start a new one -- low priority
+
+**Status, 2026-10-04: open, low priority.** Owner, creating `QA-B2` as a copy
+of `QA-B` by hand during the purchasing walkthrough: "product can have clone
+feature".
+
+**Half of it exists.** The server has had it for some time and no screen
+reaches it:
+
+- `POST /api/v1/products/{id}/duplicate` (`ProductService.duplicate_product`)
+  copies every field, the custom-field values and the media, gives the copy
+  the code `<code>-COPY` (then `-COPY-1`, `-COPY-2` ...), and audits
+  `product.duplicated` with the source id.
+- `ApiClient.duplicateProduct` and the product list controller's `duplicate()`
+  call it -- and nothing calls those. The list's **Copy** action copies the row
+  as text to the clipboard, which is a different thing with the same word.
+  Because `api_client.dart` counts as a caller, the orphan-route guard does not
+  see it (the hole CLAUDE.md names).
+
+**The ask:**
+
+| # | Item | Detail |
+| --- | --- | --- |
+| 1 | **"Copy as new product"** | On the product list toolbar and row menu, and in the product editor's "..." menu: copy the selected product and open the copy in the editor. |
+| 2 | **Choose the code and name before saving** | Industry standard (Tally *Duplicate*, Zoho *Clone*, ERPNext *Duplicate*) opens a filled form that is not saved until the person saves it. The current endpoint saves at once under `-COPY`; either open an unsaved form filled from the source (no new endpoint: the editor already has every value) or rename straight after the copy. The first is preferred: nothing half-named lands in the list. |
+| 3 | **What is not copied** | Stock, batches, serials, barcodes (they must be unique), price revisions in force, and the opening stock. Say so in the form's banner. |
+| 4 | **Guard** | Add the control to `desktop/test/reachable_features_test.dart` so it cannot drift back out of reach. |
+
+The same request is likely for customers and vendors; the clone pattern for
+users (`clone_user_dialog.dart`) already exists.
