@@ -237,6 +237,14 @@ class PurchaseOrderLine(BaseEntity):
     #: log that also says so is purged.
     tax_rule_code: Mapped[str | None] = mapped_column(String(50))
     tax_rule_version: Mapped[int | None] = mapped_column(Integer)
+    #: Where the unit price came from (PG-9): ``RATE_CONTRACT``,
+    #: ``PRICE_LIST``, ``CATALOGUE``, ``PRICE_REVISION``, ``PRODUCT`` or
+    #: ``TYPED``; null on lines saved before it was recorded.
+    rate_source: Mapped[str | None] = mapped_column(String(20))
+    #: The rate contract line this line was priced from and draws on. A bare
+    #: id, as other cross-document line references are; the contract line is
+    #: never re-inserted, so it does not dangle.
+    rate_contract_line_id: Mapped[UUID | None] = mapped_column(UUIDType(), index=True)
 
 
 class PurchaseDeliverySchedule(BaseEntity):

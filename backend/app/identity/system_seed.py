@@ -269,6 +269,11 @@ PERMISSION_GROUPS = {
         # from the chosen quotes also takes `PURCHASE_CREATE`.
         "RFQ_VIEW",
         "RFQ_MANAGE",
+        # Rate contracts with suppliers (PG-9): reading them and what has been
+        # drawn against them, and typing, closing and cancelling them.
+        # Activating one takes `PURCHASE_APPROVE`, as approving an order does.
+        "RATE_CONTRACT_VIEW",
+        "RATE_CONTRACT_MANAGE",
         "PURCHASE_IMPORT",
         "PURCHASE_EXPORT",
         # Which of purchase order and goods receipt this firm raises by hand.

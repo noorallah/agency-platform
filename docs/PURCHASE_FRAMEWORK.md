@@ -563,6 +563,45 @@ comes from its own series (`RFQ`, document framework).
   sends one document to one party with its own PDF, and an RFQ has neither a
   print layout nor a single recipient. Left for later.
 
+## Rate contracts and blanket orders (PG-9, backlog 86 #2, 2026-10-05)
+
+`app/rate_contracts`, routes under `/api/v1/rate-contracts`, migration
+`20261005_0310`. A rate contract agrees with one supplier, for a period
+(`valid_from` to `valid_to`), a rate, a discount percent and optionally a
+contracted quantity per product; its number comes from its own series (`RC`,
+document framework). The purchase orders priced from it are its releases.
+
+- **Lifecycle.** `DRAFT` -> `ACTIVE` (`/approve`, which needs
+  `PURCHASE_APPROVE`) -> `CLOSED` (`/close`), or `CANCELLED` (`/cancel`, with
+  a reason) from draft or active. **`EXPIRED` is never stored**: an active
+  contract whose `valid_to` has passed reads as `EXPIRED` and prices nothing;
+  the list filters on it by date. `PUT /{id}` changes a draft only and leaves
+  alone what it does not name; `DELETE /{id}` removes a draft only.
+- **One contract per product and day.** Approving refuses a product already
+  on another active contract with the same supplier for an overlapping period,
+  naming it. The supplier's contracts are locked (`with_for_update`) first,
+  because overlap is a fact about a set of rows that no key can express.
+- **Pricing.** A blank price on an order line takes the contract's rate ahead
+  of the supplier's price list and catalogue
+  (`docs/PRICING_AND_PROMOTIONS.md`); the line records `rate_source =
+  RATE_CONTRACT` and `rate_contract_line_id`.
+- **Drawn is derived.** A contract line's `drawn_quantity` is the sum of the
+  ordered quantity (free goods excluded) of the order lines naming it whose
+  order is approved or later and not cancelled; `remaining_quantity` is
+  contracted less drawn, never below zero. Nothing is stored, so cancelling a
+  release gives its quantity back with nothing to reverse. An order closed
+  short still counts its ordered quantity.
+- **Over-drawing warns.** `PurchaseOrderResponse.rate_contract_warning` says
+  which contracts the order takes past their quantity, counting itself while
+  it is not yet approved -- so the preview, the draft and the approval all
+  show it -- and the approval's timeline remark keeps it. It never refuses.
+- **Releases.** `GET /{id}/releases` lists the order lines priced from the
+  contract, oldest first, with `counts_as_drawn`.
+- **Permissions.** `RATE_CONTRACT_VIEW` and `RATE_CONTRACT_MANAGE`, in the
+  purchase group; approving takes `PURCHASE_APPROVE`.
+- **Not built yet.** The desktop window and the rate's source on the order
+  line (PG-9 part 2).
+
 ## Not built
 
 - ~~The purchase order's received status~~ -- built: receiving moves the

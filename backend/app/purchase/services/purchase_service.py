@@ -35,9 +35,11 @@ from app.core.utils.chunks import chunks
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO
 from app.core.utils.pricing import (
+    LinePrice,
     apportion,
     resolve_bill_discount,
     resolve_line_discount,
+    resolve_supplier_unit_price,
 )
 from app.document_framework.models import (
     DocumentTypeDefinition,
@@ -1147,6 +1149,15 @@ class PurchaseService(TransactionalDocumentService):
                     if licence_remark
                     else budget_remark
                 )
+        # Past a rate contract's quantity (PG-9): warns, never refuses, and
+        # the trail keeps what the approver was told.
+        contract_remark = self._rate_contract_remark(row)
+        if contract_remark:
+            licence_remark = (
+                f"{licence_remark} {contract_remark}"
+                if licence_remark
+                else contract_remark
+            )
         return self._transition(
             row,
             to_status=PurchaseOrderStatus.APPROVED,
@@ -1157,6 +1168,24 @@ class PurchaseService(TransactionalDocumentService):
             remarks=licence_remark,
             details=licence_details,
         )
+
+    def _rate_contract_remark(self, row: PurchaseOrder) -> str | None:
+        """Return the over-draw warning for an order about to be approved."""
+        from app.rate_contracts.services.rates import overdraw_warnings
+
+        lines = self._session.execute(
+            select(
+                PurchaseOrderLine.rate_contract_line_id,
+                PurchaseOrderLine.ordered_quantity,
+            ).where(
+                PurchaseOrderLine.purchase_order_id == row.id,
+                PurchaseOrderLine.is_deleted.is_(False),
+            )
+        ).all()
+        return overdraw_warnings(
+            self._session,
+            [(row.id, row.status, [(line_id, qty) for line_id, qty in lines])],
+        ).get(row.id)
 
     def _check_budgets(
         self, row: PurchaseOrder, *, may_exceed_budget: bool
@@ -1733,6 +1762,26 @@ class PurchaseService(TransactionalDocumentService):
         )
         for response in answer:
             response.attributes = fields.get(response.id, [])
+        # Rate contracts drawn past their quantity (PG-9), derived for the
+        # page in two reads -- none when no line draws on a contract.
+        from app.rate_contracts.services.rates import overdraw_warnings
+
+        over = overdraw_warnings(
+            self._session,
+            (
+                (
+                    row.id,
+                    row.status,
+                    [
+                        (item.rate_contract_line_id, item.ordered_quantity)
+                        for item in lines[row.id]
+                    ],
+                )
+                for row in rows
+            ),
+        )
+        for response in answer:
+            response.rate_contract_warning = over.get(response.id)
         return answer
 
     def _order_response(
@@ -1894,9 +1943,8 @@ class PurchaseService(TransactionalDocumentService):
         actor_id: UUID,
     ) -> dict[str, Decimal]:
         """Replace lines."""
-        data = data.model_copy(
-            update={"lines": self._priced_from_supplier(order, data.lines)}
-        )
+        priced, sources = self._priced_from_supplier(order, data.lines)
+        data = data.model_copy(update={"lines": priced})
         # Lines are matched on their line number and updated in place;
         # re-inserting them minted a new UUID per line on every save, and
         # downstream documents reference those ids with no foreign key.
@@ -1991,6 +2039,9 @@ class PurchaseService(TransactionalDocumentService):
                 tax_profile_id=tax_profile_id,
                 tax_amount=tax_amount,
                 net_amount=net_amount,
+                # Where the price came from, and the contract it draws on (PG-9).
+                rate_source=sources[idx - 1][0],
+                rate_contract_line_id=sources[idx - 1][1],
                 batch_required=line.batch_required,
                 expiry_required=line.expiry_required,
                 serial_required=line.serial_required,
@@ -2045,27 +2096,37 @@ class PurchaseService(TransactionalDocumentService):
 
     def _priced_from_supplier(
         self, order: PurchaseOrder, lines: list[PurchaseLineWrite]
-    ) -> list[PurchaseLineWrite]:
-        """Fill each blank price and discount from the supplier (BUY-3, A97).
+    ) -> tuple[list[PurchaseLineWrite], list[tuple[str, UUID | None]]]:
+        """Fill each blank price and discount from the supplier (BUY-3, PG-9).
 
-        A blank price takes the supplier's price list's fixed rate at the
-        line's quantity, else the supplier's catalogue price (BUY-4), else the
-        product's purchase price; a blank supplier code takes the catalogue's;
-        a blank discount takes the list's rate, else the supplier's standing
-        discount -- the
-        sales ranking, through the same ``resolve_line_discount``. A typed
-        value, zero included, stands.
+        A blank price takes, most specific first, the rate of a rate contract
+        in force with the supplier on the order's date (PG-9), the supplier's
+        price list's fixed rate at the line's quantity, the supplier's
+        catalogue price (BUY-4), a dated price revision, else the product's
+        purchase price -- ranked in ``resolve_supplier_unit_price``. A blank
+        supplier code takes the catalogue's; a blank discount takes the
+        contract's rate where the contract priced the line, else the list's,
+        else the supplier's standing discount, through the same
+        ``resolve_line_discount``. A typed value, zero included, stands.
+
+        Returns:
+            The priced lines, and per line where its price came from and the
+            contract line it draws on, if any.
+
         """
         from app.pricing.services.price_list_service import SupplierPriceResolver
+        from app.products.services.price_revisions import price_in_force
+        from app.rate_contracts.services.rates import contract_lines_in_force
         from app.vendors.services.supplier_catalogue import current_rows
 
+        product_ids = [line.product_id for line in lines]
         # The supplier's catalogue (BUY-4): their code on a line that names
         # none, and their price below a price list's fixed rate.
         catalogue = current_rows(
             self._session,
             firm_id=order.firm_id,
             vendor_id=order.vendor_id,
-            product_ids=[line.product_id for line in lines],
+            product_ids=product_ids,
             on=order.purchase_date,
         )
         if catalogue:
@@ -2085,12 +2146,13 @@ class PurchaseService(TransactionalDocumentService):
                 )
                 for line in lines
             ]
-        if all(
-            line.unit_price is not None and line.discount_percent is not None
-            for line in lines
-        ):
-            return lines
-
+        contracts = contract_lines_in_force(
+            self._session,
+            firm_id=order.firm_id,
+            vendor_id=order.vendor_id,
+            product_ids=product_ids,
+            on=order.purchase_date,
+        )
         vendor = self._session.get(Vendor, order.vendor_id)
         standing = (
             Decimal(str(vendor.standing_discount_percent or 0)) if vendor else ZERO
@@ -2102,50 +2164,78 @@ class PurchaseService(TransactionalDocumentService):
             on=order.purchase_date,
         )
         priced: list[PurchaseLineWrite] = []
+        sources: list[tuple[str, UUID | None]] = []
         for line in lines:
-            update: dict[str, object] = {}
-            price = line.unit_price
-            if price is None:
-                fixed = lists.price_for(line.product_id, line.ordered_quantity)
-                listed = catalogue.get(line.product_id)
-                if (
-                    fixed is None
-                    and listed is not None
-                    and listed.unit_price is not None
-                ):
-                    fixed = Decimal(str(listed.unit_price))
-                if fixed is None:
-                    # A dated revision in force on the order's date (MST-2).
-                    from app.products.services.price_revisions import (
-                        price_in_force,
-                    )
+            product = self._session.get(Product, line.product_id)
+            # A contract's rate is per its own unit; a line in another unit is
+            # not priced from it, so a drawn quantity never needs converting.
+            unit = line.purchase_uom_id or getattr(product, "purchase_uom_id", None)
+            contract = next(
+                (
+                    candidate
+                    for candidate in contracts.get(line.product_id, [])
+                    if candidate.uom_id is None or candidate.uom_id == unit
+                ),
+                None,
+            )
+            listed = catalogue.get(line.product_id)
 
-                    fixed = price_in_force(
-                        self._session,
-                        line.product_id,
-                        "purchase_price",
-                        on=order.purchase_date,
-                    )
-                if fixed is None:
-                    product = self._session.get(Product, line.product_id)
-                    fixed = Decimal(str(getattr(product, "purchase_price", 0) or 0))
-                price = fixed
+            def fallback(product_id: UUID = line.product_id) -> LinePrice:
+                """Return a dated revision's price, else the product's own."""
+                revised = price_in_force(
+                    self._session,
+                    product_id,
+                    "purchase_price",
+                    on=order.purchase_date,
+                )
+                if revised is not None:
+                    return LinePrice(price=revised, source="PRICE_REVISION")
+                own = self._session.get(Product, product_id)
+                return LinePrice(
+                    price=Decimal(str(getattr(own, "purchase_price", 0) or 0)),
+                    source="PRODUCT",
+                )
+
+            resolved = resolve_supplier_unit_price(
+                typed=line.unit_price,
+                contract_rate=(
+                    Decimal(str(contract.rate)) if contract is not None else None
+                ),
+                list_rate=lists.price_for(line.product_id, line.ordered_quantity),
+                catalogue_rate=(
+                    Decimal(str(listed.unit_price))
+                    if listed is not None and listed.unit_price is not None
+                    else None
+                ),
+                fallback=fallback,
+            )
+            from_contract = resolved.source == "RATE_CONTRACT" and contract is not None
+            sources.append(
+                (resolved.source, contract.id if from_contract and contract else None)
+            )
+            update: dict[str, object] = {}
+            price = resolved.price
+            if line.unit_price is None:
                 update["unit_price"] = price
             if line.discount_percent is None:
-                resolved = resolve_line_discount(
+                resolved_discount = resolve_line_discount(
                     gross=self._q(line.ordered_quantity * price),
                     amount=line.discount_amount or None,
-                    price_list_percent=lists.rate_for(
-                        line.product_id, line.ordered_quantity
+                    # The contract's discount is the arrangement where the
+                    # contract priced the line, zero included.
+                    price_list_percent=(
+                        Decimal(str(contract.discount_percent))
+                        if from_contract and contract is not None
+                        else lists.rate_for(line.product_id, line.ordered_quantity)
                     ),
                     customer_default=standing if standing > ZERO else None,
                 )
-                update["discount_percent"] = resolved.percent
+                update["discount_percent"] = resolved_discount.percent
                 update["discount_amount"] = (
                     line.discount_amount if line.discount_amount else ZERO
                 )
             priced.append(line.model_copy(update=update) if update else line)
-        return priced
+        return priced, sources
 
     def _line_discount_amount(
         self, line: PurchaseLineWrite, gross_amount: Decimal
