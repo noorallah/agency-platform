@@ -811,7 +811,7 @@ const List<ReportDefinition> reportCatalog = [
   ),
   ReportDefinition(
     id: 'purchase-invoice-due',
-    label: 'Purchase bills falling due',
+    label: 'Purchase invoices falling due',
     description: 'Unpaid and falling due from today to the number of days '
         'ahead. Days 0 shows what falls due today and 7 the week ahead.',
     path: '/api/v1/purchase-invoices/reports/due',

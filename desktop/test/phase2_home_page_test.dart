@@ -394,7 +394,7 @@ void main() {
       'Orders to deliver',
       'Invoices overdue',
       'POs to receive',
-      'Purchase bills overdue',
+      'Purchase invoices overdue',
     ]) {
       await tester.tap(find.byKey(ValueKey('home-todo-$line')));
     }

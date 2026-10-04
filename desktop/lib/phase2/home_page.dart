@@ -188,7 +188,7 @@ class Phase2HomePage extends StatefulWidget {
       view: 'purchase-order-pending',
     ),
     HomeTodo(
-      'Purchase bills overdue',
+      'Purchase invoices overdue',
       'purchaseInvoices',
       'overdue_invoices',
       alert: true,
