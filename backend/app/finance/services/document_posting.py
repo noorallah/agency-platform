@@ -3241,6 +3241,7 @@ class DocumentPostingService:
         reverse_charge_by_component: dict[str, Decimal] | None = None,
         blocked_tax_amount: Decimal = ZERO,
         tds_amount: Decimal = ZERO,
+        tcs_amount: Decimal = ZERO,
     ) -> JournalEntry:
         """Turn a supplier invoice into a payable and clear the receipt accrual.
 
@@ -3282,6 +3283,9 @@ class DocumentPostingService:
             tds_amount: Tax deducted at source on the bill (PG-5, 194C or
                 194J): taken out of the payable and credited to TDS Payable,
                 which the challan clears. The supplier is owed the rest.
+            tcs_amount: TCS the supplier charged on the bill (PG-6, 206C(1H)):
+                debited to TCS Receivable and added to the payable. Outside
+                the goods and the tax, so it moves no stock and no GST.
 
         Returns:
             The posted journal entry.
@@ -3320,6 +3324,12 @@ class DocumentPostingService:
                 f"TDS on invoice {invoice_number} must be less than what it owes."
             )
 
+        ledger_tcs = quantize_ledger(quantize_money(tcs_amount))
+        if ledger_tcs < ZERO:
+            raise ValidationError(
+                f"TCS on invoice {invoice_number} cannot be less than nothing."
+            )
+
         accrued = (
             ledger_goods if accrued_amount is None else quantize_ledger(accrued_amount)
         )
@@ -3334,10 +3344,22 @@ class DocumentPostingService:
             ),
             JournalLineData(
                 ledger_account_id=accounts[ControlAccountPurpose.ACCOUNTS_PAYABLE],
-                credit_amount=ledger_total - ledger_tds,
+                credit_amount=ledger_total + ledger_tcs - ledger_tds,
                 description=f"Supplier invoice {invoice_number}",
             ),
         ]
+        if ledger_tcs > ZERO:
+            # Charged by the supplier on top of the bill (PG-6): the firm owes
+            # it to the supplier and claims it back against its own tax.
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=self._require_mapping(
+                        firm_id, (ControlAccountPurpose.TCS_RECEIVABLE,)
+                    )[ControlAccountPurpose.TCS_RECEIVABLE],
+                    debit_amount=ledger_tcs,
+                    description=f"TCS charged on supplier invoice {invoice_number}",
+                )
+            )
         if ledger_tds > ZERO:
             # Deducted at the earlier of credit and payment (PG-5): the
             # supplier is owed the rest, the government this part.

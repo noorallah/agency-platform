@@ -1161,6 +1161,30 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'bills', label: 'Bills', numeric: true),
     ],
   ),
+  // TCS suppliers charged the firm under 206C(1H) (PG-6), claimed against
+  // its own tax once 26AS shows it; each quarter closes with a total row.
+  ReportDefinition(
+    id: 'tcs-paid-to-suppliers',
+    label: 'TCS paid to suppliers',
+    description: 'Approved supplier bills that bore TCS: supplier, PAN, '
+        'bill, base (the bill with GST), rate and TCS, with a total for each '
+        'quarter to match against Form 26AS.',
+    path: '/api/v1/purchase-invoices/reports/tcs-paid',
+    permission: 'PURCHASE_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    columns: [
+      ReportColumn(key: 'quarter', label: 'Quarter'),
+      ReportColumn(key: 'vendor_name', label: 'Supplier'),
+      ReportColumn(key: 'vendor_pan', label: 'PAN'),
+      ReportColumn(key: 'invoice_number', label: 'Bill'),
+      ReportColumn(key: 'supplier_invoice_number', label: 'Supplier bill'),
+      ReportColumn(key: 'invoice_date', label: 'Date'),
+      ReportColumn(key: 'base_amount', label: 'Base', numeric: true),
+      ReportColumn(key: 'tcs_rate_percent', label: 'Rate %', numeric: true),
+      ReportColumn(key: 'tcs_amount', label: 'TCS', numeric: true),
+    ],
+  ),
   // A collection is never rewritten, so a reversed or back-dated receipt
   // leaves a buyer over- or under-collected until they pay again; this is
   // where that shows (D-CMP-21). The year today falls in: a snapshot.

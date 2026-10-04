@@ -165,6 +165,11 @@ class ControlAccountPurpose(StrEnum):
     #: Tax a quarterly filer deposited on PMT-06 and the quarter's GSTR-3B
     #: has not used yet: the portal's electronic cash ledger (GST-7).
     GST_CASH_LEDGER = "GST_CASH_LEDGER"
+    #: TCS a supplier charged the firm on a bill (206C(1H), PG-6): an asset,
+    #: claimed against the firm's own income tax once it shows in Form 26AS.
+    #: Beside TDS receivable rather than inside it -- a different section,
+    #: a different line of 26AS.
+    TCS_RECEIVABLE = "TCS_RECEIVABLE"
 
 
 INPUT_TAX_PURPOSE_BY_COMPONENT.update(
@@ -295,6 +300,7 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     ControlAccountPurpose.TDS_INTEREST_AND_FEES: frozenset({"EXPENSE"}),
     ControlAccountPurpose.CHEQUE_RETURN_CHARGES: frozenset({"INCOME"}),
     ControlAccountPurpose.GST_CASH_LEDGER: frozenset({"ASSET"}),
+    ControlAccountPurpose.TCS_RECEIVABLE: frozenset({"ASSET"}),
 }
 
 
@@ -371,6 +377,7 @@ PURPOSE_LABELS: dict[ControlAccountPurpose, str] = {
     ControlAccountPurpose.TDS_INTEREST_AND_FEES: "Interest and fees on TDS",
     ControlAccountPurpose.CHEQUE_RETURN_CHARGES: "Cheque return charges",
     ControlAccountPurpose.GST_CASH_LEDGER: "GST electronic cash ledger",
+    ControlAccountPurpose.TCS_RECEIVABLE: "TCS receivable",
 }
 
 

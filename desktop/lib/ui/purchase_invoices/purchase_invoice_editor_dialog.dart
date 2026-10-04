@@ -252,6 +252,12 @@ class _PurchaseInvoiceEditorDialogState
   /// The IRN printed on the supplier's e-invoice; blank is none.
   String _supplierIrn = '';
   String _remarks = '';
+
+  /// PG-6: TCS the supplier charged on the bill (206C(1H)). Both blank is
+  /// none; a typed amount wins, and a rate alone is worked out on the grand
+  /// total by the server.
+  String _tcsRate = '';
+  String _tcsAmount = '';
   bool _saving = false;
   bool _loadingLines = false;
   String? _error;
@@ -629,6 +635,17 @@ class _PurchaseInvoiceEditorDialogState
       return "Enter the supplier's invoice date.";
     }
     if (_invoiceDate.trim().isEmpty) return 'Enter the invoice date.';
+    for (final (String name, String value) in [
+      ('TCS rate', _tcsRate),
+      ('TCS amount', _tcsAmount),
+    ]) {
+      if (value.trim().isNotEmpty && _tcsFigure(value) == null) {
+        return 'The $name must be a number of zero or more, or blank.';
+      }
+    }
+    if ((_tcsFigure(_tcsRate) ?? 0) > 100) {
+      return 'The TCS rate cannot be more than 100%.';
+    }
     final String? irnProblem = supplierIrnProblem(_supplierIrn);
     if (irnProblem != null) return irnProblem;
     if (_direct) return _directValidation();
@@ -688,6 +705,13 @@ class _PurchaseInvoiceEditorDialogState
     return null;
   }
 
+  /// A TCS box's figure, or null where it is blank or not a number of zero
+  /// or more.
+  double? _tcsFigure(String value) {
+    final double? figure = double.tryParse(value.trim());
+    return figure == null || figure < 0 ? null : figure;
+  }
+
   Product? _productById(String? id) {
     for (final Product item in widget.products) {
       if (item.id == id) return item;
@@ -718,6 +742,10 @@ class _PurchaseInvoiceEditorDialogState
           ? null
           : _supplierIrn.trim(),
       if (_remarks.trim().isNotEmpty) 'remarks': _remarks.trim(),
+      // PG-6: sent only when typed -- blank is no TCS. Priced while typing,
+      // a box that is not yet a number is left out rather than refused.
+      if (_tcsFigure(_tcsRate) != null) 'tcs_rate_percent': _tcsRate.trim(),
+      if (_tcsFigure(_tcsAmount) != null) 'tcs_amount': _tcsAmount.trim(),
       // Only once the definitions arrived, and never while merely pricing:
       // absent leaves the stored values alone.
       if (!pricing && _customFields.hasFields)

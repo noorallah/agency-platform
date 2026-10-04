@@ -293,6 +293,28 @@ crosses it carries the earlier bills' tax. Rates are per firm
   `tds_challan_items.purchase_invoice_id`), filed under the bill's section
   with the base before GST as the amount credited.
 
+**TCS a supplier charges the firm is an asset on the bill** (PG-6, 206C(1H)).
+A supplier selling the firm more than 50 lakh a year may collect TCS on top of
+its bill; the firm claims it against its own income tax once it shows in Form
+26AS. The bill carries `tcs_rate_percent` (shown) and `tcs_amount` -- typed, or
+the rate on `grand_total` (the section's base is the bill **including** GST)
+when only the rate is given; a typed amount wins. It is **outside GST's
+taxable value**: no line, no tax and no stock moves with it.
+
+- **Bill:** Dr TCS Receivable `tcs` (the `TCS_RECEIVABLE` purpose, seeded as
+  *1430 TCS Receivable* in current assets, migration `20261005_0308` for firms
+  already open); Cr Payables `grand_total + tcs - tds`. It sits beside TDS
+  Receivable rather than inside it -- a different section and a different line
+  of 26AS.
+- **Owed:** `grand_total + tcs_amount - tds_amount` everywhere a payable is
+  read -- the settlement outstanding (`outstanding_invoices`,
+  `purchase_bill_positions`), the payables report, and the cash purchase's
+  *Paid now*; the response carries it as `amount_owed`.
+- **Cancel** mirrors the journal, so the receivable goes with the payable.
+- **Report:** `GET /purchase-invoices/reports/tcs-paid` lists each approved
+  bill that bore TCS with the supplier's PAN, the base, rate and TCS, and
+  closes each financial-year quarter with a `QUARTER_TOTAL` row.
+
 **A post-dated cheque posts nothing while it is held** (ACC-2,
 `post_dated_cheques.py`). Banking it posts the receipt or payment it becomes,
 dated the day it was banked, through the settlement service. A returned cheque

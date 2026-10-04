@@ -144,6 +144,15 @@ class PurchaseInvoice(BaseEntity):
     tds_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: TCS the supplier charged on the bill (206C(1H), PG-6): the rate shown
+    #: on it, and the amount -- typed, or the rate on ``grand_total`` (the
+    #: section's base is the bill including GST). Outside GST's taxable
+    #: value. The supplier is owed ``grand_total + tcs_amount - tds_amount``;
+    #: the TCS is the firm's to claim (TCS Receivable).
+    tcs_rate_percent: Mapped[Decimal | None] = mapped_column(Numeric(9, 4))
+    tcs_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancel_reason: Mapped[str | None] = mapped_column(Text)
