@@ -6,7 +6,8 @@ to record the expenses no document raises -- rent, fuel, salaries, electricity,
 telephone -- so the profit it shows is the firm's real profit.
 
 Written 2026-09-26 against the version 2 screens (Accounts menu in the top
-bar), with its menu paths brought up to release 1.3.0 on 2026-10-04: the
+bar); brought up to date 2026-10-04, release 1.3.0: menu paths, the seeded
+expense accounts and the account codes below. the
 Accounts drop-down shows daily work only (Journal Entries, Expenses, Ledgers,
 Bank Reconciliation, Trial Balance, Profit & Loss, Balance Sheet, GST Returns)
 and every other screen is behind **All Accounts screens** at its foot. The steps were taken from the product's own tested cases
@@ -50,7 +51,11 @@ the balance sheet until it is sold, when its cost moves to Cost of Goods Sold.
 ## 3. Expenses no document raises: rent, fuel, salaries
 
 These are recorded in two steps, both under **Accounts**: open an account for
-the expense once, then enter a journal each time it is paid.
+the expense once, then enter a journal each time it is paid. **A firm set up
+on 1.3.0 already has the common ones** in an *Indirect Expenses* group (codes
+below marked *seeded*), so Step A is only for a kind of expense not in the
+list. The shorter way for a clerk is **Accounts → Expenses → New** (section 5,
+item 1); this section is the accountant's way, by journal.
 
 ### Step A -- open an expense account (once per kind of expense)
 
@@ -58,25 +63,26 @@ the expense once, then enter a journal each time it is paid.
 
 | Field | What to enter |
 | --- | --- |
-| Group | **EXP · Direct Expenses** (the one expense group the books open with) |
-| Code | a free number in the 6000s, for example the table below |
+| Group | **IEXP · Indirect Expenses** (the group the day-to-day costs belong to; *EXP · Direct Expenses* holds the cost of goods) |
+| Code | a free number in the 6000s, one not in the table below |
 | Name | what the expense is |
 | Type | **EXPENSE** |
 
-Suggested accounts:
+Accounts a new firm already has (*seeded*, group IEXP) and two to add:
 
 | Code | Name | Typical entries |
 | --- | --- | --- |
-| 6100 | Rent | shop, godown and office rent |
-| 6200 | Fuel and Transport | diesel, petrol, freight paid to transporters |
-| 6300 | Salaries and Wages | staff salaries, helpers' wages |
-| 6310 | Staff Welfare | tea, meals, bonus, uniforms |
-| 6400 | Electricity and Water | power and water bills |
-| 6500 | Telephone and Internet | mobile, broadband |
-| 6600 | Repairs and Maintenance | vehicle, shop, equipment repairs |
-| 6700 | Office Expenses | stationery, printing, courier |
-| 6800 | Bank Charges | charges, commission, card fees |
-| 6900 | Miscellaneous Expenses | anything that fits nowhere else |
+| 6000 | Rent (*seeded*) | shop, godown and office rent |
+| 6100 | Salaries and Wages (*seeded*) | staff salaries, helpers' wages |
+| 6200 | Electricity (*seeded*) | power bills |
+| 6300 | Telephone and Internet (*seeded*) | mobile, broadband |
+| 6400 | Travel and Conveyance (*seeded*) | travel, conveyance |
+| 6500 | Office and General Expenses (*seeded*) | stationery, printing, courier |
+| 6600 | Repairs and Maintenance (*seeded*) | vehicle, shop, equipment repairs |
+| 6700 | Bank Charges (*seeded*) | charges, commission, card fees |
+| 6910 | Staff Welfare (*seeded*) | tea, meals, bonus, uniforms |
+| 6800 | Fuel and Transport (add) | diesel, petrol, freight paid to transporters |
+| 6950 | Miscellaneous Expenses (add) | anything that fits nowhere else |
 
 The group, type and code cannot be changed once saved; the name can. Choose the
 group before the code: an EXPENSE account refused under the Revenue group says
@@ -104,9 +110,9 @@ must be equal.
 
 | Expense | Debit | Credit |
 | --- | --- | --- |
-| September rent, paid by bank | 6100 Rent **25,000** | 1010 Bank 25,000 |
-| Diesel for the delivery van, cash | 6200 Fuel and Transport **3,000** | 1000 Cash 3,000 |
-| September salaries, paid by bank | 6300 Salaries and Wages **1,20,000** | 1010 Bank 1,20,000 |
+| September rent, paid by bank | 6000 Rent **25,000** | 1010 Bank 25,000 |
+| Diesel for the delivery van, cash | 6800 Fuel and Transport **3,000** | 1000 Cash 3,000 |
+| September salaries, paid by bank | 6100 Salaries and Wages **1,20,000** | 1010 Bank 1,20,000 |
 
 After posting all three, **Profit & Loss** for September shows the three
 accounts under **Expenses**, total expenses up by **1,48,000**, and the net
@@ -120,7 +126,7 @@ tax credit, not an expense. Put it on its own lines:
 
 | Account | Debit | Credit |
 | --- | --- | --- |
-| 6100 Rent | 25,000 | |
+| 6000 Rent | 25,000 | |
 | 1320 Input CGST | 2,250 | |
 | 1330 Input SGST | 2,250 | |
 | 1010 Bank | | 29,500 |
@@ -131,7 +137,7 @@ Salaries carry no GST.
 
 ### Splitting expenses by branch or department
 
-**Settings (the gear) → Set up → Account structure → Cost Centres** (a branch, a van, a
+**Settings (gear) → Set up → Account structure → Cost Centres** (a branch, a van, a
 department). An account can be
 set to require one, and each journal line then says which centre it belongs
 to, so the cost of running each branch can be read separately.
@@ -160,7 +166,7 @@ Recorded so a decision can be made; none of these stops the steps above.
    rent without the journal screen. The hand-typed journal in section 3 still
    works and needs an accountant's permission (post journals).
 2. **Indirect Expenses -- built 2026-09-27.** The books open with an
-   *Indirect Expenses* group holding Rent, Salaries and Wages, Electricity,
+   *Indirect Expenses* group (IEXP) holding Rent, Salaries and Wages, Electricity,
    Telephone and Internet, Travel and Conveyance, Office and General Expenses,
    Repairs and Maintenance and Bank Charges (6000-6700); migration
    `20260927_0162` gave every firm with open books the same. **Still open:**

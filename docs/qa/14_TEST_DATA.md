@@ -1,5 +1,9 @@
 # QA test data: what to type, case by case
 
+For **release 1.3.0**, the first end-to-end test pass (it includes 1.2.0). Menu paths
+are the 1.3.0 menu (`Sell > Quotations`, `Sell > All Sell screens > Documents >
+Proforma`, `Settings > Set up > Pricing > Price Lists`); updated 2026-10-04.
+
 The sample data for the whole QA suite and the functional walkthrough, so
 nobody has to invent a value in the middle of a case. Every firm, person,
 master record and document the cases name is here, with the values to type
@@ -85,7 +89,7 @@ fixture script that built every case's starting point
 ### A1. Every firm, and what it is for
 
 Sign in as `platform-admin@agency.local` for all of section A.
-**Administration → Firms → New.**
+**Settings > Platform > Firms > Firms → New.**
 
 | Code | Display name | Storage | Business profile | Used by |
 | --- | --- | --- | --- | --- |
@@ -166,7 +170,7 @@ kept so that W55's *Filing as 33ABCDE1234F1Z5* stays true.
 
 ### A3. The Set up panel
 
-Administration → Firms → select the firm → **Set up**. Do the rows in this
+Settings > Platform > Firms > Firms → select the firm → **Set up**. Do the rows in this
 order for QA01 to QA07 and QAR1. **Not** for QAU1, QAU2 or QAF1: their
 cases press these buttons themselves.
 
@@ -192,7 +196,7 @@ Interstate**, **GST 12% Local**, **GST 12% Interstate**, **GST 18% Local**,
 The GST template adds the country India and nothing under it. The address
 pickers need a state, district and city. **Writing places needs the
 platform administrator**: sign in as `platform-admin@agency.local`, switch
-into the firm, then **Masters → Places**. Open *India*, then **New** at each
+into the firm, then Settings > Set up > Locations > **Places**. Open *India*, then **New** at each
 level; each asks for a **Code** and a **Name**.
 
 | Firm | State (code, name) | District (code, name) | City (code, name) | Postal code |
@@ -220,7 +224,7 @@ minutes.
 - Every account prepared below starts with **`QaTest@2026pw`**. Wherever a
   case says *a password you choose*, *a password* or *a 12-character
   password*, type that.
-- On **Users → New**, untick **Require password change** for prepared
+- On **Settings > Platform > People > Users → New**, untick **Require password change** for prepared
   accounts, so the password stays usable. The exceptions are marked.
 - The platform administrator's password is the one set during
   installation.
@@ -230,8 +234,8 @@ minutes.
 | Email | Full name | How it comes to exist | Firms | Used by |
 | --- | --- | --- | --- | --- |
 | `platform-admin@agency.local` | (as installed) | Made by the installer | none | Every *Platform admin* in the cases; all of section A |
-| `platform.member@qa.test` | Platform Member (qa) | Users → New in QA01 (primary) and QA02, no roles; then **the developer** gives it the ALL_FIRMS platform designation | QA01 (primary), QA02 | TC-PLAT-004, TC-SESS-010 step 2 |
-| `operator@qa.test` | Platform Operator (qa) | Users → New in QA01 (primary) and QA02, no roles; then **the developer** gives it the PLATFORM designation | QA01 (primary), QA02 | TC-TIER-001..003 |
+| `platform.member@qa.test` | Platform Member (qa) | Settings > Platform > People > Users → New in QA01 (primary) and QA02, no roles; then **the developer** gives it the ALL_FIRMS platform designation | QA01 (primary), QA02 | TC-PLAT-004, TC-SESS-010 step 2 |
+| `operator@qa.test` | Platform Operator (qa) | Settings > Platform > People > Users → New in QA01 (primary) and QA02, no roles; then **the developer** gives it the PLATFORM designation | QA01 (primary), QA02 | TC-TIER-001..003 |
 
 No screen or request grants the platform designation; that is deliberate.
 Without the developer, mark TC-PLAT-004, TC-TIER-001..003 and TC-SESS-010
@@ -240,7 +244,7 @@ step 2 `Blocked`.
 ### B3. One person per job template, in QA01
 
 Create these as the **QA01 firm administrator** (after the first row exists)
-with **Administration → Users → New**: Full name, Username (Email),
+with **Settings > Platform > People > Users → New**: Full name, Username (Email),
 Initial password `QaTest@2026pw`, **Require password change** off unless
 marked, **Job template** as listed, **Firms** QA01 (already ticked).
 
@@ -329,7 +333,7 @@ prices on **Pricing**.
 | Record | Values | Used by |
 | --- | --- | --- |
 | Warehouse `STORE2` | Warehouse Name *Back Store*, Branch *HO - Head Office*, nothing else | W12, W32-W34 |
-| Product category `SOAP` | *Soap*, made first under Masters → Product Categories, parent blank | W13 |
+| Product category `SOAP` | *Soap*, made first under Settings > Set up > Item lists > Product Categories, parent blank | W13 |
 | Product `QA-P1` | Product name *Test Soap*; Category **Soap**; Base, Inventory, Purchase and Sales UOM **PIECE**; Tax profile **GST 18% Local**; HSN / SAC `3401`; Purchase price `100`; Selling price `150` | W13-W67 |
 | Vendor `QA-V1` | Vendor Name *QA Supplies*; Phone `+919840011001`; GSTIN `33AABCQ1101E1ZC`; one address: type Office, line 1 *18 SIDCO Industrial Estate*, place India, Tamil Nadu, Chennai, Chennai | W14, W15 (new phone `+919840011002`), W19-W29 |
 | Customer `QA-C1` | Customer name *QA Retail*; Business; INR; Phone `+919841022001`; no GST number; Credit limit `0` (0 means no limit); one address: Billing, line 1 *45 Anna Salai*, City Chennai, State Tamil Nadu, Postal code `600002`, Country `IN` | W16, W17 (new phone `+919841022002`), W35-W63 |
@@ -339,9 +343,9 @@ prices on **Pricing**.
 | Record | Values | Used by |
 | --- | --- | --- |
 | Warehouse `QA-W2` | Warehouse Name *Overflow qa*, Branch HO | TC-STOCK-002 |
-| Customer groups (Customers toolbar → **Groups**) | `QA-RET` *Retailer qa*, default discount `1.75`; `QA-WHL` *Wholesaler qa*, default discount `3.25` | TC-CUST-001, 006 |
-| Vendor category `QA-CAT` (Masters → Vendor Categories) | *Category qa* | TC-MAST-002 |
-| Vendor type `QA-TYP` (Masters → Vendor Types) | *Type qa* | TC-MAST-002 |
+| Customer groups (Settings > Set up > Party lists > **Customer Groups**) | `QA-RET` *Retailer qa*, default discount `1.75`; `QA-WHL` *Wholesaler qa*, default discount `3.25` | TC-CUST-001, 006 |
+| Vendor category `QA-CAT` (Settings > Set up > Party lists > Vendor Categories) | *Category qa* | TC-MAST-002 |
+| Vendor type `QA-TYP` (Settings > Set up > Party lists > Vendor Types) | *Type qa* | TC-MAST-002 |
 | Vendor `QA-V` | Vendor Name *Fixture Supplier qa*; Phone `+919800000200`; category and type **left blank** (TC-MAST-002 sets them). **Contacts**: *Vendor Contact*, mobile `+919800000201`, Primary. **Addresses**: Office, *7 Supplier Lane*, place Tamil Nadu, Chennai, Chennai, Primary. **Banking**: bank *Fixture Bank*, account name *Fixture Supplier qa*, account number `000111222333`, IFSC `FXBK0000001`, Primary. **Tax**: PAN `AAHFS2222C`, Primary. **Attachments**: file name `agreement.pdf`, URL `https://example.invalid/agreement.pdf`. **Notes**: *Supply terms agreed for QA.* | TC-BUY-001..008 (as *Fixture Supplier qa*), TC-MAST-001, 002 (as *Supply Check*) |
 | Vendor `QA-VS` | Vendor Name *Stock Supplier qa*; Phone `+919800000300` | stock-in, D2 |
 | Product `QA-B` | *Bought Item qa*; PIECE for all four units; GST 18% Local; HSN `3402`; Purchase price `100`; Selling price `150` | TC-BUY-001..005, 007, 008, TC-STOCK-001 |
@@ -350,9 +354,9 @@ prices on **Pricing**.
 | Product `QA-P3` | *Write Off Item qa*; as `QA-P` | TC-STOCK-003 (the case says `QA-P`) |
 | Product `QA-P4` | *Count Item qa*; as `QA-P` | TC-STOCK-004 (the case says `QA-P - Fixture Product qa`) |
 | Product `QA-PS` | *Sold Item qa*; as `QA-P` | the *invoiced* sale (D2): TC-GRANT-001, TC-ISO-003, TC-CUST-005; TC-CUST-004's order (the case says `QA-P`) |
-| Product category `QA-PC` | Masters → **Product Categories** → New: Category code `QA-PC`, Name *Shelf qa*, Parent category blank, Active ticked | `QA-PM` |
+| Product category `QA-PC` | Settings > Set up > Item lists > **Product Categories** → New: Category code `QA-PC`, Name *Shelf qa*, Parent category blank, Active ticked | `QA-PM` |
 | Product `QA-PM` | *Slot Check qa*; Category *Shelf qa*; Base, Inventory and Sales UOM **PIECE**, Purchase UOM **BOX**; GST 18% Local; Selling `100` | TC-MAST-003, 008, TC-FIN-006 |
-| Packaging level on `QA-PM` (Administration → Configuration → UOM & Packaging → **Packaging Levels**) | Level name *Case*; UOM **CASE**; factor to base `12`; barcode `8906012345678` | TC-MAST-008 (type this barcode) |
+| Packaging level on `QA-PM` (Settings > Set up > Item lists > **Packaging Levels**) | Level name *Case*; UOM **CASE**; factor to base `12`; barcode `8906012345678` | TC-MAST-008 (type this barcode) |
 | Customer `QA-CM` | *Master Check qa*; Phone `+919800000100`; **Financial** tab: Customer group *Retailer qa*, Credit limit `50000`, Default discount % `7.5`, Payment terms (days) `30`; **Address**: Billing, line 1 *12 Fixture Street*, place India, Tamil Nadu, Chennai, Chennai, Postal code `600001`, default billing; **Contacts**: *Fixture Contact*, mobile `+919800000101`, Primary | TC-CUST-001..004, 006, TC-CONC-001, 003 |
 | Customer `QA-C` | *Fixture Buyer qa*; nothing else | the *invoiced* sale (D2): TC-CUST-005, TC-GRANT-001, TC-ISO-003 |
 | Customer `QA-TILL` | *Till Customer qa*; nothing else | TC-CASH-002 |
@@ -383,31 +387,31 @@ That is expected; nothing else in QA02 relies on HO being the default.
 | Vendor `QA-VS` | *Stock Supplier qa*; Phone `+919800000300` | stock-in only |
 | Product `QA-DET` | *Detergent 1kg qa*; PIECE for all four units; GST 18% Local; Purchase `60`; Selling `84`; no HSN | 08, 09 |
 | Stock | 100 of `QA-DET` into MAIN at 60, by purchase: D5 | |
-| Price list `STANDING` (Sales → Price Lists → New) | Code `STANDING`; Name *Standing*; In force from `2000-01-01`; Until blank; Customer blank (everyone). Add product three times: `QA-DET` From qty `0` Discount % `2`; `QA-DET` From qty `15` Discount % `4.25`; `QA-DET` From qty `18` Discount % `6.75` | TC-SELL-001, 002, TC-INCENT-001, TC-CONC-002 |
+| Price list `STANDING` (Settings > Set up > Pricing > Price Lists → New) | Code `STANDING`; Name *Standing*; In force from `2000-01-01`; Until blank; Customer blank (everyone). Add product three times: `QA-DET` From qty `0` Discount % `2`; `QA-DET` From qty `15` Discount % `4.25`; `QA-DET` From qty `18` Discount % `6.75` | TC-SELL-001, 002, TC-INCENT-001, TC-CONC-002 |
 | Price list `NEGOTIATED` | Code `NEGOTIATED`; Name *Negotiated*; In force from `2000-01-01`; Customer *QA-C02 Anand Agencies qa*; `QA-DET` From qty `0` Discount % `9.25` | TC-SELL-003, TC-FIN-008 |
-| Promotion `BULK5` (Sales → Promotions → New) | Name *Bulk5*; Applies at `10`; Status Active; From `2020-01-01`; Other promotions may still apply **on**. Gives: Percent off each line, Percent `7.5`. Applies when (**Add condition**): When *Quantity on the line*, Test *is at least*, Value `25` | TC-SELL-004, TC-INCENT-001, 002, 004 |
+| Promotion `BULK5` (Settings > Set up > Pricing > Promotions → New) | Name *Bulk5*; Applies at `10`; Status Active; From `2020-01-01`; Other promotions may still apply **on**. Gives: Percent off each line, Percent `7.5`. Applies when (**Add condition**): When *Quantity on the line*, Test *is at least*, Value `25` | TC-SELL-004, TC-INCENT-001, 002, 004 |
 | Promotion `BIGORDER` | Name *Bigorder*; Applies at `20`; Active; From `2020-01-01`; Other promotions may still apply **off** (the dialog then says *This offer ends the stack*). Gives: Amount off the whole bill, Amount `200`. Applies when: *Order value* *is at least* `4500` | TC-INCENT-004 |
 | Promotion `CLEARANCE` | Name *Clearance*; Applies at `30`; Active; From `2020-01-01`; stacking on. Gives: Percent off each line, `1`. Applies when: *Quantity on the line* *is at least* `40` | TC-INCENT-004 |
-| Promotion `WELCOME` | Sales → Promotions → New: Code `WELCOME`; Name *Welcome*; Applies at `40`; Status Active; From `2020-01-01`. Tick **Only with a coupon** (the switch reads "Applies only when the customer presents one of this offer's coupons"). Gives: Percent off each line, Percent `2.5`. No conditions | TC-SELL-006, 007, 010, TC-INCENT-003, TC-CONC-005 |
-| Coupons (Sales → Promotions → **Coupons** → New) | Offer *WELCOME*; Code `WELCOME10`; Total claims allowed blank. Then Offer *WELCOME*; Code `WELCOME10B`; Total claims allowed blank | as WELCOME |
-| TCS (Sales → TCS → **Settings**) | Collect under section 206C(1H) **on**; Preceding year turnover `150000000`; Threshold `0`; Rate `0.1`; Rate without a PAN `1` | TC-SELL-013, 014, TC-COMP-007 |
-| Loyalty (Masters → Loyalty → **Scheme settings**) | Scheme is running **on**; points per 100 `2`; worth `1` each; Minimum to redeem `50`; Points expire **on**, after `24` months | TC-INCENT-005 |
+| Promotion `WELCOME` | Settings > Set up > Pricing > Promotions → New: Code `WELCOME`; Name *Welcome*; Applies at `40`; Status Active; From `2020-01-01`. Tick **Only with a coupon** (the switch reads "Applies only when the customer presents one of this offer's coupons"). Gives: Percent off each line, Percent `2.5`. No conditions | TC-SELL-006, 007, 010, TC-INCENT-003, TC-CONC-005 |
+| Coupons (Settings > Set up > Pricing > Promotions → **Coupons** → New) | Offer *WELCOME*; Code `WELCOME10`; Total claims allowed blank. Then Offer *WELCOME*; Code `WELCOME10B`; Total claims allowed blank | as WELCOME |
+| TCS (Accounts > All Accounts screens > Tax filing > TCS → **Settings**) | Collect under section 206C(1H) **on**; Preceding year turnover `150000000`; Threshold `0`; Rate `0.1`; Rate without a PAN `1` | TC-SELL-013, 014, TC-COMP-007 |
+| Loyalty (Settings > Set up > Pricing > Loyalty → **Scheme settings**) | Scheme is running **on**; points per 100 `2`; worth `1` each; Minimum to redeem `50`; Points expire **on**, after `24` months | TC-INCENT-005 |
 
 ### C5. QA04: the territory and commission firm
 
 | Record | Values | Used by |
 | --- | --- | --- |
-| Route type (Sales → Route Types → New) | Code `SALES`; Name *Sales Route* | the three routes |
-| Territory `QA-RGN` (Sales → **Geography** → New) | Name *Chennai Region*; Hierarchy level Region; Parent none | TC-TERR-001 |
+| Route type (Settings > Set up > Territories & routes > Route Types → New) | Code `SALES`; Name *Sales Route* | the three routes |
+| Territory `QA-RGN` (Settings > Set up > Territories & routes > **Territories** → New) | Name *Chennai Region*; Hierarchy level Region; Parent none | TC-TERR-001 |
 | Territory `QA-T-N` | *North Zone*; level Territory; Parent Chennai Region | |
 | Territory `QA-T-S` | *South Zone*; level Territory; Parent Chennai Region | |
 | Route `QA-R-N1` | *North Sales Beat*; level Route; Parent North Zone; Route type Sales Route; Visit frequency Weekly; working days Mon, Wed, Fri; effective dates blank | TC-TERR-001..004 |
 | Route `QA-R-N2` | *North Collections*; level Route; Parent North Zone; Sales Route; Fortnightly; Tue, Thu | TC-TERR-002, 003, 005 |
 | Route `QA-R-S1` | *South Sales Beat*; level Route; Parent South Zone; Sales Route; Weekly; Tue, Thu | TC-TERR-003, 005 |
 | Customers | `QA-C1` *Revise Check qa*; `QA-C2` *Classic Stores qa*; `QA-C3` *Vijaya Stores qa*; `QA-C4` *Anand Agencies qa*; `QA-SN` *Not Yet Routed qa*. Nothing else on any of them | 10, commission |
-| Rounds (Sales → **Route Builder**) | `QA-R-N1`: 1 Revise Check qa, 2 Classic Stores qa. `QA-R-N2`: 1 Vijaya Stores qa. `QA-R-S1`: 1 Anand Agencies qa. `QA-SN` on no route. **Save round and order** after each | TC-TERR-001, 004 |
+| Rounds (Settings > Set up > Territories & routes > **Route Builder**) | `QA-R-N1`: 1 Revise Check qa, 2 Classic Stores qa. `QA-R-N2`: 1 Vijaya Stores qa. `QA-R-S1`: 1 Anand Agencies qa. `QA-SN` on no route. **Save round and order** after each | TC-TERR-001, 004 |
 | Salespeople (open the route → **Salespeople**) | N1: Asha Sales, primary. N2: Bala Sales, primary. S1: Asha Sales, primary | TC-TERR-001, 005, commission |
-| Beat plans (Sales → **Beat Plans** → New), weekly | Repeats Weekly, one per working day: `QA-BP-R1-MON` *Mon round R1*, Route North Sales Beat, On Monday; `QA-BP-R1-WED` Wednesday; `QA-BP-R1-FRI` Friday; `QA-BP-R2-TUE` *Tue round R2*, Route North Collections, Tuesday; `QA-BP-R2-THU` Thursday; `QA-BP-R3-TUE` *Tue round R3*, Route South Sales Beat, Tuesday; `QA-BP-R3-THU` Thursday | TC-TERR-002, 003 |
+| Beat plans (Sell > All Sell screens > Field sales > **Beat Plans** → New), weekly | Repeats Weekly, one per working day: `QA-BP-R1-MON` *Mon round R1*, Route North Sales Beat, On Monday; `QA-BP-R1-WED` Wednesday; `QA-BP-R1-FRI` Friday; `QA-BP-R2-TUE` *Tue round R2*, Route North Collections, Tuesday; `QA-BP-R2-THU` Thursday; `QA-BP-R3-TUE` *Tue round R3*, Route South Sales Beat, Tuesday; `QA-BP-R3-THU` Thursday | TC-TERR-002, 003 |
 | Beat plan `QA-BP-COLL` | *Collections, alternate Tuesdays*; Route North Collections; Repeats Fortnightly; On Tuesday; starts on `2026-04-07` | TC-TERR-003 |
 | Beat plan `QA-BP-MTH` | *Second Tuesday review*; Route South Sales Beat; Repeats Monthly; On Tuesday; Week of the month `2` | TC-TERR-003 |
 | Vendor `QA-VS` | *Stock Supplier qa*; Phone `+919800000300` | stock-in |
@@ -445,12 +449,12 @@ not real until saved once).
 
 | Record | Values | Used by |
 | --- | --- | --- |
-| Product categories | Masters → **Product Categories** → New, twice: Category code `FXAMB`, Name *Fixture Ambient*; then Category code `FXCHL`, Name *Fixture Chilled*. Parent blank, Active ticked on both | TC-FIELD-001..006, 011 |
+| Product categories | Settings > Set up > Item lists > **Product Categories** → New, twice: Category code `FXAMB`, Name *Fixture Ambient*; then Category code `FXCHL`, Name *Fixture Chilled*. Parent blank, Active ticked on both | TC-FIELD-001..006, 011 |
 | Customer `FXCUST` | *Fixture Customer qa*; nothing else | the 500.00 receipt |
-| Receipt | Finance → Receipts → Record Receipt: `FXCUST`, amount `500.00`, method **Cash**, narration *Opening receipt to lock two accounts* | TC-FIRM-015 |
+| Receipt | Sell > Receipts → Record Receipt: `FXCUST`, amount `500.00`, method **Cash**, narration *Opening receipt to lock two accounts* | TC-FIRM-015 |
 | Vendor `QA-V` | *Pack Supplier qa* | TC-CONF-006, TC-FIELD-009 |
 | Product `QA-DET` | *Detergent 1kg qa*; Base UOM **KG**, Inventory UOM **KG**, Sales UOM **PACK**, Purchase UOM **PACK**; GST 18% Local; Purchase `100` | TC-CONF-006 |
-| Conversion rule (Administration → Configuration → UOM & Packaging → Conversion Rules → Add) | Product `QA-DET`; From `PACK`; To `KG`; Factor `1`; effective from `2020-01-01` | TC-CONF-006 |
+| Conversion rule (Settings > Set up > Item lists > Conversion Rules → Add) | Product `QA-DET`; From `PACK`; To `KG`; Factor `1`; effective from `2020-01-01` | TC-CONF-006 |
 
 ---
 
@@ -475,7 +479,7 @@ its Expect unchanged. The case itself does most of the building.
 | 4 | TC-BUY-003 | Goods receipt **GRN-A** on PO-1, Accepted `4`, warehouse MAIN, Complete; then **GRN-B**, Accepted `6`, Complete | `po-received`: 10 on hand |
 | 5 | TC-STOCK-001 | Reads the 10 | |
 | 6 | TC-BUY-004 | Cancels GRN-A | 6 on hand |
-| 7 | *Prep: invoice GRN-B* | Purchase Invoices → New: Goods Receipt *GRN-B*; Supplier Invoice Number `QA-SUP-001`; Supplier Invoice Date today; Invoice Date today; Remarks blank. Save Invoice, then **Approve**. Total **708.00** | `po-invoiced` |
+| 7 | *Prep: invoice GRN-B* | Buy > Purchase Invoices → New: Goods Receipt *GRN-B*; Supplier Invoice Number `QA-SUP-001`; Supplier Invoice Date today; Invoice Date today; Remarks blank. Save Invoice, then **Approve**. Total **708.00** | `po-invoiced` |
 | 8 | TC-BUY-005 | Tries to cancel GRN-B; refused | |
 | 9 | TC-BUY-008 | Pays the 708.00 | |
 
@@ -491,8 +495,8 @@ Then TC-BUY-006 returns 2 from the receipt of 6, and MAIN holds 8 of
 | Preparation | Create |
 | --- | --- |
 | **Stock-in** (`stock-ready`) | Purchase order from `QA-VS`, HO, MAIN, today, four lines at unit price `60`: `QA-P` 50, `QA-P3` 50, `QA-P4` 50, `QA-PS` 50. Submit, Approve. Goods receipt on it, every line Accepted `50`, warehouse MAIN, Complete. Warehouse `QA-W2` from C2 stays empty |
-| **invoiced** | Sales order: customer `QA-C` *Fixture Buyer qa*, ships from MAIN, branch HO, today; line `QA-PS` quantity `10`, unit price `100`, Discount % blank. Create draft, **Approve**. Delivery note on it: Delivering `10`, MAIN, Save, Approve, **Dispatch**. Sales Invoices → New Invoice → **Bill this delivery note** → that note, Bill `5`, Create draft, **Approve**: total **590.00**. New Invoice again on the same note, Bill `5`, Create draft, then **Cancel** it with the reason *Raised in error* |
-| **invoiced-part-paid** | Finance → Receipts → Record Receipt: `QA-C`, amount `200.00`, method Bank, instrument reference `NEFT-QA-0200`; under Apply to invoices put `200.00` against the approved invoice. Record receipt. `QA-C` then owes 390.00 |
+| **invoiced** | Sales order: customer `QA-C` *Fixture Buyer qa*, ships from MAIN, branch HO, today; line `QA-PS` quantity `10`, unit price `100`, Discount % blank. Create draft, **Approve**. Delivery note on it: Delivering `10`, MAIN, Save, Approve, **Dispatch**. Sell > Sales Invoices → New Invoice → **Bill this delivery note** → that note, Bill `5`, Create draft, **Approve**: total **590.00**. New Invoice again on the same note, Bill `5`, Create draft, then **Cancel** it with the reason *Raised in error* |
+| **invoiced-part-paid** | Sell > Receipts → Record Receipt: `QA-C`, amount `200.00`, method Bank, instrument reference `NEFT-QA-0200`; under Apply to invoices put `200.00` against the approved invoice. Record receipt. `QA-C` then owes 390.00 |
 | **customer-master** | Customer `QA-CM` and the groups from C2; the Seller is `field@qa01.test` |
 
 ### D3. The firm-setting preparations (`04_FIRMS_AND_CONFIGURATION`)
@@ -515,12 +519,12 @@ on it not having happened yet.
 | Preparation | Create | Check |
 | --- | --- | --- |
 | `selling-firm` | C4 in full, and D5's stock-in of 100 `QA-DET` | Inventory: MAIN 100 |
-| `selling-ordered` | Sales Orders → New Order: `QA-C01`, ships from MAIN, today; line `QA-DET` quantity `12`, unit price `84`, Discount % blank; **Coupon** `WELCOME10`. Create draft, **Approve**. Call it **S-ORD** | Reserved 12. Its line reads 84 less 2.5% |
+| `selling-ordered` | Sell > Sales Orders → New Order: `QA-C01`, ships from MAIN, today; line `QA-DET` quantity `12`, unit price `84`, Discount % blank; **Coupon** `WELCOME10`. Create draft, **Approve**. Call it **S-ORD** | Reserved 12. Its line reads 84 less 2.5% |
 | `selling-delivered` | Delivery note on S-ORD, Delivering `5`, MAIN, Save, Approve, Dispatch. Then another, Delivering `7`, Save, Approve, Dispatch. (TC-SELL-009 does exactly this) | S-ORD DELIVERED |
-| `selling-invoiced` | Bill the note for 5: Sales Invoices → New Invoice → Bill this delivery note → the note for 5, Bill `5`, Create draft, Approve. (TC-SELL-011 does this) | Total **483.21** |
+| `selling-invoiced` | Bill the note for 5: Sell > Sales Invoices → New Invoice → Bill this delivery note → the note for 5, Bill `5`, Create draft, Approve. (TC-SELL-011 does this) | Total **483.21** |
 | `selling-paid` | Receipt `241.60` Bank, apply `241.60` to that invoice; receipt `341.61` Bank, apply `241.61` (TC-SELL-013 does both). Then bill the note for 7 the same way: Bill `7`, Create draft, Approve | Second invoice **676.49**; Vijaya owes 679.91 with an advance of 97.58 |
-| `loyalty-points` | Masters → **Loyalty** → **Adjust points** (needs `LOYALTY_MANAGE_SETTINGS`): customer `QA-C01` *Vijaya Stores qa*, Points `200`, Reason *Goodwill credit for QA* → save | Masters → Loyalty lists Vijaya |
-| `policy-firm` | Customers → **Settings**: When a customer reaches their limit **Warn, then block**; warn at `80`; block at `100`. Edit `QA-C02`: Credit limit `1000`. Sales Orders → New Order: `QA-C02`, MAIN, `QA-DET` `20` at `84`, Create draft, **do not approve** (**S-BLK**). Sales Invoices → **Sales stages** icon: Delivery note **off**. Sales Orders → New Order: `QA-C01`, MAIN, `QA-DET` `4` at `84`, Create draft, Approve (**S-FOUR**) | Run last in QA03, and switch both back afterwards (E, 08, step 10) |
+| `loyalty-points` | Settings > Set up > Pricing > **Loyalty** → **Adjust points** (needs `LOYALTY_MANAGE_SETTINGS`): customer `QA-C01` *Vijaya Stores qa*, Points `200`, Reason *Goodwill credit for QA* → save | Settings > Set up > Pricing > Loyalty lists Vijaya |
+| `policy-firm` | Settings > Selling > **Credit Control**: When a customer reaches their limit **Warn, then block**; warn at `80`; block at `100`. Edit `QA-C02`: Credit limit `1000`. Sell > Sales Orders → New Order: `QA-C02`, MAIN, `QA-DET` `20` at `84`, Create draft, **do not approve** (**S-BLK**). Sell > Sales Invoices → **Sales stages** icon: Delivery note **off**. Sell > Sales Orders → New Order: `QA-C01`, MAIN, `QA-DET` `4` at `84`, Create draft, Approve (**S-FOUR**) | Run last in QA03, and switch both back afterwards (E, 08, step 10) |
 
 ### D5. Stock-in for QA03 to QA07
 
@@ -545,10 +549,10 @@ goods receipt accepting everything into MAIN; Complete.
 | Preparation | Create |
 | --- | --- |
 | `territory-firm` (QA04) | C5 and its stock-in |
-| `commission-firm` (QA04) | **Rules** (Sales → Commission → **Add rule**), all Paid on *Money collected*, Rate shape *Percentage of the value*, In force from `2026-04-01`, Status Active: (1) Applies to *Everyone (default)*, On *Everything sold*, rate `4`. (2) Applies to *Asha Sales*, On product `QA-P`, rate `15`. (3) Applies to *Bala Sales*, On *Everything sold*, **Slabs**: From `0` To `50000` Rate `2`; From `50000` To blank Rate `4`; How the slabs read *Each band at its own rate*; Earns nothing below `1000`; Extra when the target is met `2`. **Sales**, each: new order (Salesman blank; the route supplies it), Discount % `0`, Approve; delivery note for all, Approve, Dispatch; invoice from the note, Approve; Finance → Receipts → Record Receipt for the invoice's full total, Bank, applied to it: `QA-C4` 20 `QA-P` at 100 (2,360.00, Asha); `QA-C1` 30 `QA-Q` at 100 (3,540.00, Asha); `QA-C3` 40 `QA-Q` at 100 (4,720.00, Bala). **Targets** (Sales → Targets → New): Salesperson Asha Sales, From `2026-09-01` To `2026-09-30`, Target amount `1000`; Salesperson Bala Sales, same period, `100000`. Runs Monthly, Counts Invoiced |
-| `compliance-firm` (QA05) | Three sales of `QA-P` at `100`, Discount % `0`, each order approved, noted, dispatched and billed as above. **Invoice A**: `QA-B2B`, quantity `10` (1,180.00), then a receipt of `1180.00` Bank applied to it. **Invoice B**: `QA-B2B`, quantity `5` (590.00), no receipt. **Invoice C**: `QA-B2C`, quantity `3` (354.00), no receipt. Then Accounts → Tax filing → E-Invoice → **Register an invoice** → Invoice A → Register; again for Invoice B. Not C |
+| `commission-firm` (QA04) | **Rules** (Sell > All Sell screens > Incentives > Commission → **Add rule**), all Paid on *Money collected*, Rate shape *Percentage of the value*, In force from `2026-04-01`, Status Active: (1) Applies to *Everyone (default)*, On *Everything sold*, rate `4`. (2) Applies to *Asha Sales*, On product `QA-P`, rate `15`. (3) Applies to *Bala Sales*, On *Everything sold*, **Slabs**: From `0` To `50000` Rate `2`; From `50000` To blank Rate `4`; How the slabs read *Each band at its own rate*; Earns nothing below `1000`; Extra when the target is met `2`. **Sales**, each: new order (Salesman blank; the route supplies it), Discount % `0`, Approve; delivery note for all, Approve, Dispatch; invoice from the note, Approve; Sell > Receipts → Record Receipt for the invoice's full total, Bank, applied to it: `QA-C4` 20 `QA-P` at 100 (2,360.00, Asha); `QA-C1` 30 `QA-Q` at 100 (3,540.00, Asha); `QA-C3` 40 `QA-Q` at 100 (4,720.00, Bala). **Targets** (Sell > All Sell screens > Incentives > Targets → New): Salesperson Asha Sales, From `2026-09-01` To `2026-09-30`, Target amount `1000`; Salesperson Bala Sales, same period, `100000`. Runs Monthly, Counts Invoiced |
+| `compliance-firm` (QA05) | Three sales of `QA-P` at `100`, Discount % `0`, each order approved, noted, dispatched and billed as above. **Invoice A**: `QA-B2B`, quantity `10` (1,180.00), then a receipt of `1180.00` Bank applied to it. **Invoice B**: `QA-B2B`, quantity `5` (590.00), no receipt. **Invoice C**: `QA-B2C`, quantity `3` (354.00), no receipt. Then Accounts > All Accounts screens > Tax filing > E-Invoice → **Register an invoice** → Invoice A → Register; again for Invoice B. Not C |
 | `pharma-firm` (QA06) | D5's receipt, then two sales orders for `QA-RX`, both Approved: `QA-AMX` quantity `5` at `100`; `QA-SHT` quantity `10` at `100` |
-| `electronics-firm` (QA07) | D5's receipt, then Inventory → Batch & Serial → **Serial Numbers** → New, five times: product `QA-MIX`, warehouse MAIN, branch HO, serial `QA-MIX-0001` to `QA-MIX-0005`, warranty start today (2026-09-25), warranty end today plus one year (2027-09-25) |
+| `electronics-firm` (QA07) | D5's receipt, then Stock > All Stock screens > Tracking > **Serial Numbers** → New, five times: product `QA-MIX`, warehouse MAIN, branch HO, serial `QA-MIX-0001` to `QA-MIX-0005`, warranty start today (2026-09-25), warranty end today plus one year (2027-09-25) |
 
 ---
 
@@ -565,7 +569,7 @@ alone. *Firm admin* is the administrator of the firm the section names.
 | TC-SESS-001 | platform admin | Search `QA`; expect `QA-ONE` in QA01 and `QA-TWO` in QA02 (among the other QA records; the point is that no QA01 row survives the switch) |
 | TC-SESS-002 | `admin@qa01.test` | Idle more than 15 minutes; nothing to type |
 | TC-SESS-003 | nobody, then the Target | `nobody.qa@qa.test` / `Wrong@Password1`; `lock.target@qa.test` / `Wrong@Password1` four times, then a fifth; then `QaTest@2026pw` |
-| TC-SESS-004 | the Target, then `admin@qa01.test` | Lock as above; Users → Edit **Lock Target (qa)** → tick Clear login lock → Save; sign in `lock.target@qa.test` / `QaTest@2026pw` |
+| TC-SESS-004 | the Target, then `admin@qa01.test` | Lock as above; Settings > Platform > People > Users → Edit **Lock Target (qa)** → tick Clear login lock → Save; sign in `lock.target@qa.test` / `QaTest@2026pw` |
 | TC-SESS-005 | `admin@qa01.test`, the Target | Untick Active; right password `QaTest@2026pw`, wrong `Wrong@Password1`. Expires at: **yesterday** (2026-09-24). Then clear Expires at |
 | TC-SESS-006 | `admin@qa01.test` | New: Full name *Newbie qa*, `qa.newbie@qa.test`, `Welcome@123456`, Require password change **on**, QA01. New passwords `Short@1`, `LongEnoughPassw0rd`, `Newbie-Passw0rd!` |
 | TC-SESS-007 | platform admin | Target is **Lock Target Two (qa)** (`lock.target2@qa.test`). New with the same email: Full name *Lock Target Reborn (qa)*, `QaTest@2026pw`, no firms, no roles |
@@ -577,12 +581,14 @@ alone. *Firm admin* is the administrator of the firm the section names.
 | TC-PLAT-004 | `platform.member@qa.test` | Needs the developer's designation (B2) |
 | TC-PLAT-005 | `admin@qa01.test` | Nothing |
 | TC-ME-001 | `twofirm@qa.test`, Remember me ticked | Expect name *Two Firm User (qa)* |
-| TC-ME-002, 003 | `twofirm@qa.test` | Choose QA02 → Save. **Run TC-ME-003 before TC-ME-002**, or set QA01 back as primary first: TC-ME-003 expects QA01 to be the primary |
+| TC-ME-002, 003 | `twofirm@qa.test` | User menu > **My preferences** > **Start in firm** > QA02 → Save. **Run TC-ME-003 before TC-ME-002**, or set QA01 back as primary first: TC-ME-003 expects QA01 to be the primary |
 | TC-ME-004 | `twofirm@qa.test` | **(HTTP)** The case lists no request; send `PUT /api/v1/me/primary-firm` with `{"firm_id": "<QA03's id>"}` (a firm they do not belong to) |
 | TC-ME-005 | `twofirm@qa.test` | Nothing |
 | TC-ME-006 | platform admin | Nothing |
 | TC-ME-007 | `admin@qa01.test` | Nothing |
 | TC-ME-008 | `twofirm@qa.test` | `Short@1`; `LongEnoughPassw0rd`; current `Wrong@Password1` with new `Str0ng-Passw0rd!` twice; current `QaTest@2026pw` with new `Str0ng-Passw0rd!` twice. **Run last** of the TC-ME cases: from here their password is `Str0ng-Passw0rd!` |
+| TC-ME-009..013 | `admin@qa01.test`; for TC-ME-013 step 5 and TC-ME-011 `twofirm@qa.test` | Nothing to type: the menu, favourites, My preferences and Settings > Set up are read from the screens. Star three screens for TC-ME-011 |
+| TC-ME-014..018 | `platform-admin@agency.local` (and `admin@qa01.test` for the refusals) | Agency name `QA Book Traders Agency`; tagline `Quality in bulk`, then `Quality, in bulk`; a valid **PNG under 1 MB** as the logo and a second PNG or JPG; a text file renamed `fake.png`; a PNG or JPG **over 1 MB**. Take them from your own files; the product, company and logo of the product are read-only |
 | TC-TIER-001..003 | `operator@qa.test` | Needs the developer's designation (B2) |
 
 ### 03 Users, roles, templates and hiring
@@ -639,7 +645,7 @@ TC-ROLE-005, 006, 007, 008, then 009 last.
 | TC-ROLE-002 | `admin@qa01.test` | Role code `qa-my-role`, Name *My Role qa*; search `FIRM_CREATE`, `PLATFORM_SETTINGS`, `VOID_INVOICE`, `AUDIT_LOG_VIEW`; tick `SALES_VIEW`, `CUSTOMER_VIEW` |
 | TC-ROLE-003 | `admin@qa01.test` | `platform_admin`, Name *Reserved qa*; also `firm_admin`, `cashier`, `system_auditor` |
 | TC-ROLE-004 | `admin@qa01.test` | Search `AUDIT_LOG_VIEW` |
-| **Night Desk**, before TC-ROLE-005 | `admin@qa01.test` | Roles → New: Role code `qa-night-desk`, Name *Night Desk qa*, Permissions `SALES_VIEW`, `CUSTOMER_VIEW`, `RECEIPT_VIEW`, `RECEIPT_CREATE`. Then create `nightdesk@qa.test` (B4) holding it |
+| **Night Desk**, before TC-ROLE-005 | `admin@qa01.test` | Settings > Platform > People > Roles → New: Role code `qa-night-desk`, Name *Night Desk qa*, Permissions `SALES_VIEW`, `CUSTOMER_VIEW`, `RECEIPT_VIEW`, `RECEIPT_CREATE`. Then create `nightdesk@qa.test` (B4) holding it |
 | TC-ROLE-005 | `admin@qa01.test` | Template code `qa-my-job`, Job name *Night Desk job*, Roles *Night Desk qa* |
 | TC-ROLE-006 | `admin@qa01.test` | *Night Hire qa*, `qa.hire@qa.test`, `QaTest@2026pw`, Job template *Night Desk job* (`qa-my-job`) |
 | TC-ROLE-007..009 | `nightdesk@qa.test` and `admin@qa01.test` | Untick `RECEIPT_CREATE` in 008; Delete in 009 |
@@ -810,7 +816,7 @@ where the cases say 5 and 409.50; the table says so row by row.
 | TC-SELL-014 | Apply to an invoice: the invoice for 7, Amount `97.58`; then `5`. Reverse the 241.60 receipt, reason *Cheque returned unpaid* |
 | TC-SELL-015 | Against the **invoice for 7**; Line 1; Taken back into MAIN; Quantity `9` (refused: *Only 7.0 went out on this line.*), then `2` (193.28 credited, as the case says) |
 | TC-SELL-016 | The **invoice for 7**; Line 1; Reason Rate difference; Credit, before tax `50` (reads `59.00 (tax 9.00)`); then **`600`** instead of 400, because this line was charged 573.30: refused, naming 573.30 charged and what is already credited |
-| TC-SELL-017 | First build **S-PF**: New Order `QA-C01`, MAIN, `QA-DET` `4` at `84`, Create draft, Approve. Proforma → New → S-PF → Raise → Issue. Then Cancel S-PF, reason *Customer postponed* |
+| TC-SELL-017 | First build **S-PF**: New Order `QA-C01`, MAIN, `QA-DET` `4` at `84`, Create draft, Approve. Sell > All Sell screens > Documents > Proforma → New → S-PF → Raise → Issue. Then Cancel S-PF, reason *Customer postponed* |
 
 ### 09 Pricing and incentives
 
@@ -821,7 +827,7 @@ where the cases say 5 and 409.50; the table says so row by row.
 | TC-INCENT-003 | QA03 | Nothing (reads S-ORD's claim) |
 | TC-INCENT-004 | QA03 | New Order `QA-C01`, MAIN, `QA-DET` `60` at `84` |
 | TC-INCENT-005 | QA03 | Needs the HTTP adjustment (D4). Use points `100` on the **invoice for 7**; then `5000`. The balance reads 200 plus what the two invoices earned (about 23, at 2 per 100 of 483.21 and 676.49), and the refusal names what is left; the outstanding falls by exactly 100.00 rather than to 383.21, because this invoice is not the one the case was written against |
-| TC-INCENT-006 | QA04 | Collected from `2026-04-01` to `2026-09-30`; Targets → Achievement for September 2026 |
+| TC-INCENT-006 | QA04 | Collected from `2026-04-01` to `2026-09-30`; Sell > All Sell screens > Incentives > Targets → Achievement for September 2026 |
 | TC-INCENT-007 | QA04 | Accrue period September 2026 (2026-09-01 to 2026-09-30); Pay on today from `1000 Cash`; Cancel Asha's |
 | TC-INCENT-008 | QA04 | Sign in as `asha@qa04.test` |
 
@@ -867,7 +873,7 @@ after them.
 | TC-FIN-006 | QA01 | Search `QA-PM` |
 | TC-FIN-007 | QAR1 | Cost centre `SALES` *Sales* (twice); profit centre `NORTH` *North*; journal line on `5000` with cost centre SALES, `5000 Purchases` Dr `250`, `1000 Cash` Cr `250`, reference `MT-CC-1`, today |
 | TC-FIN-008 | QA03 | Approve **S-BLK** |
-| TC-FIN-009 | QA03 | Bill **S-FOUR**: Sales Invoices → New → bill the order, `4` |
+| TC-FIN-009 | QA03 | Bill **S-FOUR**: Sell > Sales Invoices → New → bill the order, `4` |
 | TC-FIN-010 | QA01 | Ctrl+K `CUSTOMER_VIEW` |
 | TC-FIN-011 | platform admin | Nothing |
 | TC-CASH-001 | QA01 | Sign in as `cashier@qa01.test` |
@@ -958,7 +964,7 @@ throughout this sheet now; only the fifth still needs HTTP or the developer,
 which is why the cases that need it may be `Blocked`:
 
 1. **Fixed 2026-09-25 (#663): Product categories can now be created on the
-   desktop**, Masters → **Product Categories**. Built there for `QA-PM`
+   desktop**, Settings > Set up > Item lists > **Product Categories**. Built there for `QA-PM`
    (TC-MAST-003) and QAR1's `FXAMB` and `FXCHL` (the TC-FIELD cases) in C2
    and C8 above. Walkthrough W13 now creates `QA-P1`'s category the same way.
 2. **Fixed 2026-09-25 (#662): a promotion can now be made coupon-only on
@@ -966,7 +972,7 @@ which is why the cases that need it may be `Blocked`:
    switch, plus **Total uses** and **Uses per customer**; `WELCOME` is built
    on screen in C4 above.
 3. **Fixed 2026-09-25 (#664): loyalty points can now be credited by hand
-   on the desktop.** Masters → Loyalty → **Adjust points** (needs
+   on the desktop.** Settings > Set up > Pricing > Loyalty → **Adjust points** (needs
    `LOYALTY_MANAGE_SETTINGS`); used for the `loyalty-points` preparation
    in D4 above (TC-INCENT-005).
 4. **The platform designation has no route**, by design (B2). Still open —
@@ -1022,7 +1028,7 @@ which is why the cases that need it may be `Blocked`:
     naming the collision so the step reads correctly on its own.
 13. **Fixed 2026-09-25:** `06`, TC-BUY-005 said a purchase invoice could not
     be raised from the desktop (BACKLOG 31.9). The desktop now has
-    **Purchase Invoices → New** with a Goods Receipt picker (the
+    Buy > **Purchase Invoices → New** with a Goods Receipt picker (the
     walkthrough's W25 uses it); the stale note is removed from the source.
 14. **Fixed 2026-09-25:** `04`, TC-FIRM-003 expected *Configured profiles:
     REMOTE_A*, this machine's own value. The source now says the message

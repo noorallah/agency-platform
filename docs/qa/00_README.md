@@ -4,6 +4,18 @@ The complete manual test suite for an **installed** copy of the Agency
 Platform, one file per module area. Each file stands alone, so QA can take
 one module at a time, and each has a PDF beside the installer.
 
+**This suite is for release 1.3.0 and is the first end-to-end test pass of it.**
+Release 1.3.0 includes 1.2.0, which was never shipped, so nothing in it has
+been through a tester's hands yet: the light menu, the Settings page, favourites,
+My preferences, the whole backlog build of 2026-10-02 and 2026-10-03, and the
+agency's branding are all new to this pass. Every menu path in the files is
+the 1.3.0 menu: `Sell > Quotations` is the **Sell** drop-down on the menu bar,
+`Sell > All Sell screens > Documents > Proforma` is a screen that is not daily
+work, `Sell > Returns & notes > Credit Notes` is the short list beside the daily
+one, and the gear at the right of the bar opens **Settings**
+(`Settings > Firm > Numbering Series`, `Settings > Set up > Pricing > Price
+Lists`, `Settings > Platform > People > Users`).
+
 Generated on 2026-10-04 from the product's own sources. The detailed cases
 come from `docs/INDEPENDENT_TEST_CASES.md`, whose every expectation was
 driven against a running server. The screen checks and the role matrix come
@@ -44,9 +56,9 @@ is settled. Nineteen cases that had been added to these files by hand on
 TC-TERR-006, TC-COMP-009 to 019) are now also in
 `docs/INDEPENDENT_TEST_CASES.md`, so regenerating no longer drops them.
 
-**Release 1.2.0 (2026-10-04): the menu changed.** Each drop-down now shows daily work only; every other screen is behind **All <area> screens** at its foot, under the same group name, so a path such as *Sell > Insight > Sales Analysis* is now *Sell > All Sell screens > Insight > Sales Analysis*. **Returns & notes** opens the returns and notes. The **Admin** area has left the bar: Users, Roles, Firms, Audit Logs and Backups are under **Settings (gear) > Platform**; the set-up lists (price lists, promotions, territories, customer groups, product categories, units, places) are under **Settings > Set up**. Ctrl+K finds any screen by name. Cases TC-ME-009 to TC-ME-013 (`02_SIGN_IN_AND_ACCOUNTS`) cover the new menu, Settings > Set up, favourites and My preferences, which replaces the *Primary firm* menu entry. For one tester's book across every module, with sample data and what to check after each action, see `docs/QA_TEST_BOOK.md`. For a module-by-module reference (what to configure, which screens to open, what to verify elsewhere, known limits) see `docs/QA_MODULE_REFERENCE.md`.
+**What 1.2.0 changed (carried into 1.3.0): the menu.** Each drop-down now shows daily work only; every other screen is behind **All <area> screens** at its foot, under the same group name, so a path such as *Sell > Insight > Sales Analysis* is now *Sell > All Sell screens > Insight > Sales Analysis*. **Returns & notes** opens the returns and notes. The **Admin** area has left the bar: Users, Roles, Firms, Audit Logs and Backups are under **Settings > Platform** (People, Firms, Agency, System); the set-up lists (price lists, promotions, territories, customer groups, product categories, units, places) are under **Settings > Set up**. Ctrl+K finds any screen by name. Cases TC-ME-009 to TC-ME-013 (`02_SIGN_IN_AND_ACCOUNTS`) cover the new menu, Settings > Set up, favourites and My preferences, which replaces the *Primary firm* menu entry. For one tester's book across every module, with sample data and what to check after each action, see `docs/QA_TEST_BOOK.md`. For a module-by-module reference (what to configure, which screens to open, what to verify elsewhere, known limits) see `docs/QA_MODULE_REFERENCE.md`.
 
-**Release 1.3.0 (2026-10-04): the agency's branding.** The sign-in screen, the header and the first sign-in now show the agency's own name, tagline and logo, set on a Branding page of a fresh server install or under **Settings > Platform > Agency > Branding**. Cases TC-ME-014 to TC-ME-018 (`02_SIGN_IN_AND_ACCOUNTS`) cover the sign-in screen, More help and the offline fallback, the first-run *Set up your agency* dialog, the Branding settings page and the header; the installer page is in `docs/INSTALLER_QA_CHECKLIST.md` (A4a and section F). **Written from the code and not yet driven against a running server.** They are in `docs/INDEPENDENT_TEST_CASES.md` too, so regenerating keeps them.
+**What 1.3.0 adds: the agency's branding.** The sign-in screen, the header and the first sign-in now show the agency's own name, tagline and logo, set on a Branding page of a fresh server install or under **Settings > Platform > Agency > Branding**. Cases TC-ME-014 to TC-ME-018 (`02_SIGN_IN_AND_ACCOUNTS`) cover the sign-in screen, More help and the offline fallback, the first-run *Set up your agency* dialog, the Branding settings page and the header; the installer page is in `docs/INSTALLER_QA_CHECKLIST.md` (A4a and section F). **Written from the code and not yet driven against a running server.** They are in `docs/INDEPENDENT_TEST_CASES.md` too, so regenerating keeps them.
 
 ## Start with the sanity check
 
@@ -63,12 +75,12 @@ If it fails, the cases below cannot be trusted until the failure is fixed.
 
 | File | Area | Detailed cases | Screen checks |
 | --- | --- | --- | --- |
-| `01_ROLES_AND_ACCESS` | What each of the 11 job templates may reach and do | 11 jobs, 579 screen rows | |
-| `02_SIGN_IN_AND_ACCOUNTS` | Sign-in, lockout, sessions, your own account, platform mode | 27 | |
+| `01_ROLES_AND_ACCESS` | What each of the 11 job templates may reach and do | 11 jobs, 571 screen rows | |
+| `02_SIGN_IN_AND_ACCOUNTS` | Sign-in, lockout, sessions, your own account, platform mode, the 1.3.0 menu, branding | 37 | |
 | `03_USERS_AND_ROLES` | Users, hiring, job templates, roles in two tiers | 52 | 5 |
 | `04_FIRMS_AND_CONFIGURATION` | Creating and finishing a firm, isolation, numbering, profiles, tax, units, custom fields | 45 | 19 |
-| `05_MASTERS` | Customers, vendors, products, branches, warehouses, principals and brands, merging duplicates, codes from a series | 22 | 14 |
-| `06_PURCHASING` | Purchase order to supplier payment, returns, GST on purchases, requisitions, supplier terms, payment runs, landed cost | 28 | 16 |
+| `05_MASTERS` | Customers, vendors, products, branches, warehouses, principals and brands, merging duplicates, codes from a series | 22 | 13 |
+| `06_PURCHASING` | Purchase order to supplier payment, returns, GST on purchases, requisitions, supplier terms, payment runs, landed cost | 28 | 15 |
 | `07_INVENTORY` | Stock, transfer documents, write-offs, repacking, kits, counts, batches, serials | 20 | 18 |
 | `08_SELLING` | Enquiry and quotation to cash, holds, returns, credit notes, debit notes, proforma, counter billing, price levels | 35 | 7 |
 | `09_PRICING_AND_INCENTIVES` | Price lists, promotions, coupons, loyalty, commission, targets, principal claims | 12 | 5 |
@@ -78,10 +90,11 @@ If it fails, the cases below cannot be trusted until the failure is fixed.
 | `13_CROSS_CUTTING` | Permissions enforced by the server, two people editing one record | 17 | |
 | `14_TEST_DATA` | The values to type for every firm, person, master and case (written by hand) | | |
 
-In all: **325 detailed cases, 123 screen checks and 11 role checks**. The
+In all: **335 detailed cases, 121 screen checks and 11 role checks**. The
 installation itself is tested separately by `docs/INSTALLER_QA_CHECKLIST.md`,
 and `docs/QA_FUNCTIONAL_WALKTHROUGH.md` is a one-day end-to-end run that
-makes a good first pass before this suite.
+makes a good first pass before this suite. For one tester's book across every
+module, see `docs/QA_TEST_BOOK.md`.
 
 ## Before you start
 

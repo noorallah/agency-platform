@@ -1,5 +1,10 @@
 # Sanity check -- is this installation working?
 
+For **release 1.3.0** (the first end-to-end test pass; it includes 1.2.0). Menu
+paths are the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down, a screen
+that is not daily work is under `Sell > All Sell screens > <group>`, and
+`Settings > ...` is the gear at the right of the menu bar. Updated 2026-10-04.
+
 Run it after installing or upgrading and before anything else, or whenever
 something looks wrong. It has two parts:
 
@@ -8,7 +13,7 @@ something looks wrong. It has two parts:
    reports PASS, SLOW, SKIP or FAIL for each.
 2. **Module by module** (about 45 minutes, by hand). Eleven short groups
    of cases -- sign-in, masters, pricing, selling, buying, stock, accounts,
-   GST, reports, field sales, administration -- on the demo firm WHOLE01,
+   GST, reports, field sales, settings and the platform -- on the demo firm WHOLE01,
    each with the exact customer, product and figures to expect. It covers
    what a script cannot judge: that the screens work, price right, post
    right and print.
@@ -146,7 +151,7 @@ Fail, write what you saw.
 
 | Id | Do | Expect |
 | --- | --- | --- |
-| SAN-A1 | Sign in as `whole01.admin@agency.local` | Home opens on *MarketBridge Wholesale Traders*; no error banner; the menus Sell, Buy, Stock, Accounts, Masters, Reports, Admin, Settings |
+| SAN-A1 | Sign in as `whole01.admin@agency.local` | Home opens on *MarketBridge Wholesale Traders*; no error banner; the menu bar Home, Sell, Buy, Stock, Accounts, Masters, Reports and the gear (Settings); there is no Admin area on the bar in 1.3.0 |
 | SAN-A2 | Sign in as `master.ops@agency.local`; use the firm switcher to go to **WHOLE01**, then **MEDI01**, then back | Each firm shows its own Home. WHOLE01's customer list never shows MEDI01's customers, and the reverse |
 | SAN-A3 | Sign in with a wrong password | Refused with a plain message; the account is not shown as existing or not |
 
@@ -155,7 +160,7 @@ Fail, write what you saw.
 | Id | Do | Expect |
 | --- | --- | --- |
 | SAN-B1 | **Masters > Customers**, open **WHOLE01C02** Anand Agencies | GSTIN `29WHOLE01C023Z5`, credit limit 2,50,000, group Wholesaler |
-| SAN-B2 | Change its phone number to `9876500001`, Save; open it again | Saved; the new number shows. *Settings (gear) > Platform > Audit Logs* has the change with your name |
+| SAN-B2 | Change its phone number to `9876500001`, Save; open it again | Saved; the new number shows. *Settings > Platform > System > Audit Logs* has the change with your name |
 | SAN-B3 | **Masters > Products**, search `SHAMP` | Only **SHAMP180** Shampoo Bottle 180ml; selling price 116, MRP 120, HSN 330510 |
 | SAN-B4 | **Masters > Vendors**, open **WHOLE01V01** | BrightHome Consumer Goods opens with its details |
 | SAN-B5 | **Masters > Customers > New**: save with the name empty | Refused, naming the field; nothing is created |
@@ -184,11 +189,11 @@ Tax on every row is half CGST 9%, half SGST 9%.
 
 | Id | Do | Expect |
 | --- | --- | --- |
-| SAN-D1 | Open the quotation from SAN-C1, **Send**, then **Convert to order**; approve the order | An approved sales order for WHOLE01C01, TOOTH150 × 10, total 633.07. **Stock > Inventory**: TOOTH150 in WHL_DC shows 10 more reserved, 10 fewer available |
+| SAN-D1 | Open the quotation from SAN-C1, **Send**, then **Convert to order**; approve the order | An approved sales order for WHOLE01C01, TOOTH150 × 10, total 633.07. **Stock > All Stock screens > Stock > Inventory**: TOOTH150 in WHL_DC shows 10 more reserved, 10 fewer available |
 | SAN-D2 | **Sell > Delivery Notes**: raise the note from the order (reason *Sale*), then **Dispatch and invoice** | The note is dispatched and an approved invoice exists for 633.07. TOOTH150 on hand in WHL_DC is 10 lower than before D1 |
 | SAN-D3 | Open the invoice, **Print** | The PDF shows the firm and customer GSTINs, place of supply Karnataka (29), HSN 330610, CGST 9% and SGST 9% (96.57 together), total 633.07 in figures and words |
-| SAN-D4 | **Record Receipt** on the invoice: 633.07, Bank | The invoice shows paid, nothing outstanding. **Sell > Customer Statements**, WHOLE01C01: the invoice and the receipt, closing where it opened |
-| SAN-D5 | **Sell > Sales Returns**: return 2 of the 10 from that invoice; complete it | A credit of 126.61 (2 × 58 less 7.5%, plus 18%); TOOTH150 on hand back up by 2; the customer's balance shows the credit |
+| SAN-D4 | **Sell > Receipts > Record Receipt** on the invoice: 633.07, Bank | The invoice shows paid, nothing outstanding. **Sell > Customer Statements**, WHOLE01C01: the invoice and the receipt, closing where it opened |
+| SAN-D5 | **Sell > Returns & notes > Sales Returns**: return 2 of the 10 from that invoice; complete it | A credit of 126.61 (2 × 58 less 7.5%, plus 18%); TOOTH150 on hand back up by 2; the customer's balance shows the credit |
 | SAN-D6 | **Sell > Sales Orders**: a new order for WHOLE01C02, SHAMP180 × 5; **Hold** it, then try to raise a delivery note | Held orders cannot be delivered; the message says it is on hold. Release the hold and the note is allowed |
 
 ### E. Buying -- order to payment
@@ -205,7 +210,7 @@ Tax on every row is half CGST 9%, half SGST 9%.
 
 | Id | Do | Expect |
 | --- | --- | --- |
-| SAN-F1 | **Stock > Inventory**, DETER1K | One row per warehouse; WHL_DC's on-hand and available make sense after D and E |
+| SAN-F1 | **Stock > All Stock screens > Stock > Inventory**, DETER1K | One row per warehouse; WHL_DC's on-hand and available make sense after D and E |
 | SAN-F2 | **Stock > Stock Ledger**, DETER1K, this month | The receipt (+20) and the return (-2) from E, each with its document number, and a running balance |
 | SAN-F3 | **Stock > Stock Summary** | Every product with quantity and value; no negative quantity |
 | SAN-F4 | **Stock > Physical Count**: count TOOTH150 in WHL_DC at its book quantity, post it | No difference posted; the count is recorded |
@@ -215,18 +220,18 @@ Tax on every row is half CGST 9%, half SGST 9%.
 | Id | Do | Expect |
 | --- | --- | --- |
 | SAN-G1 | **Accounts > Ledgers**, Trade Receivables (or the customer WHOLE01C01) | The invoice from D2 (debit 633.07) and the receipt from D4 (credit 633.07) |
-| SAN-G2 | **Accounts > Statements > Trial Balance**, this financial year | Opens; total debits equal total credits |
-| SAN-G3 | **Accounts > Statements > Profit & Loss** and **Balance Sheet**, this year | Both open; the balance sheet balances |
+| SAN-G2 | **Accounts > Trial Balance**, this financial year | Opens; total debits equal total credits |
+| SAN-G3 | **Accounts > Profit & Loss** and **Accounts > Balance Sheet**, this year | Both open; the balance sheet balances |
 | SAN-G4 | **Accounts > Journal Entries > New**: debit any expense account 500, credit Cash 500; post | Posted with a number; it appears in both ledgers. A journal whose debits and credits differ is refused |
 
 ### H. GST and compliance
 
 | Id | Do | Expect |
 | --- | --- | --- |
-| SAN-H1 | **Accounts > Tax filing > GST Returns**, GSTR-1 for this month | The invoice from D2 under **B2B** with GSTIN `29WHOLE01C012Z5`, taxable 536.50, CGST + SGST 96.57; the return from D5 under credit notes (CDNR) |
+| SAN-H1 | **Accounts > GST Returns**, GSTR-1 for this month | The invoice from D2 under **B2B** with GSTIN `29WHOLE01C012Z5`, taxable 536.50, CGST + SGST 96.57; the return from D5 under credit notes (CDNR) |
 | SAN-H2 | GSTR-3B for this month | 3.1(a) includes the sale less the return; 4(A)(5) includes the purchase from E3 |
 | SAN-H3 | **Settings > Tax > GST Documents**: set *E-invoicing applies from* to today, E-invoice filing **Sandbox**; Save. Raise and approve a new invoice to WHOLE01C03 (SHAMP180 × 5) and **Print** it | Print is refused: *no IRN yet*; **Print reference copy** prints it under "NO IRN YET - NOT A VALID TAX INVOICE" |
-| SAN-H4 | **Accounts > Tax filing > E-Invoice > To register**: the invoice from H3 is listed; **Register** it, then print it again | It leaves the list; the print carries the IRN, acknowledgement and QR in a box marked SANDBOX |
+| SAN-H4 | **Accounts > All Accounts screens > Tax filing > E-Invoice > To register**: the invoice from H3 is listed; **Register** it, then print it again | It leaves the list; the print carries the IRN, acknowledgement and QR in a box marked SANDBOX |
 | SAN-H5 | Back in **GST Documents**, clear *E-invoicing applies from*; Save | Printing a new invoice works without an IRN again. **Leave WHOLE01 like this** so the other cases print |
 
 ### I. Reports
@@ -235,25 +240,25 @@ Tax on every row is half CGST 9%, half SGST 9%.
 | --- | --- | --- |
 | SAN-I1 | **Reports > Operational**: *Sales invoice register*, *Purchase invoice register* and *Stock valuation*, for this month | Each opens with rows; the sales register includes the invoices from D and H, the purchase register the bill from E3 |
 | SAN-I2 | **Reports**: *Overdue sales invoices* | WHOLE01C01's invoice from D2 is not in it (paid); unpaid invoices past their due date are, with the days overdue |
-| SAN-I3 | **Sell > Sales Analysis**, this month by product | TOOTH150 and SHAMP180 with the quantities sold above |
+| SAN-I3 | **Sell > All Sell screens > Insight > Sales Analysis**, this month by product | TOOTH150 and SHAMP180 with the quantities sold above |
 
 ### J. Field sales and incentives
 
 | Id | Do | Expect |
 | --- | --- | --- |
-| SAN-J1 | **Settings (gear) > Set up > Territories & routes > Territories** | Chennai Region with North Zone and South Zone under it |
-| SAN-J2 | **Sell > Beat Plans**, *South Sales Beat* | Its customers in visit order and the weekday it runs |
-| SAN-J3 | **Sell > Commission** and **Sell > Targets** | Both open with the seeded rules and targets; nothing errors |
+| SAN-J1 | **Settings > Set up > Territories & routes > Territories** | Chennai Region with North Zone and South Zone under it |
+| SAN-J2 | **Sell > All Sell screens > Field sales > Beat Plans**, *South Sales Beat* | Its customers in visit order and the weekday it runs |
+| SAN-J3 | **Sell > All Sell screens > Incentives > Commission** and **Targets** | Both open with the seeded rules and targets; nothing errors |
 
-### K. Administration and settings
+### K. Settings and the platform
 
 | Id | Do | Expect |
 | --- | --- | --- |
-| SAN-K1 | **Settings (gear) > Platform > Users**, open `whole01.sales1@agency.local` | Its firm (WHOLE01) and its roles show |
-| SAN-K2 | Sign in as `whole01.sales1@agency.local` (role *Sales Executive*) | Quotations, Sales Orders, Sales Invoices and Customers are offered; Buy, Accounts and Admin are not |
-| SAN-K3 | **Settings (gear) > Platform > Audit Logs**, today | The changes made in B2 and G4, with who and when |
+| SAN-K1 | **Settings > Platform > People > Users**, open `whole01.sales1@agency.local` | Its firm (WHOLE01) and its roles show |
+| SAN-K2 | Sign in as `whole01.sales1@agency.local` (role *Sales Executive*) | Quotations, Sales Orders, Sales Invoices and Customers are offered; Buy and Accounts are not, and the Settings page has no Platform part |
+| SAN-K3 | **Settings > Platform > System > Audit Logs**, today | The changes made in B2 and G4, with who and when |
 | SAN-K4 | **Settings > Firm > Numbering Series** | Each document type with its next number; the invoice series is past the invoices made above |
-| SAN-K5 | As the platform administrator: **Settings (gear) > Platform > Backups**, take a backup | It completes and is listed with its size and time |
+| SAN-K5 | As the platform administrator: **Settings > Platform > System > Backups**, take a backup | It completes and is listed with its size and time |
 
 When every case passes, the installation is working and the detailed cases
 in sections 01-14 of this folder can be run.

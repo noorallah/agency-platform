@@ -1,8 +1,12 @@
 # Signing in, sessions and your own account
 
-Part of the QA test suite in `docs/qa/`. Read `00_README.md` first: it
-explains the preparations, the accounts and how to record results. Generated
-on 2026-10-03 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
+Part of the QA test suite in `docs/qa/` for **release 1.3.0**, the first
+end-to-end test pass (it includes 1.2.0). Read `00_README.md` first: it
+explains the preparations, the accounts and how to record results. Every menu
+path is the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down on the menu
+bar, `Sell > All Sell screens > Documents > Proforma` is a screen that is not
+daily work, and `Settings > Set up > Pricing > Price Lists` is the gear at the
+right of the bar. Generated on 2026-10-04 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
 
@@ -23,14 +27,14 @@ fifteen minutes.
 
 - **Preconditions:** The platform administrator, and one customer in each of two firms, QA01 and QA02. (a customer of yours in QA01 and another in QA02.)
 - **Steps**
-  1. Sign in as the prepared **Platform admin**; switch into **QA01** → Masters → Customers; search `QA`.
+  1. Sign in as the prepared **Platform admin**; switch into **QA01** → Masters > Customers; search `QA`.
   2. With the list open, switch to **QA02**.
 - **Expect:** step 1 shows `QA-ONE`; after the switch the list reloads by itself and shows `QA-TWO` — **no row from QA01 survives**, not even for a moment.
 ### TC-SESS-002 — An idle session refreshes quietly, and a signed-out one leaves nothing behind
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
 - **Steps**
-  1. Sign in as the prepared **Firm admin**; open Masters → Customers. Leave the application idle for **more than 15 minutes** (the access token's lifetime, `AGENCY_JWT_ACCESS_TOKEN_MINUTES`).
+  1. Sign in as the prepared **Firm admin**; open Masters > Customers. Leave the application idle for **more than 15 minutes** (the access token's lifetime, `AGENCY_JWT_ACCESS_TOKEN_MINUTES`).
   2. Click **Refresh**.
   3. Sign out; press the mouse's Back button or Alt+Left.
 - **Expect**
@@ -55,14 +59,14 @@ fifteen minutes.
 - **Preconditions:** The platform administrator, a firm administrator of QA01, and an ordinary QA01 user to act on.
 - **Steps**
   1. Lock the prepared **Target** with five wrong passwords (TC-SESS-003 steps 2–3).
-  2. Sign in as the prepared **Firm admin** → Users → Edit **Lock Target (qa)** → tick **Clear login lock (Account Lock)** → Save.
+  2. Sign in as the prepared **Firm admin** → Settings > Platform > People > Users → Edit **Lock Target (qa)** → tick **Clear login lock (Account Lock)** → Save.
   3. Sign in as the target with the prepared password.
 - **Expect:** step 3 signs in at once — the lock cleared and the failed count reset. *(2.9's other way, waiting fifteen minutes, ends the same; TC-SESS-003 step 5 shows it.)*
 ### TC-SESS-005 — Inactive and expired accounts are told why
 
 - **Preconditions:** The platform administrator, a firm administrator of QA01, and an ordinary QA01 user to act on.
 - **Steps**
-  1. As the prepared **Firm admin**, Users → Edit the target → untick **Active** → Save. Sign in as the target with the right password; then with `Wrong@Password1`.
+  1. As the prepared **Firm admin**, Settings > Platform > People > Users → Edit the target → untick **Active** → Save. Sign in as the target with the right password; then with `Wrong@Password1`.
   2. Edit again: tick Active, set **Expires at** to yesterday → Save. Sign in with the right password; then a wrong one.
   3. Clear Expires at → Save; sign in.
 - **Expect**
@@ -74,21 +78,21 @@ fifteen minutes.
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
 - **Steps**
-  1. As the prepared **Firm admin**, Users → New: `qa.newbie@qa.test`, password `Welcome@123456`, **Require password change** on, in QA01 → Save.
+  1. As the prepared **Firm admin**, Settings > Platform > People > Users → New: `qa.newbie@qa.test`, password `Welcome@123456`, **Require password change** on, in QA01 → Save.
   2. Sign in as them. On the change-password screen try new passwords `Short@1`, then `LongEnoughPassw0rd`, then `Newbie-Passw0rd!`.
 - **Expect:** the change-password screen and nothing else reachable. `Short@1` refused ("Use at least 12 characters."); `LongEnoughPassw0rd` refused ("Include a symbol."); `Newbie-Passw0rd!` accepted and the app opens.
 ### TC-SESS-007 — Deleting somebody releases their address; the new account is a new person
 
 - **Preconditions:** The platform administrator, a firm administrator of QA01, and an ordinary QA01 user to act on.
 - **Steps**
-  1. As the prepared **Platform admin**, Users → select the target → **Delete**.
-  2. Users → New with the same email, any name and password, no firms or roles → Save.
-- **Expect:** step 1 — gone from the grid; Settings → Audit Logs keeps the row. Step 2 — the address is accepted again (soft delete releases it) and the new account has **no** roles and **no** firms.
+  1. As the prepared **Platform admin**, Settings > Platform > People > Users → select the target → **Delete**.
+  2. Settings > Platform > People > Users → New with the same email, any name and password, no firms or roles → Save.
+- **Expect:** step 1 — gone from the grid; Settings > Platform > System > Audit Logs keeps the row. Step 2 — the address is accepted again (soft delete releases it) and the new account has **no** roles and **no** firms.
 ### TC-SESS-008 — Restoring a deleted person as they were
 
 - **Preconditions:** The platform administrator, a firm administrator of QA01, and an ordinary QA01 user to act on.
 - **Steps**
-  1. As the prepared **Platform admin**, delete the target. Users → **Status** filter → **Deleted** → open them.
+  1. As the prepared **Platform admin**, delete the target. Settings > Platform > People > Users → **Status** filter → **Deleted** → open them.
   2. **Restore** (dialog footer). Sign in as the target with the prepared password.
   3. Delete the target again; create a **new** account with the same address; Status → Deleted → open the old one → Restore.
 - **Expect**
@@ -99,7 +103,7 @@ fifteen minutes.
 
 - **Preconditions:** The platform administrator, a firm administrator of QA01, and an ordinary QA01 user to act on.
 - **Steps**
-  1. As the prepared **Firm admin**, Users → open the **Status** filter.
+  1. As the prepared **Firm admin**, Settings > Platform > People > Users → open the **Status** filter.
   2. **(HTTP)** As the firm admin, `GET /api/v1/users?deleted_only=true&search=qa`.
   3. Edit the target: untick **Active** → Save. Status → **Inactive**.
   4. As the prepared **Platform admin**: Status → **Inactive**; then also pick the firm **QA01**.
@@ -112,7 +116,7 @@ fifteen minutes.
 
 - **Preconditions:** The platform administrator, a firm administrator of QA01, a user who is a member of QA01 and QA02, and a user in QA02 only. ((for the shared person) and `platform-admin-member` (for a platform administrator to aim at))
 - **Steps**
-  1. As the `shared-member` preparation's **Firm admin**, Users → select **Shared Member (qa)** → Delete.
+  1. As the `shared-member` preparation's **Firm admin**, Settings > Platform > People > Users → select **Shared Member (qa)** → Delete.
   2. **(HTTP)** As any platform administrator, `DELETE /api/v1/users/{id of the platform-admin-member preparation's admin}`.
 - **Expect**
   - Step 1: refused — "This person also works in another firm, so their profile is managed by a platform administrator. You can still set their roles and job template in your own firm."
@@ -122,7 +126,7 @@ fifteen minutes.
 - **Preconditions:** The platform administrator, a firm administrator of QA01, and an ordinary QA01 user to act on.
 - **Steps**
   1. Lock the target (five wrong passwords).
-  2. As the prepared **Platform admin** → Users → open the target → **Reset password** (dialog footer) → `Temp-Passw0rd!!`, "Require a new password" on → Save. Sign in as the target with it.
+  2. As the prepared **Platform admin** → Settings > Platform > People > Users → open the target → **Reset password** (dialog footer) → `Temp-Passw0rd!!`, "Require a new password" on → Save. Sign in as the target with it.
   3. Reset again to `Handover-Passw0rd!` with "Require a new password" **off**; sign in with it.
   4. As the platform admin, open **your own** row → Reset password.
   5. As the prepared **Firm admin**, open the target.
@@ -135,8 +139,8 @@ fifteen minutes.
 ## Platform mode — the switcher and what a platform administrator starts on
 
 A platform administrator with reach over every firm, and a member of none, used
-to get a token carrying every code — so the sidebar offered Sales and
-Inventory — and an empty firm switcher, so every one of those screens refused
+to get a token carrying every code — so the menu offered Sell and
+Stock — and an empty firm switcher, so every one of those screens refused
 its first request. The firm switcher is now the mode switch: **Platform** is
 one of its entries.
 ### TC-PLAT-001 — A platform administrator starts on Platform, every time
@@ -154,17 +158,19 @@ one of its entries.
 - **Preconditions:** The platform administrator (`platform-admin@agency.local`), who belongs to no firm.
 - **Steps**
   1. Sign in as the prepared **Platform admin**. The header reads **Platform**.
-  2. Read the sidebar. Open **Administration** and **Settings** and read their tabs.
-- **Expect** — taken from the desktop's own visibility logic:
+  2. Read the menu bar. Click the gear and read its three parts.
+- **Expect** — taken from the desktop's own visibility and menu logic:
 
-  | Sidebar | Tabs inside |
+  | Where | Screens inside |
   | --- | --- |
-  | **Dashboard** | — |
-  | **Administration** | Firms · Users · Roles & Permissions (Roles, Permissions) · User Templates · User-Firm Assignments |
-  | **Licensing** | — |
-  | **Settings** | Audit Logs · Diagnostics |
+  | **Menu bar** | Home and the gear only (no firm is chosen) |
+  | **Settings > Platform > People** | Users · Roles · Permissions · User Templates · User-Firm Assignments |
+  | **Settings > Platform > Firms** | Firms · Business Profiles |
+  | **Settings > Platform > Agency** | Branding |
+  | **Settings > Platform > System** | Audit Logs · Diagnostics · Licensing · Backups · Platform Dashboard |
+  | **Settings > This PC and me** | My Preferences |
 
-  **No** Masters, Sales, Quotations, Sales Orders, Delivery Notes, Sales Invoices, Sales Returns, Purchases, Inventory, Finance or Reports. **No** Numbering Series, Business Profiles, Tax, UOM or Industry Templates tabs — those live in a firm's own store.
+  **No** Sell, Buy, Stock, Accounts, Masters or Reports menu, and none of the firm's own Settings (Numbering Series, Tax, Units of Measure, Industry Templates ...) — those live in a firm's own store and need a firm.
 - **Why:** `requiresFirm` on a module *and* on a tab hides what needs a firm when none is selected. A platform administrator's token carries every code, so permissions alone would offer everything.
 ### TC-PLAT-003 — The switcher lists every firm, and choosing one grows the workspace
 
@@ -173,11 +179,11 @@ one of its entries.
   1. Sign in as the prepared **Platform admin**.
   2. Open the firm control.
   3. Pick **QA01**.
-  4. Open **Sales Orders**.
+  4. Open **Sell > Sales Orders**.
   5. Open the firm control again and pick **Platform**.
 - **Expect**
   - Step 2: a **Platform** entry at the top with a tick beside it, then **every active firm** — QA01, QA02, WHOLE01, ELEC01, MEDI01, FOOD01 among them — **although this account is a member of none**.
-  - Step 3: a notification names QA01. The sidebar grows **Masters, Sales, Quotations, Sales Orders, Delivery Notes, Sales Invoices, Sales Returns, Purchases, Purchase Invoices, Purchase Returns, Goods Receipts, Inventory, Finance, Reports**. Administration gains its configuration tabs (Numbering Series through Industry Templates). **Licensing goes away** — it is a platform screen.
+  - Step 3: a notification names QA01. The menu bar grows **Sell, Buy, Stock, Accounts, Masters, Reports**, and the Settings page gains the firm's own parts (Firm, Selling, Buying, Stock, Tax, Business profile and SET UP). **Licensing goes away** — it is a platform screen.
   - Step 4: the screen **loads** with no error — whatever orders preparations have raised in QA01, or none. Before the fix this module was offered and this screen failed.
   - Step 5: **"Working on the platform. No firm is selected."** The firm-owned modules go away again.
 ### TC-PLAT-004 — Being a member of firms does not change where a platform administrator lands
@@ -303,7 +309,7 @@ being signed in and nothing else.
 - **Preconditions:** An ordinary user who is a member of QA01 and QA02, with a role in each.
 - **Steps**
   1. Sign in as the prepared **Two-firm user**. Account menu → **My preferences** → open the **First screen** list.
-  2. Choose **Sell › Sales Invoices** → **Save**.
+  2. Choose Sell > **Sales Invoices** → **Save**.
   3. Open Customers, then sign out and back in.
   4. Set **First screen** back to **The screen I was last on**; open Customers; sign out and back in.
 - **Expect**
@@ -338,9 +344,9 @@ being signed in and nothing else.
   - Step 1: a short list — Quotations, Sales Orders, Delivery Notes, Sales Invoices, Returns & notes, Receipts, Customer Statements — and **All Sell screens (N)** at the foot. Price Lists, Promotions and Territories are **not** here.
   - Step 2: a short list beside it: Sales Returns, Credit Notes, Customer Debit Notes.
   - Step 3: every Sell screen this user may open, under its group (Documents, Money, Incentives, Insight, Field sales); any of them opens in a tab.
-  - Step 4: each area works the same way; Masters shows Customers, Vendors, Products, Branches and Warehouses, and its lists (Customer Groups, Product Categories, Units, Places …) are under Settings › Set up.
-  - Step 5: **no Admin** on the bar: Users, Roles, Firms, Audit Logs and Backups are under **Settings (gear) › Platform**, for those who may open them.
-### TC-ME-013 — Settings › Set up: cards and a search across every section
+  - Step 4: each area works the same way; Masters shows Customers, Vendors, Products, Branches and Warehouses, and its lists (Customer Groups, Product Categories, Units, Places …) are under Settings > Set up.
+  - Step 5: **no Admin** on the bar: Users, Roles, Firms, Audit Logs and Backups are under **Settings > Platform**, for those who may open them.
+### TC-ME-013 — Settings > Set up: cards and a search across every section
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template). (, then `two-firm-user`)
 - **Steps**
@@ -449,15 +455,15 @@ Four kinds of user, not interchangeable:
 - **Preconditions:** A platform administrator with **PLATFORM** scope (not ALL_FIRMS) who is a member of QA01 and QA02 with no roles. Creating one needs the platform designation set on the account; ask the developer if the screen offers no way to do it.
 - **Steps**
   1. Sign in as the prepared **Operator**. The header reads **Platform** — where every platform administrator lands.
-  2. Open Dashboard; Administration → **Firms**, **Users**, **Roles & Permissions**, **User Templates**, **User-Firm Assignments**; Settings → **Audit Logs**, **Diagnostics**.
+  2. Click the gear and open, under **Platform**: People > **Users**, **Roles**, **Permissions**, **User Templates**, **User-Firm Assignments**; Firms > **Firms**, **Business Profiles**; System > **Platform Dashboard**, **Audit Logs**, **Diagnostics**.
 - **Expect:** every one offered, and each opens. Running the platform is their job.
 ### TC-TIER-002 — A platform operator is refused the books, even where they are a member
 
 - **Preconditions:** A platform administrator with **PLATFORM** scope (not ALL_FIRMS) who is a member of QA01 and QA02 with no roles. Creating one needs the platform designation set on the account; ask the developer if the screen offers no way to do it.
 - **Steps**
-  1. Sign in as the prepared **Operator**. Look for Sales, Purchases, Finance, Inventory.
+  1. Sign in as the prepared **Operator**. Look along the menu bar for Sell, Buy, Stock, Accounts and Masters.
   2. Open the firm switcher.
-  3. Switch into **QA01** and read the sidebar.
+  3. Switch into **QA01** and read the menu bar.
 - **Expect**
   - Step 1: **none** offered on Platform. Their token carries **33** codes — firm, user, role, permission, platform and system administration (`FIRM_*`, `USER_*`, `ROLE_*`, `PERMISSION_*`, `PLATFORM_VIEW`, `PLATFORM_SETTINGS`, `SETTINGS_VIEW`, `SETTINGS_UPDATE`, `AUDIT_LOG_VIEW`, `DIAGNOSTICS_VIEW`, `LICENSE_MANAGE`, `SYSTEM_BACKUP`, `SYSTEM_RESTORE`, `SYSTEM_CONFIGURATION`) and nothing operational.
   - Step 2: Platform, **QA01** (primary) and **QA02** — the two firms they are a member of, and **not** every firm. An `ALL_FIRMS` administrator is widened to every firm (TC-PLAT-003); a `PLATFORM` one is not, but memberships they genuinely hold still show.

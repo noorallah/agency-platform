@@ -1,8 +1,12 @@
 # Firms, set-up and configuration
 
-Part of the QA test suite in `docs/qa/`. Read `00_README.md` first: it
-explains the preparations, the accounts and how to record results. Generated
-on 2026-10-03 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
+Part of the QA test suite in `docs/qa/` for **release 1.3.0**, the first
+end-to-end test pass (it includes 1.2.0). Read `00_README.md` first: it
+explains the preparations, the accounts and how to record results. Every menu
+path is the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down on the menu
+bar, `Sell > All Sell screens > Documents > Proforma` is a screen that is not
+daily work, and `Settings > Set up > Pricing > Price Lists` is the gear at the
+right of the bar. Generated on 2026-10-04 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
 
@@ -14,7 +18,7 @@ for a tester with a REST client such as Postman; skip them otherwise.
 
 A firm is created in one place and finished in several: storage, business
 profile, books, tax, first branch and people are each a separate act.
-**Administration → Firms** creates it, and **Set up** on that grid shows each
+Settings > Platform > Firms > **Firms** creates it, and **Set up** on that grid shows each
 step and does four of them.
 
 | Preparation | Builds |
@@ -23,21 +27,21 @@ step and does four of them.
 | `unfinished-firm` | a platform admin, and a `SCHEMA` firm that is provisioned and **nothing else** — no profile, books, tax, branch or members |
 | `ready-firm` | a platform admin, a **finished** `SCHEMA` firm (Wholesale), its firm admin, a `VIEWER`, two product categories, a customer, and a 500.00 cash receipt that has posted |
 
-### TC-FIRM-001 — Firms is an Administration tab that needs no firm
+### TC-FIRM-001 — Firms is a Platform screen that needs no firm
 
 - **Preconditions:** The platform administrator (`platform-admin@agency.local`), who belongs to no firm.
 - **Steps**
   1. Sign in as the prepared **Platform admin**. The header reads **Platform**.
-  2. Open **Administration** → **Firms**.
-  3. Select QA01 and open it with **Open this firm**; look through **Masters**.
+  2. Open Settings > Platform > Firms > **Firms**.
+  3. Select QA01 and open it with **Open this firm**; look through the **Masters** menu.
 - **Expect**
-  - Step 2: the list of every firm. This is the one Administration tab that works with no firm selected.
-  - Step 3: **no Firms** under Masters. It moved to Administration on 2026-09-06 — as a Masters tab it needed a firm, so creating a firm was reachable only from inside another one.
+  - Step 2: the list of every firm. This is the one firm screen that works with no firm selected (the Platform part of Settings).
+  - Step 3: **no Firms** under Masters. It moved to the platform screens on 2026-09-06 — as a Masters tab it needed a firm, so creating a firm was reachable only from inside another one.
 ### TC-FIRM-002 — Creating a shared firm, and reaching it at once
 
 - **Preconditions:** The platform administrator (`platform-admin@agency.local`), who belongs to no firm.
 - **Steps**
-  1. Sign in as the prepared **Platform admin**. Administration → **Firms** → **New**.
+  1. Sign in as the prepared **Platform admin**. Settings > Platform > Firms > **Firms** → **New**.
   2. Type only a name, e.g. `Created qa`, and save.
   3. Fill the rest: code **`qa-s` in lower case** (e.g. `t0916abcd-s`), country `IN`, currency `INR`, financial year start `2026-04-01`, deployment mode **SHARED**. Save.
   4. Select the new row.
@@ -46,7 +50,7 @@ step and does four of them.
   - Step 2: refused. The five required fields are `name`, `code`, `country` (2 letters), `currency_code` (3 letters) and `financial_year_start`; everything else is optional.
   - Step 3: saves. The code is stored **upper case** — `T0916ABCD-S` — as are country and currency. The follow-up message names the next step.
   - Step 4: **Open this firm** enabled — a shared firm is ready at once. **Provision storage** hidden; there is nothing to build.
-  - Step 5: "Working in …" names the new firm, the header shows it, the sidebar grows. **The firm is in the switcher.** That is the half that was broken: the switcher was read once at sign-in, so a firm created minutes earlier was refused as "not assigned to this user".
+  - Step 5: "Working in …" names the new firm, the header shows it, the menu bar grows. **The firm is in the switcher.** That is the half that was broken: the switcher was read once at sign-in, so a firm created minutes earlier was refused as "not assigned to this user".
 ### TC-FIRM-003 — What firm creation refuses
 
 - **Preconditions:** The platform administrator (`platform-admin@agency.local`), who belongs to no firm.
@@ -64,7 +68,7 @@ step and does four of them.
 
 - **Preconditions:** The platform administrator, and a new firm created with deployment mode **SCHEMA** whose storage has not been provisioned.
 - **Steps**
-  1. Sign in as the prepared **Platform admin**. Administration → **Firms**; select the prepared **New firm**.
+  1. Sign in as the prepared **Platform admin**. Settings > Platform > Firms > **Firms**; select the prepared **New firm**.
   2. Press **Provision storage**. Wait — it runs the migrations. Refresh and select the row again.
   3. Press **Provision storage** again.
 - **Expect**
@@ -80,7 +84,7 @@ step and does four of them.
 
 - **Preconditions:** The platform administrator, and a new firm created with deployment mode **SCHEMA** whose storage has not been provisioned.
 - **Steps**
-  1. Sign in as the prepared **Platform admin**. Administration → Firms → select the prepared firm → **Set up**.
+  1. Sign in as the prepared **Platform admin**. Settings > Platform > Firms > Firms → select the prepared firm → **Set up**.
   2. **(HTTP)** Before pressing anything, `POST /api/v1/firms/{id}/open-books`, `.../apply-tax-template` and `.../create-default-branch`.
   3. On the panel, press **Provision storage**.
 - **Expect**
@@ -91,7 +95,7 @@ step and does four of them.
 
 - **Preconditions:** The platform administrator, and a new **SCHEMA** firm that has been provisioned and nothing else: no profile, books, tax, branch or members.
 - **Steps**
-  1. Sign in as the prepared **Platform admin**. Administration → Firms → select the prepared firm → **Set up**.
+  1. Sign in as the prepared **Platform admin**. Settings > Platform > Firms > Firms → select the prepared firm → **Set up**.
   2. **(HTTP)** `GET /api/v1/firms/{id}/readiness`.
 - **Expect**
   - Step 1: titled `Set up QA-F`; **Cannot post documents yet.** Seven rows — Storage and Books **Required**, the rest **Recommended**:
@@ -102,9 +106,9 @@ step and does four of them.
     | Business profile | None assigned. The firm runs as GENERIC … | a profile dropdown and **Assign** |
     | Books | No chart of accounts. Nothing can post until the books are opened. | **Open the books** |
     | Tax | No tax profiles or rules. … | **Apply GST template** |
-    | Geography | No country in the store. … | a hint: Territories → Geography Masters; the GST template adds the country |
+    | Geography | No country in the store. … | a hint: Settings > Set up > Locations > Places; the GST template adds the country |
     | Branches and warehouses | … 0 branches, 0 warehouses so far. | **Create head office and main warehouse** |
-    | People | Nobody belongs to this firm yet. … | a hint: Users → Add existing user, or User-Firm Assignments |
+    | People | Nobody belongs to this firm yet. … | a hint: Settings > Platform > People > Users → Add existing user, or Settings > Platform > People > User-Firm Assignments |
   - Step 2: **200**, `can_post: false`, `ready: false`, the same seven `steps` with `status` DONE / MISSING and `required`.
   - Step 3: the same seven rows from the same implementation, and that it **cannot post** because the books are not open.
 ### TC-FIRM-008 — Opening the books, once
@@ -113,7 +117,7 @@ step and does four of them.
 - **Steps**
   1. Sign in as the prepared **Platform admin** → Firms → the prepared firm → **Set up** → **Open the books**.
   2. Press **Refresh**. Then **(HTTP)** `POST /api/v1/firms/{id}/open-books` again.
-  3. Settings → **Audit Logs**, on Platform.
+  3. Settings > Platform > System > **Audit Logs**, on Platform.
 - **Expect**
   - Step 1: the notice names the year: "Books opened for the year starting 2026-04-01" — the year *today* falls in, aligned to the firm's year start. Books re-reads as done: "24 accounts, 1 financial year, 12 periods, all 24 control accounts mapped, and a period open today." The button is gone, and the verdict reads **Can post documents. The recommended steps are still open.**
   - Step 2: nothing changes. The response: "The books were already open; nothing was created.", `already_open: true`, every count 0.
@@ -124,7 +128,7 @@ step and does four of them.
 - **Steps**
   1. As the prepared **Platform admin**, open **Set up** on the prepared firm → Tax row → **Apply GST template**.
   2. **(HTTP)** `POST /api/v1/firms/{id}/apply-tax-template` again; then once more with `{"template": "US"}`.
-  3. Open this firm → Administration → Configuration → **Tax Configuration**.
+  3. Open this firm → Settings > Tax > **Tax Configuration**.
 - **Expect**
   - Step 1: "GST set up: 10 tax profiles and 13 rules." Tax re-reads as "1 tax system, 10 profiles, 13 rules", and **Geography flips to done** ("1 country in the store") — the template adds India to a store that has no country.
   - Step 2: "The firm already has a tax system; nothing was created.", `already_configured: true`. With `US`: **422**, only `IN_GST` exists. One `firm.tax_template_applied` audit row, not two.
@@ -144,7 +148,7 @@ step and does four of them.
 - **Steps**
   1. As the prepared **Platform admin**, **Set up** on the prepared firm → Branches and warehouses → **Create head office and main warehouse**.
   2. **(HTTP)** `POST /api/v1/firms/{id}/create-default-branch` again.
-  3. Open this firm → Masters → **Branches**, then **Warehouses**.
+  3. Open this firm → Masters > **Branches**, then **Warehouses**.
 - **Expect**
   - Step 1: "Created branch HO and warehouse MAIN. Rename them on their own screens." The row reads "1 branch, 1 warehouse". The verdict stays **Cannot post documents yet.** — the books are still shut in this run; that is TC-FIRM-008's step, not this one's.
   - Step 2: "The firm already has a branch and a warehouse; nothing was created.", `already_present: true`.
@@ -154,7 +158,7 @@ step and does four of them.
 - **Preconditions:** The platform administrator, and a new **SCHEMA** firm that has been provisioned and nothing else: no profile, books, tax, branch or members.
 - **Steps**
   1. As the prepared **Platform admin**, switch into **QA01** (the screen needs *some* firm open).
-  2. Administration → Configuration → Business Profiles → **Profile Assignment**.
+  2. Settings > Business profile > **Profile Assignment**.
   3. Select the prepared firm, open it, choose **Retail**, save. Re-open the row.
 - **Expect**
   - Step 2: a grid of **every** firm, not only QA01 — the screen names the firm in the URL rather than reading `X-Firm-ID`.
@@ -163,7 +167,7 @@ step and does four of them.
 
 - **Preconditions:** The platform administrator, and a new **SCHEMA** firm that has been provisioned and nothing else: no profile, books, tax, branch or members.
 - **Steps**
-  1. As the prepared **Platform admin**, open the prepared firm. Masters → **Customers** → New: code `C1`, name `Before books`, type Business, currency INR. Save.
+  1. As the prepared **Platform admin**, open the prepared firm. Masters > **Customers** → New: code `C1`, name `Before books`, type Business, currency INR. Save.
   2. **(HTTP)** `POST /api/v1/receipts` with `X-Firm-ID` of the prepared firm: `{"party_id": "<C1's id>", "settlement_date": "<today>", "amount": "100.00", "method": "CASH"}`.
 - **Expect**
   - Step 1: saves. Masters do not need the books.
@@ -171,17 +175,17 @@ step and does four of them.
 ### TC-FIRM-014 — What "finished" looks like
 
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
-- **Steps:** sign in as the prepared **Platform admin** → Administration → Firms → the prepared firm → **Set up**.
+- **Steps:** sign in as the prepared **Platform admin** → Settings > Platform > Firms > Firms → the prepared firm → **Set up**.
 - **Expect:** **Finished. Every step is done.** — "24 accounts, 1 financial year, 12 periods, all 24 control accounts mapped, and a period open today"; Assigned: WHOLESALE; 1 tax system, 8 profiles, 9 rules; 1 country; 1 branch, 1 warehouse; **2 members**. No buttons. The contrast with TC-FIRM-007 is the point.
 ### TC-FIRM-015 — Control accounts: held once something has posted
 
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
 - **Steps**
-  1. Sign in as the prepared **Firm admin** → Finance → **Control Accounts**.
+  1. Sign in as the prepared **Firm admin** → Settings > Set up > Account structure > **Control Accounts**.
   2. Hover the lock on **Accounts receivable**.
   3. On **Rounding**, press **Change**. Open the account picker; look at **Save** before choosing. Choose `4000 Sales`, Save. Then change it back to `4900 Rounding`.
   4. **(HTTP)** `PUT /api/v1/finance/control-accounts/ACCOUNTS_RECEIVABLE` with `{"ledger_account_id": "<any other ASSET account>"}`.
-  5. Sign in as the prepared **Viewer** → Finance → Control Accounts.
+  5. Sign in as the prepared **Viewer** → Settings > Set up > Account structure > Control Accounts.
 - **Expect**
   - Step 1: 24 rows, one per posting purpose, each with the account it posts to and the classifications it may use. **Accounts receivable** and **Cash** show a lock and **1 posted** with no Change — the prepared receipt posted one line to each. Every other row offers **Change**.
   - Step 2: "1 posted line on this account. Re-pointing it would leave two accounts each holding part of one story; post a transfer entry and map a new account from the next period instead."
@@ -192,11 +196,11 @@ step and does four of them.
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
 - **Steps**
-  1. Sign in as the prepared **Firm admin** → **Administration**.
+  1. Sign in as the prepared **Firm admin** → the gear → look under **Platform**.
   2. **(HTTP)** As that user: `GET /api/v1/firms`, `POST /api/v1/firms` (any body), `GET /api/v1/firms/{QA01's id}/readiness`, `POST /api/v1/firms/{QA01's id}/open-books`.
 - **Expect**
-  - Step 1: **no Firms** tab and **no Business Profiles** group, so no setup panel. `FIRM_VIEW` and `PLATFORM_VIEW` are platform codes no firm role can hold.
-  - Step 2: **403** for all four. No permission code can grant them. What they would show, a firm administrator reads as their own Finance → Chart of Accounts and Financial Years.
+  - Step 1: **no Firms** and **no Business Profiles** card under Platform, so no setup panel. `FIRM_VIEW` and `PLATFORM_VIEW` are platform codes no firm role can hold.
+  - Step 2: **403** for all four. No permission code can grant them. What they would show, a firm administrator reads as their own Accounts > All Accounts screens > Books > Chart of Accounts and Financial Years.
 ### TC-FIRM-017 — A firm whose people have been deleted cannot be deleted either
 
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
@@ -217,14 +221,14 @@ step and does four of them.
 
 - **Preconditions:** The platform administrator, and one customer in each of two SHARED firms, QASH1 and QASH2. (`QA-SHONE` in QASH1 and `QA-SHTWO` in QASH2, **both in `firm_shared`**.)
 - **Steps**
-  1. Sign in as the prepared **Platform admin** → switch into **QASH1** → Masters → Customers → search `QA`.
+  1. Sign in as the prepared **Platform admin** → switch into **QASH1** → Masters > Customers → search `QA`.
   2. Switch to **QASH2**; search again. Then **MEDI01** and **FOOD01**, which share the same schema; then **QA01**.
 - **Expect:** QASH1 shows only `-SHONE`; QASH2 only `-SHTWO`; MEDI01, FOOD01 and QA01 show **neither**. **If a QASH1 customer appears in QASH2, stop and report it** — the two share one schema, so nothing but the firm filter keeps them apart.
 ### TC-ISO-002 — Two firms in their own schemas, and a name that cannot cross
 
 - **Preconditions:** The platform administrator, and one customer in each of two firms, QA01 and QA02. (`QA-ONE` (Isolation One) in QA01, `QA-TWO` (Isolation Two) in QA02.)
 - **Steps**
-  1. As the prepared **Platform admin** in **QA01**, Customers → search `Isolation One qa`.
+  1. As the prepared **Platform admin** in **QA01**, Masters > Customers → search `Isolation One qa`.
   2. Switch to **QA02**; search the same name, then `QA`.
 - **Expect**
   - Step 1: `QA-ONE`.
@@ -234,7 +238,7 @@ step and does four of them.
 
 - **Preconditions:** A firm administrator of QA01, and one sale taken to an approved invoice: order, dispatched delivery note, approved invoice. (a sale of yours in QA01.)
 - **Steps**
-  1. Sign in as the prepared **Firm admin** (QA01) → Reports → Operational Reports → **Sales order register**; find the prepared order (customer **Fixture Buyer qa**).
+  1. Sign in as the prepared **Firm admin** (QA01) → Reports > Operational → **Sales order register**; find the prepared order (customer **Fixture Buyer qa**).
   2. Sign in as any platform administrator (e.g. `platform-admin` preparation) → switch into **QA02** → the same report.
 - **Expect:** step 1 lists the prepared order; step 2 does **not** — QA02's register holds only QA02's orders, and reads "Nothing to report" if it has none.
 ### TC-ISO-004 — Naming a firm you do not belong to is refused, not answered empty
@@ -250,15 +254,15 @@ step and does four of them.
 
 ## Configuration — numbering, profiles, tax and units
 
-Most of these screens sit under **Administration → Configuration** (a parent
-row only expands; the screens are its leaves). **Ctrl+K** opens any screen by
-name.
+Most of these screens are cards on the **Settings** page (the gear at the right
+of the menu bar), under **Settings**, **Set up** and **Platform**. **Ctrl+K**
+opens any screen by name.
 
 ### TC-CONF-001 — Numbering series: who may change one, and a counter nobody types
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template). (and `sales-executive`)
 - **Steps**
-  1. Sign in as the `firm-admin` preparation's **Firm admin** → Administration → Configuration → **Numbering Series**.
+  1. Sign in as the `firm-admin` preparation's **Firm admin** → Settings > Firm > **Numbering Series**.
   2. Select **SALES_INVOICE_DEFAULT** → Edit → scroll below the **Active** switch. Change the Name, save, reopen.
   3. Press **New series** and look at the same spot.
   4. Sign in as the `sales-executive` preparation's **Seller** and open the same screen.
@@ -285,7 +289,7 @@ name.
 
 - **Preconditions:** A finished firm, a vendor, and a product with its own PACK to KG conversion rule. (a store of the run's own, so a profile edit here reaches no other firm.)
 - **Steps**
-  1. Sign in as the prepared **Platform admin**, switch into the prepared firm → Administration → Configuration → Business Profiles → **Profiles** → edit **WHOLESALE** → in **Enabled features** tick **IMEI** → Save.
+  1. Sign in as the prepared **Platform admin**, switch into the prepared firm → Settings > Platform > Firms > Business Profiles → **Profiles** → edit **WHOLESALE** → in **Enabled features** tick **IMEI** → Save.
   2. Untick IMEI; tick **BARCODE** (if it is not already) → Save.
 - **Expect**
   - Step 1: refused in the summary at the top of the form, which scrolls into view: "These features are not implemented yet and cannot be enabled: IMEI." The dialog stays open and **nothing** is written — not the features, and not the profile's other fields (until 2026-09-12 they were — BACKLOG §31.6). The six roadmap features: `IMEI`, `KITCHEN_MANAGEMENT`, `PRESCRIPTION_REQUIRED`, `PROJECT_MANAGEMENT`, `RECIPE_MANAGEMENT`, `SERVICE_CONTRACTS`.
@@ -293,14 +297,14 @@ name.
 ### TC-CONF-005 — The tax simulator: CGST and SGST within a state, IGST across
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
-- **Steps:** as the prepared **Firm admin**, Administration → Configuration → Tax Configuration → **Rule Simulator**. Transaction type `SALES_INVOICE`, tax profile `GST_18_LOCAL`, invoice value `1000` → Run Simulation. Then transaction type `SALES_INTERSTATE` → Run.
+- **Steps:** as the prepared **Firm admin**, Settings > Tax > **Rule Simulator**. Transaction type `SALES_INVOICE`, tax profile `GST_18_LOCAL`, invoice value `1000` → Run Simulation. Then transaction type `SALES_INTERSTATE` → Run.
 - **Expect:** local — no rule matched, CGST 9% = 90 and SGST 9% = 90, total **180**. Interstate — matched rule **`INTERSTATE_GST_18`**, one component IGST 18% = 180, total **180**, and the trace shows the rule matched. (QA01's rules come from the GST template, the same nine the demo firms carry.)
 ### TC-CONF-006 — A product's own conversion outranks the firm-wide one
 
 - **Preconditions:** A finished firm, a vendor, and a product with its own PACK to KG conversion rule. (`QA-DET` is bought in PACK and stocked in KG, with its own PACK→KG rule at factor **1**.)
 - **Steps**
-  1. As the prepared **Platform admin** in the prepared firm (or its **Firm admin**), Administration → Configuration → UOM & Packaging → **Conversion Rules** → **Add**: Product *Firm-wide*, From `PACK`, To `KG`, Factor `2` → Save.
-  2. Purchases → Purchase Orders → New: vendor `QA-V`, product `QA-DET`, quantity **10**, Purchase UOM `PACK — Pack` → Save; open the order.
+  1. As the prepared **Platform admin** in the prepared firm (or its **Firm admin**), Settings > Set up > Item lists > **Conversion Rules** → **Add**: Product *Firm-wide*, From `PACK`, To `KG`, Factor `2` → Save.
+  2. Buy > Purchase Orders → New: vendor `QA-V`, product `QA-DET`, quantity **10**, Purchase UOM `PACK — Pack` → Save; open the order.
 - **Expect**
   - Step 1: the firm-wide rule appears beside the product's own.
   - Step 2: the line shows **Base Qty 10**, not 20 — the product's factor of 1 outranks the firm-wide 2. (Ranked explicitly rather than by NULL sort, which PostgreSQL and SQLite order oppositely.)
@@ -309,7 +313,7 @@ name.
 *Added 2026-10-02 from the code; not yet driven. Drive it and correct the expectation before relying on it.*
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
-- **Steps:** as the prepared **Firm admin**, Settings (gear) → Tax → **GST Documents**. Read the banner. Choose **Block** for *Dispatch of a sale before its invoice*, set *E-invoicing applies from* to a date, and set *30-day reporting limit applies from* to a day **before** it → Save. Correct that, set *Claim input credit* to *Only bills matched to GSTR-2B*, set the matching tolerance → Save, close and reopen. Then open it as a user who holds Tax view but not the manage-tax-settings permission.
+- **Steps:** as the prepared **Firm admin**, Settings > Tax > **GST Documents**. Read the banner. Choose **Block** for *Dispatch of a sale before its invoice*, set *E-invoicing applies from* to a date, and set *30-day reporting limit applies from* to a day **before** it → Save. Correct that, set *Claim input credit* to *Only bills matched to GSTR-2B*, set the matching tolerance → Save, close and reopen. Then open it as a user who holds Tax view but not the manage-tax-settings permission.
 - **Expect:** a firm that has never saved sees that it is using the default shown, and saving makes it the firm's own. The 30-day date earlier than the e-invoicing date (or with none) is refused with the server's message and the dialog stays open with what was typed. After the second save the values come back on reopening. The read-only user sees the values, a disabled Save and "Changing the GST document settings needs the manage tax settings permission."
 ### TC-CONF-008 — A feature or module made at runtime reaches every store
 
@@ -317,7 +321,7 @@ name.
 
 - **Preconditions:** The platform administrator (`platform-admin@agency.local`), who belongs to no firm.
 - **Also needs:** at least two provisioned firms in different stores (QA01 and QA02).
-- **Steps:** as the prepared **Platform admin**: Admin → Firms → Business Profiles → **Feature Management** → New feature `QA_RUNTIME_FEAT`, then edit its name; **Module Configuration** → New module and edit it. Read the answer after each save. Delete the feature and the module.
+- **Steps:** as the prepared **Platform admin**: Settings > Business profile > **Feature Management** → New feature `QA_RUNTIME_FEAT`, then edit its name; **Module Configuration** → New module and edit it. Read the answer after each save. Delete the feature and the module.
 - **Expect:** each create, update and delete answers with the list of **stores** it reached and a warning for any it could not; the new feature and module exist in every firm's store, so a profile can use them. Deleting returns the per-store list rather than an empty answer. The pages are the generic resource pages; nothing new is on screen.
 ---
 
@@ -349,11 +353,11 @@ other case that saves a customer or a product.
 
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
 - **Steps**
-  1. Sign in as the prepared **Platform admin**; switch into the prepared firm. Administration → Configuration → Business Profiles → **Dynamic Attributes**.
+  1. Sign in as the prepared **Platform admin**; switch into the prepared firm. Settings > Business profile > **Attribute Definitions**.
   2. **New**: code `SHELF_NOTE`, name `Shelf note`, TEXT, entity type `PRODUCT`, business profile **blank**. Save.
   3. **New**: code `PHARMA_NOTE`, name `Pharma note`, TEXT, entity type `PRODUCT`, business profile **Pharmacy**. Save.
   4. **(HTTP)** `GET /api/v1/business-framework/attribute-definitions/applicable?entity_type=PRODUCT` with the preparation firm's `X-Firm-ID`.
-  5. Mandatory Attributes → **New**: category `FXAMB`, attribute `Shelf note`, mandatory **off**, profile blank. Save. Then Masters → **Products** → New → category **Fixture Ambient** → **Attributes** tab.
+  5. Mandatory Attributes → **New**: category `FXAMB`, attribute `Shelf note`, mandatory **off**, profile blank. Save. Then Masters > **Products** → New → category **Fixture Ambient** → **Attributes** tab.
 - **Expect**
   - Step 1: the definitions in *this firm's* store — the seeded ones (Batch Number, Expiry Date, IMEI …) — each showing its entity type and the profile it is narrowed to.
   - Steps 2–3: both save.
@@ -376,8 +380,8 @@ other case that saves a customer or a product.
 - **Steps**
   1. As the prepared **Platform admin** in the prepared firm, Dynamic Attributes → New: `COLD_CHAIN_ID`, `Cold chain id`, TEXT, `PRODUCT`, profile blank, mandatory **off**.
   2. Mandatory Attributes → **New**: profile **Wholesale**, category `FXCHL`, attribute `Cold chain id`, **mandatory on**.
-  3. Products → New, category **Fixture Chilled**, code `CH1`, leave Cold chain id empty, Save. Fill it, Save.
-  4. Products → New, category **Fixture Ambient**, code `AM1`, Save.
+  3. Masters > Products → New, category **Fixture Chilled**, code `CH1`, leave Cold chain id empty, Save. Fill it, Save.
+  4. Masters > Products → New, category **Fixture Ambient**, code `AM1`, Save.
 - **Expect**
   - Step 3: the Attributes tab shows **Cold chain id** as required; empty is refused on the form ("Required business attributes are missing."); filled, it saves.
   - Step 4: saves — no Attributes tab, nothing asked. Other categories are untouched.
@@ -398,7 +402,7 @@ other case that saves a customer or a product.
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
 - **Steps**
   1. As the prepared **Platform admin** in the prepared firm: Dynamic Attributes → New `WS_GRADE`, `Wholesale grade`, TEXT, `PRODUCT`, profile **Wholesale**. Mandatory Attributes → New: profile **Wholesale**, category `FXAMB`, `Wholesale grade`, mandatory **off**.
-  2. Products → New, category Fixture Ambient, code `GR1`, Wholesale grade `A`. Save.
+  2. Masters > Products → New, category Fixture Ambient, code `GR1`, Wholesale grade `A`. Save.
   3. Set Up on the firm (from Platform) or Profile Assignment: change the firm to **Retail**. Open `GR1` again.
   4. Change the firm back to **Wholesale**. Open `GR1` again.
 - **Expect**
@@ -416,7 +420,7 @@ other case that saves a customer or a product.
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
 - **Steps**
   1. As the prepared **Platform admin** in the prepared firm, Dynamic Attributes → New: entity type `CUSTOMER`, code `DRUG_LICENCE_NO`, name `Drug licence no`, TEXT, mandatory **off**.
-  2. Sign in as the prepared **Firm admin** → Masters → Customers → New.
+  2. Sign in as the prepared **Firm admin** → Masters > Customers → New.
   3. Fill the General tab (code `DLC`, name `Licence Holder`), then **Custom fields**: `DL-4471`. Save. Reopen.
   4. Edit the phone on the General tab (`+919800000001`), Save, reopen Custom fields.
 - **Expect**
@@ -428,7 +432,7 @@ other case that saves a customer or a product.
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
 - **Steps**
   1. As the prepared **Platform admin** in the prepared firm, create `DRUG_LICENCE_NO` for `CUSTOMER` as in TC-FIELD-007, with **mandatory on**.
-  2. As the prepared **Firm admin**: Customers → New, fill General, leave the licence empty, Save.
+  2. As the prepared **Firm admin**: Masters > Customers → New, fill General, leave the licence empty, Save.
   3. **(HTTP)** `POST /api/v1/customers` with `code`, `name`, `customer_type: "BUSINESS"`, `currency_code: "INR"` and no attributes.
 - **Expect**
   - Step 2: refused on the form, **"Drug licence no is required."** Nothing sent.
@@ -438,8 +442,8 @@ other case that saves a customer or a product.
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
 - **Steps**
   1. As the prepared **Platform admin** in the prepared firm, Dynamic Attributes → New: entity type `VENDOR`, `SUPPLIER_TIER`, `Supplier tier`, NUMBER.
-  2. As the prepared **Firm admin**: Masters → Vendors → New (or Edit one) → **Custom fields**: `2`. Save, reopen.
-  3. Customers → New: look at Custom fields.
+  2. As the prepared **Firm admin**: Masters > Vendors → New (or Edit one) → **Custom fields**: `2`. Save, reopen.
+  3. Masters > Customers → New: look at Custom fields.
   4. **(HTTP)** `POST /api/v1/customers` carrying `"attributes": [{"attribute_definition_id": "<SUPPLIER_TIER's id>", "value": "2"}]`.
 - **Expect**
   - Step 2: one numeric box, Supplier tier; `2` after reopening.
@@ -450,14 +454,14 @@ other case that saves a customer or a product.
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
 - **Steps**
   1. As the prepared **Platform admin** in the prepared firm, Dynamic Attributes → New: entity type `BRANCH`, `FSSAI_LICENCE`, TEXT. And another: entity type `WAREHOUSE`, `DOCK_COUNT`, NUMBER.
-  2. As the prepared **Firm admin**: Masters → Branches → Edit `HO`; Masters → Warehouses → Edit `MAIN`.
+  2. As the prepared **Firm admin**: Masters > Branches → Edit `HO`; Masters > Warehouses → Edit `MAIN`.
 - **Expect:** a **Custom fields** heading at the foot of each dialog with **its own** box only — FSSAI licence on the branch, Dock count on the warehouse. Type a value, Save, reopen: it is there. The branch is **still the default** — saving the dialog does not clear what it does not show.
 ### TC-FIELD-011 — A field with fixed choices
 
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
 - **Steps**
   1. As the prepared **Platform admin** in the prepared firm, Dynamic Attributes → New: `PRODUCT`, `STORAGE_TEMPERATURE`, `Storage temperature`, TEXT, **Allowed values** `Ambient, Chilled, Frozen`. Then Mandatory Attributes → New: category `FXAMB`, Storage temperature, mandatory **off**.
-  2. Products → New, category Fixture Ambient, code `PEAS`, Attributes → Storage temperature.
+  2. Masters > Products → New, category Fixture Ambient, code `PEAS`, Attributes → Storage temperature.
   3. Choose **Frozen**, Save, reopen.
   4. **(HTTP)** `PUT /api/v1/products/{PEAS id}` with `code`, `name`, `product_type`, `category_id` and `"attributes": [{"attribute_definition_id": "<id>", "value": "Cold"}]`.
   5. Edit the definition: remove `Frozen`. Reopen `PEAS`; then change its name and Save.
@@ -506,14 +510,14 @@ other case that saves a customer or a product.
 *Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
 
 - **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
-- **Steps:** as the prepared **Firm admin**: Settings (gear) → Firm → **Custom Fields** → New: name *PO reference*, type Text, entity type **Sales order** (also add one for **Quotation** with the same name), **Show on print** on. Sell → Documents → **Quotations** → New: fill *Additional details* → Save → convert to a sales order → open the order. Create a delivery note and a bill from it. Print the quotation, order and invoice. Edit the order saving without touching *Additional details*, then clear the field and save. Repeat for a purchase order → supplier bill.
+- **Steps:** as the prepared **Firm admin**: Settings > Firm > **Custom Fields** → New: name *PO reference*, type Text, entity type **Sales order** (also add one for **Quotation** with the same name), **Show on print** on. Sell > **Quotations** → New: fill *Additional details* → Save → convert to a sales order → open the order. Create a delivery note and a bill from it. Print the quotation, order and invoice. Edit the order saving without touching *Additional details*, then clear the field and save. Repeat for a purchase order → supplier bill.
 - **Expect:** the six document editors — quotation, sales order, delivery note, sales invoice, purchase order, supplier bill — show *Additional details* from the firm's definitions. Values carry down the chain matched on the field's **name** (quotation → order at conversion, order → delivery note, notes/orders → sales invoice, purchase order → supplier bill) and are printed as references where *Show on print* is on. Saving without sending `attributes` leaves the values alone; sending an empty list clears them. Goods receipts, returns, notes, line-level fields and list filters on a document field are not covered yet.
 ### TC-FIELD-016 — A firm keeps its own custom fields, in the shared store too
 
 *Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
 
 - **Preconditions:** Two SHARED firms, QASH1 and QASH2, each with its own firm administrator.
-- **Steps:** as the **Firm admin of QASH1**: Settings (gear) → Firm → **Custom Fields** → New *Dock number* on Customer; Settings → **Custom Field Rules** → make it mandatory for a category. Try a code that already exists in the shared catalogue. Edit and delete the field; try to delete it after a customer holds a value. As the **Firm admin of QASH2**: open Customer → New and the field list. As the platform administrator open Attribute Definitions.
+- **Steps:** as the **Firm admin of QASH1**: Settings > Firm > **Custom Fields** → New *Dock number* on Customer; Settings > Firm > **Custom Field Rules** → make it mandatory for a category. Try a code that already exists in the shared catalogue. Edit and delete the field; try to delete it after a customer holds a value. As the **Firm admin of QASH2**: open Customer → New and the field list. As the platform administrator open Attribute Definitions.
 - **Expect:** the field is **QASH1's own**: offered on its forms and on no other firm's. The shared catalogue rows (existing before this change) are listed read-only to the firms. A firm's code is unique among its own and the shared live rows. A held type cannot change and a held field cannot be deleted. The platform's Attribute Definitions list shows the shared rows only.
 ---
 
@@ -523,25 +527,25 @@ One standard check for every screen in this area. Run it once per screen as the 
 
 | ID | Screen | Expected | Result | Notes |
 | --- | --- | --- | --- | --- |
-| 04-S01 | **Administration → Firms** | Offered to any role holding `FIRM_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 04-S02 | **Administration → Numbering Series** | Offered to any role holding `SETTINGS_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 04-S03 | **Administration → Business Profiles** | Offered to any role holding `PLATFORM_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 04-S04 | **Administration → Feature Management** | Offered to any role holding `PLATFORM_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 04-S05 | **Administration → Module Configuration** | Offered to any role holding `PLATFORM_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 04-S06 | **Administration → Attribute Definitions** | Offered to any role holding `PLATFORM_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 04-S07 | **Administration → Mandatory Attributes** | Offered to any role holding `PLATFORM_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 04-S08 | **Administration → Profile Assignment** | Offered to any role holding `FIRM_VIEW` or `PLATFORM_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 04-S09 | **Administration → Tax Configuration** | Offered to any role holding `TAX_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 04-S10 | **Administration → Tax Rules** | Offered to any role holding `TAX_RULE_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 04-S11 | **Administration → Rule Simulator** | Offered to any role holding `TAX_SIMULATE`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 04-S12 | **Administration → Execution Log** | Offered to any role holding `TAX_RULE_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 04-S13 | **Administration → Settings** | Offered to any role holding `TAX_MANAGE_SETTINGS`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 04-S14 | **Administration → Units of Measure** | Offered to any role holding `UOM_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 04-S15 | **Administration → UOM Groups** | Offered to any role holding `UOM_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 04-S16 | **Administration → Packaging Types** | Offered to any role holding `PACKAGING_MANAGE`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 04-S17 | **Administration → Packaging Levels** | Offered to any role holding `PACKAGING_MANAGE`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 04-S18 | **Administration → Conversion Rules** | Offered to any role holding `CONVERSION_RULE_MANAGE`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 04-S19 | **Administration → Industry Templates** | Offered to any role holding `UOM_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 04-S01 | **Settings > Platform > Firms > Firms** | Offered to any role holding `FIRM_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 04-S02 | **Settings > Firm > Numbering Series** | Offered to any role holding `SETTINGS_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 04-S03 | **Settings > Platform > Firms > Business Profiles** | Offered to any role holding `PLATFORM_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 04-S04 | **Settings > Business profile > Feature Management** | Offered to any role holding `PLATFORM_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 04-S05 | **Settings > Business profile > Module Configuration** | Offered to any role holding `PLATFORM_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 04-S06 | **Settings > Business profile > Attribute Definitions** | Offered to any role holding `PLATFORM_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 04-S07 | **Settings > Business profile > Mandatory Attributes** | Offered to any role holding `PLATFORM_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 04-S08 | **Settings > Business profile > Profile Assignment** | Offered to any role holding `FIRM_VIEW` or `PLATFORM_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 04-S09 | **Settings > Tax > Tax Configuration** | Offered to any role holding `TAX_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 04-S10 | **Settings > Tax > Tax Rules** | Offered to any role holding `TAX_RULE_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 04-S11 | **Settings > Tax > Rule Simulator** | Offered to any role holding `TAX_SIMULATE`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 04-S12 | **Settings > Tax > Execution Log** | Offered to any role holding `TAX_RULE_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 04-S13 | **Settings > Tax > Tax Settings** | Offered to any role holding `TAX_MANAGE_SETTINGS`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 04-S14 | **Settings > Set up > Item lists > Units of Measure** | Offered to any role holding `UOM_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 04-S15 | **Settings > Set up > Item lists > UOM Groups** | Offered to any role holding `UOM_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 04-S16 | **Settings > Set up > Item lists > Packaging Types** | Offered to any role holding `PACKAGING_MANAGE`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 04-S17 | **Settings > Set up > Item lists > Packaging Levels** | Offered to any role holding `PACKAGING_MANAGE`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 04-S18 | **Settings > Set up > Item lists > Conversion Rules** | Offered to any role holding `CONVERSION_RULE_MANAGE`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 04-S19 | **Settings > Business profile > Industry Templates** | Offered to any role holding `UOM_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
 
 ## Results summary
 

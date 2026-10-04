@@ -39,9 +39,9 @@ void main() {
     final List<Object> tabs = [
       for (final ModuleDefinition m in ModuleCatalog.modules)
         {
-          'module': m.label, 'codes': m.requiredPermissions, 'platformOnly': m.requiresPlatformAdmin,
+          'module': m.label, 'moduleId': m.id.name, 'codes': m.requiredPermissions, 'platformOnly': m.requiresPlatformAdmin,
           'tabs': [for (final t in m.tabs.where((t) => t.available)) {
-            'label': t.label, 'codes': t.requiredPermissions.isEmpty ? m.requiredPermissions : t.requiredPermissions,
+            'id': t.id, 'label': t.label, 'codes': t.requiredPermissions.isEmpty ? m.requiredPermissions : t.requiredPermissions,
             'platformOnly': t.requiresPlatformAdmin, 'group': t.group,
           }],
         },

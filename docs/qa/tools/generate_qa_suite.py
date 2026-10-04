@@ -12,7 +12,76 @@ SRC = (ROOT / "docs" / "INDEPENDENT_TEST_CASES.md").read_text(encoding="utf-8")
 TABS = json.loads((SCRATCH / "tabs.json").read_text(encoding="utf-8"))
 MATRIX = json.loads((SCRATCH / "matrix.json").read_text(encoding="utf-8"))
 ROLES = json.loads((SCRATCH / "roles.json").read_text(encoding="utf-8"))["roles"]
-TODAY = "2026-10-03"
+TODAY = "2026-10-04"
+RELEASE = "1.3.0"
+
+# --------------------------------------------------------------------------
+# The 1.3.0 menu. The desktop's own catalogue of the menu is the authority for
+# where a screen is reached, so the paths printed below are derived from
+# desktop/lib/phase2/menu_layout.dart rather than written by hand.
+MENU_SRC = (ROOT / "desktop" / "lib" / "phase2" / "menu_layout.dart").read_text(encoding="utf-8")
+SHORT_LISTS = {"Sell": {"salesReturns", "sales/credit-notes", "sales/customer-debit-notes"},
+               "Buy": {"purchaseReturns", "purchases/debit-notes"}}
+_ITEM = re.compile(r"MenuItemSpec\(\s*AppModule\.(\w+),\s*'([\w-]+)',\s*'([^']+)'\)|MenuItemSpec\.module\(\s*AppModule\.(\w+),\s*'([^']+)'\)")
+
+
+def _items(chunk: str) -> list[tuple[str, str]]:
+    found = []
+    for m in _ITEM.finditer(chunk):
+        if m.group(1):
+            found.append((m.group(1) + "/" + m.group(2), m.group(3)))
+        else:
+            found.append((m.group(4), m.group(5)))
+    return found
+
+
+def load_menu() -> tuple[dict[str, tuple[str, int, str]], list[str]]:
+    """Map a catalogue key (module/tab) to (menu path, order, top-level section)."""
+    paths: dict[str, tuple[str, int, str]] = {}
+    sections: list[str] = []
+    order = 0
+    start = MENU_SRC.index("static const List<MenuAreaSpec> areas")
+    end = MENU_SRC.index("static const MenuAreaSpec settings")
+    body = MENU_SRC[start:end]
+    heads = [(m.start(), m.group(2)) for m in re.finditer(r"MenuAreaSpec\(\s*'(\w+)',\s*'([^']+)'", body)]
+    for i, (pos, label) in enumerate(heads):
+        chunk = body[pos:heads[i + 1][0] if i + 1 < len(heads) else len(body)]
+        cut = chunk.index("], daily:") if "], daily:" in chunk else len(chunk)
+        daily = set(re.findall(r"'([\w/-]+)'", chunk[cut:]))
+        if label == "Reports":
+            for key, item in _items(chunk[:cut]):
+                order += 1
+                paths[key] = (f"Reports > {item}", order, "Reports")
+            sections.append("Reports")
+            continue
+        if label == "Home":
+            continue
+        sections.append(label)
+        for gm in re.finditer(r"MenuGroupSpec\('([^']+)',\s*\[(.*?)\]\)", chunk[:cut], re.S):
+            for key, item in _items(gm.group(2)):
+                order += 1
+                if key in SHORT_LISTS.get(label, ()):
+                    where = f"{label} > Returns & notes > {item}"
+                elif key in daily:
+                    where = f"{label} > {item}"
+                else:
+                    where = f"{label} > All {label} screens > {gm.group(1)} > {item}"
+                paths[key] = (where, order, label)
+    sset = MENU_SRC[MENU_SRC.index("static const MenuAreaSpec settings"):MENU_SRC.index("/// Every area, the gear")]
+    for gm in re.finditer(r"MenuGroupSpec\('([^']+)',\s*\[(.*?)\](?:,\s*part: MenuPart\.(\w+))?\)", sset, re.S):
+        part = {"setUp": "Set up", "platform": "Platform"}.get(gm.group(3))
+        head = f"Settings > {part} > {gm.group(1)}" if part else f"Settings > {gm.group(1)}"
+        top = f"Settings > {part or gm.group(1)}"
+        found = _items(gm.group(2))
+        if found and top not in sections:
+            sections.append(top)
+        for key, item in found:
+            order += 1
+            paths[key] = (f"{head} > {item}", order, top)
+    return paths, sections
+
+
+MENU, MENU_SECTIONS = load_menu()
 
 # --------------------------------------------------------------------------
 # Preparations: what each developer fixture built, said so a person can build
@@ -240,15 +309,23 @@ def convert_body(body: str) -> str:
 tab_index = {m["module"]: m for m in TABS}
 
 
+def menu_path(module: dict, tab: dict | None) -> str | None:
+    """Where the 1.3.0 menu reaches a screen; None for one the menu deliberately does not offer."""
+    key = module["moduleId"] if tab is None else f"{module['moduleId']}/{tab['id']}"
+    hit = MENU.get(key)
+    return hit[0] if hit else None
+
+
 def screen_checks(prefix: str, spec) -> str:
     rows = []
     n = 0
     for module, tabs in spec:
         m = tab_index[module]
         wanted = [t for t in m["tabs"]] if tabs is None else [t for t in m["tabs"] if t["label"] in tabs]
-        targets = [(f"{module} → {t['label']}", t["codes"], t["platformOnly"]) for t in wanted]
+        targets = [(menu_path(m, t), t["codes"], t["platformOnly"]) for t in wanted]
         if not m["tabs"] and tabs is None:
-            targets = [(module, m["codes"], m["platformOnly"])]
+            targets = [(menu_path(m, None), m["codes"], m["platformOnly"])]
+        targets = [x for x in targets if x[0]]
         for where, codes, plat in targets:
             n += 1
             who = "the platform administrator only" if (plat or m["platformOnly"]) else "any role holding " + " or ".join(f"`{c}`" for c in codes)
@@ -262,9 +339,13 @@ def screen_checks(prefix: str, spec) -> str:
     return head + "\n".join(rows) + "\n"
 
 
-HEADER_NOTE = """Part of the QA test suite in `docs/qa/`. Read `00_README.md` first: it
-explains the preparations, the accounts and how to record results. Generated
-on {today} from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
+HEADER_NOTE = """Part of the QA test suite in `docs/qa/` for **release {release}**, the first
+end-to-end test pass (it includes 1.2.0). Read `00_README.md` first: it
+explains the preparations, the accounts and how to record results. Every menu
+path is the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down on the menu
+bar, `Sell > All Sell screens > Documents > Proforma` is a screen that is not
+daily work, and `Settings > Set up > Pricing > Price Lists` is the gear at the
+right of the bar. Generated on {today} from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
 
@@ -274,7 +355,7 @@ for a tester with a REST client such as Postman; skip them otherwise."""
 
 index_rows = []
 for fname, title, heads, spec in FILES:
-    chunks = [f"# {title}\n", HEADER_NOTE.format(today=TODAY), ""]
+    chunks = [f"# {title}\n", HEADER_NOTE.format(today=TODAY, release=RELEASE), ""]
     ncases = 0
     for h in heads:
         body = convert_body(sections[h])
@@ -301,6 +382,26 @@ VERB = {"CREATE": "create", "UPDATE": "edit", "DELETE": "delete", "RESTORE": "re
         "CANCEL": "cancel", "IMPORT": "import", "EXPORT": "export", "MANAGE": "manage", "POST": "post", "REVERSE": "reverse"}
 
 
+def role_rows(offered: dict) -> tuple[list[tuple[int, str, dict, dict | None]], set[str]]:
+    """The menu rows a job is offered, in menu order, and the sections they fall in."""
+    rows = []
+    for m in TABS:
+        if m["module"] not in offered:
+            continue
+        tabs = [t for t in m["tabs"] if t["label"] in offered[m["module"]]]
+        if not tabs:
+            hit = MENU.get(m["moduleId"])
+            if hit:
+                rows.append((hit[1], hit[0], m, None))
+        for t in tabs:
+            hit = MENU.get(f"{m['moduleId']}/{t['id']}")
+            if hit:
+                rows.append((hit[1], hit[0], m, t))
+    rows.sort(key=lambda r: r[0])
+    seen = {MENU[(m["moduleId"] if t is None else f"{m['moduleId']}/{t['id']}")][2] for _, _, m, t in rows}
+    return rows, seen
+
+
 def actions_for(codes: set[str], tab_codes: list[str]) -> str:
     """The job's codes in this screen's area, other than viewing it."""
     prefixes = {c.rsplit("_", 1)[0] for c in tab_codes if c.endswith("_VIEW")}
@@ -309,17 +410,18 @@ def actions_for(codes: set[str], tab_codes: list[str]) -> str:
     return ", ".join(f"`{a}`" for a in sorted(acts)) if acts else "none beyond viewing"
 
 
-role_md = ["# Roles and access\n", """Part of the QA test suite in `docs/qa/`. What each job template may reach,
-computed on {today} from the application's own rules: the role seed
+role_md = ["# Roles and access\n", """Part of the QA test suite in `docs/qa/` for **release {release}**. What each job
+template may reach, computed on {today} from the application's own rules: the role seed
 (`backend/app/identity/system_seed.py`) and the desktop's screen catalogue and
 visibility filter. Regenerate rather than hand-edit.
 
-**How to test a job.** Hire one user per job with *Administration → Users →
-New*, naming the job in **Job template**. Sign in as each and check three
+**How to test a job.** Hire one user per job with *Settings > Platform >
+People > Users > + New*, naming the job in **Job template**. Sign in as each and check three
 things, recording one result per job:
 
-1. **The sidebar offers exactly the screens listed** for that job, no more and
-   no fewer. A business profile can hide a whole module (for example batches
+1. **The menu offers exactly the screens listed** for that job, no more and
+   no fewer (the paths are the 1.3.0 menu: a screen under *All Sell screens* is
+   one click further than the daily list). A business profile can hide a whole module (for example batches
    on a profile that does not track them); note any such difference.
 2. **Actions.** On each screen, write buttons appear only where the job holds
    a matching code. A screen marked *none beyond viewing* offers no New, Edit,
@@ -332,14 +434,14 @@ The *Codes held in this area* column lists the job's permission codes that
 share the screen's area, other than viewing it. A code names one action, and
 the area is broad: `SALES_INVOICE_CREATE` on the Quotations row means the job
 may raise invoices, not quotations. Check each button against the code that
-names it.""".format(today=TODAY), ""]
+names it.""".format(today=TODAY, release=RELEASE), ""]
 role_md.append("## Summary\n\n| Job template | Roles | Screens offered |\n| --- | --- | --- |")
 for label, roles in TEMPLATES:
     offered = {}
     for r in roles:
         for mod, tabs in MATRIX[r].items():
             offered.setdefault(mod, set()).update(tabs)
-    n = sum(max(1, len(v)) for v in offered.values())
+    n = len(role_rows(offered)[0])
     role_md.append(f"| {label} | {', '.join(roles)} | {n} |")
 role_md.append("")
 for idx, (label, roles) in enumerate(TEMPLATES, 1):
@@ -350,25 +452,22 @@ for idx, (label, roles) in enumerate(TEMPLATES, 1):
         for mod, tabs in MATRIX[r].items():
             offered.setdefault(mod, set()).update(tabs)
     role_md.append(f"## R{idx:02d}. {label}\n\nRoles: {', '.join(f'`{r}`' for r in roles)}. {len(codes)} permission codes.\n")
-    role_md.append("| Module | Screen | Codes held in this area | Result | Notes |\n| --- | --- | --- | --- | --- |")
-    for m in TABS:
-        if m["module"] not in offered:
-            continue
-        tabs = [t for t in m["tabs"] if t["label"] in offered[m["module"]]]
-        if not tabs:
-            role_md.append(f"| {m['module']} | (the module itself) | {actions_for(codes, m['codes'])} | Not run | |")
-        for t in tabs:
-            role_md.append(f"| {m['module']} | {t['label']} | {actions_for(codes, t['codes'])} | Not run | |")
-    not_offered = [m["module"] for m in TABS if m["module"] not in offered and not m["platformOnly"]]
-    role_md.append(f"\n**Not offered:** {', '.join(not_offered) if not_offered else 'nothing'}. Check each is absent from the sidebar.\n")
+    role_md.append("| Where in the menu | Codes held in this area | Result | Notes |\n| --- | --- | --- | --- |")
+    rows, seen = role_rows(offered)
+    for _, where, m, t in rows:
+        role_md.append(f"| {where} | {actions_for(codes, m['codes'] if t is None else t['codes'])} | Not run | |")
+    not_offered = [x for x in MENU_SECTIONS if x not in seen]
+    role_md.append(f"\n**Nothing offered under:** {', '.join(not_offered) if not_offered else 'nothing'}. Check each is absent from the menu, and from the gear's Settings page (the dialogs under Settings, such as Credit Control or Sales Stages, are offered by the codes `docs/CONFIGURATION_SETTINGS_GUIDE.md` names and are not rows here). A firm role is never offered the Platform part except the People screens its codes allow.\n")
 role_md.append("""## The platform administrator
 
-`platform-admin@agency.local` starts on **Platform** every time, with
-Dashboard, Administration (including Firms, Business Profiles, Feature
-Management, Module Configuration, Attribute Definitions, Mandatory
-Attributes, Profile Assignment and User-Firm Assignments, which no firm role
-reaches), Settings and Licensing. Choosing a firm in the switcher opens that
-firm's modules. Test cases for this account are in
+`platform-admin@agency.local` starts on **Platform** every time, with the menu
+bar reduced to Home and the gear. The gear's **Platform** part holds People
+(Users, Roles, Permissions, User Templates, User-Firm Assignments), Firms
+(Firms, Business Profiles), Agency (Branding) and System (Audit Logs,
+Diagnostics, Licensing, Backups, Platform Dashboard); Business profile (Feature
+Management, Module Configuration, Attribute Definitions, Mandatory Attributes,
+Profile Assignment, Industry Templates) is under Settings. Choosing a firm in
+the switcher opens that firm's menus. Test cases for this account are in
 `02_SIGN_IN_AND_ACCOUNTS.md` and `04_FIRMS_AND_CONFIGURATION.md`.
 """)
 (OUT / "01_ROLES_AND_ACCESS.md").write_text("\n".join(role_md), encoding="utf-8")

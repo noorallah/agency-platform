@@ -1,8 +1,12 @@
 # Cross-cutting: permissions, concurrency and grants
 
-Part of the QA test suite in `docs/qa/`. Read `00_README.md` first: it
-explains the preparations, the accounts and how to record results. Generated
-on 2026-10-03 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
+Part of the QA test suite in `docs/qa/` for **release 1.3.0**, the first
+end-to-end test pass (it includes 1.2.0). Read `00_README.md` first: it
+explains the preparations, the accounts and how to record results. Every menu
+path is the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down on the menu
+bar, `Sell > All Sell screens > Documents > Proforma` is a screen that is not
+daily work, and `Settings > Set up > Pricing > Price Lists` is the gear at the
+right of the bar. Generated on 2026-10-04 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
 
@@ -19,12 +23,12 @@ each case below checks the screen **and** the route behind it.
 ### TC-PERM-001 — What a salesperson is not offered
 
 - **Preconditions:** A QA01 user hired with the *Field Sales* job template (role SALES_EXECUTIVE only).
-- **Steps:** sign in as the prepared **Seller**. Look for Administration; expand **Sales** and look for Commission, Credit Notes and TCS.
-- **Expect:** **no Administration** at all. Under Sales, the territory screens (on `TERRITORY_VIEW`) and none of **Commission**, **Credit Notes**, **TCS** — nor Price Lists, Promotions, Targets, Proforma, E-Invoice or GST Returns, each hidden on its own view code. That is expected, not a fault.
+- **Steps:** sign in as the prepared **Seller**. Click the gear and look for a **Platform** part; open **Sell > All Sell screens** and **Accounts > All Accounts screens** and look for Commission, Credit Notes and TCS.
+- **Expect:** **no Platform part** on the Settings page. The territory screens (Settings > Set up > Territories & routes, on `TERRITORY_VIEW`) are offered, and none of **Commission** (Sell > All Sell screens > Incentives), **Credit Notes** (Sell > Returns & notes) or **TCS** (Accounts > All Accounts screens > Tax filing) — nor Price Lists, Promotions, Targets, Proforma, E-Invoice or GST Returns, each hidden on its own view code. That is expected, not a fault.
 ### TC-PERM-002 — The credit policy opens read-only
 
 - **Preconditions:** A QA01 user hired with the *Field Sales* job template (role SALES_EXECUTIVE only).
-- **Steps:** as the prepared **Seller**, Masters → Customers → toolbar **Settings**.
+- **Steps:** as the prepared **Seller**, Masters > Customers → toolbar **Settings**.
 - **Expect:** the dialog **opens read-only** — the policy's fields shown but disabled, Save greyed, only Close works — with "Changing the policy needs the manage customer settings permission."
 ### TC-PERM-003 — Six writes, six refusals; two reads allowed
 
@@ -56,12 +60,12 @@ redo yours."*
 ### TC-CONC-001 — Two people editing one customer
 
 - **Preconditions:** A firm administrator and a salesperson of QA01, and a customer `QA-CM` *Master Check* fully described: one billing address, one contact, credit limit 50,000, payment terms 30 days, standing discount 7.5%, segment `QA-RET`, phone +919800000100.
-- **Steps:** on **A** and **B**: Masters → Customers → double-click `QA-CM`. On A change the phone → **Save**. On B change the phone to something else → **Save**.
+- **Steps:** on **A** and **B**: Masters > Customers → double-click `QA-CM`. On A change the phone → **Save**. On B change the phone to something else → **Save**.
 - **Expect:** A saves ("Customer updated."). B is refused **inside the editor** with the sentence naming `customer`; the dialog stays open with B's typed phone still in the box. Cancel B; reopen: A's phone.
 ### TC-CONC-002 — The same race on an order, a product and a price list
 
 - **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
-- **Steps:** create a draft Sales Order for `QA-C01` first (any line). Then, on A and B: open that draft → **Edit**, change **Remarks** on both, Save A then B. Repeat on Masters → Products → `QA-DET` (Description) and Sales → Price Lists → `STANDING` (the **Name** — the dialog has no Description).
+- **Steps:** create a draft Sales Order for `QA-C01` first (any line). Then, on A and B: open that draft → **Edit**, change **Remarks** on both, Save A then B. Repeat on Masters > Products → `QA-DET` (Description) and Settings > Set up > Pricing > Price Lists → `STANDING` (the **Name** — the dialog has no Description).
 - **Expect:** B is refused each time with the sentence naming `sales order`, `product`, `price list`; typing kept, dialog open.
 ### TC-CONC-003 — Saving unchanged does not move the version
 
@@ -77,13 +81,13 @@ redo yours."*
 
 - **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Steps**
-  1. Sales → Promotions → **Coupons** → `WELCOME10B` → Edit → **Total claims allowed** `1` → Save.
+  1. Settings > Set up > Pricing > Promotions → **Coupons** → `WELCOME10B` → Edit → **Total claims allowed** `1` → Save.
   2. Raise two draft orders for `QA-C01` with **Coupon** `WELCOME10B`, one on each client. Approve both.
 - **Expect:** the first approves; the second is refused **by name**: "Coupon WELCOME10B has been used as often as it allows. Re-save the document to price it without." — not silently repriced. A claim counts only at approval, under a lock on the promotion. (`test_the_refusal_is_for_the_race_two_orders_priced_before_either_approved` covers the true race.)
 ### TC-CONC-006 — Two accruals of one payout period
 
 - **Preconditions:** As *territory-firm*, plus commission rules, targets and three collected sales, as in the preparation table.
-- **Steps:** on A and B: Sales → Commission → **Payouts** → **Accrue period**, this month on both; **Accrue** on A, then on B.
+- **Steps:** on A and B: Sell > All Sell screens > Incentives > Commission → **Payouts** → **Accrue period**, this month on both; **Accrue** on A, then on B.
 - **Expect:** A: "2 payout(s) accrued." B: "A commission payout already covers part of that period for this salesman (…)." — a **409** by name, never a 500. The database holds the rule (`UQ_commission_payouts_period_active`); the service supplies the sentence.
 ---
 
@@ -103,7 +107,7 @@ only matters for accounts you already had open.
 
 - **Preconditions:** A firm administrator of QA01, and one sale taken to an approved invoice: order, dispatched delivery note, approved invoice. (a sale of yours in QA01: one invoice for 5 **APPROVED**, one **CANCELLED**.)
 - **Steps**
-  1. Sign in as the prepared **Firm admin** → Sales → **Credit Notes** → **Raise credit note**.
+  1. Sign in as the prepared **Firm admin** → Sell > Returns & notes > **Credit Notes** → **Raise credit note**.
   2. Open the **Invoice** picker and look for the prepared two invoice numbers and its delivery note number.
   3. Pick the approved invoice; open **Line**.
   4. Enter an amount below what the line was charged (it was charged 590.00: 5 × 100 plus 18% GST) → **Raise**.
@@ -115,19 +119,19 @@ only matters for accounts you already had open.
 ### TC-GRANT-002 — Proforma opens
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
-- **Steps:** as the prepared **Firm admin**, Sales → **Proforma**.
+- **Steps:** as the prepared **Firm admin**, Sell > All Sell screens > Documents > **Proforma**.
 - **Expect:** offered, and a real screen — a grid or a proper empty state, never a "coming soon" placeholder. A proforma states what an approved order **will** be charged and **posts nothing**; its number comes from its own `PF` series, not the tax invoice's.
 ### TC-GRANT-003 — E-Invoice opens, and never says LIVE
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
-- **Steps:** as the prepared **Firm admin**, Sales → **E-Invoice**.
+- **Steps:** as the prepared **Firm admin**, Accounts > All Accounts screens > Tax filing > **E-Invoice**.
 - **Expect:** offered and opens. Wherever a mode is shown it reads **`SANDBOX`**; if it reads LIVE anywhere, stop — that is not cosmetic. `mode` is NOT NULL with no server default on both e-invoice tables, and the sandbox marks every reference it mints `SBX…`. *(QA01 has registered nothing, so the grid may be empty and show no mode at all; that passes.)*
 ### TC-GRANT-004 — Loyalty: the banner states the scheme, and a firm can change it
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
 - **QA01's scheme is shared by every run.** It starts **off**; switch it back off at the end.
 - **Steps**
-  1. As the prepared **Firm admin**, Masters → **Loyalty**. Read the banner.
+  1. As the prepared **Firm admin**, Settings > Set up > Pricing > **Loyalty**. Read the banner.
   2. **Scheme settings** → switch **Scheme is running** on; **Minimum to redeem** `50`; **Points expire** off → Save.
   3. Scheme settings → switch **Scheme is running** off → Save.
 - **Expect**
@@ -139,7 +143,7 @@ only matters for accounts you already had open.
 
 - **Preconditions:** A QA01 user hired with the *Sales Manager* job template. (`SALES_MANAGER`, which holds `LOYALTY_VIEW` and not `LOYALTY_MANAGE_SETTINGS`.)
 - **Steps**
-  1. Sign in as the prepared **Loyalty viewer** → Masters → Loyalty → **Scheme settings**.
+  1. Sign in as the prepared **Loyalty viewer** → Settings > Set up > Pricing > Loyalty → **Scheme settings**.
   2. **(HTTP)** As them, `PUT /api/v1/loyalty/settings` with the body `GET` returned.
 - **Expect**
   - Step 1: it **opens**, read-only, saying "Changing the scheme needs the manage loyalty settings permission." Offered rather than hidden on purpose: whoever is asked why a balance is what it is should reach the rule behind it.
@@ -147,7 +151,7 @@ only matters for accounts you already had open.
 ### TC-GRANT-006 — TCS settings open, and TCS is off
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
-- **Steps:** as the prepared **Firm admin**, Sales → **TCS** → **Settings**; save without changing anything.
+- **Steps:** as the prepared **Firm admin**, Accounts > All Accounts screens > Tax filing > **TCS** → **Settings**; save without changing anything.
 - **Expect:** offered, opens and saves. **Collect under section 206C(1H)** is off — it defaults false so shipping the feature charged nobody. Leave it off: on, every receipt in QA01 collects TCS, and other cases record receipts there.
 ### TC-GRANT-007 — The fix was a grant, not a wider gate
 
