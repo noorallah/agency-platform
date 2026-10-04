@@ -39,6 +39,7 @@ from app.core.utils.pricing import (
     inherited_share,
     resolve_line_discount,
 )
+from app.document_files.services import purchase_invoice_file_counts
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentTypeDefinition,
@@ -1258,8 +1259,11 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         fields = document_attributes.responses_for_many(
             self._session, AttributeEntityType.PURCHASE_INVOICE, [r.id for r in rows]
         )
+        # Uploaded files, counted for the page in one grouped read (PG-4).
+        files = purchase_invoice_file_counts(self._session, ids)
         for response in answer:
             response.attributes = fields.get(response.id, [])
+            response.attached_file_count = files.get(response.id, 0)
         return answer
 
     def _invoice_response(

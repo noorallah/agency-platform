@@ -30,6 +30,7 @@ from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
 from app.core.utils.pricing import inherited_share
+from app.document_files.services import goods_receipt_file_counts
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentTypeDefinition,
@@ -986,7 +987,7 @@ class GoodsReceiptService(TransactionalDocumentService):
                 )
             )
         }
-        return [
+        answer = [
             self._receipt_response(
                 row,
                 lines=lines[row.id],
@@ -999,6 +1000,11 @@ class GoodsReceiptService(TransactionalDocumentService):
             )
             for row in rows
         ]
+        # Uploaded files, counted for the page in one grouped read (PG-4).
+        files = goods_receipt_file_counts(self._session, ids)
+        for response in answer:
+            response.attached_file_count = files.get(response.id, 0)
+        return answer
 
     def _receipt_response(
         self,

@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**240 tables**, of which **17** live only in the platform store.
+**304 tables**, of which **17** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -64,22 +64,16 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `approval_rules` | firm store ¹ | A role's sign-off at a level (1-3) for a document type from an amount up (PLT-1). |  |
-| `approval_decisions` | firm store ¹ | A sign-off or rejection of one document at one level, with the total it was decided at. |  |
+| `approval_decisions` | firm store ¹ | A sign-off or a rejection of one document at one level. |  |
+| `approval_rules` | firm store ¹ | One role's sign-off at one level, for documents from an amount up. |  |
 
 ### `app/bank_reconciliation`
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `bank_statements` | firm store ¹ | One bank statement file imported against one bank ledger account (ACC-1). | `ledger_accounts` |
-| `bank_statement_lines` | firm store ¹ | One line of it: a deposit or a withdrawal on a day, with the bank's reference and printed balance, and whether the books account for it. | `bank_statements` |
-| `bank_reconciliation_matches` | firm store ¹ | A statement line clearing one posting on the bank account, on the line's date; one live match per posting. | `bank_statement_lines`, `gl_postings` |
-
-### `app/branding`
-
-| Table | Store | Holds | Points at |
-| --- | --- | --- | --- |
-| `agency_branding` | platform | The agency that bought the product: its name, tagline, accent colour and logo; one live row per installation, read at sign-in (backlog 71, U2). |  |
+| `bank_reconciliation_matches` | firm store ¹ | One posting on the bank account, accounted for by one statement line. | `bank_statement_lines`, `gl_postings` |
+| `bank_statement_lines` | firm store ¹ | One line of a statement: money in or out of the account on a day. | `bank_statements` |
+| `bank_statements` | firm store ¹ | One statement file imported against one bank account. | `ledger_accounts` |
 
 ### `app/batch_serial`
 
@@ -97,31 +91,37 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `branch_attribute_values` | firm store ¹ | Store one configurable attribute value for a branch. | `branches`, `firms`, `attribute_definitions` |
 | `branch_types` | firm store ¹ | Persist reusable branch type masters per firm. | `firms` |
-| `branches` | firm store ¹ | Represent one physical operational branch owned by a firm; `gstin` is its own registration where it has one (STK-2). | `firms`, `business_profiles`, `branch_types`, `users`, `geo_countries`, `geo_states`, `geo_districts`, `geo_cities`, `geo_postal_codes`, `geo_localities` |
+| `branches` | firm store ¹ | Represent one physical operational branch owned by a firm. | `firms`, `business_profiles`, `branch_types`, `users`, `geo_countries`, `geo_states`, `geo_districts`, `geo_cities`, `geo_postal_codes`, `geo_localities` |
 | `user_work_defaults` | firm store ¹ | One person's usual branch and warehouse in one firm. | `branches`, `warehouses` |
 | `warehouse_attribute_values` | firm store ¹ | Store one configurable attribute value for a warehouse. | `warehouses`, `firms`, `attribute_definitions` |
 | `warehouse_storage_nodes` | firm store ¹ | Represent storage hierarchy nodes (area/rack/shelf/bin/receiving). | `warehouses` |
 | `warehouse_types` | firm store ¹ | Persist reusable warehouse type masters per firm. | `firms` |
 | `warehouses` | firm store ¹ | Represent one physical warehouse mapped to a branch. | `firms`, `branches`, `warehouse_types`, `users`, `business_profiles`, `geo_countries`, `geo_states`, `geo_districts`, `geo_cities`, `geo_postal_codes`, `geo_localities` |
 
+### `app/branding`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `agency_branding` | platform ¹ | The agency that bought the product: its name, tagline and logo. |  |
+
 ### `app/business`
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `quotation_attribute_values` | firm store ¹ | One custom field value on a quotation (MST-6). | `sales_quotations`, `attribute_definitions` |
-| `sales_order_attribute_values` | firm store ¹ | One custom field value on a sales order (MST-6). | `sales_orders`, `attribute_definitions` |
-| `delivery_note_attribute_values` | firm store ¹ | One custom field value on a delivery note (MST-6). | `delivery_notes`, `attribute_definitions` |
-| `sales_invoice_attribute_values` | firm store ¹ | One custom field value on a sales invoice (MST-6). | `sales_invoices`, `attribute_definitions` |
-| `purchase_order_attribute_values` | firm store ¹ | One custom field value on a purchase order (MST-6). | `purchase_orders`, `attribute_definitions` |
-| `purchase_invoice_attribute_values` | firm store ¹ | One custom field value on a purchase invoice (MST-6). | `purchase_invoices`, `attribute_definitions` |
 | `attribute_definitions` | firm store ¹ | Define one configurable field that extends a record for some industry. | `business_profiles` |
 | `business_features` | firm store ¹ | Define one configurable framework feature flag. |  |
 | `business_modules` | firm store ¹ | Define one configurable module in the ERP workspace. |  |
 | `business_profiles` | firm store ¹ | Define one industry/business operating profile. |  |
 | `category_attribute_rules` | firm store ¹ | Define category-scoped mandatory-attribute rules by business profile. | `business_profiles`, `attribute_definitions` |
+| `delivery_note_attribute_values` | firm store ¹ | Store one custom field value for a delivery note. | `delivery_notes`, `firms`, `attribute_definitions` |
 | `firm_business_profiles` | firm store ¹ | Assign exactly one active business profile to a firm. | `firms`, `business_profiles` |
 | `profile_features` | firm store ¹ | Store per-profile feature enablement and optional configuration. | `business_profiles`, `business_features` |
 | `profile_modules` | firm store ¹ | Store per-profile module visibility and workflow configuration. | `business_profiles`, `business_modules` |
+| `purchase_invoice_attribute_values` | firm store ¹ | Store one custom field value for a purchase invoice. | `purchase_invoices`, `firms`, `attribute_definitions` |
+| `purchase_order_attribute_values` | firm store ¹ | Store one custom field value for a purchase order. | `purchase_orders`, `firms`, `attribute_definitions` |
+| `quotation_attribute_values` | firm store ¹ | Store one custom field value for a quotation. | `sales_quotations`, `firms`, `attribute_definitions` |
+| `sales_invoice_attribute_values` | firm store ¹ | Store one custom field value for a sales invoice. | `sales_invoices`, `firms`, `attribute_definitions` |
+| `sales_order_attribute_values` | firm store ¹ | Store one custom field value for a sales order. | `sales_orders`, `firms`, `attribute_definitions` |
 
 ### `app/commission`
 
@@ -164,14 +164,14 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `credit_control_settings` | firm store ¹ | Store one firm's credit-limit policy. | `firms` |
 | `customer_addresses` | firm store ¹ | Represent one reusable customer address. | `customers`, `geo_countries`, `geo_states`, `geo_districts`, `geo_cities`, `geo_postal_codes`, `geo_localities` |
-| `customer_attachments` | firm store ¹ | One file kept on record for a customer (MST-4). | `firms`, `customers` |
+| `customer_attachments` | firm store ¹ | One file kept on file for a customer -- KYC, an agreement, a licence. | `firms`, `customers` |
 | `customer_attribute_values` | firm store ¹ | Store one configurable attribute value for a customer. | `customers`, `firms`, `attribute_definitions` |
-| `customer_bank_accounts` | firm store ¹ | One bank account a customer is paid into (MST-4). | `firms`, `customers` |
+| `customer_bank_accounts` | firm store ¹ | One bank account a customer is paid into. | `firms`, `customers` |
 | `customer_contacts` | firm store ¹ | Represent one customer contact person. | `customers` |
-| `customer_groups` | firm store ¹ | A commercial segment a firm sells to: Retailer, Wholesaler, Institution. | `firms` |
+| `customer_groups` | firm store ¹ | A commercial segment a firm sells to: Retailer, Wholesaler, Institution. | `firms`, `price_levels` |
 | `customer_opening_bills` | firm store ¹ | Store one bill a customer owed on the firm's first day here. | `customers`, `journal_entries` |
 | `customer_receivable_transactions` | firm store ¹ | Represent one immutable receivable movement for a customer. | `firms`, `customers`, `journal_entries` |
-| `customers` | firm store ¹ | Represent one customer master owned by a firm. | `firms`, `customer_groups` |
+| `customers` | firm store ¹ | Represent one customer master owned by a firm. | `firms`, `customer_groups`, `price_levels`, `vendors` |
 
 ### `app/debit_note`
 
@@ -195,6 +195,13 @@ trigger each schema owns its own copy of.
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
 | `error_reports` | platform | One failure, reported by a desktop client or raised by this server. |  |
+
+### `app/document_files`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `document_file_contents` | firm store | The bytes of one :class:`DocumentFile`, read only to download it. | `document_files` |
+| `document_files` | firm store ¹ | One uploaded file kept with a purchase bill or a goods receipt. | `purchase_invoices`, `goods_receipts` |
 
 ### `app/document_framework`
 
@@ -222,9 +229,9 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `enquiries` | firm store ¹ | A buyer's enquiry before any quotation: customer or prospect, value, follow-up, status (SEL-10). | `branches`, `customers`, `sales_quotations` |
-| `enquiry_lines` | firm store ¹ | What was asked for. | `enquiries`, `products` |
-| `enquiry_follow_ups` | firm store ¹ | One contact with the buyer and the next date. | `enquiries` |
+| `enquiries` | firm store ¹ | A buyer's enquiry before any quotation (decision A133). | `firms`, `branches`, `customers`, `sales_quotations` |
+| `enquiry_follow_ups` | firm store ¹ | One contact with the buyer and what was agreed. | `enquiries` |
+| `enquiry_lines` | firm store ¹ | One thing asked for: a product, or words until it is matched to one. | `enquiries`, `products` |
 
 ### `app/expenses`
 
@@ -236,10 +243,10 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `tally_ledger_mappings` | firm store ¹ | What one account is called and grouped under in the CA's Tally (MSG-5). | `ledger_accounts` |
 | `account_groups` | firm store ¹ | Group ledger accounts for classification and report rollups. | `firms` |
 | `accounting_periods` | firm store ¹ | Represent one posting period inside a financial year. | `firms`, `financial_years` |
 | `ageing_settings` | firm store ¹ | The ageing bands a firm reads what it is owed and owes in (ACC-6). |  |
+| `bank_account_details` | firm store ¹ | One bank ledger account's bank, number and IFSC. | `firms`, `ledger_accounts` |
 | `cost_centers` | firm store ¹ | Represent a cost centre used to attribute expenditure. | `firms` |
 | `customer_ledgers` | firm store ¹ | Hold derived receivable totals for one customer and period. | `firms`, `customers`, `accounting_periods` |
 | `financial_years` | firm store ¹ | Represent one fiscal year owned by a firm. | `firms` |
@@ -249,10 +256,14 @@ trigger each schema owns its own copy of.
 | `journal_lines` | firm store ¹ | Represent one debit or credit leg of a journal entry. | `journal_entries`, `ledger_accounts`, `cost_centers`, `profit_centers` |
 | `journal_types` | firm store ¹ | Classify journals such as sales, purchase, or general. | `firms` |
 | `ledger_accounts` | firm store ¹ | Represent one general-ledger account in the chart of accounts. | `firms`, `account_groups` |
-| `ledger_attachments` | firm store ¹ | A file reference kept with one journal entry or one receipt, refund or payment (ACC-10). | `journal_entries`, `settlements` |
+| `ledger_attachments` | firm store ¹ | One file backing a journal entry or a settlement -- never both. | `journal_entries`, `settlements` |
 | `ledger_balances` | firm store ¹ | Hold the derived balance of one ledger account for one period. | `firms`, `ledger_accounts`, `accounting_periods` |
 | `period_close_settings` | firm store ¹ | What a firm does when a month it closes still has work in it (ACC-5). |  |
 | `profit_centers` | firm store ¹ | Represent a profit centre used to attribute revenue. | `firms` |
+| `tally_ledger_mappings` | firm store ¹ | What one of our accounts is called in the CA's Tally, and its group. | `ledger_accounts` |
+| `tds_194q_settings` | firm store ¹ | One firm's 194Q switch, threshold and rates. |  |
+| `tds_challan_items` | firm store ¹ | One deduction a challan paid: a payment's or an expense's. | `tds_challans`, `settlements`, `expenses` |
+| `tds_challans` | firm store ¹ | One deposit of TDS under one section. | `ledger_accounts`, `journal_entries` |
 | `vendor_ledgers` | firm store ¹ | Hold derived payable totals for one vendor and period. | `firms`, `vendors`, `accounting_periods` |
 | `voucher_types` | firm store ¹ | Classify vouchers such as invoice, receipt, or payment. | `firms` |
 
@@ -276,13 +287,13 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `gst_cash_deposits` | firm store ¹ | A quarterly filer's PMT-06 deposit for month 1 or 2 of a quarter, per head (GST-7). | `ledger_accounts`, `journal_entries` |
-| `gst_payments` | firm store ¹ | A month's (or a quarterly filer's quarter's) GST liability, the credit set off, the cash paid by challan and from PMT-06 deposits. | `ledger_accounts`, `journal_entries` |
+| `gst_cash_deposits` | firm store ¹ | One PMT-06 challan paid for month 1 or 2 of a quarter. | `ledger_accounts`, `journal_entries` |
+| `gst_payments` | firm store ¹ | A month's GST liability, the credit set off, the cash paid by challan. | `ledger_accounts`, `journal_entries` |
 | `gst_return_filings` | firm store ¹ | One return, for one month, filed on the portal. |  |
-| `gst_return_snapshots` | firm store ¹ | The GSTR-1 a filing reported, as it stood when marked filed; amendments are read against it (GST-6). | `gst_return_filings` |
+| `gst_return_snapshots` | firm store ¹ | The GSTR-1 a filing reported, as it stood when marked filed (GST-6). | `gst_return_filings` |
 | `gstr2b_documents` | firm store ¹ | One supplier document in a month's GSTR-2B, and what it matched. | `gstr2b_imports` |
 | `gstr2b_imports` | firm store ¹ | One month's GSTR-2B, imported once; a re-import replaces it. |  |
-| `itc_common_reversals` | firm store ¹ | A rule 42 reversal of common credit for a period, or a year's true-up, with the turnover and credit it was worked from (GST-4). | `journal_entries` |
+| `itc_common_reversals` | firm store ¹ | One rule 42 reversal: a period's, or a year's true-up. | `journal_entries` |
 | `itc_reversals` | firm store ¹ | One reversal of a bill's credit, or one reclaim of it. | `purchase_invoices`, `journal_entries` |
 
 ### `app/identity`
@@ -313,6 +324,7 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
+| `count_plans` | firm store ¹ | What to count, where, and how often (STK-6, decision A117). | `firms` |
 | `inventories` | firm store ¹ | Persist one firm-scoped inventory projection per product location. | `firms`, `branches`, `warehouses`, `warehouse_storage_nodes`, `products`, `batches`, `business_profiles`, `uoms` |
 | `inventory_transactions` | firm store ¹ | Persist one immutable inventory movement event. | `inventories`, `firms`, `branches`, `warehouses`, `warehouse_storage_nodes`, `products`, `business_profiles`, `uoms`, `batches`, `lots`, `serial_numbers` |
 | `opening_stock_batches` | firm store ¹ | Persist a draft or posted opening-stock document. | `firms`, `branches`, `warehouses` |
@@ -320,18 +332,23 @@ trigger each schema owns its own copy of.
 | `physical_count_lines` | firm store ¹ | Store one stock row's count on one sheet. | `firms`, `physical_counts` |
 | `physical_counts` | firm store ¹ | Store one count sheet for one warehouse. | `firms` |
 | `product_valuations` | firm store ¹ | Track the moving weighted-average cost of a product for a firm. | `firms`, `products` |
+| `repack_lines` | firm store ¹ | One product consumed or produced, and the movement that did it. | `repacks`, `products`, `batches`, `inventory_transactions` |
+| `repacks` | firm store ¹ | Goods consumed and goods produced in one warehouse (decision A114). | `firms`, `branches`, `warehouses` |
+| `role_stock_adjustment_limits` | firm store ¹ | The largest stock adjustment one role may post, in one firm (A108). |  |
+| `stock_adjustment_reasons` | firm store ¹ | One reason stock left, or was corrected, tied to the account it costs. | `firms`, `ledger_accounts` |
+| `stock_adjustment_requests` | firm store ¹ | An adjustment or write-off above its author's limit, waiting (A108). | `firms`, `products`, `warehouses`, `inventory_transactions` |
 | `stock_attachments` | firm store ¹ | Store one file backing a movement or a count sheet -- never both. | `firms`, `inventory_transactions`, `physical_counts` |
-| `stock_transfer_lines` | firm store ¹ | One product sent on a transfer, and what arrived, arrived damaged or never arrived (STK-1). | `stock_transfers`, `products`, `batches`, `inventory_transactions` |
-| `stock_transfers` | firm store ¹ | A numbered transfer from one warehouse to another: draft, dispatched (in transit), received or cancelled (STK-1). | `branches`, `warehouses` |
 | `stock_ledger_entries` | firm store ¹ | Persist one immutable stock-ledger row per inventory transaction. | `inventory_transactions`, `inventories`, `batches`, `firms`, `branches`, `warehouses`, `warehouse_storage_nodes`, `products`, `business_profiles`, `uoms` |
+| `stock_transfer_lines` | firm store ¹ | One product sent, and what became of it at the other end. | `stock_transfers`, `products`, `batches`, `inventory_transactions` |
+| `stock_transfers` | firm store ¹ | Goods sent from one warehouse to another, in two steps (decision A126). | `firms`, `branches`, `warehouses` |
 
 ### `app/landed_costs`
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `landed_cost_vouchers` | firm store ¹ | Freight or clearing spread over completed receipts: the basis, what went to stock and to cost of goods sold, and the journal (BUY-16). | `journal_entries` |
-| `landed_cost_charges` | firm store ¹ | One charge on a voucher, with the party and bill it came from. | `landed_cost_vouchers`, `vendors` |
-| `landed_cost_allocations` | firm store ¹ | The share one receipt line carried, split between stock on hand and goods sold. | `landed_cost_vouchers`, `goods_receipts`, `goods_receipt_lines`, `products`, `inventory_transactions` |
+| `landed_cost_allocations` | firm store ¹ | The share of a voucher one receipt line carried. | `landed_cost_vouchers`, `goods_receipts`, `goods_receipt_lines`, `products`, `inventory_transactions` |
+| `landed_cost_charges` | firm store ¹ | One charge on a voucher: what it was for and whose bill it was. | `landed_cost_vouchers`, `vendors` |
+| `landed_cost_vouchers` | firm store ¹ | Freight, loading or clearing spread over completed receipts (A129). | `firms`, `journal_entries` |
 
 ### `app/loyalty`
 
@@ -349,40 +366,49 @@ trigger each schema owns its own copy of.
 | `messaging_outbox` | firm store ¹ | One message: asked for, queued, sent, failed or skipped. |  |
 | `messaging_settings` | firm store ¹ | One firm's master switch and reminder schedule. |  |
 
+### `app/notifications`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `notification_reads` | firm store ¹ | One person's mark that they have seen one notification. |  |
+
 ### `app/party_adjustments`
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
 | `party_adjustment_allocations` | firm store ¹ | How much of one adjustment came off one bill. | `party_adjustments`, `sales_invoices`, `purchase_invoices`, `customer_opening_bills`, `vendor_opening_bills` |
 | `party_adjustment_settings` | firm store ¹ | A firm's limits on adjusting balances. A firm with no row has defaults. |  |
-| `party_adjustments` | firm store ¹ | One balance moved without money: write-off, write-back or set-off. | `customers`, `vendors`, `journal_entries` |
-
-### `app/principal_claims`
-
-| Table | Store | Holds | Points at |
-| --- | --- | --- | --- |
-| `principal_claims` | firm store ¹ | A claim on one principal for one period: schemes, expiry and breakage, and the journal raising it (SEL-11). | `principals`, `vendors`, `journal_entries` |
-| `principal_claim_lines` | firm store ¹ | One redemption, write-off or returned line claimed; a source is held by one live line. | `principal_claims`, `products` |
-| `principal_claim_receipts` | firm store ¹ | Money the principal paid against a claim, and its journal. | `principal_claims`, `ledger_accounts`, `journal_entries` |
+| `party_adjustments` | firm store ¹ | One balance moved without money: write-off, write-back or set-off. | `customers`, `vendors`, `journal_entries`, `supplier_rebate_agreements`, `principal_claims` |
 
 ### `app/pricing`
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `price_levels` | firm store ¹ | A named price level -- Retail, Wholesale, Dealer -- customers and groups buy at (SEL-9). |  |
+| `price_levels` | firm store ¹ | One named level a firm prices by. |  |
 | `price_list_items` | firm store ¹ | One product's rate on one list. | `price_lists`, `products` |
-| `product_price_levels` | firm store ¹ | One product's price at one price level (SEL-9). | `products`, `price_levels` |
-| `price_lists` | firm store ¹ | One named arrangement, scoped to who it applies to and when. | `customers`, `sales_territories` |
+| `price_lists` | firm store ¹ | One named arrangement, scoped to who it applies to and when. | `customers`, `sales_territories`, `vendors` |
+| `product_price_levels` | firm store ¹ | One product's price at one level. | `products`, `price_levels` |
+
+### `app/principal_claims`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `principal_claim_lines` | firm store ¹ | One thing claimed: a redemption, a write-off or a returned line. | `principal_claims`, `products` |
+| `principal_claim_receipts` | firm store ¹ | Money the principal paid against a claim. | `principal_claims`, `ledger_accounts`, `journal_entries` |
+| `principal_claims` | firm store ¹ | What one principal owes the firm for one period (decision A128). | `firms`, `principals`, `vendors`, `journal_entries` |
 
 ### `app/products`
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `product_kit_components` | firm store ¹ | One component of a kit and how many go into one kit (STK-15). | `products` |
+| `brands` | firm store ¹ | A brand the firm sells, under the principal that owns it. | `firms`, `principals` |
+| `principals` | firm store ¹ | The company whose agency the firm holds -- a distributor's principal. | `firms`, `vendors` |
 | `product_attribute_values` | firm store ¹ | Store one configurable attribute value for a product. | `products`, `firms`, `attribute_definitions` |
 | `product_categories` | firm store ¹ | Represent a hierarchical firm category tree for products. | `firms`, `trade_licence_types` |
+| `product_kit_components` | firm store ¹ | One component of a kit, and how many go into one kit (decision A134). | `firms`, `products` |
 | `product_media` | firm store ¹ | Store product images, attachments, and reference documents. | `firms`, `products` |
-| `products` | firm store ¹ | Represent one configurable product core master row. | `firms`, `product_categories`, `trade_licence_types`, `uoms`, `vendors` |
+| `product_price_revisions` | firm store ¹ | New rates for a product from a date, kept with every earlier one. | `firms`, `products` |
+| `products` | firm store ¹ | Represent one configurable product core master row. | `firms`, `product_categories`, `trade_licence_types`, `brands`, `uoms`, `vendors` |
 
 ### `app/proforma`
 
@@ -400,18 +426,22 @@ trigger each schema owns its own copy of.
 | `promotion_coupons` | firm store ¹ | A code a customer presents to claim an offer. | `promotions` |
 | `promotion_execution_logs` | firm store ¹ | Store what the engine was asked, what it considered, and what it gave. |  |
 | `promotion_redemptions` | firm store ¹ | One claim on an offer, and what it was worth. | `promotions`, `promotion_coupons` |
-| `promotions` | firm store ¹ | Store one versioned promotion evaluated while a document is priced. |  |
+| `promotions` | firm store ¹ | Store one versioned promotion evaluated while a document is priced. | `principals` |
 
 ### `app/purchase`
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
 | `purchase_attachments` | firm store ¹ | Store purchase document attachments. | `purchase_orders`, `firms` |
+| `purchase_budgets` | firm store ¹ | What a firm means to spend on buying in one month (BUY-14, A106). | `firms`, `branches`, `product_categories` |
 | `purchase_delivery_schedules` | firm store ¹ | Store delivery schedules per order line. | `purchase_order_lines`, `firms` |
 | `purchase_notes` | firm store ¹ | Store notes linked to purchase documents. | `purchase_orders`, `firms` |
 | `purchase_order_history` | firm store ¹ | Store immutable history events for purchase orders. | `purchase_orders`, `firms` |
 | `purchase_order_lines` | firm store ¹ | Store one purchase order line item. | `purchase_orders`, `firms`, `products`, `uoms`, `tax_profiles`, `warehouses`, `warehouse_storage_nodes` |
+| `purchase_order_revisions` | firm store ¹ | One earlier version of an amended purchase order (BUY-8, A102). | `firms`, `purchase_orders` |
 | `purchase_orders` | firm store ¹ | Store one enterprise purchase order header. | `firms`, `branches`, `warehouses`, `vendors`, `users`, `tax_profiles` |
+| `purchase_requisition_lines` | firm store ¹ | One product asked for, and the order it went onto. | `purchase_requisitions`, `products`, `vendors`, `purchase_orders` |
+| `purchase_requisitions` | firm store ¹ | A branch or storeman asking for goods (decision A109). | `firms`, `branches`, `warehouses` |
 | `purchase_workflow_settings` | firm store ¹ | Store which buying stages one firm fills in by hand. | `firms`, `branches`, `warehouses` |
 | `reorder_planning_settings` | firm store ¹ | How one firm decides what to reorder (backlog 69 row 12, decision A39). |  |
 | `role_purchase_approval_limits` | firm store ¹ | The largest purchase order one role may approve, in one firm. |  |
@@ -448,6 +478,12 @@ trigger each schema owns its own copy of.
 | `sales_quotation_notes` | firm store ¹ | Store quotation notes. | `sales_quotations`, `firms` |
 | `sales_quotations` | firm store ¹ | Store one quotation header. | `firms`, `customers`, `users`, `sales_territories`, `branches`, `warehouses`, `business_profiles` |
 
+### `app/report_layouts`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `report_layouts` | firm store ¹ | One named layout of one report, kept by one person in one firm. |  |
+
 ### `app/sales`
 
 | Table | Store | Holds | Points at |
@@ -480,7 +516,7 @@ trigger each schema owns its own copy of.
 | `sales_invoice_lines` | firm store ¹ | Store one sales invoice line. | `sales_invoices`, `firms`, `products`, `tax_profiles`, `packaging_types`, `uoms`, `warehouses`, `warehouse_storage_nodes` |
 | `sales_invoice_notes` | firm store ¹ | Store sales invoice notes. | `sales_invoices`, `firms` |
 | `sales_invoice_sources` | firm store ¹ | Store customer invoice source document references. | `sales_invoices`, `firms`, `customers`, `branches` |
-| `sales_invoice_tenders` | firm store ¹ | One way a counter bill was paid -- cash, UPI, card -- each recorded as its own receipt at approval (SEL-12). | `sales_invoices` |
+| `sales_invoice_tenders` | firm store ¹ | One way a counter bill was paid: cash, UPI or card (SEL-12, A90). | `sales_invoices` |
 | `sales_invoices` | firm store ¹ | Store one customer invoice header. | `firms`, `customers`, `users`, `sales_territories`, `territory_route_profiles`, `branches`, `business_profiles` |
 
 ### `app/sales_order`
@@ -506,25 +542,6 @@ trigger each schema owns its own copy of.
 | `sales_return_sources` | firm store ¹ | Store the documents one return was raised against. | `sales_returns`, `firms`, `customers`, `branches` |
 | `sales_returns` | firm store ¹ | Store one customer return header. | `firms`, `customers`, `branches`, `warehouses`, `users`, `sales_territories`, `business_profiles`, `journal_entries` |
 
-### `app/notifications`
-
-| Table | Store | Holds | Points at |
-| --- | --- | --- | --- |
-| `notification_reads` | firm store ¹ | That one person has seen one bell notification (PLT-2); the notifications themselves are derived. | `users` (bare id) |
-
-### `app/report_layouts`
-
-| Table | Store | Holds | Points at |
-| --- | --- | --- | --- |
-| `report_layouts` | firm store ¹ | One person's named layout of an analysis screen (RPT-1); the settings are the screen's own JSON. | `users` (bare id) |
-
-### `app/supplier_rebates`
-
-| Table | Store | Holds | Points at |
-| --- | --- | --- | --- |
-| `supplier_rebate_agreements` | firm store ¹ | A supplier's volume rebate over one period, and what its accrual booked (BUY-13). | `vendors`, `journal_entries` |
-| `supplier_rebate_slabs` | firm store ¹ | One step of an agreement: from this volume, this rate on all of it. | `supplier_rebate_agreements` |
-
 ### `app/sales_targets`
 
 | Table | Store | Holds | Points at |
@@ -535,12 +552,21 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `bank_account_details` | firm store ¹ | The firm's own bank, account name and number, IFSC, branch and UPI on one bank ledger account; the one marked prints on bills (ACC-4). | `firms`, `ledger_accounts` |
 | `cheque_layouts` | firm store ¹ | One bank account's printing offsets and A/c Payee choice. | `firms`, `ledger_accounts` |
+| `payment_run_lines` | firm store ¹ | One bill in a run, and the payment that settled it. | `payment_runs`, `vendors`, `settlements` |
+| `payment_runs` | firm store ¹ | The bills chosen to be paid on one date (decision A110). | `firms` |
+| `post_dated_cheques` | firm store ¹ | Store one cheque dated ahead, from a customer or to a supplier. | `customers`, `vendors`, `settlements`, `journal_entries` |
 | `settlement_allocations` | firm store ¹ | Store how much of one settlement cleared one invoice. | `firms`, `settlements`, `sales_invoices`, `purchase_invoices`, `vendor_opening_bills`, `customer_opening_bills` |
 | `settlements` | firm store ¹ | Store one receipt from a customer or payment to a vendor. | `firms`, `customers`, `vendors`, `ledger_accounts`, `sales_orders`, `journal_entries` |
 | `supplier_credit_applications` | firm store ¹ | Store how much of one purchase return's supplier credit cleared one bill. | `vendors`, `purchase_returns`, `debit_notes`, `purchase_invoices`, `vendor_opening_bills` |
 | `supplier_credit_refunds` | firm store ¹ | Money a supplier paid back against one return's credit (69 row 7). | `vendors`, `purchase_returns`, `debit_notes`, `ledger_accounts`, `journal_entries` |
+
+### `app/supplier_rebates`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `supplier_rebate_agreements` | firm store ¹ | One supplier's rebate over one period. | `vendors`, `journal_entries` |
+| `supplier_rebate_slabs` | firm store ¹ | One step: from this volume, this rate on all of it. | `supplier_rebate_agreements` |
 
 ### `app/tax`
 
@@ -566,10 +592,6 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `tcs_collections` | firm store ¹ | One receipt's worth of tax collected at source. | `customers`, `settlements`, `journal_entries` |
 | `tcs_settings` | firm store ¹ | One firm's 206C(1H) parameters. |  |
-| `tds_194q_settings` | firm store ¹ | One firm's 194Q switch, threshold and rates (ACC-8). |  |
-| `tds_challans` | firm store ¹ | One deposit of TDS under one section: CIN, tax, interest and fee, bank, journal (ACC-7). | `ledger_accounts`, `journal_entries` |
-| `tds_challan_items` | firm store ¹ | One deduction (a payment's or an expense's) a challan paid; one live challan each. | `tds_challans`, `settlements`, `expenses` |
-| `post_dated_cheques` | firm store ¹ | A cheque dated ahead, from a customer or to a supplier: held, banked (the settlement it became), cleared or returned with its charges (ACC-2). | `customers`, `vendors`, `settlements`, `journal_entries` |
 
 ### `app/trade_licences`
 
@@ -597,15 +619,17 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
+| `supplier_gifts` | firm store ¹ | One gift from a supplier: not stock, not for sale (decision A112). | `firms`, `vendors`, `ledger_accounts`, `goods_receipts` |
+| `supplier_products` | firm store ¹ | One dated catalogue row: a supplier's name, code and terms for a product. | `firms`, `vendors`, `products` |
 | `vendor_addresses` | firm store ¹ | Represent one vendor address referencing geo masters. | `vendors`, `geo_countries`, `geo_states`, `geo_districts`, `geo_cities`, `geo_postal_codes`, `geo_localities` |
-| `vendor_attachments` | firm store ¹ | Represent one vendor attachment metadata row. | `vendor_ratings` | firm store ¹ | One person's 1-5 scores and remark for a supplier (BUY-15). | `firms`, `vendors` |
-| `vendors` |
+| `vendor_attachments` | firm store ¹ | Represent one vendor attachment metadata row. | `vendors` |
 | `vendor_attribute_values` | firm store ¹ | Store one configurable attribute value for a vendor. | `vendors`, `firms`, `attribute_definitions` |
 | `vendor_bank_accounts` | firm store ¹ | Represent one vendor bank account. | `vendors` |
 | `vendor_categories` | firm store ¹ | Persist a reusable vendor category per firm. | `firms` |
 | `vendor_contacts` | firm store ¹ | Represent one vendor contact person. | `vendors` |
 | `vendor_notes` | firm store ¹ | Represent one vendor note/history item. | `vendors` |
 | `vendor_opening_bills` | firm store ¹ | Store one bill a supplier was owed on the firm's first day here. | `vendors`, `journal_entries` |
+| `vendor_ratings` | firm store ¹ | One person's scores for one supplier. | `firms`, `vendors` |
 | `vendor_tax_details` | firm store ¹ | Represent one vendor tax detail set. | `vendors` |
 | `vendor_types` | firm store ¹ | Persist a reusable vendor type per firm. | `firms` |
 | `vendors` | firm store ¹ | Represent one vendor master owned by a firm. | `firms`, `vendor_categories`, `vendor_types`, `business_profiles` |
