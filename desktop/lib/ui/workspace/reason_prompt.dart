@@ -31,12 +31,15 @@ Future<String?> askForReason(
 }) =>
     showDialog<String>(
       context: context,
-      builder: (context) => _ReasonDialog(
-        title: title,
-        explanation: explanation,
-        label: label,
-        confirmLabel: confirmLabel,
-        cancelLabel: cancelLabel,
+      // Selectable, as every dialog's text (backlog 83).
+      builder: (context) => SelectionArea(
+        child: _ReasonDialog(
+          title: title,
+          explanation: explanation,
+          label: label,
+          confirmLabel: confirmLabel,
+          cancelLabel: cancelLabel,
+        ),
       ),
     );
 

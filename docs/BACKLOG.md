@@ -5846,9 +5846,42 @@ users (`clone_user_dialog.dart`) already exists.
 
 ## 83. Copy from every screen -- medium priority
 
-**Status, 2026-10-04: open.** Owner, after saving a purchase order on QA01 in
-the purchasing walkthrough: "not able to copy anything, we have to enable copy
-on each screen".
+**Status, 2026-10-04: built** (`feat(desktop): copy from every screen
+(backlog 83)`). Owner, after saving a purchase order on QA01 in the purchasing
+walkthrough: "not able to copy anything, we have to enable copy on each
+screen".
+
+**What was built**, item by item:
+
+1. **Selectable.** Every phase 2 document tab has a `SelectionArea` of its own
+   (`DocumentTabsController.open`, `desktop/lib/phase2/document_tabs.dart`), so a
+   select-all stays inside the document. `WorkspaceDialog` and
+   `CrudWorkspaceDialog` already had one; the shared dialogs gained one:
+   `AppDialogs.confirm` / `error` (and so `showWorkspaceConfirmDialog`),
+   `askForReason`, `showDetailLinesDialog`, the delivery-note tick list, and
+   the e-invoice and e-way bill dialogs of a note. **Not covered:** an ad hoc
+   `AlertDialog` built in a module's own `showDialog` (about two hundred call
+   sites) -- each needs `SelectionArea` around it, or a later change that puts
+   one above the root navigator.
+2. **Grids.** `EnterpriseDataGrid` takes keyboard focus when a row is clicked;
+   Ctrl+C then copies this page's selected (or ticked) rows as tab-separated
+   text under a heading line -- every column the screen shows, statuses in the
+   words phase 2 shows, figures without grouping commas. A screen that binds
+   Ctrl+C itself (`WorkspaceShortcutBindings.copy`: customers, products, the
+   resource pages, global search) keeps its own. Every cell's right-click menu
+   ends with **Copy cell**.
+3. **Copy the number.** `CopyValueButton`
+   (`desktop/lib/ui/workspace/copy_value_button.dart`) is the one icon: beside a
+   saved document's number on the phase 2 band (`DocumentPageBand.number` --
+   GRN, PO, invoice, order, quotation, party adjustment; a "(new)" preview gets
+   none), on the document view header (`EnterpriseDocumentHeader`), beside a
+   customer's or supplier's GSTIN under the party picker (`DocumentCustomerLine`,
+   `DocumentGstinLine`), and beside the IRN, acknowledgement and e-way bill
+   number in a note's e-invoice and e-way bill dialogs.
+4. **Messages.** A document's refusal banner is inside its tab's selection;
+   `saveErrorBanner` is selectable in whatever dialog shows it; snack bars and
+   `AppDialogs` messages already were.
+5. **Guard.** `desktop/test/copy_from_every_screen_test.dart`.
 
 **Today** (survey of `desktop/lib`, 2026-10-04):
 

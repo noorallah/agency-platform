@@ -141,8 +141,9 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
             children: [
               DocumentPageBand(
                 title: _editing ? 'Sales invoice' : 'New sales invoice',
+                number: _editing ? number : '',
                 chips: [
-                  if (number.isNotEmpty) _editing ? number : '$number (new)',
+                  if (number.isNotEmpty && !_editing) '$number (new)',
                   'Draft',
                 ],
                 hint: _direct

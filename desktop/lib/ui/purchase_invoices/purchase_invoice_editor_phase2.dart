@@ -393,12 +393,9 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
             context,
             vendor == null
                 ? null
-                : _quietLine(
-                    context,
-                    [
-                      vendor.code,
-                      if (vendor.gstin.isNotEmpty) 'GSTIN ${vendor.gstin}',
-                    ].join('  ·  '),
+                : DocumentGstinLine(
+                    gstin: vendor.gstin,
+                    leading: [vendor.code],
                   ),
             vendor,
           ),

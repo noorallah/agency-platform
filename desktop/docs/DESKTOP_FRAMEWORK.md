@@ -33,6 +33,7 @@ The library provides:
 | `SearchFilterPanel` / `FilterPanel` | Search and basic/advanced filter composition |
 | `EnterpriseDataGrid` | Pagination, sorting, selection, double-click, and context actions |
 | `StatusBadge` | Standardized status visualization for grids and detail views |
+| `CopyValueButton` | The one copy icon beside a value people paste elsewhere -- a saved document's number (`DocumentPageBand.number`, `EnterpriseDocumentHeader`), a GSTIN, an IRN, an e-way bill number (backlog 83). Ctrl+C on an `EnterpriseDataGrid` copies its selected rows with a heading line, and its right-click menu ends with Copy cell; a dialog or document tab with a `SelectionArea` makes its text selectable |
 | `SummaryMetricCard` | Reusable metric/summary card for dashboard-style surfaces |
 | `ApplicationStatusBar` / `WorkspaceStatusBar` | Global health/context and record status |
 | `LoadingOverlay` / `TableLoadingSkeleton` | Page, dialog, table, and background loading |

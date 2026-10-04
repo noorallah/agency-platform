@@ -71,10 +71,14 @@ mixin SaveInDialog<T extends StatefulWidget> on State<T> {
         children: [
           Icon(Icons.error_outline, color: colors.onErrorContainer, size: 18),
           const SizedBox(width: 8),
+          // Selectable whatever dialog it sits in (backlog 83): a refusal is
+          // what people paste to support.
           Expanded(
-            child: Text(
-              message,
-              style: TextStyle(color: colors.onErrorContainer),
+            child: SelectionArea(
+              child: Text(
+                message,
+                style: TextStyle(color: colors.onErrorContainer),
+              ),
             ),
           ),
         ],

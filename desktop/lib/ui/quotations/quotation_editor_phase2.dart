@@ -106,7 +106,11 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
             children: [
               DocumentPageBand(
                 title: revising ? 'Revise quotation' : 'New quotation',
-                chips: [if (number.isNotEmpty) number, 'Draft'],
+                number: widget.existing?.quotationNumber ?? '',
+                chips: [
+                  if (number.isNotEmpty && widget.existing == null) number,
+                  'Draft',
+                ],
                 hint: 'Enter next field  ·  Ctrl+Enter new line  ·  '
                     'Ctrl+S save',
                 actions: [

@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/einvoice.dart';
+import '../workspace/copy_value_button.dart';
 import '../workspace/reason_prompt.dart';
 
 /// The path segment the credit note routes live under.
@@ -31,12 +32,15 @@ Future<bool> showNoteEInvoice(
 }) async {
   final bool? changed = await showDialog<bool>(
     context: context,
-    builder: (_) => _NoteEInvoiceDialog(
-      api: api,
-      kind: kind,
-      noteId: noteId,
-      noteNumber: noteNumber,
-      mayManage: mayManage,
+    // Selectable, as every dialog's text (backlog 83).
+    builder: (_) => SelectionArea(
+      child: _NoteEInvoiceDialog(
+        api: api,
+        kind: kind,
+        noteId: noteId,
+        noteNumber: noteNumber,
+        mayManage: mayManage,
+      ),
     ),
   );
   return changed ?? false;
@@ -134,9 +138,19 @@ class _NoteEInvoiceDialogState extends State<_NoteEInvoiceDialog> {
   }
 
   Widget _detail(ThemeData theme, EInvoiceRegistrationRecord row) {
-    Widget line(String label, String value) => Padding(
+    // [copy] puts a copy icon beside the value (backlog 83): the IRN and
+    // the acknowledgement are what people paste into the portal.
+    Widget line(String label, String value, {bool copy = false}) => Padding(
           padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-          child: Text('$label: ${value.isEmpty ? '—' : value}'),
+          child: Row(children: [
+            Flexible(child: Text('$label: ${value.isEmpty ? '—' : value}')),
+            if (copy)
+              CopyValueButton(
+                key: ValueKey<String>('copy-$label'),
+                value: value,
+                what: label,
+              ),
+          ]),
         );
     return Column(
       key: const ValueKey('note-einvoice-state'),
@@ -146,8 +160,8 @@ class _NoteEInvoiceDialogState extends State<_NoteEInvoiceDialog> {
         line('Status', row.status),
         line('Mode', row.mode),
         if (row.isRegistered) ...[
-          line('IRN', row.irn),
-          line('Acknowledgement', row.acknowledgementNumber),
+          line('IRN', row.irn, copy: true),
+          line('Acknowledgement', row.acknowledgementNumber, copy: true),
           if (row.isSandbox)
             Text(
               'Sandbox — nothing was filed.',

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/design/design_tokens.dart';
 import '../models/customer.dart';
 import '../models/line_tax_rule.dart';
+import '../ui/workspace/copy_value_button.dart';
 import '../ui/workspace/workspace_components.dart';
 import 'display_dates.dart';
 import 'indian_format.dart';
@@ -28,6 +29,7 @@ class DocumentPageBand extends StatefulWidget {
     this.chips = const [],
     this.hint = '',
     this.actions = const [],
+    this.number = '',
   });
 
   final String title;
@@ -37,6 +39,11 @@ class DocumentPageBand extends StatefulWidget {
 
   /// What the title and chips keep before the buttons start to scroll.
   static const double minTitleWidth = 160;
+
+  /// The saved document's own number, shown first among the chips with a
+  /// copy icon beside it (backlog 83). Left empty for a number that is only
+  /// a preview -- "(new)" is not a number anybody can quote yet.
+  final String number;
 
   @override
   State<DocumentPageBand> createState() => _DocumentPageBandState();
@@ -49,6 +56,7 @@ class _DocumentPageBandState extends State<DocumentPageBand> {
   List<String> get chips => widget.chips;
   String get hint => widget.hint;
   List<Widget> get actions => widget.actions;
+  String get number => widget.number;
 
   @override
   void dispose() {
@@ -93,6 +101,26 @@ class _DocumentPageBandState extends State<DocumentPageBand> {
                 ),
               ),
               const SizedBox(width: 12),
+              if (number.isNotEmpty) ...[
+                Flexible(
+                  child: Text(
+                    number,
+                    key: const ValueKey('document-number'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                CopyValueButton(
+                  key: const ValueKey('document-number-copy'),
+                  value: number,
+                ),
+                const SizedBox(width: 8),
+              ],
               for (final String chip in chips)
                 Flexible(
                   child: Padding(
@@ -778,18 +806,49 @@ class DocumentCustomerLine extends StatelessWidget {
     final double limit = double.tryParse(customer.creditLimit) ?? 0;
     final bool high = limit > 0 && balance >= limit * .8;
     final String place = documentCustomerPlace(customer);
-    return Text.rich(
-      TextSpan(
-        style: theme.textTheme.bodySmall?.copyWith(fontSize: 11),
-        children: [
-          if (customer.gstNumber.isNotEmpty) ...[
+    final TextStyle? style = theme.textTheme.bodySmall?.copyWith(fontSize: 11);
+    // The GSTIN with a copy icon beside it (backlog 83), then the rest.
+    if (customer.gstNumber.isNotEmpty) {
+      return Row(children: [
+        Text.rich(
+          TextSpan(style: style, children: [
             const TextSpan(text: 'GSTIN '),
             TextSpan(
               text: customer.gstNumber,
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
-            const TextSpan(text: '  ·  '),
-          ],
+          ]),
+        ),
+        CopyValueButton(
+          key: const ValueKey('document-gstin-copy'),
+          value: customer.gstNumber,
+          what: 'GSTIN',
+          size: 11,
+        ),
+        Flexible(
+          child: Text.rich(
+            _customerRest(theme, place, balance, limit, high, lead: '·  '),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ]);
+    }
+    return Text.rich(_customerRest(theme, place, balance, limit, high));
+  }
+
+  TextSpan _customerRest(
+    ThemeData theme,
+    String place,
+    double balance,
+    double limit,
+    bool high, {
+    String lead = '',
+  }) =>
+      TextSpan(
+        style: theme.textTheme.bodySmall?.copyWith(fontSize: 11),
+        children: [
+          if (lead.isNotEmpty) TextSpan(text: lead),
           if (place.isNotEmpty) TextSpan(text: '$place  ·  '),
           const TextSpan(text: 'bal '),
           TextSpan(
@@ -802,8 +861,71 @@ class DocumentCustomerLine extends StatelessWidget {
           if (limit > 0)
             TextSpan(text: ' / limit ${indianAmount(limit, full: true)}'),
         ],
-      ),
+      );
+}
+
+/// A party's line under its picker -- its code, "GSTIN ..." with a copy
+/// icon beside the number (backlog 83), and what follows -- in the quiet
+/// small type of the document header.
+class DocumentGstinLine extends StatelessWidget {
+  const DocumentGstinLine({
+    super.key,
+    required this.gstin,
+    this.leading = const [],
+    this.trailing = const [],
+    this.unregistered = '',
+  });
+
+  final String gstin;
+
+  /// What comes before the GSTIN, e.g. the party's code.
+  final List<String> leading;
+
+  /// What comes after it, e.g. a phone number.
+  final List<String> trailing;
+
+  /// Said in the GSTIN's place when there is none; nothing when empty.
+  final String unregistered;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final TextStyle? style = theme.textTheme.bodySmall?.copyWith(
+      fontSize: 11,
+      color: theme.colorScheme.onSurfaceVariant,
     );
+    final String head = [
+      for (final String part in leading)
+        if (part.isNotEmpty) part,
+      if (gstin.isNotEmpty)
+        'GSTIN $gstin'
+      else if (unregistered.isNotEmpty)
+        unregistered,
+    ].join('  ·  ');
+    final String tail = [
+      for (final String part in trailing)
+        if (part.isNotEmpty) part,
+    ].join('  ·  ');
+    return Row(children: [
+      Flexible(
+        child: Text(head, overflow: TextOverflow.ellipsis, style: style),
+      ),
+      if (gstin.isNotEmpty)
+        CopyValueButton(
+          key: const ValueKey('document-gstin-copy'),
+          value: gstin,
+          what: 'GSTIN',
+          size: 11,
+        ),
+      if (tail.isNotEmpty)
+        Flexible(
+          child: Text(
+            gstin.isEmpty ? '  ·  $tail' : '·  $tail',
+            overflow: TextOverflow.ellipsis,
+            style: style,
+          ),
+        ),
+    ]);
   }
 }
 

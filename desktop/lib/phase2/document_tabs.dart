@@ -48,8 +48,13 @@ class DocumentTabsController extends ChangeNotifier {
   Future<T?> open<T>({required String title, required WidgetBuilder builder}) {
     final Completer<T?> result = Completer<T?>();
     final PageRouteBuilder<T> route = PageRouteBuilder<T>(
-      pageBuilder: (context, _, __) =>
-          DocumentTabScope(child: _UnsavedWorkGuard(child: builder(context))),
+      // A SelectionArea of the tab's own (backlog 83): any label, value,
+      // total or refusal in the document can be selected and copied, and a
+      // select-all stays inside the document rather than taking the shell
+      // around it. Safe here: the route sits in its navigator's overlay.
+      pageBuilder: (context, _, __) => DocumentTabScope(
+        child: _UnsavedWorkGuard(child: SelectionArea(child: builder(context))),
+      ),
       transitionDuration: Duration.zero,
       reverseTransitionDuration: Duration.zero,
     );

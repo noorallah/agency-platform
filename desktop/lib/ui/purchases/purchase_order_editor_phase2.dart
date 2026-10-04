@@ -84,9 +84,9 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
                   PurchaseDialogMode.amend => 'Amend purchase order',
                   _ => 'Purchase order',
                 },
+                number: widget.isCreating ? '' : number,
                 chips: [
-                  if (number.isNotEmpty)
-                    widget.isCreating ? '$number (new)' : number,
+                  if (number.isNotEmpty && widget.isCreating) '$number (new)',
                   if (_draft.revisionNumber > 0)
                     'Amendment ${_draft.revisionNumber}',
                   _statusWords(_draft.status),
@@ -586,22 +586,12 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
   }
 
   Widget _vendorLine(BuildContext context, Vendor vendor) {
-    final ThemeData theme = Theme.of(context);
     final String phone = vendor.mobile.ifEmpty(vendor.phone);
-    return Text(
-      [
-        vendor.code,
-        if (vendor.gstin.isNotEmpty)
-          'GSTIN ${vendor.gstin}'
-        else
-          'unregistered',
-        if (phone.isNotEmpty) phone,
-      ].join('  ·  '),
-      overflow: TextOverflow.ellipsis,
-      style: theme.textTheme.bodySmall?.copyWith(
-        fontSize: 11,
-        color: theme.colorScheme.onSurfaceVariant,
-      ),
+    return DocumentGstinLine(
+      gstin: vendor.gstin,
+      leading: [vendor.code],
+      unregistered: 'unregistered',
+      trailing: [phone],
     );
   }
 

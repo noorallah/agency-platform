@@ -111,10 +111,21 @@ class EnterpriseDocumentHeader extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          header.documentNumber,
-                          style: Theme.of(context).textTheme.headlineSmall,
-                        ),
+                        Row(children: [
+                          Flexible(
+                            child: Text(
+                              header.documentNumber,
+                              style:
+                                  Theme.of(context).textTheme.headlineSmall,
+                            ),
+                          ),
+                          // Backlog 83: the number people paste elsewhere.
+                          CopyValueButton(
+                            key: const ValueKey('document-number-copy'),
+                            value: header.documentNumber,
+                            size: 16,
+                          ),
+                        ]),
                         const SizedBox(height: AppSpacing.xs),
                         Wrap(
                           spacing: AppSpacing.sm,

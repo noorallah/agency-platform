@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -2796,6 +2798,10 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
   /// survives rebuilds, which a stateless widget cannot give it.
   final ScrollController _horizontal = ScrollController();
 
+  /// The grid's own focus, taken when a row is clicked, so Ctrl+C reaches the
+  /// grid and copies the selected rows (backlog 83).
+  final FocusNode _focus = FocusNode(debugLabel: 'EnterpriseDataGrid');
+
   /// The row under the pointer, so phase 2 can light the whole row as the
   /// wireframe does -- each cell is its own tap target, and left to itself
   /// the pointer lit only the cell (the column) it was over.
@@ -2804,7 +2810,124 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
   @override
   void dispose() {
     _horizontal.dispose();
+    _focus.dispose();
     super.dispose();
+  }
+
+  /// A value as it goes onto the clipboard: a status in the words the grid
+  /// shows it in, anything else as it came -- figures without the grouping
+  /// commas, so a spreadsheet reads them as numbers -- and on one line.
+  String _plain(int columnIndex, String raw) {
+    final String value =
+        _phase2 && widget.columns[columnIndex].isStatus
+            ? _statusWords(raw)
+            : raw;
+    return value.replaceAll(RegExp(r'[\t\r\n]+'), ' ').trim();
+  }
+
+  /// The selected rows of this page as tab-separated text under a heading
+  /// line, ready to paste into a spreadsheet; null when no row is selected.
+  /// Every column the screen shows is included, those a narrow window left
+  /// out as well.
+  String? selectedRowsText() {
+    final List<int> columns = [
+      for (int i = 0; i < widget.columns.length; i++)
+        if (widget.columns[i].visible) i,
+    ];
+    final List<String> lines = [];
+    for (final T item in widget.items) {
+      if (!_isSelected(widget.id(item))) continue;
+      final List<String> values = widget.cells(item);
+      lines.add([
+        for (final int i in columns)
+          _plain(i, i < values.length ? values[i] : ''),
+      ].join('\t'));
+    }
+    if (lines.isEmpty) return null;
+    final String heading = [
+      for (final int i in columns)
+        widget.columns[i].label.replaceAll(RegExp(r'[\t\r\n]+'), ' ').trim(),
+    ].join('\t');
+    return [heading, ...lines].join('\n');
+  }
+
+  void _copied(String what) {
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(what),
+        duration: const Duration(seconds: 2),
+      ));
+  }
+
+  /// Ctrl+C: the selected rows, unless the screen binds Ctrl+C itself, in
+  /// which case the key goes on up to it unchanged.
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent ||
+        event.logicalKey != LogicalKeyboardKey.keyC) {
+      return KeyEventResult.ignored;
+    }
+    final HardwareKeyboard keyboard = HardwareKeyboard.instance;
+    if (!(keyboard.isControlPressed || keyboard.isMetaPressed) ||
+        keyboard.isShiftPressed ||
+        keyboard.isAltPressed ||
+        WorkspaceShortcuts.bindsCopy(context)) {
+      return KeyEventResult.ignored;
+    }
+    final String? text = selectedRowsText();
+    if (text == null) return KeyEventResult.ignored;
+    final int rows = '\n'.allMatches(text).length;
+    unawaited(Clipboard.setData(ClipboardData(text: text)).then(
+          (_) => _copied(rows == 1 ? 'Row copied.' : '$rows rows copied.'),
+        ));
+    return KeyEventResult.handled;
+  }
+
+  /// The right-click menu: the screen's own actions, then *Copy cell*.
+  Future<void> _showCellMenu(
+    BuildContext context, {
+    required Offset position,
+    required T item,
+    required List<WorkspaceContextAction> actions,
+    required String cell,
+  }) async {
+    final RenderBox overlay =
+        Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final Object? picked = await showMenu<Object>(
+      context: context,
+      position: RelativeRect.fromRect(
+        Rect.fromPoints(position, position),
+        Offset.zero & overlay.size,
+      ),
+      items: [
+        for (final WorkspaceContextAction action in actions)
+          PopupMenuItem<Object>(
+            value: action,
+            child: Row(children: [
+              Icon(action.icon, size: 20),
+              const SizedBox(width: 12),
+              Text(action.label),
+            ]),
+          ),
+        if (actions.isNotEmpty) const PopupMenuDivider(),
+        const PopupMenuItem<Object>(
+          key: ValueKey('grid-copy-cell'),
+          value: _GridCopyCell(),
+          child: Row(children: [
+            Icon(Icons.content_copy_outlined, size: 20),
+            SizedBox(width: 12),
+            Text('Copy cell'),
+          ]),
+        ),
+      ],
+    );
+    if (picked is WorkspaceContextAction) {
+      widget.onContextAction?.call(picked, item);
+    } else if (picked is _GridCopyCell) {
+      await Clipboard.setData(ClipboardData(text: cell));
+      _copied('Cell copied.');
+    }
   }
 
   /// Phase 2 (the wireframe's grid): edge to edge, no card; a soft header;
@@ -3039,6 +3162,7 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
             context,
             item: item,
             content: Text('${index + 1}'),
+            copyValue: '${index + 1}',
             isLeading: true,
             isSelected: isSelected,
             itemContextActions: itemContextActions,
@@ -3080,6 +3204,7 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
                     ),
                   ),
                 ),
+            copyValue: _plain(entry.key, raw),
             isLeading: visible.key == 0 && !widget.showRowNumbers,
             isSelected: isSelected,
             itemContextActions: itemContextActions,
@@ -3095,6 +3220,7 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
     BuildContext context, {
     required T item,
     required Widget content,
+    required String copyValue,
     required bool isLeading,
     required bool isSelected,
     required List<WorkspaceContextAction> itemContextActions,
@@ -3140,21 +3266,26 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
     return DataCell(
       GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onSecondaryTapDown: itemContextActions.isEmpty
-            ? null
-            : (details) {
-                widget.onSelect(item);
-                showWorkspaceContextMenu(
-                  context,
-                  position: details.globalPosition,
-                  actions: itemContextActions,
-                  onSelected: (action) =>
-                      widget.onContextAction?.call(action, item),
-                );
-              },
+        // Every cell has a menu now: the row's actions, if any, and Copy
+        // cell (backlog 83).
+        onSecondaryTapDown: (details) {
+          _focus.requestFocus();
+          widget.onSelect(item);
+          unawaited(_showCellMenu(
+            context,
+            position: details.globalPosition,
+            item: item,
+            actions: itemContextActions,
+            cell: copyValue,
+          ));
+        },
         child: cell,
       ),
-      onTap: () => widget.onSelect(item),
+      onTap: () {
+        // Ctrl+C reaches the grid once a row is clicked.
+        _focus.requestFocus();
+        widget.onSelect(item);
+      },
       onDoubleTap: widget.onOpen == null ? null : () => widget.onOpen!(item),
     );
   }
@@ -3429,14 +3560,24 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
           ),
       ],
     );
+    final Widget focused = Focus(
+      focusNode: _focus,
+      onKeyEvent: _onKey,
+      child: body,
+    );
     if (_phase2) {
       return ColoredBox(
         color: Theme.of(context).colorScheme.surfaceContainerLowest,
-        child: body,
+        child: focused,
       );
     }
-    return Card(clipBehavior: Clip.antiAlias, child: body);
+    return Card(clipBehavior: Clip.antiAlias, child: focused);
   }
+}
+
+/// The *Copy cell* entry of the grid's right-click menu.
+class _GridCopyCell {
+  const _GridCopyCell();
 }
 
 /// Row actions: the two everyone uses, then everything else behind one menu.
@@ -3960,7 +4101,8 @@ Future<void> showDetailLinesDialog(
 }) =>
     showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
+      // Selectable throughout, labels included (backlog 83).
+      builder: (context) => SelectionArea(child: AlertDialog(
         icon: Icon(icon),
         title: Text(title),
         content: SizedBox(
@@ -3997,7 +4139,7 @@ Future<void> showDetailLinesDialog(
             child: const Text('Close'),
           ),
         ],
-      ),
+      )),
     );
 
 class WorkspaceStatusBar extends StatelessWidget {

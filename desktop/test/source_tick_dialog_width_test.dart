@@ -17,8 +17,11 @@ const double _pixelsPerCharacter = 8;
 
 /// The width the paragraph showing [text] is allowed to take.
 double _roomFor(WidgetTester tester, String text) {
-  final RenderParagraph paragraph =
-      tester.renderObject<RenderParagraph>(find.text(text));
+  // The paragraph under the Text: inside a SelectionArea (backlog 83) a
+  // Text draws a mouse region around its paragraph.
+  final RenderParagraph paragraph = tester.renderObject<RenderParagraph>(
+    find.descendant(of: find.text(text), matching: find.byType(RichText)),
+  );
   return paragraph.constraints.maxWidth;
 }
 
