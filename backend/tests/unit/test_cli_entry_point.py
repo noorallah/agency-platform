@@ -36,6 +36,8 @@ _CALLERS = [
     ["purge-retention", "--dry-run"],
     # The nightly task in server_setup.ps1 (PLT-6).
     ["purge-retention", "--yes", "--scheduled"],
+    # The installer's Branding page (backlog 71, U1), via server_setup.ps1.
+    ["set-branding", "--file", "c:\\temp\\branding.json"],
     ["serve", "--host", "0.0.0.0", "--port", "8000"],
     # The Windows service definition server_setup.ps1 writes for WinSW.
     ["serve", "--host", "127.0.0.1", "--port", "8000"],

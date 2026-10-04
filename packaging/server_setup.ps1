@@ -70,6 +70,9 @@ param(
   [string]$ServerUrl,
   # The server's port. 0 keeps the one an earlier install used, else 8000.
   [int]$ApiPort = 0,
+  # JSON written by Setup from its Branding page (agency_name, tagline,
+  # logo_path); saved once the server answers, then deleted.
+  [string]$BrandingFile,
   [switch]$DeleteData,
   # How many daily backups -DailyBackup keeps; older ones are deleted.
   [int]$KeepDaily = 7
@@ -803,6 +806,30 @@ function Invoke-Retention {
   }
 }
 
+function Set-AgencyBranding {
+  <#
+    Save the agency's name, tagline and logo typed on Setup's Branding page
+    (backlog 71, U1) into the server's branding record. Optional throughout:
+    a failure is logged as a warning and never fails the install, because the
+    administrator can give the branding later in Settings > Branding.
+  #>
+  if (-not $BrandingFile) { return }
+  if (-not (Test-Path -LiteralPath $BrandingFile)) {
+    Write-Log "  warning: $BrandingFile is missing, so no branding was saved"
+    return
+  }
+  try {
+    Write-Log 'Branding: saving the agency name, tagline and logo'
+    $code = Invoke-Native -File $AgencyServer -WorkingDirectory $Backend `
+      -Arguments @('set-branding', '--file', $BrandingFile)
+    if ($code -ne 0) { Write-Log "  warning: set-branding exited with $code" }
+  } catch {
+    Write-Log "  warning: branding could not be saved: $($_.Exception.Message)"
+  } finally {
+    Remove-Item -LiteralPath $BrandingFile -Force -ErrorAction SilentlyContinue
+  }
+}
+
 function Register-DailyBackup {
   <#
     A Windows scheduled task, as SYSTEM, every day at 02:00 -- and as soon as
@@ -964,6 +991,7 @@ function Invoke-Server {
   Write-Log 'The server is answering.'
 
   [System.IO.File]::WriteAllText($ReadyMarker, "Database set up by Setup.`r`n")
+  Set-AgencyBranding
   Register-DailyBackup
   Remove-Item -LiteralPath $SuperuserFile -Force -ErrorAction SilentlyContinue
   Save-Ports -Database $DbPort -Server $ApiPort

@@ -197,6 +197,8 @@ var
   LanCheck: TNewCheckBox;
   ServerPage: TInputQueryWizardPage;
   PortPage: TInputQueryWizardPage;
+  BrandingPage: TInputQueryWizardPage;
+  LogoEdit: TNewEdit;
   InstalledVersion: String;
   InstallLogPath: String;
   ServerReady: Boolean;
@@ -435,6 +437,52 @@ begin
   LanCheck.Enabled := RolePage.SelectedValueIndex = 0;
 end;
 
+procedure BrowseLogo(Sender: TObject);
+var
+  FileName: String;
+begin
+  FileName := LogoEdit.Text;
+  if GetOpenFileName('Choose the agency''s logo', FileName, '',
+      'Images (*.png;*.jpg;*.jpeg)|*.png;*.jpg;*.jpeg', 'png') then
+    LogoEdit.Text := FileName;
+end;
+
+{ The logo row and the product's own identity, below the two text boxes. }
+procedure CreateBrandingLogoRow;
+var
+  Caption, Product: TNewStaticText;
+  Browse: TNewButton;
+  Top: Integer;
+begin
+  Top := BrandingPage.Edits[1].Top + BrandingPage.Edits[1].Height + ScaleY(16);
+  Caption := TNewStaticText.Create(BrandingPage);
+  Caption.Parent := BrandingPage.Surface;
+  Caption.Top := Top;
+  Caption.Caption := 'Logo (PNG or JPG, square, up to 1 MB):';
+
+  Browse := TNewButton.Create(BrandingPage);
+  Browse.Parent := BrandingPage.Surface;
+  Browse.Width := ScaleX(80);
+  Browse.Height := WizardForm.NextButton.Height;
+  Browse.Left := BrandingPage.SurfaceWidth - Browse.Width;
+  Browse.Top := Caption.Top + Caption.Height + ScaleY(4);
+  Browse.Caption := 'Browse...';
+  Browse.OnClick := @BrowseLogo;
+
+  LogoEdit := TNewEdit.Create(BrandingPage);
+  LogoEdit.Parent := BrandingPage.Surface;
+  LogoEdit.Top := Browse.Top + ScaleY(1);
+  LogoEdit.Width := Browse.Left - ScaleX(8);
+
+  Product := TNewStaticText.Create(BrandingPage);
+  Product.Parent := BrandingPage.Surface;
+  Product.Top := Browse.Top + Browse.Height + ScaleY(20);
+  Product.Width := BrandingPage.SurfaceWidth;
+  Product.WordWrap := True;
+  Product.Caption := 'This product: {#AppName}, by {#AppPublisher}. Set by this ' +
+    'installer and changed only by an update.';
+end;
+
 procedure InitializeWizard;
 begin
   RolePage := CreateInputOptionPage(wpSelectDir,
@@ -480,6 +528,19 @@ begin
   PortPage.Add('Server port:', False);
   PortPage.Values[0] := GetPreviousData('ApiPort', '8000');
 
+  { Backlog 71, U1: the agency's own branding, on a fresh server install
+    only. All optional; written to the server's branding record once the
+    server answers, so every PC shows it. Our product's own name and maker
+    come from the package and are shown here, not asked. }
+  BrandingPage := CreateInputQueryPage(RolePage.ID,
+    'Branding',
+    'Your agency''s name and logo',
+    'Shown on the sign-in screen and at the top of every screen, on every PC. ' +
+    'All optional: leave them blank to give them after the first sign-in.');
+  BrandingPage.Add('Agency name:', False);
+  BrandingPage.Add('Tagline:', False);
+  CreateBrandingLogoRow;
+
   { The finished page's sign-in block: hidden until there is one to show. }
   CredentialsLabel := TNewStaticText.Create(WizardForm);
   CredentialsLabel.Parent := WizardForm.FinishedPage;
@@ -518,6 +579,10 @@ begin
     Result := IsUpgrade and (GetPreviousData('MachineRole', '') <> '')
   else if PageID = ServerPage.ID then
     Result := IsServer or (IsUpgrade and (GetPreviousData('ServerUrl', '') <> ''))
+  else if PageID = BrandingPage.ID then
+    { Asked once, on a fresh server: an upgrade or repair keeps what the
+      server already holds, and Settings > Branding changes it any time. }
+    Result := IsClient or IsUpgrade
   else if PageID = PortPage.ID then
     { An upgrade keeps the port it was installed with. }
     Result := IsClient or (IsUpgrade and (GetPreviousData('ApiPort', '') <> ''));
@@ -599,6 +664,18 @@ var
   Number: Integer;
 begin
   Result := True;
+  if CurPageID = BrandingPage.ID then begin
+    if (Trim(LogoEdit.Text) <> '') and not FileExists(Trim(LogoEdit.Text)) then begin
+      MsgBox('The logo file was not found. Choose it again or leave it blank.', mbError, MB_OK);
+      Result := False;
+    end else if (Trim(BrandingPage.Values[0]) = '') and
+        ((Trim(BrandingPage.Values[1]) <> '') or (Trim(LogoEdit.Text) <> '')) then begin
+      MsgBox('Type the agency''s name too; the tagline and logo are saved with it.',
+        mbError, MB_OK);
+      Result := False;
+    end;
+    Exit;
+  end;
   if CurPageID = PortPage.ID then begin
     Port := Trim(PortPage.Values[0]);
     Number := StrToIntDef(Port, 0);
@@ -745,9 +822,45 @@ begin
     InstallLog('Visual C++ runtime: could not run vc_redist: ' + SysErrorMessage(ResultCode));
 end;
 
+{ A JSON string: quotes and backslashes escaped, control characters dropped. }
+function JsonString(Value: String): String;
+var
+  I: Integer;
+  C: Char;
+begin
+  Result := '"';
+  for I := 1 to Length(Value) do begin
+    C := Value[I];
+    if (C = '"') or (C = '\') then
+      Result := Result + '\' + C
+    else if Ord(C) >= 32 then
+      Result := Result + C;
+  end;
+  Result := Result + '"';
+end;
+
+{ The Branding page's values, for server_setup.ps1 to hand to the server;
+  empty when nothing was typed or the page was not shown. }
+function WriteBrandingFile: String;
+var
+  Lines: TArrayOfString;
+begin
+  Result := '';
+  if IsUpgrade or (Trim(BrandingPage.Values[0]) = '') then Exit;
+  SetArrayLength(Lines, 1);
+  Lines[0] := '{"agency_name": ' + JsonString(Trim(BrandingPage.Values[0])) +
+    ', "tagline": ' + JsonString(Trim(BrandingPage.Values[1])) +
+    ', "logo_path": ' + JsonString(Trim(LogoEdit.Text)) + '}';
+  Result := ExpandConstant('{tmp}\branding.json');
+  if not SaveStringsToUTF8File(Result, Lines, False) then begin
+    InstallLog('Could not write the branding file; branding is left for later.');
+    Result := '';
+  end;
+end;
+
 procedure SetUpServer;
 var
-  Arguments: String;
+  Arguments, BrandingFile: String;
 begin
   ServerStepRan := True;
   WizardForm.StatusLabel.Caption :=
@@ -758,6 +871,9 @@ begin
     earlier install used. }
   if Trim(PortPage.Values[0]) <> '' then
     Arguments := Arguments + ' -ApiPort ' + Trim(PortPage.Values[0]);
+  BrandingFile := WriteBrandingFile;
+  if BrandingFile <> '' then
+    Arguments := Arguments + ' -BrandingFile "' + BrandingFile + '"';
   ServerReady := RunSetupScript(ExpandConstant('{app}\packaging\server_setup.ps1'), Arguments);
   if ServerReady then Exit;
   SuppressibleMsgBox(

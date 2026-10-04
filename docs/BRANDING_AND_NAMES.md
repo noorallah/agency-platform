@@ -270,3 +270,20 @@ step 1 only; U8 Help > About stays parked).
 - Not built: the "PRACTICE" mark (no practice-firm feature exists) and the
   "Finish setting up" prompt (U5, next).
 
+### 8.4 Installer page 3, Branding (U1)
+
+- `packaging/AgencyPlatform.iss`: a **Branding** page after "This PC",
+  shown on a **fresh server install only** (skipped for an app-only PC, an
+  upgrade and a repair). Agency name, tagline and a logo file with Browse,
+  all optional; a tagline or logo without a name is refused on Next, and a
+  logo path that does not exist. Below them, read-only: "This product:
+  <product>, by <company>", from the package.
+- The values travel **by file, never on a command line**: Setup writes them
+  as UTF-8 JSON to `{tmp}randing.json`, passes `-BrandingFile` to
+  `server_setup.ps1`, which runs `agency-server set-branding --file` once the
+  server answers `/health`, then deletes the file.
+- `set-branding` (`app/branding/services/installer.py`) saves through the
+  same service as Settings > Branding, so it is audited. **A branding problem
+  never fails an install**: a refused logo is logged as a warning and the
+  name is still saved; the administrator can give it later.
+
