@@ -60,6 +60,8 @@ message are the pass.
   has not been driven on a real screen yet. Check it, and if the screen
   differs but looks reasonable, write down what it showed.
 
+**Module reference.** `docs/QA_MODULE_REFERENCE.md` is the companion: per module, what to configure first, the screens to open, what to verify elsewhere, who may reach it and what is deliberately not built in 1.3.0. It points here by case id.
+
 **Useful keys.** Ctrl+K searches every screen and record. Ctrl+N new, F2 edit
 the picked row, Ctrl+S save, / search box, Esc close.
 
@@ -216,7 +218,7 @@ admin@qb01.test.
 | QA-SIG-13 | My preferences: change nothing, press **Save**. Open again, change Theme, press **Esc**. Open again, change Theme, press **Cancel** | Save with nothing changed simply closes. Esc and Cancel close and the theme stays as it was | -- | |
 | QA-SIG-14 | My preferences > **Theme** Dark > Save. Then Follow Windows > Save. Then Light > Save | Each applies at once, without restarting. Follow Windows follows the Windows light/dark setting | -- | |
 | QA-SIG-15 | My preferences > **Text size** Large > Save; then Default | Text grows at once; the box says *This PC only* | On another PC the text size is unchanged | |
-| QA-SIG-16 | My preferences > open **Date format** | Four rows, each showing today written that way: dd-MM-yyyy (default, e.g. 04-10-2026), dd/MM/yyyy, yyyy-MM-dd, MM/dd/yyyy | After Selling: choose yyyy-MM-dd and a sales invoice's date reads 2026-10-04 style (QA-SELL-27) | |
+| QA-SIG-16 | My preferences > open **Date format** | Four rows, each showing today written that way: dd-MM-yyyy (default, e.g. 04-10-2026), dd/MM/yyyy, yyyy-MM-dd, MM/dd/yyyy | After Selling: choose yyyy-MM-dd and a sales invoice's date reads 2026-10-04 style (QA-SELL-35) | |
 | QA-SIG-17 | My preferences > **First screen** > Sell > Sales Invoices > Save. Open Customers; sign out and in | Lands on Sales Invoices. The list offers only screens your role may open | Set back to *The screen I was last on*; sign out and in: lands where you were | |
 | QA-SIG-18 | Sign in as a user in **two** firms (the platform administrator can add admin@qb01.test to a second firm under Settings > Platform > User-Firm Assignments) and open My preferences | **Start in firm** offered, listing only that user's firms. Choosing one changes nothing now | Next sign-in starts in the chosen firm | |
 | QA-SIG-19 | User menu > **My profile** > Change password: new `Short@1` | Refused beside the box: "Use at least 12 characters." | New `LongEnoughPassw0rd`: "Include a symbol." Wrong current password: "Current password is incorrect." Do not finish the change | |
@@ -269,7 +271,7 @@ admin@qb01.test.
 | QA-FRM-12 | Masters > **Warehouses** > + New: branch HO, code `STORE2`, name Back Store. Save | Listed beside MAIN | -- | |
 | QA-FRM-13 | Settings > Firm > **Numbering Series**; open the sales invoice series; press Preview twice | Each document type with its next number, the counter locked (padlock, no box to type). Preview shows the same next number both times | Preview issues nothing: the first invoice later still takes that number | |
 | QA-FRM-14 | Settings > Selling > **Sales Stages** | Quotation, Sales order and Delivery note stages all **on** (defaults). Close without saving | -- | |
-| QA-FRM-15 | Settings > Selling > **Credit Control** | When a customer reaches their limit: **Warn**; warn at 80; block at 100 | Used in QA-SELL-18 | |
+| QA-FRM-15 | Settings > Selling > **Credit Control** | When a customer reaches their limit: **Warn**; warn at 80; block at 100 | Used in QA-SELL-24 and QA-SELL-25 | |
 | QA-FRM-16 | Settings > Tax > **GST Documents** | Dispatch of a sale before its invoice: **Warn**; e-invoicing date blank; E-invoice filing **Sandbox**; claim input credit on all bills | -- | |
 | QA-FRM-17 | Settings > Stock > **Batch Rules** | Near expiry 30 days; near-expiry batch leaving: Warn; FEFO skip: Record; may be sold below price floor ticked | -- | |
 | QA-FRM-18 | Settings > Tax > **Rule Simulator**: 1,000 at GST 18% Local, buyer in Tamil Nadu; then buyer in Karnataka | Local: CGST 9% 90.00 + SGST 9% 90.00, tax 180.00. Inter-state: matched rule INTERSTATE_GST_18, IGST 18% 180.00 | -- | |
@@ -389,7 +391,7 @@ admin@qb01.test. Enquiry -> quotation -> order -> delivery note -> invoice
 | QA-SELL-14 | Sales Invoices > the paid invoice > **Cancel** | Refused: cannot be cancelled while it has money applied from RC-...; "Reverse or cancel those first." | -- | |
 | QA-SELL-15 | Sell > Sales Orders > + New: Bharat Stores, QB-DET x 20 | Place of supply Karnataka · **IGST**: taxable 2,000.00, IGST **360.00**, total **2,360.00**. Save, Approve | -- | |
 | QA-SELL-16 | Delivery Notes > + New > that order > Save > Approve > **Dispatch and invoice** | "Dispatched and invoiced as SI-..."; the invoice is approved, total 2,360.00 | DET **59**. Journals: Dr Cost of Goods Sold 1,600.00 / Cr Inventory 1,600.00; Dr Trade Receivables 2,360.00 / Cr Sales 2,000.00 / Cr Output IGST 360.00 | |
-| QA-SELL-17 | Sell > Returns & notes > **Customer Debit Notes** > + New: Bharat's invoice, reason Price increase, **100** on the DET line > Save > Approve | Tax **18.00** (IGST, the line's rate), total **118.00** | Journal: Dr Trade Receivables 118.00 / Cr Sales 100.00 / Cr Output IGST 18.00. Bharat outstanding **2,478.00**; a new receipt lists the invoice at 2,478.00 on one row. Cancelling the invoice is refused naming the debit note | |
+| QA-SELL-17 | Sell > Returns & notes > **Debit Notes** > + New: Bharat's invoice, reason Price increase, **100** on the DET line > Save > Approve | Tax **18.00** (IGST, the line's rate), total **118.00** | Journal: Dr Trade Receivables 118.00 / Cr Sales 100.00 / Cr Output IGST 18.00. Bharat outstanding **2,478.00**; a new receipt lists the invoice at 2,478.00 on one row. Cancelling the invoice is refused naming the debit note | |
 | QA-SELL-18 | Sales Invoices > **+ New by product** (counter bill): Lakshmi Provisions; QB-TEA x 2, QB-FLR x 4. Tender **Cash 700** | Taxable 600.00, CGST **28.00** (10.00 + 18.00), SGST 28.00, total **656.00**; the tender panel shows change **44.00** | -- | |
 | QA-SELL-19 | Change the tender to Cash **656.00**; press **Save & print (F9)** | Bill approved and printed; a new blank bill opens | Bill shows paid; Sell > Receipts lists a cash receipt of 656.00 applied to it. Journals: the bill, and Dr Cash 656.00 / Cr Trade Receivables 656.00; cost 480.00 to Cost of Goods Sold (confirm). TEA **61**, FLR MAIN **79** | |
 | QA-SELL-20 | Sales Orders > + New: Ravi Traders, QB-GHEE x 10 at 300 > Save > Approve | Taxable 3,000.00, CGST 75.00, SGST 75.00, total **3,150.00**. Approved | Stock > Batches: G-101 has 10 reserved (earliest expiry first) | |
