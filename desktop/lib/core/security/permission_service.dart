@@ -57,8 +57,19 @@ class PermissionService extends ChangeNotifier {
           if (entry.value.contains(permission)) entry.key,
       };
 
+  /// The signed-in user's id, from the token's `sub` claim.
+  ///
+  /// D-ROLE-2: whoever holds a document's create code and not `SALES_UPDATE`
+  /// may still correct the draft they raised, so a screen compares this with
+  /// the row's `created_by` before offering Edit. The server makes the same
+  /// comparison and is the one that decides.
+  String? get userId => _userId;
+  String? _userId;
+
   void applyAccessToken(String? token, {String? activeFirmId}) {
     final Map<String, dynamic>? claims = _decodePayload(token);
+    final Object? subject = claims?['sub'];
+    _userId = subject is String && subject.isNotEmpty ? subject : null;
     _global = _stringClaims(claims?['permissions']).toSet();
 
     final Object? firmClaims = claims?['firm_permissions'];

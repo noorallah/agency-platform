@@ -183,7 +183,11 @@ class _GstApi extends ApiClient {
 Future<void> _pumpPage(
   WidgetTester tester,
   _GstApi api, {
-  List<String> codes = const ['SALES_VIEW', 'SALES_APPROVE', 'SALES_CREATE'],
+  List<String> codes = const [
+    'SALES_VIEW',
+    'SALES_APPROVE',
+    'SALES_INVOICE_CREATE',
+  ],
 }) async {
   tester.view.physicalSize = const Size(1600, 900);
   tester.view.devicePixelRatio = 1;
@@ -409,7 +413,7 @@ void main() {
       expect(api.calls.any((call) => call.endsWith('/dispatch-check')), isFalse);
     });
 
-    testWidgets('without SALES_CREATE the direct action is disabled',
+    testWidgets('without SALES_INVOICE_CREATE the direct action is disabled',
         (tester) async {
       final _GstApi api = _GstApi();
       await _pumpPage(tester, api, codes: const ['SALES_VIEW', 'SALES_APPROVE']);

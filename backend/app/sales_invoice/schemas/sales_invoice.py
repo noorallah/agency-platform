@@ -505,6 +505,9 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     attributes: list[AttributeValueResponse] = Field(default_factory=list)
 
     id: UUID
+    #: Who raised it. The desktop offers Edit on a draft to its author when
+    #: they hold the create code and not `SALES_UPDATE` (D-ROLE-2).
+    created_by: UUID | None = None
     firm_id: UUID
     customer_id: UUID
     #: The customer's name, resolved for display so the header is not a UUID.

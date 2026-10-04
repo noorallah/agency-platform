@@ -246,7 +246,7 @@ def test_dispatch_and_invoice_bills_the_note_as_the_goods_leave() -> None:
     shop.policy("BLOCK")
     note = shop.note(quantity="3")
 
-    with pytest.raises(AuthorizationError, match="SALES_CREATE"):
+    with pytest.raises(AuthorizationError, match="SALES_INVOICE_CREATE"):
         dispatch_and_invoice_delivery_note(
             note_id=note.id,
             scope=shop.scope("SALES_APPROVE"),  # type: ignore[arg-type]
@@ -254,7 +254,9 @@ def test_dispatch_and_invoice_bills_the_note_as_the_goods_leave() -> None:
         )
     bill = dispatch_and_invoice_delivery_note(
         note_id=note.id,
-        scope=shop.scope("SALES_APPROVE", "SALES_CREATE"),  # type: ignore[arg-type]
+        scope=shop.scope(
+            "SALES_APPROVE", "SALES_INVOICE_CREATE"
+        ),  # type: ignore[arg-type]
         db=shop.session,
     ).data
     assert bill is not None
@@ -272,7 +274,9 @@ def test_dispatch_and_invoice_bills_the_note_as_the_goods_leave() -> None:
     with pytest.raises(ValidationError, match="only an approved delivery note"):
         dispatch_and_invoice_delivery_note(
             note_id=note.id,
-            scope=shop.scope("SALES_APPROVE", "SALES_CREATE"),  # type: ignore[arg-type]
+            scope=shop.scope(
+                "SALES_APPROVE", "SALES_INVOICE_CREATE"
+            ),  # type: ignore[arg-type]
             db=shop.session,
         )
 

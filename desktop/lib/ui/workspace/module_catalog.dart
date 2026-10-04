@@ -719,7 +719,8 @@ abstract final class ModuleCatalog {
       workspaceTemplate: WorkspaceTemplateType.transaction,
       requiredPermissions: [
         'SALES_VIEW',
-        'SALES_CREATE',
+        // An order is raised under its own code (D-ROLE-2).
+        'SALES_ORDER_CREATE',
         'SALES_UPDATE',
         'SALES_IMPORT',
         'SALES_EXPORT',
@@ -760,7 +761,8 @@ abstract final class ModuleCatalog {
       workspaceTemplate: WorkspaceTemplateType.transaction,
       requiredPermissions: [
         'SALES_VIEW',
-        'SALES_CREATE',
+        // A bill is raised under its own code (D-ROLE-2).
+        'SALES_INVOICE_CREATE',
         'SALES_UPDATE',
         'SALES_IMPORT',
         'SALES_EXPORT',

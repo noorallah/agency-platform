@@ -309,6 +309,9 @@ class SalesOrderResponse(SalesOrderSchema):
     #: header because a list carries many records and a header carries
     #: one — and this desktop edits from list rows.
     version: int
+    #: Who raised it. The desktop offers Edit on a draft to its author when
+    #: they hold the create code and not `SALES_UPDATE` (D-ROLE-2).
+    created_by: UUID | None = None
     firm_id: UUID
     customer_id: UUID
     #: Who the order is for, by name, so a picker of orders -- the

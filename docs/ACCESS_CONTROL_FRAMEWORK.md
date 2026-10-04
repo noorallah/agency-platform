@@ -225,6 +225,41 @@ granting it to every role -- a firm's own included -- that held
 `PURCHASE_CREATE`, `PURCHASE_UPDATE` or `PURCHASE_APPROVE`, so nobody lost a
 receipt action they had.
 
+**A sales order and a sales invoice are raised under their own codes**
+(D-ROLE-2, 2026-10-04). `SALES_EXECUTIVE` held `SALES_ORDER_CREATE` and
+`SALES_INVOICE_CREATE`, and `BILLING_EXECUTIVE` `SALES_INVOICE_CREATE`, from the
+first seed, while `POST /sales-orders` and `POST /sales-invoices` asked for
+`SALES_CREATE` -- so Field Sales could quote and never take the order, and
+Counter Sales could not raise a bill. The two create routes and their previews
+now take the per-document code, as `POST /quotations` takes
+`SALES_QUOTATION_CREATE`: ERPNext and Zoho both grant create per document type.
+Three rules came with it:
+
+- **Whoever raised a draft may correct it.** `PUT /sales-orders/{id}` and
+  `PUT /sales-invoices/{id}` admit `SALES_UPDATE` (anyone's draft) or the
+  create code, which `assert_may_edit_draft` in `app/common/scope.py` narrows to
+  the caller's own document (`created_by`) -- ERPNext's "if owner". The service
+  refuses anything past a draft whoever asks. Both responses carry
+  `created_by`, and the desktop offers Edit on that comparison.
+- **Approval stays where it was.** Neither job role holds `SALES_APPROVE`: an
+  order Field Sales takes and a bill the counter raises are approved by
+  somebody else (maker-checker). There is no separate "submit" step.
+- **Dispatch and invoice asks for `SALES_INVOICE_CREATE`** for the bill it
+  raises, beside `SALES_APPROVE` for the dispatch. Delivery notes themselves
+  stay on `SALES_CREATE`/`SALES_UPDATE`: dispatch is the warehouse's and the
+  sales manager's, and neither job role is meant to raise one.
+
+A bill typed straight in while the order and delivery stages are switched off
+still raises them through `SalesChainService`, which checks no permission of
+its own -- the create route's code is the whole gate, so Counter Sales can.
+Sales returns were already on their own code (`SALES_RETURN`), and credit notes
+on `CREDIT_NOTE_MANAGE`. `tests/unit/test_sales_documents_follow_their_create_codes.py`
+is the guard; `20261004_0303` granted both codes to every role -- a firm's own
+included -- that held `SALES_CREATE`, so nobody lost an order or a bill they
+could raise. The seeded holders (`SALES_MANAGER`, `FIRM_ADMIN`,
+`FIRM_MANAGER` and the platform roles) took both through the sales group
+already.
+
 ### The twelve firm roles form a containment tree
 
 Not a metaphor and not a design intention read back from the names -- computed
@@ -916,9 +951,9 @@ one request timed out is worse than briefly offering a module it has turned off.
 | Masters | `FIRM_VIEW`, `CUSTOMER_VIEW`, `PRODUCT_VIEW`, `VENDOR_VIEW`, `BRANCH_VIEW`, `WAREHOUSE_VIEW` | any | 16 | `MASTERS` |
 | Sales | `SALES_VIEW`, `TERRITORY_VIEW`, `PRICE_LIST_VIEW`, `PROMOTION_VIEW`, `COMMISSION_VIEW`, `SALES_TARGET_VIEW` | any | 16 | `SALES` |
 | Quotations | `SALES_VIEW`, `SALES_QUOTATION_CREATE`, `SALES_APPROVE`, `SALES_CANCEL` | any | 0 | `SALES` |
-| Sales Orders | `SALES_VIEW`, `SALES_CREATE`, `SALES_UPDATE`, `SALES_IMPORT`, `SALES_EXPORT`, `SALES_APPROVE`, `SALES_CANCEL` | any | 0 | `SALES` |
-| Delivery Notes | as Sales Orders | any | 1 | `SALES` |
-| Sales Invoices | as Sales Orders | any | 1 | `SALES` |
+| Sales Orders | `SALES_VIEW`, `SALES_ORDER_CREATE`, `SALES_UPDATE`, `SALES_IMPORT`, `SALES_EXPORT`, `SALES_APPROVE`, `SALES_CANCEL` | any | 0 | `SALES` |
+| Delivery Notes | as Sales Orders, with `SALES_CREATE` for `SALES_ORDER_CREATE` | any | 1 | `SALES` |
+| Sales Invoices | as Sales Orders, with `SALES_INVOICE_CREATE` for `SALES_ORDER_CREATE` | any | 1 | `SALES` |
 | Sales Returns | `SALES_VIEW`, `SALES_RETURN`, `SALES_UPDATE`, `SALES_APPROVE`, `SALES_CANCEL` | any | 0 | `SALES` |
 | Purchases | the nine `PURCHASE_*` codes | any | 4 | `PURCHASES` |
 | Purchase Invoices | seven `PURCHASE_*` codes | any | 0 | `PURCHASES` |

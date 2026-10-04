@@ -8,8 +8,9 @@
 // `documentAction` helpers shadow every two-segment sales route.
 //
 // What is worth pinning here is not that the buttons exist but that they are
-// gated the way the server is: `SALES_CREATE` to raise one, `SALES_UPDATE` and
-// a DRAFT to correct one. A button the server refuses is worse than no button.
+// gated the way the server is: `SALES_ORDER_CREATE` to raise one (D-ROLE-2),
+// `SALES_UPDATE` -- or that code and having raised it -- and a DRAFT to
+// correct one. A button the server refuses is worse than no button.
 
 import 'dart:convert';
 import 'dart:io';
@@ -27,13 +28,19 @@ String _accessToken(Map<String, dynamic> claims) =>
 
 PermissionService _permissions(List<String> codes) => PermissionService()
   ..applyAccessToken(_accessToken({
+    'sub': 'user-1',
     'roles': <String>['user'],
     'permissions': codes,
   }));
 
-Json _order({String status = 'DRAFT', String id = 'so-1'}) =>
+Json _order({
+  String status = 'DRAFT',
+  String id = 'so-1',
+  String createdBy = 'user-2',
+}) =>
     <String, dynamic>{
       'id': id,
+      'created_by': createdBy,
       'order_number': 'SO-0001',
       'order_date': '2026-08-23',
       'reference_number': '',
@@ -110,7 +117,11 @@ bool _enabled(WidgetTester tester, String label) {
 void main() {
   testWidgets('an order can be raised without a quotation behind it',
       (tester) async {
-    await _pump(tester, _OrdersApi(), const ['SALES_VIEW', 'SALES_CREATE']);
+    await _pump(
+      tester,
+      _OrdersApi(),
+      const ['SALES_VIEW', 'SALES_ORDER_CREATE'],
+    );
 
     expect(find.text('New Order'), findsOneWidget);
     expect(_enabled(tester, 'New Order'), isTrue);
@@ -147,5 +158,30 @@ void main() {
     );
 
     expect(_enabled(tester, 'Edit'), isTrue);
+  });
+
+  // D-ROLE-2: Field Sales holds `SALES_ORDER_CREATE` and not
+  // `SALES_UPDATE`. The order it raised is its own to correct until it
+  // is approved; somebody else's is not -- the server asks the same.
+  testWidgets('field sales corrects its own draft and nobody else\'s',
+      (tester) async {
+    await _pump(
+      tester,
+      _OrdersApi(rows: [_order(createdBy: 'user-1')]),
+      const ['SALES_VIEW', 'SALES_ORDER_CREATE'],
+    );
+    expect(_enabled(tester, 'New Order'), isTrue);
+    expect(_enabled(tester, 'Edit'), isTrue);
+  });
+
+  testWidgets('field sales is not offered a colleague\'s draft',
+      (tester) async {
+    await _pump(
+      tester,
+      _OrdersApi(rows: [_order()]),
+      const ['SALES_VIEW', 'SALES_ORDER_CREATE'],
+    );
+    expect(find.text('Edit'), findsOneWidget);
+    expect(_enabled(tester, 'Edit'), isFalse);
   });
 }
