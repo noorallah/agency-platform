@@ -56,7 +56,9 @@ class AgencyBrandingService:
         return self._session.scalars(
             select(AgencyBranding)
             .where(AgencyBranding.is_deleted.is_(False))
-            .order_by(AgencyBranding.created_at)
+            # The id settles a tie: created_at is shared by every row one
+            # request wrote (test_pagination_is_a_total_order).
+            .order_by(AgencyBranding.created_at, AgencyBranding.id.asc())
             .limit(1)
         ).first()
 
