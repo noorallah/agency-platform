@@ -293,12 +293,13 @@ void main() {
     expect(closed.single, isA<DocumentStepDone>());
   });
 
-  // 1366x768, the smallest the shell supports. At 800x600 the receipt's
-  // line table is wider than the window with or without the strip.
-  testWidgets('the receipt window with its steps fits 1366x768', (
+  // 1366x768, the smallest the shell supports, and the 800x600 test window:
+  // there the line table scrolls sideways inside itself rather than running
+  // off the window.
+  testWidgets('the receipt window with its steps fits 1366x768 and 800x600', (
     tester,
   ) async {
-    for (final Size size in const <Size>[Size(1366, 768)]) {
+    for (final Size size in const <Size>[Size(1366, 768), Size(800, 600)]) {
       final _Api api = _Api();
       await _open(
         tester,
