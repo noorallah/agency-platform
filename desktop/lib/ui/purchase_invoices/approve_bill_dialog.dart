@@ -24,7 +24,13 @@ class ApproveBillDialog extends StatefulWidget {
     required this.onApprove,
     this.canPay = true,
     this.loadProposal,
+    this.currencyCode = '',
   });
+
+  /// The bill's currency (PG-12); blank or INR is rupees. A bill in another
+  /// currency takes no TDS and is not paid in the same step: it is paid from
+  /// Payments, in that currency, at the day's rate.
+  final String currencyCode;
 
   final String number;
 
@@ -141,6 +147,10 @@ class _ApproveBillDialogState extends State<ApproveBillDialog>
     super.dispose();
   }
 
+  bool get _foreign =>
+      widget.currencyCode.isNotEmpty &&
+      widget.currencyCode.toUpperCase() != 'INR';
+
   bool get _isInstrument => _mode == 'CHEQUE' || _mode == 'DEMAND_DRAFT';
 
   String _iso(DateTime day) => day.toIso8601String().substring(0, 10);
@@ -153,6 +163,7 @@ class _ApproveBillDialogState extends State<ApproveBillDialog>
 
   Json? _body() {
     final Json body = <String, dynamic>{};
+    if (_foreign) return null;
     if (_typedTds != null) body['tds_amount'] = _typedTds;
     if (_paidNow) {
       body['payment'] = <String, dynamic>{
@@ -170,7 +181,7 @@ class _ApproveBillDialogState extends State<ApproveBillDialog>
   }
 
   Future<void> _approve() {
-    final String? typed = _typedTds;
+    final String? typed = _foreign ? null : _typedTds;
     if (typed != null) {
       final double? value = double.tryParse(typed);
       if (value == null || value < 0) {
@@ -308,8 +319,19 @@ class _ApproveBillDialogState extends State<ApproveBillDialog>
                   'Approving posts the bill to the books.',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
-                ..._tdsFields(context),
-                if (widget.canPay)
+                if (_foreign)
+                  Padding(
+                    padding: const EdgeInsets.only(top: AppSpacing.sm),
+                    child: Text(
+                      'This bill is in ${widget.currencyCode.toUpperCase()}, '
+                      'so TDS and Paid now are not offered. Pay it from '
+                      'Payments, in that currency, at the rate of the day.',
+                      key: const ValueKey('approve-foreign-note'),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                if (!_foreign) ..._tdsFields(context),
+                if (widget.canPay && !_foreign)
                   CheckboxListTile(
                   key: const ValueKey('paid-now'),
                   contentPadding: EdgeInsets.zero,
@@ -323,7 +345,7 @@ class _ApproveBillDialogState extends State<ApproveBillDialog>
                       ? null
                       : (value) => setState(() => _paidNow = value ?? false),
                 ),
-                if (widget.canPay && _paidNow) ..._paymentFields(),
+                if (widget.canPay && !_foreign && _paidNow) ..._paymentFields(),
               ],
             ),
           ),

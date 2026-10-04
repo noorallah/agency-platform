@@ -64,6 +64,10 @@ class Settlement {
     this.bankChargesAmount = '0',
     this.discountAmount = '0',
     this.reportedCashAmount = '',
+    this.currencyCode = '',
+    this.exchangeRate = '',
+    this.currencyAmount = '',
+    this.exchangeDifference = '0',
   });
 
   final String id;
@@ -125,6 +129,19 @@ class Settlement {
   /// The money moved as the server states it; blank on an older answer.
   final String reportedCashAmount;
 
+  /// A payment in another currency (PG-12): the currency, the day's rate and
+  /// the amount in that currency ([amount] is the rupees). Blank for rupees.
+  final String currencyCode;
+  final String exchangeRate;
+  final String currencyAmount;
+
+  /// The exchange difference posted: a loss above zero, a gain below.
+  final String exchangeDifference;
+
+  bool get isForeign =>
+      currencyCode.isNotEmpty && currencyCode.toUpperCase() != 'INR';
+  double get exchangeDifferenceValue => double.tryParse(exchangeDifference) ?? 0;
+
   double get tdsValue => double.tryParse(tdsAmount) ?? 0;
   double get roundingValue => double.tryParse(roundingAmount) ?? 0;
   double get bankChargesValue => double.tryParse(bankChargesAmount) ?? 0;
@@ -179,6 +196,12 @@ class Settlement {
           ? '0'
           : stringValue(d['discount_amount']),
       reportedCashAmount: stringValue(d['cash_amount']),
+      currencyCode: stringValue(d['currency_code']),
+      exchangeRate: stringValue(d['exchange_rate']),
+      currencyAmount: stringValue(d['currency_amount']),
+      exchangeDifference: stringValue(d['exchange_difference']).isEmpty
+          ? '0'
+          : stringValue(d['exchange_difference']),
       amount: stringValue(d['amount']),
       allocatedAmount: stringValue(d['allocated_amount']),
       unallocatedAmount: stringValue(d['unallocated_amount']),
@@ -210,6 +233,10 @@ class OutstandingInvoice {
     required this.allocatedAmount,
     required this.outstandingAmount,
     this.isOpeningBill = false,
+    this.currencyCode = '',
+    this.exchangeRate = '',
+    this.currencyTotal = '',
+    this.currencyOutstanding = '',
   });
 
   final String invoiceId;
@@ -218,6 +245,33 @@ class OutstandingInvoice {
   final String invoiceTotal;
   final String allocatedAmount;
   final String outstandingAmount;
+
+  /// A supplier's bill in another currency (PG-12): the code and rate, and
+  /// the total and balance in that currency. The three amounts above are
+  /// rupees at the bill's rate. Blank for a rupee bill.
+  final String currencyCode;
+  final String exchangeRate;
+  final String currencyTotal;
+  final String currencyOutstanding;
+
+  bool get isForeign =>
+      currencyCode.isNotEmpty && currencyCode.toUpperCase() != 'INR';
+
+  /// The same bill with its balance read in its own currency, which is what
+  /// a payment in that currency is checked against.
+  OutstandingInvoice inItsCurrency() => OutstandingInvoice(
+        invoiceId: invoiceId,
+        invoiceNumber: invoiceNumber,
+        invoiceDate: invoiceDate,
+        invoiceTotal: currencyTotal,
+        allocatedAmount: allocatedAmount,
+        outstandingAmount: currencyOutstanding,
+        isOpeningBill: isOpeningBill,
+        currencyCode: currencyCode,
+        exchangeRate: exchangeRate,
+        currencyTotal: currencyTotal,
+        currencyOutstanding: currencyOutstanding,
+      );
 
   /// A bill the party owed, or was owed, before the firm started here --
   /// a customer's or a supplier's opening bill -- rather than a sales or
@@ -235,6 +289,10 @@ class OutstandingInvoice {
         allocatedAmount: stringValue(json['allocated_amount']),
         outstandingAmount: stringValue(json['outstanding_amount']),
         isOpeningBill: boolValue(json['is_opening_bill'], fallback: false),
+        currencyCode: stringValue(json['currency_code']),
+        exchangeRate: stringValue(json['exchange_rate']),
+        currencyTotal: stringValue(json['currency_total']),
+        currencyOutstanding: stringValue(json['currency_outstanding']),
       );
 }
 

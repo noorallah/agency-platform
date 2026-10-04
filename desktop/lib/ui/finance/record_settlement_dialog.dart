@@ -126,6 +126,12 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   String? _tdsHint;
   List<OutstandingInvoice> _invoices = const [];
 
+  /// PG-12: the currency this payment is made in; blank is rupees. Offered
+  /// only for currencies the supplier's open bills are in, and never filled
+  /// in for the person: a payment in rupees is still the usual one.
+  String _currency = '';
+  final TextEditingController _exchangeRate = TextEditingController();
+
   /// Bills a receipt on this date may take an early-payment discount on
   /// (SEL-14). Advice shown beside the deductions; the discount box is filled
   /// only when the person presses Apply.
@@ -158,6 +164,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   void dispose() {
     _partySearch.removeListener(_onPartyQueryChanged);
     _amount.dispose();
+    _exchangeRate.dispose();
     _tds.dispose();
     _rounding.dispose();
     _bankCharges.dispose();
@@ -172,10 +179,46 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
     super.dispose();
   }
 
+  /// The foreign currencies the supplier's open bills are in.
+  List<String> get _foreignCurrencies => <String>{
+        for (final OutstandingInvoice invoice in _invoices)
+          if (invoice.isForeign) invoice.currencyCode.toUpperCase(),
+      }.toList()
+        ..sort();
+
+  bool get _foreignPayment => _currency.isNotEmpty;
+
+  /// The bills this payment can be applied to: those in its own currency, or
+  /// -- for rupees -- every bill that is not in another currency. A bill in
+  /// its own currency is read in it.
+  List<OutstandingInvoice> get _shownInvoices => _foreignPayment
+      ? [
+          for (final OutstandingInvoice invoice in _invoices)
+            if (invoice.isForeign &&
+                invoice.currencyCode.toUpperCase() == _currency)
+              invoice.inItsCurrency(),
+        ]
+      : [
+          for (final OutstandingInvoice invoice in _invoices)
+            if (!invoice.isForeign) invoice,
+        ];
+
+  void _chooseCurrency(String code) {
+    setState(() {
+      _currency = code;
+      _error = null;
+      for (final TextEditingController controller in _allocations.values) {
+        controller.clear();
+      }
+    });
+  }
+
   Future<void> _loadInvoices(String partyId) async {
     setState(() {
       _busy = true;
       _error = null;
+      _currency = '';
+      _exchangeRate.clear();
     });
     try {
       final List<OutstandingInvoice> rows = await widget.api.outstandingInvoices(
@@ -453,24 +496,46 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
       partyId: _partyId,
       amount: _amount.text,
       allocations: allocations,
-      invoices: _invoices,
+      invoices: _shownInvoices,
     );
-    final String? tdsProblemText = widget.direction.allocates
+    if (problem == null && _foreignPayment) {
+      final double rate = double.tryParse(_exchangeRate.text.trim()) ?? 0;
+      if (rate <= 0) {
+        setState(() => _error =
+            'Enter the exchange rate: the rupees one $_currency was worth '
+            'on the payment date.');
+        return;
+      }
+      final double paid = double.tryParse(_amount.text.trim()) ?? 0;
+      double applied = 0;
+      for (final String value in allocations.values) {
+        applied += double.tryParse(value) ?? 0;
+      }
+      if ((paid - applied).abs() > 0.005) {
+        setState(() => _error =
+            'A payment in $_currency is applied in full to the supplier\'s '
+            '$_currency bills: $applied of the $paid is applied.');
+        return;
+      }
+    }
+    final String? tdsProblemText = widget.direction.allocates && !_foreignPayment
         ? tdsProblem(
             amount: _amount.text,
             tdsAmount: _tds.text,
             section: _tdsSection,
           )
         : null;
-    final String? deductionProblem = widget.direction.allocates
-        ? _deductionProblem(allocations)
+    final String? deductionProblem =
+        widget.direction.allocates && !_foreignPayment
+            ? _deductionProblem(allocations)
         : null;
     if (problem != null || tdsProblemText != null || deductionProblem != null) {
       setState(
           () => _error = problem ?? tdsProblemText ?? deductionProblem);
       return;
     }
-    final double deducted = double.tryParse(_tds.text.trim()) ?? 0;
+    final double deducted =
+        _foreignPayment ? 0 : double.tryParse(_tds.text.trim()) ?? 0;
     setState(() {
       _busy = true;
       _error = null;
@@ -486,6 +551,11 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
           'settlement_date':
               _date.toIso8601String().substring(0, 10),
           'amount': _amount.text.trim(),
+          // PG-12: the amount and each allocation are in this currency.
+          if (_foreignPayment) ...{
+            'currency_code': _currency,
+            'exchange_rate': _exchangeRate.text.trim(),
+          },
           'method': _method,
           'payment_mode': _mode,
           if (_reference.text.trim().isNotEmpty)
@@ -501,12 +571,16 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
           },
           // Sent only when something was deducted. Bank charges are a
           // receipt's alone: the server refuses them on a payment.
-          if (widget.direction.allocates && _value(_rounding) > 0)
+          if (widget.direction.allocates &&
+              !_foreignPayment &&
+              _value(_rounding) > 0)
             'rounding_amount': _rounding.text.trim(),
           if (widget.direction == SettlementDirection.receipt &&
               _value(_bankCharges) > 0)
             'bank_charges_amount': _bankCharges.text.trim(),
-          if (widget.direction.allocates && _value(_discount) > 0)
+          if (widget.direction.allocates &&
+              !_foreignPayment &&
+              _value(_discount) > 0)
             'discount_amount': _discount.text.trim(),
           'allocations': [
             for (final MapEntry<String, String> entry in allocations.entries)
@@ -570,6 +644,10 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
                 const SizedBox(width: AppSpacing.md),
                 SizedBox(width: 150, child: _methodPicker()),
               ]),
+              if (_foreignCurrencies.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.md),
+                _currencyRow(context),
+              ],
               const SizedBox(height: AppSpacing.md),
               Row(children: [
                 SizedBox(width: 200, child: _dateField(context)),
@@ -597,7 +675,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
               ]),
               // A refund hands the customer's own money back; nobody
               // deducts tax from that, and the server refuses it.
-              if (widget.direction.allocates) ...[
+              if (widget.direction.allocates && !_foreignPayment) ...[
                 const SizedBox(height: AppSpacing.md),
                 _tdsRow(context, amount),
                 const SizedBox(height: AppSpacing.md),
@@ -1028,9 +1106,69 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
     }
   }
 
+  /// PG-12: pay this supplier's foreign bills in their own currency.
+  Widget _currencyRow(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          SizedBox(
+            width: 220,
+            child: DropdownButtonFormField<String>(
+              key: const ValueKey('settlement-currency'),
+              initialValue: _currency,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Pay in'),
+              items: [
+                const DropdownMenuItem(value: '', child: Text('Rupees')),
+                for (final String code in _foreignCurrencies)
+                  DropdownMenuItem(value: code, child: Text(code)),
+              ],
+              onChanged: (value) => _chooseCurrency(value ?? ''),
+            ),
+          ),
+          if (_foreignPayment) ...[
+            const SizedBox(width: AppSpacing.md),
+            SizedBox(
+              width: 220,
+              child: TextField(
+                key: const ValueKey('settlement-exchange-rate'),
+                controller: _exchangeRate,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  labelText: 'Exchange rate (₹ per $_currency)',
+                  hintText: 'the day\'s rate',
+                ),
+              ),
+            ),
+          ],
+        ]),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          _foreignPayment
+              ? 'The amount and each applied figure are in $_currency, and '
+                  'the payment is applied in full to the $_currency bills. '
+                  'No TDS, deductions or advance on these.'
+              : 'Open in another currency: ${[
+                  for (final OutstandingInvoice b in _invoices)
+                    if (b.isForeign)
+                      '${b.invoiceNumber} ${b.currencyCode} '
+                          '${b.currencyOutstanding} (₹${b.outstandingAmount})',
+                ].join(', ')}. Choose the currency to pay them; rupees pays '
+                  'the rupee bills.',
+          key: const ValueKey('settlement-currency-note'),
+          style: theme.textTheme.bodySmall,
+        ),
+      ],
+    );
+  }
+
   Widget _amountField() => TextField(
         controller: _amount,
-        decoration: const InputDecoration(labelText: 'Amount'),
+        decoration: InputDecoration(
+            labelText: _foreignPayment ? 'Amount ($_currency)' : 'Amount'),
         keyboardType: TextInputType.number,
         onChanged: (_) {
           setState(() {});
@@ -1132,12 +1270,14 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
               icon: const Icon(Icons.playlist_add_check, size: 18),
               label: const Text('Oldest first'),
             ),
-          const Spacer(),
           // The running figure, because finding out on save that 40 paise are
           // unaccounted for is finding out too late. With no amount entered
           // there is nothing to say -- "all of it applied" over an empty
           // amount box reads as a tick against a form nobody has filled in.
-          Text(
+          // Wraps rather than overflowing a narrow window.
+          Expanded(
+              child: Text(
+            textAlign: TextAlign.end,
             _amountEntered <= 0
                 ? 'Enter the amount to apply it'
                 : unapplied.abs() < 0.005
@@ -1147,7 +1287,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
                         : '${(-unapplied).toStringAsFixed(2)} more applied than '
                             'was $_noun',
             style: Theme.of(context).textTheme.bodyMedium,
-          ),
+          )),
         ],
       );
 
@@ -1160,7 +1300,12 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
         style: Theme.of(context).textTheme.bodySmall,
       );
     }
-    if (_invoices.isEmpty) {
+    final List<OutstandingInvoice> shown = _shownInvoices;
+    if (shown.isEmpty && _foreignPayment) {
+      return Text('No open $_currency bills.',
+          style: Theme.of(context).textTheme.bodySmall);
+    }
+    if (shown.isEmpty && _invoices.isEmpty) {
       // Not an error. Money can arrive before an invoice does, and it is
       // recorded on account.
       return Text(
@@ -1175,15 +1320,25 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: DataTable(
-        columns: const [
-          DataColumn(label: Text('Invoice')),
-          DataColumn(label: Text('Date')),
-          DataColumn(label: Text('Total'), numeric: true),
-          DataColumn(label: Text('Outstanding'), numeric: true),
-          DataColumn(label: Text('Apply'), numeric: true),
+        columns: [
+          const DataColumn(label: Text('Invoice')),
+          const DataColumn(label: Text('Date')),
+          DataColumn(
+              label: Text(_foreignPayment ? 'Total $_currency' : 'Total'),
+              numeric: true),
+          DataColumn(
+              label: Text(_foreignPayment
+                  ? 'Outstanding $_currency'
+                  : 'Outstanding'),
+              numeric: true),
+          if (_foreignPayment)
+            const DataColumn(label: Text('Rate'), numeric: true),
+          DataColumn(
+              label: Text(_foreignPayment ? 'Apply ($_currency)' : 'Apply'),
+              numeric: true),
         ],
         rows: [
-          for (final OutstandingInvoice invoice in _invoices)
+          for (final OutstandingInvoice invoice in shown)
             DataRow(cells: [
               DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
                 Text(invoice.invoiceNumber),
@@ -1195,6 +1350,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
               DataCell(Text(invoice.invoiceDate)),
               DataCell(Text(invoice.invoiceTotal)),
               DataCell(Text(invoice.outstandingAmount)),
+              if (_foreignPayment) DataCell(Text(invoice.exchangeRate)),
               DataCell(
                 SizedBox(
                   width: 120,

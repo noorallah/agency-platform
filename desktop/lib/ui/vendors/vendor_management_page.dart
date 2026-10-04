@@ -805,6 +805,8 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
       TextEditingController(text: widget.vendor?.blockedReason ?? '');
   late final TextEditingController _creditDays = TextEditingController(
       text: '${widget.vendor?.paymentTermsDays ?? 0}');
+  late final TextEditingController _currency =
+      TextEditingController(text: widget.vendor?.currencyCode ?? '');
   late final TextEditingController _standingDiscount = TextEditingController(
       text: '${widget.vendor?.standingDiscountPercent ?? 0}');
   late final TextEditingController _udyam =
@@ -1206,6 +1208,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
     _gstin.dispose();
     _pan.dispose();
     _creditDays.dispose();
+    _currency.dispose();
     _standingDiscount.dispose();
     _blockedReason.dispose();
     _udyam.dispose();
@@ -1276,6 +1279,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
           ),
           FilledButton(
             onPressed: () {
+              if (_currencyProblem() != null) return;
               final String? customField = _customFields.validate();
               if (customField != null) {
                 NotificationService.show(context, customField,
@@ -1454,6 +1458,37 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                       setState(() => _msmeCategory = value ?? ''),
                 ),
               ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  key: const ValueKey('vendor-currency'),
+                  controller: _currency,
+                  maxLength: 3,
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: InputDecoration(
+                    labelText: 'Currency',
+                    counterText: '',
+                    helperText: 'Blank is rupees. Bills for this supplier '
+                        'default to it.',
+                    suffixIcon: PopupMenuButton<String>(
+                      key: const ValueKey('vendor-currency-pick'),
+                      tooltip: 'Common currencies',
+                      icon: const Icon(Icons.arrow_drop_down),
+                      onSelected: (code) =>
+                          setState(() => _currency.text = code),
+                      itemBuilder: (_) => [
+                        for (final String code in commonCurrencyCodes)
+                          PopupMenuItem<String>(value: code, child: Text(code)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const Spacer(flex: 3),
             ],
           ),
           const SizedBox(height: 12),
@@ -1942,6 +1977,17 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         ],
       );
 
+  /// Warns and answers true when the currency is typed but is not a
+  /// three-letter code. Blank is rupees.
+  String? _currencyProblem() {
+    final String code = _currency.text.trim();
+    if (code.isEmpty || RegExp(r'^[A-Za-z]{3}$').hasMatch(code)) return null;
+    const String message = 'The currency is a three-letter code, such as USD.';
+    NotificationService.show(context, message,
+        kind: AppNotificationKind.warning);
+    return message;
+  }
+
   Json _payload() => {
         // Blank on a new vendor: the server issues the next code.
         if (widget.vendor != null || _code.text.trim().isNotEmpty)
@@ -1968,6 +2014,10 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         'gstin': _gstin.text.trim().toUpperCase(),
         'pan': _pan.text.trim().toUpperCase(),
         'payment_terms_days': int.tryParse(_creditDays.text.trim()) ?? 0,
+        // Blank is rupees: null clears a currency that was set.
+        'currency_code': _currency.text.trim().isEmpty
+            ? null
+            : _currency.text.trim().toUpperCase(),
         'standing_discount_percent':
             double.tryParse(_standingDiscount.text.trim()) ?? 0,
         'udyam_number': _udyam.text.trim().isEmpty

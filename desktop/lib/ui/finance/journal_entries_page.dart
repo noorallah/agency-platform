@@ -14,6 +14,7 @@ import '../../phase2/indian_format.dart';
 import '../workspace/bulk_action.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
+import 'fx_revaluation_dialog.dart';
 import 'journal_entry_dialog.dart';
 import 'ledger_files_dialog.dart';
 import 'journal_entry_view_dialog.dart';
@@ -356,6 +357,17 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
     }
   }
 
+  /// Restate the foreign payables at a period end's rates (PG-12).
+  Future<void> _revalueForeignPayables() async {
+    final Json? done = await showDialog<Json>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => FxRevaluationDialog(api: widget.api),
+    );
+    if (done == null || !mounted) return;
+    await _load();
+  }
+
   Future<void> _reverseSelected() async {
     final JournalEntry? entry = _selected;
     if (entry == null) return;
@@ -613,6 +625,13 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
               onPressed:
                   selected != null ? () => unawaited(_openFiles(selected)) : null,
             ),
+            if (_canPost)
+              ToolbarCommand(
+                id: 'revalue',
+                label: 'Revalue foreign payables',
+                icon: Icons.currency_exchange,
+                onPressed: () => unawaited(_revalueForeignPayables()),
+              ),
             ToolbarCommand(
               id: 'reject',
               label: 'Reject draft',

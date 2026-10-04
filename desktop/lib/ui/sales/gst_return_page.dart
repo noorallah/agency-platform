@@ -946,6 +946,7 @@ class _GstReturnPageState extends State<GstReturnPage> {
   /// never reads as "no blocked credit".
   Widget _inputCredit(Json data) {
     const List<(String, String)> lines = [
+      ('itc_import_goods', '4(A)(1) Import of goods'),
       ('eligible_itc', '4(A)(5) All other ITC (includes blocked credit)'),
       ('itc_reverse_charge', '4(A)(3) Reverse charge'),
       ('itc_reversed_blocked', '4(B)(1) ITC reversed — blocked (s.17(5))'),

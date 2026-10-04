@@ -155,9 +155,18 @@ class _SettlementsPageState extends State<SettlementsPage> {
     if (saved == null || !mounted) return;
     await _load(requestedPage: 1);
     if (!mounted) return;
+    // PG-12: a payment in another currency says what the rate cost or saved.
+    final double difference = saved.exchangeDifferenceValue;
+    final String exchange = !saved.isForeign
+        ? ''
+        : difference == 0
+            ? ' No exchange difference.'
+            : difference > 0
+                ? ' Exchange loss ₹${difference.toStringAsFixed(2)}.'
+                : ' Exchange gain ₹${(-difference).toStringAsFixed(2)}.';
     NotificationService.show(
       context,
-      '${saved.settlementNumber} recorded and posted to the ledger.',
+      '${saved.settlementNumber} recorded and posted to the ledger.$exchange',
       kind: AppNotificationKind.success,
     );
   }

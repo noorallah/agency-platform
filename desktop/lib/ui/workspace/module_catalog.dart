@@ -871,6 +871,12 @@ abstract final class ModuleCatalog {
           label: 'Supplier schemes',
           requiredPermissions: ['SUPPLIER_SCHEME_VIEW'],
         ),
+        // Customs duty on imported goods, into the landed cost (PG-12).
+        ModuleTabDefinition(
+          id: 'bills-of-entry',
+          label: 'Bills of entry',
+          requiredPermissions: ['BILL_OF_ENTRY_VIEW'],
+        ),
         // Goods held in quarantine until passed (BUY-9).
         ModuleTabDefinition(
           id: 'quality-inspection',
@@ -1959,6 +1965,12 @@ abstract final class ModuleCatalog {
           label: 'Supplier schemes',
           path: 'supplier-schemes',
           icon: Icons.card_giftcard_outlined,
+        ),
+      if (visibleTabIds.contains('bills-of-entry'))
+        const WorkspaceNavigationNode(
+          label: 'Bills of entry',
+          path: 'bills-of-entry',
+          icon: Icons.directions_boat_outlined,
         ),
       if (visibleTabIds.contains('quality-inspection'))
         const WorkspaceNavigationNode(
