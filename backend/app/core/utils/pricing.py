@@ -33,6 +33,7 @@ others produced a negative taxable value, which the tax helpers silently turned
 into zero tax while the negative flowed on into the document total.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -165,7 +166,8 @@ class LinePrice:
     """The price a line starts at, and where it came from."""
 
     price: Decimal
-    #: PRICE_LIST, PRICE_LEVEL or PRODUCT.
+    #: PRICE_LIST, PRICE_LEVEL or PRODUCT on a sale; on a purchase also
+    #: RATE_CONTRACT, CATALOGUE, PRICE_REVISION or TYPED.
     source: str
 
 
@@ -187,6 +189,43 @@ def resolve_unit_price(
     if level_rate is not None:
         return LinePrice(price=level_rate, source="PRICE_LEVEL")
     return LinePrice(price=product_price or ZERO, source="PRODUCT")
+
+
+def resolve_supplier_unit_price(
+    *,
+    typed: Decimal | None,
+    contract_rate: Decimal | None = None,
+    list_rate: Decimal | None = None,
+    catalogue_rate: Decimal | None = None,
+    fallback: Callable[[], LinePrice],
+) -> LinePrice:
+    """Return the price a purchase line is bought at, and where it came from.
+
+    The supplier side of the ranking (BUY-3, BUY-4, PG-9), most specific
+    first: a rate contract in force with this supplier on the order's date,
+    then the supplier's price list's fixed rate at the line's quantity, then
+    the supplier's catalogue price, then ``fallback`` -- a dated price
+    revision or the product's purchase price, which the caller reads only
+    when nothing above answered.
+
+    A typed price beats all of them, as on a sale. A typed price equal to the
+    one the ranking gives is that price echoed back -- a client re-saving a
+    line it was shown -- so it keeps the source it came from; otherwise it is
+    ``TYPED``. That is what keeps an order on its rate contract across edits.
+    """
+    for price, source in (
+        (contract_rate, "RATE_CONTRACT"),
+        (list_rate, "PRICE_LIST"),
+        (catalogue_rate, "CATALOGUE"),
+    ):
+        if price is not None:
+            if typed is None or typed == price:
+                return LinePrice(price=price, source=source)
+            return LinePrice(price=typed, source="TYPED")
+    resolved = fallback()
+    if typed is None or typed == resolved.price:
+        return resolved
+    return LinePrice(price=typed, source="TYPED")
 
 
 def resolve_bill_discount(

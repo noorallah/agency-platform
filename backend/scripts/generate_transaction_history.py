@@ -332,6 +332,10 @@ RESET_ORDER: tuple[str, ...] = (
     "rfq_suppliers",
     "rfq_lines",
     "rfqs",
+    # A rate contract is numbered from its own series (PG-9); the order lines
+    # that draw on it name it by a bare id.
+    "rate_contract_lines",
+    "rate_contracts",
     "purchase_attachments",
     "purchase_notes",
     "purchase_order_lines",

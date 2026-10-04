@@ -555,3 +555,35 @@ The supplier's catalogue (BUY-4, `supplier_products`) sits between the two
 price sources: a blank price takes the list's fixed rate, else the catalogue
 row in force on the order's date, else the product's purchase price. A blank
 supplier code takes the catalogue's.
+
+## A rate contract outranks the supplier's price list (PG-9, 2026-10-05)
+
+The whole supplier-side order for a purchase order line's price is now
+`resolve_supplier_unit_price` in `app/core/utils/pricing.py`, most specific
+first:
+
+1. a typed price -- zero included;
+2. a **rate contract** with the supplier, `ACTIVE` and valid on the order's
+   date, naming the product in the line's unit (`app/rate_contracts`);
+3. the supplier's price list's fixed rate at the line's quantity (BUY-3);
+4. the supplier's catalogue price in force (BUY-4);
+5. a dated price revision (MST-2), else the product's `purchase_price`.
+
+Where the contract priced the line, a blank discount takes the contract's
+discount percent -- zero included -- in the price list's place in
+`resolve_line_discount`; the supplier's standing discount stays below it.
+
+The order line records where its price came from in `rate_source`
+(`RATE_CONTRACT`, `PRICE_LIST`, `CATALOGUE`, `PRICE_REVISION`, `PRODUCT` or
+`TYPED`) and the contract line in `rate_contract_line_id`. **A typed price
+equal to the one the ranking gives is the ranking's price echoed back**, not
+an override: the desktop re-sends the price it was shown on every save, and
+treating that as typed would take every edited order off its contract. A
+different typed price is `TYPED` and draws nothing.
+
+A contract's rate is per its own unit, so a line in another unit is not priced
+from it -- which is also why a drawn quantity never needs converting. Two
+active contracts covering one supplier and product on overlapping dates are
+refused at activation, under a lock on the supplier's contracts; the lookup
+still orders on `valid_from`, `contract_number` and `line_number`, none of
+them nullable, so a row is never picked by NULL ordering.

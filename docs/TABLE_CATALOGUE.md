@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**310 tables**, of which **17** live only in the platform store.
+**312 tables**, of which **17** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -478,6 +478,13 @@ trigger each schema owns its own copy of.
 | `sales_quotation_lines` | firm store ¹ | Store one quotation line. | `sales_quotations`, `firms`, `products`, `uoms`, `packaging_types`, `tax_profiles`, `warehouses` |
 | `sales_quotation_notes` | firm store ¹ | Store quotation notes. | `sales_quotations`, `firms` |
 | `sales_quotations` | firm store ¹ | Store one quotation header. | `firms`, `customers`, `users`, `sales_territories`, `branches`, `warehouses`, `business_profiles` |
+
+### `app/rate_contracts`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `rate_contract_lines` | firm store ¹ | One product on a contract, its agreed rate and how much was agreed. | `rate_contracts`, `products`, `uoms` |
+| `rate_contracts` | firm store ¹ | An agreement with one supplier: these items, at these rates, for a period. | `firms`, `vendors` |
 
 ### `app/report_layouts`
 

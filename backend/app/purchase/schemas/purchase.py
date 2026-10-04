@@ -272,6 +272,12 @@ class PurchaseOrderLineResponse(PurchaseSchema):
     #: profile alone did (GST-8).
     tax_rule_code: str | None = None
     tax_rule_version: int | None = None
+    #: Where the unit price came from (PG-9): ``RATE_CONTRACT``,
+    #: ``PRICE_LIST``, ``CATALOGUE``, ``PRICE_REVISION``, ``PRODUCT`` or
+    #: ``TYPED``; null on lines saved before it was recorded.
+    rate_source: str | None = None
+    #: The rate contract line the price came from and the line draws on.
+    rate_contract_line_id: UUID | None = None
 
 
 class PurchaseDeliveryScheduleResponse(PurchaseSchema):
@@ -387,6 +393,9 @@ class PurchaseOrderResponse(PurchaseSchema):
     )
     attachments: list[PurchaseAttachmentResponse] = Field(default_factory=list)
     notes: list[PurchaseNoteResponse] = Field(default_factory=list)
+    #: Lines that take a rate contract past its contracted quantity, counting
+    #: this order (PG-9). Derived on every read; warns, never refuses.
+    rate_contract_warning: str | None = None
 
 
 class PurchaseOrderListFilters(PurchaseSchema):
