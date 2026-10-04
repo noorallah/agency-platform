@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/document_framework.dart';
 import '../workspace/desktop_framework.dart';
+import 'history_words.dart';
 
 enum DocumentToolbarAction {
   newDocument,
@@ -412,7 +413,7 @@ class EnterpriseTotalsPanel extends StatelessWidget {
       );
 }
 
-class EnterpriseTimeline extends StatelessWidget {
+class EnterpriseTimeline extends StatefulWidget {
   const EnterpriseTimeline({
     super.key,
     required this.entries,
@@ -421,6 +422,27 @@ class EnterpriseTimeline extends StatelessWidget {
 
   final List<DocumentTimelineSnapshot> entries;
   final String emptyMessage;
+
+  @override
+  State<EnterpriseTimeline> createState() => _EnterpriseTimelineState();
+}
+
+/// Reads the firm's people once (shared across timelines) so an actor is a
+/// name, then writes each row in words and the person's own date format.
+class _EnterpriseTimelineState extends State<EnterpriseTimeline> {
+  @override
+  void initState() {
+    super.initState();
+    if (!FirmPeople.isLoaded) {
+      FirmPeople.ensure().then((_) {
+        if (mounted) setState(() {});
+      });
+    }
+  }
+
+  List<DocumentTimelineSnapshot> get entries => widget.entries;
+
+  String get emptyMessage => widget.emptyMessage;
 
   @override
   Widget build(BuildContext context) => Card(
@@ -442,7 +464,7 @@ class EnterpriseTimeline extends StatelessWidget {
                       Padding(
                         padding: const EdgeInsets.only(top: 2),
                         child: Icon(
-                          _iconFor(entry.action),
+                          _iconFor(historyActionWords(entry.action)),
                           size: 18,
                           color: Theme.of(context).colorScheme.primary,
                         ),
@@ -453,17 +475,18 @@ class EnterpriseTimeline extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              entry.action,
+                              historyActionWords(entry.action),
                               style: Theme.of(context).textTheme.labelLarge,
                             ),
                             if (entry.fromState.isNotEmpty ||
                                 entry.toState.isNotEmpty)
                               Text(
-                                '${entry.fromState.isEmpty ? '-' : entry.fromState} -> ${entry.toState.isEmpty ? '-' : entry.toState}',
+                                '${entry.fromState.isEmpty ? '-' : historyStatusWords(entry.fromState)} → ${entry.toState.isEmpty ? '-' : historyStatusWords(entry.toState)}',
                               ),
-                            if (entry.actor.isNotEmpty) Text(entry.actor),
+                            if (FirmPeople.nameFor(entry.actor).isNotEmpty)
+                              Text(FirmPeople.nameFor(entry.actor)),
                             if (entry.remarks.isNotEmpty) Text(entry.remarks),
-                            Text(entry.occurredAt),
+                            Text(historyWhen(entry.occurredAt)),
                           ],
                         ),
                       ),

@@ -11,6 +11,7 @@ import 'phase2/display_dates.dart';
 import 'phase2/sign_in_screen.dart';
 import 'ui/auth_screens.dart';
 import 'ui/desktop_shell.dart';
+import 'ui/document_framework/history_words.dart';
 import 'ui/server_connection_gate.dart';
 
 const String _configuredApiUrl = String.fromEnvironment('API_BASE_URL',
@@ -96,6 +97,12 @@ class _AgencyAppState extends State<AgencyApp> {
     super.initState();
     _session.addListener(_synchronizePermissions);
     _synchronizePermissions();
+    // Names for the people a document's History mentions: one read of
+    // /firm-members per firm, shared by every timeline.
+    FirmPeople.configure(
+      load: () => _session.api.firmMembers(),
+      firmId: () => _session.currentFirm?.id,
+    );
     _themes.bindServerSync((palette, mode, highContrast) {
       if (_session.status == SessionStatus.authenticated ||
           _session.status == SessionStatus.requiresPasswordChange) {
