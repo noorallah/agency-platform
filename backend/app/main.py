@@ -73,6 +73,7 @@ from app.purchase_invoice.api import router as purchase_invoices_router
 from app.purchase_return.api import router as purchase_returns_router
 from app.quotation.api import router as quotations_router
 from app.report_layouts.api import router as report_layouts_router
+from app.rfq.api import router as rfqs_router
 from app.sales.api.router import router as sales_territories_router
 from app.sales_invoice.api import router as sales_invoices_router
 from app.sales_order.api import router as sales_orders_router
@@ -200,6 +201,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(purchases_router)
     application.include_router(purchase_invoices_router)
     application.include_router(purchase_returns_router)
+    application.include_router(rfqs_router)
     application.include_router(sales_invoices_router)
     application.include_router(sales_returns_router)
     application.include_router(credit_notes_router)
