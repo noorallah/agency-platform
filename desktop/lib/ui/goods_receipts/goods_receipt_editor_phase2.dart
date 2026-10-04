@@ -396,12 +396,37 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
         Text('${line.lineNumber}', style: text),
         Padding(
           padding: const EdgeInsets.only(right: 8),
-          child: Text(
-            product == null
-                ? line.description.ifEmpty(line.productId)
-                : '${product.name}  ${product.code}',
-            overflow: TextOverflow.ellipsis,
-            style: text,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                product == null
+                    ? line.description.ifEmpty(line.productId)
+                    : '${product.name}  ${product.code}',
+                overflow: TextOverflow.ellipsis,
+                style: text,
+              ),
+              // Other draft receipts already holding this line (D-BUY-23):
+              // a draft reserves nothing, so say so before Complete does.
+              if (line.heldByOtherDrafts > 0)
+                Tooltip(
+                  message: line.otherDraftNumbers.join(', '),
+                  child: Text(
+                    _otherDraftsNote(line),
+                    key: ValueKey<String>('goods-receipt-other-drafts-$index'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontSize: 11,
+                      color: accepted + line.heldByOtherDrafts >
+                              line.outstanding
+                          ? theme.colorScheme.error
+                          : theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
         Text(documentQuantity(line.orderedQuantity), style: quiet),
@@ -461,6 +486,17 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
     );
   }
 
+  /// "other draft receipts hold 6 of this line (GRN-7, GRN-9)".
+  String _otherDraftsNote(GoodsReceiptDraftLine line) {
+    final String who = line.otherDraftNumbers.length == 1
+        ? 'another draft receipt holds'
+        : 'other draft receipts hold';
+    final String held = documentQuantity(
+      _GoodsReceiptEditorDialogState._trim(line.heldByOtherDrafts),
+    );
+    return '$who $held of this line (${line.otherDraftNumbers.join(', ')})';
+  }
+
   Widget _receiptTotals() {
     double value = 0;
     for (final GoodsReceiptDraftLine line in _lines) {
@@ -504,6 +540,11 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
       DocumentSidePair('Ordered', documentQuantity(line.orderedQuantity)),
       DocumentSidePair(
           'Received before', documentQuantity(line.alreadyReceived)),
+      if (line.heldByOtherDrafts > 0)
+        DocumentSidePair(
+          'Held by other drafts',
+          quantity(line.heldByOtherDrafts),
+        ),
       DocumentSidePair('Accepted now', quantity(accepted)),
       DocumentSidePair(
         left < 0 ? 'Over the order by' : 'Still due after this',
