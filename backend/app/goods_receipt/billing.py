@@ -26,6 +26,7 @@ from sqlalchemy import ColumnElement, exists, func, select
 from sqlalchemy.orm import Session
 
 from app.goods_receipt.models import GoodsReceiptLine
+from app.goods_receipt.rules import POSTED_STATES
 from app.inventory.models import StockLedgerEntry
 
 ZERO = Decimal("0")
@@ -177,7 +178,9 @@ def has_left_to_bill() -> ColumnElement[bool]:
         .correlate(GoodsReceiptLine)
         .scalar_subquery()
     )
-    return exists().where(
+    # Only a posted receipt can be billed (`require_posted_receipt`); a
+    # cancelled one kept its quantities and was listed with them (D-BUY-30).
+    return GoodsReceipt.status.in_(POSTED_STATES) & exists().where(
         GoodsReceiptLine.goods_receipt_id == GoodsReceipt.id,
         GoodsReceiptLine.is_deleted.is_(False),
         GoodsReceiptLine.accepted_quantity - billed - returned > 0,
