@@ -106,6 +106,13 @@ class ActionReasonRequest(BaseModel):
 
 
 PurchaseViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("PURCHASE_VIEW")]
+#: The order list and one order are also read by whoever receives against them
+#: (D-ROLE-3): Warehouse raises goods receipts under `PURCHASE_RECEIVE` and
+#: picks the order from this list, without `PURCHASE_VIEW` opening the bills,
+#: returns, budgets and the rest of the module to it.
+PurchaseOrderReadScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("PURCHASE_VIEW", "PURCHASE_RECEIVE")
+]
 #: A report opens to whoever may read the module or holds `REPORT_VIEW`
 #: (D-RPT-4).
 PurchaseReportScope = Annotated[
@@ -183,7 +190,7 @@ def _filters(
 
 @router.get("", response_model=PaginatedResponse[PurchaseOrderResponse])
 def list_purchase_orders(
-    scope: PurchaseViewScope,
+    scope: PurchaseOrderReadScope,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
@@ -1029,7 +1036,7 @@ def bulk_cancel_purchase_orders(
 @router.get("/{order_id}", response_model=ApiResponse[PurchaseOrderResponse])
 def get_purchase_order(
     order_id: UUID,
-    scope: PurchaseViewScope,
+    scope: PurchaseOrderReadScope,
     response: Response,
     include_deleted: bool = False,
     db: Session = Depends(get_db),

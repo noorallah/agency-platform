@@ -145,7 +145,7 @@ Future<_ReceiptApi> _open(WidgetTester tester) async {
         preferences: DesktopPreferencesService(directory: temp),
         permissions: PermissionService()
           ..applyAccessToken(accessTokenFor(
-              const <String>['PURCHASE_VIEW', 'PURCHASE_CREATE'])),
+              const <String>['PURCHASE_VIEW', 'PURCHASE_RECEIVE'])),
         hasActiveFirm: true,
       ),
     ),

@@ -173,23 +173,23 @@ where the role was granted, not who owns it. See
 Four are platform-tier and twelve are firm-tier. `SUPPORT_ADMIN` is in
 `HIDDEN_SYSTEM_ROLE_CODES` and is not offered in listings.
 
-Counts re-derived from `ROLE_PERMISSION_CODES` on 2026-10-04 (D-ROLE-1);
+Counts re-derived from `ROLE_PERMISSION_CODES` on 2026-10-04 (D-ROLE-1, D-ROLE-3);
 re-run the command under the tree below rather than trusting them.
 
 | Role | Tier | Codes | What it is for | Deliberately withheld |
 | --- | --- | ---: | --- | --- |
-| `PLATFORM_ADMIN` | platform | 210 | Every code that exists | — |
-| `SUPPORT_ADMIN` | platform | 210 | Support access; hidden from role listings | — |
+| `PLATFORM_ADMIN` | platform | 211 | Every code that exists | — |
+| `SUPPORT_ADMIN` | platform | 211 | Support access; hidden from role listings | — |
 | `LICENSE_ADMIN` | platform | 3 | `LICENSE_MANAGE`, `FIRM_VIEW`, `REPORT_VIEW` | everything else |
 | `SYSTEM_AUDITOR` | platform | 5 | Reads the trails: `AUDIT_LOG_VIEW`, `DIAGNOSTICS_VIEW`, `FIRM_VIEW`, `USER_VIEW`, `REPORT_VIEW` | every write |
-| `FIRM_ADMIN` | firm | 196 | Runs the firm: every operational module **plus** users, roles, permissions, `SETTINGS_VIEW`/`SETTINGS_UPDATE` | platform codes, `high_risk`, and the six areas in [Part 11](#part-11--what-the-seeded-grants-do-not-cover) |
-| `FIRM_MANAGER` | firm | 179 | Everything `FIRM_ADMIN` operates, **minus** administering the firm's people | `user`, `role`, `permission`, `SETTINGS_*` |
+| `FIRM_ADMIN` | firm | 197 | Runs the firm: every operational module **plus** users, roles, permissions, `SETTINGS_VIEW`/`SETTINGS_UPDATE` | platform codes, `high_risk`, and the six areas in [Part 11](#part-11--what-the-seeded-grants-do-not-cover) |
+| `FIRM_MANAGER` | firm | 180 | Everything `FIRM_ADMIN` operates, **minus** administering the firm's people | `user`, `role`, `permission`, `SETTINGS_*` |
 | `ACCOUNTANT` | firm | 33 | The books: `accounting`, `commission`, `report`, plus `CUSTOMER_MANAGE_SETTINGS` and `VENDOR_VIEW_FINANCIAL_DETAILS` | sales and purchase writes, `VENDOR_MANAGE_BANK_DETAILS` |
 | `SALES_MANAGER` | firm | 45 | Owns the sales desk: customers, the sales chain, territory assignment, credit notes (draft), proforma, loyalty spend; reads products, branches, warehouses, tax profiles and units for its documents | the ten controls in the table below |
 | `SALES_EXECUTIVE` | firm | 10 | Works a beat: view customers and territory; raise quotation, order, invoice; reads products, branches and warehouses | approval, cancellation, every master write |
-| `PURCHASE_MANAGER` | firm | 30 | The `purchase` codes less settings, drafting debit notes, and **the vendor masters** (create, edit, retire, import, categories); reads products, branches, warehouses, tax profiles and units | `PURCHASE_MANAGE_SETTINGS`, `VENDOR_MANAGE_BANK_DETAILS`, `VENDOR_VIEW_FINANCIAL_DETAILS` |
-| `PURCHASE_EXECUTIVE` | firm | 16 | The same purchasing codes minus approval and inspection; **reads** vendors, products, branches, warehouses, tax profiles and units | approval, every master write |
-| `INVENTORY_MANAGER` | firm | 24 | `inventory` + `batch_serial`, inspection, requisitions; reads products, branches, warehouses, vendors (requisition) and customers (a gift write-off names one) | everything else |
+| `PURCHASE_MANAGER` | firm | 31 | The `purchase` codes less settings (receiving included), drafting debit notes, and **the vendor masters** (create, edit, retire, import, categories); reads products, branches, warehouses, tax profiles and units | `PURCHASE_MANAGE_SETTINGS`, `VENDOR_MANAGE_BANK_DETAILS`, `VENDOR_VIEW_FINANCIAL_DETAILS` |
+| `PURCHASE_EXECUTIVE` | firm | 17 | The same purchasing codes minus approval and inspection -- it raises and **completes goods receipts** (`PURCHASE_RECEIVE`); **reads** vendors, products, branches, warehouses, tax profiles and units | approval, every master write |
+| `INVENTORY_MANAGER` | firm | 27 | `inventory` + `batch_serial`, inspection, requisitions, and **receiving goods** (`PURCHASE_RECEIVE`: raise, edit and complete a goods receipt, read the receipts and the orders it receives against); reads products, branches, warehouses, tax profiles and units, vendors (requisition) and customers (a gift write-off names one) | `PURCHASE_CREATE` and `PURCHASE_VIEW` -- ordering, and the bills and returns; everything else |
 | `CASHIER` | firm | 4 | `PAYMENT_CREATE`/`PAYMENT_VIEW`, `RECEIPT_CREATE`/`RECEIPT_VIEW` -- the money screens read their own party list, so no master is needed | see [Part 11](#part-11--what-the-seeded-grants-do-not-cover) |
 | `BILLING_EXECUTIVE` | firm | 5 | `SALES_INVOICE_CREATE`, `SALES_VIEW`, `DOCUMENT_SEND`; reads customers and products | everything else |
 | `CUSTOMER_SUPPORT` | firm | 3 | `CUSTOMER_VIEW`, `CUSTOMER_UPDATE`, `PRODUCT_VIEW` | everything else |
@@ -205,6 +205,26 @@ checks both against the built application, and fails when a role holding the
 create code lacks a list's view code. `20261004_0301` granted the gap in
 databases that already exist.
 
+**Receiving goods is its own code, `PURCHASE_RECEIVE`** (D-ROLE-3,
+2026-10-04). Completing a goods receipt was gated on `PURCHASE_APPROVE`, the
+code that approves orders and bills, so Purchasing raised receipts and was
+refused at Complete, and Warehouse could not raise one at all. Raising,
+editing (and the e-way bill) and completing a receipt now take
+`PURCHASE_RECEIVE`, held by Purchasing, the Purchase Manager and Warehouse --
+the split ERPNext draws with Stock User and Zoho with *Purchase Receives*. A
+receiver reads the receipts (`GET /goods-receipts`) and the order list and one
+order (`GET /purchases`, `/purchases/{id}`) under the same code, so Warehouse
+is not handed `PURCHASE_VIEW` and with it the bills and returns. Three things
+stay where they were: **closing** a completed receipt (`PURCHASE_APPROVE`),
+**cancelling** one, which takes the stock and the accrual back off the books
+(`PURCHASE_CANCEL`), and **completing a purchase return**, which reduces what
+is owed -- Purchasing raises it and the Purchase Manager completes it
+(maker-checker, decided 2026-10-04). `tests/unit/test_receivers_complete_goods_receipts.py`
+is the guard; `20261004_0302` seeded the code in databases that already exist,
+granting it to every role -- a firm's own included -- that held
+`PURCHASE_CREATE`, `PURCHASE_UPDATE` or `PURCHASE_APPROVE`, so nobody lost a
+receipt action they had.
+
 ### The twelve firm roles form a containment tree
 
 Not a metaphor and not a design intention read back from the names -- computed
@@ -216,17 +236,17 @@ uv run python -c "from app.identity.system_seed import ROLE_PERMISSION_CODES as 
 ```
 
 ```
-FIRM_ADMIN (196)          runs the firm and its people
-└── FIRM_MANAGER (179)    every module, none of the people
+FIRM_ADMIN (197)          runs the firm and its people
+└── FIRM_MANAGER (180)    every module, none of the people
     ├── SALES_MANAGER (45)
     │   ├── SALES_EXECUTIVE (10)
     │   ├── BILLING_EXECUTIVE (5)
     │   └── CUSTOMER_SUPPORT (3)
-    ├── PURCHASE_MANAGER (30)
-    │   └── PURCHASE_EXECUTIVE (16)
+    ├── PURCHASE_MANAGER (31)
+    │   └── PURCHASE_EXECUTIVE (17)
     ├── ACCOUNTANT (33)
     │   └── CASHIER (4)
-    └── INVENTORY_MANAGER (24)
+    └── INVENTORY_MANAGER (27)
 
 VIEWER (43)               outside the tree
 ```
@@ -954,7 +974,7 @@ Computed from the catalogue and the seed, with the business-profile gate open.
 | `SALES_MANAGER` | 8 | Masters(5/16), Sales(15/16), the five sales documents, Reports(2/2) |
 | `SALES_EXECUTIVE` | 7 | Masters(3/16), Sales(8/16), the five sales documents |
 | `PURCHASE_MANAGER` / `PURCHASE_EXECUTIVE` | 4 | Purchases(4/4), Purchase Invoices, Purchase Returns, Goods Receipts(1/1) |
-| `INVENTORY_MANAGER` | 1 | Inventory(14/14) |
+| `INVENTORY_MANAGER` | 2 | Inventory(14/14), Goods Receipts(1/1) |
 | `CASHIER` | **0** | — see [Part 11](#part-11--what-the-seeded-grants-do-not-cover) |
 | `BILLING_EXECUTIVE` | 6 | Sales(1/16), the five sales documents |
 | `CUSTOMER_SUPPORT` | 1 | Masters(4/16) |

@@ -133,7 +133,7 @@ Future<void> _fill(WidgetTester tester, String number, {String? date}) async {
 }
 
 void main() {
-  const List<String> allowed = ['PURCHASE_VIEW', 'PURCHASE_UPDATE'];
+  const List<String> allowed = ['PURCHASE_VIEW', 'PURCHASE_RECEIVE'];
 
   testWidgets('a completed receipt can be given its e-way bill', (
     tester,

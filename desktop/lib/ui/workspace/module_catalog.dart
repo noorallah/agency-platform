@@ -935,8 +935,11 @@ abstract final class ModuleCatalog {
       icon: Icons.receipt_long_outlined,
       description: 'Goods receipt note workspace.',
       workspaceTemplate: WorkspaceTemplateType.transaction,
+      // `PURCHASE_RECEIVE` (D-ROLE-3): Warehouse receives goods without
+      // holding `PURCHASE_VIEW`, and reads the receipts under its own code.
       requiredPermissions: [
         'PURCHASE_VIEW',
+        'PURCHASE_RECEIVE',
         'PURCHASE_CREATE',
         'PURCHASE_UPDATE',
         'PURCHASE_IMPORT',
@@ -949,7 +952,8 @@ abstract final class ModuleCatalog {
         ModuleTabDefinition(
           id: 'receipts',
           label: 'Receipts',
-          requiredPermissions: ['PURCHASE_VIEW'],
+          requiredPermissions: ['PURCHASE_VIEW', 'PURCHASE_RECEIVE'],
+          requiresAnyPermission: true,
         ),
       ],
     ),

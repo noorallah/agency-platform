@@ -127,7 +127,15 @@ class _GoodsReceiptManagementPageState
   // save that this avoids.
   BusinessFeatures _features = const BusinessFeatures.unknown();
 
-  bool get _canCreate => widget.permissions.hasPermission('PURCHASE_CREATE');
+  /// Raising, editing and completing a receipt take `PURCHASE_RECEIVE`
+  /// (D-ROLE-3): the job of whoever counts the goods in -- Purchasing and
+  /// Warehouse -- not of whoever orders or approves.
+  bool get _canCreate => widget.permissions.hasPermission('PURCHASE_RECEIVE');
+
+  /// The receipts are read by the purchase module's readers and by whoever
+  /// receives: Warehouse holds `PURCHASE_RECEIVE` and not `PURCHASE_VIEW`.
+  bool get _canView => widget.permissions
+      .hasAnyPermission(const ['PURCHASE_VIEW', 'PURCHASE_RECEIVE']);
 
   /// The lists the view dialog resolves a line's ids against. Read on their
   /// own, after the workspace's own data, so a failure here costs a name and
@@ -184,7 +192,7 @@ class _GoodsReceiptManagementPageState
     final bool pickFirst =
         context.getInheritedWidgetOfExactType<Phase2Scope>() == null;
     if (!widget.hasActiveFirm ||
-        !widget.permissions.hasPermission('PURCHASE_VIEW')) {
+        !_canView) {
       return;
     }
     setState(() {
@@ -341,7 +349,7 @@ class _GoodsReceiptManagementPageState
         icon: Icons.local_shipping_outlined,
         onPressed: _selected == null ||
                 _selected!.status == 'CANCELLED' ||
-                !widget.permissions.hasPermission('PURCHASE_UPDATE')
+                !_canCreate
             ? null
             : () => unawaited(_recordEwayBill()),
       );
@@ -425,6 +433,14 @@ class _GoodsReceiptManagementPageState
       _ => null,
     };
     if (lifecycle == null) return false;
+    // The button follows the code the server enforces (D-ROLE-3): it used to
+    // be offered to everybody and refused after the press.
+    final String code = switch (lifecycle) {
+      DocumentLifecycleAction.complete => 'PURCHASE_RECEIVE',
+      DocumentLifecycleAction.cancel => 'PURCHASE_CANCEL',
+      _ => 'PURCHASE_APPROVE',
+    };
+    if (!widget.permissions.hasPermission(code)) return false;
     return DocumentStatusGate.goodsReceipt.allows(lifecycle, _selected?.status);
   }
 
@@ -509,7 +525,7 @@ class _GoodsReceiptManagementPageState
     if (!widget.hasActiveFirm) {
       return const StandardEmptyState(type: EmptyStateType.noFirmSelected);
     }
-    if (!widget.permissions.hasPermission('PURCHASE_VIEW')) {
+    if (!_canView) {
       return const StandardEmptyState(type: EmptyStateType.noPermissions);
     }
     if (_error != null && !_loading) {

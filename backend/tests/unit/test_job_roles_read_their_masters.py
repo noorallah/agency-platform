@@ -68,7 +68,8 @@ _DOCUMENTS: tuple[tuple[str, str, frozenset[str], tuple[str, ...]], ...] = (
     (
         "goods receipt",
         "POST /api/v1/goods-receipts",
-        frozenset({"PURCHASE_CREATE"}),
+        # D-ROLE-3: receiving has its own code, which Warehouse holds too.
+        frozenset({"PURCHASE_RECEIVE"}),
         ("warehouses", *_PURCHASE_LINES),
     ),
     (
