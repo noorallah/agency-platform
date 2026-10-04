@@ -5,6 +5,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../document_framework/document_status_gate.dart';
 import '../document_framework/document_steps.dart';
+import 'approve_bill_dialog.dart';
 
 /// A purchase invoice's next steps -- Approve, Cancel, Close -- for the list
 /// toolbar and the bill's own windows alike (D-BUY-22).
@@ -19,6 +20,8 @@ List<DocumentStep<DocumentRef>> purchaseInvoiceSteps(
       DocumentStatusGate.purchaseInvoice.allows(action, bill.status);
   Future<Json> act(DocumentRef bill, String suffix) =>
       api.documentAction('purchase-invoices', bill.id, suffix);
+  // Paying with the approval needs PAYMENT_CREATE as well (PG-3).
+  final bool canPay = permissions.hasPermission('PAYMENT_CREATE');
   final bool approver = permissions.hasPermission('PURCHASE_APPROVE');
   return [
     DocumentStep<DocumentRef>(
@@ -30,7 +33,25 @@ List<DocumentStep<DocumentRef>> purchaseInvoiceSteps(
       permitted: approver,
       allows: (bill) => allows(DocumentLifecycleAction.approve, bill),
       run: (context, bill) async {
-        final Json done = await act(bill, '/approve');
+        final Json? done;
+        if (canPay) {
+          // PG-3: the dialog approves, so a refusal stays inside it.
+          done = await showDialog<Json>(
+            context: context,
+            builder: (_) => ApproveBillDialog(
+              number: bill.number,
+              onApprove: (body) => api.documentAction(
+                'purchase-invoices',
+                bill.id,
+                '/approve',
+                body: body,
+              ),
+            ),
+          );
+          if (done == null) return null;
+        } else {
+          done = await act(bill, '/approve');
+        }
         // Past 30 November after the supplier's year the credit is lost
         // (s.16(4), GST-3): said on the approval, when the credit is taken.
         final Object? data = done['data'];
