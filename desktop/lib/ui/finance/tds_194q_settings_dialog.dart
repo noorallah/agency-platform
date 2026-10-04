@@ -4,7 +4,9 @@ import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
+import '../../models/entities.dart';
 import '../workspace/save_in_dialog.dart';
+import 'tds_section_settings.dart';
 
 /// TDS on purchases under section 194Q (ACC-8): whether the firm deducts, the
 /// threshold per supplier per Income-tax year, and the two rates.
@@ -35,6 +37,7 @@ class _Tds194qSettingsDialogState extends State<Tds194qSettingsDialog>
   final TextEditingController _rateNoPan = TextEditingController(text: '5');
   bool _loading = true;
   String? _loadError;
+  List<Json>? _sections;
 
   bool get _mayManage => widget.permissions.hasPermission('ACCOUNT_MANAGE');
 
@@ -52,7 +55,25 @@ class _Tds194qSettingsDialogState extends State<Tds194qSettingsDialog>
     super.dispose();
   }
 
+  /// The 194C and 194J rows; a failure just hides them.
+  Future<void> _loadSections() async {
+    try {
+      final List<Json> all = await widget.api.tdsSectionSettings();
+      if (mounted) setState(() => _sections = all);
+    } on Exception {
+      // The 194Q settings above stand on their own.
+    }
+  }
+
+  Json? _sectionRow(String code) {
+    for (final Json row in _sections ?? const <Json>[]) {
+      if (row['section'] == code) return row;
+    }
+    return null;
+  }
+
   Future<void> _load() async {
+    _loadSections();
     try {
       final Map<String, dynamic> settings = await widget.api.tds194qSettings();
       if (!mounted) return;
@@ -96,7 +117,7 @@ class _Tds194qSettingsDialogState extends State<Tds194qSettingsDialog>
     final bool editable = _mayManage && !_loading && _loadError == null;
     return AlertDialog(
       scrollable: true,
-      title: const Text('TDS on purchases (194Q)'),
+      title: const Text('TDS on purchases (194Q, 194C, 194J)'),
       content: SizedBox(
         width: 460,
         child: _loading
@@ -163,6 +184,16 @@ class _Tds194qSettingsDialogState extends State<Tds194qSettingsDialog>
                       ),
                     ),
                   ],
+                  if (_loadError == null)
+                    for (final String code in const ['194C', '194J'])
+                      if (_sectionRow(code) != null)
+                        TdsSectionSettingsCard(
+                          key: ValueKey('tds-card-$code'),
+                          api: widget.api,
+                          section: code,
+                          settings: _sectionRow(code)!,
+                          editable: _mayManage,
+                        ),
                 ],
               ),
       ),

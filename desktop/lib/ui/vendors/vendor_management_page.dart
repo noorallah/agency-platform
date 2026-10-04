@@ -811,6 +811,8 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
       TextEditingController(text: widget.vendor?.udyamNumber ?? '');
   late String _msmeCategory = widget.vendor?.msmeCategory ?? '';
   late String _defaultTdsSection = widget.vendor?.defaultTdsSection ?? '';
+  late bool? _tdsIndividualHuf = widget.vendor?.tdsIndividualHuf;
+  late bool _tdsTechnical = widget.vendor?.tdsTechnicalServices ?? false;
   late bool _msmeAgreement = widget.vendor?.msmeWrittenAgreement ?? false;
   late bool _issuesEInvoices = widget.vendor?.issuesEInvoices ?? false;
   late final TextEditingController _email =
@@ -1477,6 +1479,39 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
             onChanged: (value) =>
                 setState(() => _defaultTdsSection = value ?? ''),
           ),
+          if (_defaultTdsSection == '194C' || _defaultTdsSection == '194J')
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: DropdownButtonFormField<String>(
+                key: const ValueKey('vendor-tds-individual-huf'),
+                isExpanded: true,
+                initialValue: _tdsIndividualHuf == null
+                    ? 'AUTO'
+                    : (_tdsIndividualHuf! ? 'YES' : 'NO'),
+                decoration: const InputDecoration(
+                  labelText: 'Individual / HUF',
+                  helperText: 'Decides the 194C rate; Auto reads the fourth '
+                      'letter of the PAN',
+                ),
+                items: const [
+                  DropdownMenuItem(
+                      value: 'AUTO', child: Text('Auto from PAN')),
+                  DropdownMenuItem(value: 'YES', child: Text('Yes')),
+                  DropdownMenuItem(value: 'NO', child: Text('No')),
+                ],
+                onChanged: (value) => setState(() => _tdsIndividualHuf =
+                    value == 'YES' ? true : (value == 'NO' ? false : null)),
+              ),
+            ),
+          if (_defaultTdsSection == '194J')
+            CheckboxListTile(
+              key: const ValueKey('vendor-tds-technical'),
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Technical services (2%)'),
+              value: _tdsTechnical,
+              onChanged: (value) =>
+                  setState(() => _tdsTechnical = value ?? false),
+            ),
           if (_msmeCategory == 'MICRO' || _msmeCategory == 'SMALL')
             CheckboxListTile(
               contentPadding: EdgeInsets.zero,
@@ -1941,6 +1976,8 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         'msme_category': _msmeCategory.isEmpty ? null : _msmeCategory,
         'default_tds_section':
             _defaultTdsSection.isEmpty ? null : _defaultTdsSection,
+        'tds_individual_huf': _tdsIndividualHuf,
+        'tds_technical_services': _tdsTechnical,
         'msme_written_agreement': _msmeAgreement,
         'issues_e_invoices': _issuesEInvoices,
         'email': _email.text.trim(),

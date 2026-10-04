@@ -7012,6 +7012,49 @@ class ApiClient {
         query: <String, String>{'on': on},
       ));
 
+  /// The firm's 194C and 194J policy, one row per section (PG-5).
+  Future<List<Json>> tdsSectionSettings() async => _unwrapList(
+        await request('GET', '/api/v1/finance/tds-sections/settings'),
+        (Json row) => row,
+      );
+
+  /// A partial change to one section's policy: only the keys sent move.
+  Future<Json> saveTdsSectionSettings(String section, Json body) async =>
+      _unwrapMap(await request(
+        'PUT',
+        '/api/v1/finance/tds-sections/settings/$section',
+        body: body,
+      ));
+
+  /// What to deduct from this supplier, and why, before anything is saved.
+  /// A bill sends [billAmount] (before GST), [billTotal] and [invoiceId];
+  /// a payment sends [advanceAmount] and [allocating].
+  Future<Json> tdsSupplierProposal(
+    String vendorId, {
+    required String on,
+    String? billAmount,
+    String? billTotal,
+    String? invoiceId,
+    String? advanceAmount,
+    bool? allocating,
+  }) async =>
+      _unwrapMap(await request(
+        'GET',
+        '/api/v1/finance/tds-sections/suppliers/$vendorId',
+        query: <String, String>{
+          'on': on,
+          if (billAmount != null) 'bill_amount': billAmount,
+          if (billTotal != null) 'bill_total': billTotal,
+          if (invoiceId != null) 'invoice_id': invoiceId,
+          if (advanceAmount != null) 'advance_amount': advanceAmount,
+          if (allocating != null) 'allocating': '$allocating',
+        },
+      ));
+
+  /// One supplier bill as the server holds it (TDS figures included).
+  Future<Json> purchaseInvoiceDetail(String id) async =>
+      _unwrapMap(await request('GET', '/api/v1/purchase-invoices/$id'));
+
   // ---- customer statement and ageing -----------------------------------
 
   /// One customer's account movement over a period.

@@ -22,9 +22,18 @@ class ApproveBillDialog extends StatefulWidget {
     super.key,
     required this.number,
     required this.onApprove,
+    this.canPay = true,
+    this.loadProposal,
   });
 
   final String number;
+
+  /// Whether the "Paid now" section is offered (it needs `PAYMENT_CREATE`).
+  final bool canPay;
+
+  /// Reads the TDS the server would deduct on this bill (PG-5). Advice, not
+  /// a gate: null, or a failure, simply shows no proposal.
+  final Future<Json?> Function()? loadProposal;
 
   /// Approves the bill, with a body carrying `payment` when it is paid now.
   final Future<Json> Function(Json? body) onApprove;
@@ -42,9 +51,91 @@ class _ApproveBillDialogState extends State<ApproveBillDialog>
   DateTime? _instrumentDate;
   final TextEditingController _amount = TextEditingController();
   final TextEditingController _reference = TextEditingController();
+  final TextEditingController _tds = TextEditingController();
+  Json? _proposal;
+  String? _tdsError;
+
+  @override
+  void initState() {
+    super.initState();
+    _readProposal();
+  }
+
+  Future<void> _readProposal() async {
+    final Future<Json?> Function()? load = widget.loadProposal;
+    if (load == null) return;
+    try {
+      final Json? found = await load();
+      if (mounted && found != null) setState(() => _proposal = found);
+    } on Exception {
+      // Advice only: the approval stands without it.
+    }
+  }
+
+  static double _figure(Object? value) =>
+      double.tryParse('${value ?? ''}') ?? 0;
+
+  /// What the proposal says, or null when no section applies to the bill.
+  Widget? _proposalBlock(BuildContext context) {
+    final Json? p = _proposal;
+    if (p == null) return null;
+    final String section = '${p['section'] ?? ''}';
+    if (section.isEmpty || section == 'null') return null;
+    final ThemeData theme = Theme.of(context);
+    final String rate = '${p['rate_percent'] ?? ''}';
+    final String basis = '${p['rate_basis'] ?? ''}';
+    final bool applies = p['applies'] == true;
+    final String lines = [
+      'TDS $section at $rate%${basis.isEmpty ? '' : ' ($basis)'}',
+      if (p['threshold_crossed'] != null)
+        p['threshold_crossed'] == true
+            ? 'Threshold crossed.'
+            : 'Threshold not yet crossed.',
+      'Due so far: ₹${_figure(p['due']).toStringAsFixed(2)}, already '
+          'deducted: ₹${_figure(p['deducted']).toStringAsFixed(2)}.',
+      applies
+          ? 'Proposed on this bill: '
+              '₹${_figure(p['proposed']).toStringAsFixed(2)}.'
+          : 'Nothing is proposed on this bill.',
+    ].join('\n');
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.sm),
+      child: Text(
+        lines,
+        key: const ValueKey('approve-tds-proposal'),
+        style: theme.textTheme.bodySmall,
+      ),
+    );
+  }
+
+  List<Widget> _tdsFields(BuildContext context) {
+    final Widget? block = _proposalBlock(context);
+    if (block == null) return const <Widget>[];
+    final Json p = _proposal!;
+    return [
+      block,
+      const SizedBox(height: AppSpacing.sm),
+      TextField(
+        key: const ValueKey('approve-tds-amount'),
+        controller: _tds,
+        enabled: !saving,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: InputDecoration(
+          labelText: 'TDS to deduct',
+          errorText: _tdsError,
+          helperText: 'Blank takes the proposal '
+              '(₹${_figure(p['proposed']).toStringAsFixed(2)}); '
+              '0 deducts nothing.',
+          helperMaxLines: 2,
+        ),
+        onChanged: (_) => setState(() => _tdsError = null),
+      ),
+    ];
+  }
 
   @override
   void dispose() {
+    _tds.dispose();
     _amount.dispose();
     _reference.dispose();
     super.dispose();
@@ -57,10 +148,14 @@ class _ApproveBillDialogState extends State<ApproveBillDialog>
   String? _blankAsNull(String text) =>
       text.trim().isEmpty ? null : text.trim();
 
+  /// The typed TDS override, or null when the box is blank.
+  String? get _typedTds => _blankAsNull(_tds.text);
+
   Json? _body() {
-    if (!_paidNow) return null;
-    return <String, dynamic>{
-      'payment': <String, dynamic>{
+    final Json body = <String, dynamic>{};
+    if (_typedTds != null) body['tds_amount'] = _typedTds;
+    if (_paidNow) {
+      body['payment'] = <String, dynamic>{
         'method': _method,
         'payment_mode': _mode,
         'amount': _blankAsNull(_amount.text),
@@ -69,12 +164,22 @@ class _ApproveBillDialogState extends State<ApproveBillDialog>
         'instrument_date': _isInstrument && _instrumentDate != null
             ? _iso(_instrumentDate!)
             : null,
-      },
-    };
+      };
+    }
+    return body.isEmpty ? null : body;
   }
 
-  Future<void> _approve() =>
-      saveAndClose<Json>(() => widget.onApprove(_body()));
+  Future<void> _approve() {
+    final String? typed = _typedTds;
+    if (typed != null) {
+      final double? value = double.tryParse(typed);
+      if (value == null || value < 0) {
+        setState(() => _tdsError = 'A number, 0 or more.');
+        return Future<void>.value();
+      }
+    }
+    return saveAndClose<Json>(() => widget.onApprove(_body()));
+  }
 
   Widget _dateBox(
     String label,
@@ -203,7 +308,9 @@ class _ApproveBillDialogState extends State<ApproveBillDialog>
                   'Approving posts the bill to the books.',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
-                CheckboxListTile(
+                ..._tdsFields(context),
+                if (widget.canPay)
+                  CheckboxListTile(
                   key: const ValueKey('paid-now'),
                   contentPadding: EdgeInsets.zero,
                   controlAffinity: ListTileControlAffinity.leading,
@@ -216,7 +323,7 @@ class _ApproveBillDialogState extends State<ApproveBillDialog>
                       ? null
                       : (value) => setState(() => _paidNow = value ?? false),
                 ),
-                if (_paidNow) ..._paymentFields(),
+                if (widget.canPay && _paidNow) ..._paymentFields(),
               ],
             ),
           ),
@@ -226,7 +333,9 @@ class _ApproveBillDialogState extends State<ApproveBillDialog>
           FilledButton(
             key: const ValueKey('approve-bill-confirm'),
             onPressed: saving ? null : _approve,
-            child: Text(_paidNow ? 'Approve and pay' : 'Approve'),
+            child: Text(
+              widget.canPay && _paidNow ? 'Approve and pay' : 'Approve',
+            ),
           ),
         ],
       );

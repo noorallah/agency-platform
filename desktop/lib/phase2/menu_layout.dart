@@ -576,7 +576,8 @@ abstract final class MenuLayout {
       MenuItemSpec(AppModule.administration, 'tax-settings', 'Tax Settings'),
       MenuItemSpec.setting(gstDocumentsRoute, 'GST Documents',
           permission: 'TAX_VIEW'),
-      MenuItemSpec.setting(tds194qSettingsRoute, 'TDS on Purchases (194Q)',
+      MenuItemSpec.setting(
+          tds194qSettingsRoute, 'TDS on purchases (194Q, 194C, 194J)',
           permission: 'ACCOUNT_VIEW'),
     ]),
     MenuGroupSpec('Business profile', [

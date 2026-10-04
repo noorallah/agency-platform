@@ -56,7 +56,6 @@ _MACHINE_EXPORT = (
     "show from the grid"
 )
 _SCREEN_GAP = "a screen gap, recorded in docs/BACKLOG.md §76 (D-GOLIVE-2 triage)"
-_PG5_DESKTOP = "server built first; the desktop half of PG-5 (§86 row 10) calls it"
 
 #: Routes deliberately left without a desktop caller, and why. Every entry has
 #: been looked at; if one of these ever gains a screen, delete its line.
@@ -136,11 +135,6 @@ _ACCEPTED: dict[str, str] = {
     "DELETE /api/v1/finance/financial-years/{year_id}": _SCREEN_GAP,
     "GET /api/v1/branch-warehouse/settings": _SCREEN_GAP,
     "GET /api/v1/sales-returns/summary": _SCREEN_GAP,
-    # PG-5's server half (194C/194J); the desktop half gives each a caller
-    # and deletes these lines.
-    "GET /api/v1/finance/tds-sections/settings": _PG5_DESKTOP,
-    "PUT /api/v1/finance/tds-sections/settings/{section}": _PG5_DESKTOP,
-    "GET /api/v1/finance/tds-sections/suppliers/{vendor_id}": _PG5_DESKTOP,
 }
 
 

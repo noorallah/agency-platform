@@ -301,6 +301,8 @@ class Vendor {
     this.udyamNumber = '',
     this.msmeCategory = '',
     this.defaultTdsSection = '',
+    this.tdsIndividualHuf,
+    this.tdsTechnicalServices = false,
     this.msmeWrittenAgreement = false,
     this.issuesEInvoices = false,
     required this.licenseNumber,
@@ -384,6 +386,13 @@ class Vendor {
   /// The TDS section their payments usually come under (ACC-7); empty when
   /// none is set. Prefills a payment's section, never forces it.
   final String defaultTdsSection;
+
+  /// Whether they are an individual or HUF for 194C/194J rates (PG-5); null
+  /// reads it from the fourth letter of their PAN.
+  final bool? tdsIndividualHuf;
+
+  /// 194J at the 2% rate for technical services rather than the 10% one.
+  final bool tdsTechnicalServices;
   final bool msmeWrittenAgreement;
 
   /// Whether their bills carry an IRN (backlog 78 row 5); a bill from one
@@ -437,6 +446,10 @@ class Vendor {
         udyamNumber: stringValue(json['udyam_number']),
         msmeCategory: stringValue(json['msme_category']),
         defaultTdsSection: stringValue(json['default_tds_section']),
+        tdsIndividualHuf: json['tds_individual_huf'] is bool
+            ? json['tds_individual_huf'] as bool
+            : null,
+        tdsTechnicalServices: boolValue(json['tds_technical_services']),
         msmeWrittenAgreement: boolValue(json['msme_written_agreement']),
         issuesEInvoices: boolValue(json['issues_e_invoices']),
         licenseNumber: stringValue(json['license_number']),

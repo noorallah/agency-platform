@@ -7,6 +7,26 @@ import '../document_framework/document_status_gate.dart';
 import '../document_framework/document_steps.dart';
 import 'approve_bill_dialog.dart';
 
+/// The TDS the server would deduct on this bill (PG-5), or null where the
+/// bill names no supplier. Reads the bill, then the supplier's proposal for it.
+Future<Json?> _tdsProposal(ApiClient api, String billId) async {
+  final Json invoice = await api.purchaseInvoiceDetail(billId);
+  final Object? data = invoice['data'];
+  final Json bill = data is Map ? Map<String, dynamic>.from(data) : invoice;
+  final String vendorId = '${bill['vendor_id'] ?? ''}';
+  if (vendorId.isEmpty) return null;
+  final String date = '${bill['invoice_date'] ?? ''}';
+  return api.tdsSupplierProposal(
+    vendorId,
+    on: date.length >= 10
+        ? date.substring(0, 10)
+        : DateTime.now().toIso8601String().substring(0, 10),
+    billAmount: '${bill['subtotal'] ?? '0'}',
+    billTotal: '${bill['grand_total'] ?? '0'}',
+    invoiceId: billId,
+  );
+}
+
 /// A purchase invoice's next steps -- Approve, Cancel, Close -- for the list
 /// toolbar and the bill's own windows alike (D-BUY-22).
 ///
@@ -33,25 +53,23 @@ List<DocumentStep<DocumentRef>> purchaseInvoiceSteps(
       permitted: approver,
       allows: (bill) => allows(DocumentLifecycleAction.approve, bill),
       run: (context, bill) async {
-        final Json? done;
-        if (canPay) {
-          // PG-3: the dialog approves, so a refusal stays inside it.
-          done = await showDialog<Json>(
-            context: context,
-            builder: (_) => ApproveBillDialog(
-              number: bill.number,
-              onApprove: (body) => api.documentAction(
-                'purchase-invoices',
-                bill.id,
-                '/approve',
-                body: body,
-              ),
+        // PG-3 and PG-5: the dialog approves, so a refusal stays inside it,
+        // and it carries the paid-now block and the TDS override.
+        final Json? done = await showDialog<Json>(
+          context: context,
+          builder: (_) => ApproveBillDialog(
+            number: bill.number,
+            canPay: canPay,
+            loadProposal: () => _tdsProposal(api, bill.id),
+            onApprove: (body) => api.documentAction(
+              'purchase-invoices',
+              bill.id,
+              '/approve',
+              body: body,
             ),
-          );
-          if (done == null) return null;
-        } else {
-          done = await act(bill, '/approve');
-        }
+          ),
+        );
+        if (done == null) return null;
         // Past 30 November after the supplier's year the credit is lost
         // (s.16(4), GST-3): said on the approval, when the credit is taken.
         final Object? data = done['data'];
