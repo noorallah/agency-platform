@@ -5876,3 +5876,36 @@ ERPNext let you select any text and put a copy icon on document numbers):
 | 5 | **Guard** | A widget test that a value in a dialog and in a document tab can be selected, and that Ctrl+C on a grid puts the rows on the clipboard. |
 
 No server calls are involved.
+
+## 84. Purchase bills and returns numbered like the order and the receipt -- low priority
+
+**Status, 2026-10-04: open, low priority; decided with the owner.** Seen on
+QA01 in the purchasing walkthrough: the order is `PO-QA01-HO-2026-2027-000001`
+and the receipts `GRN-QA01-HO-2026-2027-00000n`, but the bill is
+`PI-2026-2027-000001` -- its default series (`PURCHASE_INVOICE_DEFAULT`) does
+not print the firm or the branch.
+
+**How numbering behaves** (`DocumentFrameworkService`, scope signature):
+
+- Each firm has its own series; numbers never collide across firms.
+- A series that does not print the branch is **one running number for the
+  whole firm** -- HO and CHN bills continue one sequence.
+- A series that prints the branch gets **its own running number per branch**
+  (and per financial year): `PI-QA01-HO-...-000001`,
+  `PI-QA01-CHN-...-000001`.
+- A purchase bill's own number is internal; GST uses the supplier's number.
+  (The sales invoice series is GST-relevant -- review it with Selling.)
+
+**Decision (owner, 2026-10-04):** every purchase document follows the PO/GRN
+pattern -- firm code, branch code, financial year, running number per branch
+-- so the chain of one purchase reads alike and each branch's paperwork runs
+without gaps. Industry standard (Tally per-branch voucher series, ERPNext
+naming series with the branch).
+
+**The ask:**
+
+| # | Item | Detail |
+| --- | --- | --- |
+| 1 | **Default for new firms** | The bootstrap rules for purchase invoice, purchase return and supplier debit note carry `include_company_code` and `include_branch_code`, like the order and the receipt. |
+| 2 | **Existing firms unchanged** | No migration rewrites a firm's rules; a firm switches in Settings > Firm > Numbering Series. Issued numbers never change. |
+| 3 | **Check the rest** | List every document type's default series and say which print the firm and branch, so the set is consistent by decision rather than by history. |
