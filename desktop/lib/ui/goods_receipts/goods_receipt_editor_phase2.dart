@@ -52,9 +52,8 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
             children: [
               DocumentPageBand(
                 title: _isEditing ? 'Goods receipt' : 'New goods receipt',
+                number: current?.grnNumber ?? '',
                 chips: [
-                  if (current != null && current.grnNumber.isNotEmpty)
-                    current.grnNumber,
                   if (_order != null) 'against ${_order!.poNumber}',
                   'Draft',
                 ],

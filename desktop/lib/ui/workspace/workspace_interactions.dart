@@ -90,11 +90,41 @@ class WorkspaceShortcuts extends StatelessWidget {
   final Widget child;
   final bool autofocus;
 
+  /// Whether a screen above [context] binds Ctrl+C itself -- a `copy`
+  /// callback of its own. `EnterpriseDataGrid` then leaves Ctrl+C to it, so
+  /// a screen that already copies its own way keeps doing so (backlog 83).
+  static bool bindsCopy(BuildContext context) {
+    bool found = false;
+    context.visitAncestorElements((element) {
+      final Widget widget = element.widget;
+      if (widget is _WorkspaceShortcutsScope && widget.copies) {
+        found = true;
+        return false;
+      }
+      return true;
+    });
+    return found;
+  }
+
   @override
-  Widget build(BuildContext context) => CallbackShortcuts(
-        bindings: bindings.toCallbacks(),
-        child: Focus(autofocus: autofocus, child: child),
+  Widget build(BuildContext context) => _WorkspaceShortcutsScope(
+        copies: bindings.copy != null,
+        child: CallbackShortcuts(
+          bindings: bindings.toCallbacks(),
+          child: Focus(autofocus: autofocus, child: child),
+        ),
       );
+}
+
+/// Marks what [WorkspaceShortcuts.bindsCopy] looks for.
+class _WorkspaceShortcutsScope extends InheritedWidget {
+  const _WorkspaceShortcutsScope({required this.copies, required super.child});
+
+  final bool copies;
+
+  @override
+  bool updateShouldNotify(_WorkspaceShortcutsScope oldWidget) =>
+      copies != oldWidget.copies;
 }
 
 enum WorkspaceContextAction {

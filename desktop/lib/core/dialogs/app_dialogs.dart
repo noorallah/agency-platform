@@ -52,30 +52,34 @@ abstract final class AppDialogs {
   }) async =>
       await showDialog<bool>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
-          icon: Icon(type.icon),
-          title: Text(title),
-          content: SelectableText(message),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              style: type.destructive
-                  ? FilledButton.styleFrom(
-                      backgroundColor:
-                          Theme.of(dialogContext).colorScheme.error,
-                      foregroundColor:
-                          Theme.of(dialogContext).colorScheme.onError,
-                    )
-                  : null,
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: Text(
-                confirmLabel == 'Confirm' ? type.confirmLabel : confirmLabel,
+        // A dialog is a route above the app's SelectionArea; its own makes
+        // the title selectable too, not only the message (backlog 83).
+        builder: (dialogContext) => SelectionArea(
+          child: AlertDialog(
+            icon: Icon(type.icon),
+            title: Text(title),
+            content: SelectableText(message),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
               ),
-            ),
-          ],
+              FilledButton(
+                style: type.destructive
+                    ? FilledButton.styleFrom(
+                        backgroundColor:
+                            Theme.of(dialogContext).colorScheme.error,
+                        foregroundColor:
+                            Theme.of(dialogContext).colorScheme.onError,
+                      )
+                    : null,
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: Text(
+                  confirmLabel == 'Confirm' ? type.confirmLabel : confirmLabel,
+                ),
+              ),
+            ],
+          ),
         ),
       ) ??
       false;
@@ -87,16 +91,18 @@ abstract final class AppDialogs {
   }) =>
       showDialog<void>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
-          icon: const Icon(Icons.error_outline),
-          title: Text(title),
-          content: SelectableText(message),
-          actions: [
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Close'),
-            ),
-          ],
+        builder: (dialogContext) => SelectionArea(
+          child: AlertDialog(
+            icon: const Icon(Icons.error_outline),
+            title: Text(title),
+            content: SelectableText(message),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
         ),
       );
 

@@ -15,6 +15,7 @@ import '../../core/notifications/notification_service.dart';
 import '../../models/einvoice.dart';
 import '../../models/entities.dart';
 import '../../phase2/indian_format.dart';
+import '../workspace/copy_value_button.dart';
 import '../workspace/reason_prompt.dart';
 import '../workspace/save_in_dialog.dart';
 import 'einvoice_page.dart' show EWayBillDialog;
@@ -355,11 +356,14 @@ Future<bool> showNoteEwayBill(
 }) async {
   final bool? changed = await showDialog<bool>(
     context: context,
-    builder: (_) => _NoteEwayBillDialog(
-      api: api,
-      noteId: noteId,
-      noteNumber: noteNumber,
-      mayManage: mayManage,
+    // Selectable, as every dialog's text (backlog 83).
+    builder: (_) => SelectionArea(
+      child: _NoteEwayBillDialog(
+        api: api,
+        noteId: noteId,
+        noteNumber: noteNumber,
+        mayManage: mayManage,
+      ),
     ),
   );
   return changed ?? false;
@@ -461,14 +465,25 @@ class _NoteEwayBillDialogState extends State<_NoteEwayBillDialog> {
               )
             : _error != null
                 ? Text(_error!, style: TextStyle(color: theme.colorScheme.error))
-                : Text(
-                    live
-                        ? bill.referenceLabel
-                        : 'This delivery note has no e-way bill. Raise one '
-                            'from here, or record one you raised on the '
-                            'e-way bill portal.',
-                    key: const ValueKey('note-eway-state'),
-                  ),
+                : Row(children: [
+                    Flexible(
+                      child: Text(
+                        live
+                            ? bill.referenceLabel
+                            : 'This delivery note has no e-way bill. Raise '
+                                'one from here, or record one you raised on '
+                                'the e-way bill portal.',
+                        key: const ValueKey('note-eway-state'),
+                      ),
+                    ),
+                    // The number people quote at a check post (backlog 83).
+                    if (live)
+                      CopyValueButton(
+                        key: const ValueKey('note-eway-copy'),
+                        value: bill.ewayBillNumber,
+                        what: 'e-way bill number',
+                      ),
+                  ]),
       ),
       actions: [
         TextButton(

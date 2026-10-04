@@ -1010,10 +1010,8 @@ class _PartyAdjustmentDialogState extends State<PartyAdjustmentDialog> {
         children: [
           DocumentPageBand(
             title: _editing ? 'Edit party adjustment' : 'New party adjustment',
-            chips: [
-              if (row != null) row.adjustmentNumber,
-              'Draft',
-            ],
+            number: row?.adjustmentNumber ?? '',
+            chips: const ['Draft'],
             hint: 'Posts nothing until approved',
             actions: [
               TextButton(

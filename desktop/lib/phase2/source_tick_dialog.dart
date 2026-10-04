@@ -45,15 +45,18 @@ Future<List<String>?> showSourceTickDialog(
 }) {
   return showDialog<List<String>>(
     context: context,
-    builder: (context) => _SourceTickDialog(
-      title: title,
-      keyPrefix: keyPrefix,
-      rows: rows,
-      initial: initial,
-      clashFor: clashFor,
-      numberLabel: numberLabel,
-      amountLabel: amountLabel,
-      confirmNoun: confirmNoun,
+    // Selectable, as every dialog's text (backlog 83).
+    builder: (context) => SelectionArea(
+      child: _SourceTickDialog(
+        title: title,
+        keyPrefix: keyPrefix,
+        rows: rows,
+        initial: initial,
+        clashFor: clashFor,
+        numberLabel: numberLabel,
+        amountLabel: amountLabel,
+        confirmNoun: confirmNoun,
+      ),
     ),
   );
 }

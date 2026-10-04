@@ -116,8 +116,9 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
             children: [
               DocumentPageBand(
                 title: _editing ? 'Sales order' : 'New sales order',
+                number: _editing ? number : '',
                 chips: [
-                  if (number.isNotEmpty) _editing ? number : '$number (new)',
+                  if (number.isNotEmpty && !_editing) '$number (new)',
                   _status == 'DRAFT' ? 'Draft' : _status,
                 ],
                 hint: _locked
