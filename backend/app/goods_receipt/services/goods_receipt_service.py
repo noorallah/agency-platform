@@ -207,10 +207,12 @@ class GoodsReceiptService(TransactionalDocumentService):
                     if descending
                     else columns.get(sort_by, GoodsReceipt.created_at).asc()
                 ),
-                # A sort column alone is not a total order: created_at is the
-                # transaction's start instant, shared by every row one request
-                # wrote, and paging over a tie can show one row twice and hide
-                # another.
+                # Newest first within the chosen column: by date alone, a
+                # day's receipts came back in id order, which is random
+                # (D-UI-10). created_at is the transaction's start instant,
+                # shared by every row one request wrote, so the id still
+                # settles a tie, and paging over one cannot show a row twice.
+                GoodsReceipt.created_at.desc(),
                 GoodsReceipt.id.desc() if descending else GoodsReceipt.id.asc(),
             )
             .offset((page - 1) * page_size)

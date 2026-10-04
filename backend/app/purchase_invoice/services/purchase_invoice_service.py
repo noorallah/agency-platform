@@ -290,7 +290,11 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         rows = list(
             self._session.scalars(
                 statement.order_by(
-                    sort_column.desc() if descending else sort_column.asc()
+                    sort_column.desc() if descending else sort_column.asc(),
+                    # Newest first within the chosen column, then a stable key:
+                    # a day's bills came back in random order (D-UI-10).
+                    PurchaseInvoice.created_at.desc(),
+                    PurchaseInvoice.id.desc(),
                 )
                 .offset((page - 1) * page_size)
                 .limit(page_size)
