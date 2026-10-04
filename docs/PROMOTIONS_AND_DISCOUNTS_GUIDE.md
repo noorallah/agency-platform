@@ -11,7 +11,9 @@ test cases anybody can run on their own.
 
 Written 2026-09-28 against the version 2 screens, from the code
 (`app/core/utils/pricing.py`, `app/promotions/services/promotion_service.py`)
-and the `selling-firm` test fixture. `docs/PRICING_AND_PROMOTIONS.md` holds
+and the `selling-firm` test fixture. Menu paths brought up to release 1.3.0 on
+2026-10-04: since 1.2.0 Price Lists, Promotions and Loyalty are under the gear,
+in **Settings > Set up > Pricing**, not in the Sell menu. `docs/PRICING_AND_PROMOTIONS.md` holds
 the engineering rules behind it.
 
 ## 1. The test firm every example uses
@@ -86,7 +88,7 @@ A standing discount of 0 means "none set", so Anand falls through to his group.
 
 ## 3. What a promotion can check and give
 
-Sell → Pricing → **Promotions** → New.
+Settings (the gear) → Set up → Pricing → **Promotions** → New.
 
 **Applies when** (every condition must hold; no conditions means every line):
 Product, Product category, Product type, Customer, Territory, Route, Quantity
@@ -231,7 +233,7 @@ list or the promotions later: switch BULK5 off after an order was approved at
 
 ## 10. A one-person firm billing straight from the invoice
 
-With Sales Invoices → ... → **Sales stages** all switched off, a bill typed
+With **Settings → Selling → Sales Stages** all switched off, a bill typed
 straight in raises its order behind the scenes, and that order is priced the
 ordinary way, so **automatic promotions apply**, and a **Coupon** box on the new
 bill takes the customer's code (D-SELL-40, fixed 2026-09-30). The box is on a
@@ -245,8 +247,9 @@ the full GST is still charged. The fixture earns 2 points per 100.
 
 ## 12. Setting up offers, step by step
 
-Everything is under **Sell → Pricing** (the Configuration part of the Sell
-menu): **Price Lists** and **Promotions**. Coupons are on the Promotions page
+Everything is under **Settings → Set up → Pricing** (the gear at the right of
+the menu bar; the foot of the Sell drop-down links to it too): **Price Lists**,
+**Price Levels**, **Promotions** and **Loyalty**. Coupons are on the Promotions page
 under **Coupons**. You need the promotion or price-list permissions to change
 them; a salesman can see them but not edit them.
 
@@ -321,7 +324,7 @@ same line (section 2).
 
 **12.9 Customer and group discounts.**
 The customer's standing discount is on the customer record; a group's is on
-Masters → Parties → **Customer Groups**. Both are last in the ranking.
+Settings → Set up → Party lists → **Customer Groups**. Both are last in the ranking.
 
 **Also on the screen** (D-SELL-42): buy X get a **different** item free
 (*A free product*), *Free delivery*, and conditions on customer group, branch,
@@ -360,7 +363,7 @@ trying it. A discount typed on a real line beats every offer (section 5); Try
 shows what the offers alone would give.
 
 **On the first day.** Open the first real order that should get the offer and
-check its side panel. Reports → Operational Reports → **Promotion performance**
+check its side panel. Reports → Operational → **Promotion performance**
 and **Promotion claims** show every approved use.
 
 ### Testing before a software release (QA)
@@ -391,7 +394,7 @@ again and click the line to read the side panel. Customer C01 unless stated.
 | **TC-PROMO-012** Free goods | New promotion FREE10: applies at 5, others may still apply, condition Product is DET, Free goods buy 10 get 1, ACTIVE. Order DET 25 | Free **2** (not 2.5); discount 7.5% of 2,100 = 157.50 (free goods are never discounted); taxable 1,942.50 |
 | **TC-PROMO-013** Dates and status | New promotion OLD5: applies at 1, 5% off each line, Until = yesterday, ACTIVE. New promotion DRAFT5: same but From today, Status DRAFT. Order DET 12 | 2% from the price list -- neither applies |
 | **TC-PROMO-014** Usage limit | Promotions → Coupons → New coupon `ONCE1` on WELCOME, Total uses 1. Two orders DET 12 with `ONCE1`; approve the first, then the second | first approves; second refused: "Coupon ONCE1 has been used as often as it ..."; cancel the first, and the second then approves |
-| **TC-PROMO-015** Direct bill | Sales Invoices → ... → Sales stages: switch all three off. New invoice, C01, DET 30, no source | 7.5% from a promotion; a **Coupon** box is on the new bill (D-SELL-40) |
+| **TC-PROMO-015** Direct bill | Settings → Selling → Sales Stages: switch all three off. New invoice, C01, DET 30, no source | 7.5% from a promotion; a **Coupon** box is on the new bill (D-SELL-40) |
 | **TC-PROMO-016** Price holds along the chain | Order DET 30, approve. Edit BULK5 to **10%** (saves as a new revision). Deliver and bill the order; then a new order DET 30 | note and bill both 7.5%, 189.00; the new order 10%, 252.00 |
 | **TC-PROMO-017** Free goods cannot be refused | With FREE10 from TC-PROMO-012, order DET 25 with Free **0** typed | 0 free (D-SELL-41, fixed 2026-09-30); with Free left blank, 2 |
 | **TC-PROMO-018** Trying an offer before launch | Section 13 steps 1-5 with a new offer TRY20: 20% off each line, Customer is ZZTEST, From today. Quotation ZZTEST DET 12; quotation C01 DET 12; then remove the ZZTEST condition and save; quotation C01 DET 12 again | ZZTEST: 20% from a promotion; C01 first: 2% from the price list (TRY20 reaches nobody else); after: C01 20% from a promotion; the list shows TRY20 revision 2, and revision 1 INACTIVE |

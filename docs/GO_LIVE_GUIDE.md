@@ -2,8 +2,16 @@
 
 What to do on the first day, and the jobs that come round every month,
 quarter and year. Written 2026-10-01 for the first firms going live
-(`docs/GO_LIVE_PLAN.md`). Menu paths are the new screens': the menu bar along
-the top, and the **gear** at its right for settings.
+(`docs/GO_LIVE_PLAN.md`), and brought up to release 1.3.0 on 2026-10-04.
+Menu paths are the new screens': the menu bar along the top, and the **gear**
+at its right for settings. Since 1.2.0 each top drop-down (Sell, Buy, Stock,
+Accounts, Masters) shows daily work only; every other screen of the area is
+behind **All <Area> screens** at the foot of the drop-down, under its group
+name, so `Accounts > All Accounts screens > Books > Opening Balances` means:
+open Accounts, choose *All Accounts screens*, then the Books group. The lists
+set up once (price lists, units, locations and so on) are under the gear, in
+**Settings > Set up**, and the old Admin area is under **Settings > Platform**.
+**Ctrl+K** finds any screen by name if you lose one.
 
 Read it once before the first day, then keep it beside you for the first
 month end.
@@ -12,8 +20,18 @@ month end.
 
 ## 1. Before the first day: bring the firm over
 
-The firm is set up by whoever installed the product, from **Admin > Firms >
-Set up**. That panel ticks off what the firm needs before it can post, and
+**First of all, the agency's name.** The first time the platform administrator
+signs in to a copy where nobody has given it, a dialog asks **Set up your
+agency**: the agency's name (required), a tagline and a logo (PNG or JPG, up to
+1 MB), with a preview. Fill it in (or it may have been given on the installer's
+Branding page): the name and logo then show on the sign-in screen and at the
+top of every screen, for every PC. **Skip for now** is allowed, and Home keeps a
+**Finish setting up** card until it is given; it can be given or changed later
+under **Settings > Platform > Agency > Branding**. Only the platform
+administrator is asked; a firm's accountant never sees this step.
+
+The firm is set up by whoever installed the product, from **Settings > Platform >
+Firms > Set up** (the gear, then the Platform section). That panel ticks off what the firm needs before it can post, and
 under it, **Opening balances** lists what the firm brings over from its old
 software, in this order. Do them in this order: each later step names things
 the earlier ones created.
@@ -25,8 +43,8 @@ the earlier ones created.
 | 3. Suppliers | Masters > Vendors > Import | Codes, GSTIN, PAN |
 | 4. Customers' opening bills | Masters > Customers > ... > Import opening bills | Every unpaid bill, at what was still owed on it |
 | 5. Suppliers' opening bills | Masters > Vendors > ... > Import opening bills | Every unpaid supplier bill |
-| 6. Opening trial balance | Accounts > Opening Balances | Every other ledger balance on the cutover date |
-| 7. Opening stock | Stock > Opening Stock > Import from file | Quantity, cost, batch and expiry per item per warehouse |
+| 6. Opening trial balance | Accounts > All Accounts screens > Books > Opening Balances | Every other ledger balance on the cutover date |
+| 7. Opening stock | Stock > All Stock screens > Movements > Opening Stock > Import from file | Quantity, cost, batch and expiry per item per warehouse |
 
 Every import works the same way:
 
@@ -125,7 +143,7 @@ filed it: ask them to.
 
 ### Before TDS is recorded at all
 
-- Put the **firm's TAN** on the firm (Admin > Firms, beside PAN).
+- Put the **firm's TAN** on the firm (Settings > Platform > Firms, beside PAN).
 - Put the **customer's TAN** on each customer that deducts (customer form).
 - Put **PANs** on suppliers and customers.
 
@@ -154,7 +172,7 @@ reconciled it: a bill dated last month and typed today is refused, by name.
 
 1. Reconcile the month first: bank, cash, the outstanding lists, GST
    (including the GSTR-2B match, section 7).
-2. **Gear > Financial Years.** Open the year, and in its list of months press
+2. **Gear > Firm > Financial Years.** Open the year, and in its list of months press
    **Close** beside the month.
 3. To correct something later, press **Open** on that month, post the
    correction, and close it again.
@@ -168,7 +186,7 @@ Close months in order, and keep the current month open.
 1. Close every month of the year first (section 4), and post or delete every
    **draft journal** dated in it. The close refuses while either remains, and
    says which.
-2. **Gear > Financial Years > Close year.** The year is locked: nothing can be
+2. **Gear > Firm > Financial Years > Close year.** The year is locked: nothing can be
    posted into it.
 3. **No closing entry is posted, and none is needed.** The balance sheet
    carries the year's profit into retained earnings itself, and the next
@@ -177,7 +195,7 @@ Close months in order, and keep the current month open.
    reopen right; it asks for a reason, which is kept), post the correction,
    and close it again.
 
-Before closing, make sure the next year exists (**Gear > Financial Years**):
+Before closing, make sure the next year exists (**Gear > Firm > Financial Years**):
 invoices dated in the new year need it.
 
 ---
@@ -185,8 +203,8 @@ invoices dated in the new year need it.
 ## 6. When a licence check stops a sale or a purchase
 
 Drug and FSSAI licences are checked when a sale or purchase is approved, if
-the firm has switched the check on: **Masters > Licence Check** (under the
-configuration lists), separately for sales and purchases:
+the firm has switched the check on: **Settings > Set up > Party lists >
+Licence Check**, separately for sales and purchases:
 
 - **Off**: nothing is checked.
 - **Warn**: the approval says what is missing and offers **Approve anyway**.
@@ -195,7 +213,8 @@ configuration lists), separately for sales and purchases:
 When it **blocks**:
 
 - **The usual cause is a lapsed or missing licence.** Add or renew it, then
-  approve again: the firm's own licence under **Masters > Trade Licences**,
+  approve again: the firm's own licence under **Masters > All Masters screens > Compliance >
+  Trade Licences**,
   the customer's or supplier's on their screen. A licence that lapsed before
   the document's date does not count for it.
 - **A product needing a licence the party does not hold** (a Schedule H drug
@@ -216,11 +235,11 @@ When it **blocks**:
 | Daily | Expenses | Accounts > Expenses |
 | By the 7th | TDS challan for last month, as a journal | Accounts > Journal Entries |
 | By the 11th | GSTR-1 | Accounts > GST Returns |
-| Before the 20th | Import the month's **GSTR-2B** from the portal and look at what it lacks: bills you booked that the supplier has not filed | Accounts > GSTR-2B Reconciliation |
-| By the 20th | GSTR-3B, and pay the GST due: credit set off, the rest by challan | Accounts > GST Returns, then Accounts > GST Payment |
-| Month end | Reconcile, then close the month | Gear > Financial Years |
+| Before the 20th | Import the month's **GSTR-2B** from the portal and look at what it lacks: bills you booked that the supplier has not filed | Accounts > All Accounts screens > Tax filing > GSTR-2B Reconciliation |
+| By the 20th | GSTR-3B, and pay the GST due: credit set off, the rest by challan | Accounts > GST Returns, then Accounts > All Accounts screens > Tax filing > GST Payment |
+| Month end | Reconcile, then close the month | Gear > Firm > Financial Years |
 | Quarter end | TDS deducted list to the CA for 26Q; tick TDS by customers against 26AS | Reports > Financial |
-| Year end | Close every month, then the year | Gear > Financial Years |
+| Year end | Close every month, then the year | Gear > Firm > Financial Years |
 
 Dates are the statutory ones as of 2026; check the current calendar with the
 CA. Home also shows a **Tax calendar** (for whoever may open GST Payment):
@@ -234,5 +253,6 @@ you.
 ## 8. Backups
 
 The installed copy backs up on a schedule. Once a month, check that the
-latest backup file is there and dated today or yesterday. A backup nobody has
+latest backup file is there and dated today or yesterday (the platform
+administrator sees them under **Settings > Platform > System > Backups**). A backup nobody has
 looked at is a hope, not a backup.

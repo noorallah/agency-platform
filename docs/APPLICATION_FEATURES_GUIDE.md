@@ -1,7 +1,7 @@
 # Agency Platform: application features guide
 
 What the application does, screen by screen, in the order of the menu bar of
-release 1.1.0. It explains what each screen is for, what has to be set up
+release 1.3.0. It explains what each screen is for, what has to be set up
 before it, and what it changes in stock, the books and GST.
 
 This is a **reference**, not a test script. To test the application step by
@@ -19,12 +19,25 @@ without an IRN, rule 37, supplier IRNs and India Post places brought up to
 #947 the same night; the backlog build of 2026-10-02/03 (enquiries, approval
 levels, the bell, bank reconciliation, landed cost, stock transfer documents,
 branch GSTINs, QRMP filing, Tally export and the rest) brought in on
-2026-10-03.
+2026-10-03; **brought up to 1.3.0 on 2026-10-04**: the light menu with
+*All <Area> screens*, Settings > Set up and Platform, favourites, My
+preferences, and the agency's own branding (sign-in screen, header, first-run
+and Settings > Platform > Agency > Branding). Release 1.2.0 was never shipped,
+so 1.3.0 is the first release after 1.1.0 and carries everything of both. Every
+path below is written as the 1.3.0 menu shows it.
+
+**How paths are written.** *Sell → Sales Invoices* is a screen in Sell's daily
+drop-down. *Sell → All Sell screens → Documents → Enquiries* is a screen
+behind **All Sell screens** at the foot of that drop-down, under its group
+name. *Settings → Set up → Pricing → Price Levels* and *Settings → Platform →
+People → Users* are on the Settings page behind the gear (12). **Ctrl+K**
+finds any screen by name if you lose one.
 
 ## Contents
 
 1. What the application is
-2. Finding your way around
+2. Finding your way around (signing in, the header, the light menu,
+   favourites, My preferences)
 3. Setting up a firm
 4. Home
 5. Sell
@@ -33,11 +46,11 @@ branch GSTINs, QRMP filing, Tally export and the rest) brought in on
 8. Accounts
 9. Masters
 10. Reports
-11. Admin: people, firms and the system
-12. Settings (the gear)
+11. Platform: people, firms, the agency and the system
+12. Settings (the gear): the Settings page, Set up and Platform
 13. How a sale and a purchase reach the books
 14. Roles: who can do what
-15. Not in 1.1.0
+15. Not in 1.3.0
 
 ---
 
@@ -64,6 +77,11 @@ stock, documents and books; a person can work in more than one firm and
 switches between them. A firm's data can be kept in the shared database, in
 a section of its own, or in a separate database.
 
+**It wears the agency's name.** The agency's own name, tagline and logo lead
+the sign-in screen and the top of every screen, given at install or under
+Settings > Platform > Agency > Branding; the product's own name stays beside
+them, quietly (2, 11.3).
+
 **It adapts to the trade.** Each firm is given a *business profile*
 (pharmacy, electronics, wholesale, general ...) that decides which features it
 uses (expiry dates, serial numbers, drug licence ...), which menus it sees,
@@ -77,22 +95,114 @@ server over the office network. The *Installation guide* explains both.
 
 # 2. Finding your way around
 
+## Signing in
+
+The sign-in screen carries the **agency's** identity, not the product's. Above
+the form sit the agency's **logo (or its initials), name and tagline**, given
+at install or under *Settings → Platform → Agency → Branding* (11.3). Until the
+agency has given them, or when the server cannot be reached, the screen shows
+Agency Platform's own name; on a PC that has signed in before it shows what
+that PC last saw, at once, without waiting for the server, and no error box
+appears.
+
+- **The strengths panel.** In a wide window a night-blue panel at the left
+  cycles eight short statements of what the product does, about every eight
+  seconds, with arrows and dots to move it by hand. It **stops for good once
+  you type** in either box. Below 900 px wide it is not drawn and the card
+  stands alone.
+- **The product, quietly.** Agency Platform, *by* its company and tagline, in
+  the foot of the card; the window title reads **Agency Platform - Sign in**;
+  the status line shows the server state, the version and *Powered by Agency
+  Platform*.
+- **More help** opens a short list: the support phone, WhatsApp, hours, email
+  and website (each shown only when it has been filled in; **none is filled in
+  1.3.0, so none appears**), *Forgot your password? Your administrator resets
+  it.*, and **Copy details for support**, which copies the product, version,
+  server and this PC's name (never a password) to paste into a message.
+
 ## The screen
 
-- **The menu bar** across the top: *Home, Sell, Buy, Stock, Accounts,
-  Masters, Reports*, and the **gear** for Settings (administration is under
-  Settings > Platform). At its left, the agency's own logo, name and tagline
-  (given at install or under Settings > Platform > Agency > Branding); clicking
-  it opens Home. Each opens a panel
-  of screens, grouped; screens that are set up once and rarely changed are
-  drawn apart under **CONFIGURATION**. A person sees only the menus and
-  screens their role allows.
+- **The header.** At the left of the top strip, before Home, the **agency's
+  logo, name and tagline**, then the **name of the firm** being worked in as
+  plain text (the firm switcher is unchanged). Clicking the agency opens Home.
+  The Windows title bar reads **<agency> > <firm>**, or the agency alone when no
+  firm is chosen. In a narrow window (below 820 px) only the logo is drawn; the
+  tagline appears from 1280 px. The strip is no taller than before.
+- **The product's own name.** At the right end of the status line, *Agency
+  Platform 1.3.0 by* its company, with the same in a tooltip. Clicking it does
+  nothing (*Help > About* is not built, 15).
+- **The menu bar** across the top: *Home, Sell, Buy, Stock, Accounts, Masters,
+  Reports*, the **bell** and the **gear** for Settings. There is no *Admin*
+  area on the bar: administration is under Settings → Platform. A person sees
+  only the menus and screens their role (and the firm's business profile)
+  allows.
+- **The user menu** at the top right, with **My preferences** (see below)
+  beside the password and sign-out actions.
 - **Tabs.** Every screen and every document opens as a tab under the menu
   bar, so several can stay open at once.
 - **Ctrl+K** opens the search box: type part of a screen's name, or a
-  customer, product or document number, and go straight to it.
+  customer, product or document number, and go straight to it. Screens you
+  have starred (*Favourites*, below) come first.
 - **The firm switcher** shows which firm you are working in; a person who
   belongs to several firms changes firm there.
+
+## The light menu
+
+Each of **Sell, Buy, Stock, Accounts** and **Masters** opens a short
+drop-down of the screens used every day. At its foot **All <Area> screens (N)**
+opens every screen of that area side by side, under its group names; *Back to
+daily list* returns. Nothing is lost: the screens not in the daily list are
+one click away, and Ctrl+K finds any of them. *Reports* has no short form (its
+two screens are always shown).
+
+| Area | The daily drop-down shows | Behind *All screens*, by group |
+| --- | --- | --- |
+| **Sell** | Quotations, Sales Orders, Delivery Notes, Sales Invoices, **Returns & notes** (opens Sales Returns, Credit Notes, Customer Debit Notes); under Money: Receipts, Customer Statements | Documents (Enquiries, Proforma, Approvals ...), Money (Post-dated Cheques, Refunds ...), Incentives, Insight, Field sales |
+| **Buy** | Purchase Orders, Goods Receipts, Purchase Invoices, **Returns & notes** (Purchase Returns, Debit Notes); under Money: Payments, Supplier Statements | Documents (Requisitions, Approvals, Quality Inspection ...), Money (Payment Runs, Post-dated Cheques, Supplier Gifts, Supplier Rebates, Principal Claims, Landed Costs), Insight |
+| **Stock** | Stock Summary, Stock Ledger, Stock Transfers, Physical Count; under Tracking: Batches, Expiry Monitor | Stock (Inventory, Stock Search, Transactions), Movements (Opening Stock, Adjustment Approvals, Repacking), Tracking (Lots, Serial Numbers), Data (Import, Export) |
+| **Accounts** | Books: Journal Entries, Expenses, Ledgers, Bank Reconciliation; Statements: Trial Balance, Profit & Loss, Balance Sheet; Tax: GST Returns | Books (Chart of Accounts, Opening Balances, Party Adjustments, Contra Vouchers, Export to Tally), Statements (Cash Flow), Tax filing |
+| **Masters** | Customers, Vendors, Products; under Organisation: Branches, Warehouses | Parties, Items, Organisation, Compliance (Trade Licences) |
+
+The foot of Sell, Accounts and Masters also carries **SET UP IN SETTINGS**:
+links to the Settings sections that hold the lists set up once and changed
+rarely (Sell: Pricing, Territories & routes; Accounts: Account structure;
+Masters: Party lists, Item lists, Locations). Those lists are no longer in the
+drop-downs (12.3). The menu is built in the app from what the person may open;
+opening it asks the server nothing.
+
+## Favourites
+
+- **Star a screen.** Point at any item in a drop-down and a star appears; click
+  it to keep the screen, click the filled star to let it go.
+- **Home → FAVOURITES** shows the person's own list as boxes. A cross appears
+  on a box when it is pointed at and removes it; **drag** a box to reorder.
+  Someone who has never starred a screen sees the common daily screens their
+  role may open instead.
+- **Ctrl+K** lists starred screens first.
+- **The list follows the person**, not the PC: it is kept with their other
+  preferences on the server, so signing in on another PC shows the same list.
+  Starring five screens is one save (a second after the last click); if the
+  save fails the app says so and puts the stars back.
+
+## My preferences
+
+Open it from the **user menu** (top right, *My preferences*) or from
+*Settings → This PC and me → My Preferences*. It opens at once and is open to
+everybody signed in, with or without a firm. It holds:
+
+- **Start in firm**, the firm that opens first (offered only to a person with
+  more than one firm; it replaces the old *Primary firm* menu entry).
+- **First screen**: *the screen I was last on*, or any screen the person may
+  open.
+- **Theme**: Light, Dark or Follow Windows.
+- **Text size**: Small, Default or Large. This one is **this PC only**.
+- **Date format**: dd-MM-yyyy (the default), dd/MM/yyyy, yyyy-MM-dd or
+  MM/dd/yyyy. Dates on the newer screens follow it.
+
+Saving applies theme, text size and date format at once without reloading, and
+makes one save of what changed. *Rows per page* is not offered (15). On the
+first sign-in after an upgrade the date format becomes dd-MM-yyyy, because
+nobody could choose one before.
 
 ## Lists
 
@@ -147,19 +257,25 @@ GST number on it.
 
 # 3. Setting up a firm
 
-A new firm goes through these steps once. **Admin → Firms → pick the firm →
-Set up** shows where the firm stands on each and does several of them with
-one click.
+**Before the first firm: the agency.** The first platform administrator to sign
+in is asked to *Set up your agency* (11.3) -- its name, tagline and logo -- or
+may skip it and do it later under *Settings → Platform → Agency → Branding*.
+Nothing in the firm's own work depends on it.
+
+A new firm goes through these steps once. **Settings (gear) → Platform → Firms
+→ Firms → pick the firm → Set up** (the firm's *Set up panel*, not the *Set up*
+section of the Settings page, 12.3) shows where the firm stands on each and does
+several of them with one click.
 
 | # | Step | Where | Why it matters |
 | --- | --- | --- | --- |
-| 1 | Create the firm: name, code, GST, PAN, address, financial-year start, and where its data is kept | Admin → Firms → + New | Where the data is kept cannot be changed later |
-| 2 | Prepare its storage (only if it has a section or database of its own) | Set up → Provision storage | Nothing can be recorded for the firm until this is done |
-| 3 | Give it a business profile | Set up → Business profile → Assign | Decides its features, menus and extra fields |
-| 4 | **Open the books** | Set up → Open the books | Creates the chart of accounts, the current financial year with twelve monthly periods, and the accounts each document posts to. **Without it, no invoice, delivery or receipt can be approved** |
-| 5 | Apply the GST template | Set up → Apply GST template | The tax rates and rules for Indian GST |
-| 6 | Create a head office and a main warehouse | Set up → Create head office and main warehouse | Every document names a branch; all stock sits in a warehouse |
-| 7 | Give people access | Admin → Users | A user account, a role, and membership of the firm |
+| 1 | Create the firm: name, code, GST, PAN, address, financial-year start, and where its data is kept | Settings → Platform → Firms → Firms → + New | Where the data is kept cannot be changed later |
+| 2 | Prepare its storage (only if it has a section or database of its own) | Set up panel → Provision storage | Nothing can be recorded for the firm until this is done |
+| 3 | Give it a business profile | Set up panel → Business profile → Assign | Decides its features, menus and extra fields |
+| 4 | **Open the books** | Set up panel → Open the books | Creates the chart of accounts, the current financial year with twelve monthly periods, and the accounts each document posts to. **Without it, no invoice, delivery or receipt can be approved** |
+| 5 | Apply the GST template | Set up panel → Apply GST template | The tax rates and rules for Indian GST |
+| 6 | Create a head office and a main warehouse | Set up panel → Create head office and main warehouse | Every document names a branch; all stock sits in a warehouse |
+| 7 | Give people access | Settings → Platform → People → Users | A user account, a role, and membership of the firm |
 
 Then the masters, in this order, because each needs the one before:
 
@@ -185,7 +301,7 @@ firm's accountant.
 
 **Document numbers need no setup.** Each kind of document starts its own
 series on its first save (for example `SI/2026-2027/000001`), and the pattern
-can be changed under **Settings → Numbering Series**.
+can be changed under **Settings → Firm → Numbering Series**.
 
 ---
 
@@ -219,7 +335,14 @@ The first screen after signing in, cut to what the person may see:
   number); *Undo* withdraws it. GSTR-3B also closes by itself when the
   month's GST payment is recorded. A month that is closed drops off unless it
   is the latest. Rows open GST Returns or GST Payment.
-- **Favourites**: the screens a person opens most, pinned.
+- **Favourites**: the screens a person has starred, as boxes they can
+  remove (the cross) and reorder (drag); a person who has starred none sees the
+  common daily screens their role may open (see *Favourites* in 2).
+- **Finish setting up**: while the agency's name and logo have not been given,
+  a calm card under the greeting says so, with a **Set up your agency** button
+  that opens the form (11.3). It is shown only to the person who may give them
+  (a platform administrator, or someone with the platform-settings right), and
+  it goes once they are given.
 
 **Customise** chooses which of these a person sees.
 
@@ -246,13 +369,18 @@ outstanding.
 
 **A firm chooses which steps its people type.** A firm that does not use
 quotations, or that invoices straight from the order, switches those steps
-off (*Sell → Sales Invoices → … → Sales stages*). The skipped documents are
+off (*Settings → Selling → Sales Stages*). The skipped documents are
 still created automatically behind the scenes, so stock still leaves at
 delivery and every report still adds up.
 
 ## 5.2 Documents
 
-**Enquiries** (*Sell → Documents → Enquiries*). A customer, or somebody who
+*Quotations, Sales Orders, Delivery Notes* and *Sales Invoices* are in the Sell
+drop-down; **Returns & notes** opens Sales Returns, Credit Notes and Customer
+Debit Notes; Enquiries, Proforma and Approvals are under *Sell → All Sell
+screens → Documents*.
+
+**Enquiries** (*Sell → All Sell screens → Documents → Enquiries*). A customer, or somebody who
 is not yet a customer, asks about goods. Record who (name, company, phone,
 email, city), where the lead came from, the salesman, the lines they asked
 about, the value you expect, the date you expect to close and the date to
@@ -290,7 +418,8 @@ level, and anyone else uses *Sign off* to record theirs. The last sign-off
 approves the document. *Reject* needs a reason, clears the sign-offs and sends
 a purchase order back to draft; several documents can be rejected together. A
 sign-off counts while the total is no more than it was when signed. The
-**Approvals** screens (*Sell → Documents* and *Buy → Documents*) list what is
+**Approvals** screens (*Sell → All Sell screens → Documents* and *Buy → All Buy
+screens → Documents*) list what is
 waiting. Platform administrators are not limited by the levels.
 
 **Rate includes GST.** The order and the quotation carry the same switch the
@@ -324,7 +453,7 @@ with it picked. A customer can carry a **minimum shelf life** (*Minimum shelf
 life (days)* on the customer): earliest-expiry allocation passes over batches
 with fewer days left, the picker marks them *Too short for customer*, and one
 chosen by hand is refused or warned, as the firm sets. **Batch Rules**
-(*Settings → Stock*) say how many days count as near expiry (30), whether
+(*Settings → Stock → Batch Rules*) say how many days count as near expiry (30), whether
 taking a near-expiry batch or passing over an earlier one needs a reason at
 dispatch, and that near-expiry stock may be sold below the price floor.
 
@@ -419,6 +548,9 @@ as a debit note (type D) and GSTR-3B adds it to outward supplies.
 
 ## 5.3 Money
 
+*Receipts* and *Customer Statements* are in the Sell drop-down; Post-dated
+Cheques and Refunds are under *Sell → All Sell screens → Money*.
+
 **Receipts.** Money received from a customer, by cash, cheque, bank transfer
 or UPI. A receipt is applied to one or more invoices; anything left over is
 held **on account** (an advance) and applied to a later invoice from the bar
@@ -444,8 +576,9 @@ tries those again. Journal entries have *Post selected*.
 bank transfer, UPI) and the instrument date; the cash and bank books show
 *Mode* and *Instrument*, and collections by mode read from it.
 
-**Post-dated cheques** (*Sell → Money → Post-dated Cheques* for cheques
-received; *Buy → Money → Post-dated Cheques* for cheques issued). A cheque is
+**Post-dated cheques** (*Sell → All Sell screens → Money → Post-dated Cheques*
+for cheques received; *Buy → All Buy screens → Money → Post-dated Cheques* for
+cheques issued). A cheque is
 **held** (nothing posted), then **deposited** (or presented) on or after its
 date -- which records the receipt or payment -- then **cleared**. A cheque that
 **bounces** reverses the receipt or payment as of the day it came back, and
@@ -475,12 +608,14 @@ person who may manage customer debit notes.
   (see 9.1, *Also a supplier*), the statement merges both accounts in date
   order with a running net, and the set-off preselects the linked party.
 
-The ageing **bands** are the firm's to choose (*Settings → Financial Years*),
+The ageing **bands** are the firm's to choose (*Settings → Firm → Financial Years*),
 not always 0-30, 31-60, 61-90 and over 90; the supplier ageing follows the same
 bands. Invoices **due** today or in the week ahead are listed by the *due*
 reports, on the selling side and the buying side.
 
 ## 5.4 Incentives
+
+*Sell → All Sell screens → Incentives* (Commission, Targets).
 
 **Commission.** What each salesman earns. *Rates* set the rules: a flat
 percentage, or slabs that rise with the amount, on sales or on collections,
@@ -498,7 +633,7 @@ bonus when a target is met.
 Each customer can carry a **credit limit** and **payment terms**. When an
 order would take a customer over their limit the application warns, by
 default from 80% of the limit. A firm can choose to **block** such orders
-instead (the credit settings on the *Masters → Customers* screen). Changing that policy is
+instead (*Settings → Selling → Credit Control*). Changing that policy is
 kept to people who hold the customer-settings permission, not the sales
 manager whose orders it limits.
 
@@ -512,19 +647,26 @@ which filters on *Pending approval*).
 
 For a firm whose salesmen visit shops on fixed rounds:
 
-- **Territories** (configuration): the firm's own map of areas, for example
+- **Territories** (*Settings → Set up → Territories & routes*): the firm's own map of areas, for example
   Region → Zone → Area, each with a manager.
-- **Route Types** and **Route Builder** (configuration): a route is a round
+- **Route Types** and **Route Builder** (same section): a route is a round
   of shops in visiting order, valid for a period, assigned to a salesman.
 - **Beat Plans**: which route a salesman walks on which day.
 - **Call Lists**: today's calls for a salesman, drawn from the beat plan.
 - **Coverage**: which shops were visited or ordered from, and which were
   missed.
 
+Beat Plans, Call Lists and Coverage are under *Sell → All Sell screens → Field
+sales*.
+
 Orders, deliveries and invoices carry the salesman, route and territory, so
 the reports can be read by any of them.
 
-## 5.7 Pricing (configuration)
+## 5.7 Pricing (Settings → Set up → Pricing)
+
+*Price Lists, Price Levels, Promotions* and *Loyalty* are in the **Pricing**
+section of *Settings → Set up*, reached from the **SET UP IN SETTINGS** link
+at the foot of the Sell drop-down.
 
 **Price Lists.** What a customer pays for a product before any offer. A price
 list can apply to **one customer, one territory or the whole firm**, is valid
@@ -537,7 +679,7 @@ price list; the customer's own standing discount; their customer group's
 discount. A blank discount box takes the arrangement; a **0** typed in the
 box refuses it.
 
-**Price Levels** (*Sell → Pricing → Price Levels*). Named levels (for example
+**Price Levels** (*Settings → Set up → Pricing → Price Levels*). Named levels (for example
 *Retail*, *Wholesale*, *Dealer*): the product's rate at each level is typed on
 the product, and a level is given to a customer or to a customer group. A blank
 unit price on an order or quotation is filled from the price list rate if there
@@ -574,7 +716,7 @@ Promotions) shows what the offers do to any order on any date, before
 launch, and why each one applied or did not. The printed bill names the
 offers given and what the customer **saved**.
 
-**Sales Analysis** (*Sell → Insight*). Billed sales by any one or two of
+**Sales Analysis** (*Sell → All Sell screens → Insight → Sales Analysis*). Billed sales by any one or two of
 day, week, month, quarter, year, product, category, customer, customer
 group, salesman, territory, route and branch -- product by month, customer by
 quarter -- with totals both ways, net of returns, and a click on any cell
@@ -600,7 +742,12 @@ value of a point, expiry) is set per firm.
 
 ## 6.2 Documents
 
-**Requisitions** (*Buy → Documents → Requisitions*). An indent: someone asks
+*Purchase Orders, Goods Receipts* and *Purchase Invoices* are in the Buy
+drop-down; **Returns & notes** opens Purchase Returns and Debit Notes;
+Requisitions, Approvals and Quality Inspection are under *Buy → All Buy screens
+→ Documents*.
+
+**Requisitions** (*Buy → All Buy screens → Documents → Requisitions*). An indent: someone asks
 for goods, a manager approves, and an approved requisition is converted into a
 purchase order. *Raise requisition* on *Below reorder level* (see 6.3) makes
 them from the shortages.
@@ -649,7 +796,7 @@ firm's e-way bill limit without one is warned about -- for an unregistered
 supplier, as the buyer's to raise.
 
 **Quality inspection.** A product or category marked *Inspect on receipt* is
-received into **quarantine**: owned and valued, but not for sale. *Buy →
+received into **quarantine**: owned and valued, but not for sale. *Buy → All Buy screens →
 Documents → Quality Inspection* lists the lines waiting; recording the result
 releases what passes to stock, and what is rejected is written off at once or
 left in quarantine for a purchase return. Cancelling the receipt releases the
@@ -659,7 +806,7 @@ hold.
 line can name the **scheme** the free goods came under, and a write-off can name
 the customer they were given to (reasons *Free to customer* and *Sample*).
 *Free goods* in the operational reports adds it up. Gifts from a supplier are
-recorded in the **Supplier Gifts** register (*Buy → Money*): each is booked as
+recorded in the **Supplier Gifts** register (*Buy → All Buy screens → Money*): each is booked as
 income (or as drawings, if the owner kept it), and the **194R summary** shows
 the value by supplier.
 
@@ -709,6 +856,11 @@ as a return off a paid bill does.
 
 ## 6.3 Money and insight
 
+*Payments* and *Supplier Statements* are in the Buy drop-down; the rest of
+Money (Payment Runs, Post-dated Cheques, Supplier Gifts, Supplier Rebates,
+Principal Claims, Landed Costs) and Insight (Purchase Dashboard, Purchase
+Analysis, Rate Trend) are under *Buy → All Buy screens*.
+
 **Payments.** Money paid to a supplier, applied to one or more of their
 invoices; any excess is held as an advance. Reversed, never edited, like a
 receipt.
@@ -716,7 +868,7 @@ receipt.
 A supplier's **credit** (from a return or a debit note on a paid bill) can be
 set against a supplier's **opening bill** as well as a purchase bill.
 
-**Payment Runs** (*Buy → Money → Payment Runs*). Proposes the supplier bills
+**Payment Runs** (*Buy → All Buy screens → Money → Payment Runs*). Proposes the supplier bills
 falling due by a date; a draft run holds the bills and amounts chosen (never
 more than a bill still owes). Approving -- a separate permission the cashier
 does not hold -- records one payment per supplier by bank transfer, all or
@@ -728,13 +880,13 @@ leaf (CTS-2010 style: date boxes, payee, amount in words, A/c payee crossing);
 *Cheque layout* moves the print to suit the bank's leaf, kept per bank account.
 A cash or non-cheque payment, or a reversed one, is refused.
 
-**Supplier Rebates** (*Buy → Money → Supplier Rebates*). A volume rebate agreed
+**Supplier Rebates** (*Buy → All Buy screens → Money → Supplier Rebates*). A volume rebate agreed
 with a supplier: set up the agreement, *accrue* what is earned (booked as a
 receivable from the supplier), reverse an accrual that was wrong, and settle it
 with a supplier adjustment of kind *Supplier rebate* rather than a debit note
 (which must name one bill).
 
-**Principal Claims** (*Buy → Money → Principal Claims*). What a principal (the
+**Principal Claims** (*Buy → All Buy screens → Money → Principal Claims*). What a principal (the
 brand owner) owes the firm: for each principal and period it gathers, once
 each, the redemptions of the schemes the principal funds (at its share), expiry
 write-offs of its products, and damaged goods on completed sales returns.
@@ -743,7 +895,7 @@ claim, and it is settled by the principal's credit note or by its payment into
 a cash or bank account; its status (raised, part settled, settled) follows.
 Cancelling a claim frees its sources to be claimed again.
 
-**Landed Costs** (*Buy → Money → Landed Costs*). Freight, duty and handling
+**Landed Costs** (*Buy → All Buy screens → Money → Landed Costs*). Freight, duty and handling
 that belong to goods already received. Name the completed receipts and the
 charges (each with its own bill), choose to spread them by value, quantity or
 weight, and post. The share for goods still on hand adds to their value (so the
@@ -753,7 +905,7 @@ cost of goods sold. Cancelling reverses it.
 **Purchase Dashboard.** What is on order, what is waiting to be received,
 what is overdue, and spend by supplier.
 
-**Purchase Analysis** (*Buy → Insight*). The same as Sales Analysis, for the
+**Purchase Analysis** (*Buy → All Buy screens → Insight*). The same as Sales Analysis, for the
 suppliers' bills: by supplier, supplier category, product, category, branch
 and period.
 
@@ -792,6 +944,10 @@ than about a trade.
 
 ## 7.1 Seeing the stock
 
+*Stock Summary* and *Stock Ledger* are in the Stock drop-down; *Inventory,
+Stock Search* and *Transactions* are under *Stock → All Stock screens →
+Stock*.
+
 - **Inventory**: what is on hand, by product and warehouse: available,
   reserved for orders, damaged, quarantined, with the quantity **incoming**
   (approved purchase orders not yet received) and **outgoing** (approved sales
@@ -810,6 +966,10 @@ books, so the stock account in the Balance Sheet matches the stock screens.
 
 ## 7.2 Movements
 
+*Stock Transfers* and *Physical Count* are in the Stock drop-down; Opening
+Stock, Adjustment Approvals and Repacking are under *Stock → All Stock screens
+→ Movements*.
+
 From the Inventory screen, each its own action:
 
 - **Adjust**: correct a quantity up or down, with a reason.
@@ -822,8 +982,8 @@ Stock → Adjustment Reasons*); *internal use*, *staff* and *display or samples*
 are posted to their own expense accounts, while damage, expiry and loss stay on
 Inventory Adjustment. **Large adjustments need approval:** under *Settings →
 Stock → Adjustment Limits* each role has a limit; above it the post is refused
-and *Submit for approval* sends it to **Adjustment Approvals** (*Stock →
-Movements*), where someone with a higher limit approves or rejects it, singly
+and *Submit for approval* sends it to **Adjustment Approvals** (*Stock → All Stock
+screens → Movements*), where someone with a higher limit approves or rejects it, singly
 or in bulk. Files (a photo, a note) can be attached to an adjustment, a
 write-off, a transfer or a count sheet as evidence.
 
@@ -839,7 +999,7 @@ And two documents:
   warehouse, a bin or an ABC class (fast sellers more often) -- draw the sheet,
   can hide the system quantity on a **blind sheet**, and limit what a counter
   may post.
-- **Stock Transfers** (*Stock → Movements*). A move between branches or
+- **Stock Transfers** (*Stock → Stock Transfers*). A move between branches or
   warehouses as a document: *Dispatch* takes the goods off the source at their
   cost and holds them **in transit** (still the firm's, so the books do not
   move); *Receive* names, line by line, what arrived and what of it was damaged
@@ -848,7 +1008,7 @@ And two documents:
   cancelled; a received one is final. A transfer between two branches with
   different GSTINs is refused: bill it as a sale to the other branch (9.3). The
   quick *Transfer* action above stays for a shift within a building.
-- **Repacking** (*Stock → Movements*). Break a bulk product into smaller packs
+- **Repacking** (*Stock → All Stock screens → Movements → Repacking*). Break a bulk product into smaller packs
   (or the reverse); the output carries the cost of what went in.
 - **Kits and combo packs.** A product of type bundle is a *kit* with
   components. *Assemble* and *Disassemble* turn components into kits and back;
@@ -856,6 +1016,9 @@ And two documents:
   assembled kits assembles the shortfall from the components.
 
 ## 7.3 Tracking
+
+*Batches* and *Expiry Monitor* are in the Stock drop-down; *Lots* and *Serial
+Numbers* are under *Stock → All Stock screens → Tracking*.
 
 Used when the firm's business profile switches them on:
 
@@ -887,6 +1050,8 @@ on a part sheet.
 
 ## 7.4 Data
 
+*Stock → All Stock screens → Data*.
+
 - **Import**: load stock (opening balances, adjustments) from an Excel file,
   checked before anything is posted.
 - **Export**: the stock to Excel.
@@ -902,6 +1067,11 @@ accountant's work is the entries no document makes (rent, salaries,
 adjustments) and reading the statements.
 
 ## 8.1 Books
+
+*Journal Entries, Expenses, Ledgers* and *Bank Reconciliation* are in the
+Accounts drop-down; Chart of Accounts, Opening Balances, Party Adjustments,
+Contra Vouchers and Export to Tally are under *Accounts → All Accounts screens
+→ Books*.
 
 **Chart of Accounts.** The accounts, in groups: assets, liabilities, equity,
 income and expenses. Opening the books gives a firm a standard chart for a
@@ -924,7 +1094,7 @@ posts it to the journal; an expense dated in a locked year is refused.
 **Ledgers.** One account's movements over a period, with the opening and
 closing balance.
 
-**Bank Reconciliation** (*Accounts → Books*). Import the bank's statement from
+**Bank Reconciliation** (*Accounts → Bank Reconciliation*). Import the bank's statement from
 a file (with the same column mapping as other imports; a line already imported
 on the account is refused). *Auto-match* pairs each line with the book entry of
 the same amount within three days and the same reference (cheque number or
@@ -934,22 +1104,36 @@ several entries that add up to it, and a match can be undone. The
 and the statement balance, checked against the balance printed on the
 statement. Unmatched lines of a month are listed when the month is closed (8.4).
 
+**Party Adjustments.** A customer's or supplier's balance cleared without money
+and without a tax effect: a *customer write-off* (to bad debts), a *supplier
+write-back* or a *set-off* between what a business owes and is owed. A draft
+changes nothing; approving posts the journal and moves the balance; it is
+cancelled, never edited, and always carries a reason.
+
+**Contra Vouchers.** Money moved between the firm's own cash and bank accounts
+(cash paid into the bank, a transfer between banks), numbered in its own
+series, instead of a hand journal.
+
 **Files on entries.** *Files* on a journal entry, a receipt or a payment keeps
 the bill or letter behind it.
 
-**Export to Tally** (*Accounts → Books*). Writes the period's posted vouchers
+**Export to Tally** (*Accounts → All Accounts screens → Books → Export to Tally*). Writes the period's posted vouchers
 as a TallyPrime import file: each is typed by what made it (Sales, Purchase,
 Credit Note, Debit Note, Contra, Receipt, Payment, else Journal), with a ledger
 per customer and supplier under Sundry Debtors or Creditors. The *mappings* give
 each account the name and group it has in the firm's Tally. Try a sample in
 Tally before relying on it.
 
-**Bank Details** (*Accounts → Tax filing → Bank Details*). The firm's bank
+**Bank Details** (*Accounts → All Accounts screens → Tax filing → Bank Details*). The firm's bank
 accounts for its bills, one marked *print on documents*: its details print in
 the bank block of every document that has one. Only people who may manage
 accounts or record payments see the full number; others see the last four.
 
 ## 8.2 Statements
+
+*Trial Balance, Profit & Loss* and *Balance Sheet* are in the Accounts
+drop-down; *Cash Flow* is under *Accounts → All Accounts screens →
+Statements*.
 
 - **Trial Balance**: every account's balance at a date; debits equal credits.
 - **Profit & Loss**: income less expenses for a period -- a month, a quarter,
@@ -964,6 +1148,12 @@ accounts or record payments see the full number; others see the last four.
 Each chooses its period on the page line and opens a line to its ledger.
 
 ## 8.3 Tax filing
+
+*GST Returns* is in the Accounts drop-down. Everything else of tax filing --
+GSTR-2B Reconciliation, Rule 37, Rule 42, GST checks, GST Payment, PMT-06
+deposits, E-Invoice, TCS, TDS Challans and Bank Details -- is under *Accounts →
+All Accounts screens → Tax filing*. The tax *settings* are under *Settings →
+Tax*.
 
 **GST Returns.** **GSTR-1** (outward supplies: B2B invoice by invoice, B2C
 large and small, credit notes, HSN summary, documents issued) and
@@ -986,7 +1176,7 @@ months 1 and 2 and the quarter's GSTR-1 and GSTR-3B on their due dates;
 *PMT-06 deposits* (beside GST Payment) records the deposit, and the quarterly
 GST payment uses it before the bank.
 
-**GST checks** (*Accounts → Tax filing → GST checks*). Before filing, lists what
+**GST checks** (*Accounts → All Accounts screens → Tax filing → GST checks*). Before filing, lists what
 a return would trip over: an invalid GSTIN (the firm's, a buyer's, a supplier's),
 a missing or short HSN code, a missing place of supply, an invoice with no IRN,
 a credit note raised after the last date allowed (30 November after the year),
@@ -996,7 +1186,7 @@ document number longer than the 16 characters GST allows (the default series
 are now shortened to fit) each raise a warning when saved. Each line also keeps
 the tax rule that taxed it, shown in the line's tax detail.
 
-**Rule 42** (*Accounts → Tax filing → Rule 42*). Credit on goods and services
+**Rule 42** (*Accounts → All Accounts screens → Tax filing → Rule 42*). Credit on goods and services
 used for both taxable and exempt supplies is reversed in proportion: the
 monthly reversal, the year's true-up and the reclaim post against Input Tax Not
 Claimable, and GSTR-3B carries them. Rule 43 (capital goods) is not built.
@@ -1024,7 +1214,7 @@ Each firm chooses its **route** in *GST Documents*: the portal's **sandbox**
 never be mistaken for a real filing) or **offline** -- *Export for portal*
 writes the portal's bulk-upload file, the firm uploads it on the e-invoice
 portal, and *Import portal result* records each IRN. A direct or GSP
-connection is not in 1.1.0.
+connection is not in 1.3.0.
 
 Once the firm's *e-invoicing applies from* date has passed, an approved B2B
 invoice, credit note or debit note **cannot be printed or emailed until it has
@@ -1056,7 +1246,7 @@ cash payable, and the credit carried to next month. Recording the challan
 (CPIN, bank, interest) posts it in one journal; only the latest month can be
 reversed.
 
-**TDS challans** (*Accounts → Tax filing → TDS Challans*). The tax deducted
+**TDS challans** (*Accounts → All Accounts screens → Tax filing → TDS Challans*). The tax deducted
 and not yet deposited is listed by section; make a challan from it (one
 section, the tax equals the deductions' sum, with the bank's counterfoil
 details), and the challan's serial, BSR code and date flow into the TDS return;
@@ -1076,7 +1266,7 @@ check* list parties with a missing or wrongly shaped PAN.
 quarter, for 26Q) and *TDS deducted by customers* (with their TAN, to check
 against 26AS).
 
-## 8.4 Structure (configuration)
+## 8.4 Structure (Settings → Set up → Account structure)
 
 - **Control Accounts**: which account each kind of posting uses (stock,
   customers, suppliers, sales, purchases, output and input GST ...), filled in
@@ -1086,7 +1276,7 @@ against 26AS).
 - **Cost Centres** and **Profit Centres**: optional tags on entries for
   reporting by department or line of business.
 
-**Financial years and periods** are under *Settings → Financial Years*. A
+**Financial years and periods** are under *Settings → Firm → Financial Years*. A
 document can only be posted into an open period; closing a period stops late
 changes to it. Before a month is closed the screen lists what is still undone
 (draft documents, unreconciled bank lines and the like) -- it lists and never
@@ -1097,6 +1287,8 @@ refuses. The same screen sets the **ageing bands** (5.3).
 # 9. Masters
 
 ## 9.1 Parties
+
+*Customers* and *Vendors* are in the Masters drop-down.
 
 **Customers.** Name, code, GSTIN, PAN, contacts, billing and shipping
 addresses, payment terms, credit limit, standing discount, price list,
@@ -1133,11 +1325,13 @@ contacts, addresses, bank account for payments, category and type, payment
 terms, GST type, and whether the supplier e-invoices. Same export, bulk and
 restore actions.
 
-**Configuration:** *Customer Groups* (segments with a group discount and a
-price level),
-*Vendor Categories*, *Vendor Types*.
+**Configuration** (*Settings → Set up → Party lists*): *Customer Groups*
+(segments with a group discount and a price level), *Vendor Categories*,
+*Vendor Types*, *Licence Types* and *Licence Check*.
 
 ## 9.2 Items
+
+*Products* is in the Masters drop-down.
 
 **Products.** Code, name, category, HSN code and tax group, units (buying,
 stock and selling), prices, preferred supplier, reorder level, barcode, and,
@@ -1150,10 +1344,10 @@ history** (a new price with an effective date, also loadable from a file), the
 expiry, shelf-life and issue rules (7.3), *Inspect on receipt* and *Not for
 sale*.
 
-**Configuration:**
+**Configuration** (*Settings → Set up → Item lists*):
 
 - *Product Categories*: a tree of categories.
-- *Principals* and *Brands* (*Masters → Items*): the brand owners the firm
+- *Principals* and *Brands*: the brand owners the firm
   distributes for and their brands; brand and principal are also ways to slice
   Sales Analysis.
 - *Units of Measure*, *UOM Groups*, *Conversion Rules*: a product can be
@@ -1164,13 +1358,21 @@ sale*.
 
 ## 9.3 Organisation and locations
 
+*Branches* and *Warehouses* are in the Masters drop-down. **Trade Licences**
+(*Masters → All Masters screens → Compliance*) is the register of licences --
+the firm's, a branch's, a customer's or a supplier's, with their validity
+dates -- whose numbers print on invoices and whose expiry is raised on Home; a
+product or category can require one, and the sale (and purchase) then warns or
+blocks as the firm sets. *Licence Types* and *Licence Check* are set up under
+*Settings → Set up → Party lists*.
+
 - **Branches**: places that trade, each with its address, GST registration
   and manager. Every document belongs to a branch. A branch with its **own
   GSTIN** (checked, and for the branch's own state) prints it on that branch's
   documents, e-invoices and e-way bills, and files its GSTR-1 and 3B
   separately; a branch without one uses the firm's.
 - **Warehouses**: places that hold stock, each under a branch.
-- **Configuration:** *Storage Areas* (zones, racks and bins inside a
+- **Configuration** (*Settings → Set up → Locations*): *Storage Areas* (zones, racks and bins inside a
   warehouse), *Branch Types*, *Warehouse Types*, and **Places** (countries,
   states, districts, cities, PIN codes and localities, shared by every
   address in the firm). Every firm starts with the southern states' places
@@ -1181,6 +1383,7 @@ sale*.
 
 # 10. Reports
 
+*Reports* on the menu bar has no daily list: its two screens are always shown.
 Two screens, **Operational** and **Financial**, holding more than fifty
 reports. Each can be filtered, sorted and exported.
 
@@ -1199,13 +1402,18 @@ reports. Each can be filtered, sorted and exported.
 
 The accounting statements (Trial Balance, Profit & Loss, Balance Sheet,
 Ledgers), GST returns, customer statements and ageing are under
-**Accounts** and **Sell**, beside the work they report on.
+**Accounts**, **Sell** and **Buy**, beside the work they report on.
 
 ---
 
-# 11. Admin: people, firms and the system
+# 11. Platform: people, firms, the agency and the system
 
-## 11.1 People
+What used to be the **Admin** area of the menu bar. It lives behind the gear:
+*Settings → Platform*, with the sections *People, Firms, Agency* and *System*.
+Each card is shown only to those whose role holds the matching right, and the
+server refuses the request whatever a menu shows.
+
+## 11.1 People (*Settings → Platform → People*)
 
 - **Users**: create an account, reset a password, lock or unlock, and see
   the firms and roles a person has.
@@ -1221,12 +1429,59 @@ Ledgers), GST returns, customer statements and ageing are under
 Passwords are never stored in readable form. Signing in again after a set
 time is required, and a person whose access is removed is signed out at once.
 
-## 11.2 Firms
+## 11.2 Firms (*Settings → Platform → Firms*)
 
 - **Firms**: create a firm, edit its details, and **Set up** (section 3).
 - **Business Profiles**: the industries on offer and what each switches on.
+  Which profile a firm has is set under *Settings → Business profile →
+  Profile Assignment* or on the firm's Set up panel.
 
-## 11.3 System
+## 11.3 The agency: branding (*Settings → Platform → Agency → Branding*)
+
+The agency that bought the product has a **name, a tagline and a logo**. They
+lead the sign-in screen and the header of every screen, so every PC shows the
+same; the product's own name (Agency Platform, by its company) stays beside
+them, quietly. The record belongs to the installation, not to any firm, so
+there is one and it needs no firm to be chosen.
+
+**Giving it.** In any of three ways:
+
+1. **At install.** A fresh *server* install shows a **Branding** page after
+   *This PC*: agency name, tagline and a logo file (Browse), all optional.
+   A tagline or logo without a name is refused, and so is a logo path that does
+   not exist. Leave them blank and the install is unchanged. The page is not
+   shown for an app-only PC, an upgrade or a repair. A logo the server refuses
+   (a text file renamed `.png`, a picture over 1 MB) **never fails the install**:
+   the name is saved, no logo is, a warning goes to the install log, and the
+   logo can be added later.
+2. **First sign-in: *Set up your agency*.** While the branding has not been
+   given, the first platform administrator (or anyone with the
+   platform-settings right) to sign in sees a dialog with name, tagline, logo
+   and a live preview. **Skip for now** closes it, and Home keeps a *Finish
+   setting up* card (4) until it is given; it does not reopen for somebody who
+   skipped. A firm administrator, or anyone without the right, never sees it.
+   After an upgrade the branding is empty, so this is how an upgraded
+   installation gives it.
+3. **Settings → Platform → Agency → Branding**, any time. One form: *Agency
+   name* (required), tagline, logo (PNG or JPG, at most 1 MB), a preview of
+   the sign-in card and the top of every screen, and the product, company and
+   product logo shown read-only (they change only with an update). There is no
+   accent-colour box. **Save** shows *Saved.* and the header changes at once;
+   **Remove logo** brings back the agency's initials. A file that is not
+   really a PNG or JPG is refused (*The logo must be a PNG or JPG image.*) and
+   so is one over the size, naming it. If two people edit at once, the second
+   save is refused with a message that somebody else saved, and keeps what was
+   typed.
+
+**Who may.** Reading the name, tagline and logo needs no sign-in at all (the
+sign-in screen shows them). Changing them needs the platform-settings right
+(`PLATFORM_SETTINGS`), which only the platform tier holds. Every change is in
+the audit trail (*Settings → Platform → System → Audit Logs*, no firm chosen):
+`agency_branding.created`, `agency_branding.updated` and
+`agency_branding.logo_changed` (the type and size, never the picture), each
+naming who. Another PC sees the new branding at its next sign-in screen.
+
+## 11.4 System (*Settings → Platform → System*)
 
 - **Audit Logs**: who changed what, and when: every create, edit, approval,
   cancellation and sign-in, with the old and new values. The trail cannot be
@@ -1234,6 +1489,8 @@ time is required, and a person whose access is removed is signed out at once.
   Log View* to any role of the firm (an accountant, say): it reads that firm's
   trail and nothing else.
   One search box finds text in the action, the record type or the person.
+  With no firm chosen it reads the platform's own trail (people, firms,
+  branding).
 - **Diagnostics**: the server's health, versions and recent errors, for
   support.
 - **The quick check** (on the server PC, not a screen): `agency-server
@@ -1244,9 +1501,13 @@ time is required, and a person whose access is removed is signed out at once.
   books. `docs/qa/SANITY_CHECK.md` adds the hand checks, module by module.
 - **Platform Dashboard**: counts of firms, users and roles across the
   installation, for the platform administrator.
-- **Licensing**: a placeholder; licensing is not in use in 1.1.0.
+- **Backups**: the backups the server has taken, and **Back up now** to take
+  one. A backup runs on the server and takes a while, so the button returns at
+  once and the page checks until the run is done. Platform tier only
+  (`SYSTEM_BACKUP`).
+- **Licensing**: a placeholder; licensing is not in use in 1.3.0.
 
-## 11.4 Backup
+## 11.5 Backup
 
 The server backs up every database **every night at 02:00** into
 `C:\ProgramData\Agency Platform\backups\daily`, keeping the newest seven, and
@@ -1257,11 +1518,35 @@ to restore one.
 
 ---
 
-# 12. Settings (the gear)
+# 12. Settings (the gear): the Settings page, Set up and Platform
+
+## 12.1 The Settings page
+
+The **gear** at the right of the menu bar opens the Settings page in a tab of
+its own: a list of sections at the left, each section's screens as **cards** at
+the right, and a **search box** across every card. It is built in the app from
+the person's permissions, so it asks the server nothing, and a section with
+nothing the person may open is not shown. It has three parts:
+
+| Part | What it holds |
+| --- | --- |
+| **Settings** | *This PC and me* (My Preferences, 2), then the firm's own settings: Firm, Selling, Buying, Stock, Tax and Business profile (12.2) |
+| **Set up** | The lists set up once and changed rarely, moved here from the drop-downs: Pricing, Territories & routes, Account structure, Party lists, Item lists and Locations (12.3) |
+| **Platform** | What the Admin area held: People, Firms, Agency and System (11) |
+
+Settings that are dialogs rather than screens (Sales Stages, Credit Control,
+Price Floor, Discount Limits, Loyalty Scheme, TCS Settings, Approval Levels,
+Approval Limits, Purchase Budgets, Adjustment Limits, Batch Rules, GST
+Documents, TDS on Purchases, Messaging, My Branch and Warehouse) open from a
+card the same way, and from the "..." menu of the screen they belong to.
+Opening a card that is a screen opens it as a tab.
+
+## 12.2 The firm's settings
 
 | Group | Screens | What they set |
 | --- | --- | --- |
-| Firm | Firm Settings, Financial Years, Numbering Series, My Branch and Warehouse, Custom Fields, Approval Levels | The firm's details; its years and accounting periods (open and close); the number pattern of each kind of document; the branch and warehouse **each person's** new orders, quotations and purchase orders open with; the firm's own **custom fields**, and **extra fields on documents** (quotation, order, delivery note, invoice, purchase order, goods receipt) carried from one document to the next and printed when marked *Show on print*; **approval levels** (5.2); **Messaging** (email, WhatsApp, SMS: off until the firm switches it on with its own accounts; overdue reminders stop 90 days past due unless the firm sets another window) |
+| This PC and me | My Preferences | Start in firm, first screen, theme, text size, date format (2) |
+| Firm | Firm Settings, Financial Years, Numbering Series, Custom Fields, Custom Field Rules, My Branch and Warehouse, Messaging, Approval Levels | The firm's details; its years and accounting periods (open and close); the number pattern of each kind of document; the branch and warehouse **each person's** new orders, quotations and purchase orders open with; the firm's own **custom fields**, and **extra fields on documents** (quotation, order, delivery note, invoice, purchase order, goods receipt) carried from one document to the next and printed when marked *Show on print*; **approval levels** (5.2); **Messaging** (email, WhatsApp, SMS: off until the firm switches it on with its own accounts; overdue reminders stop 90 days past due unless the firm sets another window) |
 | Selling | Sales Stages, Credit Control, Price Floor, Discount Limits, Loyalty Scheme, TCS Settings | Which stages of a sale the firm's people type, and whether *Rate includes GST* starts on; the credit warning and whether it blocks; the lowest price and each role's discount limit; points; tax collected at source |
 | Buying | Purchase Settings, Approval Limits, Purchase Budgets | Purchasing defaults and approval, the **reorder planning** choice (typed levels or from sales), the order-multiple, bill-matching and budget policies, and the budgets |
 | Stock | Inventory Settings, Adjustment Reasons, Adjustment Limits, Batch Rules | The firm's stock defaults; **Batch Rules**: the near-expiry window (30 days), whether a near-expiry batch or one passing over an earlier batch needs a reason, the minimum-shelf-life policy (block or warn), near-expiry stock below the price floor, and *Price from batch*; the firm's adjustment reasons; each role's adjustment limit; whether returns are held for checking |
@@ -1273,6 +1558,24 @@ brings its tax group, category and type; the document brings the branch, the
 customer and the place of supply; and the **tax rules** decide, in priority
 order, which rates apply. The first rule that matches wins. So a change in
 law is a new rule, not an edit to every product.
+
+## 12.3 Set up: the lists set up once
+
+*Settings → Set up* holds what the drop-downs used to carry under a
+CONFIGURATION heading. Each section is exactly one of those old groups, and
+each area's drop-down ends with a **SET UP IN SETTINGS** link to its own
+sections. Every screen is offered only to a person who may open it.
+
+| Section | Screens | See |
+| --- | --- | --- |
+| Pricing | Price Lists, Price Levels, Promotions, Loyalty | 5.7 |
+| Territories & routes | Territories, Route Types, Route Builder | 5.6 |
+| Account structure | Control Accounts, Cost Centres, Profit Centres | 8.4 |
+| Party lists | Customer Groups, Vendor Categories, Vendor Types, Licence Types, Licence Check | 9.1, 9.3 |
+| Item lists | Product Categories, Principals, Brands, Units of Measure, UOM Groups, Packaging Types, Packaging Levels, Conversion Rules | 9.2 |
+| Locations | Storage Areas, Branch Types, Warehouse Types, Places | 9.3 |
+
+The **Platform** part (People, Firms, Agency, System) is section 11.
 
 ---
 
@@ -1336,19 +1639,38 @@ A firm can add its own roles; the preset ones cannot be changed.
 
 ---
 
-# 15. Not in 1.1.0
+# 15. Not in 1.3.0
 
 Known and planned:
 
+- **Help > About.** Not built; clicking the product on the status line does
+  nothing.
+- **First-run is step 1 only** (*Set up your agency*). The later steps, and a
+  prompt in the header strip, are not built; Home's *Finish setting up* card
+  stands in for them.
+- **The "PRACTICE" mark** for a practice firm: not built (there is no
+  practice-firm feature).
+- **Support details are blank by design.** No support phone, WhatsApp, hours,
+  email or website is shown under *More help* on the sign-in screen until they
+  are packaged.
+- **The accent colour** is stored with the branding but neither asked nor
+  applied; the product logo on the status line is a placeholder icon until one
+  is packaged; the server does not check a logo's shape (the screens fit it into
+  a square).
+- **A client-side cache** of preferences and reference data to cut server calls
+  was deferred by the owner; today every screen reads what it needs when it
+  opens.
+- **Licensing.** The screen is a placeholder and licensing is not in use.
+- **Rows per page** is not offered in My preferences.
 - Gross profit shown above net profit on the Profit & Loss.
-- Sending documents automatically by WhatsApp: only sharing by hand is built
-  (5.2); automatic email, WhatsApp and SMS wait for the firm's own accounts
-  (Settings, Messaging).
+- Sending documents automatically by WhatsApp or SMS: only sharing by hand is
+  built (5.2); automatic messages wait for the firm's own accounts (Settings
+  → Firm → Messaging). Payment links are not built.
 - The 26Q return file for TDS (the registers and challans exist).
 - Rule 43 (capital goods) of the common-credit reversal.
 - A bank-specific layout for the payment run file.
 - Opening a document straight from a GST check row.
-- A live connection to the e-invoice portal (the sandbox and the offline
-  upload exist).
+- A live connection to the e-invoice portal or e-way bill through NIC or a GSP
+  (the sandbox and the offline upload exist).
+- A kit inside a kit, and kit components priced on the bill.
 - A signed installer (Windows warns when it is run).
-- Licensing.

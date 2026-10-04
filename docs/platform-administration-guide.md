@@ -4,6 +4,13 @@ This guide shows how a platform administrator creates permissions, roles,
 firms, and users, then maps users to roles and firms. All examples use the
 backend REST API; the Flutter desktop client follows the same workflow.
 
+In release 1.3.0 the desktop client's Admin area is gone from the menu bar:
+its screens are under the **gear (Settings)**, in the **Platform** section --
+*People* (Users, Roles, Permissions, User Templates, User-Firm Assignments),
+*Firms* (Firms, Business Profiles), *Agency* (Branding) and *System* (Audit
+Logs, Diagnostics, Licensing, Backups, Platform Dashboard). Where this guide
+says "in the desktop client", the path is given from there.
+
 ## Before you begin
 
 1. Start the backend from `backend`:
@@ -161,9 +168,9 @@ platform scope works: `require_platform_admin()` does not read
 `platform_admins.scope`, and running the platform is precisely what a
 `PLATFORM` administrator is for.
 
-In the desktop client this is **Administration -> Firms**, which is the one
-Administration tab that needs no firm selected -- so it is reachable from
-Platform mode, where a platform administrator always starts.
+In the desktop client this is **Settings > Platform > Firms**, which needs no
+firm selected -- so it is reachable from Platform mode, where a platform
+administrator always starts.
 
 Firm codes, country codes, and currency codes are normalized to upper case.
 `financial_year_start` uses `YYYY-MM-DD`. Only `name`, `code`, `country`,
@@ -272,7 +279,7 @@ stores, so `PUT /api/v1/firms/{id}` rejects any change to `deployment_mode`,
 
 A provisioned firm has tables. It cannot trade yet, and the remaining steps
 were easy to miss because nothing failed until somebody tried to approve
-something. **Select the firm on Administration → Firms and press Set up**:
+something. **Select the firm on Settings > Platform > Firms and press Set up**:
 the panel lists every step -- storage, business profile, books, tax,
 geography, branches and warehouses, people -- as done or missing, marks the
 two the platform refuses to post without as *Required*, and does two of them
@@ -478,6 +485,54 @@ The first response has `data.must_change_password = true`. The user must call
 continuing. Global permissions and firm-scoped permissions are issued separately. The
 selected `X-Firm-ID` determines which firm grant applies, and authorization
 changes immediately invalidate existing access and refresh sessions.
+
+## 8. Give the agency its name (branding)
+
+The agency's own name, tagline and logo are one record for the whole
+installation, kept in the platform store (`agency_branding`). The sign-in
+screen and the top of every screen read it, so every PC and every firm sees the
+same. Until it is given, `is_set` is false and the desktop shows Agency
+Platform's own name.
+
+| Route | Who | Does |
+| --- | --- | --- |
+| `GET /api/v1/branding` | anyone, signed out | `is_set`, `agency_name`, `tagline`, `accent_color`, `has_logo`, `version` (also the `ETag`) |
+| `GET /api/v1/branding/logo` | anyone, signed out | the image (`image/png` or `image/jpeg`); 404 when there is none |
+| `PUT /api/v1/branding` | `PLATFORM_SETTINGS` | replaces name, tagline and colour; the first save creates the record |
+| `PUT /api/v1/branding/logo` | `PLATFORM_SETTINGS` | multipart field `file`; PNG or JPG judged by its bytes, not its name; at most 1 MB |
+| `DELETE /api/v1/branding/logo` | `PLATFORM_SETTINGS` | removes the logo; the desktop shows initials |
+
+```powershell
+Invoke-RestMethod -Method Get -Uri "$baseUrl/api/v1/branding"
+
+$branding = Invoke-RestMethod -Method Put -Uri "$baseUrl/api/v1/branding" `
+  -Headers $headers -ContentType "application/json" `
+  -Body (@{
+    agency_name = "Acme Agencies"
+    tagline = "Serving traders since 1998"
+  } | ConvertTo-Json)
+
+Invoke-RestMethod -Method Put -Uri "$baseUrl/api/v1/branding/logo" `
+  -Headers $headers -Form @{ file = Get-Item "C:\branding\logo.png" }
+```
+
+(`-Form` needs PowerShell 7; on Windows PowerShell use `curl.exe -F
+"file=@logo.png"`.) `agency_name` is required (1 to 150 characters, not only
+spaces); `tagline` is up to 200 characters; `accent_color`, if sent, is
+`#RRGGBB`. **Branding is a platform path, so no `X-Firm-ID` is sent** and the
+caller needs `PLATFORM_SETTINGS`, which a platform administrator holds; a firm
+role is not given it. A logo can be saved only after the name has been given.
+Every write honours `If-Match` with the `ETag` of the last read (a stale one is
+refused with 409, so two people cannot overwrite each other), and is audited in
+the **platform** trail as `agency_branding.created`, `.updated` and
+`.logo_changed` (the logo's type and size, never the image).
+
+In the desktop client this is **Settings > Platform > Agency > Branding**, and
+the first time a holder of `PLATFORM_SETTINGS` signs in on a copy where the
+branding is not set, a **Set up your agency** dialog asks for it (*Skip for now*
+leaves a **Finish setting up** card on Home). On a fresh server install the
+installer's **Branding** page saves it with `agency-server set-branding`, which
+goes through the same service; an upgrade leaves it empty.
 
 ## Troubleshooting
 
