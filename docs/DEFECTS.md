@@ -36,7 +36,7 @@ Full write-ups: PR #435 and `docs/DATA_TRAIL_BY_OPERATION.md` §9.
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
 
-None open (2026-10-02).
+| D-UI-11 | Low | **The phase 2 purchase order editor overflows 112px on the right at 800x600** (`purchase_order_editor_phase2.dart`, the header `Row` at line 607 on main). Present on main without PG-9; found by rendering the editor at 800x600 while building PG-9. Fine from 1366x768 up. | `po_amendment_test.dart` pumped at 800x600 reports it |
 
 ### Tax -- found reviewing purchases under GST, 2026-10-02
 
