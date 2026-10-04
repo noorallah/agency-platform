@@ -181,13 +181,24 @@ class _OrderApi extends ApiClient {
   }
 
   @override
+  Future<List<PurchaseOrderHistoryRecord>> purchaseOrderHistory(
+    String id,
+  ) async =>
+      const <PurchaseOrderHistoryRecord>[];
+
+  @override
   Future<PurchaseOrder> createPurchaseOrder(PurchaseOrder order) async {
     created = order;
     return order.copyWith(id: 'po-2', poNumber: 'PO-0002');
   }
 }
 
-Future<void> _pumpOrder(WidgetTester tester, _OrderApi api) async {
+Future<void> _pumpOrder(
+  WidgetTester tester,
+  _OrderApi api, {
+  PurchaseOrder? order,
+  PurchaseDialogMode mode = PurchaseDialogMode.create,
+}) async {
   tester.view.physicalSize = const Size(1600, 900);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -197,8 +208,8 @@ Future<void> _pumpOrder(WidgetTester tester, _OrderApi api) async {
         child: PurchaseOrderEditorDialog(
           api: api,
           permissions: _permissions(['PURCHASE_VIEW', 'PURCHASE_CREATE']),
-          mode: PurchaseDialogMode.create,
-          order: null,
+          mode: mode,
+          order: order,
           vendors: <Vendor>[Vendor.fromJson(_vendorJson())],
           branches: <BranchRecord>[
             BranchRecord.fromJson(<String, dynamic>{
@@ -371,5 +382,48 @@ void main() {
     final Json typed = api.previews.last['lines'][0] as Json;
     expect(typed['discount_percent'], '0');
     expect(typed['unit_price'], isNull);
+  });
+
+  testWidgets('a line remark is sent and shown again on reopen (D-BUY-21)',
+      (tester) async {
+    final _OrderApi api = _OrderApi();
+    await _pumpOrder(tester, api);
+
+    final Finder remark = find.byWidgetPredicate((Widget w) {
+      final Key? key = w.key;
+      return w is TextFormField &&
+          key is ValueKey<String> &&
+          key.value.startsWith('purchase-order-remarks-');
+    });
+    expect(remark, findsOneWidget);
+    await tester.enterText(remark, 'Deliver to back gate');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(
+      (api.previews.last['lines'][0] as Json)['remarks'],
+      'Deliver to back gate',
+    );
+
+    await tester.tap(find.byKey(const ValueKey('purchase-order-save')));
+    await tester.pumpAndSettle();
+    final Json saved = api.created!.toCreateJson()['lines'][0] as Json;
+    expect(saved['remarks'], 'Deliver to back gate');
+
+    // The saved order, opened again, shows the remark in its line.
+    final PurchaseOrder reopened = PurchaseOrder.fromJson(<String, dynamic>{
+      ...api.created!.toCreateJson(),
+      'id': 'po-2',
+      'po_number': 'PO-0002',
+      'status': 'DRAFT',
+    });
+    await tester.pumpWidget(const SizedBox());
+    final _OrderApi second = _OrderApi();
+    await _pumpOrder(
+      tester,
+      second,
+      order: reopened,
+      mode: PurchaseDialogMode.edit,
+    );
+    expect(find.text('Deliver to back gate'), findsOneWidget);
   });
 }

@@ -855,6 +855,8 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
     return DocumentLineRow(
       key: ValueKey<String>('purchase-order-line-$index'),
       columns: _columns,
+      // Room for the line's remark under the product (D-BUY-21).
+      height: 76,
       current: index == _current,
       onTap: () => _setState(() => _current = index),
       cells: [
@@ -908,6 +910,26 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
+              SizedBox(
+                height: 24,
+                child: TextFormField(
+                  // Keyed like the figures, so a remark stays with its own
+                  // line when a line above it goes.
+                  key: ValueKey<String>(
+                    'purchase-order-remarks-$_lineEpoch-$index-'
+                    '${line.productId}',
+                  ),
+                  initialValue: line.remarks,
+                  readOnly: _locked,
+                  style: text?.copyWith(fontSize: 12),
+                  decoration: documentCellDecoration(context).copyWith(
+                    hintText: 'Line remark, e.g. deliver to back gate',
+                    counterText: '',
+                  ),
+                  onChanged: (value) =>
+                      _changeLine(index, line.copyWith(remarks: value)),
+                ),
+              ),
             ],
           ),
         ),
