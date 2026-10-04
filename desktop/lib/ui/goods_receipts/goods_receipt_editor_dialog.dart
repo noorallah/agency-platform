@@ -279,6 +279,9 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
       _error = null;
     });
     final Map<String, double> received = <String, double>{};
+    // Free goods already in, per order line, so a new receipt starts at the
+    // free goods still owed (D-BUY-33).
+    final Map<String, double> receivedFree = <String, double>{};
     try {
       final PagedResult<GoodsReceiptRecord> existing =
           await widget.api.goodsReceipts(
@@ -291,6 +294,9 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
           received[line.purchaseOrderLineId] =
               (received[line.purchaseOrderLineId] ?? 0) +
                   (double.tryParse(line.currentReceiptQuantity) ?? 0);
+          receivedFree[line.purchaseOrderLineId] =
+              (receivedFree[line.purchaseOrderLineId] ?? 0) +
+                  (double.tryParse(line.freeQuantity) ?? 0);
         }
       }
     } on ApiException catch (exception) {
@@ -340,6 +346,7 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
             index + 1,
             received[order.lines[index].id] ?? 0,
             defaultWarehouse,
+            freeReceived: receivedFree[order.lines[index].id] ?? 0,
             heldByOtherDrafts: drafted[order.lines[index].id] ?? 0,
             otherDraftNumbers: draftNumbers[order.lines[index].id] ?? const [],
           ),
@@ -395,6 +402,7 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
     int lineNumber,
     double alreadyReceived,
     String defaultWarehouse, {
+    double freeReceived = 0,
     double heldByOtherDrafts = 0,
     List<String> otherDraftNumbers = const [],
   }) {
@@ -420,6 +428,12 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
     // Starts at what the other drafts leave (D-BUY-23), so two people
     // receiving the same order do not each start at the whole of it.
     draft.receiptQuantity = _trim(draft.dueAfterOtherDrafts);
+    // The order's free goods still to come start on the line too: a free
+    // product of its own (buy soap, get a bucket) is a line with nothing to
+    // pay and only free goods, and it used to start at nothing (D-BUY-33).
+    final double freeDue =
+        (double.tryParse(line.freeQuantity) ?? 0) - freeReceived;
+    draft.freeQuantity = _trim(freeDue > 0 ? freeDue : 0);
     return draft;
   }
 
@@ -450,6 +464,8 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
   List<GoodsReceiptDraftLine> _sendableLines() => [
         for (final GoodsReceiptDraftLine line in _lines)
           if ((double.tryParse(line.receiptQuantity) ?? 0) > 0 ||
+              // A line of free goods alone is goods received (D-BUY-33).
+              (double.tryParse(line.freeQuantity) ?? 0) > 0 ||
               (double.tryParse(line.rejectedQuantity) ?? 0) > 0 ||
               (double.tryParse(line.damagedQuantity) ?? 0) > 0)
             line,
