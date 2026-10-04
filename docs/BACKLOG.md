@@ -5789,3 +5789,123 @@ nothing is.** Kept with the UI backlog.
 
 Never cached: documents, balances, stock, prices -- anything a person acts on
 must be read live.
+
+## 81. The firm form's State is typed, not chosen -- low priority
+
+**Status, 2026-10-04: open, low priority.** Owner, during the purchasing
+walkthrough on QA01: "in firm creation at least we can show states in master
+table".
+
+**Today:** Settings > Platform > Firms > Firms -> New asks for **State /
+province** as free text (`state` on `firms`, `String(100)`). Every other
+address in the product -- customers, vendors, branches, warehouses -- picks its
+state from the geography masters through `GeoAreaPicker`. So a firm can be
+saved as `Tamilnadu`, `TN` or `Tamil Nadu`, and nothing reads it as a place.
+
+**The ask:**
+
+| # | Item | Detail |
+| --- | --- | --- |
+| 1 | **Choose the state from the masters** | A dropdown of the states under the chosen country, read from the platform store's geography masters (the firm form is a platform screen, and the firm's own store may not exist yet). Keep the stored value as the state's name, so existing firms read unchanged. |
+| 2 | **Fill it from the GSTIN** | The first two digits of a GSTIN are the state's GST code (`33` = Tamil Nadu). When a GST number is typed and the state is blank, propose the matching state; warn when the two disagree. |
+| 3 | **City and postal code** | Optional: the same cascade as `GeoAreaPicker` below the state, if the platform store carries districts and cities. |
+
+**Check first:** whether the platform store holds the India states (§32 seeds
+every *firm* store; the platform store may hold only the country).
+
+## 82. Copy a product to start a new one -- low priority
+
+**Status, 2026-10-04: open, low priority.** Owner, creating `QA-B2` as a copy
+of `QA-B` by hand during the purchasing walkthrough: "product can have clone
+feature".
+
+**Half of it exists.** The server has had it for some time and no screen
+reaches it:
+
+- `POST /api/v1/products/{id}/duplicate` (`ProductService.duplicate_product`)
+  copies every field, the custom-field values and the media, gives the copy
+  the code `<code>-COPY` (then `-COPY-1`, `-COPY-2` ...), and audits
+  `product.duplicated` with the source id.
+- `ApiClient.duplicateProduct` and the product list controller's `duplicate()`
+  call it -- and nothing calls those. The list's **Copy** action copies the row
+  as text to the clipboard, which is a different thing with the same word.
+  Because `api_client.dart` counts as a caller, the orphan-route guard does not
+  see it (the hole CLAUDE.md names).
+
+**The ask:**
+
+| # | Item | Detail |
+| --- | --- | --- |
+| 1 | **"Copy as new product"** | On the product list toolbar and row menu, and in the product editor's "..." menu: copy the selected product and open the copy in the editor. |
+| 2 | **Choose the code and name before saving** | Industry standard (Tally *Duplicate*, Zoho *Clone*, ERPNext *Duplicate*) opens a filled form that is not saved until the person saves it. The current endpoint saves at once under `-COPY`; either open an unsaved form filled from the source (no new endpoint: the editor already has every value) or rename straight after the copy. The first is preferred: nothing half-named lands in the list. |
+| 3 | **What is not copied** | Stock, batches, serials, barcodes (they must be unique), price revisions in force, and the opening stock. Say so in the form's banner. |
+| 4 | **Guard** | Add the control to `desktop/test/reachable_features_test.dart` so it cannot drift back out of reach. |
+
+The same request is likely for customers and vendors; the clone pattern for
+users (`clone_user_dialog.dart`) already exists.
+
+## 83. Copy from every screen -- medium priority
+
+**Status, 2026-10-04: open.** Owner, after saving a purchase order on QA01 in
+the purchasing walkthrough: "not able to copy anything, we have to enable copy
+on each screen".
+
+**Today** (survey of `desktop/lib`, 2026-10-04):
+
+- `app.dart` wraps the shell in one `SelectionArea`, so plain text on a page is
+  meant to be selectable. **Dialogs and anything shown by `showDialog` sit in
+  the root navigator's overlay, above that `SelectionArea`, and are not
+  selectable** -- every master form, the document dialogs, confirmations and
+  refusals. Text fields copy on their own; read-only values drawn as `Text` do
+  not.
+- Grids: a row click selects the row, so a drag cannot select a cell's text.
+  `workspace_interactions.dart` binds Ctrl+C to a row-copy only on screens
+  that pass a `copy` callback; 16 call sites use `copyTextToClipboard`. Most
+  lists have no Ctrl+C at all.
+- No document shows a copy button beside its number.
+
+**The ask** (industry standard: Tally copies with Ctrl+C on any field; Zoho and
+ERPNext let you select any text and put a copy icon on document numbers):
+
+| # | Item | Detail |
+| --- | --- | --- |
+| 1 | **Text selectable everywhere** | A `SelectionArea` around every dialog and document tab body (one place: the shared dialog and document-tab frames), so any label, value, total or message can be selected and copied. |
+| 2 | **Ctrl+C on every grid** | The selected rows as tab-separated text with the header line, so they paste into Excel; and *Copy cell* on the right-click menu. Built once in `EnterpriseDataGrid`, not per screen. |
+| 3 | **Copy the number** | A small copy icon beside a document's number (PO, GRN, bill, invoice, receipt...), its party's GSTIN, and the IRN / e-way bill number. |
+| 4 | **Messages** | Every error and refusal can be selected and copied (people paste them to support). |
+| 5 | **Guard** | A widget test that a value in a dialog and in a document tab can be selected, and that Ctrl+C on a grid puts the rows on the clipboard. |
+
+No server calls are involved.
+
+## 84. Purchase bills and returns numbered like the order and the receipt -- low priority
+
+**Status, 2026-10-04: open, low priority; decided with the owner.** Seen on
+QA01 in the purchasing walkthrough: the order is `PO-QA01-HO-2026-2027-000001`
+and the receipts `GRN-QA01-HO-2026-2027-00000n`, but the bill is
+`PI-2026-2027-000001` -- its default series (`PURCHASE_INVOICE_DEFAULT`) does
+not print the firm or the branch.
+
+**How numbering behaves** (`DocumentFrameworkService`, scope signature):
+
+- Each firm has its own series; numbers never collide across firms.
+- A series that does not print the branch is **one running number for the
+  whole firm** -- HO and CHN bills continue one sequence.
+- A series that prints the branch gets **its own running number per branch**
+  (and per financial year): `PI-QA01-HO-...-000001`,
+  `PI-QA01-CHN-...-000001`.
+- A purchase bill's own number is internal; GST uses the supplier's number.
+  (The sales invoice series is GST-relevant -- review it with Selling.)
+
+**Decision (owner, 2026-10-04):** every purchase document follows the PO/GRN
+pattern -- firm code, branch code, financial year, running number per branch
+-- so the chain of one purchase reads alike and each branch's paperwork runs
+without gaps. Industry standard (Tally per-branch voucher series, ERPNext
+naming series with the branch).
+
+**The ask:**
+
+| # | Item | Detail |
+| --- | --- | --- |
+| 1 | **Default for new firms** | The bootstrap rules for purchase invoice, purchase return and supplier debit note carry `include_company_code` and `include_branch_code`, like the order and the receipt. |
+| 2 | **Existing firms unchanged** | No migration rewrites a firm's rules; a firm switches in Settings > Firm > Numbering Series. Issued numbers never change. |
+| 3 | **Check the rest** | List every document type's default series and say which print the firm and branch, so the set is consistent by decision rather than by history. |
