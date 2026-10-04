@@ -70,3 +70,19 @@ def test_a_draft_bill_does_not_use_up_a_receipt() -> None:
     fixture, receipt = _received("LTB2")
     _bill(fixture, receipt, "6", number="SUP-D", approve=False)
     assert len(_listed(fixture, billable=True)) == 1
+
+
+def test_a_cancelled_receipt_is_not_offered_for_billing() -> None:
+    """D-BUY-30: it kept its quantities and was listed with them.
+
+    The desktop asks for `status=COMPLETED` beside `billable=true`, so its tick
+    list was right; the filter alone listed GRN-000001 and 000006 on QA01.
+    """
+    fixture, receipt = _received("LTB9")
+    GoodsReceiptService(fixture.session).cancel_receipt(
+        receipt.id,
+        firm_scope=fixture.firm.id,
+        actor_id=fixture.actor_id,
+        reason="wrong supplier",
+    )
+    assert _listed(fixture, billable=True) == []
