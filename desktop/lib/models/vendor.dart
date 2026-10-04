@@ -278,6 +278,18 @@ const Set<String> vendorGstTypesChargingNoGst = {
   'OVERSEAS',
 };
 
+/// Currencies a supplier is commonly billed in; any other ISO code is typed.
+const List<String> commonCurrencyCodes = [
+  'USD',
+  'EUR',
+  'GBP',
+  'AED',
+  'SGD',
+  'JPY',
+  'CNY',
+  'AUD',
+];
+
 class Vendor {
   const Vendor({
     required this.id,
@@ -297,6 +309,7 @@ class Vendor {
     required this.pan,
     this.blockedReason = '',
     this.paymentTermsDays = 0,
+    this.currencyCode = '',
     this.standingDiscountPercent = 0,
     this.udyamNumber = '',
     this.msmeCategory = '',
@@ -341,6 +354,9 @@ class Vendor {
   final String status;
   final String businessProfileId;
   final bool gstRegistration;
+
+  /// ISO code the supplier bills in; blank is rupees.
+  final String currencyCode;
 
   /// REGULAR, COMPOSITION, UNREGISTERED, OVERSEAS, SEZ, or null when nobody
   /// declared one. Null is read off the GSTIN for display only and changes
@@ -441,6 +457,7 @@ class Vendor {
         pan: stringValue(json['pan']),
         blockedReason: stringValue(json['blocked_reason']),
         paymentTermsDays: (json['payment_terms_days'] as num?)?.toInt() ?? 0,
+        currencyCode: stringValue(json['currency_code']),
         standingDiscountPercent:
             double.tryParse('${json['standing_discount_percent'] ?? 0}') ?? 0,
         udyamNumber: stringValue(json['udyam_number']),

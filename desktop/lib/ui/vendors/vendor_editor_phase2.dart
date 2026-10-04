@@ -31,6 +31,7 @@ extension _Phase2VendorForm on _VendorEditorDialogState {
       };
 
   void _submit() {
+    if (_currencyProblem() != null) return;
     final String? customField = _customFields.validate();
     if (customField != null) {
       NotificationService.show(context, customField,

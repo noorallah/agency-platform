@@ -258,6 +258,15 @@ class _PurchaseInvoiceEditorDialogState
   /// total by the server.
   String _tcsRate = '';
   String _tcsAmount = '';
+
+  /// PG-12: the currency typed by the person, once they have touched the
+  /// box. Until then the bill takes its supplier's, which the server also
+  /// does when none is sent. Blank is rupees.
+  String _currency = '';
+  bool _currencyTouched = false;
+
+  /// The rupees one unit of a foreign currency was worth on the bill's date.
+  String _exchangeRate = '';
   bool _saving = false;
   bool _loadingLines = false;
   String? _error;
@@ -280,6 +289,28 @@ class _PurchaseInvoiceEditorDialogState
   int _supplierNumberEpoch = 0;
 
   void _setState(VoidCallback change) => setState(change);
+
+  /// The supplier the bill is for, whichever way it was chosen.
+  String? get _billSupplierId =>
+      _vendorId ?? _receipt?.vendorId ?? _order?.vendorId ?? _billVendorId;
+
+  /// The currency of the supplier's account; blank is rupees.
+  String get _supplierCurrency {
+    for (final Vendor item in widget.vendors) {
+      if (item.id == _billSupplierId) return item.currencyCode;
+    }
+    return '';
+  }
+
+  /// The bill's currency: what was typed, else the supplier's. Blank and INR
+  /// are both rupees and read as blank here.
+  String get _billCurrency {
+    final String code =
+        (_currencyTouched ? _currency : _supplierCurrency).trim().toUpperCase();
+    return code == 'INR' ? '' : code;
+  }
+
+  bool get _foreign => _billCurrency.isNotEmpty;
 
   /// Receipts on is the whole chain; the server refuses receipts on with
   /// orders off, so the two switches name exactly three modes.
@@ -646,6 +677,14 @@ class _PurchaseInvoiceEditorDialogState
     if ((_tcsFigure(_tcsRate) ?? 0) > 100) {
       return 'The TCS rate cannot be more than 100%.';
     }
+    if (_billCurrency.isNotEmpty &&
+        !RegExp(r'^[A-Z]{3}$').hasMatch(_billCurrency)) {
+      return 'The currency is a three-letter code, such as USD.';
+    }
+    if (_foreign && (double.tryParse(_exchangeRate.trim()) ?? 0) <= 0) {
+      return 'Enter the exchange rate: the rupees one $_billCurrency was '
+          "worth on the supplier's invoice date.";
+    }
     final String? irnProblem = supplierIrnProblem(_supplierIrn);
     if (irnProblem != null) return irnProblem;
     if (_direct) return _directValidation();
@@ -744,8 +783,17 @@ class _PurchaseInvoiceEditorDialogState
       if (_remarks.trim().isNotEmpty) 'remarks': _remarks.trim(),
       // PG-6: sent only when typed -- blank is no TCS. Priced while typing,
       // a box that is not yet a number is left out rather than refused.
-      if (_tcsFigure(_tcsRate) != null) 'tcs_rate_percent': _tcsRate.trim(),
-      if (_tcsFigure(_tcsAmount) != null) 'tcs_amount': _tcsAmount.trim(),
+      // A bill in another currency carries no TCS: the server refuses it.
+      if (!_foreign && _tcsFigure(_tcsRate) != null)
+        'tcs_rate_percent': _tcsRate.trim(),
+      if (!_foreign && _tcsFigure(_tcsAmount) != null)
+        'tcs_amount': _tcsAmount.trim(),
+      // PG-12: sent once the person has chosen a currency (blank or INR is
+      // rupees); until then the server starts the bill in its supplier's.
+      // The rate is sent only for a foreign bill, and only once typed.
+      if (_currencyTouched) 'currency_code': _foreign ? _billCurrency : 'INR',
+      if (_foreign && (double.tryParse(_exchangeRate.trim()) ?? 0) > 0)
+        'exchange_rate': _exchangeRate.trim(),
       // Only once the definitions arrived, and never while merely pricing:
       // absent leaves the stored values alone.
       if (!pricing && _customFields.hasFields)

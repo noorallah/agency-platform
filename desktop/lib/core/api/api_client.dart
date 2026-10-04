@@ -50,6 +50,7 @@ import '../../models/supplier_rebate.dart';
 import '../../models/post_dated_cheque.dart';
 import '../../models/purchase_requisition.dart';
 import '../../models/rfq.dart';
+import '../../models/bill_of_entry.dart';
 import '../../models/rate_contract.dart';
 import '../../models/supplier_scheme.dart';
 import '../../models/kit.dart';
@@ -5622,6 +5623,72 @@ class ApiClient {
 
   Future<void> deleteSupplierScheme(String id) =>
       request('DELETE', '/api/v1/supplier-schemes/$id');
+
+  // ---- Bills of Entry (PG-12 part B) --------------------------------------
+
+  Future<PagedResult<BillOfEntry>> billsOfEntry({
+    int page = 1,
+    int pageSize = 50,
+    String search = '',
+    String status = '',
+    String vendorId = '',
+  }) =>
+      _list(
+        '/api/v1/bills-of-entry',
+        BillOfEntry.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        additionalQuery: {
+          if (status.isNotEmpty) 'status': status,
+          if (vendorId.isNotEmpty) 'vendor_id': vendorId,
+        },
+      );
+
+  Future<BillOfEntry> billOfEntry(String id) async => BillOfEntry.fromJson(
+      _unwrapMap(await request('GET', '/api/v1/bills-of-entry/$id')));
+
+  Future<BillOfEntry> createBillOfEntry(Json body) async =>
+      BillOfEntry.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/bills-of-entry',
+        body: body,
+      )));
+
+  Future<BillOfEntry> updateBillOfEntry(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) async =>
+      BillOfEntry.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/bills-of-entry/$id',
+        body: body,
+        expectedVersion: expectedVersion,
+      )));
+
+  Future<void> deleteBillOfEntry(String id) =>
+      request('DELETE', '/api/v1/bills-of-entry/$id');
+
+  Future<BillOfEntry> postBillOfEntry(String id) async =>
+      BillOfEntry.fromJson(_unwrapMap(
+          await request('POST', '/api/v1/bills-of-entry/$id/post', body: {})));
+
+  Future<BillOfEntry> cancelBillOfEntry(String id, String reason) async =>
+      BillOfEntry.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/bills-of-entry/$id/cancel',
+        body: {'reason': reason},
+      )));
+
+  /// Restate the open foreign-currency payables at the period end's rates
+  /// (PG-12 part A). Posts one journal and its reversal.
+  Future<Json> fxRevaluation(String asOf, Map<String, String> rates) async =>
+      _unwrapMap(await request(
+        'POST',
+        '/api/v1/finance/fx-revaluation',
+        body: {'as_of': asOf, 'rates': rates},
+      ));
 
   /// Approve several purchase orders in one call. Rows are acted on one by
   /// one, so some can be refused while others succeed.

@@ -648,8 +648,68 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
           onChanged: (value) => _remarks = value,
         ),
       ),
+      // PG-12: the currency the supplier billed in. Untouched, it is the
+      // supplier's; blank or INR is rupees.
+      DocumentField(
+        label: 'Currency',
+        width: 110,
+        child: TextFormField(
+          key: ValueKey<String>(
+            'purchase-invoice-currency-${_billSupplierId ?? ''}-'
+            '$_supplierCurrency',
+          ),
+          initialValue: _billCurrency,
+          readOnly: _saving,
+          maxLength: 3,
+          textCapitalization: TextCapitalization.characters,
+          decoration: documentBoxDecoration(context, hint: 'INR').copyWith(
+            counterText: '',
+          ),
+          onChanged: (value) {
+            _setState(() {
+              _currency = value.trim().toUpperCase();
+              _currencyTouched = true;
+            });
+            _schedulePreview();
+          },
+        ),
+      ),
+      if (_foreign)
+        DocumentField(
+          label: 'Exchange rate (₹ per $_billCurrency)',
+          width: 190,
+          child: TextFormField(
+            key: ValueKey<String>(
+                'purchase-invoice-exchange-rate-$_billCurrency'),
+            initialValue: _exchangeRate,
+            readOnly: _saving,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: documentBoxDecoration(context, hint: 'e.g. 84.10'),
+            onChanged: (value) {
+              _setState(() => _exchangeRate = value);
+              _schedulePreview();
+            },
+          ),
+        ),
+      if (_foreign)
+        DocumentField(
+          label: 'Not offered in $_billCurrency',
+          width: 330,
+          child: InputDecorator(
+            decoration: documentBoxDecoration(context),
+            child: Text(
+              'TCS, TDS and Paid now are rupee matters; pay this bill from '
+              'Payments in $_billCurrency.',
+              key: const ValueKey('purchase-invoice-foreign-note'),
+              style: Theme.of(context).textTheme.bodySmall,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
       // PG-6: TCS the supplier charged under 206C(1H), outside GST. Blank
       // is none; the amount, if typed, wins over the rate.
+      if (!_foreign)
       DocumentField(
         label: 'TCS charged by supplier %',
         width: 170,
@@ -665,6 +725,7 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
           },
         ),
       ),
+      if (!_foreign)
       DocumentField(
         label: 'TCS amount',
         width: 150,
@@ -1064,9 +1125,28 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
     final double tcs =
         invoice == null ? 0 : _number(stringValue(invoice['tcs_amount']));
     final bool? interstate = _preview?.interstate;
+    // PG-12: figures are in the bill's currency; the rupee equivalent is the
+    // server's, never worked out here.
+    final String previewCurrency = invoice == null
+        ? ''
+        : stringValue(invoice['currency_code']).toUpperCase();
+    final bool foreign =
+        _foreign || (previewCurrency.isNotEmpty && previewCurrency != 'INR');
+    final String code = _foreign ? _billCurrency : previewCurrency;
+    final String baseTotal =
+        invoice == null ? '' : stringValue(invoice['base_grand_total']);
+    final String baseOwed =
+        invoice == null ? '' : stringValue(invoice['base_amount_owed']);
     return DocumentTotalsBar(
-      total: invoice == null ? null : total,
-      note: !_hasSource
+      total: invoice == null || foreign ? null : total,
+      note: foreign
+          ? (baseTotal.isEmpty
+              ? 'Totals are in $code; the rupee equivalent follows once the '
+                  'rate is typed.'
+              : '₹ equivalent  ${indianAmount(_number(baseTotal), full: true)}'
+                  '${baseOwed.isEmpty ? '' : '   owed  '
+                      '${indianAmount(_number(baseOwed), full: true)}'}')
+          : !_hasSource
           ? switch (_mode) {
               PurchaseBillMode.receipt => 'Choose the receipt being billed.',
               PurchaseBillMode.order => 'Choose the order being billed.',
@@ -1085,7 +1165,7 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
           ('CGST', tax / 2),
           ('SGST', tax / 2),
         ],
-        ('Total', total),
+        (foreign ? 'Total $code' : 'Total', total),
         // PG-5: what was deducted at approval; PG-6: the TCS the supplier
         // charged on top -- and so what is owed.
         if (invoice != null && (tds > 0 || tcs > 0)) ...[

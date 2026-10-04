@@ -27,6 +27,19 @@ Future<Json?> _tdsProposal(ApiClient api, String billId) async {
   );
 }
 
+/// The currency the bill is in, blank for rupees or when it cannot be read.
+Future<String> _billCurrency(ApiClient api, String billId) async {
+  try {
+    final Json invoice = await api.purchaseInvoiceDetail(billId);
+    final Object? data = invoice['data'];
+    final Json bill = data is Map ? Map<String, dynamic>.from(data) : invoice;
+    final String code = '${bill['currency_code'] ?? ''}'.toUpperCase();
+    return code == 'NULL' || code == 'INR' ? '' : code;
+  } catch (_) {
+    return '';
+  }
+}
+
 /// A purchase invoice's next steps -- Approve, Cancel, Close -- for the list
 /// toolbar and the bill's own windows alike (D-BUY-22).
 ///
@@ -55,12 +68,16 @@ List<DocumentStep<DocumentRef>> purchaseInvoiceSteps(
       run: (context, bill) async {
         // PG-3 and PG-5: the dialog approves, so a refusal stays inside it,
         // and it carries the paid-now block and the TDS override.
+        final String currency = await _billCurrency(api, bill.id);
+        if (!context.mounted) return null;
         final Json? done = await showDialog<Json>(
           context: context,
           builder: (_) => ApproveBillDialog(
             number: bill.number,
             canPay: canPay,
-            loadProposal: () => _tdsProposal(api, bill.id),
+            currencyCode: currency,
+            loadProposal:
+                currency.isEmpty ? () => _tdsProposal(api, bill.id) : null,
             onApprove: (body) => api.documentAction(
               'purchase-invoices',
               bill.id,

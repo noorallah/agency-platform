@@ -76,6 +76,7 @@ import 'purchases/purchase_requisition_page.dart';
 import 'purchases/rfq_page.dart';
 import 'purchases/rate_contract_page.dart';
 import 'purchases/supplier_scheme_page.dart';
+import 'purchases/bill_of_entry_page.dart';
 import 'purchases/quality_inspection_page.dart';
 import 'approvals/approval_rules_dialog.dart';
 import 'approvals/approvals_page.dart';
@@ -3650,6 +3651,12 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
         ),
+      'bills-of-entry' => BillOfEntryPage(
+          api: widget.api,
+          preferences: widget.preferences,
+          permissions: widget.permissions,
+          hasActiveFirm: hasActiveFirm,
+        ),
       'quality-inspection' => QualityInspectionPage(
           api: widget.api,
           preferences: widget.preferences,
@@ -3713,6 +3720,7 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
         'rfqs' => 'Requests for quotation',
         'rate-contracts' => 'Rate contracts',
         'supplier-schemes' => 'Supplier schemes',
+        'bills-of-entry' => 'Bills of entry',
         'quality-inspection' => 'Quality Inspection',
         'supplier-rebates' => 'Supplier Rebates',
         'approvals' => 'Approvals',
@@ -3748,6 +3756,9 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           'Free goods a supplier gives for buying so many, such as 10+2. '
               'An order that earns one is offered the free goods, and the '
               'gift line shows which scheme it came from.',
+        'bills-of-entry' =>
+          'The customs paperwork for imported goods. Posting adds the duty '
+              'to the stock cost and takes the IGST paid as input credit.',
         'quality-inspection' =>
           'Received goods held in quarantine until they are passed; rejected '
               'goods are written off or kept to return to the supplier.',
