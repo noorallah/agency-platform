@@ -4419,7 +4419,7 @@ strike it with the reason).
 | Id | Item | Priority as proposed | Note |
 | --- | --- | --- | --- |
 | G4 | Export to Tally (vouchers and masters, XML) -- **built 2026-10-03** (MSG-5, A135): Accounts > Export to Tally | **High** | The firm's CA keeps the books in Tally |
-| G5 | Batch-wise MRP and rates (PTR, PTS) | **High** for pharma and FMCG | `products.mrp` is one value per product |
+| G5 | Batch-wise MRP and rates (PTR, PTS) | **High** for pharma and FMCG | `products.mrp` is one value per product. **Partial, 2026-10-04 (§86 audit):** a goods receipt line stores MRP and selling price per batch; PTR and PTS are not built |
 | M9 | Day book, cash book, bank book; drill-down to the voucher | **High** | Goes with §50 (period ranges) |
 | M10 | Fast counter billing with barcode -- **built 2026-10-03** (SEL-12, A90): scan to add, F9 save-print-next, tender split | High for counters | UI_PHASE_2_DESIGN 4.6 |
 | M2 | Live e-invoice and e-way bill through a GSP | High above the threshold | A GSP contract first |
@@ -6019,3 +6019,51 @@ the report needs its own `report_catalog.dart` entry
 (`test_reports_have_a_screen.py`). The same shape later gives **Receivables**
 (customer x month), and its Paid view **Received** (receipts per customer
 per month).
+
+## 86. Purchasing against Tally, Zoho, ERPNext and Busy/Marg -- every gap
+
+**Status, 2026-10-04: audited, not built.** The owner, after purchasing round 2:
+"compare to other tools what we are missing in purchases ... we should have
+all", then "add all gaps to backlog". 35 features were checked against the
+routers, the phase 2 menu, `report_catalog.dart` and the docs: **18 built, 9
+partial, 8 missing**. Built and needing nothing: three-way match with
+tolerance, service and expense purchases, e-way bill on receipt, labels at
+receipt, last rate and price trends, free goods / rebates / principal claims /
+gifts, approval limits and budgets, landed cost, reorder planning, advances /
+PDC / payment runs / MSME dues, debit notes, purchase analytics and supplier
+rating, quality inspection, reverse charge, return outcomes, inter-branch
+transfers. Every gap is below; where an older section already holds it, that
+section stays the place it is built from and this row points to it.
+
+| # | Gap | Today | What to build | Priority | Older § |
+| --- | --- | --- | --- | --- | --- |
+| 1 | **RFQ and quotation comparison** | Missing | Request for quotation to several suppliers, their quotes entered, a side-by-side comparison, the chosen quote raises the PO | Medium | §65 row 14, §69 row 11 |
+| 2 | **Blanket / rate-contract orders** | Partial: per-line delivery schedules | A contract with agreed rates and quantity for a period; releases (call-off orders) draw it down; the rate offered on the PO | Medium | §68 row 12 |
+| 3 | **Send the PO by WhatsApp** | Partial: email and print; "mark sent" only records WhatsApp | Send the PO PDF by WhatsApp through the messaging framework, like the sales invoice | Medium | §51 |
+| 4 | **Imports** | Missing: currency and rate columns only | Foreign-currency bill, Bill of Entry with assessable value, basic customs duty and social welfare surcharge into landed cost, IGST on import claimed from the BoE (3B 4(A)(1)) | Medium | §68 row 13, §78 row 8 |
+| 5 | **Multi-currency payables** | Missing | Payables in the bill's currency; exchange gain or loss on payment; revaluation at period end | Medium (with #4) | §55 N2 |
+| 6 | **Recurring purchase bills** | Missing | A template (rent, AMC, internet) raising a draft bill each period, for approval | Low | §55 N7, §42.15 |
+| 7 | **Fixed assets / capital goods** | Missing: a `CAPITAL_GOODS` purchase type only | Asset register from the bill line, depreciation (Companies Act and IT Act blocks), capital goods ITC, disposal | Medium | §74 row 6, §78 row 9 |
+| 8 | **Job work / subcontracting** | Missing: a JOB_WORK challan reason only | Send material to a job worker (challan), receive goods back, job charges billed, material balance with the job worker, ITC-04 | Low (manufacturing firms) | §42.15 |
+| 9 | **TCS charged by a supplier** | Missing | Record TCS on a purchase bill (206C(1H) charged to us), claim it against tax, report it | Medium | none |
+| 10 | **TDS 194C / 194J worked out** | Partial: 194Q automatic; 194C/194J typed by hand on payments and expenses | Section and threshold on the supplier; TDS proposed on the bill or payment like 194Q | Medium | §42.4, §53 |
+| 11 | **Serial numbers at receipt** | Partial: batch, expiry, MFG date, MRP captured; serials only on delivery and return | Capture serials (scan or range) on the receipt line; the serial trail starts at purchase | Medium (electronics) | none |
+| 12 | **Drop-ship** | Missing | A sales order line fulfilled by the supplier straight to the customer: a PO raised from it, the receipt and dispatch recorded together, no stock touched | Low | none |
+| 13 | **Consignment / sale-or-return from a supplier** | Missing | Goods held on the supplier's account (not our stock value), billed only when sold or kept; returns of unsold goods | Low | none |
+| 14 | **Supplier credit limit** | Missing | The limit a supplier gives us; a warning when an order would take the payable past it | Low | none |
+| 15 | **Supplier early-payment discount** | Partial: a "discount received" deduction on a payment | Terms like 2/10 net 30 on the supplier; the payment screen offers the discount while it is in the window and posts it | Low | none |
+| 16 | **Attach the supplier's bill; OCR** | Partial: the bill model has attachments; no screen on bills or receipts | Attach a PDF or photo on the bill and the receipt; later, read the bill (OCR) into a draft | Medium (attach), Low (OCR) | §74 row 7 |
+| 17 | **GST purchase register and HSN summary of purchases** | Partial: purchase register without GSTIN or tax heads | A GST purchase register (GSTIN, invoice, taxable, CGST/SGST/IGST/cess, ITC eligible or blocked) and an HSN-wise summary of inward supplies | **High** (every GST filer, every CA) | none |
+| 18 | **Goods in transit** | Partial: bill-first creates the receipt at approval | A bill approved before the goods arrive keeps them "in transit" (an account and a stock state) until received | Low | none |
+| 19 | **Cash purchase in one step** | Partial: stage switches let the bill raise order and receipt; payment is separate | "Paid now" on the bill: cash or bank, posting the payment with it | Medium (small traders) | §38 |
+| 20 | **Payables by supplier and month** | Missing | As designed | **High** | §85 |
+| 21 | **Supplier scheme covers customer free goods** | Missing | Link a supplier's free-goods scheme to the customer promotion it funds; report free goods given out against free goods received, and the shortfall to claim | Low | §61, §42.7 |
+| 22 | **Batch-wise PTR / PTS** | Partial: MRP and selling price per batch | Rates to retailer and stockist per batch (pharma, FMCG) | High for pharma | §55 G5 |
+| 23 | **Supplier portal** | Missing | Suppliers see their orders, confirm dates, upload invoices, see payments | Low | §42.14 |
+| 24 | **Purchase entry on the phone** | Missing | Receive goods and record a quick purchase on Android | Parked by the owner | §42.6, §48 |
+
+**Suggested order** (by who is held up without it): #17 GST purchase register
+and HSN, #20 payables (§85), #19 cash purchase, #16 attach the bill, #10 TDS
+194C/194J, #9 TCS on purchases, #3 PO on WhatsApp, #1 RFQ, #2 rate contracts,
+#11 serials, #4-#5 imports, #7 fixed assets, then the low rows.
+
