@@ -105,7 +105,14 @@ class Phase2HomePage extends StatefulWidget {
     this.onCustomise,
     this.onOpenView,
     this.favourites,
+    this.onFinishSetup,
   });
+
+  /// "Finish setting up" (backlog 71, U5): when set, a calm card under the
+  /// greeting asks for the agency's name and logo and calls this to open the
+  /// form. Null -- everybody who may not give it, and everyone once it is
+  /// given -- draws nothing.
+  final VoidCallback? onFinishSetup;
 
   final String? firmName;
   final String? userName;
@@ -371,6 +378,7 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _greeting(context),
+          if (widget.onFinishSetup != null) _finishSetup(context),
           Expanded(
             child: LayoutBuilder(builder: (context, constraints) {
               if (main.isEmpty && side.isEmpty) {
@@ -409,6 +417,53 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
             }),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _finishSetup(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+      child: Container(
+        key: const ValueKey('home-finish-setup'),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: theme.colorScheme.outlineVariant),
+        ),
+        child: Row(children: [
+          Icon(Icons.flag_outlined,
+              size: 20, color: theme.colorScheme.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text.rich(
+              TextSpan(children: [
+                TextSpan(
+                  text: 'Finish setting up  ',
+                  style: theme.textTheme.bodyMedium
+                      ?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                TextSpan(
+                  text: "Give your agency's name and logo, so every PC "
+                      'shows them.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ]),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 12),
+          FilledButton.tonal(
+            key: const ValueKey('home-finish-setup-open'),
+            onPressed: widget.onFinishSetup,
+            child: const Text('Set up your agency'),
+          ),
+        ]),
       ),
     );
   }

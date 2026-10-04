@@ -287,3 +287,30 @@ step 1 only; U8 Help > About stays parked).
   never fails an install**: a refused logo is logged as a warning and the
   name is still saved; the administrator can give it later.
 
+### 8.5 Branding form, Settings page and first-run (U5 step 1, U7)
+
+- **One form**, `desktop/lib/phase2/agency_branding_form.dart`: name
+  (required), tagline, logo (PNG/JPG, at most 1 MB, checked before sending),
+  a live preview of the sign-in card and the header strip, and our product,
+  company and logo read-only ("set by the installer; changed only by an
+  update"). The accent colour is not asked; the stored one goes back
+  unchanged. Save is `PUT /branding`, then `PUT` or `DELETE /branding/logo`
+  only when the logo changed, each with the last answer's version as
+  `If-Match`; a refusal stays inside the form with everything typed. The
+  shell takes the answer (and the logo bytes held locally) into the cache
+  and the header at once -- no read.
+- **Settings > Platform > Agency > Branding** (`branding_page.dart`), offered
+  on `PLATFORM_SETTINGS`; opening it is one `GET /branding` and, when the
+  record has a logo, one `GET /branding/logo`.
+- **First-run step 1 "Set up your agency"** (`first_run_agency_dialog.dart`):
+  after sign-in, once per shell, for a holder of `PLATFORM_SETTINGS` (or a
+  platform administrator) while the cached record is not set. It makes no
+  request until Save. **Skip for now** is kept per user in the workspace
+  state (`phase2.first_run`, `agency_skipped`); Home then shows a "Finish
+  setting up" card until branding is set. Steps 2-4 and a prompt in the
+  header strip are not built.
+- **When this PC holds no copy** (the cache is empty, so the state is
+  unknown rather than "not set"), the dialog first asks the server once and
+  opens only if the record really is not set -- otherwise an empty form saved
+  without a version would replace the agency's branding.
+

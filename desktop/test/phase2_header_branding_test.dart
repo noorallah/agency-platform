@@ -147,6 +147,10 @@ Future<_Pumped> _pump(
     directory = Directory.systemTemp.createTempSync('header_branding_');
     preferences = DesktopPreferencesService(directory: directory);
     await preferences.saveLastWorkspace('administration/users');
+    // These tests are about the header, not first-run setup, which an
+    // administrator with no branding given would otherwise be shown.
+    await preferences
+        .saveWorkspaceState('phase2.first_run', {'agency_skipped': true});
     if (cached != null) {
       await AgencyBrandingCache(directory: directory)
           .write(_server, cached, logo);

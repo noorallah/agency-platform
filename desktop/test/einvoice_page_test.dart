@@ -160,6 +160,7 @@ class _EInvoiceApi extends ApiClient {
     String? fileContentType,
     bool authenticated = true,
     bool retrying = false,
+    int? expectedVersion,
   }) async {
     requested.add('$method $path');
     importedName = fileName;

@@ -96,6 +96,7 @@ class _Api extends ApiClient {
     String? fileContentType,
     bool authenticated = true,
     bool retrying = false,
+    int? expectedVersion,
   }) async {
     calls.add('$method $path');
     lastFields = fields;

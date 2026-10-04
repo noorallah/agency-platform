@@ -5174,7 +5174,10 @@ then 11 -> 13 -> 12 -> 14 -> 18 -> 15 -> 16, 17.
 parked). **U2 built** -- the agency's record on the server (`agency_branding`,
 `/api/v1/branding`) and the product identity in `branding.json`;
 **U3+U4 built** -- the phase 2 sign-in, S2 layout. **U6 built** -- the
-header. `docs/BRANDING_AND_NAMES.md` section 8 is the reference. Next: U5+U7 first-run and Settings > Branding, U1 installer page.
+header. `docs/BRANDING_AND_NAMES.md` section 8 is the reference. **U5 step 1 + U7 built** (first-run dialog, Home card, Settings > Platform > Branding;
+`docs/BRANDING_AND_NAMES.md` 8.5). **U1 built** -- installer page 3 (8.4); the
+owner tests it on the next installer. **U1-U7 all built 2026-10-04.** Still
+open: U8 Help > About (parked); first-run steps 2-4 (need wireframes first).
 
 Owner, 2026-09-28: a wireframe for the sign-in screen, and **the logo and
 agency name must be configurable** -- keep it in the backlog. The wireframe is
