@@ -385,7 +385,9 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
     final TextStyle? quiet =
         text?.copyWith(color: theme.colorScheme.onSurfaceVariant);
     final double accepted = _number(line.receiptQuantity);
-    final bool over = accepted > line.outstanding;
+    // Due and red both allow for the other drafts (D-BUY-23): naming them
+    // and then offering the whole order line read as two answers.
+    final bool over = accepted > line.dueAfterOtherDrafts;
     return DocumentLineRow(
       key: ValueKey<String>('goods-receipt-line-$index'),
       columns: _columns,
@@ -432,12 +434,16 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
         Text(documentQuantity(line.alreadyReceived), style: quiet),
         Text(
           documentQuantity(_GoodsReceiptEditorDialogState._trim(
-            line.outstanding,
+            line.dueAfterOtherDrafts,
           )),
           style: text?.copyWith(fontWeight: FontWeight.w600),
         ),
         Tooltip(
-          message: over ? 'More than is still due on the order' : '',
+          message: !over
+              ? ''
+              : accepted > line.outstanding
+                  ? 'More than is still due on the order'
+                  : 'More than is due once the other drafts are completed',
           child: _cellBox(
             context,
             index: index,
@@ -523,7 +529,7 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
     final GoodsReceiptDraftLine line = _lines[index];
     final Product? product = _product(line.productId);
     final double accepted = _number(line.receiptQuantity);
-    final double left = line.outstanding - accepted;
+    final double left = line.dueAfterOtherDrafts - accepted;
     double acceptedAll = 0;
     double refused = 0;
     for (final GoodsReceiptDraftLine item in _lines) {
@@ -546,7 +552,11 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
         ),
       DocumentSidePair('Accepted now', quantity(accepted)),
       DocumentSidePair(
-        left < 0 ? 'Over the order by' : 'Still due after this',
+        left < 0
+            ? line.heldByOtherDrafts > 0
+                ? 'Over what is due by'
+                : 'Over the order by'
+            : 'Still due after this',
         quantity(left.abs()),
         bold: true,
         tone: left < 0 ? Theme.of(context).colorScheme.error : null,

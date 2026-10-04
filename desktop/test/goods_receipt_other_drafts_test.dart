@@ -151,6 +151,33 @@ void main() {
     expect(find.text('Held by other drafts'), findsOneWidget);
   });
 
+  testWidgets('Due and the red box allow for the other drafts', (
+    tester,
+  ) async {
+    // Seen in purchasing round 2: the note named the draft while Due said
+    // the whole line and only more than that turned red.
+    final _Api api = _Api();
+    await _open(tester, api);
+    final Finder box =
+        find.byKey(const ValueKey<String>('goods-receipt-accepted-po-1-0'));
+    Color? colour() => tester
+        .widget<EditableText>(
+          find.descendant(of: box, matching: find.byType(EditableText)),
+        )
+        .style
+        .color;
+    final Color error =
+        Theme.of(tester.element(box)).colorScheme.error;
+
+    // Sixteen still due on the order, ten of it held by drafts.
+    expect(find.text('16'), findsNothing);
+    expect(colour(), isNot(error));
+    await tester.enterText(box, '7');
+    await tester.pump();
+    expect(colour(), error);
+    expect(find.text('Over what is due by'), findsOneWidget);
+  });
+
   testWidgets('drafts holding more than is due start the line at zero', (
     tester,
   ) async {
