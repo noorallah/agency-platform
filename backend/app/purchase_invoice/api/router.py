@@ -29,6 +29,7 @@ from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams, ReportWindow
+from app.core.pagination.reports import ReportRows
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.core.utils.dates import utc_now
 from app.document_framework.schemas import DocumentLifecycleEventResponse
@@ -54,6 +55,9 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceVendorOutstandingRecord,
 )
 from app.purchase_invoice.services import PurchaseInvoiceService
+from app.purchase_invoice.services.gst_purchase_register import (
+    GstPurchaseRegisterService,
+)
 from app.purchase_invoice.services.price_variance import PriceVarianceService
 from app.purchase_invoice.services.purchase_analysis import (
     PurchaseAnalysisService,
@@ -690,6 +694,95 @@ def purchase_invoice_register(
         PurchaseInvoiceService(db).register_report(
             firm_scope=scope.firm_id, window=window
         )
+    )
+
+
+class GstPurchaseRegisterRecord(BaseModel):
+    """One claimed supplier bill by tax head (backlog §86 #17)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    invoice_id: UUID
+    invoice_date: date
+    invoice_number: str
+    supplier_invoice_number: str
+    supplier_invoice_date: date
+    vendor_id: UUID
+    vendor_name: str
+    vendor_gstin: str | None
+    taxable_value: Decimal
+    igst: Decimal
+    cgst: Decimal
+    sgst: Decimal
+    cess: Decimal
+    total_tax: Decimal
+    itc_not_claimable: Decimal
+    reverse_charge_tax: Decimal
+    invoice_total: Decimal
+
+
+@router.get(
+    "/reports/gst-register",
+    response_model=PaginatedResponse[GstPurchaseRegisterRecord],
+)
+def gst_purchase_register(
+    scope: PurchaseInvoiceReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[GstPurchaseRegisterRecord]:
+    """Return the approved supplier bills of a period by tax head (§86 #17)."""
+    window = ReportWindow(from_date, to_date, page, page_size)
+    rows = GstPurchaseRegisterService(db).register(scope.firm_id, window)
+    return window.respond(
+        [GstPurchaseRegisterRecord.model_validate(row) for row in rows]
+        if not isinstance(rows, ReportRows)
+        else ReportRows(
+            [GstPurchaseRegisterRecord.model_validate(row) for row in rows],
+            total_records=rows.total_records,
+        )
+    )
+
+
+class HsnPurchaseRecord(BaseModel):
+    """The inward supplies of one HSN code in one unit (backlog §86 #17)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    hsn_code: str
+    description: str
+    unit: str
+    quantity: Decimal
+    taxable_value: Decimal
+    igst: Decimal
+    cgst: Decimal
+    sgst: Decimal
+    cess: Decimal
+    total_tax: Decimal
+    bills: int
+
+
+@router.get(
+    "/reports/hsn-summary",
+    response_model=PaginatedResponse[HsnPurchaseRecord],
+)
+def hsn_purchase_summary(
+    scope: PurchaseInvoiceReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[HsnPurchaseRecord]:
+    """Return a period's approved inward supplies by HSN code (§86 #17)."""
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        [
+            HsnPurchaseRecord.model_validate(row)
+            for row in GstPurchaseRegisterService(db).hsn_summary(scope.firm_id, window)
+        ]
     )
 
 

@@ -351,6 +351,19 @@ On GSTR-3B, blocked credit is reported in 4(A)(5) and reversed in 4(B)(1)
 4(D)(2) (`itc_ineligible`). A return's or debit note's blocked share is never
 a 4(B)(2) reversal, because nothing was claimed.
 
+### The GST purchase register and HSN summary
+
+Reports > Financial > *GST purchase register* and *HSN summary of purchases*
+(`GET /api/v1/purchase-invoices/reports/gst-register` and `/hsn-summary`,
+backlog 86 row 17) list a period's approved and closed bills by tax head --
+supplier GSTIN, taxable value, IGST, CGST, SGST, cess, tax not claimable
+(BLOCKED or INELIGIBLE lines), reverse-charge tax and total -- and the same
+inward supplies folded by HSN code and unit. Heads are read off each line's
+stored components through the same `_bucket` GSTR-3B uses, leaving out tax
+included in the price; a product with no HSN sits under a blank code. Supplier
+debit notes are not netted in yet: a note keeps one tax amount per line, not
+its components by head.
+
 ### The supplier's GST type
 
 A **declared** Composition, Unregistered or Overseas supplier charges no GST,
