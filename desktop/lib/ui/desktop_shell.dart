@@ -1718,11 +1718,7 @@ class _DesktopShellState extends State<DesktopShell> {
   Future<void> _openFirmPicker() async {
     final FirmChoice? selected = await showDialog<FirmChoice>(
       context: context,
-      builder: (context) => _FirmSwitcherDialog(
-        firms: widget.session.firms,
-        activeFirmId: widget.session.currentFirm?.id,
-        offerPlatform: widget.session.canWorkWithoutAFirm,
-      ),
+      builder: (context) => FirmSwitcherDialog(session: widget.session),
     );
     if (selected != null) {
       await _switchFirm(selected.firmId);
@@ -2489,25 +2485,37 @@ class FirmChoice {
   final String? firmId;
 }
 
-class _FirmSwitcherDialog extends StatefulWidget {
-  const _FirmSwitcherDialog({
-    required this.firms,
-    required this.activeFirmId,
-    this.offerPlatform = false,
-  });
+/// The firm switcher.
+///
+/// It shows the list the session already holds at once and re-reads it with
+/// one `/me/firms` call as it opens, because that list is otherwise fetched
+/// once at sign-in and a firm created this session would be missing from it
+/// until the next one (D-UI-4). A failed read keeps what is shown.
+class FirmSwitcherDialog extends StatefulWidget {
+  const FirmSwitcherDialog({super.key, required this.session});
 
-  final List<AssignedFirm> firms;
-  final String? activeFirmId;
-
-  /// Whether to offer working on the platform with no firm selected.
-  final bool offerPlatform;
+  final SessionController session;
 
   @override
-  State<_FirmSwitcherDialog> createState() => _FirmSwitcherDialogState();
+  State<FirmSwitcherDialog> createState() => _FirmSwitcherDialogState();
 }
 
-class _FirmSwitcherDialogState extends State<_FirmSwitcherDialog> {
+class _FirmSwitcherDialogState extends State<FirmSwitcherDialog> {
   final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_refresh());
+  }
+
+  Future<void> _refresh() async {
+    try {
+      await widget.session.refreshFirms();
+    } on Object {
+      // The cached list stays; the picker works as it did.
+    }
+  }
 
   @override
   void dispose() {
@@ -2515,8 +2523,17 @@ class _FirmSwitcherDialogState extends State<_FirmSwitcherDialog> {
     super.dispose();
   }
 
+  List<AssignedFirm> get _firms => widget.session.firms;
+  String? get _activeFirmId => widget.session.currentFirm?.id;
+  bool get _offerPlatform => widget.session.canWorkWithoutAFirm;
+
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: widget.session,
+        builder: (context, _) => _dialog(context),
+      );
+
+  Widget _dialog(BuildContext context) => AlertDialog(
         title: const Text('Switch firm'),
         content: SizedBox(
           width: 420,
@@ -2537,14 +2554,14 @@ class _FirmSwitcherDialogState extends State<_FirmSwitcherDialog> {
                 height: 320,
                 child: ListView(
                   children: [
-                    if (widget.offerPlatform && _matchesSearch('Platform'))
+                    if (_offerPlatform && _matchesSearch('Platform'))
                       ListTile(
                         dense: true,
                         leading: const Icon(Icons.hub_outlined),
                         title: const Text('Platform'),
                         subtitle:
                             const Text('Firms, people and platform settings'),
-                        trailing: widget.activeFirmId == null
+                        trailing: _activeFirmId == null
                             ? const Icon(Icons.check, size: 18)
                             : null,
                         onTap: () =>
@@ -2563,7 +2580,7 @@ class _FirmSwitcherDialogState extends State<_FirmSwitcherDialog> {
                               ? '${firm.code}  ·  primary'
                               : firm.code,
                         ),
-                        trailing: firm.id == widget.activeFirmId
+                        trailing: firm.id == _activeFirmId
                             ? const Icon(Icons.check, size: 18)
                             : null,
                         onTap: () =>
@@ -2586,9 +2603,9 @@ class _FirmSwitcherDialogState extends State<_FirmSwitcherDialog> {
   List<AssignedFirm> _filteredFirms() {
     final String query = _searchController.text.trim().toLowerCase();
     if (query.isEmpty) {
-      return widget.firms;
+      return _firms;
     }
-    return widget.firms
+    return _firms
         .where(
           (firm) =>
               firm.name.toLowerCase().contains(query) ||
