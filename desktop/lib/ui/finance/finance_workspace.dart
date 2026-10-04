@@ -18,6 +18,7 @@ import 'post_dated_cheque_page.dart';
 import 'tally_export_page.dart';
 import 'tds_challan_page.dart';
 import 'expenses_page.dart';
+import 'fixed_assets_pages.dart';
 import 'journal_entries_page.dart';
 import 'ledger_statement_page.dart';
 import 'opening_trial_balance_page.dart';
@@ -339,6 +340,29 @@ class _FinanceWorkspaceState extends State<FinanceWorkspace> {
           'tds-challans' => TdsChallanPage(
               api: widget.api,
               preferences: widget.preferences,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
+            ),
+          'fixed-assets' => AssetRegisterPage(
+              api: widget.api,
+              preferences: widget.preferences,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
+            ),
+          'asset-classes' => AssetClassesPage(
+              api: widget.api,
+              preferences: widget.preferences,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
+            ),
+          'depreciation-runs' => DepreciationRunsPage(
+              api: widget.api,
+              preferences: widget.preferences,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
+            ),
+          'it-block-schedule' => ItBlockSchedulePage(
+              api: widget.api,
               permissions: widget.permissions,
               hasActiveFirm: widget.hasActiveFirm,
             ),

@@ -1209,6 +1209,60 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
         ),
       );
 
+  /// PG-13: the "Capital goods" tick and, once ticked, the asset class the
+  /// line's asset is raised in. The class is required then; both keys are
+  /// sent only when ticked.
+  List<Widget> _capitalGoodsFields(
+    BuildContext context, {
+    required String keyPart,
+    required bool ticked,
+    required String classId,
+    required void Function(bool ticked, String classId) onChanged,
+  }) =>
+      [
+        Row(
+          children: [
+            Checkbox(
+              key: ValueKey<String>('purchase-invoice-capital-$keyPart'),
+              visualDensity: VisualDensity.compact,
+              value: ticked,
+              onChanged: _saving
+                  ? null
+                  : (value) {
+                      _setState(() => onChanged(value ?? false, classId));
+                      if (value == true) unawaited(_loadAssetClasses());
+                    },
+            ),
+            const Expanded(
+              child: Text('Capital goods (raises a fixed asset when approved)'),
+            ),
+          ],
+        ),
+        if (ticked)
+          DocumentField(
+            label: 'Asset class (required)',
+            width: 258,
+            child: DropdownButtonFormField<String>(
+              key: ValueKey<String>('purchase-invoice-asset-class-$keyPart'),
+              isExpanded: true,
+              initialValue:
+                  _assetClasses.any((c) => c.id == classId) ? classId : null,
+              decoration: documentBoxDecoration(context),
+              items: [
+                for (final AssetClass c in _assetClasses)
+                  DropdownMenuItem<String>(
+                    value: c.id,
+                    child: Text('${c.code} · ${c.name}',
+                        overflow: TextOverflow.ellipsis),
+                  ),
+              ],
+              onChanged: _saving
+                  ? null
+                  : (picked) => _setState(() => onChanged(true, picked ?? '')),
+            ),
+          ),
+      ];
+
   /// The batch and expiry boxes for a line whose receipt this bill raises:
   /// nobody else will record them.
   List<Widget> _batchFields(
@@ -1344,6 +1398,16 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
         value: line.itcEligibility,
         onChanged: (picked) => line.itcEligibility = picked,
       ),
+      ..._capitalGoodsFields(
+        context,
+        keyPart: '${_receipt?.id ?? _order?.id}-$index',
+        ticked: line.capitalGoods,
+        classId: line.assetClassId,
+        onChanged: (ticked, classId) {
+          line.capitalGoods = ticked;
+          line.assetClassId = ticked ? classId : '';
+        },
+      ),
       DocumentField(
         label: 'Line remarks',
         width: 258,
@@ -1433,6 +1497,16 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
           keyPart: 'direct-$index-${line.productId}',
           value: line.itcEligibility,
           onChanged: (picked) => line.itcEligibility = picked,
+        ),
+        ..._capitalGoodsFields(
+          context,
+          keyPart: 'direct-$index',
+          ticked: line.capitalGoods,
+          classId: line.assetClassId,
+          onChanged: (ticked, classId) {
+            line.capitalGoods = ticked;
+            line.assetClassId = ticked ? classId : '';
+          },
         ),
         DocumentField(
           label: 'Line remarks',

@@ -36,10 +36,6 @@ _CATALOGUE_PATH = re.compile(r"path:\s*'(/api/v1/[^']+)'")
 #: list, with the reason. A report belongs here only when another screen shows
 #: it better -- not when nobody has got round to adding it.
 _ELSEWHERE: dict[str, str] = {
-    "/api/v1/fixed-assets/reports/it-block-schedule": (
-        "server built in PG-13; its screen, beside the asset register under "
-        "Accounts, comes with the desktop half (PG-13 part 2)."
-    ),
     "/api/v1/sales-invoices/reports/summary": (
         "not a tabular report -- it answers one object of counts and totals, "
         "and the invoice workspace's own header cards read it through "

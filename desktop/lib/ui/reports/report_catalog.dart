@@ -1064,6 +1064,19 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'unit_price', label: 'Rate', numeric: true),
     ],
   ),
+  // The Income-tax block schedule of a financial year (PG-13): it needs a
+  // year chosen, which the generic grid cannot ask for, so Accounts > Fixed
+  // assets is its screen and the Reports picker does not list it.
+  ReportDefinition(
+    id: 'it-block-schedule',
+    label: 'Income-tax block schedule',
+    description: 'Opening written down value, additions, disposals, '
+        'depreciation and closing value for each Income-tax block.',
+    path: '/api/v1/fixed-assets/reports/it-block-schedule',
+    permission: 'FIXED_ASSET_VIEW',
+    area: ReportArea.financial,
+    ownScreen: true,
+  ),
   // What one product was bought at, bill by bill: it needs a product chosen,
   // which the generic grid cannot ask for, so Buy > Rate Trend is its screen
   // (RPT-2) and the Reports picker does not list it.
@@ -1133,6 +1146,8 @@ const List<ReportDefinition> reportCatalog = [
           key: 'itc_not_claimable', label: 'Not claimable', numeric: true),
       ReportColumn(
           key: 'reverse_charge_tax', label: 'Reverse charge', numeric: true),
+      ReportColumn(
+          key: 'capital_goods_tax', label: 'Capital goods tax', numeric: true),
       ReportColumn(key: 'invoice_total', label: 'Bill total', numeric: true),
     ],
   ),

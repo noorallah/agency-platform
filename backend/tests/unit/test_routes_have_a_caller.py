@@ -56,7 +56,6 @@ _MACHINE_EXPORT = (
     "show from the grid"
 )
 _SCREEN_GAP = "a screen gap, recorded in docs/BACKLOG.md §76 (D-GOLIVE-2 triage)"
-_FIXED_ASSETS = "server built in PG-13; desktop in PG-13 part 2"
 
 #: Routes deliberately left without a desktop caller, and why. Every entry has
 #: been looked at; if one of these ever gains a screen, delete its line.
@@ -136,23 +135,6 @@ _ACCEPTED: dict[str, str] = {
     "DELETE /api/v1/finance/financial-years/{year_id}": _SCREEN_GAP,
     "GET /api/v1/branch-warehouse/settings": _SCREEN_GAP,
     "GET /api/v1/sales-returns/summary": _SCREEN_GAP,
-    "GET /api/v1/fixed-assets": _FIXED_ASSETS,
-    "POST /api/v1/fixed-assets": _FIXED_ASSETS,
-    "GET /api/v1/fixed-assets/{asset_id}": _FIXED_ASSETS,
-    "PUT /api/v1/fixed-assets/{asset_id}": _FIXED_ASSETS,
-    "DELETE /api/v1/fixed-assets/{asset_id}": _FIXED_ASSETS,
-    "GET /api/v1/fixed-assets/{asset_id}/schedule": _FIXED_ASSETS,
-    "POST /api/v1/fixed-assets/{asset_id}/dispose": _FIXED_ASSETS,
-    "GET /api/v1/fixed-assets/classes": _FIXED_ASSETS,
-    "POST /api/v1/fixed-assets/classes": _FIXED_ASSETS,
-    "GET /api/v1/fixed-assets/classes/{class_id}": _FIXED_ASSETS,
-    "PUT /api/v1/fixed-assets/classes/{class_id}": _FIXED_ASSETS,
-    "DELETE /api/v1/fixed-assets/classes/{class_id}": _FIXED_ASSETS,
-    "GET /api/v1/fixed-assets/depreciation-runs": _FIXED_ASSETS,
-    "POST /api/v1/fixed-assets/depreciation-runs": _FIXED_ASSETS,
-    "GET /api/v1/fixed-assets/depreciation-runs/{run_id}": _FIXED_ASSETS,
-    "POST /api/v1/fixed-assets/depreciation-runs/{run_id}/cancel": _FIXED_ASSETS,
-    "GET /api/v1/fixed-assets/reports/it-block-schedule": _FIXED_ASSETS,
 }
 
 
