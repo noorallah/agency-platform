@@ -464,7 +464,7 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
             number: item.grnNumber,
             date: _dayOf(item.receiptDate),
             order: item.purchaseOrderNumber,
-            amount: documentMoney(item.grandTotal),
+            amount: documentMoney(item.billableAmount),
           ),
       ],
       initial: {
@@ -476,7 +476,7 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
         [for (final String other in ticked) byId(other)],
       ),
       numberLabel: 'Goods receipt',
-      amountLabel: 'Received value',
+      amountLabel: 'Left to bill',
       confirmNoun: 'receipt',
     );
     if (picked == null || !mounted) return;

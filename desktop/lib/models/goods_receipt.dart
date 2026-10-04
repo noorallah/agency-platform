@@ -272,6 +272,8 @@ class GoodsReceiptRecord {
     this.ewayBillNumber = '',
     this.ewayBillDate = '',
     this.ewayBillWarning = '',
+    this.leftToBillQuantity = '',
+    this.leftToBillAmount = '',
   });
 
   final String id;
@@ -327,6 +329,22 @@ class GoodsReceiptRecord {
   /// none is on file (backlog 78 row 6).
   final String ewayBillNumber;
   final String ewayBillDate;
+
+  /// What the supplier may still bill on the receipt, goods sent back before
+  /// billing taken off (D-BUY-27). Empty when the server published none.
+  final String leftToBillQuantity;
+  final String leftToBillAmount;
+
+  /// False only when the server says nothing is left to bill; a record that
+  /// carries no figure is offered rather than hidden.
+  bool get hasLeftToBill =>
+      leftToBillQuantity.isEmpty ||
+      (double.tryParse(leftToBillQuantity) ?? 0) > 0;
+
+  /// The value to show beside the receipt on a bill: what is left to bill,
+  /// or the receipt's total where the server published no figure.
+  String get billableAmount =>
+      leftToBillAmount.isEmpty ? grandTotal : leftToBillAmount;
 
   /// Set when the goods are worth more than the e-way bill limit and no
   /// number is recorded.
@@ -391,6 +409,8 @@ class GoodsReceiptRecord {
         ewayBillNumber: stringValue(json['eway_bill_number']),
         ewayBillDate: stringValue(json['eway_bill_date']),
         ewayBillWarning: stringValue(json['eway_bill_warning']),
+        leftToBillQuantity: stringValue(json['left_to_bill_quantity']),
+        leftToBillAmount: stringValue(json['left_to_bill_amount']),
       );
 
   DocumentHeaderSnapshot toHeader() => DocumentHeaderSnapshot(

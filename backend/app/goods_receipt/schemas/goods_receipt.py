@@ -323,6 +323,8 @@ class GoodsReceiptListFilters(GoodsReceiptSchema):
     created_from: date | None = None
     created_to: date | None = None
     include_deleted: bool = False
+    #: Only receipts with something left to bill (D-BUY-27).
+    billable: bool = False
 
 
 class GoodsReceiptRegisterRecord(GoodsReceiptSchema):

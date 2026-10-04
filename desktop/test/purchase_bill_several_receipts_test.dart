@@ -27,6 +27,8 @@ GoodsReceiptRecord _receipt(
   String number, {
   String vendor = 'vendor-1',
   String branch = 'branch-1',
+  String? left,
+  String? leftAmount,
 }) =>
     GoodsReceiptRecord.fromJson({
       'id': id,
@@ -38,6 +40,8 @@ GoodsReceiptRecord _receipt(
       'branch_id': branch,
       'purchase_order_number': 'PO-$number',
       'grand_total': '590',
+      if (left != null) 'left_to_bill_quantity': left,
+      if (leftAmount != null) 'left_to_bill_amount': leftAmount,
       'lines': [
         {
           'id': '$id-l1',
@@ -102,7 +106,11 @@ class _Api extends ApiClient {
   }
 }
 
-Future<void> _open(WidgetTester tester, _Api api) async {
+Future<void> _open(
+  WidgetTester tester,
+  _Api api, {
+  List<GoodsReceiptRecord>? receipts,
+}) async {
   tester.view.physicalSize = const Size(1366, 768);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -112,12 +120,13 @@ Future<void> _open(WidgetTester tester, _Api api) async {
         body: Phase2Scope(
           child: PurchaseInvoiceEditorDialog(
             api: api,
-            receipts: [
-              _receipt('grn-1', 'GRN-000001'),
-              _receipt('grn-2', 'GRN-000002'),
-              _receipt('grn-3', 'GRN-000003', vendor: 'vendor-2'),
-              _receipt('grn-4', 'GRN-000004', branch: 'branch-2'),
-            ],
+            receipts: receipts ??
+                [
+                  _receipt('grn-1', 'GRN-000001'),
+                  _receipt('grn-2', 'GRN-000002'),
+                  _receipt('grn-3', 'GRN-000003', vendor: 'vendor-2'),
+                  _receipt('grn-4', 'GRN-000004', branch: 'branch-2'),
+                ],
             products: [
               Product.fromJson({
                 'id': 'prod-1',
@@ -154,6 +163,43 @@ Future<void> _done(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets(
+      'the tick list offers only receipts with something left, at what is left',
+      (tester) async {
+    await _open(
+      tester,
+      _Api(),
+      receipts: [
+        // Billed in full: nothing left, so not offered.
+        _receipt('grn-1', 'GRN-000001', left: '0', leftAmount: '0.00'),
+        // 6 received, 2 sent back: 4 left, worth 472 of the 590 total.
+        _receipt('grn-2', 'GRN-000002', left: '4', leftAmount: '472.00'),
+        _receipt('grn-3', 'GRN-000003', left: '6', leftAmount: '708.00'),
+        // Another supplier's receipt is never in this list.
+        _receipt('grn-4', 'GRN-000004',
+            vendor: 'vendor-2', left: '6', leftAmount: '708.00'),
+      ],
+    );
+    await _chooseSupplier(tester, 'Cipla Distributors');
+    expect(tester.takeException(), isNull);
+
+    expect(find.byKey(const ValueKey('purchase-invoice-tick-grn-1')),
+        findsNothing);
+    expect(find.byKey(const ValueKey('purchase-invoice-tick-grn-2')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('purchase-invoice-tick-grn-3')),
+        findsOneWidget);
+    // The value shown is what is left, not the receipt's total.
+    expect(find.text('472.00'), findsOneWidget);
+    expect(find.text('708.00'), findsOneWidget);
+    expect(find.text('590.00'), findsNothing);
+
+    await _tick(tester, 'grn-2');
+    await _done(tester);
+    // The count on the button is of the receipts left to bill.
+    expect(find.text('Choose receipts (2 waiting)'), findsOneWidget);
+  });
+
   testWidgets('the supplier comes first, then a tick list of their receipts',
       (tester) async {
     final _Api api = _Api();

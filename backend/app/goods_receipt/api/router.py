@@ -124,6 +124,7 @@ def _filters(
     created_from: date | None,
     created_to: date | None,
     include_deleted: bool,
+    billable: bool = False,
 ) -> GoodsReceiptListFilters:
     """Collect the goods receipt list filters from the query string."""
     try:
@@ -137,6 +138,7 @@ def _filters(
                 "created_from": created_from,
                 "created_to": created_to,
                 "include_deleted": include_deleted,
+                "billable": billable,
             }
         )
     except ValueError as error:
@@ -161,9 +163,13 @@ def list_goods_receipts(
     created_from: date | None = None,
     created_to: date | None = None,
     include_deleted: bool = False,
+    billable: bool = False,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[GoodsReceiptResponse]:
-    """List goods receipts."""
+    """List goods receipts.
+
+    ``billable=true`` keeps only receipts with something left to bill.
+    """
     params = PaginationParams(page=page, page_size=page_size)
     service = GoodsReceiptService(db)
     rows, total = service.list_receipts(
@@ -177,6 +183,7 @@ def list_goods_receipts(
             created_from=created_from,
             created_to=created_to,
             include_deleted=include_deleted,
+            billable=billable,
         ),
         page=params.page,
         page_size=params.page_size,

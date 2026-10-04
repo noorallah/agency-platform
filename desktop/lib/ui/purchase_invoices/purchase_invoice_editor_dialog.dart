@@ -358,13 +358,13 @@ class _PurchaseInvoiceEditorDialogState
   /// the one the bill's receipts belong to.
   String? get _tickVendorId => _receipt?.vendorId ?? _billVendorId;
 
-  /// That supplier's receipts waiting to be billed.
+  /// That supplier's receipts with something left to bill (D-BUY-27).
   List<GoodsReceiptRecord> get _vendorReceipts {
     final String? vendor = _tickVendorId;
     if (vendor == null) return const [];
     return [
       for (final GoodsReceiptRecord item in widget.receipts)
-        if (item.vendorId == vendor) item,
+        if (item.vendorId == vendor && item.hasLeftToBill) item,
     ];
   }
 
