@@ -5789,3 +5789,26 @@ nothing is.** Kept with the UI backlog.
 
 Never cached: documents, balances, stock, prices -- anything a person acts on
 must be read live.
+
+## 81. The firm form's State is typed, not chosen -- low priority
+
+**Status, 2026-10-04: open, low priority.** Owner, during the purchasing
+walkthrough on QA01: "in firm creation at least we can show states in master
+table".
+
+**Today:** Settings > Platform > Firms > Firms -> New asks for **State /
+province** as free text (`state` on `firms`, `String(100)`). Every other
+address in the product -- customers, vendors, branches, warehouses -- picks its
+state from the geography masters through `GeoAreaPicker`. So a firm can be
+saved as `Tamilnadu`, `TN` or `Tamil Nadu`, and nothing reads it as a place.
+
+**The ask:**
+
+| # | Item | Detail |
+| --- | --- | --- |
+| 1 | **Choose the state from the masters** | A dropdown of the states under the chosen country, read from the platform store's geography masters (the firm form is a platform screen, and the firm's own store may not exist yet). Keep the stored value as the state's name, so existing firms read unchanged. |
+| 2 | **Fill it from the GSTIN** | The first two digits of a GSTIN are the state's GST code (`33` = Tamil Nadu). When a GST number is typed and the state is blank, propose the matching state; warn when the two disagree. |
+| 3 | **City and postal code** | Optional: the same cascade as `GeoAreaPicker` below the state, if the platform store carries districts and cities. |
+
+**Check first:** whether the platform store holds the India states (§32 seeds
+every *firm* store; the platform store may hold only the country).
