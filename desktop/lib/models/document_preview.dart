@@ -102,6 +102,7 @@ class PurchaseOrderPreviewRecord {
     required this.interstate,
     required this.lines,
     this.quantityHints = const <QuantityHint>[],
+    this.schemeSuggestions = const <SchemeSuggestion>[],
   });
 
   final PurchaseOrder order;
@@ -110,6 +111,10 @@ class PurchaseOrderPreviewRecord {
 
   /// Lines off the supplier's minimum or multiple (BUY-5).
   final List<QuantityHint> quantityHints;
+
+  /// Free goods a supplier scheme offers on the order as typed (PG-11).
+  /// Saving never adds a line itself; the editor applies these.
+  final List<SchemeSuggestion> schemeSuggestions;
 
   factory PurchaseOrderPreviewRecord.fromJson(Map<String, dynamic> json) =>
       PurchaseOrderPreviewRecord(
@@ -122,6 +127,53 @@ class PurchaseOrderPreviewRecord {
           for (final dynamic item in json['quantity_hints'] as List? ?? const [])
             if (item is Map) QuantityHint.fromJson(Map<String, dynamic>.from(item)),
         ],
+        schemeSuggestions: <SchemeSuggestion>[
+          for (final dynamic item
+              in json['scheme_suggestions'] as List? ?? const [])
+            if (item is Map)
+              SchemeSuggestion.fromJson(Map<String, dynamic>.from(item)),
+        ],
+      );
+}
+
+/// One supplier scheme that applies to a line of the order being typed.
+class SchemeSuggestion {
+  const SchemeSuggestion({
+    required this.lineNumber,
+    required this.schemeId,
+    required this.schemeLabel,
+    required this.freeProductId,
+    required this.freeQuantity,
+    this.freeProductCode = '',
+    this.freeProductName = '',
+    this.existingLineNumber,
+  });
+
+  final int lineNumber;
+  final String schemeId;
+  final String schemeLabel;
+  final String freeProductId;
+  final String freeProductCode;
+  final String freeProductName;
+  final String freeQuantity;
+
+  /// The line that already carries this gift, when there is one.
+  final int? existingLineNumber;
+
+  /// What a scheme is told apart by on the order: it and the product given.
+  String get key => '$schemeId|$freeProductId';
+
+  factory SchemeSuggestion.fromJson(Map<String, dynamic> json) =>
+      SchemeSuggestion(
+        lineNumber: int.tryParse('${json['line_number'] ?? ''}') ?? 0,
+        schemeId: '${json['scheme_id'] ?? ''}',
+        schemeLabel: '${json['scheme_label'] ?? ''}',
+        freeProductId: '${json['free_product_id'] ?? ''}',
+        freeProductCode: '${json['free_product_code'] ?? ''}',
+        freeProductName: '${json['free_product_name'] ?? ''}',
+        freeQuantity: _plainNumber('${json['free_quantity'] ?? ''}'),
+        existingLineNumber:
+            int.tryParse('${json['existing_line_number'] ?? ''}'),
       );
 }
 

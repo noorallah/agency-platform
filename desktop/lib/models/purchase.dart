@@ -142,6 +142,8 @@ class PurchaseOrderLine {
     this.taxRuleVersion,
     this.rateSource,
     this.rateContractLineId = '',
+    this.schemeId = '',
+    this.schemeName = '',
   });
 
   final String id;
@@ -201,6 +203,11 @@ class PurchaseOrderLine {
 
   bool get isRateContract => rateSource == 'RATE_CONTRACT';
 
+  /// The supplier scheme that gave this line its free goods, or a gift line
+  /// its reason to exist (PG-11); empty when none did.
+  final String schemeId;
+  final String schemeName;
+
   factory PurchaseOrderLine.fromJson(Json json) => PurchaseOrderLine(
         id: stringValue(json['id']),
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
@@ -246,6 +253,8 @@ class PurchaseOrderLine {
             ? json['rate_source'] as String
             : null,
         rateContractLineId: stringValue(json['rate_contract_line_id']),
+        schemeId: stringValue(json['scheme_id']),
+        schemeName: stringValue(json['scheme_name']),
       );
 
   PurchaseOrderLine copyWith({
@@ -270,6 +279,8 @@ class PurchaseOrderLine {
     String? warehouseId,
     String? storageNodeId,
     String? remarks,
+    String? schemeId,
+    String? schemeName,
   }) =>
       PurchaseOrderLine(
         id: id ?? this.id,
@@ -314,7 +325,55 @@ class PurchaseOrderLine {
         taxRuleVersion: taxRuleVersion,
         rateSource: rateSource,
         rateContractLineId: rateContractLineId,
+        schemeId: schemeId ?? this.schemeId,
+        schemeName: schemeName ?? this.schemeName,
       );
+
+  /// A line that only gives goods: nothing is paid for, a scheme says why.
+  factory PurchaseOrderLine.gift({
+    required int lineNumber,
+    required String productId,
+    required String freeQuantity,
+    required String schemeId,
+    String schemeName = '',
+    String warehouseId = '',
+  }) =>
+      PurchaseOrderLine(
+        id: '',
+        lineNumber: lineNumber,
+        productId: productId,
+        description: '',
+        vendorProductCode: '',
+        purchaseUomId: '',
+        inventoryUomId: '',
+        conversionFactor: '1',
+        conversionVersion: null,
+        orderedQuantity: '0',
+        freeQuantity: freeQuantity,
+        baseQuantity: '0',
+        unitPrice: '',
+        discountPercent: '',
+        discountAmount: '0',
+        grossAmount: '0',
+        taxProfileId: '',
+        taxAmount: '0',
+        netAmount: '0',
+        batchRequired: false,
+        expiryRequired: false,
+        serialRequired: false,
+        manufacturingDate: '',
+        expiryDate: '',
+        warehouseId: warehouseId,
+        storageNodeId: '',
+        remarks: '',
+        status: 'ACTIVE',
+        createdAt: '',
+        updatedAt: '',
+        schemeId: schemeId,
+        schemeName: schemeName,
+      );
+
+  bool get _isGift => (double.tryParse(orderedQuantity.trim()) ?? 0) == 0;
 
   Json toWriteJson() => {
         'product_id': productId,
@@ -324,7 +383,11 @@ class PurchaseOrderLine {
         if (purchaseUomId.isNotEmpty) 'purchase_uom_id': purchaseUomId,
         if (inventoryUomId.isNotEmpty) 'inventory_uom_id': inventoryUomId,
         'ordered_quantity': orderedQuantity.isEmpty ? '0' : orderedQuantity,
-        'free_quantity': freeQuantity.isEmpty ? '0' : freeQuantity,
+        // Blank is null, not zero: silence takes a same-product supplier
+        // scheme and a typed 0 refuses it (PG-11).
+        'free_quantity': freeQuantity.trim().isEmpty ? null : freeQuantity,
+        // Named only on a gift line (nothing paid for) that a scheme added.
+        if (schemeId.isNotEmpty && _isGift) 'scheme_id': schemeId,
         // Blank is null, not zero: the server then takes the supplier's list
         // or the product's price, and the supplier's discount (BUY-3).
         'unit_price': unitPrice.trim().isEmpty ? null : unitPrice,

@@ -51,6 +51,7 @@ import '../../models/post_dated_cheque.dart';
 import '../../models/purchase_requisition.dart';
 import '../../models/rfq.dart';
 import '../../models/rate_contract.dart';
+import '../../models/supplier_scheme.dart';
 import '../../models/kit.dart';
 import '../../models/repack.dart';
 import '../../models/stock_transfer.dart';
@@ -5571,6 +5572,56 @@ class ApiClient {
           RateContractRelease.fromJson(Map<String, dynamic>.from(item)),
     ];
   }
+
+  // ---- supplier free schemes (PG-11) ------------------------------------
+
+  Future<PagedResult<SupplierScheme>> supplierSchemes({
+    int page = 1,
+    int pageSize = 50,
+    String vendorId = '',
+    String productId = '',
+    bool allSuppliers = false,
+    bool? isActive,
+  }) =>
+      _list(
+        '/api/v1/supplier-schemes',
+        SupplierScheme.fromJson,
+        page,
+        '',
+        pageSize: pageSize,
+        additionalQuery: {
+          if (vendorId.isNotEmpty) 'vendor_id': vendorId,
+          if (productId.isNotEmpty) 'product_id': productId,
+          if (allSuppliers) 'all_suppliers': 'true',
+          if (isActive != null) 'is_active': '$isActive',
+        },
+      );
+
+  Future<SupplierScheme> supplierScheme(String id) async =>
+      SupplierScheme.fromJson(
+          _unwrapMap(await request('GET', '/api/v1/supplier-schemes/$id')));
+
+  Future<SupplierScheme> createSupplierScheme(Json body) async =>
+      SupplierScheme.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/supplier-schemes',
+        body: body,
+      )));
+
+  Future<SupplierScheme> updateSupplierScheme(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) async =>
+      SupplierScheme.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/supplier-schemes/$id',
+        body: body,
+        expectedVersion: expectedVersion,
+      )));
+
+  Future<void> deleteSupplierScheme(String id) =>
+      request('DELETE', '/api/v1/supplier-schemes/$id');
 
   /// Approve several purchase orders in one call. Rows are acted on one by
   /// one, so some can be refused while others succeed.

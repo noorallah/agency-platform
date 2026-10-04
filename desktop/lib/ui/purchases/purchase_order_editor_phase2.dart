@@ -253,6 +253,69 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
     _schedulePreview();
   }
 
+  /// Put the free goods a supplier scheme offers on the order (PG-11): a
+  /// gift line for another product, or the free box of the line that already
+  /// carries it. The same scheme and product are never added twice, and a
+  /// gift taken off by hand stays off. Priced again only when something moved.
+  void _applySchemeSuggestions(List<SchemeSuggestion> suggestions) {
+    if (_locked || suggestions.isEmpty) return;
+    final List<PurchaseOrderLine> lines = [..._draft.lines];
+    bool changed = false;
+    for (final SchemeSuggestion s in suggestions) {
+      if (_dismissedSchemes.contains(s.key)) continue;
+      int at = -1;
+      final int named = (s.existingLineNumber ?? 0) - 1;
+      if (named >= 0 && named < lines.length) {
+        at = named;
+      } else {
+        at = lines.indexWhere(
+          (l) => l.schemeId == s.schemeId && l.productId == s.freeProductId,
+        );
+      }
+      if (at >= 0) {
+        if (_number(lines[at].freeQuantity) != _number(s.freeQuantity)) {
+          lines[at] = lines[at].copyWith(freeQuantity: s.freeQuantity);
+          changed = true;
+        }
+        continue;
+      }
+      lines.add(PurchaseOrderLine.gift(
+        lineNumber: lines.length + 1,
+        productId: s.freeProductId,
+        freeQuantity: s.freeQuantity,
+        schemeId: s.schemeId,
+        schemeName: s.schemeLabel,
+        warehouseId: _draft.warehouseId,
+      ));
+      changed = true;
+    }
+    if (!changed) return;
+    _setState(() {
+      _lineEpoch++;
+      _draft = _draft.copyWith(lines: lines);
+    });
+    _schedulePreview();
+  }
+
+  /// "Scheme 10+2 applied" for each line a scheme gave free goods to.
+  List<Widget> _schemeNotes() {
+    final List<Widget> out = <Widget>[];
+    for (int i = 0; i < _draft.lines.length; i++) {
+      final PurchaseOrderLine line = _draft.lines[i];
+      final String name = line.schemeName.isNotEmpty
+          ? line.schemeName
+          : (_pricedLine(i)?.schemeName ?? '');
+      if (name.isEmpty) continue;
+      if (out.isEmpty) out.add(const DocumentSideHeading('Supplier schemes'));
+      out.add(Padding(
+        key: ValueKey<String>('po-scheme-note-${i + 1}'),
+        padding: const EdgeInsets.only(bottom: 4),
+        child: DocumentSideNote('Line ${i + 1}: Scheme $name applied'),
+      ));
+    }
+    return out;
+  }
+
   void _phase2AddLine() {
     if (_locked) return;
     _addLine();
@@ -1271,6 +1334,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
         : _number(shownDiscount);
     return DocumentSidePanel(children: [
       ..._budgetPanel(context),
+      ..._schemeNotes(),
       ..._quantityHints(context),
       DocumentSideHeading('Line ${index + 1} · ${product?.name ?? ''}'),
       DocumentSidePair('Rate', shownRate.isEmpty ? '–' : documentMoney(shownRate)),
