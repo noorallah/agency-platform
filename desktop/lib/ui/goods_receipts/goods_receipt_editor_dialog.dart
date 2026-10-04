@@ -87,6 +87,20 @@ class GoodsReceiptDraftLine {
   /// The supplier's scheme the free goods came under (BUY-1); optional.
   String schemeName;
 
+  /// What other draft receipts against the same order already hold of this
+  /// line, and their numbers (D-BUY-23). A draft reserves nothing and the
+  /// server refuses over-receipt only at Complete, so without this two
+  /// people each draft the whole quantity and learn it there.
+  double heldByOtherDrafts = 0;
+  List<String> otherDraftNumbers = const [];
+
+  /// What is due once the other drafts are completed, never below zero:
+  /// what a new receipt starts at.
+  double get dueAfterOtherDrafts {
+    final double left = outstanding - heldByOtherDrafts;
+    return left < 0 ? 0 : left;
+  }
+
   /// What is still outstanding on the order line, never below zero.
   double get outstanding {
     final double ordered = double.tryParse(orderedQuantity) ?? 0;
@@ -285,6 +299,36 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
       _error = 'Could not read earlier receipts for this order: '
           '${exception.message}. Quantities default to the full order.';
     }
+    final Map<String, double> drafted = <String, double>{};
+    final Map<String, List<String>> draftNumbers = <String, List<String>>{};
+    try {
+      // The other drafts against this order (D-BUY-23): one read, filtered
+      // by the server. This receipt's own draft is not "another".
+      final PagedResult<GoodsReceiptRecord> drafts =
+          await widget.api.goodsReceipts(
+        page: 1,
+        pageSize: 100,
+        filters: {'purchase_order_id': order.id, 'status': 'DRAFT'},
+      );
+      for (final GoodsReceiptRecord receipt in drafts.items) {
+        if (receipt.status != 'DRAFT' || receipt.id == _record?.id) continue;
+        for (final GoodsReceiptLine line in receipt.lines) {
+          final double quantity =
+              double.tryParse(line.currentReceiptQuantity) ?? 0;
+          if (quantity <= 0) continue;
+          final String key = line.purchaseOrderLineId;
+          drafted[key] = (drafted[key] ?? 0) + quantity;
+          final String number =
+              receipt.grnNumber.isEmpty ? 'unnumbered' : receipt.grnNumber;
+          final List<String> numbers = draftNumbers[key] ?? <String>[];
+          if (!numbers.contains(number)) numbers.add(number);
+          draftNumbers[key] = numbers;
+        }
+      }
+    } on ApiException {
+      // Only a warning is lost; the server still refuses over-receipt at
+      // Complete.
+    }
     if (!mounted) return;
     final String defaultWarehouse =
         order.warehouseId.isNotEmpty ? order.warehouseId : '';
@@ -296,6 +340,8 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
             index + 1,
             received[order.lines[index].id] ?? 0,
             defaultWarehouse,
+            heldByOtherDrafts: drafted[order.lines[index].id] ?? 0,
+            otherDraftNumbers: draftNumbers[order.lines[index].id] ?? const [],
           ),
       ]);
       _loadingLines = false;
@@ -348,8 +394,10 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
     PurchaseOrderLine line,
     int lineNumber,
     double alreadyReceived,
-    String defaultWarehouse,
-  ) {
+    String defaultWarehouse, {
+    double heldByOtherDrafts = 0,
+    List<String> otherDraftNumbers = const [],
+  }) {
     final GoodsReceiptDraftLine draft = GoodsReceiptDraftLine(
       purchaseOrderLineId: line.id,
       lineNumber: lineNumber,
@@ -366,7 +414,12 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
       receiptQuantity: '0',
       warehouseId: defaultWarehouse,
     );
-    draft.receiptQuantity = _trim(draft.outstanding);
+    draft
+      ..heldByOtherDrafts = heldByOtherDrafts
+      ..otherDraftNumbers = otherDraftNumbers;
+    // Starts at what the other drafts leave (D-BUY-23), so two people
+    // receiving the same order do not each start at the whole of it.
+    draft.receiptQuantity = _trim(draft.dueAfterOtherDrafts);
     return draft;
   }
 
