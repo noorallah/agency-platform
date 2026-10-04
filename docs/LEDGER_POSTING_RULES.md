@@ -646,8 +646,14 @@ be derived from the books (D-CMP-20). Four things changed, in four PRs:
   rounding residual on the largest, so the legs sum to the document's tax
   leg exactly. The bill sums its own rows; a return raised off a bill splits
   its tax in the bill line's proportions (`return_tax_by_component`, shared
-  with 3B); a return off a receipt or an order names no bill and reverses
-  1300 as a whole. **Without a map the total posts to 1300 as it always
+  with 3B); a return off a **receipt** splits it in the proportions of the
+  approved or closed bill lines that billed that receipt line, weighted by
+  the quantity each billed (`_billed_lines`, D-BUY-28 -- the desktop raises
+  returns off the receipt, and until 2026-10-04 those reversed 1300 whole
+  while the bill had debited CGST and SGST). Only a return off an order, or
+  off a receipt line nothing has billed yet, names no bill and reverses 1300
+  as a whole. The same mapping takes a receipt-raised return's share of
+  reverse charge and of blocked tax. **Without a map the total posts to 1300 as it always
   did** -- a bill approved before the rows existed keeps its posting and is
   not backfilled, because re-running the tax engine on old dates can answer
   differently from what the supplier charged.
@@ -672,7 +678,7 @@ rows are `recoverable` only when the line is ELIGIBLE.
 | Document | Claimable tax | Tax not claimable |
 | --- | --- | --- |
 | Bill | Dr input tax, head by head | Dr *Input Tax Not Claimable* (5450, `INELIGIBLE_INPUT_TAX`) |
-| Return off the bill | Cr input tax, its share | Cr 5450, its share |
+| Return off the bill, or off the receipt it billed | Cr input tax, its share | Cr 5450, its share |
 | Debit note off the bill | Cr input tax, its share | Cr 5450, its share |
 
 Reverse charge keeps the component's own `recoverable`: the liability is owed

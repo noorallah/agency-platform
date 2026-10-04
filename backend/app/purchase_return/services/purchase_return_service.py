@@ -2487,17 +2487,83 @@ class PurchaseReturnService(TransactionalDocumentService):
         )
 
 
+def _billed_lines(
+    session: Session, lines: Sequence[PurchaseReturnLine]
+) -> dict[UUID, list[tuple[UUID, Decimal]]]:
+    """Name the bill lines each return line reverses, with each one's weight.
+
+    A line raised off a bill reverses that bill line whole. A line raised off
+    a goods receipt reverses whatever billed the receipt line -- the bill took
+    the input credit, not the receipt -- shared over the standing bill lines
+    in proportion to the quantity each billed. The desktop raises returns off
+    the receipt, and such a line used to name no bill, so its tax fell to
+    `INPUT_TAX` whole while the bill had debited CGST and SGST (D-BUY-28). A
+    receipt line nothing has billed yet names none.
+    """
+    named: dict[UUID, list[tuple[UUID, Decimal]]] = {}
+    receipt_lines: dict[UUID, UUID] = {}
+    for line in lines:
+        if line.source_document_type == PurchaseReturnSourceType.PURCHASE_INVOICE.value:
+            named[line.id] = [(line.source_document_line_id, Decimal("1"))]
+        elif line.source_document_type == PurchaseReturnSourceType.GOODS_RECEIPT.value:
+            receipt_lines[line.id] = line.source_document_line_id
+    if not receipt_lines:
+        return named
+    billed: dict[UUID, list[tuple[UUID, Decimal]]] = {}
+    for bill_line_id, receipt_line_id, quantity in session.execute(
+        select(
+            PurchaseInvoiceLine.id,
+            PurchaseInvoiceLine.source_document_line_id,
+            PurchaseInvoiceLine.current_invoice_quantity,
+        )
+        .join(
+            PurchaseInvoice,
+            PurchaseInvoice.id == PurchaseInvoiceLine.purchase_invoice_id,
+        )
+        .where(
+            PurchaseInvoiceLine.source_document_line_id.in_(
+                set(receipt_lines.values())
+            ),
+            PurchaseInvoiceLine.source_document_type
+            == PurchaseReturnSourceType.GOODS_RECEIPT.value,
+            PurchaseInvoiceLine.is_deleted.is_(False),
+            PurchaseInvoice.is_deleted.is_(False),
+            PurchaseInvoice.status.in_(
+                (
+                    PurchaseInvoiceStatus.APPROVED.value,
+                    PurchaseInvoiceStatus.CLOSED.value,
+                )
+            ),
+        )
+    ).all():
+        billed.setdefault(receipt_line_id, []).append(
+            (bill_line_id, Decimal(str(quantity)))
+        )
+    for return_line_id, receipt_line_id in receipt_lines.items():
+        bill_lines = billed.get(receipt_line_id, [])
+        whole = sum((quantity for _, quantity in bill_lines), ZERO)
+        if whole <= ZERO:
+            continue
+        named[return_line_id] = [
+            (bill_line_id, quantity / whole) for bill_line_id, quantity in bill_lines
+        ]
+    return named
+
+
 def return_tax_by_component(
     session: Session, return_id: UUID, *, claimable: bool = True
 ) -> dict[str, Decimal]:
     """Split a return's tax by component, in the proportions its bill charged.
 
-    A return raised off a bill's lines reverses the credit that bill claimed,
-    head by head: each return line's tax is split in the same proportions as
-    the bill line's `purchase_invoice_line_taxes` rows (D-CMP-20). A return
-    raised off a receipt or an order names no bill, and its tax reverses
-    `INPUT_TAX` as a whole, which is where a bill with no rows put it. The
-    ledger posting and GSTR-3B's reversal table both read this.
+    A return reverses the credit the bill claimed, head by head: each return
+    line's tax is split in the same proportions as the
+    `purchase_invoice_line_taxes` rows of the bill line(s) it reverses
+    (D-CMP-20) -- the bill line it was raised off, or the bill lines that
+    billed the receipt line it was raised off (D-BUY-28, `_billed_lines`). A
+    line raised off an order, or off a receipt nothing has billed, names no
+    bill, and its tax reverses `INPUT_TAX` as a whole, which is where a bill
+    with no rows put it. The ledger posting and GSTR-3B's reversal table both
+    read this.
 
     ``claimable`` False returns the other part instead: the share of tax the
     bill could not claim (backlog 78 row 1), which goes back to the cost
@@ -2509,11 +2575,10 @@ def return_tax_by_component(
         select(PurchaseReturnLine).where(
             PurchaseReturnLine.purchase_return_id == return_id,
             PurchaseReturnLine.is_deleted.is_(False),
-            PurchaseReturnLine.source_document_type
-            == PurchaseReturnSourceType.PURCHASE_INVOICE.value,
         )
     ).all()
-    if not lines:
+    reversed_bill_lines = _billed_lines(session, lines)
+    if not reversed_bill_lines:
         return {}
     shares: dict[UUID, list[tuple[str, Decimal, bool]]] = {}
     for line_id, code, amount, recoverable in session.execute(
@@ -2524,7 +2589,11 @@ def return_tax_by_component(
             PurchaseInvoiceLineTax.recoverable,
         ).where(
             PurchaseInvoiceLineTax.purchase_invoice_line_id.in_(
-                [line.source_document_line_id for line in lines]
+                {
+                    bill_line_id
+                    for named in reversed_bill_lines.values()
+                    for bill_line_id, _ in named
+                }
             ),
             PurchaseInvoiceLineTax.is_deleted.is_(False),
             PurchaseInvoiceLineTax.included_in_price.is_(False),
@@ -2537,7 +2606,11 @@ def return_tax_by_component(
         )
     totals: dict[str, Decimal] = {}
     for line in lines:
-        parts = shares.get(line.source_document_line_id, [])
+        parts = [
+            (code, amount * weight, recoverable)
+            for bill_line_id, weight in reversed_bill_lines.get(line.id, [])
+            for code, amount, recoverable in shares.get(bill_line_id, [])
+        ]
         # Shared out over everything the bill line charged; only the part
         # asked for -- claimed, or blocked (backlog 78 row 1) -- is returned.
         charged = sum((amount for _, amount, _ in parts), ZERO)
@@ -2555,26 +2628,28 @@ def return_tax_by_component(
 def return_reverse_charge(session: Session, return_id: UUID) -> ReverseChargeShare:
     """Return the reverse charge a purchase return takes off its bill.
 
-    Backlog 68 row 8. Each line returned off a bill takes the share of its bill
-    line's reverse charge that its value is of the bill line's; a line off a
-    receipt or an order names no bill and takes nothing. The posting and
-    GSTR-3B's 3.1(d) and 4(A)(3) both read this.
+    Backlog 68 row 8. Each line takes the share of its bill line's reverse
+    charge that its value is of the bill line's -- the bill line it was raised
+    off, or those that billed its receipt line, by `_billed_lines` (D-BUY-28).
+    A line off an order, or off a receipt nothing has billed, takes nothing.
+    The posting and GSTR-3B's 3.1(d) and 4(A)(3) both read this.
     """
     lines = session.scalars(
         select(PurchaseReturnLine).where(
             PurchaseReturnLine.purchase_return_id == return_id,
             PurchaseReturnLine.is_deleted.is_(False),
-            PurchaseReturnLine.source_document_type
-            == PurchaseReturnSourceType.PURCHASE_INVOICE.value,
         )
     ).all()
+    reversed_bill_lines = _billed_lines(session, lines)
     return reverse_charge_share(
         session,
         (
             (
-                line.source_document_line_id,
-                Decimal(str(line.net_amount)) - Decimal(str(line.tax_amount)),
+                bill_line_id,
+                (Decimal(str(line.net_amount)) - Decimal(str(line.tax_amount)))
+                * weight,
             )
             for line in lines
+            for bill_line_id, weight in reversed_bill_lines.get(line.id, [])
         ),
     )

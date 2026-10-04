@@ -339,7 +339,8 @@ Dr  5450 Input Tax Not Claimable         180.00
 ```
 
 The tax is part of what the firm owes the supplier and none of it is input tax
-(1300). A return off the bill and a debit note off the bill credit 5450 for
+(1300). A return off the bill (or off the receipt the bill billed) and a
+debit note off the bill credit 5450 for
 their share, in the same proportion, so a blocked line nets out like any other.
 `INELIGIBLE_INPUT_TAX` is the control account behind 5450; the full rule is
 under "Tax the firm may not claim is a cost, not input tax" in
@@ -508,7 +509,7 @@ against it stands.
 | --- | --- | --- |
 | Cancel a **draft** receipt | nothing to undo | nothing to undo |
 | Cancel a **completed** receipt | reversed, line by line | mirror journal cancels it; refused outright once the receipt has been invoiced |
-| Purchase return, completed | stock goes back off | posted; blocked tax credits 5450, not input tax |
+| Purchase return, completed | stock goes back off | posted; input tax reversed head by head (CGST, SGST, IGST) as the bill claimed it, whether raised off the bill or off the receipt it billed (D-BUY-28); blocked tax credits 5450, not input tax |
 | Cancel a purchase return | reversed | mirror journal cancels it; refused while a supplier refund stands against it |
 | Cancel a debit note | nothing moved | mirror journal; credit it left that was set against other bills is withdrawn; refused while a supplier refund stands against it (A4) |
 | Reverse a supplier refund | — | mirror journal cancels it; the return's credit is free again |
