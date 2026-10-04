@@ -246,3 +246,32 @@ def test_the_purchase_manager_owns_the_vendor_masters_but_not_where_money_goes()
     assert (
         "VENDOR_MANAGE_BANK_DETAILS" not in ROLE_PERMISSION_CODES["PURCHASE_EXECUTIVE"]
     )
+
+
+#: The masters every document view names (`DocumentLineLabels.load` in
+#: `desktop/lib/ui/document_framework/document_line_labels.dart`): each line's
+#: product, unit and tax profile, and the header's branch and warehouse.
+_VIEW_LABELS = ("products", "units", "tax profiles", "branches", "warehouses")
+
+#: The codes that open a purchase or sales document view.
+_DOCUMENT_VIEW_CODES = frozenset({"PURCHASE_VIEW", "PURCHASE_RECEIVE", "SALES_VIEW"})
+
+
+def test_whoever_opens_a_document_can_read_the_names_it_shows() -> None:
+    """D-ROLE-4: a view a role may open never falls back to ids.
+
+    Counter Sales opened a sales invoice and saw the branch and the tax
+    profile as ids, because D-ROLE-1 derived the grants from the editors and
+    the views read more.
+    """
+    missing = {
+        role: sorted(
+            _LISTS[name][1] for name in _VIEW_LABELS if _LISTS[name][1] not in granted
+        )
+        for role, granted in ROLE_PERMISSION_CODES.items()
+        if _DOCUMENT_VIEW_CODES & granted
+    }
+    missing = {role: gaps for role, gaps in missing.items() if gaps}
+    assert (
+        not missing
+    ), f"these roles open documents whose names they cannot read: {missing}"

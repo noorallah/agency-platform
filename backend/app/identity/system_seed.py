@@ -723,6 +723,11 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             "PRODUCT_VIEW",
             "BRANCH_VIEW",
             "WAREHOUSE_VIEW",
+            # D-ROLE-4: the order and invoice views name each line's tax
+            # profile and unit (`/tax-framework/profiles`,
+            # `/uom-framework/uoms`), and showed their ids without these.
+            "TAX_VIEW",
+            "UOM_VIEW",
         }
     ),
     # A vendor's licence is vendor master data, which the purchase manager
@@ -809,6 +814,12 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             # D-ROLE-1: the invoice editor reads `/customers` and `/products`.
             "CUSTOMER_VIEW",
             "PRODUCT_VIEW",
+            # D-ROLE-4: the invoice view names the branch, warehouse, tax
+            # profile and unit, and showed their ids without these.
+            "BRANCH_VIEW",
+            "WAREHOUSE_VIEW",
+            "TAX_VIEW",
+            "UOM_VIEW",
         }
     ),
     "CUSTOMER_SUPPORT": frozenset({"CUSTOMER_VIEW", "CUSTOMER_UPDATE", "PRODUCT_VIEW"}),
