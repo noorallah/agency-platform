@@ -343,6 +343,20 @@ their own accounts (`docs/LEDGER_POSTING_RULES.md`, "Input tax is claimed
 head by head"), so the return and the trial balance can be reconciled per
 head.
 
+**Table 4(A)(1), import of goods, is read off the Bills of Entry** (PG-12
+part B, 2026-10-05): the IGST and cess of every `POSTED` Bill of Entry whose
+`boe_date` falls in the period, under the GSTIN its branch files for (a Bill
+of Entry naming no branch counts for the firm's own). It is the
+`itc_import_goods` section of the 3B answer (`integrated_tax`, `cess`,
+`bill_of_entry_count`), added into net ITC (4(C)) and into the rule 42
+common credit. Nothing is stored: a cancelled Bill of Entry drops out on the
+next read, and a draft has claimed nothing. Customs charges IGST alone, so
+the central and state heads of 4(A)(1) are always nil. Not built: matching
+the Bill of Entry against GSTR-2B's import section (IMPG) -- a firm that
+claims only what 2B shows still claims its imports here -- and listing Bills
+of Entry in the GST purchase register, whose pages are paged over bills and
+cannot interleave a second document without a merged query.
+
 
 ### Blocked credit, supplier type and GSTR-2B (backlog 78 rows 1-3)
 

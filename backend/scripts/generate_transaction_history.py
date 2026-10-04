@@ -314,6 +314,12 @@ RESET_ORDER: tuple[str, ...] = (
     "sales_order_notes",
     "sales_order_lines",
     "sales_orders",
+    # A Bill of Entry (PG-12 part B) names its receipts' lines, the stock
+    # movements its duty raised and its journal.
+    "bill_of_entry_allocations",
+    "bill_of_entry_documents",
+    "bill_of_entry_lines",
+    "bills_of_entry",
     "purchase_return_accounting_events",
     "purchase_return_attachments",
     "purchase_return_notes",

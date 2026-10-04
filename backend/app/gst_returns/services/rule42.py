@@ -181,6 +181,8 @@ class Rule42Service:
         claimed = _heads(summary.get("eligible_itc"))
         reclaimed = _heads(summary.get("itc_reclaimed"))
         reverse_charge = _heads(summary.get("itc_reverse_charge"))
+        # 4(A)(1): IGST on imports is credit like any other (PG-12).
+        imports = _heads(summary.get("itc_import_goods"))
         blocked = _heads(summary.get("itc_reversed_blocked"))
         reversed_ = _heads(summary.get("itc_reversed"))
         rule37 = _heads(summary.get("itc_reversed_rule37"))
@@ -188,6 +190,7 @@ class Rule42Service:
             head: claimed[head]
             - reclaimed[head]
             + reverse_charge[head]
+            + imports[head]
             - blocked[head]
             - (reversed_[head] - rule37[head])
             for head in HEADS

@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**314 tables**, of which **17** live only in the platform store.
+**318 tables**, of which **17** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -84,6 +84,15 @@ trigger each schema owns its own copy of.
 | `document_line_serials` | firm store ¹ | Name one serialised unit a document line moves. | `serial_numbers` |
 | `lots` | firm store ¹ | Track one production lot across manufacturing steps. | `firms`, `products`, `warehouses`, `branches` |
 | `serial_numbers` | firm store ¹ | Track one serialized unit through its full lifecycle. | `firms`, `products`, `inventories`, `warehouses`, `branches`, `batches` |
+
+### `app/bill_of_entry`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `bill_of_entry_allocations` | firm store ¹ | The share of a line's duty one receipt line carried into stock. | `bills_of_entry`, `bill_of_entry_lines`, `goods_receipts`, `goods_receipt_lines`, `inventory_transactions` |
+| `bill_of_entry_documents` | firm store ¹ | A purchase invoice or goods receipt the Bill of Entry belongs to. | `bills_of_entry` |
+| `bill_of_entry_lines` | firm store ¹ | One item on a Bill of Entry and the duty assessed on it. | `bills_of_entry`, `products` |
+| `bills_of_entry` | firm store ¹ | One Bill of Entry: the duty customs assessed on imported goods. | `firms`, `vendors`, `branches`, `journal_entries` |
 
 ### `app/branches`
 

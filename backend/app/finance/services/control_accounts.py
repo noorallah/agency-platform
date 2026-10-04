@@ -175,6 +175,14 @@ class ControlAccountPurpose(StrEnum):
     #: clears at the bill's own rupee value. Also the unrealised difference
     #: a period-end revaluation posts and reverses the next day.
     EXCHANGE_GAIN_LOSS = "EXCHANGE_GAIN_LOSS"
+    #: Duty a Bill of Entry assessed and customs has not been paid yet
+    #: (PG-12 part B): basic duty, surcharge, IGST and cess together, cleared
+    #: by an ordinary payment or journal against this account.
+    CUSTOMS_PAYABLE = "CUSTOMS_PAYABLE"
+    #: Basic customs duty and surcharge on an imported line no linked goods
+    #: receipt carries (PG-12 part B): a cost with no credit, booked as an
+    #: expense because there is no stock to revalue with it.
+    CUSTOMS_DUTY = "CUSTOMS_DUTY"
 
 
 INPUT_TAX_PURPOSE_BY_COMPONENT.update(
@@ -309,6 +317,8 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     # A gain is a credit and a loss a debit to the same account, so either
     # classification serves, as with rounding.
     ControlAccountPurpose.EXCHANGE_GAIN_LOSS: frozenset({"INCOME", "EXPENSE"}),
+    ControlAccountPurpose.CUSTOMS_PAYABLE: frozenset({"LIABILITY"}),
+    ControlAccountPurpose.CUSTOMS_DUTY: frozenset({"EXPENSE"}),
 }
 
 
@@ -387,6 +397,8 @@ PURPOSE_LABELS: dict[ControlAccountPurpose, str] = {
     ControlAccountPurpose.GST_CASH_LEDGER: "GST electronic cash ledger",
     ControlAccountPurpose.TCS_RECEIVABLE: "TCS receivable",
     ControlAccountPurpose.EXCHANGE_GAIN_LOSS: "Exchange gain/loss",
+    ControlAccountPurpose.CUSTOMS_PAYABLE: "Customs duty payable",
+    ControlAccountPurpose.CUSTOMS_DUTY: "Customs duty",
 }
 
 
