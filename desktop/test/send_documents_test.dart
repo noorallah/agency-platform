@@ -127,15 +127,45 @@ void main() {
       });
     });
 
-    testWidgets('$type offers only the Email channel', (tester) async {
-      await _open(tester, _Api(), type);
-      await tester.tap(find.byKey(const ValueKey('send-message-channel')));
-      await tester.pumpAndSettle();
-      expect(find.text('Email'), findsWidgets);
-      expect(find.text('WhatsApp'), findsNothing);
-      expect(find.text('SMS'), findsNothing);
-    });
+    if (type != 'PURCHASE_ORDER') {
+      testWidgets('$type offers only the Email channel', (tester) async {
+        await _open(tester, _Api(), type);
+        await tester.tap(find.byKey(const ValueKey('send-message-channel')));
+        await tester.pumpAndSettle();
+        expect(find.text('Email'), findsWidgets);
+        expect(find.text('WhatsApp'), findsNothing);
+        expect(find.text('SMS'), findsNothing);
+      });
+    }
   }
+
+  testWidgets('a purchase order offers Email and WhatsApp, not SMS',
+      (tester) async {
+    await _open(tester, _Api(), 'PURCHASE_ORDER');
+    await tester.tap(find.byKey(const ValueKey('send-message-channel')));
+    await tester.pumpAndSettle();
+    expect(find.text('Email'), findsWidgets);
+    expect(find.text('WhatsApp'), findsWidgets);
+    expect(find.text('SMS'), findsNothing);
+  });
+
+  testWidgets('a purchase order on WhatsApp posts its type and no body',
+      (tester) async {
+    final _Api api = _Api();
+    await _open(tester, api, 'PURCHASE_ORDER');
+    await tester.tap(find.byKey(const ValueKey('send-message-channel')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('WhatsApp').last);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('send-message-body')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('send-message-send')));
+    await tester.pumpAndSettle();
+    expect(api.sent, {
+      'document_type': 'PURCHASE_ORDER',
+      'document_id': 'doc-1',
+      'channel': 'WHATSAPP',
+    });
+  });
 
   testWidgets('an invoice still offers all three channels', (tester) async {
     await _open(tester, _Api(), 'SALES_INVOICE');

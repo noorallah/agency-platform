@@ -96,6 +96,24 @@ EVENTS: tuple[MessagingEvent, ...] = (
         ),
     ),
     MessagingEvent(
+        code="PURCHASE_ORDER_SENT",
+        label="Purchase order sent to the supplier",
+        document_type="PURCHASE_ORDER",
+        variables=(
+            "customer_name",
+            "document_number",
+            "document_date",
+            "amount",
+            "firm_name",
+        ),
+        default_subject="Purchase order {document_number} from {firm_name}",
+        default_body=(
+            "Dear {customer_name},\n\nPlease find attached our purchase order "
+            "{document_number} dated {document_date} for {amount}." + _SIGN_OFF
+        ),
+        attaches_pdf=True,
+    ),
+    MessagingEvent(
         code="PAYMENT_DUE_SOON",
         label="Payment due soon",
         document_type="SALES_INVOICE",

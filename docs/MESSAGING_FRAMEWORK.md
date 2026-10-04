@@ -328,3 +328,5 @@ events; each is queued with a covering note naming it and its PDF rendered when
 the worker sends it (`app/messaging/services/hand_documents.py`). The recipient
 is the customer's address, or the supplier's email for a purchase order, unless
 one is typed. A cancelled document, or a reversed receipt, is refused.
+
+**A purchase order also goes on WhatsApp (PG-7, 2026-10-05).** Under the template the firm names for the event *Purchase order sent to the supplier* (`PURCHASE_ORDER_SENT`, variables: supplier name, number, date, amount, firm), to the supplier's mobile, else phone, else a contact's, unless a number is typed; refused while messaging or WhatsApp is off, or no template is named. SMS stays invoice-only. Queuing marks the order sent by WHATSAPP, as its *mark sent* does. The PDF travels on email only, since WhatsApp delivers the template alone.
