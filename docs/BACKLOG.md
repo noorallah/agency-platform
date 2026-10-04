@@ -6006,6 +6006,7 @@ which this item fixes). It replaces that report; *Vendor ageing* stays.
 | 6 | Filters | Supplier, branch, as-of date, month basis; a cell opens the invoices behind it |
 | 7 | Chart | Above or beside the grid: a bar per month, stacked by the top five suppliers plus "others" (the owner: "this can show some graph also"); follows the `dataviz` palette and the design tokens |
 | 8 | Export, print | As every report |
+| 9 | **Paid** view (owner, same day) | A switch **Owed / Paid** on the same screen. *Paid* shows what was paid to each supplier per month in a period: supplier rows, month columns, number of payments, a total row checked against the bank and cash books' payments to suppliers, the same chart; a cell opens the payments behind it. Today only the Payments list (no totals) and one supplier's statement answer it |
 
 **Build.** Server: `GET /api/v1/purchase-invoices/reports/payables` with the
 filters, grouped in SQL from invoices, `settlement_allocations` and supplier
@@ -6016,4 +6017,5 @@ payment. Desktop: a report screen (filter bar, grid with total row, the books
 check, the chart), one call per filter change. Two PRs, server then desktop;
 the report needs its own `report_catalog.dart` entry
 (`test_reports_have_a_screen.py`). The same shape later gives **Receivables**
-(customer x month).
+(customer x month), and its Paid view **Received** (receipts per customer
+per month).
