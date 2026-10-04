@@ -50,6 +50,10 @@ Future<DesktopPreferencesService> _preferences(String? workspace) async {
   final DesktopPreferencesService preferences =
       DesktopPreferencesService(directory: temp);
   if (workspace != null) await preferences.saveLastWorkspace(workspace);
+  // These tests are about the menu; first-run setup would otherwise open over
+  // it for an administrator with no branding given.
+  await preferences
+      .saveWorkspaceState('phase2.first_run', {'agency_skipped': true});
   return preferences;
 }
 

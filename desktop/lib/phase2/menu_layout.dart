@@ -193,6 +193,10 @@ abstract final class MenuLayout {
   /// Backups: a phase 2 page for the platform tier.
   static const String backupsRoute = 'backups';
 
+  /// Branding: the agency's name, tagline and logo (backlog 71, U7), for
+  /// whoever holds `PLATFORM_SETTINGS`.
+  static const String brandingRoute = 'branding';
+
   /// The Settings page the gear opens: every section of [settings] in a list,
   /// its items as cards, and a search across them (backlog 72).
   static const String setUpRoute = 'setup';
@@ -647,6 +651,12 @@ abstract final class MenuLayout {
       MenuItemSpec(AppModule.administration, 'firms', 'Firms'),
       MenuItemSpec(
           AppModule.administration, 'business-profiles', 'Business Profiles'),
+    ], part: MenuPart.platform),
+    MenuGroupSpec('Agency', [
+      // The agency's own name, tagline and logo. The permission is the whole
+      // gate and it needs no firm: branding belongs to the installation.
+      MenuItemSpec.phase2(brandingRoute, 'Branding',
+          requiredPermission: 'PLATFORM_SETTINGS'),
     ], part: MenuPart.platform),
     MenuGroupSpec('System', [
       MenuItemSpec(AppModule.settings, 'audit-logs', 'Audit Logs'),

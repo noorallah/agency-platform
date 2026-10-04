@@ -134,6 +134,7 @@ class _ImportApi extends ApiClient {
     String? fileContentType,
     bool authenticated = true,
     bool retrying = false,
+    int? expectedVersion,
   }) async {
     paths.add(path);
     this.fields.add(fields);

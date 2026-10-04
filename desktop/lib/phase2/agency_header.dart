@@ -39,8 +39,14 @@ class AgencyIdentity {
     required AgencyBrandingCache cache,
     required String server,
     required BrandingConfig branding,
-  }) {
-    final CachedAgencyBranding? cached = cache.readSync(server);
+  }) =>
+      AgencyIdentity.from(cache.readSync(server), branding);
+
+  /// [cached] when it names an agency, else the branding file's name and logo.
+  factory AgencyIdentity.from(
+    CachedAgencyBranding? cached,
+    BrandingConfig branding,
+  ) {
     if (cached != null && cached.branding.agencyName.isNotEmpty) {
       return AgencyIdentity(
         name: cached.branding.agencyName,

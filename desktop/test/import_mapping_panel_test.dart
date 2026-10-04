@@ -331,6 +331,7 @@ class _WireApi extends ApiClient {
     String? fileContentType,
     bool authenticated = true,
     bool retrying = false,
+    int? expectedVersion,
   }) async {
     this.fields.add(fields);
     return <String, dynamic>{

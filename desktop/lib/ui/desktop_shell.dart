@@ -22,6 +22,7 @@ import '../core/preferences/desktop_preferences_service.dart';
 import '../core/preferences/user_preferences.dart';
 import '../core/security/permission_service.dart';
 import '../core/theme/theme_manager.dart';
+import '../models/agency_branding.dart';
 import '../models/branch_warehouse.dart';
 import '../models/entities.dart';
 import '../models/inventory.dart';
@@ -131,6 +132,8 @@ import '../phase2/notification_bell.dart';
 import '../phase2/command_box.dart';
 import '../phase2/favourites.dart';
 import '../phase2/backups_page.dart';
+import '../phase2/branding_page.dart';
+import '../phase2/first_run_agency_dialog.dart';
 import '../phase2/customer_groups_page.dart';
 import '../phase2/display_dates.dart';
 import '../phase2/home_page.dart';
@@ -283,7 +286,23 @@ class _DesktopShellState extends State<DesktopShell> {
 
   /// The agency the phase 2 header names, read once from the cache sign-in
   /// refreshed -- no request of its own.
-  late final AgencyIdentity _agency;
+  late AgencyIdentity _agency;
+
+  /// The agency's record as sign-in cached it, and its logo; replaced by a
+  /// save from Settings or the first-run dialog. `isSet` false is what asks a
+  /// person who may give it to do so (backlog 71, U5).
+  AgencyBranding _agencyRecord = AgencyBranding.notSet;
+  Uint8List? _agencyLogo;
+
+  /// The first-run dialog opens at most once per shell, and a Skip is kept
+  /// per user in the workspace state.
+  bool _firstRunChecked = false;
+
+  /// Whether [_agencyRecord] came from the server (cached at sign-in or
+  /// saved here). False when this PC holds no copy: the record may then
+  /// exist on the server, and a form opened empty would overwrite it.
+  bool _agencyKnown = false;
+  static const String _firstRunStateKey = 'phase2.first_run';
   String? _windowTitle;
   String? _windowFirm;
 
@@ -351,11 +370,13 @@ class _DesktopShellState extends State<DesktopShell> {
         if (path is String && path.isNotEmpty) path,
     ];
     if (widget.phase2) {
-      _agency = AgencyIdentity.resolve(
-        cache: widget.agencyCache ?? AgencyBrandingCache(),
-        server: widget.session.baseUrl,
-        branding: widget.branding,
-      );
+      final CachedAgencyBranding? cached =
+          (widget.agencyCache ?? AgencyBrandingCache())
+              .readSync(widget.session.baseUrl);
+      _agencyRecord = cached?.branding ?? AgencyBranding.notSet;
+      _agencyKnown = cached != null;
+      _agencyLogo = cached?.logo;
+      _agency = AgencyIdentity.from(cached, widget.branding);
     }
     _lastFirmContextVersion = widget.session.firmContextVersion;
     widget.session.addListener(_sessionChanged);
@@ -397,6 +418,81 @@ class _DesktopShellState extends State<DesktopShell> {
     _refreshPurchaseStages();
     unawaited(_probeHealth());
     _healthTimer = Timer.periodic(_healthInterval, (_) => _probeHealth());
+    if (widget.phase2) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _maybeFirstRun());
+    }
+  }
+
+  /// Whether this person may give the agency's branding (the server decides).
+  bool get _mayGiveBranding =>
+      widget.permissions.hasPermission('PLATFORM_SETTINGS') ||
+      widget.permissions.isPlatformAdmin;
+
+  /// "Finish setting up" is owed while the server holds no branding and this
+  /// person may give it.
+  bool get _brandingOwed => _mayGiveBranding && !_agencyRecord.isSet;
+
+  /// After sign-in, once: open "Set up your agency" for a person who may give
+  /// the branding, while it is not given, unless they skipped it before. Reads
+  /// only what sign-in cached; asks the server nothing.
+  void _maybeFirstRun() {
+    if (!mounted || _firstRunChecked) return;
+    _firstRunChecked = true;
+    if (!_brandingOwed) return;
+    if (widget.preferences.workspaceState(_firstRunStateKey)['agency_skipped'] ==
+        true) {
+      return;
+    }
+    unawaited(_openAgencySetup(remember: true));
+  }
+
+  Future<void> _openAgencySetup({bool remember = false}) async {
+    // Nothing cached means nothing is known, not "not set": ask the server
+    // once before offering an empty form that would replace its record.
+    if (!_agencyKnown) {
+      try {
+        final AgencyBranding current = await widget.session.api.getBranding();
+        _agencyKnown = true;
+        if (current.isSet) {
+          _brandingChanged(current,
+              current.hasLogo ? await widget.session.api.getBrandingLogo() : null);
+          return;
+        }
+      } catch (_) {
+        return;
+      }
+      if (!mounted) return;
+    }
+    final bool saved = await FirstRunAgencyDialog.show(
+      context,
+      api: widget.session.api,
+      product: widget.branding,
+      initial: _agencyRecord,
+      initialLogo: _agencyLogo,
+      onChanged: _brandingChanged,
+    );
+    if (!saved && remember && mounted) {
+      await widget.preferences
+          .saveWorkspaceState(_firstRunStateKey, {'agency_skipped': true});
+    }
+  }
+
+  /// A save of the agency's branding was accepted: keep it on this PC and show
+  /// it in the header and the window title now. The save's own answers carry
+  /// everything, so this reads nothing.
+  void _brandingChanged(AgencyBranding saved, Uint8List? logo) {
+    unawaited((widget.agencyCache ?? AgencyBrandingCache())
+        .write(widget.session.baseUrl, saved, logo));
+    if (!mounted) return;
+    setState(() {
+      _agencyRecord = saved;
+      _agencyKnown = true;
+      _agencyLogo = logo;
+      _agency = AgencyIdentity.from(
+        CachedAgencyBranding(branding: saved, logo: logo),
+        widget.branding,
+      );
+    });
   }
 
   @override
@@ -986,6 +1082,15 @@ class _DesktopShellState extends State<DesktopShell> {
                                 key: const ValueKey('backups'),
                                 api: widget.session.api,
                               )
+                        : widget.phase2 &&
+                                _router.current.path ==
+                                    MenuLayout.brandingRoute
+                            ? BrandingPage(
+                                key: const ValueKey('branding'),
+                                api: widget.session.api,
+                                product: widget.branding,
+                                onChanged: _brandingChanged,
+                              )
                             : _page(widget.session.api, section);
                 if (!_classicLayout && constraints.maxWidth >= 600) {
                   return _menuLayout(page);
@@ -1291,6 +1396,7 @@ class _DesktopShellState extends State<DesktopShell> {
         onOpen: _openFromMenu,
         onOpenView: (item, view) => _openFromMenu(item, view: view),
         favourites: _favourites,
+        onFinishSetup: _brandingOwed ? () => unawaited(_openAgencySetup()) : null,
         hidden: _homeHidden(),
         onCustomise: (hidden) async {
           await widget.preferences.saveWorkspaceState(

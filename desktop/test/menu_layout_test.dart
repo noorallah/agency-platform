@@ -180,7 +180,7 @@ void main() {
         MenuLayout.settings.groups
             .where((group) => group.part == MenuPart.platform)
             .map((group) => group.label),
-        ['People', 'Firms', 'System'],
+        ['People', 'Firms', 'Agency', 'System'],
       );
     });
 
