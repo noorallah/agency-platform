@@ -252,3 +252,21 @@ step 1 only; U8 Help > About stays parked).
   "Copy details for support" (product, version, server, computer name).
 - Wireframe colours that are not design tokens (the gold glow) are not used.
 
+### 8.3 Main app header (U6, option 1)
+
+- The app keeps Windows' own title bar, which cannot hold a logo, so option 1
+  is built in two halves: the **window title** reads "<agency> > <firm>"
+  (the firm part only while one is selected), and the agency's **logo, name
+  and tagline lead the existing menu strip**, before Home, with no added
+  height. Then the selected firm as plain text; the firm switcher stays.
+- Below 820 px only the logo shows; the tagline shows from 1280 px. Clicking
+  the agency opens Home.
+- **No added requests**: the header reads the copy sign-in cached
+  (`agency_branding_cache.dart`), once per shell; fallback `branding.json`,
+  then initials.
+- **Status line, right end**: product logo (placeholder icon until one is
+  packaged), "<product> <version> by <company>", a tooltip with the same.
+  No About on click -- Help > About is parked (U8).
+- Not built: the "PRACTICE" mark (no practice-firm feature exists) and the
+  "Finish setting up" prompt (U5, next).
+

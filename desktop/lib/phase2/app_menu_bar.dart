@@ -21,6 +21,7 @@ class AppMenuBar extends StatelessWidget {
     required this.onOpen,
     required this.onOpenSetUp,
     required this.trailing,
+    this.leading,
     this.profile,
     this.favourites,
   });
@@ -43,6 +44,10 @@ class AppMenuBar extends StatelessWidget {
 
   /// Search and the firm switcher, right-aligned before the gear.
   final List<Widget> trailing;
+
+  /// The agency's mark at the left end, before Home (backlog 71, U6); it
+  /// must fit the bar's own height.
+  final Widget? leading;
 
   /// Who is signed in: last on the bar, after the gear, as the wireframe.
   final Widget? profile;
@@ -84,9 +89,10 @@ class AppMenuBar extends StatelessWidget {
       child: SizedBox(
         height: height,
         child: Row(children: [
-          // The product's name is in the window's title bar (owner,
-          // 2026-09-27), so the areas start at the left, Home first.
+          // The window's title bar names the agency and firm; the agency's
+          // own mark leads the strip (owner, 2026-10-03), then Home first.
           const SizedBox(width: 8),
+          if (leading != null) ...[leading!, const SizedBox(width: 8)],
           // The areas get whatever the controls on the right leave, measured
           // rather than guessed: the right-hand side changes with the firm's
           // name, and a fixed allowance either wasted room or overlapped.

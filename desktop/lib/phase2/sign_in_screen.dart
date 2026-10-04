@@ -235,8 +235,9 @@ class _Phase2SignInScreenState extends State<Phase2SignInScreen> {
 }
 
 /// The agency's logo, or its logo file from the package, or its initials.
-class _AgencyMark extends StatelessWidget {
-  const _AgencyMark({
+class AgencyMark extends StatelessWidget {
+  const AgencyMark({
+    super.key,
     required this.name,
     required this.logo,
     required this.logoFile,
@@ -331,7 +332,7 @@ class _TopBar extends StatelessWidget {
         ),
         child: Row(
           children: [
-            _AgencyMark(
+            AgencyMark(
               name: name,
               logo: logo,
               logoFile: logoFile,
@@ -394,7 +395,7 @@ class _AgencyHead extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     return Row(
       children: [
-        _AgencyMark(name: name, logo: logo, logoFile: logoFile, size: 40),
+        AgencyMark(name: name, logo: logo, logoFile: logoFile, size: 40),
         const SizedBox(width: AppSpacing.md),
         Expanded(
           child: Column(
@@ -424,8 +425,8 @@ class _AgencyHead extends StatelessWidget {
 }
 
 /// The product's own logo, or a small neutral placeholder.
-class _ProductMark extends StatelessWidget {
-  const _ProductMark({required this.branding, required this.size});
+class ProductMark extends StatelessWidget {
+  const ProductMark({super.key, required this.branding, required this.size});
 
   final BrandingConfig branding;
   final double size;
@@ -475,7 +476,7 @@ class _ProductFoot extends StatelessWidget {
         const SizedBox(height: AppSpacing.md),
         Row(
           children: [
-            _ProductMark(branding: branding, size: 24),
+            ProductMark(branding: branding, size: 24),
             const SizedBox(width: AppSpacing.sm),
             Expanded(
               child: Wrap(
@@ -789,7 +790,7 @@ class _ShowcaseState extends State<_Showcase> {
           children: [
             Row(
               children: [
-                _ProductMark(branding: widget.branding, size: 32),
+                ProductMark(branding: widget.branding, size: 32),
                 const SizedBox(width: AppSpacing.md),
                 Expanded(
                   child: Column(
