@@ -109,6 +109,39 @@ Reports use `WorkspaceLayout` with their own bounded report content. They may
 replace the grid with charts or report viewers, but search, filters, status,
 loading, empty states, and export actions remain shared.
 
+### A document window carries its own next steps, through the shared strip
+
+Every transactional document window -- the phase 2 editor and the read-only
+view -- offers the next steps its list toolbar offers for that record:
+Complete, Approve, Dispatch, Hold, Cancel, Close. They are defined **once per
+document** as a list of `DocumentStep`s
+(`desktop/lib/ui/document_framework/document_steps.dart`), each carrying the
+permission code the server enforces, the `DocumentStatusGate` rule for its
+status, and the call -- with whatever it asks first (a reason, a licence
+check, a credit warning). The list toolbar builds its commands from that list
+(`DocumentStep.command`) and every window shows it through
+`DocumentStepStrip`, so the two can never disagree about one record. Never
+write a second enabling predicate in a window.
+
+- The strip shows only the steps the record allows: forward steps as
+  buttons, Cancel and Close behind **More**.
+- A step that succeeds closes the window with a `DocumentStepDone`; the page
+  reads its list again and says the message. A refusal leaves the window open
+  with the server's sentence.
+- An editor of a draft offers **Save & complete** / **Save & approve**
+  (`saveThenStep`, `saveButtons`) beside its save: it saves, then takes the
+  step on what was saved. If the step is refused or backed out of, the saved
+  draft stays, the window stays open on it with the message, and the next
+  save corrects that draft rather than raising a second one.
+
+The goods receipt editor offered only *Save receipt* while Complete -- which
+posts the stock -- lived on the list toolbar alone; the owner saved two
+receipts, took them for completed, and both were drafts (D-BUY-22). The
+per-document definitions are `goodsReceiptSteps`, `purchaseInvoiceSteps`,
+`purchaseReturnSteps`, `salesOrderSteps` and `salesInvoiceSteps`; the
+delivery note and sales return build theirs inside their pages, whose
+dispatch and cancel dialogs are private to them.
+
 ## Interaction contracts
 
 `WorkspaceShortcuts` registers only callbacks the current user may invoke.

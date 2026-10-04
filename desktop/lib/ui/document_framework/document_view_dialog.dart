@@ -20,14 +20,12 @@ import 'document_framework_widgets.dart';
 /// re-gates every button on it -- Submit stops being pressable the instant the
 /// order stops being a draft, and the server is authoritative either way.
 ///
-/// This viewer stays read-only because the six screens that use it have not
-/// been given the same treatment yet, not because they should not be. Three
-/// things have to be settled first: `GoodsReceiptViewDialog` is a second copy
-/// of this widget and would need the same slot; sales orders and sales
-/// invoices run a credit-exposure warning before Approve, which from in here
-/// would be a dialog over a dialog; and the goods receipt page has no
-/// permission check on its lifecycle buttons at all. Until then, those six act
-/// from the workspace toolbar.
+/// Since D-BUY-22 the screens that use it pass their document's next steps
+/// in [steps] -- a [DocumentStepStrip] built from the same definitions as
+/// their toolbar, so the permission code and the status gate are the
+/// toolbar's. A sales order's or invoice's credit warning before Approve is
+/// a dialog over this one, which is acceptable; a step that succeeds closes
+/// this viewer so the list reads itself again.
 ///
 /// Generic because the four documents differ only in what they call their
 /// number: each page already builds these snapshots for the pane this
@@ -43,6 +41,7 @@ class DocumentViewDialog extends StatelessWidget {
     required this.totals,
     required this.history,
     this.extra,
+    this.steps,
   });
 
   final String title;
@@ -58,6 +57,10 @@ class DocumentViewDialog extends StatelessWidget {
   /// that matters about a document is not always on the document.
   final Widget? extra;
 
+  /// The document's next steps: a [DocumentStepStrip] the page builds from
+  /// the same definitions as its toolbar (D-BUY-22).
+  final Widget? steps;
+
   @override
   Widget build(BuildContext context) => WorkspaceDialog(
         title: title,
@@ -68,6 +71,8 @@ class DocumentViewDialog extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (steps != null)
+                Align(alignment: Alignment.centerRight, child: steps),
               EnterpriseDocumentHeader(header: header),
               const SizedBox(height: 12),
               EnterpriseDocumentLines(lines: lines),

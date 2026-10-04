@@ -18,13 +18,13 @@ import '../../models/bulk_action.dart';
 import '../../models/document_framework.dart';
 import '../../phase2/indian_format.dart';
 import '../../models/goods_receipt.dart';
-import '../document_framework/document_framework_widgets.dart';
-import '../document_framework/document_status_gate.dart';
+import '../document_framework/document_steps.dart';
 import '../document_framework/document_view_dialog.dart';
 import '../workspace/bulk_action.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
 import 'purchase_invoice_editor_dialog.dart';
+import 'purchase_invoice_steps.dart';
 import 'supplier_irn_dialog.dart';
 
 class PurchaseInvoiceManagementPage extends StatefulWidget {
@@ -222,7 +222,7 @@ class _PurchaseInvoiceManagementPageState
   /// seeder had raised, and the orphan-route guard could not see it because
   /// the generic `documentPage` helper names the same literal.
   Future<void> _createInvoice() async {
-    final Json? saved = await showDocument<Json>(
+    final Object? outcome = await showDocument<Object>(
       context,
       title: 'New purchase invoice',
       builder: (_) => PurchaseInvoiceEditorDialog(
@@ -232,8 +232,17 @@ class _PurchaseInvoiceManagementPageState
         stages: _stages,
         orders: _billableOrders,
         vendors: _vendors,
+        steps: [
+          for (final DocumentStep<DocumentRef> step
+              in purchaseInvoiceSteps(widget.api, widget.permissions))
+            step.on<Json>(
+              (json) => DocumentRef.fromJson(json, numberKey: 'invoice_number'),
+            ),
+        ],
       ),
     );
+    if (await _afterWindow(outcome)) return;
+    final Json? saved = outcome is Json ? outcome : null;
     if (saved == null || !mounted) return;
     await _load();
     if (!mounted) return;
@@ -266,23 +275,38 @@ class _PurchaseInvoiceManagementPageState
   /// offered buttons the server would refuse.
   bool _mayApprove() => widget.permissions.hasPermission('PURCHASE_APPROVE');
 
-  bool _mayRun(DocumentToolbarAction action) => switch (action) {
-        DocumentToolbarAction.approve ||
-        DocumentToolbarAction.close ||
-        DocumentToolbarAction.archive ||
-        DocumentToolbarAction.requestApproval =>
-          _mayApprove(),
-        DocumentToolbarAction.cancel ||
-        DocumentToolbarAction.reject =>
-          widget.permissions.hasPermission('PURCHASE_CANCEL'),
-        DocumentToolbarAction.newDocument =>
-          widget.permissions.hasPermission('PURCHASE_CREATE'),
-        DocumentToolbarAction.save =>
-          widget.permissions.hasPermission('PURCHASE_UPDATE'),
-        DocumentToolbarAction.exportDocument =>
-          widget.permissions.hasPermission('PURCHASE_EXPORT'),
-        _ => true,
-      };
+  /// The bill's next steps -- Approve, Cancel, Close -- as its own windows
+  /// offer them too (D-BUY-22): one definition, so the toolbar and the
+  /// window cannot disagree about one bill.
+  late final List<DocumentStep<_PurchaseInvoiceRecord>> _steps = [
+    for (final DocumentStep<DocumentRef> step
+        in purchaseInvoiceSteps(widget.api, widget.permissions))
+      step.on<_PurchaseInvoiceRecord>(
+        (bill) => DocumentRef(
+          id: bill.id,
+          number: bill.invoiceNumber,
+          status: bill.status,
+        ),
+      ),
+  ];
+
+  DocumentStep<_PurchaseInvoiceRecord> _step(String id) =>
+      _steps.firstWhere((step) => step.id == id);
+
+  /// Take a step against the selected bill from the toolbar and reload.
+  void _runStep(
+    DocumentStep<_PurchaseInvoiceRecord> step,
+    _PurchaseInvoiceRecord bill,
+  ) =>
+      unawaited(runStepFromList(context, step, bill, reload: _load));
+
+  /// What a bill's window closed with: a step it took, or anything else.
+  Future<bool> _afterWindow(Object? outcome) async {
+    if (outcome is! DocumentStepDone || !mounted) return false;
+    await _load();
+    if (mounted) showStepDone(context, outcome);
+    return true;
+  }
 
   Future<void> _load({int? requestedPage}) async {
     // Read before any await: whether to pick the first row (phase 1 only).
@@ -578,27 +602,9 @@ class _PurchaseInvoiceManagementPageState
             ? _bulkCommands()
             : Phase2Scope.of(context)
             ? [
-                _command(
-                  'Approve',
-                  Icons.check_circle_outline,
-                  DocumentToolbarAction.approve,
-                  DocumentLifecycleAction.approve,
-                  '/approve',
-                ),
-                _command(
-                  'Cancel',
-                  Icons.cancel_outlined,
-                  DocumentToolbarAction.cancel,
-                  DocumentLifecycleAction.cancel,
-                  '/cancel',
-                ),
-                _command(
-                  'Close',
-                  Icons.lock_outline,
-                  DocumentToolbarAction.close,
-                  DocumentLifecycleAction.close,
-                  '/close',
-                ),
+                for (final DocumentStep<_PurchaseInvoiceRecord> step
+                    in _steps)
+                  step.command(_selected, _runStep),
                 _recordIrnCommand(),
               ]
             : const [],
@@ -622,27 +628,9 @@ class _PurchaseInvoiceManagementPageState
                 ),
               ]
             : [
-                _actionButton(
-                  'Approve',
-                  Icons.check_circle_outline,
-                  DocumentToolbarAction.approve,
-                  DocumentLifecycleAction.approve,
-                  '/approve',
-                ),
-                _actionButton(
-                  'Cancel',
-                  Icons.cancel_outlined,
-                  DocumentToolbarAction.cancel,
-                  DocumentLifecycleAction.cancel,
-                  '/cancel',
-                ),
-                _actionButton(
-                  'Close',
-                  Icons.lock_outline,
-                  DocumentToolbarAction.close,
-                  DocumentLifecycleAction.close,
-                  '/close',
-                ),
+                _actionButton(_step('approve')),
+                _actionButton(_step('cancel')),
+                _actionButton(_step('close')),
               ],
       );
 
@@ -652,24 +640,15 @@ class _PurchaseInvoiceManagementPageState
   /// Permission alone used to decide this, so Approve was live on an
   /// already-approved document and Close on a closed one. Pressing either
   /// produced a refusal the screen could have predicted.
-  Widget _actionButton(
-    String label,
-    IconData icon,
-    DocumentToolbarAction action,
-    DocumentLifecycleAction lifecycle,
-    String suffix,
-  ) =>
+  Widget _actionButton(DocumentStep<_PurchaseInvoiceRecord> step) =>
       Padding(
         padding: const EdgeInsets.only(left: 8),
         child: OutlinedButton.icon(
-          onPressed: _selected == null ||
-                  !_mayRun(action) ||
-                  !DocumentStatusGate.purchaseInvoice
-                      .allows(lifecycle, _selected?.status)
-              ? null
-              : () => unawaited(_act(suffix)),
-          icon: Icon(icon, size: 18),
-          label: Text(label),
+          onPressed: step.enabledFor(_selected)
+              ? () => _runStep(step, _selected!)
+              : null,
+          icon: Icon(step.icon, size: 18),
+          label: Text(step.label),
         ),
       );
 
@@ -713,26 +692,6 @@ class _PurchaseInvoiceManagementPageState
           : AppNotificationKind.success,
     );
   }
-
-  /// The same step as a phase 2 command, enabled as its button is.
-  ToolbarCommand _command(
-    String label,
-    IconData icon,
-    DocumentToolbarAction action,
-    DocumentLifecycleAction lifecycle,
-    String suffix,
-  ) =>
-      ToolbarCommand(
-        id: label.toLowerCase(),
-        label: label,
-        icon: icon,
-        onPressed: _selected == null ||
-                !_mayRun(action) ||
-                !DocumentStatusGate.purchaseInvoice
-                    .allows(lifecycle, _selected?.status)
-            ? null
-            : () => unawaited(_act(suffix)),
-      );
 
   /// Every column the grid can show; Columns picks among them, remembered
   /// per screen on this PC (owner, 2026-09-27).
@@ -832,9 +791,13 @@ class _PurchaseInvoiceManagementPageState
         ? ' · Self-invoice ${record.selfInvoiceNumber}'
             ' (reverse charge ${record.reverseChargeTaxTotal})'
         : '';
-    await showDialog<void>(
+    final Object? outcome = await showDialog<Object>(
       context: context,
       builder: (_) => DocumentViewDialog(
+        steps: DocumentStepStrip<_PurchaseInvoiceRecord>(
+          record: record,
+          steps: _steps,
+        ),
         title: record.invoiceNumber,
         subtitle:
             'Supplier invoice ${record.supplierInvoiceNumber}$selfInvoice',
@@ -863,6 +826,7 @@ class _PurchaseInvoiceManagementPageState
         extra: variance == null ? null : _variancePanel(context, variance),
       ),
     );
+    await _afterWindow(outcome);
   }
 
   /// The bill's price variance: each line charged at a rate other than its
@@ -897,39 +861,6 @@ class _PurchaseInvoiceManagementPageState
         'received at ${row['receipt_rate']}, billed at ${row['bill_rate']} '
         '× ${row['quantity']}';
     return note.isNotEmpty ? '$head — $note' : '$head = ${row['variance']}';
-  }
-
-  Future<void> _act(String suffix) async {
-    final _PurchaseInvoiceRecord? selected = _selected;
-    if (selected == null) {
-      return;
-    }
-    try {
-      final Json done = await widget.api
-          .documentAction('purchase-invoices', selected.id, suffix);
-      // Past 30 November after the supplier's year the credit is lost
-      // (s.16(4), GST-3): said on the approval, when the credit is taken.
-      final String late = suffix == '/approve'
-          ? stringValue(_unwrap(done)['credit_time_limit_warning'])
-          : '';
-      await _load();
-      if (late.isNotEmpty && mounted) {
-        NotificationService.show(
-          context,
-          '${selected.invoiceNumber} approved. $late',
-          kind: AppNotificationKind.warning,
-        );
-      }
-    } on ApiException catch (error) {
-      if (!mounted) {
-        return;
-      }
-      NotificationService.show(
-        context,
-        error.message,
-        kind: AppNotificationKind.error,
-      );
-    }
   }
 
   Future<void> _selectInvoice(_PurchaseInvoiceRecord row) async {

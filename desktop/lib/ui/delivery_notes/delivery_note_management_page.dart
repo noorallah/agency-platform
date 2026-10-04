@@ -22,6 +22,7 @@ import '../../phase2/document_page.dart' show documentDate;
 import '../../phase2/indian_format.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../document_framework/document_status_gate.dart';
+import '../document_framework/document_steps.dart';
 import '../document_framework/document_view_dialog.dart';
 import '../trade_licences/licence_check_dialog.dart';
 import '../workspace/bulk_action.dart';
@@ -199,24 +200,6 @@ class _DeliveryNoteManagementPageState
   /// offered buttons the server would refuse.
   bool _mayApprove() => widget.permissions.hasPermission('SALES_APPROVE');
 
-  bool _mayRun(DocumentToolbarAction action) => switch (action) {
-        DocumentToolbarAction.approve ||
-        DocumentToolbarAction.close ||
-        DocumentToolbarAction.archive ||
-        DocumentToolbarAction.requestApproval =>
-          _mayApprove(),
-        DocumentToolbarAction.cancel ||
-        DocumentToolbarAction.reject =>
-          widget.permissions.hasPermission('SALES_CANCEL'),
-        DocumentToolbarAction.newDocument =>
-          widget.permissions.hasPermission('SALES_CREATE'),
-        DocumentToolbarAction.save =>
-          widget.permissions.hasPermission('SALES_UPDATE'),
-        DocumentToolbarAction.exportDocument =>
-          widget.permissions.hasPermission('SALES_EXPORT'),
-        _ => true,
-      };
-
   /// Load what the editor needs: the orders that can still be delivered
   /// against, the bays goods leave from, and product names.
   ///
@@ -259,7 +242,7 @@ class _DeliveryNoteManagementPageState
 
   /// Open the editor and reload if it saved a note.
   Future<void> _createNote() async {
-    final Json? saved = await showDocument<Json>(
+    final Object? outcome = await showDocument<Object>(
       context,
       title: 'New delivery note',
       builder: (_) => DeliveryNoteEditorDialog(
@@ -268,8 +251,14 @@ class _DeliveryNoteManagementPageState
         warehouses: _warehouses,
         products: _products,
         features: _features,
+        steps: [
+          for (final DocumentStep<_DeliveryNoteRecord> step in _steps)
+            step.on<Json>(_DeliveryNoteRecord.fromJson),
+        ],
       ),
     );
+    if (await _afterWindow(outcome, null)) return;
+    final Json? saved = outcome is Json ? outcome : null;
     if (saved == null || !mounted) return;
     await _load();
     if (!mounted) return;
@@ -279,31 +268,6 @@ class _DeliveryNoteManagementPageState
       'a draft. Dispatching it is what moves the stock.',
       kind: AppNotificationKind.success,
     );
-  }
-
-  /// The lifecycle action a toolbar button stands for, or null when it is not
-  /// a lifecycle action at all.
-  DocumentLifecycleAction? _lifecycleOf(DocumentToolbarAction action) =>
-      switch (action) {
-        DocumentToolbarAction.approve => DocumentLifecycleAction.approve,
-        DocumentToolbarAction.dispatch => DocumentLifecycleAction.dispatch,
-        DocumentToolbarAction.complete => DocumentLifecycleAction.complete,
-        DocumentToolbarAction.cancel => DocumentLifecycleAction.cancel,
-        DocumentToolbarAction.close => DocumentLifecycleAction.close,
-        _ => null,
-      };
-
-  /// Whether [action] may run against the selected document right now.
-  ///
-  /// Permission alone used to decide this, so Approve was live on an
-  /// already-approved document and Close on a closed one; pressing either
-  /// produced a refusal the screen could have predicted. The gate states the
-  /// same rule the service enforces.
-  bool _statusAllows(DocumentToolbarAction action, String? status) {
-    final DocumentLifecycleAction? lifecycle = _lifecycleOf(action);
-    // Not a lifecycle action -- New, Print and the rest are unaffected.
-    if (lifecycle == null) return true;
-    return DocumentStatusGate.deliveryNote.allows(lifecycle, status);
   }
 
   Future<void> _load({int? requestedPage}) async {
@@ -400,9 +364,13 @@ class _DeliveryNoteManagementPageState
       history = const [];
     }
     if (!mounted) return;
-    await showDialog<void>(
+    final Object? outcome = await showDialog<Object>(
       context: context,
       builder: (_) => DocumentViewDialog(
+        steps: DocumentStepStrip<_DeliveryNoteRecord>(
+          record: row,
+          steps: _steps,
+        ),
         title: row.deliveryNoteNumber,
         subtitle: 'Against ${row.salesOrderReference}',
         icon: Icons.local_shipping_outlined,
@@ -429,6 +397,7 @@ class _DeliveryNoteManagementPageState
         history: history,
       ),
     );
+    await _afterWindow(outcome, row);
   }
 
   @override
@@ -710,34 +679,15 @@ class _DeliveryNoteManagementPageState
                       ? () => unawaited(_ewayBill(_selected!))
                       : null,
                 ),
-                for (final (DocumentToolbarAction action, String suffix)
-                    in const [
-                  (DocumentToolbarAction.approve, '/approve'),
-                  (DocumentToolbarAction.dispatch, '/dispatch'),
-                  (DocumentToolbarAction.complete, '/complete'),
-                  (DocumentToolbarAction.cancel, '/cancel'),
-                  (DocumentToolbarAction.close, '/close'),
+                for (final String id in const [
+                  'approve',
+                  'dispatch',
+                  'complete',
+                  'cancel',
+                  'close',
+                  'dispatch-and-invoice',
                 ])
-                  ToolbarCommand(
-                    id: action.name,
-                    label: action.label,
-                    icon: action.icon,
-                    onPressed: _selected == null ||
-                            !_mayRun(action) ||
-                            !_statusAllows(action, _selected?.status)
-                        ? null
-                        : () => unawaited(_run(action, suffix)),
-                  ),
-                ToolbarCommand(
-                  id: 'dispatch-and-invoice',
-                  label: 'Dispatch and invoice',
-                  icon: Icons.receipt_long_outlined,
-                  onPressed: _selected == null ||
-                          _selected!.status.toUpperCase() != 'APPROVED' ||
-                          !_mayDispatchAndInvoice()
-                      ? null
-                      : () => unawaited(_dispatchAndInvoiceChecked(_selected!)),
-                ),
+                  _step(id).command(_selected, _runStep),
                 ToolbarCommand(
                   id: 'print-settings',
                   label: 'Print settings',
@@ -772,11 +722,11 @@ class _DeliveryNoteManagementPageState
                   onPressed: () => unawaited(_openPrintSettings()),
                   icon: const Icon(Icons.tune_outlined, size: 18),
                 ),
-                _actionButton(DocumentToolbarAction.approve, '/approve'),
-                _actionButton(DocumentToolbarAction.dispatch, '/dispatch'),
-                _actionButton(DocumentToolbarAction.complete, '/complete'),
-                _actionButton(DocumentToolbarAction.cancel, '/cancel'),
-                _actionButton(DocumentToolbarAction.close, '/close'),
+                _actionButton(_step('approve')),
+                _actionButton(_step('dispatch')),
+                _actionButton(_step('complete')),
+                _actionButton(_step('cancel')),
+                _actionButton(_step('close')),
               ],
       );
 
@@ -862,48 +812,146 @@ class _DeliveryNoteManagementPageState
     );
   }
 
+  /// The note's next steps -- Approve, Dispatch, Complete, Cancel, Close,
+  /// and Dispatch and invoice -- as its own windows offer them too
+  /// (D-BUY-22): one definition, so the toolbar and the window cannot
+  /// disagree about one note.
+  ///
+  /// The server gates approve, dispatch, complete and close on
+  /// `SALES_APPROVE` and cancel on `SALES_CANCEL`; the status gate is
+  /// [DocumentStatusGate.deliveryNote]. Dispatch and Complete used to ask no
+  /// code at all here and were refused after the press.
+  late final List<DocumentStep<_DeliveryNoteRecord>> _steps = [
+    _lifecycleStep(
+      DocumentToolbarAction.approve,
+      DocumentLifecycleAction.approve,
+      permitted: _mayApprove(),
+      forward: true,
+      afterSave: 'Save & approve',
+    ),
+    _lifecycleStep(
+      DocumentToolbarAction.dispatch,
+      DocumentLifecycleAction.dispatch,
+      permitted: _mayApprove(),
+      forward: true,
+    ),
+    _lifecycleStep(
+      DocumentToolbarAction.complete,
+      DocumentLifecycleAction.complete,
+      permitted: _mayApprove(),
+    ),
+    _lifecycleStep(
+      DocumentToolbarAction.cancel,
+      DocumentLifecycleAction.cancel,
+      permitted: widget.permissions.hasPermission('SALES_CANCEL'),
+    ),
+    _lifecycleStep(
+      DocumentToolbarAction.close,
+      DocumentLifecycleAction.close,
+      permitted: _mayApprove(),
+    ),
+    DocumentStep<_DeliveryNoteRecord>(
+      id: 'dispatch-and-invoice',
+      label: 'Dispatch and invoice',
+      icon: Icons.receipt_long_outlined,
+      permitted: _mayDispatchAndInvoice(),
+      allows: (note) => note.status.toUpperCase() == 'APPROVED',
+      run: (context, note) => _dispatchAndInvoiceChecked(note),
+    ),
+  ];
+
+  DocumentStep<_DeliveryNoteRecord> _lifecycleStep(
+    DocumentToolbarAction action,
+    DocumentLifecycleAction lifecycle, {
+    required bool permitted,
+    bool forward = false,
+    String? afterSave,
+  }) =>
+      DocumentStep<_DeliveryNoteRecord>(
+        id: action.name,
+        label: action.label,
+        icon: action.icon,
+        permitted: permitted,
+        forward: forward,
+        afterSave: afterSave,
+        allows: (note) =>
+            DocumentStatusGate.deliveryNote.allows(lifecycle, note.status),
+        run: (context, note) => _take(note, '/${action.name}'),
+      );
+
+  DocumentStep<_DeliveryNoteRecord> _step(String id) =>
+      _steps.firstWhere((step) => step.id == id);
+
+  /// Take a step against a note from the toolbar and reload.
+  void _runStep(
+    DocumentStep<_DeliveryNoteRecord> step,
+    _DeliveryNoteRecord note,
+  ) =>
+      unawaited(() async {
+        final DocumentStepDone? done =
+            await runStepFromList(context, step, note, reload: _load);
+        _afterStep(done, note);
+      }());
+
+  /// The goods have left: say so if they are worth an e-way bill. After the
+  /// reload, and never awaited -- the prompt is a snack bar, not a gate.
+  void _afterStep(DocumentStepDone? done, _DeliveryNoteRecord note) {
+    if (done?.step != 'dispatch' || !mounted) return;
+    unawaited(_ewayNudge.offer(
+      context,
+      noteId: note.id,
+      grandTotal: note.grandTotal,
+    ));
+  }
+
+  /// What a note's window closed with: a step it took, or anything else.
+  Future<bool> _afterWindow(Object? outcome, _DeliveryNoteRecord? note) async {
+    if (outcome is! DocumentStepDone || !mounted) return false;
+    await _load();
+    if (!mounted) return true;
+    showStepDone(context, outcome);
+    if (note != null) _afterStep(outcome, note);
+    return true;
+  }
+
   /// A lifecycle button, disabled unless permission **and** the selected
   /// note's status allow it.
-  Widget _actionButton(DocumentToolbarAction action, String suffix) => Padding(
+  Widget _actionButton(DocumentStep<_DeliveryNoteRecord> step) => Padding(
         padding: const EdgeInsets.only(left: 8),
         child: OutlinedButton.icon(
-          onPressed: _selected == null ||
-                  !_mayRun(action) ||
-                  !_statusAllows(action, _selected?.status)
-              ? null
-              : () => unawaited(_run(action, suffix)),
-          icon: Icon(action.icon, size: 18),
-          label: Text(action.label),
+          onPressed: step.enabledFor(_selected)
+              ? () => _runStep(step, _selected!)
+              : null,
+          icon: Icon(step.icon, size: 18),
+          label: Text(step.label),
         ),
       );
 
-  /// Run a lifecycle action, checking the licences it needs first where the
-  /// action is approving the note (backlog 54) -- before the call, since
+  /// Run a lifecycle step, checking the licences it needs first where the
+  /// step is approving the note (backlog 54) -- before the call, since
   /// that is the decision being checked.
-  Future<void> _run(DocumentToolbarAction action, String suffix) async {
-    final _DeliveryNoteRecord? selected = _selected;
-    if (selected == null) return;
-    if (action == DocumentToolbarAction.approve) {
+  Future<DocumentStepDone?> _take(
+    _DeliveryNoteRecord note,
+    String suffix,
+  ) async {
+    if (suffix == '/approve') {
       final LicenceCheckOutcome licence = await confirmLicenceCheck(
         context,
         widget.api,
         widget.permissions,
         document: 'DELIVERY_NOTE',
-        documentId: selected.id,
+        documentId: note.id,
       );
-      if (!licence.proceed) return;
-      await _act(suffix, overrideReason: licence.overrideReason);
-      return;
+      if (!licence.proceed) return null;
+      return _call(note, suffix, overrideReason: licence.overrideReason);
     }
     // Goods leave on Dispatch, and on Complete of a note never dispatched:
     // the firm's GST policy is asked first (backlog 77.1).
-    if (action == DocumentToolbarAction.dispatch ||
-        (action == DocumentToolbarAction.complete &&
-            selected.status.toUpperCase() == 'APPROVED')) {
-      await _dispatchChecked(selected, suffix);
-      return;
+    if (suffix == '/dispatch' ||
+        (suffix == '/complete' && note.status.toUpperCase() == 'APPROVED')) {
+      return _dispatchChecked(note, suffix);
     }
-    await _act(suffix);
+    return _call(note, suffix);
   }
 
   /// Ask whether this note is a sale with no invoice yet, and what the firm
@@ -911,7 +959,7 @@ class _DeliveryNoteManagementPageState
   ///
   /// A check that cannot be read is not a decision: the dispatch goes ahead as
   /// it always has, and the server, which enforces the policy, answers.
-  Future<void> _dispatchChecked(
+  Future<DocumentStepDone?> _dispatchChecked(
     _DeliveryNoteRecord note,
     String suffix,
   ) async {
@@ -921,22 +969,20 @@ class _DeliveryNoteManagementPageState
     if (suffix == '/dispatch') {
       final BatchDispatchOutcome batch =
           await confirmBatchDispatch(context, widget.api, note.id);
-      if (!batch.proceed || !mounted) return;
+      if (!batch.proceed || !mounted) return null;
       batchReason = batch.reason;
     }
     DispatchCheck check;
     try {
       check = await widget.api.deliveryNoteDispatchCheck(note.id);
     } on ApiException {
-      await _act(suffix, batchReason: batchReason);
-      return;
+      return _call(note, suffix, batchReason: batchReason);
     }
     final String? message = check.message;
     if (message == null) {
-      await _act(suffix, batchReason: batchReason);
-      return;
+      return _call(note, suffix, batchReason: batchReason);
     }
-    if (!mounted) return;
+    if (!mounted) return null;
     final _DispatchChoice? choice = await showDialog<_DispatchChoice>(
       context: context,
       builder: (_) => _DispatchBeforeInvoiceDialog(
@@ -945,24 +991,24 @@ class _DeliveryNoteManagementPageState
         mayInvoice: _mayDispatchAndInvoice(),
       ),
     );
-    if (!mounted) return;
-    switch (choice) {
-      case _DispatchChoice.invoice:
-        await _dispatchAndInvoice(note, batchReason: batchReason);
-      case _DispatchChoice.anyway:
-        await _act(suffix, batchReason: batchReason);
-      case _DispatchChoice.cancel || null:
-        break;
-    }
+    if (!mounted) return null;
+    return switch (choice) {
+      _DispatchChoice.invoice =>
+        _dispatchAndInvoice(note, batchReason: batchReason),
+      _DispatchChoice.anyway => _call(note, suffix, batchReason: batchReason),
+      _DispatchChoice.cancel || null => null,
+    };
   }
 
-  /// The direct "Dispatch and invoice" button: the batch rules are asked
+  /// The direct "Dispatch and invoice" step: the batch rules are asked
   /// first, as they are before a plain dispatch.
-  Future<void> _dispatchAndInvoiceChecked(_DeliveryNoteRecord note) async {
+  Future<DocumentStepDone?> _dispatchAndInvoiceChecked(
+    _DeliveryNoteRecord note,
+  ) async {
     final BatchDispatchOutcome batch =
         await confirmBatchDispatch(context, widget.api, note.id);
-    if (!batch.proceed || !mounted) return;
-    await _dispatchAndInvoice(note, batchReason: batch.reason);
+    if (!batch.proceed || !mounted) return null;
+    return _dispatchAndInvoice(note, batchReason: batch.reason);
   }
 
   /// Dispatching and invoicing in one step takes both permissions: it
@@ -972,73 +1018,51 @@ class _DeliveryNoteManagementPageState
       widget.permissions.hasPermission('SALES_APPROVE') &&
       widget.permissions.hasPermission('SALES_INVOICE_CREATE');
 
-  Future<void> _dispatchAndInvoice(
+  Future<DocumentStepDone> _dispatchAndInvoice(
     _DeliveryNoteRecord note, {
     String? batchReason,
   }) async {
-    try {
-      final Json response = await widget.api
-          .dispatchAndInvoiceDeliveryNote(note.id, batchReason: batchReason);
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        stringValue(response['message']).isEmpty
-            ? 'Dispatched and invoiced.'
-            : stringValue(response['message']),
-        kind: AppNotificationKind.success,
-      );
-      await _load();
-    } on ApiException catch (error) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        error.message,
-        kind: AppNotificationKind.error,
-      );
-    }
+    final Json response = await widget.api
+        .dispatchAndInvoiceDeliveryNote(note.id, batchReason: batchReason);
+    return DocumentStepDone(
+      stringValue(response['message']).isEmpty
+          ? 'Dispatched and invoiced.'
+          : stringValue(response['message']),
+      step: 'dispatch-and-invoice',
+    );
   }
 
-  /// Run a lifecycle action against the selected note and reload.
-  ///
-  /// The try/catch used to sit around the toolbar's `onAction` switch; it
-  /// lives here now that each button calls this directly, so a refusal still
-  /// reaches the user instead of becoming an unhandled exception.
-  Future<void> _act(
+  /// Call a lifecycle action on [note]. A refusal is thrown, for whichever
+  /// window or toolbar ran it to show where it shows refusals.
+  Future<DocumentStepDone> _call(
+    _DeliveryNoteRecord note,
     String suffix, {
     String? overrideReason,
     String? batchReason,
   }) async {
-    final _DeliveryNoteRecord? selected = _selected;
-    if (selected == null) return;
     final Map<String, String> query = {
       if (overrideReason != null) 'licence_override_reason': overrideReason,
       if (batchReason != null) 'batch_reason': batchReason,
     };
-    try {
-      await widget.api.documentAction(
-        'delivery-notes',
-        selected.id,
-        suffix,
-        query: query.isEmpty ? null : query,
-      );
-      await _load();
-      // The goods have left: say so if they are worth an e-way bill. After the
-      // reload, and never awaited -- the prompt is a snack bar, not a gate.
-      if (suffix == '/dispatch' && mounted) {
-        unawaited(_ewayNudge.offer(
-          context,
-          noteId: selected.id,
-          grandTotal: selected.grandTotal,
-        ));
-      }
-    } on ApiException catch (error) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        error.message,
-        kind: AppNotificationKind.error,
-      );
-    }
+    await widget.api.documentAction(
+      'delivery-notes',
+      note.id,
+      suffix,
+      query: query.isEmpty ? null : query,
+    );
+    final String step = suffix.substring(1);
+    return DocumentStepDone(
+      switch (step) {
+        'approve' => '${note.deliveryNoteNumber} approved.',
+        // Nothing said: the e-way bill prompt that may follow is queued
+        // behind any message, and a dispatch is the one it must not wait on.
+        'dispatch' => '',
+        'complete' => '${note.deliveryNoteNumber} completed.',
+        'cancel' => '${note.deliveryNoteNumber} cancelled.',
+        _ => '${note.deliveryNoteNumber} closed.',
+      },
+      step: step,
+    );
   }
 
   /// The Period control (owner, 2026-09-27), right after the search on

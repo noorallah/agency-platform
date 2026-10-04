@@ -17,6 +17,7 @@ import '../../models/product.dart';
 import '../../models/document_preview.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
+import '../document_framework/document_steps.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import 'ship_to_field.dart';
@@ -139,9 +140,15 @@ class SalesOrderEditorDialog extends StatefulWidget {
     required this.api,
     required this.today,
     this.orderId,
+    this.steps = const [],
   });
 
   final ApiClient api;
+
+  /// The order's next steps, as the list toolbar offers them (D-BUY-22):
+  /// *Save & approve* where the user may approve, and the rest of a saved
+  /// order's steps. Empty offers none.
+  final List<DocumentStep<Json>> steps;
 
   /// Passed in rather than read here, so the dialog is testable.
   final DateTime today;
@@ -300,7 +307,18 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   /// STK-12: when the order's stock hold lapsed unshipped, if it did.
   String _reservationLapsedAt = '';
 
-  bool get _editing => widget.orderId != null;
+  /// The order as the server last answered it -- read to be corrected, or
+  /// saved by this window; null for a new order not yet saved.
+  Json? _record;
+
+  /// Whether this window has written the order, so closing it tells the list
+  /// to read itself again.
+  bool _wrote = false;
+
+  String? get _orderId =>
+      widget.orderId ?? (_record == null ? null : stringValue(_record!['id']));
+
+  bool get _editing => _orderId != null;
 
   bool get _locked => _editing && _status != 'DRAFT';
 
@@ -447,6 +465,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   /// records what was agreed on the day it was taken, and re-reading a price
   /// or a discount out of the customer master would rewrite it.
   void _adoptExisting(Json order) {
+    _record = order;
     _version = (order['version'] as num?)?.toInt() ?? 0;
     _status = stringValue(order['status']).isEmpty
         ? 'DRAFT'
@@ -860,36 +879,65 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     };
   }
 
+  /// Save and close.
   Future<void> _save() async {
+    final Json? saved = await _persist();
+    if (saved == null || !mounted) return;
+    Navigator.of(context).pop(true);
+  }
+
+  /// Save, then approve what was saved (D-BUY-22). A refused approval leaves
+  /// the window open on the saved draft with the server's sentence, and the
+  /// next save corrects that draft rather than raising a second order.
+  Future<void> _saveAndStep(DocumentStep<Json> step) => saveThenStep<Json>(
+        context,
+        save: _persist,
+        step: step,
+        onStopped: (saved, refusal) => setState(() {
+          _record = saved;
+          _version = (saved['version'] as num?)?.toInt() ?? _version;
+          _saving = false;
+          _error = refusal == null
+              ? null
+              : 'Saved as draft ${stringValue(saved['order_number'])}, but '
+                  'not approved: $refusal';
+        }),
+      );
+
+  /// Write the order, returning it as saved; null when the save was
+  /// refused, which [_error] then says.
+  Future<Json?> _persist() async {
     final String? customField = _customFields.validate();
     if (customField != null) {
       setState(() => _error = customField);
-      return;
+      return null;
     }
     final Json? payload = _payload();
     if (payload == null) {
       setState(() => _error = 'Check the fields marked below.');
-      return;
+      return null;
     }
     setState(() {
       _saving = true;
       _error = null;
     });
     try {
-      final String? id = widget.orderId;
+      final String? id = _orderId;
+      final Json response;
       if (id == null) {
-        await widget.api.createSalesOrder(payload);
+        response = await widget.api.createSalesOrder(payload);
       } else {
-        await widget.api.updateSalesOrder(
+        response = await widget.api.updateSalesOrder(
           id,
           payload,
           expectedVersion: preconditionFor(_version),
         );
       }
-      if (!mounted) return;
-      Navigator.of(context).pop(true);
+      _wrote = true;
+      final Json saved = _unwrap(response);
+      return saved.isEmpty ? {...?_record, 'id': id} : saved;
     } on ApiException catch (error) {
-      if (!mounted) return;
+      if (!mounted) return null;
       setState(() {
         // This dialog saves from inside itself, so a refusal leaves every
         // keystroke on screen -- and the message has to say so, because
@@ -897,6 +945,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
         _error = saveFailureMessage(error, 'sales order', changesKept: true);
         _saving = false;
       });
+      return null;
     }
   }
 

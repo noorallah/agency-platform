@@ -9,22 +9,19 @@ import '../../core/security/permission_service.dart';
 import '../../models/bulk_action.dart';
 import '../../models/document_framework.dart';
 import '../../phase2/indian_format.dart';
-import '../document_framework/document_framework_widgets.dart';
-import '../document_framework/document_status_gate.dart';
+import '../document_framework/document_steps.dart';
 import '../document_framework/document_line_labels.dart';
 import '../document_framework/document_view_dialog.dart';
 import '../../models/entities.dart';
 import '../../models/messaging.dart' show HandShare;
-import '../trade_licences/licence_check_dialog.dart';
 import '../workspace/bulk_action.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
 import 'sales_invoice_editor_dialog.dart';
 import '../workspace/print_settings_dialog.dart';
 import '../workspace/printed_document.dart';
-import 'credit_notice.dart';
 import 'eway_bill_actions.dart';
-import 'price_floor_check_dialog.dart';
+import 'sales_document_steps.dart';
 import 'sales_workflow_settings_dialog.dart';
 import '../settings/send_message_dialog.dart';
 import '../workspace/remind_dialog.dart';
@@ -179,47 +176,46 @@ class _SalesInvoiceManagementPageState
         '${row['created_by'] ?? ''}' == me;
   }
 
-  bool _mayRun(DocumentToolbarAction action) => switch (action) {
-        DocumentToolbarAction.approve ||
-        DocumentToolbarAction.close ||
-        DocumentToolbarAction.archive ||
-        DocumentToolbarAction.requestApproval =>
-          _mayApprove(),
-        DocumentToolbarAction.cancel ||
-        DocumentToolbarAction.reject =>
-          widget.permissions.hasPermission('SALES_CANCEL'),
-        DocumentToolbarAction.newDocument => _mayCreate,
-        DocumentToolbarAction.save => _mayEdit(_selected),
-        DocumentToolbarAction.exportDocument =>
-          widget.permissions.hasPermission(
-            'SALES_EXPORT',
-          ),
-        _ => true,
-      };
+  /// The invoice's next steps -- Approve, Cancel, Close -- as its own
+  /// windows offer them too (D-BUY-22): one definition, so the toolbar and
+  /// the window cannot disagree about one invoice.
+  late final List<DocumentStep<Map<String, dynamic>>> _steps =
+      salesInvoiceSteps(widget.api, widget.permissions);
 
-  /// The lifecycle action a toolbar button stands for, or null when it is not
-  /// a lifecycle action at all.
-  DocumentLifecycleAction? _lifecycleOf(DocumentToolbarAction action) =>
-      switch (action) {
-        DocumentToolbarAction.approve => DocumentLifecycleAction.approve,
-        DocumentToolbarAction.dispatch => DocumentLifecycleAction.dispatch,
-        DocumentToolbarAction.complete => DocumentLifecycleAction.complete,
-        DocumentToolbarAction.cancel => DocumentLifecycleAction.cancel,
-        DocumentToolbarAction.close => DocumentLifecycleAction.close,
-        _ => null,
-      };
+  DocumentStep<Map<String, dynamic>> _step(String id) =>
+      _steps.firstWhere((step) => step.id == id);
 
-  /// Whether [action] may run against the selected document right now.
-  ///
-  /// Permission alone used to decide this, so Approve was live on an
-  /// already-approved document and Close on a closed one; pressing either
-  /// produced a refusal the screen could have predicted. The gate states the
-  /// same rule the service enforces.
-  bool _statusAllows(DocumentToolbarAction action, String? status) {
-    final DocumentLifecycleAction? lifecycle = _lifecycleOf(action);
-    // Not a lifecycle action -- New, Print and the rest are unaffected.
-    if (lifecycle == null) return true;
-    return DocumentStatusGate.salesInvoice.allows(lifecycle, status);
+  /// Take a step against an invoice from the toolbar and reload.
+  void _runStep(
+    DocumentStep<Map<String, dynamic>> step,
+    Map<String, dynamic> row,
+  ) =>
+      unawaited(() async {
+        final DocumentStepDone? done =
+            await runStepFromList(context, step, row, reload: _load);
+        _afterStep(done, row);
+      }());
+
+  /// Approved: if it is worth an e-way bill and has none, say so. Never
+  /// awaited -- the prompt is a snack bar, not a gate (backlog 77 row 10).
+  void _afterStep(DocumentStepDone? done, Map<String, dynamic> row) {
+    if (done?.step != 'approve' || !mounted) return;
+    unawaited(_ewayNudge.offer(
+      context,
+      invoiceId: '${row['id']}',
+      grandTotal: '${row['grand_total'] ?? ''}',
+      onDone: () => unawaited(_load()),
+    ));
+  }
+
+  /// What an invoice's window closed with: a step it took, or anything else.
+  Future<bool> _afterWindow(Object? outcome, Map<String, dynamic>? row) async {
+    if (outcome is! DocumentStepDone || !mounted) return false;
+    await _load();
+    if (!mounted) return true;
+    showStepDone(context, outcome);
+    if (row != null) _afterStep(outcome, row);
+    return true;
   }
 
   Future<void> _load({int? requestedPage}) async {
@@ -376,83 +372,6 @@ class _SalesInvoiceManagementPageState
     await _load();
   }
 
-  Future<void> _act(
-    String suffix, {
-    String? overrideReason,
-    String? priceOverrideReason,
-  }) async {
-    final Map<String, dynamic>? selected = _selected;
-    if (selected == null) return;
-    try {
-      await widget.api.documentAction(
-        'sales-invoices',
-        selected['id'] as String,
-        suffix,
-        query: overrideReason == null && priceOverrideReason == null
-            ? null
-            : {
-                if (overrideReason != null)
-                  'licence_override_reason': overrideReason,
-                if (priceOverrideReason != null)
-                  'price_override_reason': priceOverrideReason,
-              },
-      );
-      await _load();
-      // Approved: if it is worth an e-way bill and has none, say so. Never
-      // awaited -- the prompt is a snack bar, not a gate (backlog 77 row 10).
-      if (suffix == '/approve' && mounted) {
-        unawaited(_ewayNudge.offer(
-          context,
-          invoiceId: '${selected['id']}',
-          grandTotal: '${selected['grand_total'] ?? ''}',
-          onDone: () => unawaited(_load()),
-        ));
-      }
-    } on ApiException catch (error) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        error.message,
-        kind: AppNotificationKind.error,
-      );
-    }
-  }
-
-  /// Warn before approving, because approval is where the receivable is
-  /// posted and the credit limit is committed.
-  ///
-  /// The check has to run *before* the call: once the invoice is approved its
-  /// value is already in the outstanding balance, and asking afterwards with
-  /// the same amount would count it twice.
-  Future<void> _warnOnCredit(Map<String, dynamic> invoice) =>
-      warnOnCreditExposure(
-        context,
-        widget.api,
-        customerId: invoice['customer_id'] as String?,
-        amount: '${invoice['grand_total'] ?? '0'}',
-      );
-
-  /// Ask what the invoice's lines need, licence-wise, before approving it
-  /// (backlog 54), before the call for the same reason as [_warnOnCredit].
-  Future<LicenceCheckOutcome> _checkLicences(Map<String, dynamic> invoice) =>
-      confirmLicenceCheck(
-        context,
-        widget.api,
-        widget.permissions,
-        document: 'SALES_INVOICE',
-        documentId: invoice['id'] as String,
-      );
-
-  /// Ask whether the invoice's lines are priced under their floor before
-  /// approving it (backlog 64 row 2), before the call for the same reason as
-  /// [_warnOnCredit]. A block carries the reason of whoever may override it.
-  Future<PriceFloorOutcome> _checkPriceFloor(Map<String, dynamic> invoice) =>
-      confirmPriceFloor(
-        context,
-        widget.permissions,
-        check: () => widget.api.salesInvoicePriceCheck(invoice['id'] as String),
-      );
-
   DocumentHeaderSnapshot _headerFor(Map<String, dynamic> row) =>
       DocumentHeaderSnapshot(
         documentTypeCode: 'SALES_INVOICE',
@@ -522,9 +441,13 @@ class _SalesInvoiceManagementPageState
       history = const [];
     }
     if (!mounted) return;
-    await showDialog<void>(
+    final Object? outcome = await showDialog<Object>(
       context: context,
       builder: (_) => DocumentViewDialog(
+        steps: DocumentStepStrip<Map<String, dynamic>>(
+          record: row,
+          steps: _steps,
+        ),
         title: '${row['invoice_number'] ?? '-'}',
         subtitle: 'Sales invoice dated ${row['invoice_date'] ?? '-'}',
         icon: Icons.receipt_long_outlined,
@@ -534,33 +457,7 @@ class _SalesInvoiceManagementPageState
         history: history,
       ),
     );
-  }
-
-  /// Run a lifecycle action, warning first where the firm's credit policy
-  /// says to.
-  ///
-  /// Before the approval, not after: the document has to be counted once in
-  /// the exposure it is being checked against. A warning and never a block --
-  /// the server refuses when the policy says Block.
-  Future<void> _run(DocumentToolbarAction action, String suffix) async {
-    final Map<String, dynamic>? selected = _selected;
-    if (selected == null) return;
-    if (action == DocumentToolbarAction.approve) {
-      await _warnOnCredit(selected);
-      if (!mounted) return;
-      final LicenceCheckOutcome licence = await _checkLicences(selected);
-      if (!licence.proceed) return;
-      if (!mounted) return;
-      final PriceFloorOutcome price = await _checkPriceFloor(selected);
-      if (!price.proceed) return;
-      await _act(
-        suffix,
-        overrideReason: licence.overrideReason,
-        priceOverrideReason: price.overrideReason,
-      );
-      return;
-    }
-    await _act(suffix);
+    await _afterWindow(outcome, row);
   }
 
   @override
@@ -601,7 +498,7 @@ class _SalesInvoiceManagementPageState
   /// Raise an invoice against a delivery note that still has something to bill.
   Future<void> _newInvoice() async {
     // A tab of its own in phase 2 (4.8), the same dialog in phase 1.
-    final bool? created = await showDocument<bool>(
+    final Object? created = await showDocument<Object>(
       context,
       title: 'New invoice',
       builder: (_) =>
@@ -609,8 +506,10 @@ class _SalesInvoiceManagementPageState
         api: widget.api,
         today: DateTime.now(),
         mayApprove: _mayApprove(),
+        steps: _steps,
       ),
     );
+    if (await _afterWindow(created, null)) return;
     if (created != true) return;
     if (!mounted) return;
     NotificationService.show(
@@ -623,7 +522,7 @@ class _SalesInvoiceManagementPageState
 
   /// Reopen a draft and correct it.
   Future<void> _editInvoice(Map<String, dynamic> invoice) async {
-    final bool? saved = await showDocument<bool>(
+    final Object? saved = await showDocument<Object>(
       context,
       title: 'Invoice ${invoice['invoice_number'] ?? ''}'.trim(),
       builder: (_) => SalesInvoiceEditorDialog(
@@ -631,8 +530,10 @@ class _SalesInvoiceManagementPageState
         today: DateTime.now(),
         invoiceId: invoice['id'] as String,
         mayApprove: _mayApprove(),
+        steps: _steps,
       ),
     );
+    if (await _afterWindow(saved, invoice)) return;
     if (saved != true) return;
     if (!mounted) return;
     NotificationService.show(
@@ -940,7 +841,7 @@ class _SalesInvoiceManagementPageState
                 ? null
                 : () => unawaited(_remindCustomer(selected)),
           ),
-        _command(DocumentToolbarAction.approve, '/approve'),
+        _command('approve'),
         ToolbarCommand(
           id: 'use-points',
           label: 'Use points',
@@ -952,8 +853,8 @@ class _SalesInvoiceManagementPageState
               ? null
               : () => unawaited(_redeem(selected)),
         ),
-        _command(DocumentToolbarAction.cancel, '/cancel'),
-        _command(DocumentToolbarAction.close, '/close'),
+        _command('cancel'),
+        _command('close'),
         ToolbarCommand(
           id: 'print-settings',
           label: 'Print settings',
@@ -1052,10 +953,10 @@ class _SalesInvoiceManagementPageState
             onPressed: () => unawaited(_openWorkflowSettings()),
             icon: const Icon(Icons.linear_scale_outlined, size: 18),
           ),
-          _actionButton(DocumentToolbarAction.approve, '/approve'),
+          _actionButton(_step('approve')),
           _redeemButton(),
-          _actionButton(DocumentToolbarAction.cancel, '/cancel'),
-          _actionButton(DocumentToolbarAction.close, '/close'),
+          _actionButton(_step('cancel')),
+          _actionButton(_step('close')),
         ],
       );
 
@@ -1155,31 +1056,20 @@ class _SalesInvoiceManagementPageState
 
   /// A lifecycle button, disabled unless permission **and** the selected
   /// invoice's status allow it.
-  Widget _actionButton(DocumentToolbarAction action, String suffix) => Padding(
+  Widget _actionButton(DocumentStep<Map<String, dynamic>> step) => Padding(
         padding: const EdgeInsets.only(left: 8),
         child: OutlinedButton.icon(
-          onPressed: _selected == null ||
-                  !_mayRun(action) ||
-                  !_statusAllows(action, _selected?['status'] as String?)
-              ? null
-              : () => unawaited(_run(action, suffix)),
-          icon: Icon(action.icon, size: 18),
-          label: Text(action.label),
+          onPressed: step.enabledFor(_selected)
+              ? () => _runStep(step, _selected!)
+              : null,
+          icon: Icon(step.icon, size: 18),
+          label: Text(step.label),
         ),
       );
 
   /// A lifecycle step as a phase 2 command, enabled as its button is.
-  ToolbarCommand _command(DocumentToolbarAction action, String suffix) =>
-      ToolbarCommand(
-        id: action.name,
-        label: action.label,
-        icon: action.icon,
-        onPressed: _selected == null ||
-                !_mayRun(action) ||
-                !_statusAllows(action, _selected?['status'] as String?)
-            ? null
-            : () => unawaited(_run(action, suffix)),
-      );
+  ToolbarCommand _command(String id) =>
+      _step(id).command(_selected, _runStep);
 
   /// The Period control (owner, 2026-09-27), right after the search on
   /// phase 2's page line. Phase 1 (frozen, never shipped) has no room for it.

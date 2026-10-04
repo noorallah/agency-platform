@@ -4,6 +4,7 @@ import '../../models/document_framework.dart';
 import '../../models/goods_receipt.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../document_framework/document_line_labels.dart';
+import '../document_framework/document_steps.dart';
 import '../workspace/desktop_framework.dart';
 
 /// One goods receipt: its header, its lines, its totals and its timeline.
@@ -14,16 +15,18 @@ import '../workspace/desktop_framework.dart';
 /// action, which gives the table the whole width and the document room to be
 /// read.
 ///
-/// Read-only on purpose. Complete, Cancel and Close act on the selected row
-/// from the workspace toolbar, the same place a purchase order is submitted
-/// and approved from; a document that can be acted on from two places is a
-/// document somebody acts on twice.
+/// Nothing on it is typed, but the receipt's next steps -- Complete, Cancel,
+/// Close -- are on it (D-BUY-22), from the same definitions as the list
+/// toolbar's, so both re-gate on one receipt alike. A step that succeeds
+/// closes the window with a [DocumentStepDone] for the list to read itself
+/// again.
 class GoodsReceiptViewDialog extends StatelessWidget {
   const GoodsReceiptViewDialog({
     super.key,
     required this.receipt,
     required this.history,
     this.labels = const DocumentLineLabels(),
+    this.steps = const [],
   });
 
   final GoodsReceiptRecord receipt;
@@ -31,6 +34,9 @@ class GoodsReceiptViewDialog extends StatelessWidget {
 
   /// Names for the ids a line carries; without them the view shows the ids.
   final DocumentLineLabels labels;
+
+  /// The receipt's next steps; only those it allows are shown.
+  final List<DocumentStep<GoodsReceiptRecord>> steps;
 
   @override
   Widget build(BuildContext context) {
@@ -45,6 +51,14 @@ class GoodsReceiptViewDialog extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (steps.isNotEmpty)
+              Align(
+                alignment: Alignment.centerRight,
+                child: DocumentStepStrip<GoodsReceiptRecord>(
+                  record: receipt,
+                  steps: steps,
+                ),
+              ),
             EnterpriseDocumentHeader(header: header),
             const SizedBox(height: 12),
             EnterpriseDocumentLines(

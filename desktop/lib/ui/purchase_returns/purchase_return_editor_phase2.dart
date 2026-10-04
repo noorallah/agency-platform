@@ -27,13 +27,17 @@ extension _Phase2PurchaseReturnEditor on _PurchaseReturnEditorDialogState {
     final ColorScheme scheme = theme.colorScheme;
     final String number =
         stringValue(_preview?.purchaseReturn['return_number']);
+    // Save & approve (D-BUY-22), and once this window has saved the return,
+    // that return's own steps instead of a second save.
+    final DocumentStep<Json>? approve = stepAfterSave(widget.steps);
+    final Json? saved = _saved;
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () {
-          if (!_saving) Navigator.pop(context);
+          if (!_saving) Navigator.pop(context, saved);
         },
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): () {
-          if (!_saving) unawaited(_save());
+          if (!_saving && saved == null) unawaited(_save());
         },
       },
       child: Focus(
@@ -53,14 +57,29 @@ extension _Phase2PurchaseReturnEditor on _PurchaseReturnEditorDialogState {
                 hint: 'Enter next field  ·  Ctrl+S save',
                 actions: [
                   TextButton(
-                    onPressed: _saving ? null : () => Navigator.pop(context),
-                    child: const Text('Cancel'),
+                    onPressed:
+                        _saving ? null : () => Navigator.pop(context, saved),
+                    child: Text(saved == null ? 'Cancel' : 'Close'),
                   ),
-                  FilledButton(
-                    key: const ValueKey('purchase-return-save'),
-                    onPressed: _saving ? null : () => unawaited(_save()),
-                    child: const Text('Save return'),
-                  ),
+                  if (saved != null)
+                    DocumentStepStrip<Json>(
+                      record: saved,
+                      steps: widget.steps,
+                      enabled: !_saving,
+                      onRefused: (message) =>
+                          _setState(() => _error = message),
+                    )
+                  else
+                    ...saveButtons(
+                      saveKey: const ValueKey('purchase-return-save'),
+                      saveLabel: 'Save return',
+                      onSave: _saving ? null : () => unawaited(_save()),
+                      stepKey: const ValueKey('purchase-return-save-approve'),
+                      stepLabel: approve?.afterSave,
+                      onStep: _saving || approve == null
+                          ? null
+                          : () => unawaited(_saveAndStep(approve)),
+                    ),
                 ],
               ),
               if (_error != null)

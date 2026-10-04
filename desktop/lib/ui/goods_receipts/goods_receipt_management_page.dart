@@ -17,14 +17,13 @@ import '../../models/goods_receipt.dart';
 import '../../models/product.dart';
 import '../../models/purchase.dart';
 import '../../models/supplier_gift.dart';
-import '../document_framework/document_framework_widgets.dart';
-import '../trade_licences/licence_check_dialog.dart';
 import '../vendors/supplier_gifts_page.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/label_print_dialog.dart';
-import '../document_framework/document_status_gate.dart';
+import '../document_framework/document_steps.dart';
 import 'goods_receipt_editor_dialog.dart';
 import 'goods_receipt_eway_dialog.dart';
+import 'goods_receipt_steps.dart';
 import 'goods_receipt_view_dialog.dart';
 
 /// A named view over the one goods receipt list.
@@ -312,8 +311,11 @@ class _GoodsReceiptManagementPageState
   }
 
   /// Open the receipt editor and reload if it saved one.
+  ///
+  /// The window carries the receipt's own steps (D-BUY-22): *Save & complete*
+  /// closes it with a [DocumentStepDone] rather than the saved receipt.
   Future<void> _createReceipt({GoodsReceiptRecord? existing}) async {
-    final GoodsReceiptRecord? saved = await showDocument<GoodsReceiptRecord>(
+    final Object? outcome = await showDocument<Object>(
       context,
       title: existing == null ? 'New goods receipt' : 'Edit goods receipt',
       builder: (_) => GoodsReceiptEditorDialog(
@@ -323,8 +325,12 @@ class _GoodsReceiptManagementPageState
         products: _products,
         existing: existing,
         features: _features,
+        steps: _steps,
       ),
     );
+    if (outcome is DocumentStepDone) return _afterWindow(outcome);
+    final GoodsReceiptRecord? saved =
+        outcome is GoodsReceiptRecord ? outcome : null;
     if (saved == null || !mounted) return;
     await _load();
     if (!mounted) return;
@@ -415,79 +421,29 @@ class _GoodsReceiptManagementPageState
     );
   }
 
-  /// Whether [action] is valid for the selected receipt's current status.
-  /// Whether the selected receipt's status allows [action].
-  ///
-  /// Delegated to the shared gate so this screen, purchase invoices and
-  /// purchase returns state the rule the same way. It used to list the
-  /// statuses that *forbid* each action; the gate lists the ones that permit
-  /// it, so a status added later is disabled until somebody decides it
-  /// belongs.
-  bool _isReceiptActionAllowed(DocumentToolbarAction action) {
-    final DocumentLifecycleAction? lifecycle = switch (action) {
-      // The toolbar's Complete button. `requestApproval` is the enum value it
-      // arrived with; a goods receipt has no approval step.
-      DocumentToolbarAction.requestApproval => DocumentLifecycleAction.complete,
-      DocumentToolbarAction.cancel => DocumentLifecycleAction.cancel,
-      DocumentToolbarAction.close => DocumentLifecycleAction.close,
-      _ => null,
-    };
-    if (lifecycle == null) return false;
-    // The button follows the code the server enforces (D-ROLE-3): it used to
-    // be offered to everybody and refused after the press.
-    final String code = switch (lifecycle) {
-      DocumentLifecycleAction.complete => 'PURCHASE_RECEIVE',
-      DocumentLifecycleAction.cancel => 'PURCHASE_CANCEL',
-      _ => 'PURCHASE_APPROVE',
-    };
-    if (!widget.permissions.hasPermission(code)) return false;
-    return DocumentStatusGate.goodsReceipt.allows(lifecycle, _selected?.status);
-  }
+  /// The receipt's next steps -- Complete, Cancel, Close -- as the receipt's
+  /// own window offers them too (D-BUY-22): one definition, so the toolbar
+  /// and the window cannot disagree about one receipt. Each follows the code
+  /// the server enforces (D-ROLE-3) and the shared status gate.
+  late final List<DocumentStep<GoodsReceiptRecord>> _steps =
+      goodsReceiptSteps(widget.api, widget.permissions);
 
-  /// Run a lifecycle action against the selected receipt and reload.
-  ///
-  /// Completing checks the licences it needs first (backlog 54), before the
-  /// call: a purchase only ever warns, so there is no override, just
-  /// "Approve anyway".
-  Future<void> _runReceiptAction(DocumentToolbarAction action) async {
-    final GoodsReceiptRecord? selected = _selected;
-    if (selected == null || !_isReceiptActionAllowed(action)) return;
-    if (action == DocumentToolbarAction.requestApproval) {
-      final LicenceCheckOutcome licence = await confirmLicenceCheck(
-        context,
-        widget.api,
-        widget.permissions,
-        document: 'GOODS_RECEIPT',
-        documentId: selected.id,
-      );
-      if (!licence.proceed || !mounted) return;
-    }
-    try {
-      switch (action) {
-        case DocumentToolbarAction.requestApproval:
-          await widget.api.completeGoodsReceipt(selected.id);
-        case DocumentToolbarAction.cancel:
-          await widget.api.cancelGoodsReceipt(selected.id);
-        case DocumentToolbarAction.close:
-          await widget.api.closeGoodsReceipt(selected.id);
-        default:
-          return;
-      }
-      await _load();
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        'Goods receipt ${selected.grnNumber} updated.',
-        kind: AppNotificationKind.success,
-      );
-    } on ApiException catch (error) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        error.message,
-        kind: AppNotificationKind.error,
-      );
-    }
+  DocumentStep<GoodsReceiptRecord> _step(String id) =>
+      _steps.firstWhere((step) => step.id == id);
+
+  /// Take a step against the selected receipt from the toolbar and reload.
+  void _runStep(
+    DocumentStep<GoodsReceiptRecord> step,
+    GoodsReceiptRecord record,
+  ) =>
+      unawaited(runStepFromList(context, step, record, reload: _load));
+
+  /// What a receipt window closed with: a save, a step it took, or nothing.
+  Future<void> _afterWindow(Object? outcome) async {
+    if (outcome is! DocumentStepDone || !mounted) return;
+    await _load();
+    if (!mounted) return;
+    showStepDone(context, outcome);
   }
 
   /// Switch the list to another view of itself.
@@ -680,21 +636,8 @@ class _GoodsReceiptManagementPageState
                 // there is no approval step on a receipt, and calling the thing that
                 // moves inventory something else is how somebody completes one
                 // without meaning to.
-                _command(
-                  'Complete',
-                  Icons.check_circle_outline,
-                  DocumentToolbarAction.requestApproval,
-                ),
-                _command(
-                  'Cancel',
-                  Icons.cancel_outlined,
-                  DocumentToolbarAction.cancel,
-                ),
-                _command(
-                  'Close',
-                  Icons.lock_outline,
-                  DocumentToolbarAction.close,
-                ),
+                for (final DocumentStep<GoodsReceiptRecord> step in _steps)
+                  step.command(_selected, _runStep),
                 _recordEwayBillCommand(),
                 _recordGiftCommand(),
                 // One label per piece received (STK-16); nothing to label on
@@ -733,37 +676,20 @@ class _GoodsReceiptManagementPageState
                 // there is no approval step on a receipt, and calling the thing that
                 // moves inventory something else is how somebody completes one
                 // without meaning to.
-                _actionButton(
-                  'Complete',
-                  Icons.check_circle_outline,
-                  DocumentToolbarAction.requestApproval,
-                ),
-                _actionButton(
-                  'Cancel',
-                  Icons.cancel_outlined,
-                  DocumentToolbarAction.cancel,
-                ),
-                _actionButton(
-                  'Close',
-                  Icons.lock_outline,
-                  DocumentToolbarAction.close,
-                ),
+                _actionButton(_step('complete')),
+                _actionButton(_step('cancel')),
+                _actionButton(_step('close')),
               ],
       );
 
-  Widget _actionButton(
-    String label,
-    IconData icon,
-    DocumentToolbarAction action,
-  ) =>
-      Padding(
+  Widget _actionButton(DocumentStep<GoodsReceiptRecord> step) => Padding(
         padding: const EdgeInsets.only(left: 8),
         child: OutlinedButton.icon(
-          onPressed: _isReceiptActionAllowed(action)
-              ? () => _runReceiptAction(action)
+          onPressed: step.enabledFor(_selected)
+              ? () => _runStep(step, _selected!)
               : null,
-          icon: Icon(icon, size: 18),
-          label: Text(label),
+          icon: Icon(step.icon, size: 18),
+          label: Text(step.label),
         ),
       );
 
@@ -779,21 +705,6 @@ class _GoodsReceiptManagementPageState
       ),
     );
   }
-
-  /// The same step as a phase 2 command, enabled as its button is.
-  ToolbarCommand _command(
-    String label,
-    IconData icon,
-    DocumentToolbarAction action,
-  ) =>
-      ToolbarCommand(
-        id: label.toLowerCase(),
-        label: label,
-        icon: icon,
-        onPressed: _isReceiptActionAllowed(action)
-            ? () => _runReceiptAction(action)
-            : null,
-      );
 
   /// Every column the grid can show; Columns picks among them, remembered
   /// per screen on this PC (owner, 2026-09-27).
@@ -902,14 +813,16 @@ class _GoodsReceiptManagementPageState
     setState(() => _selected = record);
     await _loadHistory(record);
     if (!mounted) return;
-    await showDialog<void>(
+    final Object? outcome = await showDialog<Object>(
       context: context,
       builder: (_) => GoodsReceiptViewDialog(
         receipt: record,
         history: _history,
         labels: _labels,
+        steps: _steps,
       ),
     );
+    await _afterWindow(outcome);
   }
 
   Widget _summaryCard(String label, String value) =>

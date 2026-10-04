@@ -27,11 +27,17 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
   Widget _phase2Page(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    final GoodsReceiptRecord? current = widget.existing;
+    final GoodsReceiptRecord? current = _record;
+    // Save & complete (D-BUY-22): the step that posts the stock, offered
+    // beside the save so a receipt is not left a draft by somebody who took
+    // saving for completing.
+    final DocumentStep<GoodsReceiptRecord>? complete =
+        stepAfterSave(widget.steps);
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () {
-          if (!_saving) Navigator.pop(context);
+          // A draft this window saved itself goes back to the list as saved.
+          if (!_saving) Navigator.pop(context, _saved);
         },
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): () {
           if (!_saving) unawaited(_save());
@@ -55,13 +61,32 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
                 hint: 'Enter next field  ·  Ctrl+S save',
                 actions: [
                   TextButton(
-                    onPressed: _saving ? null : () => Navigator.pop(context),
-                    child: const Text('Cancel'),
+                    onPressed:
+                        _saving ? null : () => Navigator.pop(context, _saved),
+                    child: Text(_saved == null ? 'Cancel' : 'Close'),
                   ),
-                  FilledButton(
-                    key: const ValueKey('goods-receipt-save'),
-                    onPressed: _saving ? null : () => unawaited(_save()),
-                    child: const Text('Save receipt'),
+                  // Cancel and Close of a saved draft; Complete is the save
+                  // button beside it, so the edits on screen go with it.
+                  DocumentStepStrip<GoodsReceiptRecord>(
+                    record: current,
+                    steps: [
+                      for (final DocumentStep<GoodsReceiptRecord> step
+                          in widget.steps)
+                        if (step != complete) step,
+                    ],
+                    enabled: !_saving,
+                    onRefused: (message) =>
+                        _setState(() => _error = message),
+                  ),
+                  ...saveButtons(
+                    saveKey: const ValueKey('goods-receipt-save'),
+                    saveLabel: 'Save receipt',
+                    onSave: _saving ? null : () => unawaited(_save()),
+                    stepKey: const ValueKey('goods-receipt-save-complete'),
+                    stepLabel: complete?.afterSave,
+                    onStep: _saving || complete == null
+                        ? null
+                        : () => unawaited(_saveAndStep(complete)),
                   ),
                 ],
               ),

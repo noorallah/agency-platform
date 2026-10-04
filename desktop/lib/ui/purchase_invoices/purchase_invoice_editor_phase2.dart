@@ -72,13 +72,17 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
     final String irnWarning = stringValue(_preview?.invoice['irn_warning']);
     final String lateCredit =
         stringValue(_preview?.invoice['credit_time_limit_warning']);
+    // Save & approve (D-BUY-22), and once this window has saved the bill,
+    // that bill's own steps instead of a second save.
+    final DocumentStep<Json>? approve = stepAfterSave(widget.steps);
+    final Json? saved = _saved;
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () {
-          if (!_saving) Navigator.pop(context);
+          if (!_saving) Navigator.pop(context, saved);
         },
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): () {
-          if (!_saving) unawaited(_save());
+          if (!_saving && saved == null) unawaited(_save());
         },
         const SingleActivator(LogicalKeyboardKey.enter, control: true): () {
           if (_direct && !_saving) _addDirectLine();
@@ -104,14 +108,29 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
                     : 'Enter next field  ·  Ctrl+S save',
                 actions: [
                   TextButton(
-                    onPressed: _saving ? null : () => Navigator.pop(context),
-                    child: const Text('Cancel'),
+                    onPressed:
+                        _saving ? null : () => Navigator.pop(context, saved),
+                    child: Text(saved == null ? 'Cancel' : 'Close'),
                   ),
-                  FilledButton(
-                    key: const ValueKey('purchase-invoice-save'),
-                    onPressed: _saving ? null : () => unawaited(_save()),
-                    child: const Text('Save bill'),
-                  ),
+                  if (saved != null)
+                    DocumentStepStrip<Json>(
+                      record: saved,
+                      steps: widget.steps,
+                      enabled: !_saving,
+                      onRefused: (message) =>
+                          _setState(() => _error = message),
+                    )
+                  else
+                    ...saveButtons(
+                      saveKey: const ValueKey('purchase-invoice-save'),
+                      saveLabel: 'Save bill',
+                      onSave: _saving ? null : () => unawaited(_save()),
+                      stepKey: const ValueKey('purchase-invoice-save-approve'),
+                      stepLabel: approve?.afterSave,
+                      onStep: _saving || approve == null
+                          ? null
+                          : () => unawaited(_saveAndStep(approve)),
+                    ),
                 ],
               ),
               for (final String message in [
