@@ -123,6 +123,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   /// person; it is cleared with the supplier, and 194Q replaces it.
   bool _sectionDefaulted = false;
   String? _tdsNote;
+  String? _tdsHint;
   List<OutstandingInvoice> _invoices = const [];
 
   /// Bills a receipt on this date may take an early-payment discount on
@@ -299,11 +300,33 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
     });
   }
 
+  /// What 194C or 194J would deduct from this supplier (PG-5), shown as the
+  /// box's hint. Never written into the box: blank stays "take the proposal".
+  Future<void> _loadTdsProposal(String partyId) async {
+    try {
+      final Json answer = await widget.api.tdsSupplierProposal(
+        partyId,
+        on: _date.toIso8601String().substring(0, 10),
+      );
+      if (!mounted || _partyId != partyId) return;
+      final String section = '${answer['section'] ?? ''}';
+      final double proposed = _figure(answer['proposed']);
+      setState(() {
+        _tdsHint = (section == '194C' || section == '194J') && proposed > 0
+            ? '$section proposes ₹${proposed.toStringAsFixed(2)}'
+            : null;
+      });
+    } on Exception {
+      // Advice, not a gate.
+    }
+  }
+
   Future<void> _loadTds194q() async {
     if (widget.direction != SettlementDirection.payment) return;
     if (!Phase2Scope.of(context)) return;
     final String partyId = _partyId;
     if (partyId.isEmpty) return;
+    unawaited(_loadTdsProposal(partyId));
     try {
       final Json answer = await widget.api.tds194qSupplier(
         partyId,
@@ -690,7 +713,9 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
           }),
           decoration: InputDecoration(
             labelText: 'TDS deducted',
-            helperText: _tdsNote ?? (receipt ? 'By the customer' : 'By us'),
+            helperText: _tdsNote ??
+                _tdsHint ??
+                (receipt ? 'By the customer' : 'By us'),
             helperMaxLines: 3,
           ),
         ),
@@ -974,6 +999,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
       // The previous supplier's 194Q position is not this one's.
       _tds194q = null;
       _tdsNote = null;
+      _tdsHint = null;
       if (_tdsPrefilled) {
         _tds.clear();
         _tdsSection = null;

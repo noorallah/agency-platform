@@ -1049,6 +1049,18 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
           ('SGST', tax / 2),
         ],
         ('Total', total),
+        // PG-5: what was deducted at approval, and so what is owed.
+        if (invoice != null &&
+            _number(stringValue(invoice['tds_amount'])) > 0) ...[
+          (
+            'TDS ${stringValue(invoice['tds_section'])}',
+            _number(stringValue(invoice['tds_amount'])),
+          ),
+          (
+            'Net payable',
+            total - _number(stringValue(invoice['tds_amount'])),
+          ),
+        ],
       ],
     );
   }

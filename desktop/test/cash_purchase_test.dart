@@ -45,6 +45,10 @@ class _Api extends ApiClient {
     bool retrying = false,
     int? expectedVersion,
   }) async {
+    // Reads (the TDS proposal, PG-5) are not what these cases are about.
+    if (method != 'POST') {
+      return <String, dynamic>{'success': true, 'data': <String, dynamic>{}};
+    }
     posts.add((path: path, body: body));
     if (refusal != null) throw ApiException(refusal!, statusCode: 400);
     return <String, dynamic>{'success': true, 'data': <String, dynamic>{}};
@@ -105,6 +109,8 @@ void main() {
     final _Api api = _Api();
     await _open(tester, api, const ['PURCHASE_APPROVE'], const Size(1366, 768));
     expect(find.byKey(const ValueKey('paid-now')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('approve-bill-confirm')));
+    await tester.pumpAndSettle();
     expect(api.posts.single.body, isEmpty);
   });
 
