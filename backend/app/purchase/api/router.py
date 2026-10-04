@@ -118,6 +118,14 @@ PurchaseOrderReadScope = Annotated[
 PurchaseReportScope = Annotated[
     ResolvedFirmScope, firm_any_permission_scope("PURCHASE_VIEW", "REPORT_VIEW")
 ]
+#: The pending-orders report is what Warehouse's Home "POs to receive" counts,
+#: so whoever receives goods may read it (D-ROLE-3 follow-up) -- this report
+#: only, not the rest of the purchase reports, which stay `PURCHASE_VIEW` or
+#: `REPORT_VIEW`.
+PurchasePendingReportScope = Annotated[
+    ResolvedFirmScope,
+    firm_any_permission_scope("PURCHASE_VIEW", "REPORT_VIEW", "PURCHASE_RECEIVE"),
+]
 PurchaseCreateScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PURCHASE_CREATE")
 ]
@@ -396,7 +404,7 @@ def purchase_order_register(
     response_model=ApiResponse[list[PurchaseOrderPendingRecord]],
 )
 def pending_purchase_orders(
-    scope: PurchaseReportScope,
+    scope: PurchasePendingReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseOrderPendingRecord]]:
     """Return orders the vendor still owes goods against."""

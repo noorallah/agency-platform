@@ -58,6 +58,13 @@ class SearchDefinition:
     status_column: str | None = None
     badge_columns: tuple[str, ...] = ()
     category: SearchCategory = "all"
+    #: Other codes that also open this entity, besides `permission`. Whoever
+    #: receives goods finds the orders and receipts they receive against
+    #: (D-ROLE-3): Warehouse holds `PURCHASE_RECEIVE`, not `PURCHASE_VIEW`,
+    #: and the routes serving those two already accept either. Name a code
+    #: here only when the entity's own read route enforces it too, or search
+    #: would show a row its screen then refuses.
+    also_permissions: tuple[str, ...] = ()
     #: The table exists **only in the platform schema**, so it has to be read
     #: on the platform connection rather than on the request's session.
     #:
@@ -241,6 +248,7 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
         subtitle_columns=("vendor_contact",),
         status_column="status",
         category="masters",
+        also_permissions=("PURCHASE_RECEIVE",),
     ),
     SearchDefinition(
         "sales_orders",
@@ -325,6 +333,7 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
         subtitle_columns=("vehicle_number", "transport_details"),
         status_column="status",
         category="masters",
+        also_permissions=("PURCHASE_RECEIVE",),
     ),
     SearchDefinition(
         "product_categories",
@@ -786,7 +795,10 @@ class SearchService:
             return False
         if definition.permission is None:
             return True
-        return principal.has_permission(definition.permission)
+        return any(
+            principal.has_permission(code)
+            for code in (definition.permission, *definition.also_permissions)
+        )
 
     def _search_definition(
         self,
