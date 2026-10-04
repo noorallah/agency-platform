@@ -148,3 +148,49 @@ def test_completing_a_purchase_return_stays_with_the_approver(route: str) -> Non
     assert not _opened_by(route, ROLE_PERMISSION_CODES["PURCHASE_EXECUTIVE"])
     assert not _opened_by(route, ROLE_PERMISSION_CODES["INVENTORY_MANAGER"])
     assert _opened_by(route, ROLE_PERMISSION_CODES["PURCHASE_MANAGER"])
+
+
+def test_the_pending_orders_report_opens_to_every_receiver() -> None:
+    """Home's "POs to receive" counts it, so Warehouse must be able to read it."""
+    route = "GET /api/v1/purchases/reports/pending"
+    for role in _RECEIVERS:
+        assert _opened_by(route, ROLE_PERMISSION_CODES[role]), role
+
+
+@pytest.mark.parametrize(
+    "route",
+    [
+        "GET /api/v1/purchases/reports/register",
+        "GET /api/v1/purchases/reports/overdue",
+        "GET /api/v1/purchases/reports/by-vendor",
+    ],
+)
+def test_the_other_purchase_reports_stay_closed_to_warehouse(route: str) -> None:
+    """Only the one report the receiver needs was opened to `PURCHASE_RECEIVE`."""
+    granted = ROLE_PERMISSION_CODES["INVENTORY_MANAGER"]
+    assert not _opened_by(route, frozenset({"PURCHASE_RECEIVE"}))
+    assert not _opened_by(route, granted)
+
+
+def test_search_finds_receipts_and_orders_for_a_receiver_only() -> None:
+    """Global search lists the two entities a receiver may open, and no more."""
+    from uuid import uuid4
+
+    from app.search.services.search_service import _DEFINITIONS, SearchService
+    from tests.unit.test_global_search import _principal, _session_factory
+
+    service = SearchService(_session_factory()())
+    by_type = {definition.entity_type: definition for definition in _DEFINITIONS}
+    receiver = _principal(uuid4(), permissions={"PURCHASE_RECEIVE"}, firm_id=uuid4())
+    nobody = _principal(uuid4(), permissions={"CUSTOMER_VIEW"}, firm_id=uuid4())
+    reader = _principal(uuid4(), permissions={"PURCHASE_VIEW"}, firm_id=uuid4())
+
+    for entity in ("goods_receipts", "purchase_orders"):
+        assert service._is_accessible(by_type[entity], receiver), entity
+        assert service._is_accessible(by_type[entity], reader), entity
+        assert not service._is_accessible(by_type[entity], nobody), entity
+    # The bills and returns are what `PURCHASE_VIEW` adds, and Warehouse is
+    # not given them.
+    for entity in ("purchase_invoices", "purchase_returns"):
+        assert not service._is_accessible(by_type[entity], receiver), entity
+        assert service._is_accessible(by_type[entity], reader), entity
