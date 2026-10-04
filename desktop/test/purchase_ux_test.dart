@@ -428,7 +428,8 @@ void main() {
           of: find.byKey(const ValueKey<String>('purchase-order-line-0')),
           matching: find.byType(EditableText),
         )
-        .at(1);
+        // Product, the line's remark, then the quantity.
+        .at(2);
     await tester.enterText(quantity, '5');
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
