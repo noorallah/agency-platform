@@ -5974,7 +5974,7 @@ receipt per branch switches it in Settings > Firm > Numbering Series.
 
 ## 85. Payables by supplier and month, with totals and a chart -- medium priority
 
-**Status, 2026-10-05: built (PG-2: server #1117, desktop in the next PR) -- Buy > Money > Payables by Month.** Asked for in
+**Status, 2026-10-05: built (PG-2: server #1117, desktop #1118) -- Buy > Money > Payables by Month.** Asked for in
 purchasing round 2 on QA01: "the screen today outstanding, vendor wise, month
 wise, filters, total". Today *Reports > Financial > Vendor outstanding* lists
 one row per supplier with no total, no month split, no as-of date, and leaves
