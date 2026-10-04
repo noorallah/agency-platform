@@ -8,8 +8,13 @@
 // the note it clashes with. These pin the tick list, the payload of several
 // notes numbered 1..n, and a draft of two notes opening with both.
 
+import 'dart:convert';
+
 import 'package:agency_desktop/core/api/api_client.dart';
+import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/ui/document_framework/document_steps.dart';
+import 'package:agency_desktop/ui/sales/sales_document_steps.dart';
 import 'package:agency_desktop/ui/sales/sales_invoice_editor_dialog.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
     show Phase2Scope;
@@ -155,8 +160,10 @@ Future<void> _pump(
   WidgetTester tester,
   _Api api, {
   String? invoiceId,
+  Size size = const Size(1366, 768),
+  List<DocumentStep<Json>> steps = const [],
 }) async {
-  tester.view.physicalSize = const Size(1366, 768);
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MaterialApp(
@@ -166,6 +173,7 @@ Future<void> _pump(
           api: api,
           today: DateTime(2026, 8, 14),
           invoiceId: invoiceId,
+          steps: steps,
         ),
       ),
     ),
@@ -321,6 +329,51 @@ void main() {
       [for (final dynamic l in lines) (l as Json)['line_number']],
       [1, 2],
     );
+  });
+
+  // The delivery-note bill's band carries one more button than the counter
+  // bill's (Save & print beside Save & print (F9)); with its own steps it
+  // must still fit the 800x600 test window, and so must its line table.
+  testWidgets('a bill from delivery notes fits 1366x768 and 800x600', (
+    tester,
+  ) async {
+    for (final Size size in const <Size>[Size(1366, 768), Size(800, 600)]) {
+      final _Api api = _Api(billable: <Json>[
+        _note('dn-1', 'DN-000001'),
+        _note('dn-2', 'DN-000002'),
+      ]);
+      final PermissionService approver = PermissionService()
+        ..applyAccessToken(
+          'header.${base64Url.encode(utf8.encode(jsonEncode({
+                'roles': <String>['user'],
+                'permissions': <String>['SALES_APPROVE', 'SALES_CANCEL'],
+              }))).replaceAll('=', '')}.sig',
+        );
+      await _pump(
+        tester,
+        api,
+        size: size,
+        steps: salesInvoiceSteps(api, approver),
+      );
+      expect(
+        find.byKey(const ValueKey('sales-invoice-save-print')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('sales-invoice-save-approve')),
+        findsOneWidget,
+      );
+      await _chooseCustomer(tester, 'Anand Agencies');
+      await _tick(tester, 'dn-1');
+      await _tick(tester, 'dn-2');
+      await _done(tester);
+      expect(
+        find.byKey(const ValueKey('sales-invoice-line-0')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull, reason: '$size');
+      await tester.pumpWidget(const SizedBox());
+    }
   });
 
   testWidgets("a customer's only note is ticked without asking",

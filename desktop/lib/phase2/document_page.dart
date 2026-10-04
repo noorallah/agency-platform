@@ -16,7 +16,12 @@ import 'indian_format.dart';
 
 /// The top line: the title, what the document is (its number, "Draft"),
 /// the keys, and the buttons with the filled one last.
-class DocumentPageBand extends StatelessWidget {
+///
+/// On a window too narrow for every button -- the 800x600 test window with a
+/// document's full set of steps -- the buttons scroll sideways in their own
+/// strip, the filled one last and in view, rather than running off the band;
+/// the title keeps at least [minTitleWidth].
+class DocumentPageBand extends StatefulWidget {
   const DocumentPageBand({
     super.key,
     required this.title,
@@ -30,8 +35,39 @@ class DocumentPageBand extends StatelessWidget {
   final String hint;
   final List<Widget> actions;
 
+  /// What the title and chips keep before the buttons start to scroll.
+  static const double minTitleWidth = 160;
+
   @override
-  Widget build(BuildContext context) {
+  State<DocumentPageBand> createState() => _DocumentPageBandState();
+}
+
+class _DocumentPageBandState extends State<DocumentPageBand> {
+  final ScrollController _sideways = ScrollController();
+
+  String get title => widget.title;
+  List<String> get chips => widget.chips;
+  String get hint => widget.hint;
+  List<Widget> get actions => widget.actions;
+
+  @override
+  void dispose() {
+    _sideways.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, constraints) => _band(
+          context,
+          // The band's padding and the gap before the buttons come off too.
+          constraints.hasBoundedWidth
+              ? constraints.maxWidth - 24 - 12 - DocumentPageBand.minTitleWidth
+              : double.infinity,
+        ),
+      );
+
+  Widget _band(BuildContext context, double actionsWidth) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
     return DecoratedBox(
@@ -88,13 +124,28 @@ class DocumentPageBand extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          Phase2ButtonTheme(
-            child: Row(children: [
-              for (int i = 0; i < actions.length; i++) ...[
-                if (i > 0) const SizedBox(width: 6),
-                actions[i],
-              ],
-            ]),
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: actionsWidth < 0 ? 0 : actionsWidth,
+            ),
+            child: Scrollbar(
+              controller: _sideways,
+              child: SingleChildScrollView(
+                key: const ValueKey('document-band-actions'),
+                controller: _sideways,
+                scrollDirection: Axis.horizontal,
+                // Starts at the end: the filled button is the one in view.
+                reverse: true,
+                child: Phase2ButtonTheme(
+                  child: Row(children: [
+                    for (int i = 0; i < actions.length; i++) ...[
+                      if (i > 0) const SizedBox(width: 6),
+                      actions[i],
+                    ],
+                  ]),
+                ),
+              ),
+            ),
           ),
         ]),
       ),
@@ -238,7 +289,13 @@ Widget documentCell(DocumentColumn column, Widget child) {
 
 /// The lines as a table: the heading row, the rows, and a last row that adds
 /// one.
-class DocumentLineTable extends StatelessWidget {
+///
+/// On a window too narrow for every column -- the 800x600 test window, or a
+/// screen with many figures -- the table scrolls sideways inside itself
+/// rather than running off the window: the fixed columns keep their widths
+/// and the one that takes what is left (the product) keeps at least
+/// [minFlexWidth].
+class DocumentLineTable extends StatefulWidget {
   const DocumentLineTable({
     super.key,
     required this.columns,
@@ -255,8 +312,35 @@ class DocumentLineTable extends StatelessWidget {
   final String? addLabel;
   final VoidCallback? onAdd;
 
+  /// The least the column with no fixed width is squeezed to before the
+  /// table scrolls sideways instead.
+  static const double minFlexWidth = 120;
+
+  /// The width every column needs: each fixed column and its gap, the
+  /// flexible one at [minFlexWidth], the row's side padding and its 3-pixel
+  /// current-line edge.
+  static double minimumWidth(List<DocumentColumn> columns) {
+    double width = 24 + 3;
+    for (final DocumentColumn column in columns) {
+      width += (column.width == 0 ? minFlexWidth : column.width) + 8;
+    }
+    return width;
+  }
+
   @override
-  Widget build(BuildContext context) {
+  State<DocumentLineTable> createState() => _DocumentLineTableState();
+}
+
+class _DocumentLineTableState extends State<DocumentLineTable> {
+  final ScrollController _sideways = ScrollController();
+
+  @override
+  void dispose() {
+    _sideways.dispose();
+    super.dispose();
+  }
+
+  Widget _table(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
     final TextStyle? heading = theme.textTheme.labelMedium?.copyWith(
@@ -275,24 +359,24 @@ class DocumentLineTable extends StatelessWidget {
             border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
           ),
           child: Row(children: [
-            for (final DocumentColumn column in columns)
+            for (final DocumentColumn column in widget.columns)
               documentCell(column, Text(column.label, style: heading)),
           ]),
         ),
         Expanded(
           child: ListView(
             children: [
-              ...rows,
-              if (addLabel != null)
+              ...widget.rows,
+              if (widget.addLabel != null)
                 InkWell(
                   key: const ValueKey('document-add-line'),
-                  onTap: onAdd,
+                  onTap: widget.onAdd,
                   child: Container(
                     height: 36,
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      addLabel!,
+                      widget.addLabel!,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         fontSize: 13,
                         fontStyle: FontStyle.italic,
@@ -307,6 +391,26 @@ class DocumentLineTable extends StatelessWidget {
       ],
     );
   }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, constraints) {
+          final double needed = DocumentLineTable.minimumWidth(widget.columns);
+          if (!constraints.hasBoundedWidth || constraints.maxWidth >= needed) {
+            return _table(context);
+          }
+          return Scrollbar(
+            key: const ValueKey('document-lines-sideways'),
+            controller: _sideways,
+            thumbVisibility: true,
+            child: SingleChildScrollView(
+              controller: _sideways,
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(width: needed, child: _table(context)),
+            ),
+          );
+        },
+      );
 }
 
 /// One row of the lines table: the line being typed is tinted and marked on
