@@ -130,6 +130,15 @@ class CrudCreateCheckpoint {
     _persistedId = createdId;
     return createdId;
   }
+
+  /// Forget the record once its create has fully gone through.
+  ///
+  /// The id is kept only so a retry after a refused assignment attaches to
+  /// the record it already made. Kept past success, *Save & New* cleared the
+  /// form and every later save went to the first record: a platform admin
+  /// "created" five users that never existed, and the first one's roles were
+  /// replaced five times (D-UI-5, 2026-10-04).
+  void reset() => _persistedId = null;
 }
 
 /// A resource-specific toolbar action the shared `ToolbarAction` set cannot
@@ -735,6 +744,8 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
     if (widget.definition.saveAssignments != null) {
       await widget.definition.saveAssignments!(savedId, values);
     }
+    // Done: the next *Save & New* is a new record, not this one (D-UI-5).
+    createCheckpoint.reset();
   }
 
   static String? _warningIn(Json response) {
