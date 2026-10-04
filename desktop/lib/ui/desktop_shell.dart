@@ -4297,6 +4297,7 @@ ResourceDefinition<Firm> firmDefinition(
         FieldSpec(
           key: 'state',
           label: 'State / province',
+          kind: FieldKind.indiaState,
           section: 'Address',
         ),
         FieldSpec(
