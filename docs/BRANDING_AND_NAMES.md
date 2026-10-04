@@ -2,9 +2,10 @@
 
 Prepared 2026-09-28 for the owner to review; **updated 2026-10-03** after the
 owner asked for the agency's branding to be given during installation and for
-placeholders for our own product and company. Nothing here is built yet; the
-build items are backlog §71 (`docs/BACKLOG.md`), parked as B9 until the
-Jugnix trademark is filed. The wireframes are
+placeholders for our own product and company. The build items are backlog §71
+(`docs/BACKLOG.md`). On 2026-10-04 the owner asked for U1-U7 to be built now,
+keeping the "Agency Platform" names until the Jugnix trademark is filed; see
+**section 8** for what is built. The wireframes are
 `dist\windows\Design\Branding wireframes.html` (section 6).
 
 ## 1. What the owner asked
@@ -192,3 +193,38 @@ and 10-03 screenshot sets) are in `dist\windows\Design\_old (superseded)\`.
    (placeholders until the company is registered).
 4. **The logo set as vector files**, including the product icon (`.ico`) for
    the window and taskbar (backlog §47), once a designer redraws it.
+
+## 8. What is built
+
+Built in the order U2, U3+U4, U6, U5+U7, U1, one PR each (owner, 2026-10-04:
+S2 showcase sign-in, keep "Agency Platform", support details blank, first-run
+step 1 only; U8 Help > About stays parked).
+
+### 8.1 Foundation (U2 and the server's record)
+
+- **The agency's record** is `agency_branding` in the platform store
+  (`backend/app/branding`, migration `20261004_0300`): name, tagline, accent
+  colour and the logo image itself, so every PC reads the same logo from the
+  server. One live row per installation, held by the unique index
+  `UQ_agency_branding_key_active` rather than by a read. No row means not yet
+  given.
+- **Endpoints**, all under `/api/v1/branding`, a platform path:
+
+  | Route | Who | Does |
+  | --- | --- | --- |
+  | `GET /api/v1/branding` | anyone, signed out | `is_set`, name, tagline, colour, `has_logo`, `version` (also the `ETag`) |
+  | `GET /api/v1/branding/logo` | anyone, signed out | the image, `image/png` or `image/jpeg`; 404 when none |
+  | `PUT /api/v1/branding` | `PLATFORM_SETTINGS` | replace name, tagline, colour; the first save creates the record |
+  | `PUT /api/v1/branding/logo` | `PLATFORM_SETTINGS` | multipart `file`; PNG or JPG by its bytes, not its name; at most 1 MB |
+  | `DELETE /api/v1/branding/logo` | `PLATFORM_SETTINGS` | remove the logo; initials show instead |
+
+  Every write honours `If-Match` and is audited in the platform trail; a
+  logo change records its type and size, never the image. A logo needs the
+  name to be given first. The square shape is not checked by the server --
+  the screens fit the image into a square.
+- **Our product's identity** comes only from `desktop/config/branding.json`,
+  which the package builds and every installer or update installer replaces:
+  product and company names, tagline, company and product logos, support
+  phone, WhatsApp, hours, email and website (blank for now; an empty row is
+  hidden), and the eight sign-in strengths for the S2 panel.
+

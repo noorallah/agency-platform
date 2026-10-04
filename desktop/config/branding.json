@@ -3,12 +3,276 @@
   "window_name": "Agency Platform Desktop",
   "product_name": "Agency Platform",
   "company_name": "Agency",
+  "tagline": "",
   "logo_path": "",
   "splash_path": "",
+  "company_logo_path": "",
+  "product_logo_path": "",
   "version": "1.2.0",
-  "support_email": "support@example.com",
-  "support_website": "https://example.com/support",
+  "support_email": "",
+  "support_website": "",
+  "support_phone": "",
+  "support_whatsapp": "",
+  "support_hours": "",
   "copyright": "© 2026 Agency",
   "login_background_color": "#F6F8FC",
-  "login_accent_color": "#155EEF"
+  "login_accent_color": "#155EEF",
+  "strengths": [
+    {
+      "kicker": "TAX",
+      "title": "GST without the spreadsheet",
+      "summary": "GST bills with the CGST/SGST split and HSN summary; GSTR-1 and 3B built from your own bills; GSTR-2B matched to purchases.",
+      "headline": "Your GSTR-1 is ready the moment you bill.",
+      "text": "Returns are built from the bills themselves on every read, so a cancelled invoice simply drops out. No export, no re-typing.",
+      "points": [
+        "GST invoice with CGST/SGST or IGST and an HSN summary",
+        "GSTR-1 and GSTR-3B for a month or a quarter",
+        "GSTR-2B import, matched to your purchase bills",
+        "E-invoice export for the portal, and the tax calendar on Home"
+      ],
+      "examples": [
+        {
+          "label": "Taxable value",
+          "value": "4,23,500.00"
+        },
+        {
+          "label": "CGST 9%",
+          "value": "38,115.00"
+        },
+        {
+          "label": "SGST 9%",
+          "value": "38,115.00"
+        },
+        {
+          "label": "GSTR-1 for September",
+          "value": "Ready"
+        }
+      ],
+      "find_it": "Accounts › GST returns"
+    },
+    {
+      "kicker": "SCHEMES",
+      "title": "Schemes your principals run",
+      "summary": "Free goods, slab discounts, coupons and offers that stack or give the best one; claims raised back to the principal.",
+      "headline": "Buy 10, get 1 free. Worked out on every bill.",
+      "text": "Offers apply on their own while you bill, and the bill shows what the customer saved. What the principal funds is raised back to them as a claim.",
+      "points": [
+        "Free goods, slab and quantity discounts, coupons",
+        "Stack offers, or give only the best one",
+        "Try an offer before it goes live",
+        "Principal claims for schemes, expiry and damage"
+      ],
+      "examples": [
+        {
+          "label": "Parle-G 100g × 120",
+          "value": "1,200.00"
+        },
+        {
+          "label": "Scheme: 10 + 1 free",
+          "value": "12 free"
+        },
+        {
+          "label": "Retailer discount 2%",
+          "value": "−24.00"
+        },
+        {
+          "label": "Customer saved",
+          "value": "144.00"
+        }
+      ],
+      "find_it": "Sell › Promotions"
+    },
+    {
+      "kicker": "SELLING",
+      "title": "Order to cash, in one chain",
+      "summary": "Quotation, order, delivery, bill and receipt, each continuing the last, with approvals and credit limits that warn before it is too late.",
+      "headline": "From the salesman's order to the money in the bank.",
+      "text": "Each step carries the price, discount and free goods of the one before it, so an agreement is never quietly rewritten. Switch off the steps a small firm does not type.",
+      "points": [
+        "Quotation → order → delivery → bill → receipt",
+        "Up to three levels of approval by amount",
+        "Credit limits that warn, or block if you choose",
+        "Customer statements and ageing that add up"
+      ],
+      "examples": [
+        {
+          "label": "SO-0412  Ravi Stores",
+          "value": "Approved"
+        },
+        {
+          "label": "DN-0388  delivered",
+          "value": "Stock out"
+        },
+        {
+          "label": "INV-1021  billed",
+          "value": "18,640.00"
+        },
+        {
+          "label": "Received by UPI",
+          "value": "Paid"
+        }
+      ],
+      "find_it": "Sell"
+    },
+    {
+      "kicker": "STOCK",
+      "title": "Stock you can trust",
+      "summary": "Batches and expiry, many warehouses, transfers in transit, cases and pieces, and reorder from what actually sells.",
+      "headline": "Know what expires before it does.",
+      "text": "Every movement is in the stock ledger, by branch and warehouse. Pick the batch on the delivery, and see what is near expiry while there is still time to sell it.",
+      "points": [
+        "Batch and expiry on every line",
+        "Many branches and warehouses, transfers in transit",
+        "Cases, boxes and pieces converted for you",
+        "Reorder from set levels or from sales"
+      ],
+      "examples": [
+        {
+          "label": "Batch B2409  exp 11-2026",
+          "value": "40 cases"
+        },
+        {
+          "label": "Batch B2411  exp 01-2027",
+          "value": "65 cases"
+        },
+        {
+          "label": "Near expiry (60 days)",
+          "value": "3 items"
+        },
+        {
+          "label": "Suggested reorder",
+          "value": "12 items"
+        }
+      ],
+      "find_it": "Stock"
+    },
+    {
+      "kicker": "FIELD SALES",
+      "title": "Beats, routes and salesmen",
+      "summary": "Routes and beat plans, call lists, targets and commission with slabs, caps and payouts.",
+      "headline": "Every salesman, every beat, every day of the week.",
+      "text": "Plan who visits which shop on which day, set targets, and pay commission on sales or margin, with ladders and caps.",
+      "points": [
+        "Routes, beats and weekly to monthly plans",
+        "Call lists in visiting order",
+        "Targets by person and period",
+        "Commission ladders, caps and payouts"
+      ],
+      "examples": [
+        {
+          "label": "Monday  Beat 3  Ameerpet",
+          "value": "24 shops"
+        },
+        {
+          "label": "Orders taken",
+          "value": "19"
+        },
+        {
+          "label": "Target this month",
+          "value": "82%"
+        },
+        {
+          "label": "Commission accrued",
+          "value": "6,420.00"
+        }
+      ],
+      "find_it": "Sell › Territory"
+    },
+    {
+      "kicker": "ACCOUNTS",
+      "title": "Books that keep themselves",
+      "summary": "Bills, receipts, payments and stock post to the ledger as you work; trial balance, P&L, balance sheet and bank reconciliation.",
+      "headline": "Your accountant opens the books. They are already written.",
+      "text": "Eleven kinds of documents post their own journal entries, so the ledger and the stock always agree. Close a year when you are ready.",
+      "points": [
+        "Automatic posting from bills, receipts and stock",
+        "Trial balance, profit and loss, balance sheet",
+        "Bank statements matched to the ledger",
+        "Cheques, payment runs and TDS/TCS"
+      ],
+      "examples": [
+        {
+          "label": "INV-1021  posted",
+          "value": "Dr Ravi Stores"
+        },
+        {
+          "label": "Sales",
+          "value": "Cr 15,796.61"
+        },
+        {
+          "label": "Output GST",
+          "value": "Cr 2,843.39"
+        },
+        {
+          "label": "Trial balance",
+          "value": "Agrees"
+        }
+      ],
+      "find_it": "Accounts"
+    },
+    {
+      "kicker": "MANY FIRMS",
+      "title": "Many firms, one sign-in",
+      "summary": "Run every firm from one place, each with its own books, numbering and GST registration. Switch firm in a click.",
+      "headline": "Two agencies, one wholesale firm, one sign-in.",
+      "text": "Each firm keeps its own books, numbering, branches and GSTINs. Your people see only the firms they work for, and only what their role allows.",
+      "points": [
+        "Separate books and numbering per firm",
+        "A GSTIN per branch",
+        "Roles decide who can see and do what",
+        "Switch firm without signing out"
+      ],
+      "examples": [
+        {
+          "label": "Sri Lakshmi Agencies",
+          "value": "GSTIN 36…"
+        },
+        {
+          "label": "Sri Lakshmi Wholesale",
+          "value": "GSTIN 36…"
+        },
+        {
+          "label": "Lakshmi Pharma Distributors",
+          "value": "GSTIN 36…"
+        },
+        {
+          "label": "Your roles",
+          "value": "Owner"
+        }
+      ],
+      "find_it": "Firm switcher, top bar"
+    },
+    {
+      "kicker": "SAFE",
+      "title": "Safe on your own server",
+      "summary": "Runs on your own PC or office server. A trail of every change that nobody can edit, and a backup before every update.",
+      "headline": "Your data stays in your office.",
+      "text": "The server runs on your own machine. Every change is recorded in a trail that cannot be edited, and every update backs up the database before it touches anything.",
+      "points": [
+        "Runs on your PC or office server, no internet needed",
+        "A change history nobody can rewrite",
+        "Backup before every update",
+        "Import your products, parties and opening balances from a file"
+      ],
+      "examples": [
+        {
+          "label": "Ravi K. edited INV-1021",
+          "value": "10:42"
+        },
+        {
+          "label": "Sana M. approved PO-0207",
+          "value": "10:15"
+        },
+        {
+          "label": "Backup before 1.2.0",
+          "value": "Done"
+        },
+        {
+          "label": "Server",
+          "value": "This office"
+        }
+      ],
+      "find_it": "Settings › Audit trail"
+    }
+  ]
 }

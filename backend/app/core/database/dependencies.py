@@ -98,5 +98,8 @@ def _is_platform_path(path: str) -> bool:
         # A backup is of the whole installation, not of one firm, and its
         # audit row belongs in the platform's own trail.
         "/api/v1/backups",
+        # The agency's branding sits above its firms: sign-in shows it before
+        # any firm is chosen.
+        "/api/v1/branding",
     )
     return path.startswith(prefixes)

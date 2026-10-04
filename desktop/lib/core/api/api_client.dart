@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import '../../models/geography.dart';
 import '../../models/entities.dart';
@@ -19,6 +20,7 @@ import '../../models/gst_registration.dart';
 import '../../models/customer.dart';
 import '../../models/customer_opening_bill.dart';
 import '../../models/customer_records.dart';
+import '../../models/agency_branding.dart';
 import '../../models/backup.dart';
 import '../../models/diagnostics.dart';
 import '../../models/document_framework.dart';
@@ -321,6 +323,75 @@ class ApiClient {
   /// [getBackups] says when it is done. A 409 means one is already running.
   Future<BackupOverview> startBackup() async => BackupOverview.fromJson(
         _unwrapMap(await request('POST', '/api/v1/backups')),
+      );
+
+  /// The agency's name, tagline and colour. Public: works before sign-in.
+  Future<AgencyBranding> getBranding() async => AgencyBranding.fromJson(
+        _unwrapMap(
+            await request('GET', '/api/v1/branding', authenticated: false)),
+      );
+
+  /// The agency's logo image (PNG or JPG), or null when none was given.
+  /// Public: works before sign-in.
+  Future<Uint8List?> getBrandingLogo() async {
+    try {
+      return Uint8List.fromList(await downloadBytes('/api/v1/branding/logo'));
+    } on ApiException catch (error) {
+      if (error.statusCode == HttpStatus.notFound) return null;
+      rethrow;
+    }
+  }
+
+  /// Replaces the agency's name, tagline and colour. [expectedVersion] is the
+  /// `version` read with it, sent as `If-Match`; the first save has none.
+  Future<AgencyBranding> updateBranding({
+    required String agencyName,
+    required String tagline,
+    required String accentColor,
+    int? expectedVersion,
+  }) async =>
+      AgencyBranding.fromJson(
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/branding',
+          body: {
+            'agency_name': agencyName,
+            'tagline': tagline,
+            'accent_color': accentColor.isEmpty ? null : accentColor,
+          },
+          expectedVersion: expectedVersion,
+        )),
+      );
+
+  /// Replaces the logo with a PNG or JPG of at most 1 MB.
+  Future<AgencyBranding> uploadBrandingLogo({
+    required String fileName,
+    required List<int> bytes,
+    int? expectedVersion,
+  }) async =>
+      AgencyBranding.fromJson(
+        _unwrapMap(await multipartRequest(
+          'PUT',
+          '/api/v1/branding/logo',
+          fields: const {},
+          fileField: 'file',
+          fileName: fileName,
+          fileBytes: bytes,
+          fileContentType: fileName.toLowerCase().endsWith('.png')
+              ? 'image/png'
+              : 'image/jpeg',
+          expectedVersion: expectedVersion,
+        )),
+      );
+
+  /// Removes the logo; the agency's initials are shown instead.
+  Future<AgencyBranding> deleteBrandingLogo({int? expectedVersion}) async =>
+      AgencyBranding.fromJson(
+        _unwrapMap(await request(
+          'DELETE',
+          '/api/v1/branding/logo',
+          expectedVersion: expectedVersion,
+        )),
       );
 
   /// Sends queued crash reports.
@@ -10673,6 +10744,7 @@ class ApiClient {
     String? fileContentType,
     bool authenticated = true,
     bool retrying = false,
+    int? expectedVersion,
   }) async {
     final Uri uri = _uri(path, null);
     onRequest?.call();
@@ -10699,6 +10771,10 @@ class ApiClient {
       final String? firmId = activeFirmId?.call();
       if (authenticated && firmId?.isNotEmpty == true) {
         httpRequest.headers.set('X-Firm-ID', firmId!);
+      }
+      if (expectedVersion != null) {
+        httpRequest.headers
+            .set(HttpHeaders.ifMatchHeader, '"$expectedVersion"');
       }
       httpRequest.headers.contentType = ContentType('multipart', 'form-data',
           parameters: {'boundary': boundary});
@@ -10746,6 +10822,7 @@ class ApiClient {
           fileContentType: fileContentType,
           authenticated: authenticated,
           retrying: true,
+          expectedVersion: expectedVersion,
         );
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {

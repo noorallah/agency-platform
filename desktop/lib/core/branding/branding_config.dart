@@ -3,6 +3,90 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+/// One slide of the sign-in showcase: a strength of the product, with a small
+/// worked example and the screen where it lives.
+///
+/// Every claim must be built and shipped in the version the file travels
+/// with. The slides are package content, like the rest of this file.
+class BrandingStrength {
+  const BrandingStrength({
+    required this.kicker,
+    required this.title,
+    required this.summary,
+    required this.headline,
+    required this.text,
+    required this.points,
+    required this.examples,
+    required this.findIt,
+  });
+
+  /// The small capitalised label above the headline, e.g. `TAX`.
+  final String kicker;
+  final String title;
+  final String summary;
+  final String headline;
+  final String text;
+  final List<String> points;
+  final List<BrandingStrengthExample> examples;
+
+  /// The menu path where the feature lives after sign-in.
+  final String findIt;
+
+  /// Throws [FormatException] when there is nothing to show (no headline).
+  factory BrandingStrength.fromJson(Map<String, dynamic> json) {
+    String text(String key) {
+      final dynamic raw = json[key];
+      return raw is String ? raw.trim() : '';
+    }
+
+    final String headline = text('headline');
+    if (headline.isEmpty) {
+      throw const FormatException('A strength needs a headline.');
+    }
+    final dynamic points = json['points'];
+    final dynamic examples = json['examples'];
+    return BrandingStrength(
+      kicker: text('kicker'),
+      title: text('title'),
+      summary: text('summary'),
+      headline: headline,
+      text: text('text'),
+      points: points is List
+          ? points
+              .whereType<String>()
+              .map((String item) => item.trim())
+              .where((String item) => item.isNotEmpty)
+              .toList()
+          : const <String>[],
+      examples: examples is List
+          ? examples
+              .whereType<Map>()
+              .map((Map item) => BrandingStrengthExample.fromJson(
+                  Map<String, dynamic>.from(item)))
+              .toList()
+          : const <BrandingStrengthExample>[],
+      findIt: text('find_it'),
+    );
+  }
+}
+
+/// One label/value row of a strength's worked example.
+class BrandingStrengthExample {
+  const BrandingStrengthExample({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  factory BrandingStrengthExample.fromJson(Map<String, dynamic> json) {
+    final dynamic label = json['label'];
+    final dynamic value = json['value'];
+    return BrandingStrengthExample(
+      label: label is String ? label.trim() : '',
+      value: value is String ? value.trim() : '',
+    );
+  }
+}
+
 class BrandingConfig {
   const BrandingConfig({
     required this.appName,
@@ -12,11 +96,18 @@ class BrandingConfig {
     required this.logoPath,
     required this.splashPath,
     required this.version,
-    required this.supportEmail,
-    required this.supportWebsite,
     required this.copyright,
     required this.loginBackgroundColor,
     required this.loginAccentColor,
+    this.supportEmail = '',
+    this.supportWebsite = '',
+    this.supportPhone = '',
+    this.supportWhatsapp = '',
+    this.supportHours = '',
+    this.tagline = '',
+    this.companyLogoPath = '',
+    this.productLogoPath = '',
+    this.strengths = const <BrandingStrength>[],
     this.serverUrl = '',
   });
 
@@ -27,11 +118,25 @@ class BrandingConfig {
   final String logoPath;
   final String splashPath;
   final String version;
-  final String supportEmail;
-  final String supportWebsite;
   final String copyright;
   final Color loginBackgroundColor;
   final Color loginAccentColor;
+
+  /// Support details; empty means "not given", and a row with no value is
+  /// hidden by the screens rather than shown blank.
+  final String supportEmail;
+  final String supportWebsite;
+  final String supportPhone;
+  final String supportWhatsapp;
+  final String supportHours;
+
+  /// The product's (and company's) tagline, or empty.
+  final String tagline;
+  final String companyLogoPath;
+  final String productLogoPath;
+
+  /// The slides of the sign-in showcase; empty when the file names none.
+  final List<BrandingStrength> strengths;
 
   /// The server this installation was pointed at, or empty.
   ///
@@ -53,6 +158,13 @@ class BrandingConfig {
         version: version,
         supportEmail: supportEmail,
         supportWebsite: supportWebsite,
+        supportPhone: supportPhone,
+        supportWhatsapp: supportWhatsapp,
+        supportHours: supportHours,
+        tagline: tagline,
+        companyLogoPath: companyLogoPath,
+        productLogoPath: productLogoPath,
+        strengths: strengths,
         copyright: copyright,
         loginBackgroundColor: loginBackgroundColor,
         loginAccentColor: loginAccentColor,
@@ -61,6 +173,8 @@ class BrandingConfig {
 
   File? get logoFile => _existingFile(logoPath);
   File? get splashFile => _existingFile(splashPath);
+  File? get companyLogoFile => _existingFile(companyLogoPath);
+  File? get productLogoFile => _existingFile(productLogoPath);
 
   static const BrandingConfig defaults = BrandingConfig(
     appName: 'Agency Platform',
@@ -70,8 +184,6 @@ class BrandingConfig {
     logoPath: '',
     splashPath: '',
     version: '1.0.0',
-    supportEmail: 'support@example.com',
-    supportWebsite: 'https://example.com/support',
     copyright: '© 2026 Agency',
     loginBackgroundColor: Color(0xfff6f8fc),
     loginAccentColor: Color(0xff155eef),
@@ -141,13 +253,39 @@ class BrandingConfig {
       logoPath: optionalPath('logo_path'),
       splashPath: optionalPath('splash_path'),
       version: value('version'),
-      supportEmail: value('support_email'),
-      supportWebsite: value('support_website'),
+      supportEmail: optionalPath('support_email'),
+      supportWebsite: optionalPath('support_website'),
+      supportPhone: optionalPath('support_phone'),
+      supportWhatsapp: optionalPath('support_whatsapp'),
+      supportHours: optionalPath('support_hours'),
+      tagline: optionalPath('tagline'),
+      companyLogoPath: optionalPath('company_logo_path'),
+      productLogoPath: optionalPath('product_logo_path'),
+      strengths: _strengths(json['strengths']),
       copyright: value('copyright'),
       loginBackgroundColor: _color(value('login_background_color')),
       loginAccentColor: _color(value('login_accent_color')),
       serverUrl: optionalPath('server_url'),
     );
+  }
+
+  static List<BrandingStrength> _strengths(dynamic raw) {
+    if (raw is! List) {
+      return const <BrandingStrength>[];
+    }
+    final List<BrandingStrength> slides = <BrandingStrength>[];
+    for (final dynamic item in raw) {
+      try {
+        if (item is! Map) {
+          throw const FormatException('A strength must be an object.');
+        }
+        slides.add(
+            BrandingStrength.fromJson(Map<String, dynamic>.from(item)));
+      } on FormatException catch (error) {
+        debugPrint('Skipping a malformed branding strength: $error');
+      }
+    }
+    return slides;
   }
 
   static Color _color(String value) {
