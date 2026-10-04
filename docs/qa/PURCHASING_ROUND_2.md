@@ -38,7 +38,7 @@ time.
 **Expect:** no 403; the window closes, the list shows the receipt
 **Completed**. Purchase > Orders: the order is *Partially received*; the line
 status (if shown in the API/grid) is *Partially received*, received 6, pending 4.
-Warehouse still has **no** New on purchase orders and cannot open bills.
+Warehouse still has **no** New on purchase orders and cannot open Purchase Invoices.
 
 ## R2-4 Draft receipts named on a new receipt (D-BUY-23) -- `purchasing@`
 
@@ -59,7 +59,8 @@ more than 2. Delete or cancel the draft afterwards.
 ## R2-6 Return before billing (D-BUY-26) -- `purchasing@`, then `purchmgr@`
 
 1. Purchase Returns > New off the **first** receipt (6), return **2** of QA-B. Save.
-2. As `purchmgr@`, open it and **Complete** from its window.
+2. As `purchmgr@`, open it, **Approve**, then **Complete** from its window (a
+   return is approved, then completed).
 3. Finance > journal / ledger for the return.
 
 **Expect:** journal **Dr GRNI 200 / Cr Inventory 200** -- no input tax line, no
@@ -68,7 +69,7 @@ Try cancelling the first receipt: refused (a return stands against it).
 
 ## R2-7 The bill offers only what is left (D-BUY-27, D-UI-7) -- `purchasing@`
 
-1. Purchase Bills > New, supplier QA-V. Press **Choose receipts (n waiting)**.
+1. Purchase Invoices > New, supplier QA-V. Press **Choose receipts (n waiting)**.
 
 **Expect:** only receipts with something left to bill. Receipts billed in full
 in round 1 (PO-1's, PO-2's) are **not** listed. The first receipt shows **4
@@ -122,8 +123,32 @@ Bill/return numbering per branch (backlog 84) applies to **new** firms only; QA0
 
 ## Then -- round 1 cases not yet run
 
-BUY-012, BUY-013, BUY-014 and the BUY-017 GST cases (interstate IGST, blocked
-credit, reverse charge), from the QA test book.
+The GST cases BUY-012 (blocked credit), BUY-013 (composition supplier) and
+BUY-014 (GSTR-2B), and BUY-017 (a debit note on a paid bill), from
+`docs/qa/06_PURCHASING.md`.
 
 Record each result as Pass / Fail with the document number; a fail goes in
 `docs/DEFECTS.md` under a new *round 2* heading.
+
+## Results, 2026-10-04 (local 1.3.0, QA01)
+
+| Step | Result | Documents |
+| --- | --- | --- |
+| R2-1 | Pass | PO-QA01-HO-2026-2027-000005 (test draft, deleted) |
+| R2-2 | Pass | PO-QA01-HO-2026-2027-000003 |
+| R2-3 | Pass | GRN-QA01-HO-2026-2027-000005 |
+| R2-4 | Pass after **D-BUY-29** (#1100) | PO-...-000006, GRN-...-000008 |
+| R2-5 | Pass | GRN-...-000008, 000009 |
+| R2-6 | Pass: Dr GRNI 200 / Cr Inventory 200; cancelling the receipt refused | PR-2026-2027-000002 |
+| R2-7 | Pass: Dr GRNI 800, CGST 72, SGST 72 / Cr Payables 944 | PI-2026-2027-000003 (R2-INV-1) |
+| R2-8 | Pass: Dr Payables 118 / Cr Inventory 100, CGST 9, SGST 9 | PR-2026-2027-000003 |
+| R2-9 | Pass | PI-...-000004 (cancelled), PR-...-000004 |
+| R2-10 | Pass; ids in the views fixed as **D-ROLE-4** (#1102) | SO-2026-2027-000001, DN-26-27-000001, SI-26-27-000001/000002 |
+| R2-11 | Pass on the owner's report (a: not re-run) | -- |
+
+Found and fixed in the round: D-UI-8 Save is the coloured button (#1099),
+D-BUY-29 (#1100), D-UI-9 Save & New keeps the defaults (#1101), D-ROLE-4
+(#1102), D-BUY-30 billable means posted (#1103), D-UI-10 a day's documents
+newest first (#1104), and "purchase invoice" as the one name (#1105). Decided
+not a defect: D-BUY-31, D-SELL-45, D-SELL-46.
+
