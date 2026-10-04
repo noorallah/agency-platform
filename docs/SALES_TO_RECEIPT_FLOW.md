@@ -49,6 +49,9 @@ delivery note, or a draft invoice.
 
 ## What a firm configures
 
+Every setting in every area, with why it exists and what each choice does, is in
+[`CONFIGURATION_SETTINGS_GUIDE.md`](CONFIGURATION_SETTINGS_GUIDE.md).
+
 Every row is a setting a firm changes without a release. **Where** gives the
 phase 2 path (Settings gear, then the group) and the API. A firm that has set
 nothing gets the default in the third column; most defaults warn rather than
@@ -74,7 +77,7 @@ nobody switches on.
 | E-invoice route (`einvoice_settings`) | Settings > Tax > GST Documents; `GET/PUT /api/v1/einvoice/settings` | `provider` `SANDBOX` (default, nothing filed) / OFFLINE | Step 7a: whether registering goes to the sandbox, or into the portal's bulk-upload file (`POST /api/v1/einvoice/offline/export`, then `/offline/import` of the portal's result). A route not built cannot be chosen (A42) |
 | Numbering Series | Settings > Firm > Numbering Series; `/api/v1/document-framework/numbering-rules` | Per document type; see `app/document_framework` for the fields | The number on every document above |
 | Messaging (`messaging_settings`) | Settings > Firm > Messaging; `GET/PUT /api/v1/messaging/settings` | `is_enabled` off: a firm with no row queues, skips and records nothing. `due_soon_days` 3; `overdue_every_days` 7; `overdue_stop_after_days` 90 (A12). Each channel has the firm's own account | Messages about the bill and its reminders. `MESSAGING_FRAMEWORK.md` |
-| Print templates (`document_print_templates`) | Beside the Print button; changing needs `PLATFORM_SETTINGS` | See "Sending the bill" below | What the printed bill carries around its fixed statutory spine |
+| Print templates (`document_print_templates`) | Beside the Print button; changing needs `SETTINGS_UPDATE` | See "Sending the bill" below | What the printed bill carries around its fixed statutory spine |
 
 ### On the customer and the product
 
