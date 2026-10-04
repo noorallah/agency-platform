@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'identity/change_password_dialog.dart';
 import 'identity/firm_roles_dialog.dart';
@@ -11,6 +12,7 @@ import 'identity/reset_password_dialog.dart';
 
 import '../core/api/api_client.dart';
 import '../core/auth/session_controller.dart';
+import '../core/branding/agency_branding_cache.dart';
 import '../core/branding/branding_config.dart';
 import '../core/design/design_tokens.dart';
 import '../core/diagnostics/diagnostics_share.dart';
@@ -123,6 +125,7 @@ import 'settings/financial_years_page.dart';
 import 'settings/numbering_series_page.dart';
 import 'settings/settings_workspace.dart';
 import 'resource_management_page.dart';
+import '../phase2/agency_header.dart';
 import '../phase2/app_menu_bar.dart';
 import '../phase2/notification_bell.dart';
 import '../phase2/command_box.dart';
@@ -239,6 +242,8 @@ class DesktopShell extends StatefulWidget {
     required this.themes,
     required this.permissions,
     this.phase2 = false,
+    this.agencyCache,
+    this.setWindowTitle,
   });
 
   /// Draw the phase 2 frame (lib/phase2/) instead of phase 1's sidebar.
@@ -253,6 +258,13 @@ class DesktopShell extends StatefulWidget {
   final BrandingConfig branding;
   final ThemeManager themes;
   final PermissionService permissions;
+
+  /// Where the agency's branding was cached at sign-in; the real one by
+  /// default. The phase 2 header only reads it.
+  final AgencyBrandingCache? agencyCache;
+
+  /// Titles the window, replaced in tests; the real window by default.
+  final Future<void> Function(String title)? setWindowTitle;
   @override
   State<DesktopShell> createState() => _DesktopShellState();
 }
@@ -268,6 +280,12 @@ class _DesktopShellState extends State<DesktopShell> {
   static const String _shellStateKey = 'phase2.shell';
 
   bool get _classicLayout => !widget.phase2;
+
+  /// The agency the phase 2 header names, read once from the cache sign-in
+  /// refreshed -- no request of its own.
+  late final AgencyIdentity _agency;
+  String? _windowTitle;
+  String? _windowFirm;
 
   /// The screens open as tabs under the menu bar, by router path (decision 3).
   late List<String> _openScreens;
@@ -332,6 +350,13 @@ class _DesktopShellState extends State<DesktopShell> {
       for (final dynamic path in (shellState['open'] as List?) ?? const [])
         if (path is String && path.isNotEmpty) path,
     ];
+    if (widget.phase2) {
+      _agency = AgencyIdentity.resolve(
+        cache: widget.agencyCache ?? AgencyBrandingCache(),
+        server: widget.session.baseUrl,
+        branding: widget.branding,
+      );
+    }
     _lastFirmContextVersion = widget.session.firmContextVersion;
     widget.session.addListener(_sessionChanged);
     _router = WorkspaceRouter(
@@ -385,6 +410,38 @@ class _DesktopShellState extends State<DesktopShell> {
       ..removeListener(_routeChanged)
       ..dispose();
     super.dispose();
+  }
+
+  /// Title the window "Agency > Firm". Sent on the first frame and then only
+  /// when the text changes. The sign-in screen puts the window's own name
+  /// back as it goes, so the first send waits for the frame after it.
+  void _syncWindowTitle() {
+    final String title = windowTitleFor(
+      _agency.name,
+      widget.session.currentFirm?.name,
+    );
+    _windowFirm = widget.session.currentFirm?.name;
+    if (title == _windowTitle) return;
+    final bool first = _windowTitle == null;
+    _windowTitle = title;
+    void send() {
+      if (!mounted || title != _windowTitle) return;
+      unawaited(_titleWindow(title));
+    }
+
+    if (first) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => send());
+    } else {
+      send();
+    }
+  }
+
+  Future<void> _titleWindow(String title) async {
+    try {
+      await (widget.setWindowTitle ?? windowManager.setTitle)(title);
+    } on Object {
+      // There is no window to title in a test or on a phone.
+    }
   }
 
   /// Ask the server whether it, and its database, are answering.
@@ -795,6 +852,11 @@ class _DesktopShellState extends State<DesktopShell> {
   }
 
   void _sessionChanged() {
+    // The agency header and the window title name the firm, so they follow it.
+    if (widget.phase2 && mounted &&
+        widget.session.currentFirm?.name != _windowFirm) {
+      setState(() {});
+    }
     final int version = widget.session.firmContextVersion;
     if (version == _lastFirmContextVersion) {
       return;
@@ -986,6 +1048,7 @@ class _DesktopShellState extends State<DesktopShell> {
                 .clamp(-1, documents.length - 1);
     final String current = _router.current.path;
     final AppSemanticColors chrome = context.semanticColors;
+    _syncWindowTitle();
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.keyW, control: true): () =>
@@ -1008,6 +1071,14 @@ class _DesktopShellState extends State<DesktopShell> {
             currentPath: current,
             onOpen: _openFromMenu,
             favourites: _favourites,
+            leading: AgencyHeader(
+              agency: _agency,
+              firmName: widget.session.currentFirm?.name,
+              onHome: () => _openFromMenu(
+                MenuLayout.itemFor(MenuLayout.homeRoute) ??
+                    const MenuItemSpec.phase2(MenuLayout.homeRoute, 'Home'),
+              ),
+            ),
             onOpenSetUp: (section) {
               _setUpSection = section;
               _openFromMenu(MenuLayout.setUpPage);
@@ -1123,6 +1194,7 @@ class _DesktopShellState extends State<DesktopShell> {
                             line ?? const SizedBox.shrink(),
                       ),
           ),
+          ProductOnStatusBar(branding: widget.branding),
           ConnectionDot(
             onChrome: false,
             online: _health.backend == ConnectionStateIndicator.online &&
