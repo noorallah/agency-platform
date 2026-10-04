@@ -2055,6 +2055,84 @@ class DocumentPostingService:
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
 
+    def post_bill_of_entry(
+        self,
+        *,
+        firm_id: UUID,
+        bill_of_entry_id: UUID,
+        reference_number: str,
+        boe_date: date,
+        inventory_amount: Decimal,
+        cogs_amount: Decimal,
+        expense_amount: Decimal,
+        igst_amount: Decimal,
+        cess_amount: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Book the duty a Bill of Entry assessed (PG-12 part B).
+
+        Basic customs duty and surcharge are a cost of the goods with no
+        credit: Dr inventory for the share on stock still held, Dr cost of
+        goods sold for the share already sold, Dr *Customs Duty* for a line no
+        linked receipt carries. The IGST on import is input tax, Dr the IGST
+        input account the purchase side claims through; cess Dr input tax.
+        Cr *Customs Duty Payable* for the whole, which an ordinary payment or
+        journal clears. Each leg is rounded on its own and the credit is
+        their sum, so the entry balances.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        legs = (
+            (ControlAccountPurpose.INVENTORY, inventory_amount),
+            (ControlAccountPurpose.COST_OF_GOODS_SOLD, cogs_amount),
+            (ControlAccountPurpose.CUSTOMS_DUTY, expense_amount),
+            (input_tax_purpose("IGST"), igst_amount),
+            (input_tax_purpose("CESS"), cess_amount),
+        )
+        debits = [
+            (purpose, quantize_ledger(quantize_money(value))) for purpose, value in legs
+        ]
+        debits = [(purpose, value) for purpose, value in debits if value > ZERO]
+        payable = ControlAccountPurpose.CUSTOMS_PAYABLE
+        accounts = self._require_mapping(
+            firm_id, (payable, *dict.fromkeys(purpose for purpose, _ in debits))
+        )
+        context = self.context_for(firm_id, boe_date)
+        describe = f"Bill of Entry {reference_number}"
+        lines = [
+            JournalLineData(
+                ledger_account_id=accounts[purpose],
+                debit_amount=value,
+                credit_amount=ZERO,
+                description=describe,
+            )
+            for purpose, value in debits
+        ]
+        lines.append(
+            JournalLineData(
+                ledger_account_id=accounts[payable],
+                debit_amount=ZERO,
+                credit_amount=sum((value for _, value in debits), ZERO),
+                description=describe,
+            )
+        )
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=boe_date,
+            reference_number=f"BOE-{reference_number}",
+            description=describe,
+            lines=lines,
+            source_module="bill_of_entry",
+            source_id=bill_of_entry_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
     def post_principal_claim_receipt(
         self,
         *,

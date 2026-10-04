@@ -20,12 +20,14 @@ clearing agent's bill the next.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
@@ -174,7 +176,7 @@ class LandedCostService(TransactionalDocumentService):
                 )
             ).all()
         )
-        stocked = [(line, _stock_quantity(line)) for line in lines]
+        stocked = [(line, stock_quantity(line)) for line in lines]
         stocked = [(line, quantity) for line, quantity in stocked if quantity > ZERO]
         if not stocked:
             raise ValidationError("Those receipts brought in no stock to carry a cost.")
@@ -238,43 +240,22 @@ class LandedCostService(TransactionalDocumentService):
                 )
             )
 
-        inventory = InventoryService(self._session)
-        # On hand is read once per product, before any line revalues it:
-        # two lines of one product share what is left of it.
-        left: dict[UUID, Decimal] = {}
-        for line, _ in stocked:
-            if line.product_id not in left:
-                left[line.product_id] = Decimal(
-                    str(
-                        inventory.valuation_for(
-                            firm_scope=firm_id, product_id=line.product_id
-                        ).quantity_on_hand
-                    )
-                )
+        landed = land_on_receipt_lines(
+            self._session,
+            firm_id=firm_id,
+            receipts=receipts,
+            shares=[
+                (line, quantity, share)
+                for (line, quantity), share in zip(stocked, shares, strict=True)
+            ],
+            reference_number=number,
+            on=data.voucher_date,
+            label=f"Landed cost {number}",
+            actor_id=actor_id,
+        )
         held_total = sold_total = ZERO
-        for (line, quantity), measure, share in zip(
-            stocked, measures, shares, strict=True
-        ):
-            on_hand = max(min(left[line.product_id], quantity), ZERO)
-            left[line.product_id] -= on_hand
-            held = quantize_money(share * on_hand / quantity) if share else ZERO
-            sold = share - held
-            transaction_id: UUID | None = None
-            if held > ZERO:
-                receipt = receipts[line.goods_receipt_id]
-                moved = inventory.stage_revaluation(
-                    firm_scope=firm_id,
-                    branch_id=receipt.branch_id,
-                    warehouse_id=line.warehouse_id,
-                    product_id=line.product_id,
-                    batch_id=line.batch_id,
-                    amount=held,
-                    reference_number=number,
-                    transaction_date=data.voucher_date,
-                    remarks=f"Landed cost {number} on {receipt.grn_number}",
-                    actor_id=actor_id,
-                )
-                transaction_id = moved.id
+        for piece, measure in zip(landed, measures, strict=True):
+            line = piece.line
             self._session.add(
                 LandedCostAllocation(
                     voucher_id=row.id,
@@ -282,18 +263,18 @@ class LandedCostService(TransactionalDocumentService):
                     goods_receipt_id=line.goods_receipt_id,
                     goods_receipt_line_id=line.id,
                     product_id=line.product_id,
-                    quantity=quantity,
+                    quantity=piece.quantity,
                     basis_measure=measure,
-                    amount=share,
-                    inventory_amount=held,
-                    cogs_amount=sold,
-                    inventory_transaction_id=transaction_id,
+                    amount=piece.amount,
+                    inventory_amount=piece.inventory_amount,
+                    cogs_amount=piece.cogs_amount,
+                    inventory_transaction_id=piece.inventory_transaction_id,
                     created_by=actor_id,
                     updated_by=actor_id,
                 )
             )
-            held_total += held
-            sold_total += sold
+            held_total += piece.inventory_amount
+            sold_total += piece.cogs_amount
         row.inventory_amount = held_total
         row.cogs_amount = sold_total
         entry = DocumentPostingService(self._session).post_landed_cost(
@@ -327,39 +308,18 @@ class LandedCostService(TransactionalDocumentService):
             raise ValidationError("This voucher was already cancelled.")
         if not reason.strip():
             raise ValidationError("Say why the voucher is cancelled.")
-        inventory = InventoryService(self._session)
-        receipts = {
-            receipt.id: receipt
-            for receipt in self._session.scalars(
-                select(GoodsReceipt).where(
-                    GoodsReceipt.id.in_(
-                        select(LandedCostAllocation.goods_receipt_id).where(
-                            LandedCostAllocation.voucher_id == row.id
-                        )
-                    )
-                )
-            ).all()
-        }
-        for allocation in self._allocations([row.id]):
-            held = Decimal(str(allocation.inventory_amount))
-            if held <= ZERO:
-                continue
-            line = self._session.get(GoodsReceiptLine, allocation.goods_receipt_line_id)
-            receipt = receipts[allocation.goods_receipt_id]
-            if line is None:
-                continue
-            inventory.stage_revaluation(
-                firm_scope=firm_id,
-                branch_id=receipt.branch_id,
-                warehouse_id=line.warehouse_id,
-                product_id=line.product_id,
-                batch_id=line.batch_id,
-                amount=-held,
-                reference_number=row.voucher_number,
-                transaction_date=row.voucher_date,
-                remarks=f"Landed cost {row.voucher_number} cancelled",
-                actor_id=actor_id,
-            )
+        take_off_receipt_lines(
+            self._session,
+            firm_id=firm_id,
+            held=[
+                (allocation.goods_receipt_line_id, allocation.inventory_amount)
+                for allocation in self._allocations([row.id])
+            ],
+            reference_number=row.voucher_number,
+            on=row.voucher_date,
+            remarks=f"Landed cost {row.voucher_number} cancelled",
+            actor_id=actor_id,
+        )
         if row.journal_entry_id is not None:
             JournalEntryEngine(self._session).reverse_entry(
                 row.journal_entry_id,
@@ -574,13 +534,149 @@ class LandedCostService(TransactionalDocumentService):
         )
 
 
-def _stock_quantity(line: GoodsReceiptLine) -> Decimal:
+def stock_quantity(line: GoodsReceiptLine) -> Decimal:
     """Return what a receipt line put into stock, in the stock unit."""
     factor = Decimal(str(line.conversion_factor or 1))
     received = Decimal(str(line.accepted_quantity or 0)) + Decimal(
         str(line.free_quantity or 0)
     )
     return received * factor
+
+
+@dataclass(frozen=True)
+class LandedShare:
+    """What one receipt line carried of a cost added after the goods arrived."""
+
+    line: GoodsReceiptLine
+    #: Received, in the stock unit.
+    quantity: Decimal
+    amount: Decimal
+    #: The part on stock still held, which revalued it.
+    inventory_amount: Decimal
+    #: The part on goods already gone, which belongs to cost of goods sold.
+    cogs_amount: Decimal
+    inventory_transaction_id: UUID | None
+
+
+def land_on_receipt_lines(
+    session: Session,
+    *,
+    firm_id: UUID,
+    receipts: dict[UUID, GoodsReceipt],
+    shares: list[tuple[GoodsReceiptLine, Decimal, Decimal]],
+    reference_number: str,
+    on: date,
+    label: str,
+    actor_id: UUID,
+) -> list[LandedShare]:
+    """Add a cost to received goods: on hand revalues stock, the rest is sold.
+
+    Each ``(line, stock quantity, amount)`` is split by how much of the
+    product is still on hand: that part revalues the stock -- its moving
+    average rises, with no quantity moving -- and the part already gone is
+    returned as cost of goods sold for the caller's journal. On hand is read
+    once per product, before any line revalues it: two lines of one product
+    share what is left of it. Landed cost vouchers (BUY-16) and Bills of
+    Entry (PG-12) both land their cost here. Stages only; the caller commits.
+    """
+    inventory = InventoryService(session)
+    left: dict[UUID, Decimal] = {}
+    for line, _, _ in shares:
+        if line.product_id not in left:
+            left[line.product_id] = Decimal(
+                str(
+                    inventory.valuation_for(
+                        firm_scope=firm_id, product_id=line.product_id
+                    ).quantity_on_hand
+                )
+            )
+    landed: list[LandedShare] = []
+    for line, quantity, share in shares:
+        on_hand = max(min(left[line.product_id], quantity), ZERO)
+        left[line.product_id] -= on_hand
+        held = quantize_money(share * on_hand / quantity) if share else ZERO
+        transaction_id: UUID | None = None
+        if held > ZERO:
+            receipt = receipts[line.goods_receipt_id]
+            moved = inventory.stage_revaluation(
+                firm_scope=firm_id,
+                branch_id=receipt.branch_id,
+                warehouse_id=line.warehouse_id,
+                product_id=line.product_id,
+                batch_id=line.batch_id,
+                amount=held,
+                reference_number=reference_number,
+                transaction_date=on,
+                remarks=f"{label} on {receipt.grn_number}",
+                actor_id=actor_id,
+            )
+            transaction_id = moved.id
+        landed.append(
+            LandedShare(
+                line=line,
+                quantity=quantity,
+                amount=share,
+                inventory_amount=held,
+                cogs_amount=share - held,
+                inventory_transaction_id=transaction_id,
+            )
+        )
+    return landed
+
+
+def take_off_receipt_lines(
+    session: Session,
+    *,
+    firm_id: UUID,
+    held: list[tuple[UUID, Decimal]],
+    reference_number: str,
+    on: date,
+    remarks: str,
+    actor_id: UUID,
+) -> None:
+    """Take a landed cost's on-hand share back off the stock it revalued.
+
+    ``held`` is ``(goods receipt line id, inventory amount)`` as landed. The
+    value comes back off at today's quantity: what was sold since keeps the
+    cost it was sold at. Stages only; the caller commits.
+    """
+    wanted = [(line_id, Decimal(str(amount))) for line_id, amount in held]
+    wanted = [(line_id, amount) for line_id, amount in wanted if amount > ZERO]
+    if not wanted:
+        return
+    lines = {
+        line.id: line
+        for line in session.scalars(
+            select(GoodsReceiptLine).where(
+                GoodsReceiptLine.id.in_({line_id for line_id, _ in wanted})
+            )
+        ).all()
+    }
+    receipts = {
+        receipt.id: receipt
+        for receipt in session.scalars(
+            select(GoodsReceipt).where(
+                GoodsReceipt.id.in_({line.goods_receipt_id for line in lines.values()})
+            )
+        ).all()
+    }
+    inventory = InventoryService(session)
+    for line_id, amount in wanted:
+        line = lines.get(line_id)
+        if line is None:
+            continue
+        inventory.stage_revaluation(
+            firm_scope=firm_id,
+            branch_id=receipts[line.goods_receipt_id].branch_id,
+            warehouse_id=line.warehouse_id,
+            product_id=line.product_id,
+            batch_id=line.batch_id,
+            amount=-amount,
+            reference_number=reference_number,
+            transaction_date=on,
+            remarks=remarks,
+            actor_id=actor_id,
+        )
 
 
 def _measure(

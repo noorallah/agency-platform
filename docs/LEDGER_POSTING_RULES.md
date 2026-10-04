@@ -431,9 +431,52 @@ posts and reads exactly as it did.
   bill owes now, refuses a second revaluation of the same day, and refuses
   the whole thing when no period is open for the reversal's day. Between the
   two dates the payables report's books check differs by the revaluation.
-- **Not built yet** (part B): the Bill of Entry, customs duty into landed
-  cost and import IGST in 3B; purchase returns and debit notes are still
-  rupee documents.
+- **Not built yet**: purchase returns and debit notes are still rupee
+  documents. The customs side is part B, below.
+
+## A Bill of Entry books customs duty as cost and import IGST as credit
+
+PG-12 part B (2026-10-05, migration `20261005_0314`, module
+`app/bill_of_entry`, `/api/v1/bills-of-entry`), decided by Tally, ERPNext and
+Indian customs practice. The goods of a foreign bill clear customs on a Bill
+of Entry, typed as a `DRAFT` and posted (`PURCHASE_APPROVE`).
+
+- **Each line** carries the assessable value in rupees, basic customs duty
+  (BCD, % of assessable), the social welfare surcharge (SWS, % of BCD, 10
+  unless typed), IGST (% of assessable + BCD + SWS) and compensation cess (an
+  amount). An amount is worked out from its rate only when it was not typed;
+  a typed amount wins (`compute_line_duty`, `app/bill_of_entry/services/duty.py`),
+  every figure rounded to paise on its own.
+- **BCD + SWS are a cost of the goods, with no credit.** At posting they are
+  spread over the linked receipts' lines of the same product by stock
+  quantity and landed through the landed cost mechanism
+  (`land_on_receipt_lines` in `app/landed_costs/services`, shared with BUY-16):
+  the share on stock still held revalues it (moving average up, no quantity
+  moving, an `inventory_transactions` row of type `LANDED_COST`), the share on
+  goods already sold goes to cost of goods sold. The receipts are those the
+  Bill of Entry names plus every receipt its linked bills reach (named as a
+  source, or raised by the bill itself); each must be completed. **A line no
+  linked receipt carries** is booked to *Customs Duty* (`CUSTOMS_DUTY`, seeded
+  as *5220*, expense): stock valuation does not absorb it, because there is
+  no stock to revalue.
+- **IGST on import is input tax**, debited to the account the purchase side
+  claims IGST through (`input_tax_purpose("IGST")`, *1310 Input IGST*); cess
+  to *1300 Input Tax*.
+- **The credit** is *Customs Duty Payable* (`CUSTOMS_PAYABLE`, seeded as
+  *2800*, liability) for the sum of the debits, each leg rounded on its own.
+  Source module `bill_of_entry`, reference `BOE-<our number>`. A Bill of Entry
+  with no duty at all posts no journal.
+- **Paying customs** is not a new payment kind: a journal (`POST
+  /finance/journal-entries`) Dr *2800 Customs Duty Payable* / Cr *Bank*. The
+  payments module settles parties' bills and the expenses module books only
+  to expense accounts, so neither reaches a liability control account.
+- **Cancelling** a posted Bill of Entry reverses its journal (`BOE-<number>-REV`)
+  and takes the on-hand share back off the stock at today's quantity: what
+  was sold since keeps the cost it was sold at, as a cancelled landed cost
+  voucher does.
+- **GSTR-3B 4(A)(1)** reads the IGST and cess of posted Bills of Entry by
+  `boe_date` on every read (`itc_import_goods`), and net ITC includes it
+  (`docs/TAX_FRAMEWORK.md`).
 
 ## A balance is cleared without money by a deduction or a party adjustment, never by tax
 

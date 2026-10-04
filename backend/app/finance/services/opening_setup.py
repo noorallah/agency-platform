@@ -320,6 +320,16 @@ CHART: tuple[SeedAccount, ...] = (
         ControlAccountPurpose.LANDED_COST_CLEARING,
     ),
     SeedAccount(
+        # Basic duty and surcharge on imported goods no receipt carries
+        # (PG-12 part B). Migration 20261005_0314 gives existing firms the
+        # same account.
+        "5220",
+        "Customs Duty",
+        AccountTypeEnum.EXPENSE,
+        "EXP",
+        ControlAccountPurpose.CUSTOMS_DUTY,
+    ),
+    SeedAccount(
         "5400",
         "Purchase Price Variance",
         AccountTypeEnum.EXPENSE,
@@ -388,6 +398,15 @@ CHART: tuple[SeedAccount, ...] = (
         AccountTypeEnum.LIABILITY,
         "CL",
         ControlAccountPurpose.TDS_PAYABLE,
+    ),
+    SeedAccount(
+        # What a Bill of Entry assessed until customs is paid (PG-12 part B).
+        # Migration 20261005_0314 gives existing firms the same account.
+        "2800",
+        "Customs Duty Payable",
+        AccountTypeEnum.LIABILITY,
+        "CL",
+        ControlAccountPurpose.CUSTOMS_PAYABLE,
     ),
     SeedAccount(
         # What customers deducted from their payments: claimed against the

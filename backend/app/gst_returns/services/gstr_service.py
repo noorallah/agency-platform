@@ -43,7 +43,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from uuid import UUID
 
 from sqlalchemy import ColumnElement, Row, Select, func, select, true
@@ -1030,8 +1030,18 @@ class GstReturnService:
         rule42_reversed, rule42_reclaimed = Rule42Service(
             self._session
         ).movements_between(firm_id=firm_scope, from_date=from_date, to_date=to_date)
+        imports, boe_count = self._import_of_goods(
+            firm_scope=firm_scope, from_date=from_date, to_date=to_date
+        )
 
         return {
+            # 4(A)(1): IGST and cess paid to customs on imported goods, from
+            # the period's posted Bills of Entry by their own date (PG-12).
+            "itc_import_goods": {
+                "integrated_tax": _filed(imports.igst),
+                "cess": _filed(imports.cess),
+                "bill_of_entry_count": boe_count,
+            },
             # 3.1(d): inward supplies on which the firm pays the tax itself.
             "inward_reverse_charge": {
                 "taxable_value": _filed(inward_rcm[0]),
@@ -1114,11 +1124,12 @@ class GstReturnService:
                 "unplaced_reversals": _filed(unplaced),
                 "unplaced_return_count": unplaced_count,
             },
-            # Table 4(C): 4(A)(3) plus 4(A)(5), less 4(B)(1) and 4(B)(2);
+            # Table 4(C): 4(A)(1), 4(A)(3) and 4(A)(5), less 4(B)(1) and 4(B)(2);
             # rule 42 is in both halves (4(B)(1) and, reclaimed, 4(A)(5)).
             "net_itc": {
                 "integrated_tax": _filed(
                     claimed.igst
+                    + imports.igst
                     + rcm_credit.igst
                     + rule42_reclaimed.igst
                     - blocked.igst
@@ -1127,6 +1138,7 @@ class GstReturnService:
                 ),
                 "central_tax": _filed(
                     claimed.cgst
+                    + imports.cgst
                     + rcm_credit.cgst
                     + rule42_reclaimed.cgst
                     - blocked.cgst
@@ -1135,6 +1147,7 @@ class GstReturnService:
                 ),
                 "state_tax": _filed(
                     claimed.sgst
+                    + imports.sgst
                     + rcm_credit.sgst
                     + rule42_reclaimed.sgst
                     - blocked.sgst
@@ -1143,6 +1156,7 @@ class GstReturnService:
                 ),
                 "cess": _filed(
                     claimed.cess
+                    + imports.cess
                     + rcm_credit.cess
                     + rule42_reclaimed.cess
                     - blocked.cess
@@ -1151,6 +1165,40 @@ class GstReturnService:
                 ),
             },
         }
+
+    def _import_of_goods(
+        self, *, firm_scope: UUID, from_date: date, to_date: date
+    ) -> tuple[GstBuckets, int]:
+        """Return 4(A)(1): IGST and cess on the period's posted Bills of Entry.
+
+        Read off the documents on every read, by the Bill of Entry's own date
+        and the GSTIN its branch files under; a draft has claimed nothing and
+        a cancelled one is gone. Customs charges IGST alone on an import, so
+        the central and state heads stay empty.
+        """
+        from app.bill_of_entry.models import BillOfEntry
+
+        igst, cess, count = self._session.execute(
+            select(
+                func.coalesce(func.sum(BillOfEntry.igst_amount), 0),
+                func.coalesce(func.sum(BillOfEntry.cess_amount), 0),
+                func.count(BillOfEntry.id),
+            ).where(
+                BillOfEntry.firm_id == firm_scope,
+                # A Bill of Entry may name no branch: the firm's own GSTIN.
+                self._gstin_scope.applies(
+                    cast(ColumnElement[UUID], BillOfEntry.branch_id)
+                ),
+                BillOfEntry.is_deleted.is_(False),
+                BillOfEntry.status == "POSTED",
+                BillOfEntry.boe_date >= from_date,
+                BillOfEntry.boe_date <= to_date,
+            )
+        ).one()
+        return (
+            GstBuckets(igst=_decimal(igst), cess=_decimal(cess)),
+            int(count or 0),
+        )
 
     def _reverse_charge_inward(
         self, *, firm_scope: UUID, from_date: date, to_date: date

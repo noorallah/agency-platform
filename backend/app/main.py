@@ -13,6 +13,7 @@ from app.approvals.api import router as approvals_router
 from app.backups.api import router as backups_router
 from app.bank_reconciliation.api.router import router as bank_reconciliation_router
 from app.batch_serial.api import router as batch_serial_router
+from app.bill_of_entry.api import router as bills_of_entry_router
 from app.branches.api import router as branch_warehouse_router
 from app.branding.api import router as branding_router
 from app.business.api import router as business_framework_router
@@ -205,6 +206,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(purchase_returns_router)
     application.include_router(rfqs_router)
     application.include_router(rate_contracts_router)
+    application.include_router(bills_of_entry_router)
     application.include_router(supplier_schemes_router)
     application.include_router(sales_invoices_router)
     application.include_router(sales_returns_router)

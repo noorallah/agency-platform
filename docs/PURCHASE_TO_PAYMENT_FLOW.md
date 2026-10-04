@@ -353,6 +353,27 @@ against the bill, and *Paid now* refuses it. `POST /finance/fx-revaluation`
 restates the open USD at a period end and reverses itself the next day. The
 ledger rules are in `docs/LEDGER_POSTING_RULES.md`.
 
+### The customs side: the Bill of Entry (PG-12 part B)
+
+The same goods clear customs on a Bill of Entry (`POST /bills-of-entry`): the
+customs number, date and port, the supplier, the bill (and any receipts) it
+belongs to, and per item the assessable value with basic customs duty, the
+surcharge and IGST. Assessed at 85,000 with 10% BCD and 18% IGST: BCD 8,500,
+SWS 850 (10% of BCD), IGST 16,983 (18% of 94,350). Posting it
+(`POST /bills-of-entry/{id}/post`, `PURCHASE_APPROVE`):
+
+```
+          Dr 1200 Inventory            9,350.00   (BCD + SWS onto the receipt's stock)
+          Dr 1310 Input IGST          16,983.00   (claimed in 3B 4(A)(1))
+          Cr 2800 Customs Duty Payable 26,333.00
+```
+
+The ten units' average rises from 8,300 to 9,235. Duty on goods already sold
+goes to cost of goods sold, and duty on a line no linked receipt carries to
+*5220 Customs Duty*. Customs is paid by a journal, Dr 2800 / Cr Bank.
+Cancelling (`POST /bills-of-entry/{id}/cancel` with a reason) reverses the
+journal, takes the duty back off the stock and drops the IGST from 3B.
+
 ---
 
 ## The whole chain, netted

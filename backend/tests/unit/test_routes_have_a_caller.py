@@ -56,6 +56,7 @@ _MACHINE_EXPORT = (
     "show from the grid"
 )
 _SCREEN_GAP = "a screen gap, recorded in docs/BACKLOG.md §76 (D-GOLIVE-2 triage)"
+_BILLS_OF_ENTRY = "server built in PG-12 part B; desktop in PG-12 part C"
 
 #: Routes deliberately left without a desktop caller, and why. Every entry has
 #: been looked at; if one of these ever gains a screen, delete its line.
@@ -67,6 +68,15 @@ _ACCEPTED: dict[str, str] = {
         "period-end revaluation of foreign-currency payables, server built in "
         "PG-12 part A; desktop in PG-12 part C"
     ),
+    # Bills of Entry (PG-12 part B): the server merged first; delete these
+    # lines when the desktop window lands.
+    "GET /api/v1/bills-of-entry": _BILLS_OF_ENTRY,
+    "POST /api/v1/bills-of-entry": _BILLS_OF_ENTRY,
+    "GET /api/v1/bills-of-entry/{boe_id}": _BILLS_OF_ENTRY,
+    "PUT /api/v1/bills-of-entry/{boe_id}": _BILLS_OF_ENTRY,
+    "DELETE /api/v1/bills-of-entry/{boe_id}": _BILLS_OF_ENTRY,
+    "POST /api/v1/bills-of-entry/{boe_id}/post": _BILLS_OF_ENTRY,
+    "POST /api/v1/bills-of-entry/{boe_id}/cancel": _BILLS_OF_ENTRY,
     "GET /api/v1/document-framework/documents/{document_id}/timeline": (
         "duplicates the per-module GET /{resource}/{id}/history, which the "
         "desktop does call and which returns the module's own shape"
