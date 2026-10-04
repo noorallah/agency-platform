@@ -12,6 +12,9 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/models/product.dart';
+import 'package:agency_desktop/phase2/phase2_scope.dart';
+import 'package:agency_desktop/ui/products/product_management_page.dart';
 import 'package:agency_desktop/models/settlement_direction.dart';
 import 'package:agency_desktop/ui/customers/loyalty_page.dart';
 import 'package:agency_desktop/models/settlement.dart';
@@ -107,13 +110,85 @@ class _Api extends ApiClient {
   }
 }
 
-Future<void> _sized(WidgetTester tester, Widget child) async {
+Future<void> _sized(
+  WidgetTester tester,
+  Widget child, {
+  bool phase2 = false,
+}) async {
   tester.view.physicalSize = const Size(1600, 1100);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(MaterialApp(home: Scaffold(body: child)));
+  final Widget app = MaterialApp(home: Scaffold(body: child));
+  // Phase 2 sits above the navigator, so a dialog or tab opened from the
+  // page is drawn in phase 2 as well.
+  await tester.pumpWidget(phase2 ? Phase2Scope(child: app) : app);
   await tester.pumpAndSettle();
 }
+
+/// A product list with one product, counting what is created.
+class _ProductApi extends ApiClient {
+  _ProductApi()
+      : super(
+          baseUrl: 'http://localhost:8000',
+          accessToken: () => null,
+          refreshAccessToken: () async => false,
+          activeFirmId: () => 'firm-1',
+        );
+
+  final List<Json> created = <Json>[];
+
+  @override
+  Future<PagedResult<Product>> products({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    ProductQuery filters = const ProductQuery(),
+  }) async =>
+      PagedResult(items: [_source], total: 1);
+
+  @override
+  Future<Product> createProduct(Json data) async {
+    created.add(data);
+    return _source;
+  }
+
+  @override
+  Future<Json> documentSummary(String resource,
+          {String path = 'summary'}) async =>
+      <String, dynamic>{
+        'data': <String, dynamic>{'active': 1, 'low_stock': 0, 'no_price': 0},
+      };
+
+  @override
+  Future<List<ProductCategoryRecord>> productCategories() async => const [];
+
+  @override
+  Future<ProductMetadataRecord> productMetadata({String? categoryId}) async =>
+      const ProductMetadataRecord(
+        profileCode: '',
+        features: [],
+        categories: [],
+        taxProfiles: [],
+        requiredAttributeDefinitionIds: [],
+        optionalAttributeDefinitionIds: [],
+      );
+}
+
+final Product _source = Product.fromJson(<String, dynamic>{
+  'id': 'p-1',
+  'firm_id': 'firm-1',
+  'code': 'QA-B',
+  'name': 'Basmati 5kg',
+  'barcode': '8901234567890',
+  'product_type': 'STOCK_ITEM',
+  'status': 'ACTIVE',
+  'selling_price': '142.00',
+  'mrp': '165.00',
+  'attributes': <Json>[],
+  'media': <Json>[],
+});
 
 Json _scheme() => <String, dynamic>{
       'is_enabled': true,
@@ -435,6 +510,66 @@ void main() {
       // the figure changed.
       expect(find.textContaining('RC-0002'), findsOneWidget);
       expect(find.textContaining('(reversed)'), findsOneWidget);
+    });
+  });
+
+  group('a product can be copied to start a new one', () {
+    // Backlog 82: the server could duplicate a product and no screen reached
+    // it. The control opens an unsaved form -- nothing is created until Save.
+    testWidgets('the toolbar opens an unsaved copy with a blank code',
+        (tester) async {
+      final Directory temp = Directory.systemTemp.createTempSync('products');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final _ProductApi api = _ProductApi();
+      await _sized(
+        tester,
+        ProductManagementPage(
+          api: api,
+          preferences: DesktopPreferencesService(directory: temp),
+          permissions: _permissions(const ['PRODUCT_VIEW', 'PRODUCT_CREATE']),
+          hasActiveFirm: true,
+        ),
+        phase2: true,
+      );
+
+      // It is about the picked row, so it is on the selection bar.
+      final Finder command = find.byKey(const ValueKey('selection-copy-as-new'));
+      expect(command, findsNothing);
+
+      await tester.tap(find.text('QA-B').first);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(command, findsOneWidget);
+      await tester.tap(command);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('product-copy-banner')), findsOneWidget);
+      expect(find.textContaining('barcodes, stock, batches'), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'Basmati 5kg (copy)'),
+          findsOneWidget);
+      // The source's barcode is not carried over, and nothing was sent.
+      expect(find.text('8901234567890'), findsNothing);
+      expect(api.created, isEmpty);
+    });
+
+    testWidgets('someone who cannot create is not offered it', (tester) async {
+      final Directory temp = Directory.systemTemp.createTempSync('products');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      await _sized(
+        tester,
+        ProductManagementPage(
+          api: _ProductApi(),
+          preferences: DesktopPreferencesService(directory: temp),
+          permissions: _permissions(const ['PRODUCT_VIEW']),
+          hasActiveFirm: true,
+        ),
+        phase2: true,
+      );
+      await tester.tap(find.text('QA-B').first);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+      expect(find.byKey(const ValueKey('selection-copy-as-new')), findsNothing);
     });
   });
 }

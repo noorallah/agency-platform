@@ -5815,7 +5815,7 @@ every *firm* store; the platform store may hold only the country).
 
 ## 82. Copy a product to start a new one -- low priority
 
-**Status, 2026-10-04: open, low priority.** Owner, creating `QA-B2` as a copy
+**Status, 2026-10-04: built, PR #1090 (items 1-4; the row menu is not done, only the selection bar and the editor).** Owner, creating `QA-B2` as a copy
 of `QA-B` by hand during the purchasing walkthrough: "product can have clone
 feature".
 
