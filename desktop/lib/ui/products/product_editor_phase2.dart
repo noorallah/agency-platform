@@ -52,6 +52,13 @@ extension _Phase2ProductForm on _ProductWorkspaceDialogState {
                 ].where((chip) => chip.isNotEmpty).toList(),
                 hint: _readOnly ? '' : 'Ctrl+S save  ·  Esc close',
                 actions: [
+                  if (widget.onCopyAsNew != null)
+                    TextButton(
+                      key: const ValueKey('product-copy-as-new'),
+                      onPressed:
+                          _saving ? null : () => unawaited(_copyAsNew()),
+                      child: const Text('Copy as new product'),
+                    ),
                   TextButton(
                     onPressed: _saving ? null : () => unawaited(_close()),
                     child: Text(_readOnly ? 'Close' : 'Cancel'),
@@ -72,6 +79,22 @@ extension _Phase2ProductForm on _ProductWorkspaceDialogState {
                   ],
                 ],
               ),
+              if (widget.copyOf != null)
+                Padding(
+                  key: const ValueKey('product-copy-banner'),
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  child: MaterialBanner(
+                    contentTextStyle: theme.textTheme.bodyMedium,
+                    content: Text(
+                      'A copy of ${widget.copyOf!.name}, not saved yet. '
+                      'Details, units, prices, tax, tracking settings, '
+                      'attributes and images are carried over. The code, '
+                      'barcodes, stock, batches, serials, opening stock, '
+                      'price history and prices by level are not.',
+                    ),
+                    actions: const [SizedBox.shrink()],
+                  ),
+                ),
               if (_validationSummary.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),

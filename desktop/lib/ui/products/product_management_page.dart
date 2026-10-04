@@ -883,7 +883,18 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
     await _applyFilters();
   }
 
-  Future<void> _open(ProductDialogMode mode, [Product? product]) async {
+  /// Opens an UNSAVED new-product form filled from [source] (backlog 82).
+  /// Nothing is sent until the person saves; no new endpoint is involved.
+  Future<void> _copyAsNew(Product source) async {
+    if (!_canCreate || source.isDeleted) return;
+    await _open(ProductDialogMode.create, null, source);
+  }
+
+  Future<void> _open(
+    ProductDialogMode mode, [
+    Product? product,
+    Product? copyOf,
+  ]) async {
     if (mode == ProductDialogMode.create && !_canCreate) return;
     if (mode == ProductDialogMode.edit &&
         (!_canEdit || product == null || product.isDeleted)) {
@@ -895,6 +906,10 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
     Widget form(BuildContext context) => ProductWorkspaceDialog(
         mode: mode,
         product: product,
+        copyOf: copyOf,
+        onCopyAsNew: _canCreate && product != null && !product.isDeleted
+            ? () => unawaited(_copyAsNew(product))
+            : null,
         categories: _controller.categories,
         uoms: _controller.uoms,
         licenceTypes: _controller.licenceTypes,
@@ -923,7 +938,9 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
     final Product? saved = phase2
         ? await showDocument<Product>(
             context,
-            title: product == null ? 'New product' : product.name,
+            title: product == null
+                ? (copyOf == null ? 'New product' : 'Copy of ${copyOf.name}')
+                : product.name,
             builder: form,
           )
         : await showDialog<Product>(
@@ -1443,6 +1460,15 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
       // picked one.
       commands: phase2
           ? [
+              if (_canCreate)
+                ToolbarCommand(
+                  id: 'copy-as-new',
+                  label: 'Copy as new product',
+                  icon: Icons.content_copy_outlined,
+                  onPressed: selected == null || selected.isDeleted
+                      ? null
+                      : () => unawaited(_copyAsNew(selected)),
+                ),
               ToolbarCommand(
                 id: 'labels',
                 label: 'Print labels',
@@ -1891,6 +1917,8 @@ class ProductWorkspaceDialog extends StatefulWidget {
     super.key,
     required this.mode,
     required this.product,
+    this.copyOf,
+    this.onCopyAsNew,
     required this.categories,
     required this.uoms,
     this.licenceTypes = const [],
@@ -1942,6 +1970,15 @@ class ProductWorkspaceDialog extends StatefulWidget {
 
   final ProductDialogMode mode;
   final Product? product;
+
+  /// The product a new form is filled from (backlog 82); only with
+  /// [ProductDialogMode.create]. Code and barcodes start blank and nothing
+  /// stock-like is carried over.
+  final Product? copyOf;
+
+  /// Opens the copy of [product] as a new unsaved form; null hides the
+  /// editor's "Copy as new product" button.
+  final VoidCallback? onCopyAsNew;
   final List<ProductCategoryRecord> categories;
   final List<UomRecord> uoms;
 
@@ -2105,14 +2142,20 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   @override
   void initState() {
     super.initState();
-    final Product? product = widget.product;
+    final Product? product = widget.product ?? widget.copyOf;
+    final bool copying = widget.product == null && widget.copyOf != null;
     unawaited(_loadLevelRates());
-    _code = TextEditingController(text: product?.code ?? '');
-    _name = TextEditingController(text: product?.name ?? '');
+    // A copy starts without the source's code (the server issues the next
+    // one) and without its barcodes, which must be unique.
+    _code = TextEditingController(text: copying ? '' : product?.code ?? '');
+    _name = TextEditingController(
+        text: copying ? '${product!.name} (copy)' : product?.name ?? '');
     _shortName = TextEditingController(text: product?.shortName ?? '');
     _description = TextEditingController(text: product?.description ?? '');
-    _barcode = TextEditingController(text: product?.barcode ?? '');
-    _qrCode = TextEditingController(text: product?.qrCode ?? '');
+    _barcode = TextEditingController(
+        text: copying ? '' : product?.barcode ?? '');
+    _qrCode =
+        TextEditingController(text: copying ? '' : product?.qrCode ?? '');
     _brand = TextEditingController(text: product?.brand ?? '');
     _brandId = product?.brandId ?? '';
     _model = TextEditingController(text: product?.model ?? '');
@@ -2198,6 +2241,8 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     for (final TextEditingController controller in _allControllers) {
       controller.addListener(() => _dirty = true);
     }
+    // An unsaved copy is work in progress: closing it asks first.
+    _dirty = copying;
     _normalizeTabSelection();
   }
 
@@ -2275,7 +2320,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   void _syncAttributeControllers() {
     final Map<String, String> stored = {
       for (final ProductAttributeValueRecord value
-          in widget.product?.attributes ?? const [])
+          in (widget.product ?? widget.copyOf)?.attributes ?? const [])
         value.attributeDefinitionId: _storedValue(value),
     };
     for (final String id in _allowedAttributeIds) {
@@ -3852,6 +3897,25 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         setState(() => _saving = false);
       }
     }
+  }
+
+  /// Closes this record and opens a new, unsaved form filled from it.
+  Future<void> _copyAsNew() async {
+    final VoidCallback? copy = widget.onCopyAsNew;
+    if (copy == null || _saving) return;
+    if (!_readOnly && _dirty) {
+      final bool discard = await showWorkspaceConfirmDialog(
+        context,
+        title: 'Copy the saved product?',
+        message: 'The copy starts from the saved product; the edits made '
+            'here are not saved and not carried over.',
+        confirmLabel: 'Discard and copy',
+        type: ConfirmationType.discardChanges,
+      );
+      if (!discard || !mounted) return;
+    }
+    Navigator.of(context).pop();
+    copy();
   }
 
   Future<void> _close() async {
