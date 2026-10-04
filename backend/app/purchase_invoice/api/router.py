@@ -781,9 +781,7 @@ def hsn_purchase_summary(
     return window.respond(
         [
             HsnPurchaseRecord.model_validate(row)
-            for row in GstPurchaseRegisterService(db).hsn_summary(
-                scope.firm_id, window
-            )
+            for row in GstPurchaseRegisterService(db).hsn_summary(scope.firm_id, window)
         ]
     )
 

@@ -13,6 +13,11 @@ disagree on what a component is. A component included in the price is the
 supplier's tax inside the rate, not a head charged on top, and is left out as
 the 2B reconciliation leaves it out.
 
+Supplier debit notes (the supplier's credit notes) are not netted in yet: a
+`DebitNoteLine` keeps one `tax_amount` and a rate, not its components by head,
+so it cannot be split into IGST, CGST, SGST and cess the way a bill line is
+(backlog §86 row 17).
+
 Both reports read a constant number of statements whatever the window holds
 (`docs/PERFORMANCE_AT_VOLUME.md`): the bills, then their taxes for that page,
 then the supplier names.
@@ -126,9 +131,7 @@ def _vendors(session: Session, ids: set[UUID]) -> dict[UUID, tuple[str, str | No
     return {
         vendor_id: (name, gstin)
         for vendor_id, name, gstin in session.execute(
-            select(Vendor.id, Vendor.name, Vendor.gstin).where(
-                Vendor.id.in_(list(ids))
-            )
+            select(Vendor.id, Vendor.name, Vendor.gstin).where(Vendor.id.in_(list(ids)))
         ).all()
     }
 
@@ -203,9 +206,7 @@ class GstPurchaseRegisterService:
                     vendor_gstin=gstin,
                     # What the bill charged before tax, as the GSTR-2B
                     # reconciliation reads it: the total less the tax on it.
-                    taxable_value=quantize_money(
-                        total - Decimal(str(bill.tax_total))
-                    ),
+                    taxable_value=quantize_money(total - Decimal(str(bill.tax_total))),
                     igst=quantize_money(heads["igst"]),
                     cgst=quantize_money(heads["cgst"]),
                     sgst=quantize_money(heads["sgst"]),

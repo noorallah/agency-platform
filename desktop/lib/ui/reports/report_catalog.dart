@@ -1103,6 +1103,64 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'note', label: 'Note'),
     ],
   ),
+  // The approved bills of a period by tax head, as a CA asks for them every
+  // month (86 row 17). Heads are the components each line was charged, read
+  // the way GSTR-3B reads them.
+  ReportDefinition(
+    id: 'gst-purchase-register',
+    label: 'GST purchase register',
+    description: 'Approved supplier bills by tax head: GSTIN, taxable value, '
+        'IGST, CGST, SGST, cess, tax not claimable and reverse charge. '
+        'Supplier credit notes (debit notes) are not netted here yet.',
+    path: '/api/v1/purchase-invoices/reports/gst-register',
+    permission: 'PURCHASE_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    columns: [
+      ReportColumn(key: 'invoice_date', label: 'Date'),
+      ReportColumn(key: 'invoice_number', label: 'Bill'),
+      ReportColumn(key: 'supplier_invoice_number', label: 'Supplier bill'),
+      ReportColumn(key: 'supplier_invoice_date', label: 'Supplier bill date'),
+      ReportColumn(key: 'vendor_name', label: 'Supplier'),
+      ReportColumn(key: 'vendor_gstin', label: 'GSTIN'),
+      ReportColumn(key: 'taxable_value', label: 'Taxable', numeric: true),
+      ReportColumn(key: 'igst', label: 'IGST', numeric: true),
+      ReportColumn(key: 'cgst', label: 'CGST', numeric: true),
+      ReportColumn(key: 'sgst', label: 'SGST', numeric: true),
+      ReportColumn(key: 'cess', label: 'Cess', numeric: true),
+      ReportColumn(key: 'total_tax', label: 'Total tax', numeric: true),
+      ReportColumn(
+          key: 'itc_not_claimable', label: 'Not claimable', numeric: true),
+      ReportColumn(
+          key: 'reverse_charge_tax', label: 'Reverse charge', numeric: true),
+      ReportColumn(key: 'invoice_total', label: 'Bill total', numeric: true),
+    ],
+  ),
+  // The same bills' inward supplies folded by HSN code and unit; a product
+  // with no HSN shows under a blank code so the gap is visible.
+  ReportDefinition(
+    id: 'hsn-purchase-summary',
+    label: 'HSN summary of purchases',
+    description: 'Approved inward supplies by HSN code and unit: quantity, '
+        'taxable value, tax by head and the number of bills.',
+    path: '/api/v1/purchase-invoices/reports/hsn-summary',
+    permission: 'PURCHASE_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    columns: [
+      ReportColumn(key: 'hsn_code', label: 'HSN'),
+      ReportColumn(key: 'description', label: 'Description'),
+      ReportColumn(key: 'unit', label: 'Unit'),
+      ReportColumn(key: 'quantity', label: 'Quantity', numeric: true),
+      ReportColumn(key: 'taxable_value', label: 'Taxable', numeric: true),
+      ReportColumn(key: 'igst', label: 'IGST', numeric: true),
+      ReportColumn(key: 'cgst', label: 'CGST', numeric: true),
+      ReportColumn(key: 'sgst', label: 'SGST', numeric: true),
+      ReportColumn(key: 'cess', label: 'Cess', numeric: true),
+      ReportColumn(key: 'total_tax', label: 'Total tax', numeric: true),
+      ReportColumn(key: 'bills', label: 'Bills', numeric: true),
+    ],
+  ),
   // A collection is never rewritten, so a reversed or back-dated receipt
   // leaves a buyer over- or under-collected until they pay again; this is
   // where that shows (D-CMP-21). The year today falls in: a snapshot.
