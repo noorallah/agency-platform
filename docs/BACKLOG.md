@@ -5971,3 +5971,49 @@ So the purchase chain now prints firm, branch and year throughout; the rest
 are firm-wide by decision (sales for the GST length limit, the others because
 nothing needs a per-branch run yet). A firm that wants a stock transfer or a
 receipt per branch switches it in Settings > Firm > Numbering Series.
+
+## 85. Payables by supplier and month, with totals and a chart -- medium priority
+
+**Status, 2026-10-04: designed with the owner, not built.** Asked for in
+purchasing round 2 on QA01: "the screen today outstanding, vendor wise, month
+wise, filters, total". Today *Reports > Financial > Vendor outstanding* lists
+one row per supplier with no total, no month split, no as-of date, and leaves
+out supplier credits -- it read 2,124 against 1,770 in Trade Payables (D-BUY-32,
+which this item fixes). It replaces that report; *Vendor ageing* stays.
+
+**The screen** (Reports > Financial > **Payables**):
+
+```
+ Payables                                      As of [04-10-2026 v]   [Export] [Print]
+ Supplier [All v]   Branch [All v]   Months by [Invoice date (o) | Due date ( )]
+ ------------------------------------------------------------------------------------
+ Supplier            Older    Aug-26    Sep-26    Oct-26   Credits   Outstanding
+ QA-V Fixture Sup.      0        0         0      2,124     -354        1,770
+ ABC Traders          500      200         0        900        0        1,600
+ ------------------------------------------------------------------------------------
+ Total                500      200         0      3,024     -354        3,370
+                        Matches Trade Payables in the books: 3,370 (tick)
+ [chart: what is owed, by month, stacked by the top suppliers]
+```
+
+| # | Item | Decision |
+| --- | --- | --- |
+| 1 | Rows and columns | One row per supplier, one column per month; bills older than the months shown fall in **Older**; six months by default, range selectable |
+| 2 | Month basis | **Invoice date** by default, **Due date** as a switch (when cash is needed) |
+| 3 | Credits | A **Credits** column nets returns, debit notes and unapplied advances, so **Outstanding** is what is really owed (fixes D-BUY-32) |
+| 4 | Total | A total row, and a line checking the total against **2100 Trade Payables**; a difference is shown, never hidden |
+| 5 | As of | Owed as at any date: invoices, payments, returns and notes dated after it are left out |
+| 6 | Filters | Supplier, branch, as-of date, month basis; a cell opens the invoices behind it |
+| 7 | Chart | Above or beside the grid: a bar per month, stacked by the top five suppliers plus "others" (the owner: "this can show some graph also"); follows the `dataviz` palette and the design tokens |
+| 8 | Export, print | As every report |
+
+**Build.** Server: `GET /api/v1/purchase-invoices/reports/payables` with the
+filters, grouped in SQL from invoices, `settlement_allocations` and supplier
+credits up to the as-of date -- one statement whatever the number of
+suppliers (`docs/PERFORMANCE_AT_VOLUME.md`); a unit test that the total equals
+Trade Payables on a fixture with a return after billing, an advance and a part
+payment. Desktop: a report screen (filter bar, grid with total row, the books
+check, the chart), one call per filter change. Two PRs, server then desktop;
+the report needs its own `report_catalog.dart` entry
+(`test_reports_have_a_screen.py`). The same shape later gives **Receivables**
+(customer x month).
