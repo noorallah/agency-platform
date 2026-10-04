@@ -204,6 +204,8 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         category="FINANCE",
         module="purchase_invoice",
         prefix="PI",
+        include_branch_code=True,
+        include_company_code=True,
         states=(
             DocumentStateSpec("DRAFT", "Draft", 1, allows_edit=True),
             DocumentStateSpec("APPROVED", "Approved", 2),

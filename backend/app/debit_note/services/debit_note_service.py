@@ -75,6 +75,8 @@ class DebitNoteService(TransactionalDocumentService):
         module="debit_note",
         # `DN` is the delivery note's.
         prefix="DBN",
+        include_branch_code=True,
+        include_company_code=True,
         states=(
             DocumentStateSpec("DRAFT", "Draft", 1, allows_edit=True),
             DocumentStateSpec("APPROVED", "Approved", 2),

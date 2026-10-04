@@ -5879,7 +5879,10 @@ No server calls are involved.
 
 ## 84. Purchase bills and returns numbered like the order and the receipt -- low priority
 
-**Status, 2026-10-04: open, low priority; decided with the owner.** Seen on
+**Status, 2026-10-04: built, PR pending (items 1-3).** Items 1 and 3 are
+in code and below; item 2 holds because only the three specs changed and
+`_ensure_document_setup` creates a rule only when a firm has none. Decided
+with the owner. Seen on
 QA01 in the purchasing walkthrough: the order is `PO-QA01-HO-2026-2027-000001`
 and the receipts `GRN-QA01-HO-2026-2027-00000n`, but the bill is
 `PI-2026-2027-000001` -- its default series (`PURCHASE_INVOICE_DEFAULT`) does
@@ -5909,3 +5912,29 @@ naming series with the branch).
 | 1 | **Default for new firms** | The bootstrap rules for purchase invoice, purchase return and supplier debit note carry `include_company_code` and `include_branch_code`, like the order and the receipt. |
 | 2 | **Existing firms unchanged** | No migration rewrites a firm's rules; a firm switches in Settings > Firm > Numbering Series. Issued numbers never change. |
 | 3 | **Check the rest** | List every document type's default series and say which print the firm and branch, so the set is consistent by decision rather than by history. |
+
+**Default series by document type (as of this change, new firms).** "Firm" and
+"Branch" mean the default series prints that code and so runs a number per
+branch; every series prints the financial year, and everything below prints
+the year in full except the GST group, which prints `26-27`.
+
+| Group | Document type (prefix) | Firm | Branch | Note |
+| --- | --- | --- | --- | --- |
+| Purchase | Purchase order (`PO`) | yes | yes | |
+| Purchase | Goods receipt note (`GRN`) | yes | yes | |
+| Purchase | Purchase invoice (`PI`) | yes | yes | changed by §84 |
+| Purchase | Purchase return (`PR`) | yes | yes | changed by §84 |
+| Purchase | Supplier debit note (`DBN`) | yes | yes | changed by §84 |
+| Purchase | Purchase requisition (`PR`) | no | no | distinct from the return by its pattern |
+| Purchase | Landed cost (`LCV`), supplier gift (`GIFT`), principal claim (`CLM`) | no | no | firm-wide running number |
+| Sales (GST) | Sales invoice (`SI`), credit note (`CN`), sales return (`SR`), customer debit note (`SDN`) | no | no | kept to 16 characters, rule 46(b) (D-TAX-3); do not add codes |
+| Sales (GST) | Delivery note (`DN`) | no | no | the framework drops firm and branch for a GST type, whatever the spec says |
+| Sales (GST) | Self invoice, reverse charge (`SI`, own series) | no | no | GST group |
+| Sales | Quotation (`QT`), sales order (`SO`), proforma (`PF`), enquiry (`ENQ`) | no | no | firm-wide |
+| Money | Receipt (`RC`), payment (`PY`), customer refund (`RF`), payment run (`PRN`), contra (`CV`), expense (`EXP`), party adjustment (`PA`), TDS challan (`TDC`) | no | no | firm-wide |
+| Stock | Stock transfer (`TO`), adjustment (`ADJ`), write-off (`WO`), quarantine (`QR`), repack (`RPK`), physical count (`PC`) | no | no | firm-wide |
+
+So the purchase chain now prints firm, branch and year throughout; the rest
+are firm-wide by decision (sales for the GST length limit, the others because
+nothing needs a per-branch run yet). A firm that wants a stock transfer or a
+receipt per branch switches it in Settings > Firm > Numbering Series.
