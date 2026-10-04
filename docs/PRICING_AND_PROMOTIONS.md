@@ -587,3 +587,39 @@ active contracts covering one supplier and product on overlapping dates are
 refused at activation, under a lock on the supplier's contracts; the lookup
 still orders on `valid_from`, `contract_number` and `line_number`, none of
 them nullable, so a row is never picked by NULL ordering.
+
+## A supplier's free scheme fills the line by itself (PG-11, 2026-10-05)
+
+A scheme is set once in `supplier_schemes` (`app/supplier_schemes`,
+`/api/v1/supplier-schemes`, `SUPPLIER_SCHEME_VIEW` / `SUPPLIER_SCHEME_MANAGE`):
+buy `buy_quantity` of a product, get `free_quantity` free -- of the same
+product, or of `free_product_id` -- from one supplier, or from every supplier
+when `vendor_id` is null, between `valid_from` and `valid_to` (open-ended when
+null) while `is_active`. A supplier's own scheme beats an all-suppliers one,
+ranked explicitly rather than by NULL sort. Two active schemes for the same
+supplier (or both for every supplier) and product whose dates overlap are
+refused, under a lock on the product. There are no versions: an order line
+keeps the scheme's id and its label as it read then
+(`purchase_order_lines.scheme_id`, `scheme_name`).
+
+The free quantity is `resolve_supplier_free_goods` in
+`app/core/utils/pricing.py`: `floor(ordered / buy) * free`, in the line's own
+unit. **`None` and `0` are different answers here too** --
+`PurchaseLineWrite.free_quantity` is `Decimal | None` with no zero default:
+blank takes the scheme, an explicit `0` refuses it, any other typed figure
+stands. A typed figure equal to the scheme's is the scheme echoed back and
+keeps `scheme_id`, as a rate contract's price does.
+
+A scheme giving **another product** fills nothing on the line that earns it.
+`POST /api/v1/purchases/preview` returns `scheme_suggestions` -- per
+earning line, the free product, the quantity, and the line already carrying
+it if there is one -- and the client adds the line (ordered 0, free n,
+`scheme_id`) when the buyer accepts. Saving takes the lines as sent and never
+invents one; a line naming a scheme that does not give its product is
+refused.
+
+A free-only line (paid 0, free n) is worth nothing and taxed nothing; the
+receipt keeps it (D-BUY-33) and inherits the scheme's label, and the bill
+raised from the receipt carries it at zero. Such a line is judged received on
+its free goods: it used to read `ORDERED` for ever, so an order carrying one
+was never `is_complete` (86 #27).

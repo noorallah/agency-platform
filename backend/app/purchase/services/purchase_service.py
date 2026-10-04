@@ -97,6 +97,8 @@ from app.purchase.services.line_quantities import (
     order_line_quantities,
 )
 from app.sales.services.document_preview import purchase_line_companions
+from app.supplier_schemes.schemas import SupplierSchemeSuggestion
+from app.supplier_schemes.services import LineScheme, line_schemes
 from app.tax.models import TaxProfile
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.place_of_supply import PURCHASE_INTERSTATE
@@ -389,8 +391,82 @@ class PurchaseService(TransactionalDocumentService):
         finally:
             self._session.rollback()
         return PurchaseOrderPreview(
-            order=response, interstate=interstate, lines=lines, quantity_hints=hints
+            order=response,
+            interstate=interstate,
+            lines=lines,
+            quantity_hints=hints,
+            scheme_suggestions=self._scheme_suggestions(data, firm_id=firm_id),
         )
+
+    def _scheme_suggestions(
+        self, data: PurchaseOrderCreate, *, firm_id: UUID
+    ) -> list[SupplierSchemeSuggestion]:
+        """Return the other-product free goods the lines earn (PG-11).
+
+        Offered, never written: saving takes the lines as sent, so the gift
+        line exists only once the client adds it with the scheme's id.
+        """
+        outcomes = line_schemes(
+            self._session,
+            firm_id=firm_id,
+            vendor_id=data.vendor_id,
+            on=data.purchase_date,
+            lines=[
+                (
+                    line.product_id,
+                    line.ordered_quantity,
+                    line.free_quantity,
+                    line.scheme_id,
+                )
+                for line in data.lines
+            ],
+        )
+        earned = [
+            (number, outcome)
+            for number, outcome in enumerate(outcomes, start=1)
+            if outcome.other is not None and outcome.other.free_product_id
+        ]
+        if not earned:
+            return []
+        free_ids = {
+            outcome.other.free_product_id
+            for _, outcome in earned
+            if outcome.other is not None
+        }
+        products = {
+            product_id: (code, name)
+            for product_id, code, name in self._session.execute(
+                select(Product.id, Product.code, Product.name).where(
+                    Product.id.in_(free_ids)
+                )
+            ).all()
+        }
+        carried = {
+            (line.product_id, line.scheme_id): number
+            for number, line in enumerate(data.lines, start=1)
+            if line.scheme_id is not None
+        }
+        suggestions: list[SupplierSchemeSuggestion] = []
+        for number, outcome in earned:
+            scheme = outcome.other
+            if scheme is None or scheme.free_product_id is None:
+                continue
+            code, name = products.get(scheme.free_product_id, ("", ""))
+            suggestions.append(
+                SupplierSchemeSuggestion(
+                    line_number=number,
+                    scheme_id=scheme.id,
+                    scheme_label=outcome.other_label or "",
+                    free_product_id=scheme.free_product_id,
+                    free_product_code=code,
+                    free_product_name=name,
+                    free_quantity=outcome.other_quantity,
+                    existing_line_number=carried.get(
+                        (scheme.free_product_id, scheme.id)
+                    ),
+                )
+            )
+        return suggestions
 
     def stage_order(
         self,
@@ -1798,7 +1874,9 @@ class PurchaseService(TransactionalDocumentService):
         payload = PurchaseOrderResponse.model_validate(row).model_dump(mode="python")
         figures = [
             (quantities or {}).get(item.id)
-            or LineQuantities(ordered=item.ordered_quantity)
+            or LineQuantities(
+                ordered=item.ordered_quantity, free_ordered=item.free_quantity
+            )
             for item in lines
         ]
         payload["lines"] = [
@@ -1943,7 +2021,7 @@ class PurchaseService(TransactionalDocumentService):
         actor_id: UUID,
     ) -> dict[str, Decimal]:
         """Replace lines."""
-        priced, sources = self._priced_from_supplier(order, data.lines)
+        priced, sources, schemes = self._priced_from_supplier(order, data.lines)
         data = data.model_copy(update={"lines": priced})
         # Lines are matched on their line number and updated in place;
         # re-inserting them minted a new UUID per line on every save, and
@@ -1981,7 +2059,7 @@ class PurchaseService(TransactionalDocumentService):
         for idx, line in enumerate(data.lines, start=1):
             product = self._active_product(order.firm_id, line.product_id)
             conversion = self._conversion(
-                quantity=line.ordered_quantity + line.free_quantity,
+                quantity=line.ordered_quantity + (line.free_quantity or ZERO),
                 purchase_uom_id=line.purchase_uom_id,
                 inventory_uom_id=line.inventory_uom_id,
                 product_id=product.id,
@@ -2029,7 +2107,7 @@ class PurchaseService(TransactionalDocumentService):
                 conversion_factor=conversion["factor"],
                 conversion_version=conversion["version"],
                 ordered_quantity=self._q(line.ordered_quantity),
-                free_quantity=self._q(line.free_quantity),
+                free_quantity=self._q(line.free_quantity or ZERO),
                 base_quantity=conversion["converted"],
                 unit_price=self._q(line.unit_price or ZERO),
                 discount_percent=self._q(line.discount_percent or ZERO),
@@ -2042,6 +2120,9 @@ class PurchaseService(TransactionalDocumentService):
                 # Where the price came from, and the contract it draws on (PG-9).
                 rate_source=sources[idx - 1][0],
                 rate_contract_line_id=sources[idx - 1][1],
+                # The supplier scheme its free goods came from (PG-11).
+                scheme_id=schemes[idx - 1].scheme_id,
+                scheme_name=schemes[idx - 1].scheme_name,
                 batch_required=line.batch_required,
                 expiry_required=line.expiry_required,
                 serial_required=line.serial_required,
@@ -2096,8 +2177,10 @@ class PurchaseService(TransactionalDocumentService):
 
     def _priced_from_supplier(
         self, order: PurchaseOrder, lines: list[PurchaseLineWrite]
-    ) -> tuple[list[PurchaseLineWrite], list[tuple[str, UUID | None]]]:
-        """Fill each blank price and discount from the supplier (BUY-3, PG-9).
+    ) -> tuple[
+        list[PurchaseLineWrite], list[tuple[str, UUID | None]], list[LineScheme]
+    ]:
+        """Fill each blank price, discount and free quantity from the supplier.
 
         A blank price takes, most specific first, the rate of a rate contract
         in force with the supplier on the order's date (PG-9), the supplier's
@@ -2107,11 +2190,14 @@ class PurchaseService(TransactionalDocumentService):
         supplier code takes the catalogue's; a blank discount takes the
         contract's rate where the contract priced the line, else the list's,
         else the supplier's standing discount, through the same
-        ``resolve_line_discount``. A typed value, zero included, stands.
+        ``resolve_line_discount``. A blank free quantity takes the supplier's
+        free scheme on the same product (PG-11, ``line_schemes``). A typed
+        value, zero included, stands.
 
         Returns:
-            The priced lines, and per line where its price came from and the
-            contract line it draws on, if any.
+            The priced lines; per line where its price came from and the
+            contract line it draws on, if any; and per line the scheme its
+            free goods came from.
 
         """
         from app.pricing.services.price_list_service import SupplierPriceResolver
@@ -2163,9 +2249,25 @@ class PurchaseService(TransactionalDocumentService):
             vendor_id=order.vendor_id,
             on=order.purchase_date,
         )
+        # The supplier's free schemes (PG-11), resolved for every line at once.
+        schemes = line_schemes(
+            self._session,
+            firm_id=order.firm_id,
+            vendor_id=order.vendor_id,
+            on=order.purchase_date,
+            lines=[
+                (
+                    line.product_id,
+                    line.ordered_quantity,
+                    line.free_quantity,
+                    line.scheme_id,
+                )
+                for line in lines
+            ],
+        )
         priced: list[PurchaseLineWrite] = []
         sources: list[tuple[str, UUID | None]] = []
-        for line in lines:
+        for line, scheme in zip(lines, schemes, strict=True):
             product = self._session.get(Product, line.product_id)
             # A contract's rate is per its own unit; a line in another unit is
             # not priced from it, so a drawn quantity never needs converting.
@@ -2214,6 +2316,8 @@ class PurchaseService(TransactionalDocumentService):
                 (resolved.source, contract.id if from_contract and contract else None)
             )
             update: dict[str, object] = {}
+            if line.free_quantity != scheme.free_quantity:
+                update["free_quantity"] = scheme.free_quantity
             price = resolved.price
             if line.unit_price is None:
                 update["unit_price"] = price
@@ -2235,7 +2339,7 @@ class PurchaseService(TransactionalDocumentService):
                     line.discount_amount if line.discount_amount else ZERO
                 )
             priced.append(line.model_copy(update=update) if update else line)
-        return priced, sources
+        return priced, sources, schemes
 
     def _line_discount_amount(
         self, line: PurchaseLineWrite, gross_amount: Decimal

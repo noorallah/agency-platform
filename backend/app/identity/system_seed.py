@@ -274,6 +274,11 @@ PERMISSION_GROUPS = {
         # Activating one takes `PURCHASE_APPROVE`, as approving an order does.
         "RATE_CONTRACT_VIEW",
         "RATE_CONTRACT_MANAGE",
+        # Supplier free-goods schemes on an item (PG-11): reading them, and
+        # setting them up, changing and removing them. An order priced
+        # afterwards takes the scheme's free goods by itself.
+        "SUPPLIER_SCHEME_VIEW",
+        "SUPPLIER_SCHEME_MANAGE",
         "PURCHASE_IMPORT",
         "PURCHASE_EXPORT",
         # Which of purchase order and goods receipt this firm raises by hand.

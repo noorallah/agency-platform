@@ -88,6 +88,7 @@ from app.settlements.api.post_dated_cheques_router import (
     received_cheques_router,
 )
 from app.supplier_rebates.api import router as supplier_rebates_router
+from app.supplier_schemes.api import router as supplier_schemes_router
 from app.tax.api import router as tax_framework_router
 from app.tcs.api import router as tcs_router
 from app.trade_licences.api import router as trade_licences_router
@@ -204,6 +205,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(purchase_returns_router)
     application.include_router(rfqs_router)
     application.include_router(rate_contracts_router)
+    application.include_router(supplier_schemes_router)
     application.include_router(sales_invoices_router)
     application.include_router(sales_returns_router)
     application.include_router(credit_notes_router)

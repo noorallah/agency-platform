@@ -57,6 +57,16 @@ class LineQuantities:
     invoiced: Decimal = ZERO
     #: The part of ``returned`` the supplier is to replace (69 row 7).
     replaced: Decimal = ZERO
+    #: Free goods ordered and received. Only a line of free goods alone
+    #: (nothing ordered to pay for -- a scheme's other product, PG-11) is
+    #: judged received on them; a paid line is judged on what it paid for.
+    free_ordered: Decimal = ZERO
+    free_received: Decimal = ZERO
+
+    @property
+    def free_only(self) -> bool:
+        """Return whether the line is free goods alone (paid 0, free n)."""
+        return self.ordered <= ZERO and self.free_ordered > ZERO
 
     @property
     def pending_receipt(self) -> Decimal:
@@ -81,6 +91,14 @@ def line_status(order_status: str, quantities: LineQuantities) -> str:
     """
     if order_status in ("CANCELLED", "CLOSED"):
         return order_status
+    if quantities.free_only:
+        # A line of free goods alone has nothing paid to receive, and read
+        # ORDERED for ever once its goods had arrived (PG-11, 86 #27).
+        if quantities.free_received >= quantities.free_ordered:
+            return "RECEIVED"
+        if quantities.free_received > ZERO:
+            return "PARTIALLY_RECEIVED"
+        return "ORDERED"
     if quantities.ordered > ZERO and quantities.received >= quantities.ordered:
         return "RECEIVED"
     if quantities.received > ZERO:
@@ -106,7 +124,11 @@ def billing_status(quantities: Sequence[LineQuantities]) -> str:
 def is_complete(quantities: Sequence[LineQuantities]) -> bool:
     """Return whether every line was received in full and nothing is left to bill."""
     return bool(quantities) and all(
-        line.received > ZERO
+        (
+            line.free_received >= line.free_ordered
+            if line.free_only
+            else line.received > ZERO
+        )
         and line.pending_receipt <= ZERO
         and line.to_invoice <= ZERO
         for line in quantities
@@ -136,6 +158,7 @@ def order_line_quantities(
         accepted,
         rejected,
         damaged,
+        free,
         status,
         deleted,
     ) in session.execute(
@@ -146,6 +169,7 @@ def order_line_quantities(
             GoodsReceiptLine.accepted_quantity,
             GoodsReceiptLine.rejected_quantity,
             GoodsReceiptLine.damaged_quantity,
+            GoodsReceiptLine.free_quantity,
             GoodsReceipt.status,
             GoodsReceipt.is_deleted,
         )
@@ -160,6 +184,7 @@ def order_line_quantities(
             continue
         line_sums = sums[po_line_id]
         line_sums["received"] += Decimal(str(received))
+        line_sums["free_received"] += Decimal(str(free or 0))
         line_sums["accepted"] += Decimal(str(accepted))
         line_sums["rejected"] += Decimal(str(rejected))
         line_sums["damaged"] += Decimal(str(damaged))
@@ -268,6 +293,8 @@ def order_line_quantities(
             returned=sums[line.id]["returned"],
             invoiced=sums[line.id]["invoiced"],
             replaced=sums[line.id]["replaced"],
+            free_ordered=Decimal(str(line.free_quantity or 0)),
+            free_received=sums[line.id]["free_received"],
         )
         for line in lines
     }

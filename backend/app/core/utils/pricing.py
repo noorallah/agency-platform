@@ -228,6 +228,66 @@ def resolve_supplier_unit_price(
     return LinePrice(price=typed, source="TYPED")
 
 
+@dataclass(frozen=True, slots=True)
+class SchemeFree:
+    """What a supplier's free scheme gives one purchase line (PG-11)."""
+
+    #: The free quantity the line carries: the scheme's when the line left it
+    #: blank and the scheme gives its own product, else what was typed.
+    free_quantity: Decimal
+    #: Whether the line's free quantity came from the scheme (filled, or a
+    #: typed figure equal to it -- the scheme echoed back on a re-save).
+    applied: bool
+    #: Free goods of *another* product the scheme earns, for a line of their
+    #: own; zero when the scheme gives the same product or earns nothing.
+    other_product_quantity: Decimal
+
+
+def resolve_supplier_free_goods(
+    *,
+    typed: Decimal | None,
+    quantity: Decimal,
+    buy_quantity: Decimal | None = None,
+    scheme_free_quantity: Decimal | None = None,
+    same_product: bool = True,
+) -> SchemeFree:
+    """Return the free goods a purchase line takes from a supplier's scheme.
+
+    A scheme "buy 10, get 2" earns ``floor(quantity / 10) * 2`` free, counted
+    in the line's own unit. Of the same product it fills the line's free
+    quantity -- but only where the line left it blank: ``None`` takes the
+    scheme and an explicit ``0`` refuses it, the same two answers as a
+    discount. Of another product it fills nothing on this line; the caller
+    offers it as a line of its own (paid 0, free n). No scheme, or too few
+    bought to earn anything, leaves the line as typed (blank is zero).
+    """
+    earned = ZERO
+    if (
+        buy_quantity is not None
+        and scheme_free_quantity is not None
+        and buy_quantity > ZERO
+        and quantity > ZERO
+    ):
+        earned = (quantity // buy_quantity) * scheme_free_quantity
+    if not same_product:
+        return SchemeFree(
+            free_quantity=typed if typed is not None else ZERO,
+            applied=False,
+            other_product_quantity=earned,
+        )
+    if earned <= ZERO:
+        return SchemeFree(
+            free_quantity=typed if typed is not None else ZERO,
+            applied=False,
+            other_product_quantity=ZERO,
+        )
+    if typed is None or typed == earned:
+        return SchemeFree(
+            free_quantity=earned, applied=True, other_product_quantity=ZERO
+        )
+    return SchemeFree(free_quantity=typed, applied=False, other_product_quantity=ZERO)
+
+
 def resolve_bill_discount(
     *,
     taxable: Decimal,

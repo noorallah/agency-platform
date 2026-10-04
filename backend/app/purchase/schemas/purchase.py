@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.sales.schemas.document_preview import DocumentPreviewLine
+from app.supplier_schemes.schemas import SupplierSchemeSuggestion
 
 
 class PurchaseSchema(BaseModel):
@@ -62,9 +63,15 @@ class PurchaseLineWrite(PurchaseSchema):
     purchase_uom_id: UUID | None = None
     inventory_uom_id: UUID | None = None
     ordered_quantity: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
-    free_quantity: Decimal = Field(
-        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    #: Blank takes the supplier's free scheme on the product, if one is in
+    #: force (PG-11); zero refuses it. Blank with no scheme is zero.
+    free_quantity: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
     )
+    #: Set on a line of another product's free goods added from a scheme
+    #: suggestion (PG-11): the scheme that earned them. Blank otherwise --
+    #: the server records the scheme it applied to a line itself.
+    scheme_id: UUID | None = None
     #: Blank takes the supplier's price (BUY-3): a fixed rate on the
     #: supplier's price list, else the product's purchase price. Zero is a
     #: price, not a silence.
@@ -278,6 +285,10 @@ class PurchaseOrderLineResponse(PurchaseSchema):
     rate_source: str | None = None
     #: The rate contract line the price came from and the line draws on.
     rate_contract_line_id: UUID | None = None
+    #: The supplier scheme the line's free goods came from (PG-11), and its
+    #: label as it read then ("10+2").
+    scheme_id: UUID | None = None
+    scheme_name: str | None = None
 
 
 class PurchaseDeliveryScheduleResponse(PurchaseSchema):
@@ -549,6 +560,9 @@ class PurchaseOrderPreview(PurchaseSchema):
     #: Lines off the supplier's minimum or multiple, with the quantity that
     #: would do (BUY-5).
     quantity_hints: list[PurchaseQuantityHint] = Field(default_factory=list)
+    #: Free goods of another product the lines earn under a supplier scheme
+    #: (PG-11), for the client to add as lines of their own (paid 0).
+    scheme_suggestions: list[SupplierSchemeSuggestion] = Field(default_factory=list)
 
 
 class PurchaseWorkflowSettingsResponse(PurchaseSchema):

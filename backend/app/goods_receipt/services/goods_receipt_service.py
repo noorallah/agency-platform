@@ -1667,7 +1667,10 @@ class GoodsReceiptService(TransactionalDocumentService):
                 warehouse_id=line.warehouse_id or receipt.warehouse_id,
                 storage_node_id=line.storage_node_id,
                 batch_number=line.batch_number,
-                scheme_name=(line.scheme_name or "").strip() or None,
+                # A blank scheme takes the one the order line's free goods
+                # came from (PG-11); a typed one stands.
+                scheme_name=(line.scheme_name or "").strip()
+                or (purchase_line.scheme_name if line.free_quantity > ZERO else None),
                 expiry_date=expiry_date,
                 manufacturing_date=line.manufacturing_date,
                 mrp=line.mrp,
