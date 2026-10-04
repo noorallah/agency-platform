@@ -87,6 +87,7 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceNoteResponse,
     PurchaseInvoiceNoteWrite,
     PurchaseInvoiceOverdueRecord,
+    PurchaseInvoicePaymentNow,
     PurchaseInvoicePreview,
     PurchaseInvoiceReconciliationRecord,
     PurchaseInvoiceRegisterRecord,
@@ -103,7 +104,12 @@ from app.purchase_invoice.services.msme import (
     msme_warning,
 )
 from app.sales.services.document_preview import purchase_line_companions
-from app.settlements.schemas import OutstandingInvoiceRecord
+from app.settlements.models import Settlement
+from app.settlements.schemas import (
+    OutstandingInvoiceRecord,
+    SettlementAllocationWrite,
+    SettlementCreate,
+)
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.gst_compliance import GstComplianceService
 from app.tax.services.gst_time_limits import credit_time_limit_warning
@@ -719,6 +725,109 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         PURCHASE_APPROVE_OVER_TOLERANCE; without it a bill priced past the
         firm's tolerance over its order is refused, naming the lines (BUY-10).
         """
+        row = self.stage_approve(
+            invoice_id,
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+            may_exceed_tolerance=may_exceed_tolerance,
+        )
+        self._session.commit()
+        return row
+
+    def approve_and_pay(
+        self,
+        invoice_id: UUID,
+        payment: PurchaseInvoicePaymentNow,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        may_exceed_tolerance: bool = True,
+    ) -> tuple[PurchaseInvoice, Settlement]:
+        """Approve a bill and pay it over the counter, in one commit (PG-3).
+
+        The payment is an ordinary one -- the row ``POST /payments`` writes,
+        allocated to this bill -- so reversing it is the usual reversal and a
+        part payment leaves the rest outstanding. Both are staged and committed
+        once: a payment refused (no cash account mapped, more than the bill
+        owes) rolls the approval back with it, receipt raised by the buying
+        stage switches included, rather than leaving a bill approved that the
+        person meant to have paid.
+
+        More than the bill owes is refused rather than kept as an advance: a
+        counter purchase pays the bill, and money ahead of a bill is recorded
+        on its own through ``/payments``.
+        """
+        # Imported here: the settlements service reads this module's models.
+        from app.settlements.services import PaymentService
+
+        try:
+            row = self.stage_approve(
+                invoice_id,
+                firm_scope=firm_scope,
+                actor_id=actor_id,
+                may_exceed_tolerance=may_exceed_tolerance,
+            )
+            payments = PaymentService(self._session)
+            owing = next(
+                (
+                    record.outstanding_amount
+                    for record in payments.outstanding_invoices(
+                        firm_id=firm_scope, party_id=row.vendor_id
+                    )
+                    if record.invoice_id == row.id
+                ),
+                ZERO,
+            )
+            amount = payment.amount if payment.amount is not None else owing
+            if amount <= ZERO:
+                raise ValidationError(
+                    f"Bill {row.invoice_number} owes nothing once approved, so "
+                    "there is nothing to pay now."
+                )
+            if amount > owing:
+                raise ValidationError(
+                    f"Bill {row.invoice_number} owes {owing}, so {amount} "
+                    "cannot be paid against it now. Record an advance through "
+                    "Payments."
+                )
+            settlement = payments.create(
+                SettlementCreate(
+                    party_id=row.vendor_id,
+                    settlement_date=payment.payment_date or row.invoice_date,
+                    amount=amount,
+                    method=payment.method,
+                    payment_mode=payment.payment_mode,
+                    instrument_reference=payment.instrument_reference,
+                    instrument_date=payment.instrument_date,
+                    narration=payment.narration
+                    or f"Paid against bill {row.invoice_number}",
+                    allocations=[
+                        SettlementAllocationWrite(invoice_id=row.id, amount=amount)
+                    ],
+                ),
+                firm_id=firm_scope,
+                actor_id=actor_id,
+            )
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        return row, settlement
+
+    def stage_approve(
+        self,
+        invoice_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        may_exceed_tolerance: bool = True,
+    ) -> PurchaseInvoice:
+        """Approve one purchase invoice and flush, leaving the commit to the caller.
+
+        Flushed so a query that follows in the same transaction -- what the bill
+        still owes, for a payment made with it -- sees it approved on a session
+        that does not autoflush, as a request's does not.
+        """
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status != PurchaseInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft purchase invoices can be approved.")
@@ -803,7 +912,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             actor_id=actor_id,
             firm_id=firm_scope,
         )
-        self._session.commit()
+        self._session.flush()
         return row
 
     def tolerance_breaches(self, row: PurchaseInvoice, *, firm_id: UUID) -> list[str]:

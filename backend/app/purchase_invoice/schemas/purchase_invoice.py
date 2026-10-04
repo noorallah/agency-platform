@@ -7,10 +7,11 @@ from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.sales.schemas.document_preview import DocumentPreviewLine
+from app.settlements.schemas import SettlementMethodEnum, SettlementModeEnum
 
 
 class PurchaseInvoiceSchema(BaseModel):
@@ -201,6 +202,49 @@ class PurchaseInvoiceSupplierIrnWrite(PurchaseInvoiceSchema):
     def _irn(cls, value: str | None) -> str | None:
         """Check the IRN's shape and store it in lower case."""
         return normalize_irn(value)
+
+
+class PurchaseInvoicePaymentNow(PurchaseInvoiceSchema):
+    """Money paid over the counter as the bill is approved (PG-3, §86 #19).
+
+    Recorded as an ordinary payment, the same row ``POST /payments`` writes,
+    allocated to this bill, so reversing it is the usual payment reversal.
+    """
+
+    #: CASH or BANK; the money leaves the account the firm mapped to it.
+    method: SettlementMethodEnum
+    #: How the money moved within its method; blank takes CASH for cash.
+    payment_mode: SettlementModeEnum | None = None
+    #: Blank pays what the bill owes once approved -- its grand total. Less
+    #: leaves the rest outstanding; more is refused, since an advance is
+    #: recorded on its own through ``/payments``.
+    amount: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=2)
+    #: Blank takes the bill's own date.
+    payment_date: date | None = None
+    instrument_reference: str | None = Field(default=None, max_length=120)
+    instrument_date: date | None = None
+    narration: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def _mode_fits_the_method(self) -> "PurchaseInvoicePaymentNow":
+        """Hold the mode to its method, as a payment does."""
+        if self.payment_mode is None:
+            if self.method == SettlementMethodEnum.CASH:
+                self.payment_mode = SettlementModeEnum.CASH
+            return self
+        cash = self.payment_mode == SettlementModeEnum.CASH
+        if cash != (self.method == SettlementMethodEnum.CASH):
+            raise ValueError(
+                "Cash is paid as cash; a cheque, UPI, transfer, card or draft "
+                "goes through a bank. Choose the matching method."
+            )
+        return self
+
+
+class PurchaseInvoiceApproveRequest(PurchaseInvoiceSchema):
+    """Approve a bill, optionally paying it in the same transaction (PG-3)."""
+
+    payment: PurchaseInvoicePaymentNow | None = None
 
 
 class PurchaseInvoiceUpdate(PurchaseInvoiceCreate):
