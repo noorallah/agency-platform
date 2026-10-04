@@ -230,8 +230,12 @@ Future<void> saveThenStep<T>(
 }
 
 /// A window's save, and beside it [stepLabel] -- *Save & complete*, *Save &
-/// approve* -- where the user may take that step -- which is then the filled button, since it is
-/// what finishes the job; saving alone leaves a draft (D-BUY-22).
+/// approve* -- where the user may take that step (D-BUY-22).
+///
+/// Saving is the filled button and the step the outlined one: the coloured
+/// button is the one people press, and pressing it must not post stock or
+/// money the user meant only to draft (D-UI-8). Finishing is the deliberate
+/// second choice, as in Tally and Zoho.
 List<Widget> saveButtons({
   required Key saveKey,
   required String saveLabel,
@@ -245,14 +249,14 @@ List<Widget> saveButtons({
         FilledButton(key: saveKey, onPressed: onSave, child: Text(saveLabel))
       else ...[
         OutlinedButton(
-          key: saveKey,
-          onPressed: onSave,
-          child: Text(saveLabel),
-        ),
-        FilledButton(
           key: stepKey,
           onPressed: onStep,
           child: Text(stepLabel),
+        ),
+        FilledButton(
+          key: saveKey,
+          onPressed: onSave,
+          child: Text(saveLabel),
         ),
       ],
     ];
