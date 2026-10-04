@@ -4111,6 +4111,103 @@ being signed in and nothing else.
 - **Data:** none — built from the permissions already held; no request until a screen opens.
 - **Leaves:** unchanged.
 
+### TC-ME-014 — The sign-in screen shows the agency, and the strengths cycle
+
+- **Covers:** backlog 71 (agency branding, 1.3.0)
+- **Fixture:** `ready-firm`
+- **Steps**
+  1. Open the app on a PC whose server has the agency's branding set (give it first under Settings > Platform > Agency > Branding if not). Do not touch the sign-in boxes for 20 seconds.
+  2. Click the next and previous arrows and a dot on the left panel.
+  3. Type one letter in the email box.
+  4. Narrow the window below 900 px wide.
+  5. Read the foot of the sign-in card, the window's title bar and the status line.
+- **Expect**
+  - Step 1: the agency's logo (or the initials of its name), name and tagline sit above the form; a night-blue panel on the left shows one strength with a title and a line, and changes to the next about every 8 seconds.
+  - Step 2: the panel moves one strength at a time; the dot shows where you are.
+  - Step 3: the panel stops cycling for good, even after the box is cleared, until the app is reopened.
+  - Step 4: the left panel goes and the sign-in card stands alone, nothing cut off.
+  - Step 5: the product mark (Agency Platform, "by" its company and tagline) is in the card's foot; the title bar reads **Agency Platform - Sign in**; the status line shows the server state, the version and *Powered by Agency Platform*.
+- **Data:** `GET /api/v1/branding` once on opening; `GET /api/v1/branding/logo` only when the record has a logo and this PC's cached copy is of another version.
+- **Leaves:** an agency with branding set.
+
+### TC-ME-015 — Sign-in: More help, Copy details for support, and a server that does not answer
+
+- **Covers:** backlog 71 (agency branding, 1.3.0)
+- **Fixture:** `ready-firm`
+- **Steps**
+  1. On the sign-in screen open **More help**.
+  2. Click **Copy details for support** and paste into Notepad.
+  3. Stop the server (or open Application Settings and point the API URL at a port nothing listens on), then close and reopen the app.
+  4. Start the server again, reopen the app.
+- **Expect**
+  - Step 1: support rows (phone, WhatsApp, hours, email, website) each appear only if filled -- they are blank in this release, so none shows; the line *Forgot your password? Your administrator resets it.* does.
+  - Step 2: the button says it copied; the text names the product, its version, the server address and this computer's name. No password or token is in it.
+  - Step 3: the sign-in screen still opens at once, showing the agency's name, tagline and logo from this PC's last answer (or Agency Platform's own name and logo if this PC never had one); no error box.
+  - Step 4: the agency's current branding shows.
+- **Data:** none while the server is down; one `GET /api/v1/branding` once it is up.
+- **Leaves:** an agency with branding set, once seen by this PC.
+
+### TC-ME-016 — First sign-in: Set up your agency, Skip for now, and the Home card
+
+- **Covers:** backlog 71 (agency branding, 1.3.0)
+- **Fixture:** `ready-firm`
+- **Steps**
+  1. On an installation whose branding has **not** been set (a fresh install with the Branding page left blank), sign in as the platform administrator.
+  2. Press **Skip for now**.
+  3. Look at Home, then click **Set up your agency** on the card.
+  4. Leave the name blank and press **Save**; then type `QA Book Traders Agency`, a tagline `Quality in bulk`, choose a PNG under 1 MB as the logo and press **Save**.
+  5. Sign out and sign in again; look at the top of the window and Home.
+  6. Sign in as the firm administrator instead.
+- **Expect**
+  - Step 1: a dialog **Set up your agency** opens over Home with Agency name, Tagline, Logo and a live preview.
+  - Step 2: the dialog closes and nothing is saved.
+  - Step 3: Home shows a **Finish setting up** card (*Give your agency's name and logo, so every PC shows them.*); the button opens the same form.
+  - Step 4: a blank name is refused beside the box; the full save closes the form and the card disappears from Home.
+  - Step 5: the dialog no longer opens; the agency's logo, name and tagline lead the menu strip; the window title reads the agency name.
+  - Step 6: no dialog and no card appear for a person without platform settings rights.
+- **Data:** no request until Save; Save is `PUT /api/v1/branding` and, with a logo, `PUT /api/v1/branding/logo`. The platform audit trail gains `agency_branding.created` and `agency_branding.logo_changed` (the logo's type and size, never the image).
+- **Leaves:** a platform administrator on an installation with no branding set.
+
+### TC-ME-017 — Settings > Platform > Agency > Branding: change, logo rules, two people at once
+
+- **Covers:** backlog 71 (agency branding, 1.3.0)
+- **Fixture:** `ready-firm`
+- **Steps**
+  1. Sign in as the platform administrator. Open **Settings > Platform > Agency > Branding**.
+  2. Change the tagline and watch the preview; press **Save**.
+  3. Press **Choose logo** (or **Change logo**) and pick a file named `fake.png` that is really a text file; then a PNG or JPG larger than 1 MB.
+  4. Choose a valid square PNG; Save. Then press **Remove logo**; Save.
+  5. On two PCs (or two windows) open the page; on the first change the tagline and Save; on the second change the name and Save.
+  6. Sign in as the firm administrator and open Settings.
+- **Expect**
+  - Step 1: name, tagline, logo, a preview of the sign-in card and of the top of every screen, and our product and company read-only (*set by the installer; changed only by an update*). There is no colour box.
+  - Step 2: the preview follows each keystroke; Save shows *Saved.*; the menu strip changes at once with no refresh.
+  - Step 3: the text file is refused with *The logo must be a PNG or JPG image.* (the file's contents are judged, not its name); the large one with a message that it is N MB and the limit is 1 MB. The form keeps everything typed.
+  - Step 4: the logo appears in the preview and the header; after Remove, the initials of the name show instead.
+  - Step 5: the first save succeeds; the second is refused inside the form with the somebody-else-saved message and keeps what was typed.
+  - Step 6: **Platform** and its Agency group are not offered.
+- **Data:** the platform audit trail (Settings > Platform > Audit Logs, no firm) lists `agency_branding.updated` and `agency_branding.logo_changed` for the saves, each naming who. Sign-in on another PC shows the new logo, name and tagline at its next sign-in screen.
+- **Leaves:** a platform administrator, and the firm administrator.
+
+### TC-ME-018 — The header: agency and firm, narrow window, Home, status line
+
+- **Covers:** backlog 71 (agency branding, 1.3.0)
+- **Fixture:** `ready-firm`
+- **Steps**
+  1. Sign in as the firm administrator of a firm, with the agency's branding set. Look at the menu strip and the window's title bar.
+  2. Switch firm with the firm switcher (if there are two); then sign in as the platform administrator, who has no firm chosen.
+  3. Narrow the window to under 820 px, then widen it past 1280 px.
+  4. Open Customers, then click the agency's logo or name at the left of the strip.
+  5. Read the right end of the status line and point at it.
+- **Expect**
+  - Step 1: the logo, name and tagline lead the strip before Home, then the firm's name as plain text; the title bar reads **<agency> > <firm>**.
+  - Step 2: the firm part of the title follows the switch; with no firm the title is the agency's name alone.
+  - Step 3: below 820 px only the logo shows; the tagline appears from 1280 px.
+  - Step 4: Home opens.
+  - Step 5: the product's mark, *Agency Platform <version> by <company>*, and a tooltip with the same words. Clicking it does nothing (there is no About screen yet).
+- **Data:** no request: the header reads the copy the sign-in screen kept.
+- **Leaves:** a firm with a finished set-up.
+
 ---
 
 ## Firms — creating one and finishing it

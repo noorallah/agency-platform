@@ -9,7 +9,9 @@ guide step by step and record every difference, however small.
 Written 2026-09-24 from the installer as built that day; **updated
 2026-09-27 for 1.0.2**, which adds section E (upgrading an earlier install
 and the nightly backup). For a new laptop use `AgencyPlatform-1.0.2-Setup.exe`
-wherever this list says 1.0.0. Update the Expected column when the product
+wherever this list says 1.0.0. **Updated 2026-10-04 for 1.3.0**, which adds
+the *Branding* page (A4a and section F); use `AgencyPlatform-1.3.0-Setup.exe`
+for those rows. The 1.2.0 installer was never built. Update the Expected column when the product
 changes, and the Result and Notes columns as you test.
 
 ## How to test
@@ -53,6 +55,7 @@ sections A and B here, and before section D.
 | A2 | Welcome page | Names *Agency Platform 1.0.0* | Not run | |
 | A3 | Destination page | Defaults to `C:\Program Files\Agency Platform`. Choosing another folder, e.g. `C:\agencyapp\Agency Platform`, is accepted; the data and logs still go under `C:\ProgramData\Agency Platform` (A12) | Not run | |
 | A4 | *This PC* page | Two choices, **This PC: server and app** preselected, tick box *Allow other PCs on this network to connect* enabled | Not run | |
+| A4a | After *This PC* (server and app) | A **Branding** page, *Your agency's name and logo*: Agency name, Tagline, a Logo box with Browse, and a read-only line *This product: Agency Platform, by* its company. Leaving it all blank and pressing Next is accepted (section F) | Not run | |
 | A5 | Pick **App only**, then back to **server** | The tick box greys out for app only and comes back for server | Not run | |
 | A6 | Keep **server**, tick *Allow other PCs*, Next | No *Server* address page appears. Shortcuts page with *Create a desktop shortcut* ticked | Not run | |
 | A7 | **Install** | Files copy, then *Setting up the database and the server. This can take a few minutes.* Under five minutes in all | Not run | |
@@ -137,6 +140,23 @@ first.
 | D7 | Uninstall again, answer **Yes** | `C:\ProgramData\Agency Platform` is gone as well | Not run | |
 | D8 | Run Setup a third time, server role | A fresh install: a new password on the finished page; no firm | Not run | |
 | D9 | On the second PC, uninstall | No data question is asked, or it is asked and answering either way leaves nothing behind but the user's own settings file | Not run | |
+
+## F. Branding page (1.3.0), fresh server install only
+
+Each row needs a **fresh** server install (wipe the laptop between runs, or
+use a spare PC); the page is not shown on an upgrade or a repair.
+
+| ID | Step | Expected | Result | Notes |
+| --- | --- | --- | --- | --- |
+| F1 | Leave all three boxes blank, Next, install | No error; the first platform administrator to sign in is asked *Set up your agency* (Skip for now leaves a *Finish setting up* card on Home) | Not run | |
+| F2 | Type only the Agency name `QA Agency`, Next, install, sign in | No *Set up your agency* dialog; the name shows on the sign-in screen and at the top of the app; Settings > Platform > Audit Logs has `agency_branding.created` | Not run | |
+| F3 | Type a Tagline and no name, Next | *Type the agency's name too; the tagline and logo are saved with it.* Next does not move on | Not run | |
+| F4 | Type a name and a Logo path that does not exist (`C:\nowhere\x.png`), Next | *The logo file was not found. Choose it again or leave it blank.* | Not run | |
+| F5 | Browse to a valid square PNG under 1 MB, with a name, install | The logo shows on the sign-in screen and in the header on this PC and on the second PC (section C) at its next sign-in screen | Not run | |
+| F6 | A text file renamed `fake.png` as the logo, with a name, install | **The install completes**; the name is saved; no logo (initials show); the newest file in `logs\install` holds a warning about the logo | Not run | |
+| F7 | A PNG or JPG over 1 MB as the logo, with a name, install | Same as F6 | Not run | |
+| F8 | Run the setup again (repair or upgrade), and Setup on the second PC as **App only** | **No Branding page**; the saved branding is unchanged | Not run | |
+| F9 | After F5, sign in as the platform administrator; Settings > Platform > Agency > Branding | The same name, tagline and logo; change them and Save: *Saved.* and the header changes at once | Not run | |
 
 ## Results summary
 

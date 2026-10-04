@@ -80,7 +80,10 @@ server over the office network. The *Installation guide* explains both.
 ## The screen
 
 - **The menu bar** across the top: *Home, Sell, Buy, Stock, Accounts,
-  Masters, Reports, Admin*, and the **gear** for Settings. Each opens a panel
+  Masters, Reports*, and the **gear** for Settings (administration is under
+  Settings > Platform). At its left, the agency's own logo, name and tagline
+  (given at install or under Settings > Platform > Agency > Branding); clicking
+  it opens Home. Each opens a panel
   of screens, grouped; screens that are set up once and rarely changed are
   drawn apart under **CONFIGURATION**. A person sees only the menus and
   screens their role allows.
