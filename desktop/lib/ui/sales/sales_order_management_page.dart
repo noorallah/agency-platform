@@ -6,13 +6,11 @@ import '../../core/api/api_client.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/document_framework.dart';
-import '../document_framework/document_framework_widgets.dart';
-import '../document_framework/document_status_gate.dart';
+import '../document_framework/document_steps.dart';
 import '../document_framework/document_line_labels.dart';
 import '../document_framework/document_view_dialog.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../models/entities.dart';
-import '../trade_licences/licence_check_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import '../../models/bulk_action.dart';
 import '../../phase2/indian_format.dart';
@@ -20,8 +18,7 @@ import '../workspace/bulk_action.dart';
 import '../workspace/reason_prompt.dart';
 import '../settings/send_message_dialog.dart';
 import '../workspace/printed_document.dart';
-import 'credit_notice.dart';
-import 'price_floor_check_dialog.dart';
+import 'sales_document_steps.dart';
 import 'sales_order_editor_dialog.dart';
 
 /// The states a sales order list can be narrowed to -- the phase 2 counters
@@ -200,47 +197,34 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         '${row['created_by'] ?? ''}' == me;
   }
 
-  bool _mayRun(DocumentToolbarAction action) => switch (action) {
-        DocumentToolbarAction.approve ||
-        DocumentToolbarAction.close ||
-        DocumentToolbarAction.archive ||
-        DocumentToolbarAction.requestApproval =>
-          _mayApprove(),
-        DocumentToolbarAction.cancel ||
-        DocumentToolbarAction.reject =>
-          widget.permissions.hasPermission('SALES_CANCEL'),
-        DocumentToolbarAction.newDocument => _mayCreate,
-        DocumentToolbarAction.save => _mayEdit(_selected),
-        DocumentToolbarAction.exportDocument =>
-          widget.permissions.hasPermission(
-            'SALES_EXPORT',
-          ),
-        _ => true,
-      };
+  /// The order's next steps -- Approve, Hold or Release, Reserve again,
+  /// Cancel, Close -- as its own windows offer them too (D-BUY-22): one
+  /// definition, so the toolbar and the window cannot disagree about one
+  /// order. Each carries the code the server enforces and the status gate.
+  late final List<DocumentStep<Map<String, dynamic>>> _steps =
+      salesOrderSteps(widget.api, widget.permissions);
 
-  /// The lifecycle action a toolbar button stands for, or null when it is not
-  /// a lifecycle action at all.
-  DocumentLifecycleAction? _lifecycleOf(DocumentToolbarAction action) =>
-      switch (action) {
-        DocumentToolbarAction.approve => DocumentLifecycleAction.approve,
-        DocumentToolbarAction.dispatch => DocumentLifecycleAction.dispatch,
-        DocumentToolbarAction.complete => DocumentLifecycleAction.complete,
-        DocumentToolbarAction.cancel => DocumentLifecycleAction.cancel,
-        DocumentToolbarAction.close => DocumentLifecycleAction.close,
-        _ => null,
-      };
+  DocumentStep<Map<String, dynamic>> _step(String id) =>
+      _steps.firstWhere((step) => step.id == id);
 
-  /// Whether [action] may run against the selected document right now.
-  ///
-  /// Permission alone used to decide this, so Approve was live on an
-  /// already-approved document and Close on a closed one; pressing either
-  /// produced a refusal the screen could have predicted. The gate states the
-  /// same rule the service enforces.
-  bool _statusAllows(DocumentToolbarAction action, String? status) {
-    final DocumentLifecycleAction? lifecycle = _lifecycleOf(action);
-    // Not a lifecycle action -- New, Print and the rest are unaffected.
-    if (lifecycle == null) return true;
-    return DocumentStatusGate.salesOrder.allows(lifecycle, status);
+  /// Hold, or Release where the order is held: one control, since an order
+  /// either is held or is not, and the label says which.
+  DocumentStep<Map<String, dynamic>> _holdStep(Map<String, dynamic>? row) =>
+      _step(row?['is_on_hold'] == true ? 'release' : 'hold');
+
+  /// Take a step against an order from the toolbar and reload.
+  void _runStep(
+    DocumentStep<Map<String, dynamic>> step,
+    Map<String, dynamic> row,
+  ) =>
+      unawaited(runStepFromList(context, step, row, reload: _load));
+
+  /// What an order's window closed with: a step it took, or anything else.
+  Future<bool> _afterWindow(Object? outcome) async {
+    if (outcome is! DocumentStepDone || !mounted) return false;
+    await _load();
+    if (mounted) showStepDone(context, outcome);
+    return true;
   }
 
   Future<void> _load({int? requestedPage}) async {
@@ -401,77 +385,6 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
     await _load();
   }
 
-  Future<void> _act(
-    String suffix, {
-    String? overrideReason,
-    String? priceOverrideReason,
-  }) async {
-    final Map<String, dynamic>? selected = _selected;
-    if (selected == null) return;
-    try {
-      await widget.api.documentAction(
-        'sales-orders',
-        selected['id'] as String,
-        suffix,
-        query: overrideReason == null && priceOverrideReason == null
-            ? null
-            : {
-                if (overrideReason != null)
-                  'licence_override_reason': overrideReason,
-                if (priceOverrideReason != null)
-                  'price_override_reason': priceOverrideReason,
-              },
-      );
-      await _load();
-    } on ApiException catch (error) {
-      // The server's refusal is the only thing that says why -- a credit
-      // block, a hold, a stock shortfall. Unhandled, it went to the crash
-      // log and the button appeared to do nothing (plan item 8.7,
-      // 2026-09-12); every other document page shows it.
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        refusalMessage(error),
-        kind: AppNotificationKind.error,
-      );
-    }
-  }
-
-  /// Warn before approving, because approval is where credit is committed.
-  ///
-  /// The check has to run *before* the call: once the order is approved the
-  /// exposure already includes it, and asking afterwards with the same amount
-  /// would count the order twice.
-  Future<void> _warnOnCredit(Map<String, dynamic> order) =>
-      warnOnCreditExposure(
-        context,
-        widget.api,
-        customerId: order['customer_id'] as String?,
-        amount: '${order['grand_total'] ?? '0'}',
-      );
-
-  /// Ask what the order's lines need, licence-wise, before approving it
-  /// (backlog 54). Same reason as [_warnOnCredit]: before the call, because
-  /// approval is the decision being checked.
-  Future<LicenceCheckOutcome> _checkLicences(Map<String, dynamic> order) =>
-      confirmLicenceCheck(
-        context,
-        widget.api,
-        widget.permissions,
-        document: 'SALES_ORDER',
-        documentId: order['id'] as String,
-      );
-
-  /// Ask whether the order's lines are priced under their floor before
-  /// approving it (backlog 64 row 2), before the call for the same reason as
-  /// [_warnOnCredit]. A block carries the reason of whoever may override it.
-  Future<PriceFloorOutcome> _checkPriceFloor(Map<String, dynamic> order) =>
-      confirmPriceFloor(
-        context,
-        widget.permissions,
-        check: () => widget.api.salesOrderPriceCheck(order['id'] as String),
-      );
-
   DocumentHeaderSnapshot _headerFor(Map<String, dynamic> row) =>
       DocumentHeaderSnapshot(
         documentTypeCode: 'SALES_ORDER',
@@ -554,9 +467,13 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
     }
     final Json? deposits = await _deposits('${row['id']}');
     if (!mounted) return;
-    await showDialog<void>(
+    final Object? outcome = await showDialog<Object>(
       context: context,
       builder: (context) => DocumentViewDialog(
+        steps: DocumentStepStrip<Map<String, dynamic>>(
+          record: row,
+          steps: _steps,
+        ),
         title: '${row['order_number'] ?? '-'}',
         subtitle: 'Sales order dated ${row['order_date'] ?? '-'}',
         icon: Icons.point_of_sale_outlined,
@@ -567,6 +484,7 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         extra: _depositsPanel(context, deposits),
       ),
     );
+    await _afterWindow(outcome);
   }
 
   @override
@@ -656,8 +574,6 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
   Widget _phase2Toolbar() {
     final Map<String, dynamic>? selected = _selected;
     final String status = '${selected?['status'] ?? ''}';
-    final bool held = selected?['is_on_hold'] == true;
-    final bool finished = status == 'CANCELLED' || status == 'CLOSED';
     final bool canCreate = _mayCreate;
     final bool canEdit = _mayEditSome;
     return WorkspaceToolbar(
@@ -717,21 +633,18 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
                 ? null
                 : () => unawaited(_sendOrder(selected)),
           ),
-        _command(DocumentToolbarAction.approve, '/approve'),
+        _command('approve'),
         ToolbarCommand(
           id: 'hold',
-          label: held ? 'Release' : 'Hold',
-          icon: held ? Icons.play_arrow_outlined : Icons.pause_outlined,
-          onPressed: selected == null ||
-                  _loading ||
-                  !_mayApprove() ||
-                  (!held && finished)
+          label: _holdStep(selected).label,
+          icon: _holdStep(selected).icon,
+          onPressed: _loading || !_holdStep(selected).enabledFor(selected)
               ? null
-              : () => unawaited(held ? _release(selected) : _hold(selected)),
+              : () => _runStep(_holdStep(selected), selected!),
         ),
         _reserveAgainCommand(),
-        _command(DocumentToolbarAction.cancel, '/cancel'),
-        _command(DocumentToolbarAction.close, '/close'),
+        _command('cancel'),
+        _command('close'),
               ],
     );
   }
@@ -770,17 +683,8 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
   }
 
   /// A lifecycle step as a phase 2 command, enabled as its button is.
-  ToolbarCommand _command(DocumentToolbarAction action, String suffix) =>
-      ToolbarCommand(
-        id: action.name,
-        label: action.label,
-        icon: action.icon,
-        onPressed: _selected == null ||
-                !_mayRun(action) ||
-                !_statusAllows(action, _selected?['status'] as String?)
-            ? null
-            : () => unawaited(_run(action, suffix)),
-      );
+  ToolbarCommand _command(String id) =>
+      _step(id).command(_selected, _runStep);
 
   Widget _phase1Toolbar() => WorkspaceToolbar(
         actions: const [ToolbarAction.view, ToolbarAction.refresh],
@@ -838,11 +742,11 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
                 label: const Text('Edit'),
               ),
             ),
-          _actionButton(DocumentToolbarAction.approve, '/approve'),
+          _actionButton(_step('approve')),
           _holdButton(),
           _reserveAgainButton(),
-          _actionButton(DocumentToolbarAction.cancel, '/cancel'),
-          _actionButton(DocumentToolbarAction.close, '/close'),
+          _actionButton(_step('cancel')),
+          _actionButton(_step('close')),
         ],
       );
 
@@ -852,10 +756,9 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
 
   VoidCallback? _reserveAgainAction() {
     final Map<String, dynamic>? selected = _selected;
-    if (selected == null || _loading || !_mayApprove() || !_lapsed(selected)) {
-      return null;
-    }
-    return () => unawaited(_reserveAgain(selected));
+    final DocumentStep<Map<String, dynamic>> step = _step('reserve-again');
+    if (_loading || !step.enabledFor(selected)) return null;
+    return () => _runStep(step, selected!);
   }
 
   ToolbarCommand _reserveAgainCommand() => ToolbarCommand(
@@ -874,51 +777,23 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         ),
       );
 
-  Future<void> _reserveAgain(Map<String, dynamic> order) async {
-    try {
-      await widget.api.reserveSalesOrderAgain('${order['id']}');
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        'Stock is held again for ${order['order_number']}.',
-        kind: AppNotificationKind.success,
-      );
-      await _load();
-    } on ApiException catch (error) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        error.message,
-        kind: AppNotificationKind.error,
-      );
-    }
-  }
-
   /// One button that holds or releases, depending on where the order is.
   ///
   /// Two buttons, one of them always disabled, would take the space and give
   /// nothing: an order is either held or it is not, and the label says which.
   Widget _holdButton() {
     final Map<String, dynamic>? selected = _selected;
-    final bool held = selected?['is_on_hold'] == true;
-    final String status = '${selected?['status'] ?? ''}';
-    final bool finished = status == 'CANCELLED' || status == 'CLOSED';
+    final DocumentStep<Map<String, dynamic>> step = _holdStep(selected);
     return Padding(
       padding: const EdgeInsets.only(left: 8),
       child: OutlinedButton.icon(
-        onPressed: selected == null ||
-                _loading ||
-                // The same authority the server asks for: holding and
-                // releasing an order is deciding whether it goes out.
-                !_mayApprove() ||
-                (!held && finished)
+        // The same authority the server asks for: holding and releasing an
+        // order is deciding whether it goes out.
+        onPressed: _loading || !step.enabledFor(selected)
             ? null
-            : () => unawaited(held ? _release(selected) : _hold(selected)),
-        icon: Icon(
-          held ? Icons.play_arrow_outlined : Icons.pause_outlined,
-          size: 18,
-        ),
-        label: Text(held ? 'Release' : 'Hold'),
+            : () => _runStep(step, selected!),
+        icon: Icon(step.icon, size: 18),
+        label: Text(step.label),
       ),
     );
   }
@@ -978,68 +853,19 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
     }
   }
 
-  /// Ask why, then hold. The reason is required, not optional: whoever hits
-  /// the refusal downstream is the one who has to get the hold lifted.
-  Future<void> _hold(Map<String, dynamic> order) async {
-    final String? reason = await askForReason(
-      context,
-      title: 'Hold ${order['order_number'] ?? ''}',
-      explanation: 'Nothing is unwound. The order keeps its status and its '
-          'stock stays reserved — a hold says "not yet", not "never". It '
-          'cannot be dispatched until it is released.',
-      confirmLabel: 'Hold',
-    );
-    // Null covers both a dismissal and an empty box: whoever hits the refusal
-    // downstream has to know why, and a blank reason tells them nothing.
-    if (reason == null || !mounted) return;
-    try {
-      await widget.api.holdSalesOrder('${order['id']}', reason: reason);
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        '${order['order_number']} is on hold.',
-        kind: AppNotificationKind.success,
-      );
-      await _load();
-    } on ApiException catch (error) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        error.message,
-        kind: AppNotificationKind.error,
-      );
-    }
-  }
-
-  Future<void> _release(Map<String, dynamic> order) async {
-    try {
-      await widget.api.releaseSalesOrder('${order['id']}');
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        '${order['order_number']} released.',
-        kind: AppNotificationKind.success,
-      );
-      await _load();
-    } on ApiException catch (error) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        error.message,
-        kind: AppNotificationKind.error,
-      );
-    }
-  }
-
   /// Raise an order with nothing behind it -- the phone-order case.
   Future<void> _newOrder() async {
     // A tab of its own in phase 2 (4.8), the same dialog in phase 1.
-    final bool? created = await showDocument<bool>(
+    final Object? created = await showDocument<Object>(
       context,
       title: 'New sales order',
-      builder: (_) =>
-          SalesOrderEditorDialog(api: widget.api, today: DateTime.now()),
+      builder: (_) => SalesOrderEditorDialog(
+        api: widget.api,
+        today: DateTime.now(),
+        steps: _steps,
+      ),
     );
+    if (await _afterWindow(created)) return;
     if (created != true) return;
     if (!mounted) return;
     NotificationService.show(
@@ -1052,15 +878,17 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
 
   /// Reopen a draft and correct it.
   Future<void> _editOrder(Map<String, dynamic> order) async {
-    final bool? saved = await showDocument<bool>(
+    final Object? saved = await showDocument<Object>(
       context,
       title: 'Order ${order['order_number'] ?? ''}'.trim(),
       builder: (_) => SalesOrderEditorDialog(
         api: widget.api,
         today: DateTime.now(),
         orderId: order['id'] as String,
+        steps: _steps,
       ),
     );
+    if (await _afterWindow(saved)) return;
     if (saved != true) return;
     if (!mounted) return;
     NotificationService.show(
@@ -1073,47 +901,16 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
 
   /// A lifecycle button, disabled unless permission **and** the selected
   /// order's status allow it.
-  Widget _actionButton(DocumentToolbarAction action, String suffix) => Padding(
+  Widget _actionButton(DocumentStep<Map<String, dynamic>> step) => Padding(
         padding: const EdgeInsets.only(left: 8),
         child: OutlinedButton.icon(
-          onPressed: _selected == null ||
-                  !_mayRun(action) ||
-                  !_statusAllows(action, _selected?['status'] as String?)
-              ? null
-              : () => unawaited(_run(action, suffix)),
-          icon: Icon(action.icon, size: 18),
-          label: Text(action.label),
+          onPressed: step.enabledFor(_selected)
+              ? () => _runStep(step, _selected!)
+              : null,
+          icon: Icon(step.icon, size: 18),
+          label: Text(step.label),
         ),
       );
-
-  /// Run a lifecycle action, warning first where the firm's credit policy
-  /// says to.
-  ///
-  /// The warning has to come **before** the approval, or the document is
-  /// counted twice in the exposure it is being checked against. It is a
-  /// warning and never a block: the server refuses when the firm's policy is
-  /// set to Block, and a client that blocked on its own would enforce a rule
-  /// the firm may not have chosen.
-  Future<void> _run(DocumentToolbarAction action, String suffix) async {
-    final Map<String, dynamic>? selected = _selected;
-    if (selected == null) return;
-    if (action == DocumentToolbarAction.approve) {
-      await _warnOnCredit(selected);
-      if (!mounted) return;
-      final LicenceCheckOutcome licence = await _checkLicences(selected);
-      if (!licence.proceed) return;
-      if (!mounted) return;
-      final PriceFloorOutcome price = await _checkPriceFloor(selected);
-      if (!price.proceed) return;
-      await _act(
-        suffix,
-        overrideReason: licence.overrideReason,
-        priceOverrideReason: price.overrideReason,
-      );
-      return;
-    }
-    await _act(suffix);
-  }
 
   /// The Period control (owner, 2026-09-27), right after the search on
   /// phase 2's page line. Phase 1 (frozen, never shipped) has no room for it.

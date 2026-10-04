@@ -18,6 +18,7 @@ import '../../models/line_tax_rule.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../../phase2/source_tick_dialog.dart';
+import '../document_framework/document_steps.dart';
 import '../workspace/batch_picker_panel.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
@@ -46,9 +47,16 @@ class SalesInvoiceEditorDialog extends StatefulWidget {
     this.invoiceId,
     this.mayApprove = false,
     this.printer,
+    this.steps = const [],
   });
 
   final ApiClient api;
+
+  /// The invoice's next steps, as the list toolbar offers them (D-BUY-22):
+  /// *Save & approve* where the user may approve -- with the credit, licence
+  /// and price-floor questions the list asks first -- and a saved draft's
+  /// Cancel and Close. Empty offers none.
+  final List<DocumentStep<Json>> steps;
 
   /// Passed in rather than read here, so the dialog is testable.
   final DateTime today;
@@ -904,20 +912,90 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   /// Save the bill; with [print], hand the saved bill to the printer before
   /// the screen closes -- what a counter does with every bill.
   Future<void> _save({bool print = false}) async {
+    final Json? saved = await _persist();
+    if (saved == null || !mounted) return;
+    if (print) {
+      final String savedId = stringValue(saved['id']);
+      final String number = stringValue(saved['invoice_number']).isEmpty
+          ? 'invoice'
+          : stringValue(saved['invoice_number']);
+      if (savedId.isNotEmpty) {
+        try {
+          final List<int>? pdf = await fetchPrintablePdf(
+            context,
+            ({bool referenceCopy = false}) => widget.api
+                .salesInvoicePdf(savedId, referenceCopy: referenceCopy),
+          );
+          if (pdf == null || !mounted) return;
+          await printDocument(context, bytes: pdf, documentName: number);
+        } on ApiException catch (error) {
+          // Saved either way: the bill is there to print from the list.
+          if (mounted) {
+            NotificationService.show(
+              context,
+              'Saved, but it could not be printed: ${error.message}',
+              kind: AppNotificationKind.warning,
+            );
+          }
+        }
+        if (!mounted) return;
+      }
+    }
+    Navigator.of(context).pop(true);
+  }
+
+  /// Save, then approve what was saved (D-BUY-22), asking first what the
+  /// list asks. A refused approval leaves the window open on the saved draft,
+  /// read back as F9 does, so the next save corrects it.
+  Future<void> _saveAndStep(DocumentStep<Json> step) => saveThenStep<Json>(
+        context,
+        save: _persist,
+        step: step,
+        onStopped: (saved, refusal) => unawaited(_holdSaved(
+          saved,
+          refusal == null
+              ? null
+              : 'Saved as draft ${stringValue(saved['invoice_number'])}, but '
+                  'not approved: $refusal',
+        )),
+      );
+
+  /// Carry on with the draft a *Save & approve* saved, read back.
+  Future<void> _holdSaved(Json saved, String? message) async {
+    final String id = stringValue(saved['id']);
+    if (id.isNotEmpty && id != _invoiceId) {
+      setState(() {
+        _draftId = id;
+        _loading = true;
+        _saving = false;
+      });
+      await _load();
+    }
+    if (mounted) {
+      setState(() {
+        _saving = false;
+        _error = message;
+      });
+    }
+  }
+
+  /// Write the bill, returning it as saved; null when the save was refused,
+  /// which [_error] then says.
+  Future<Json?> _persist() async {
     final String? customField = _customFields.validate();
     if (customField != null) {
       setState(() => _error = customField);
-      return;
+      return null;
     }
     final Json? payload = _payload();
     if (payload == null) {
       setState(() => _error = 'Bill at least one line.');
-      return;
+      return null;
     }
     final String? short = _serialShortfall();
     if (short != null) {
       setState(() => _error = short);
-      return;
+      return null;
     }
     setState(() {
       _saving = true;
@@ -935,38 +1013,12 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
           expectedVersion: (_existing?['version'] as num?)?.toInt(),
         );
       }
-      if (!mounted) return;
-      if (print) {
-        final dynamic saved = response['data'];
-        final String savedId =
-            saved is Map ? stringValue(saved['id']) : (id ?? '');
-        final String number =
-            saved is Map ? stringValue(saved['invoice_number']) : 'invoice';
-        if (savedId.isNotEmpty) {
-          try {
-            final List<int>? pdf = await fetchPrintablePdf(
-              context,
-              ({bool referenceCopy = false}) => widget.api
-                  .salesInvoicePdf(savedId, referenceCopy: referenceCopy),
-            );
-            if (pdf == null || !mounted) return;
-            await printDocument(context, bytes: pdf, documentName: number);
-          } on ApiException catch (error) {
-            // Saved either way: the bill is there to print from the list.
-            if (mounted) {
-              NotificationService.show(
-                context,
-                'Saved, but it could not be printed: ${error.message}',
-                kind: AppNotificationKind.warning,
-              );
-            }
-          }
-          if (!mounted) return;
-        }
-      }
-      Navigator.of(context).pop(true);
+      final dynamic data = response['data'];
+      return data is Map
+          ? Map<String, dynamic>.from(data)
+          : <String, dynamic>{...?_existing, 'id': id};
     } on ApiException catch (error) {
-      if (!mounted) return;
+      if (!mounted) return null;
       // The server's sentence names what is wrong -- an over-billed line, a
       // closed period, a credit limit -- and is more use than anything this
       // dialog could invent.
@@ -975,6 +1027,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
             saveFailureMessage(error, 'invoice', changesKept: true);
         _saving = false;
       });
+      return null;
     }
   }
 

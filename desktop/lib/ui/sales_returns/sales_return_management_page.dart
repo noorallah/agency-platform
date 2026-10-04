@@ -13,6 +13,7 @@ import '../../models/entities.dart';
 import '../../models/sales_return.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
+import '../document_framework/document_steps.dart';
 import '../workspace/bulk_action.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
@@ -179,26 +180,83 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
     }
   }
 
-  Future<void> _act(SalesReturn row, String action, {String? reason}) async {
-    setState(() => _loading = true);
-    try {
-      final SalesReturn updated =
-          await widget.api.salesReturnAction(row.id, action, reason: reason);
-      if (!mounted) return;
-      setState(() => _selected = updated);
-      // Past 30 November the credit no longer reduces tax (GST-1): said when
-      // it is approved and when it is completed, before the credit posts.
-      final String late =
-          action == 'approve' || action == 'complete'
-              ? updated.timeLimitWarning
-              : '';
-      NotificationService.show(
-        context,
-        '${_outcome(action, updated)}${late.isEmpty ? '' : ' $late'}',
-        kind: late.isEmpty
-            ? AppNotificationKind.success
-            : AppNotificationKind.warning,
+  /// The return's next steps -- Approve, Complete, Close, Cancel -- as its
+  /// own window offers them too (D-BUY-22): one definition, so the bar and
+  /// the window cannot disagree about one return. Raising is `SALES_RETURN`;
+  /// these are `SALES_APPROVE`, and cancelling `SALES_CANCEL` with a reason.
+  late final List<DocumentStep<SalesReturn>> _steps = [
+    _lifecycleStep('approve', 'Approve', Icons.check_circle_outline,
+        allows: (row) => row.isDraft, forward: true),
+    _lifecycleStep('complete', 'Complete', Icons.done_all,
+        allows: (row) => row.isApproved, forward: true),
+    _lifecycleStep('close', 'Close', Icons.lock_outline,
+        allows: (row) => row.isCompleted),
+    DocumentStep<SalesReturn>(
+      id: 'cancel',
+      label: 'Cancel',
+      icon: Icons.cancel_outlined,
+      permitted: _canCancel,
+      allows: (row) => !row.isCancelled && !row.isClosed,
+      run: (context, row) async {
+        final String? reason = await showDialog<String>(
+          context: context,
+          builder: (_) => _CancelReasonDialog(returnNumber: row.returnNumber),
+        );
+        if (reason == null) return null;
+        return _call(row, 'cancel', reason: reason);
+      },
+    ),
+  ];
+
+  DocumentStep<SalesReturn> _lifecycleStep(
+    String id,
+    String label,
+    IconData icon, {
+    required bool Function(SalesReturn row) allows,
+    bool forward = false,
+  }) =>
+      DocumentStep<SalesReturn>(
+        id: id,
+        label: label,
+        icon: icon,
+        permitted: _canApprove,
+        forward: forward,
+        allows: allows,
+        run: (context, row) => _call(row, id),
       );
+
+  DocumentStep<SalesReturn> _step(String id) =>
+      _steps.firstWhere((step) => step.id == id);
+
+  /// Call [action] on [row] and say what it did. A refusal is thrown, for
+  /// whichever window or bar ran it to show where it shows refusals.
+  Future<DocumentStepDone> _call(
+    SalesReturn row,
+    String action, {
+    String? reason,
+  }) async {
+    final SalesReturn updated =
+        await widget.api.salesReturnAction(row.id, action, reason: reason);
+    // Past 30 November the credit no longer reduces tax (GST-1): said when
+    // it is approved and when it is completed, before the credit posts.
+    final String late = action == 'approve' || action == 'complete'
+        ? updated.timeLimitWarning
+        : '';
+    return DocumentStepDone(
+      '${_outcome(action, updated)}${late.isEmpty ? '' : ' $late'}',
+      warning: late.isNotEmpty,
+      step: action,
+    );
+  }
+
+  /// Take a step against [row] from the bar. A refusal goes to the banner
+  /// above the list, as it always has here.
+  Future<void> _runStep(DocumentStep<SalesReturn> step, SalesReturn row) async {
+    try {
+      final DocumentStepDone? done = await step.run(context, row);
+      if (done == null || !mounted) return;
+      setState(() => _loading = true);
+      showStepDone(context, done);
       await _load();
     } on ApiException catch (exception) {
       if (!mounted) return;
@@ -207,6 +265,9 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
       if (mounted) setState(() => _loading = false);
     }
   }
+
+  Future<void> _act(SalesReturn row, String action) =>
+      _runStep(_step(action), row);
 
   /// Say what the action did, not that it succeeded.
   ///
@@ -224,14 +285,7 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
         _ => '${row.returnNumber} updated.',
       };
 
-  Future<void> _cancel(SalesReturn row) async {
-    final String? reason = await showDialog<String>(
-      context: context,
-      builder: (_) => _CancelReasonDialog(returnNumber: row.returnNumber),
-    );
-    if (reason == null) return;
-    await _act(row, 'cancel', reason: reason);
-  }
+  Future<void> _cancel(SalesReturn row) => _runStep(_step('cancel'), row);
 
   /// The minute a return was made, or nothing when the server said nothing.
   /// The customer as the list shows them: name, then code.
@@ -413,10 +467,10 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
 
   Widget _grid(BuildContext context) {
     final SalesReturn? selected = _selected;
-    VoidCallback? step(bool allowed, String action) =>
-        selected != null && allowed
-            ? () => unawaited(_act(selected, action))
-            : null;
+    ToolbarCommand command(String id) => _step(id).command(
+          selected,
+          (step, row) => unawaited(_runStep(step, row)),
+        );
     return LoadingOverlay(
       loading: _loading,
       child: ManagementWorkspaceLayout(
@@ -475,38 +529,10 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
                   ? null
                   : () => unawaited(_printCreditNote(selected)),
             ),
-            ToolbarCommand(
-              id: 'approve',
-              label: 'Approve',
-              icon: Icons.check_circle_outline,
-              onPressed:
-                  step(selected?.isDraft == true && _canApprove, 'approve'),
-            ),
-            ToolbarCommand(
-              id: 'complete',
-              label: 'Complete',
-              icon: Icons.done_all,
-              onPressed:
-                  step(selected?.isApproved == true && _canApprove, 'complete'),
-            ),
-            ToolbarCommand(
-              id: 'close',
-              label: 'Close',
-              icon: Icons.lock_outline,
-              onPressed:
-                  step(selected?.isCompleted == true && _canApprove, 'close'),
-            ),
-            ToolbarCommand(
-              id: 'cancel',
-              label: 'Cancel',
-              icon: Icons.cancel_outlined,
-              onPressed: selected != null &&
-                      !selected.isCancelled &&
-                      !selected.isClosed &&
-                      _canCancel
-                  ? () => unawaited(_cancel(selected))
-                  : null,
-            ),
+            command('approve'),
+            command('complete'),
+            command('close'),
+            command('cancel'),
           ],
         ),
         selectionBar: true,
@@ -662,7 +688,7 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
   /// steps stay on the bar above the grid, so this only reads.
   Future<void> _openReturn(SalesReturn row) async {
     setState(() => _selected = row);
-    await showDialog<void>(
+    final Object? outcome = await showDialog<Object>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Row(children: [
@@ -683,6 +709,8 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
           ),
         ),
         actions: [
+          // The return's next steps (D-BUY-22), from the bar's definitions.
+          DocumentStepStrip<SalesReturn>(record: row, steps: _steps),
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Close'),
@@ -690,6 +718,9 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
         ],
       ),
     );
+    if (outcome is! DocumentStepDone || !mounted) return;
+    showStepDone(context, outcome);
+    await _load();
   }
 
   Widget _list() => ListView.separated(

@@ -113,6 +113,8 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
       );
     }
     final String number = stringValue(_preview?.invoice['invoice_number']);
+    // Save & approve (D-BUY-22), beside the save.
+    final DocumentStep<Json>? approve = stepAfterSave(widget.steps);
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): () {
@@ -152,6 +154,18 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                         _saving ? null : () => Navigator.of(context).pop(false),
                     child: const Text('Cancel'),
                   ),
+                  // A saved draft's Cancel and Close (D-BUY-22); Approve is
+                  // the save button beside it, so the edits go with it.
+                  DocumentStepStrip<Json>(
+                    record: _existing,
+                    steps: [
+                      for (final DocumentStep<Json> step in widget.steps)
+                        if (step != approve) step,
+                    ],
+                    enabled: !_saving,
+                    onRefused: (message) =>
+                        _setState(() => _error = message),
+                  ),
                   // A draft prints marked "not a tax invoice" until it is
                   // approved; the list prints the final copy.
                   if (!_direct)
@@ -167,10 +181,15 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                         _saving ? null : () => unawaited(_saveApprovePrint()),
                     child: const Text('Save & print (F9)'),
                   ),
-                  FilledButton(
-                    key: const ValueKey('sales-invoice-save'),
-                    onPressed: _saving ? null : () => unawaited(_save()),
-                    child: Text(_editing ? 'Save invoice' : 'Save draft'),
+                  ...saveButtons(
+                    saveKey: const ValueKey('sales-invoice-save'),
+                    saveLabel: _editing ? 'Save invoice' : 'Save draft',
+                    onSave: _saving ? null : () => unawaited(_save()),
+                    stepKey: const ValueKey('sales-invoice-save-approve'),
+                    stepLabel: approve?.afterSave,
+                    onStep: _saving || approve == null
+                        ? null
+                        : () => unawaited(_saveAndStep(approve)),
                   ),
                 ],
               ),

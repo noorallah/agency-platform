@@ -25,13 +25,17 @@ extension _Phase2DeliveryNoteEditor on _DeliveryNoteEditorDialogState {
   Widget _phase2Page(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
+    // Save & approve (D-BUY-22), and once this window has saved the note,
+    // that note's own steps instead of a second save.
+    final DocumentStep<Json>? approve = stepAfterSave(widget.steps);
+    final Json? saved = _saved;
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () {
-          if (!_saving) Navigator.pop(context);
+          if (!_saving) Navigator.pop(context, saved);
         },
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): () {
-          if (!_saving) unawaited(_save());
+          if (!_saving && saved == null) unawaited(_save());
         },
       },
       child: Focus(
@@ -50,14 +54,29 @@ extension _Phase2DeliveryNoteEditor on _DeliveryNoteEditorDialogState {
                 hint: 'Enter next field  ·  Ctrl+S save',
                 actions: [
                   TextButton(
-                    onPressed: _saving ? null : () => Navigator.pop(context),
-                    child: const Text('Cancel'),
+                    onPressed:
+                        _saving ? null : () => Navigator.pop(context, saved),
+                    child: Text(saved == null ? 'Cancel' : 'Close'),
                   ),
-                  FilledButton(
-                    key: const ValueKey('delivery-note-save'),
-                    onPressed: _saving ? null : () => unawaited(_save()),
-                    child: const Text('Save delivery note'),
-                  ),
+                  if (saved != null)
+                    DocumentStepStrip<Json>(
+                      record: saved,
+                      steps: widget.steps,
+                      enabled: !_saving,
+                      onRefused: (message) =>
+                          _setState(() => _error = message),
+                    )
+                  else
+                    ...saveButtons(
+                      saveKey: const ValueKey('delivery-note-save'),
+                      saveLabel: 'Save delivery note',
+                      onSave: _saving ? null : () => unawaited(_save()),
+                      stepKey: const ValueKey('delivery-note-save-approve'),
+                      stepLabel: approve?.afterSave,
+                      onStep: _saving || approve == null
+                          ? null
+                          : () => unawaited(_saveAndStep(approve)),
+                    ),
                 ],
               ),
               if (_error != null)

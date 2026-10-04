@@ -15,13 +15,13 @@ import '../../models/document_framework.dart';
 import '../../models/goods_receipt.dart';
 import '../../models/product.dart';
 import '../../phase2/indian_format.dart';
-import '../document_framework/document_framework_widgets.dart';
-import '../document_framework/document_status_gate.dart';
+import '../document_framework/document_steps.dart';
 import '../document_framework/document_view_dialog.dart';
 import '../workspace/bulk_action.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
 import 'purchase_return_editor_dialog.dart';
+import 'purchase_return_steps.dart';
 
 class PurchaseReturnManagementPage extends StatefulWidget {
   const PurchaseReturnManagementPage({
@@ -147,15 +147,24 @@ class _PurchaseReturnManagementPageState
 
   /// Open the editor and reload if it saved a return.
   Future<void> _createReturn() async {
-    final Json? saved = await showDocument<Json>(
+    final Object? outcome = await showDocument<Object>(
       context,
       title: 'New purchase return',
       builder: (_) => PurchaseReturnEditorDialog(
         api: widget.api,
         receipts: _returnableReceipts,
         products: _products,
+        steps: [
+          for (final DocumentStep<DocumentRef> step
+              in purchaseReturnSteps(widget.api, widget.permissions))
+            step.on<Json>(
+              (json) => DocumentRef.fromJson(json, numberKey: 'return_number'),
+            ),
+        ],
       ),
     );
+    if (await _afterWindow(outcome)) return;
+    final Json? saved = outcome is Json ? outcome : null;
     if (saved == null || !mounted) return;
     await _load();
     if (!mounted) return;
@@ -181,23 +190,38 @@ class _PurchaseReturnManagementPageState
   /// offered buttons the server would refuse.
   bool _mayApprove() => widget.permissions.hasPermission('PURCHASE_APPROVE');
 
-  bool _mayRun(DocumentToolbarAction action) => switch (action) {
-        DocumentToolbarAction.approve ||
-        DocumentToolbarAction.close ||
-        DocumentToolbarAction.archive ||
-        DocumentToolbarAction.requestApproval =>
-          _mayApprove(),
-        DocumentToolbarAction.cancel ||
-        DocumentToolbarAction.reject =>
-          widget.permissions.hasPermission('PURCHASE_CANCEL'),
-        DocumentToolbarAction.newDocument =>
-          widget.permissions.hasPermission('PURCHASE_CREATE'),
-        DocumentToolbarAction.save =>
-          widget.permissions.hasPermission('PURCHASE_UPDATE'),
-        DocumentToolbarAction.exportDocument =>
-          widget.permissions.hasPermission('PURCHASE_EXPORT'),
-        _ => true,
-      };
+  /// The return's next steps -- Approve, Complete, Cancel, Close -- as its
+  /// own windows offer them too (D-BUY-22): one definition, so the toolbar
+  /// and the window cannot disagree about one return.
+  late final List<DocumentStep<_PurchaseReturnRecord>> _steps = [
+    for (final DocumentStep<DocumentRef> step
+        in purchaseReturnSteps(widget.api, widget.permissions))
+      step.on<_PurchaseReturnRecord>(
+        (row) => DocumentRef(
+          id: row.id,
+          number: row.returnNumber,
+          status: row.status,
+        ),
+      ),
+  ];
+
+  DocumentStep<_PurchaseReturnRecord> _step(String id) =>
+      _steps.firstWhere((step) => step.id == id);
+
+  /// Take a step against the selected return from the toolbar and reload.
+  void _runStep(
+    DocumentStep<_PurchaseReturnRecord> step,
+    _PurchaseReturnRecord row,
+  ) =>
+      unawaited(runStepFromList(context, step, row, reload: _load));
+
+  /// What a return's window closed with: a step it took, or anything else.
+  Future<bool> _afterWindow(Object? outcome) async {
+    if (outcome is! DocumentStepDone || !mounted) return false;
+    await _load();
+    if (mounted) showStepDone(context, outcome);
+    return true;
+  }
 
   Future<void> _load({int? requestedPage}) async {
     // Read before any await: whether to pick the first row (phase 1 only).
@@ -498,34 +522,9 @@ class _PurchaseReturnManagementPageState
             ? _bulkCommands()
             : Phase2Scope.of(context)
             ? [
-                _command(
-                  'Approve',
-                  Icons.thumb_up_outlined,
-                  DocumentToolbarAction.approve,
-                  DocumentLifecycleAction.approve,
-                  '/approve',
-                ),
-                _command(
-                  'Complete',
-                  Icons.check_circle_outline,
-                  DocumentToolbarAction.approve,
-                  DocumentLifecycleAction.complete,
-                  '/complete',
-                ),
-                _command(
-                  'Cancel',
-                  Icons.cancel_outlined,
-                  DocumentToolbarAction.cancel,
-                  DocumentLifecycleAction.cancel,
-                  '/cancel',
-                ),
-                _command(
-                  'Close',
-                  Icons.lock_outline,
-                  DocumentToolbarAction.close,
-                  DocumentLifecycleAction.close,
-                  '/close',
-                ),
+                for (final DocumentStep<_PurchaseReturnRecord> step
+                    in _steps)
+                  step.command(_selected, _runStep),
                 // Not a lifecycle step: say what the return comes back as,
                 // any time before it is cancelled.
                 ToolbarCommand(
@@ -534,7 +533,8 @@ class _PurchaseReturnManagementPageState
                   icon: Icons.swap_horiz,
                   onPressed: _selected == null ||
                           _selected!.status.toUpperCase() == 'CANCELLED' ||
-                          !_mayRun(DocumentToolbarAction.save)
+                          !widget.permissions
+                              .hasPermission('PURCHASE_UPDATE')
                       ? null
                       : () => unawaited(_changeOutcome(_selected!)),
                 ),
@@ -560,34 +560,10 @@ class _PurchaseReturnManagementPageState
                 ),
               ]
             : [
-                _actionButton(
-                  'Approve',
-                  Icons.thumb_up_outlined,
-                  DocumentToolbarAction.approve,
-                  DocumentLifecycleAction.approve,
-                  '/approve',
-                ),
-                _actionButton(
-                  'Complete',
-                  Icons.check_circle_outline,
-                  DocumentToolbarAction.approve,
-                  DocumentLifecycleAction.complete,
-                  '/complete',
-                ),
-                _actionButton(
-                  'Cancel',
-                  Icons.cancel_outlined,
-                  DocumentToolbarAction.cancel,
-                  DocumentLifecycleAction.cancel,
-                  '/cancel',
-                ),
-                _actionButton(
-                  'Close',
-                  Icons.lock_outline,
-                  DocumentToolbarAction.close,
-                  DocumentLifecycleAction.close,
-                  '/close',
-                ),
+                _actionButton(_step('approve')),
+                _actionButton(_step('complete')),
+                _actionButton(_step('cancel')),
+                _actionButton(_step('close')),
               ],
       );
 
@@ -597,45 +573,16 @@ class _PurchaseReturnManagementPageState
   /// Permission alone used to decide this, so Approve was live on an
   /// already-approved document and Close on a closed one. Pressing either
   /// produced a refusal the screen could have predicted.
-  Widget _actionButton(
-    String label,
-    IconData icon,
-    DocumentToolbarAction action,
-    DocumentLifecycleAction lifecycle,
-    String suffix,
-  ) =>
+  Widget _actionButton(DocumentStep<_PurchaseReturnRecord> step) =>
       Padding(
         padding: const EdgeInsets.only(left: 8),
         child: OutlinedButton.icon(
-          onPressed: _selected == null ||
-                  !_mayRun(action) ||
-                  !DocumentStatusGate.purchaseReturn
-                      .allows(lifecycle, _selected?.status)
-              ? null
-              : () => unawaited(_act(suffix)),
-          icon: Icon(icon, size: 18),
-          label: Text(label),
+          onPressed: step.enabledFor(_selected)
+              ? () => _runStep(step, _selected!)
+              : null,
+          icon: Icon(step.icon, size: 18),
+          label: Text(step.label),
         ),
-      );
-
-  /// The same step as a phase 2 command, enabled as its button is.
-  ToolbarCommand _command(
-    String label,
-    IconData icon,
-    DocumentToolbarAction action,
-    DocumentLifecycleAction lifecycle,
-    String suffix,
-  ) =>
-      ToolbarCommand(
-        id: label.toLowerCase(),
-        label: label,
-        icon: icon,
-        onPressed: _selected == null ||
-                !_mayRun(action) ||
-                !DocumentStatusGate.purchaseReturn
-                    .allows(lifecycle, _selected?.status)
-            ? null
-            : () => unawaited(_act(suffix)),
       );
 
   /// Every column the grid can show; Columns picks among them, remembered
@@ -724,9 +671,13 @@ class _PurchaseReturnManagementPageState
   Future<void> _openReturn(_PurchaseReturnRecord record) async {
     await _selectReturn(record);
     if (!mounted) return;
-    await showDialog<void>(
+    final Object? outcome = await showDialog<Object>(
       context: context,
       builder: (_) => DocumentViewDialog(
+        steps: DocumentStepStrip<_PurchaseReturnRecord>(
+          record: record,
+          steps: _steps,
+        ),
         title: record.returnNumber,
         subtitle: 'Supplier return ${record.supplierReturnNumber}  ·  '
             'Outcome: ${purchaseReturnOutcomes[record.outcome] ?? record.outcome}',
@@ -753,6 +704,7 @@ class _PurchaseReturnManagementPageState
         history: _history,
       ),
     );
+    await _afterWindow(outcome);
   }
 
   /// Choose Credit, Replacement or Refund for the return. The server decides
@@ -794,26 +746,6 @@ class _PurchaseReturnManagementPageState
       if (!mounted) return;
       NotificationService.show(context, error.message,
           kind: AppNotificationKind.error);
-    }
-  }
-
-  Future<void> _act(String suffix) async {
-    final _PurchaseReturnRecord? selected = _selected;
-    if (selected == null) {
-      return;
-    }
-    try {
-      await widget.api.documentAction('purchase-returns', selected.id, suffix);
-      await _load();
-    } on ApiException catch (error) {
-      if (!mounted) {
-        return;
-      }
-      NotificationService.show(
-        context,
-        error.message,
-        kind: AppNotificationKind.error,
-      );
     }
   }
 

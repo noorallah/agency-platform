@@ -91,6 +91,10 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
       );
     }
     final String number = stringValue(_preview?.order['order_number']);
+    // Save & approve (D-BUY-22) on a draft, beside the save; a saved order's
+    // other steps -- hold, cancel, close -- through the shared strip.
+    final DocumentStep<Json>? approve =
+        _locked ? null : stepAfterSave(widget.steps);
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): () {
@@ -122,14 +126,29 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
                         'Ctrl+S save',
                 actions: [
                   TextButton(
-                    onPressed: () => Navigator.of(context).pop(false),
-                    child: Text(_locked ? 'Close' : 'Cancel'),
+                    onPressed: () => Navigator.of(context).pop(_wrote),
+                    child: Text(_locked || _wrote ? 'Close' : 'Cancel'),
+                  ),
+                  DocumentStepStrip<Json>(
+                    record: _record,
+                    steps: [
+                      for (final DocumentStep<Json> step in widget.steps)
+                        if (step != approve) step,
+                    ],
+                    enabled: !_saving,
+                    onRefused: (message) =>
+                        _setState(() => _error = message),
                   ),
                   if (!_locked)
-                    FilledButton(
-                      key: const ValueKey('sales-order-save'),
-                      onPressed: _saving ? null : () => unawaited(_save()),
-                      child: Text(_editing ? 'Save order' : 'Save draft'),
+                    ...saveButtons(
+                      saveKey: const ValueKey('sales-order-save'),
+                      saveLabel: _editing ? 'Save order' : 'Save draft',
+                      onSave: _saving ? null : () => unawaited(_save()),
+                      stepKey: const ValueKey('sales-order-save-approve'),
+                      stepLabel: approve?.afterSave,
+                      onStep: _saving || approve == null
+                          ? null
+                          : () => unawaited(_saveAndStep(approve)),
                     ),
                 ],
               ),

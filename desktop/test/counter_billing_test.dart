@@ -2,8 +2,13 @@
 // tender split under "Received now", and F9 to save, approve, print and open
 // the next bill.
 
+import 'dart:convert';
+
 import 'package:agency_desktop/core/api/api_client.dart';
+import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/ui/document_framework/document_steps.dart';
+import 'package:agency_desktop/ui/sales/sales_document_steps.dart';
 import 'package:agency_desktop/ui/sales/sales_invoice_editor_dialog.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
     show Phase2Scope;
@@ -165,6 +170,7 @@ Future<List<String>> _pump(
   _CounterApi api, {
   bool mayApprove = true,
   Size size = const Size(1600, 900),
+  List<DocumentStep<Json>> steps = const [],
 }) async {
   final List<String> printed = <String>[];
   tester.view.physicalSize = size;
@@ -177,6 +183,7 @@ Future<List<String>> _pump(
           api: api,
           today: DateTime(2026, 8, 14),
           mayApprove: mayApprove,
+          steps: steps,
           printer: (context, bytes, name) async {
             api.calls.add('print:$name');
             printed.add(name);
@@ -439,7 +446,25 @@ void main() {
       (tester) async {
     for (final Size size in const <Size>[Size(1366, 768), Size(800, 600)]) {
       final _CounterApi api = _CounterApi();
-      await _pump(tester, api, size: size);
+      // With the bill's own steps (D-BUY-22): Save & approve beside the
+      // save buttons must still fit the narrowest window.
+      final PermissionService approver = PermissionService()
+        ..applyAccessToken(
+          'header.${base64Url.encode(utf8.encode(jsonEncode({
+                'roles': <String>['user'],
+                'permissions': <String>['SALES_APPROVE', 'SALES_CANCEL'],
+              }))).replaceAll('=', '')}.sig',
+        );
+      await _pump(
+        tester,
+        api,
+        size: size,
+        steps: salesInvoiceSteps(api, approver),
+      );
+      expect(
+        find.byKey(const ValueKey('sales-invoice-save-approve')),
+        findsOneWidget,
+      );
       await _chooseCustomer(tester);
       await _scan(tester, '8901234567890');
       await _split(tester);

@@ -13,6 +13,7 @@ import '../../models/product.dart';
 import '../../models/purchase.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
+import '../document_framework/document_steps.dart';
 import '../workspace/desktop_framework.dart';
 import 'goods_receipt_eway_dialog.dart';
 
@@ -140,6 +141,7 @@ class GoodsReceiptEditorDialog extends StatefulWidget {
     required this.products,
     this.existing,
     this.features = const BusinessFeatures.unknown(),
+    this.steps = const [],
   });
 
   final ApiClient api;
@@ -160,6 +162,11 @@ class GoodsReceiptEditorDialog extends StatefulWidget {
   /// Which optional fields this firm's profile turns on. Unknown means shown:
   /// a configuration gap is not a decision.
   final BusinessFeatures features;
+
+  /// The receipt's next steps, as the list toolbar offers them (D-BUY-22):
+  /// *Save & complete* where the user may complete, and Cancel or Close on a
+  /// draft already saved. Empty offers none.
+  final List<DocumentStep<GoodsReceiptRecord>> steps;
 
   @override
   State<GoodsReceiptEditorDialog> createState() =>
@@ -185,7 +192,15 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
 
   void _setState(VoidCallback change) => setState(change);
 
-  bool get _isEditing => widget.existing != null;
+  /// The draft this window has saved itself, where *Save & complete* saved
+  /// it and the completing did not happen -- refused, or backed out of. The
+  /// next save corrects it rather than raising a second receipt.
+  GoodsReceiptRecord? _saved;
+
+  /// The receipt as it stands on the server, where it is saved at all.
+  GoodsReceiptRecord? get _record => _saved ?? widget.existing;
+
+  bool get _isEditing => _record != null;
 
   @override
   void initState() {
@@ -387,11 +402,37 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
             line,
       ];
 
+  /// Save and close with the saved receipt.
   Future<void> _save() async {
+    final GoodsReceiptRecord? saved = await _persist();
+    if (saved == null || !mounted) return;
+    Navigator.pop(context, saved);
+  }
+
+  /// Save, then complete what was saved (D-BUY-22). A refused completion
+  /// leaves the window open on the saved draft with the server's sentence.
+  Future<void> _saveAndStep(DocumentStep<GoodsReceiptRecord> step) =>
+      saveThenStep<GoodsReceiptRecord>(
+        context,
+        save: _persist,
+        step: step,
+        onStopped: (saved, refusal) => setState(() {
+          _saved = saved;
+          _saving = false;
+          _error = refusal == null
+              ? null
+              : 'Saved as draft ${saved.grnNumber}, but not completed: '
+                  '$refusal';
+        }),
+      );
+
+  /// Write the receipt, returning it as saved; null when the save was
+  /// refused, which [_error] then says.
+  Future<GoodsReceiptRecord?> _persist() async {
     final String? problem = _validation();
     if (problem != null) {
       setState(() => _error = problem);
-      return;
+      return null;
     }
     setState(() {
       _saving = true;
@@ -425,22 +466,23 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
             {...sending[index].toJson(), 'line_number': index + 1},
         ],
       };
+      final GoodsReceiptRecord? current = _record;
       final GoodsReceiptRecord saved =
-          _isEditing
+          current != null
               ? await widget.api.updateGoodsReceipt(
-                  widget.existing!.id,
+                  current.id,
                   payload,
-                  expectedVersion: widget.existing!.version,
+                  expectedVersion: current.version,
                 )
               : await widget.api.createGoodsReceipt(payload);
-      if (!mounted) return;
-      Navigator.pop(context, saved);
+      return saved;
     } on ApiException catch (exception) {
-      if (!mounted) return;
+      if (!mounted) return null;
       setState(() {
         _error = refusalMessage(exception);
         _saving = false;
       });
+      return null;
     }
   }
 

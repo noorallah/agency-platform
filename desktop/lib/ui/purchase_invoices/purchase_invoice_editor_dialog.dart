@@ -15,6 +15,7 @@ import '../../models/line_tax_rule.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../../phase2/source_tick_dialog.dart';
+import '../document_framework/document_steps.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import 'supplier_irn_dialog.dart';
@@ -194,9 +195,14 @@ class PurchaseInvoiceEditorDialog extends StatefulWidget {
     this.stages = PurchaseWorkflowSettings.wholeChain,
     this.orders = const [],
     this.vendors = const [],
+    this.steps = const [],
   });
 
   final ApiClient api;
+
+  /// The bill's next steps, as the list toolbar offers them (D-BUY-22):
+  /// *Save & approve* where the user may approve. Empty offers none.
+  final List<DocumentStep<Json>> steps;
 
   /// Completed goods receipts, which are what can be billed.
   final List<GoodsReceiptRecord> receipts;
@@ -242,6 +248,11 @@ class _PurchaseInvoiceEditorDialogState
   bool _saving = false;
   bool _loadingLines = false;
   String? _error;
+
+  /// The bill this window saved itself, where *Save & approve* saved it and
+  /// the approval did not happen. The window then holds that draft: it
+  /// cannot raise a second bill, and its steps act on the one saved.
+  Json? _saved;
 
   /// Phase 2: the bill as the server priced it last, and the line the side
   /// panel follows.
@@ -728,11 +739,36 @@ class _PurchaseInvoiceEditorDialogState
     };
   }
 
+  /// Save and close with the saved bill.
   Future<void> _save() async {
+    final Json? saved = await _persist();
+    if (saved == null || !mounted) return;
+    Navigator.pop(context, saved);
+  }
+
+  /// Save, then approve what was saved (D-BUY-22). A refused approval leaves
+  /// the window open on the saved draft with the server's sentence.
+  Future<void> _saveAndStep(DocumentStep<Json> step) => saveThenStep<Json>(
+        context,
+        save: _persist,
+        step: step,
+        onStopped: (saved, refusal) => setState(() {
+          _saved = saved;
+          _saving = false;
+          _error = refusal == null
+              ? null
+              : 'Saved as draft ${stringValue(saved['invoice_number'])}, but '
+                  'not approved: $refusal';
+        }),
+      );
+
+  /// Write the bill, returning it as saved; null when the save was refused,
+  /// which [_error] then says.
+  Future<Json?> _persist() async {
     final String? problem = _validation() ?? _customFields.validate();
     if (problem != null) {
       setState(() => _error = problem);
-      return;
+      return null;
     }
     setState(() {
       _saving = true;
@@ -740,15 +776,15 @@ class _PurchaseInvoiceEditorDialogState
     });
     try {
       final Json response = await widget.api.createPurchaseInvoice(_payload());
-      if (!mounted) return;
       final dynamic data = response['data'];
-      Navigator.pop(context, data is Json ? data : response);
+      return data is Json ? data : response;
     } on ApiException catch (exception) {
-      if (!mounted) return;
+      if (!mounted) return null;
       setState(() {
         _error = refusalMessage(exception);
         _saving = false;
       });
+      return null;
     }
   }
 
