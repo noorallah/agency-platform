@@ -13,6 +13,7 @@ import '../../models/document_preview.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../document_framework/document_steps.dart';
+import '../goods_receipts/serial_entry_dialog.dart';
 import '../workspace/desktop_framework.dart';
 
 part 'purchase_return_editor_phase2.dart';
@@ -54,7 +55,17 @@ class PurchaseReturnDraftLine {
     this.isScrap = false,
     this.reasonCode = '',
     this.remarks = '',
+    this.serialTracked = false,
   });
+
+  /// Whether the product carries a serial per unit, read from the receipt
+  /// line (PG-10).
+  final bool serialTracked;
+
+  /// The units going back; sent only once the user has typed them, because
+  /// absent leaves what the server holds.
+  List<String> serials = [];
+  bool serialsTouched = false;
 
   final String sourceDocumentId;
   final String sourceDocumentLineId;
@@ -111,6 +122,7 @@ class PurchaseReturnDraftLine {
         if (warehouseId.isNotEmpty) 'warehouse_id': warehouseId,
         if (batchNumber.trim().isNotEmpty) 'batch_number': batchNumber.trim(),
         if (remarks.trim().isNotEmpty) 'remarks': remarks.trim(),
+        if (serialTracked && serialsTouched) 'serial_numbers': serials,
       };
 }
 
@@ -341,6 +353,7 @@ class _PurchaseReturnEditorDialogState
       warehouseId: line.warehouseId,
       receiptBatchNumber: line.batchNumber,
       returnQuantity: '0',
+      serialTracked: line.serialTracked,
     );
     draft.returnQuantity = _trim(draft.outstanding);
     // The batch these goods arrived in is the one going back, so it is the

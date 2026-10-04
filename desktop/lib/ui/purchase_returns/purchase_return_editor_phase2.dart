@@ -17,6 +17,7 @@ extension _Phase2PurchaseReturnEditor on _PurchaseReturnEditorDialogState {
     DocumentColumn('Returning', 80, numeric: true),
     DocumentColumn('Rejected', 72, numeric: true),
     DocumentColumn('Batch', 120),
+    DocumentColumn('Serials', 88),
     DocumentColumn('Taxable', 96, numeric: true),
     DocumentColumn('GST', 48, numeric: true),
     DocumentColumn('Amount', 104, numeric: true),
@@ -407,6 +408,46 @@ extension _Phase2PurchaseReturnEditor on _PurchaseReturnEditorDialogState {
     );
   }
 
+  /// The serials button of a serial-tracked line: which units go back.
+  Widget _serialsCell(
+    BuildContext context,
+    int index,
+    PurchaseReturnDraftLine line,
+    Product? product,
+  ) {
+    if (!line.serialTracked) return const SizedBox.shrink();
+    final int needed = _number(line.returnQuantity).round();
+    return TextButton(
+      key: ValueKey<String>('purchase-return-serials-$index'),
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        minimumSize: const Size(0, 28),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        alignment: Alignment.centerLeft,
+      ),
+      onPressed: () async {
+        _setState(() => _current = index);
+        final List<String>? picked = await showSerialEntryDialog(
+          context,
+          api: widget.api,
+          title: 'Serials going back · ${product?.name ?? line.description}',
+          needed: needed,
+          initial: line.serials,
+          productId: line.productId,
+        );
+        if (picked == null) return;
+        _setState(() {
+          line.serials = picked;
+          line.serialsTouched = true;
+        });
+      },
+      child: Text(
+        '${line.serials.length} of $needed',
+        overflow: TextOverflow.ellipsis,
+      ),
+    );
+  }
+
   Widget _returnRow(BuildContext context, int index) {
     final ThemeData theme = Theme.of(context);
     final PurchaseReturnDraftLine line = _lines[index];
@@ -465,6 +506,7 @@ extension _Phase2PurchaseReturnEditor on _PurchaseReturnEditorDialogState {
           onChanged: (value) => line.rejectedQuantity = value,
         ),
         _batchCell(context, index, line, text),
+        _serialsCell(context, index, line, product),
         Text(indianAmount(taxable, full: true), style: text),
         Text(
           priced == null || returning <= 0

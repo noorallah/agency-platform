@@ -18,6 +18,7 @@ import '../workspace/desktop_framework.dart';
 import '../../models/document_file.dart';
 import '../purchases/document_attachments_dialog.dart';
 import 'goods_receipt_eway_dialog.dart';
+import 'serial_entry_dialog.dart';
 
 part 'goods_receipt_editor_phase2.dart';
 
@@ -55,7 +56,16 @@ class GoodsReceiptDraftLine {
     this.sellingPrice = '',
     this.remarks = '',
     this.schemeName = '',
+    this.serialTracked = false,
   });
+
+  /// Whether the product carries a serial per unit (PG-10).
+  bool serialTracked;
+
+  /// The serials typed for the line; sent only once the user has touched
+  /// them, because absent leaves what the server holds.
+  List<String> serials = [];
+  bool serialsTouched = false;
 
   final String purchaseOrderLineId;
   final int lineNumber;
@@ -135,6 +145,7 @@ class GoodsReceiptDraftLine {
           'selling_price': sellingPrice.trim(),
         if (remarks.trim().isNotEmpty) 'remarks': remarks.trim(),
         if (schemeName.trim().isNotEmpty) 'scheme_name': schemeName.trim(),
+        if (serialTracked && serialsTouched) 'serial_numbers': serials,
       };
 }
 
@@ -400,6 +411,8 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
       draft.sellingPrice = line.sellingPrice;
       draft.remarks = line.remarks;
       draft.schemeName = line.schemeName;
+      draft.serialTracked = draft.serialTracked || line.serialTracked;
+      draft.serials = List<String>.of(line.serialNumbers);
     }
     return drafts;
   }
@@ -428,6 +441,8 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
       expiryRequired: line.expiryRequired,
       receiptQuantity: '0',
       warehouseId: defaultWarehouse,
+      serialTracked: widget.products
+          .any((item) => item.id == line.productId && item.trackSerial),
     );
     draft
       ..heldByOtherDrafts = heldByOtherDrafts

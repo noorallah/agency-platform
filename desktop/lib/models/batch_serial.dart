@@ -599,3 +599,31 @@ class ReturnableSerials {
         serials: PickedSerial.listFrom(json['serials']),
       );
 }
+
+/// One document a serialised unit passed through (`/serials/{id}/trail`).
+class SerialTrailEvent {
+  const SerialTrailEvent({
+    required this.documentType,
+    required this.documentNumber,
+    required this.documentDate,
+    required this.partyName,
+    required this.lineNumber,
+    required this.movedAt,
+  });
+
+  final String documentType;
+  final String documentNumber;
+  final String documentDate;
+  final String partyName;
+  final int lineNumber;
+  final String movedAt;
+
+  factory SerialTrailEvent.fromJson(Json json) => SerialTrailEvent(
+        documentType: stringValue(json['document_type']),
+        documentNumber: stringValue(json['document_number']),
+        documentDate: stringValue(json['document_date']),
+        partyName: stringValue(json['party_name']),
+        lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
+        movedAt: stringValue(json['moved_at']),
+      );
+}
