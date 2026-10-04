@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 /// One document a bill could be raised from, as the tick list shows it.
@@ -92,8 +94,13 @@ class _SourceTickDialogState extends State<_SourceTickDialog> {
     final int count = _ticked.length;
     return AlertDialog(
       title: Text(widget.title),
+      // Wide enough that a document number with its firm and branch codes
+      // (`GRN-QA01-HO-2026-2027-000003`, and longer seeded ones) prints
+      // whole: at 620 the number and order columns cut them to "GRN-QA01-H…"
+      // and the receipts could only be told apart by their amounts
+      // (D-UI-7). Narrower screens still get the whole dialog.
       content: SizedBox(
-        width: 620,
+        width: math.min(900, MediaQuery.sizeOf(context).width - 120),
         height: 380,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -102,9 +109,9 @@ class _SourceTickDialogState extends State<_SourceTickDialog> {
               padding: const EdgeInsets.only(left: 48, bottom: 4),
               child: Row(
                 children: [
-                  Expanded(flex: 3, child: Text(widget.numberLabel, style: head)),
+                  Expanded(flex: 5, child: Text(widget.numberLabel, style: head)),
                   Expanded(flex: 2, child: Text('Date', style: head)),
-                  Expanded(flex: 3, child: Text('Order', style: head)),
+                  Expanded(flex: 5, child: Text('Order', style: head)),
                   Expanded(
                     flex: 2,
                     child: Text(widget.amountLabel,
@@ -174,12 +181,12 @@ class _SourceTickDialogState extends State<_SourceTickDialog> {
               ),
               const SizedBox(width: 8),
               Expanded(
-                flex: 3,
+                flex: 5,
                 child: Text(row.number, overflow: TextOverflow.ellipsis),
               ),
               Expanded(flex: 2, child: Text(row.date)),
               Expanded(
-                flex: 3,
+                flex: 5,
                 child: Text(row.order.isEmpty ? '—' : row.order,
                     overflow: TextOverflow.ellipsis),
               ),
