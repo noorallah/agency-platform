@@ -5974,7 +5974,7 @@ receipt per branch switches it in Settings > Firm > Numbering Series.
 
 ## 85. Payables by supplier and month, with totals and a chart -- medium priority
 
-**Status, 2026-10-04: designed with the owner, not built.** Asked for in
+**Status, 2026-10-05: built (PG-2: server #1117, desktop in the next PR) -- Buy > Money > Payables by Month.** Asked for in
 purchasing round 2 on QA01: "the screen today outstanding, vendor wise, month
 wise, filters, total". Today *Reports > Financial > Vendor outstanding* lists
 one row per supplier with no total, no month split, no as-of date, and leaves
@@ -6056,7 +6056,7 @@ section stays the place it is built from and this row points to it.
 | 17 | **GST purchase register and HSN summary of purchases** | **Built 2026-10-05 (PG-1, #1116).** Reports > Financial > *GST purchase register* and *HSN summary of purchases*, approved and closed bills by head. Not yet: supplier debit notes, which keep one tax amount per line rather than components by head | A GST purchase register (GSTIN, invoice, taxable, CGST/SGST/IGST/cess, ITC eligible or blocked) and an HSN-wise summary of inward supplies | **High** (every GST filer, every CA) | none |
 | 18 | **Goods in transit** | Partial: bill-first creates the receipt at approval | A bill approved before the goods arrive keeps them "in transit" (an account and a stock state) until received | Low | none |
 | 19 | **Cash purchase in one step** | Partial: stage switches let the bill raise order and receipt; payment is separate | "Paid now" on the bill: cash or bank, posting the payment with it | Medium (small traders) | §38 |
-| 20 | **Payables by supplier and month** | Missing | As designed | **High** | §85 |
+| 20 | **Payables by supplier and month** | **Built 2026-10-05 (PG-2).** Buy > Money > *Payables by Month* | Grid, total row, books check, chart | **High** | §85 |
 | 21 | **Supplier scheme covers customer free goods** | Missing | Link a supplier's free-goods scheme to the customer promotion it funds; report free goods given out against free goods received, and the shortfall to claim | Low | §61, §42.7 |
 | 22 | **Batch-wise PTR / PTS** | Partial: MRP and selling price per batch | Rates to retailer and stockist per batch (pharma, FMCG) | High for pharma | §55 G5 |
 | 23 | **Supplier portal** | Missing | Suppliers see their orders, confirm dates, upload invoices, see payments | Low | §42.14 |

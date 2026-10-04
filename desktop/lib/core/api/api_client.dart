@@ -7213,6 +7213,29 @@ class ApiClient {
         RateTrendPoint.fromJson,
       );
 
+  /// What each supplier is owed (or was paid) by month, with the total row
+  /// and the check against control account 2100 (PG-2, backlog 85).
+  Future<Json> purchasePayables({
+    String? asOf,
+    String basis = 'invoice',
+    int months = 6,
+    String? vendorId,
+    String? branchId,
+    String view = 'owed',
+  }) async =>
+      _unwrapMap(await request(
+        'GET',
+        '/api/v1/purchase-invoices/reports/payables',
+        query: {
+          if (asOf != null && asOf.isNotEmpty) 'as_of': asOf,
+          'basis': basis,
+          'months': '$months',
+          'view': view,
+          if (vendorId != null && vendorId.isNotEmpty) 'vendor_id': vendorId,
+          if (branchId != null && branchId.isNotEmpty) 'branch_id': branchId,
+        },
+      ));
+
   /// The bills behind one cell of the purchase analysis.
   Future<List<AnalysisBill>> purchaseAnalysisBills({
     required String fromDate,

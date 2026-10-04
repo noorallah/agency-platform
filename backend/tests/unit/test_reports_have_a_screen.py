@@ -58,10 +58,9 @@ _ELSEWHERE: dict[str, str] = {
         "the bills behind one cell of the Purchase Analysis pivot, opened by "
         "clicking the cell there (backlog 66)."
     ),
-    # Desktop in PG-2 part 2: delete this line when its catalogue entry lands.
     "/api/v1/purchase-invoices/reports/payables": (
         "a supplier-by-month grid with a total row, a books check and a chart "
-        "-- its own report page, built in the desktop half of PG-2 (§85)."
+        "-- Buy > Money > Payables by Month is its own page (PG-2, §85)."
     ),
 }
 

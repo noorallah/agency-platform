@@ -190,6 +190,10 @@ abstract final class MenuLayout {
   /// Customer Groups: a phase 2 page, opened in a tab of its own.
   static const String customerGroupsRoute = 'customer-groups';
 
+  /// Payables by supplier and month, checked against control account 2100
+  /// (PG-2): a phase 2 page, offered under Buy > Money (a screen sits in one place only).
+  static const String payablesRoute = 'payables-by-month';
+
   /// Backups: a phase 2 page for the platform tier.
   static const String backupsRoute = 'backups';
 
@@ -342,6 +346,8 @@ abstract final class MenuLayout {
       MenuGroupSpec('Money', [
         MenuItemSpec(AppModule.accounting, 'payments', 'Payments'),
         MenuItemSpec(AppModule.accounting, 'payment-runs', 'Payment Runs'),
+        MenuItemSpec.phase2(payablesRoute, 'Payables by Month',
+            gate: 'purchaseInvoices'),
         MenuItemSpec(AppModule.accounting, 'pdc-issued', 'Post-dated Cheques'),
         MenuItemSpec(
             AppModule.masters, 'supplier-statements', 'Supplier Statements'),

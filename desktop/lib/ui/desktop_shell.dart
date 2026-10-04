@@ -132,6 +132,7 @@ import '../phase2/notification_bell.dart';
 import '../phase2/command_box.dart';
 import '../phase2/favourites.dart';
 import '../phase2/backups_page.dart';
+import '../phase2/payables_report_page.dart';
 import '../phase2/branding_page.dart';
 import '../phase2/first_run_agency_dialog.dart';
 import '../phase2/customer_groups_page.dart';
@@ -1074,6 +1075,19 @@ class _DesktopShellState extends State<DesktopShell> {
                                     MenuLayout.settings, _visibility),
                                 section: _setUpSection,
                                 onOpen: _openFromMenu,
+                              )
+                        : widget.phase2 &&
+                                _router.current.path ==
+                                    MenuLayout.payablesRoute
+                            ? PayablesReportPage(
+                                key: ValueKey(
+                                  'payables-${widget.session.firmContextVersion}',
+                                ),
+                                api: widget.session.api,
+                                onOpenBills: () => _openFromMenu(
+                                  MenuItemSpec.module(AppModule.purchaseInvoices,
+                                      'Purchase Invoices'),
+                                ),
                               )
                         : widget.phase2 &&
                                 _router.current.path ==
