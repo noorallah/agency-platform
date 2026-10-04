@@ -20,6 +20,8 @@ from app.goods_receipt.schemas.goods_receipt import (
     GoodsReceiptStatus,
     GoodsReceiptSummary,
     GoodsReceiptUpdate,
+    SerialRangeRequest,
+    SerialRangeResponse,
 )
 
 __all__ = [
@@ -42,4 +44,6 @@ __all__ = [
     "GoodsReceiptStatus",
     "GoodsReceiptSummary",
     "GoodsReceiptUpdate",
+    "SerialRangeRequest",
+    "SerialRangeResponse",
 ]

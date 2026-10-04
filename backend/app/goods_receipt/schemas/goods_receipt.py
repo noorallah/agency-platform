@@ -4,10 +4,19 @@ import re
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+)
+
+#: One serial number as typed; the service trims it and compares without case.
+SerialText = Annotated[str, StringConstraints(max_length=200)]
 
 
 class GoodsReceiptSchema(BaseModel):
@@ -102,6 +111,11 @@ class GoodsReceiptLineWrite(GoodsReceiptSchema):
         default=None, ge=0, max_digits=18, decimal_places=2
     )
     remarks: str | None = None
+    #: One serial per unit received, for a serial-tracked product (PG-10):
+    #: typed, scanned or range-filled. Absent (or null) leaves what the line
+    #: already holds; an empty list clears it. A draft may hold fewer than
+    #: the units; completing the receipt refuses until the count matches.
+    serial_numbers: list[SerialText] | None = Field(default=None, max_length=10000)
 
 
 class GoodsReceiptCreate(GoodsReceiptSchema):
@@ -250,6 +264,11 @@ class GoodsReceiptLineResponse(GoodsReceiptSchema):
     returned_unbilled_quantity: Decimal = Decimal("0")
     left_to_bill_quantity: Decimal = Decimal("0")
     left_to_bill_amount: Decimal = Decimal("0")
+    #: Whether the product carries a serial per unit, so the line needs
+    #: ``serial_numbers`` before the receipt can complete (PG-10).
+    serial_tracked: bool = False
+    #: The serials the line holds, in the order they were entered.
+    serial_numbers: list[str] = Field(default_factory=list)
 
 
 class GoodsReceiptResponse(GoodsReceiptSchema):
@@ -431,3 +450,19 @@ class GoodsInspectionResponse(GoodsReceiptSchema):
     rejected_action: str | None
     inspected_at: datetime | None
     remarks: str | None
+
+
+class SerialRangeRequest(GoodsReceiptSchema):
+    """Fill a run of serial numbers: a prefix and a zero-padded counter."""
+
+    prefix: str = Field(default="", max_length=150)
+    start: int = Field(ge=0)
+    count: int = Field(ge=1, le=10000)
+    #: Digits the counter is padded to; 0 writes it as it is.
+    width: int = Field(default=0, ge=0, le=40)
+
+
+class SerialRangeResponse(GoodsReceiptSchema):
+    """The serial numbers a range fills, saved nowhere."""
+
+    serial_numbers: list[str]

@@ -94,6 +94,7 @@ from app.purchase_return.schemas import (
     PurchaseReturnStatus,
     PurchaseReturnSummary,
 )
+from app.purchase_return.serials import ReturnSerials
 from app.sales.services.document_preview import purchase_line_companions
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.place_of_supply import PURCHASE_INTERSTATE
@@ -157,6 +158,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         self._uom = UomService(session)
         self._inventory = InventoryService(session)
         self._posting = DocumentPostingService(session)
+        self._serials = ReturnSerials(session)
 
     def list_returns(
         self,
@@ -398,6 +400,7 @@ class PurchaseReturnService(TransactionalDocumentService):
             business_profile_id=business_profile_id,
             actor_id=actor_id,
         )
+        self._serials.pick(row, line_specs, {}, actor_id=actor_id)
         row.total_source_quantity = line_totals["total_source_quantity"]
         row.total_already_returned_quantity = line_totals[
             "total_already_returned_quantity"
@@ -457,6 +460,10 @@ class PurchaseReturnService(TransactionalDocumentService):
         row = self.get_return(return_id, firm_scope=firm_scope)
         if row.status != PurchaseReturnStatus.DRAFT.value:
             raise ValidationError("Only draft purchase returns can be updated.")
+        # The lines are re-inserted below, so the units each named are carried
+        # across by line number for a line that says nothing of them (PG-10).
+        kept_serials = self._serials.kept(row)
+        self._serials.clear(row)
         self._delete_children(row.id)
         header, source_rows, line_specs = self._prepare_return_sources(data, firm_scope)
         row.vendor_id = data.vendor_id or header["vendor_id"]
@@ -501,6 +508,7 @@ class PurchaseReturnService(TransactionalDocumentService):
             business_profile_id=data.business_profile_id,
             actor_id=actor_id,
         )
+        self._serials.pick(row, line_specs, kept_serials, actor_id=actor_id)
         row.total_source_quantity = line_totals["total_source_quantity"]
         row.total_already_returned_quantity = line_totals[
             "total_already_returned_quantity"
@@ -650,6 +658,15 @@ class PurchaseReturnService(TransactionalDocumentService):
             line.inventory_transaction_id = transaction.id
             line.updated_by = actor_id
             movement_ids.append(transaction.id)
+            # The units named go back with the stock, one per unit (PG-10).
+            self._serials.send_back(
+                row,
+                line,
+                base_quantity=abs(Decimal(str(transaction.quantity))),
+                warehouse_id=warehouse_id,
+                movement_id=transaction.id,
+                actor_id=actor_id,
+            )
         # What the goods actually cost, taken from the stock ledger rows the
         # movements above wrote. The return is priced at what the supplier will
         # credit; stock leaves at the moving average it was carried at, and the
@@ -927,6 +944,8 @@ class PurchaseReturnService(TransactionalDocumentService):
         }:
             raise ValidationError("This purchase return can no longer be cancelled.")
         self._refuse_while_refunded(row, firm_scope=firm_scope, doing="cancelled")
+        # Units sent back come onto the shelf again; a draft's picks go.
+        self._serials.take_back(row, actor_id=actor_id)
         before = row.status
         reversed_lines, stock_value = self._reverse_inventory(
             row, firm_scope=firm_scope, actor_id=actor_id, reason=reason
@@ -1341,6 +1360,11 @@ class PurchaseReturnService(TransactionalDocumentService):
                 )
             )
         }
+        # The units the page's lines name, and which products carry them,
+        # each read once for the page (PG-10).
+        every_line = [line for found in lines.values() for line in found]
+        serials = self._serials.named(line.id for line in every_line)
+        tracked = self._serials.tracked(line.product_id for line in every_line)
         return [
             self._return_response(
                 row,
@@ -1351,6 +1375,8 @@ class PurchaseReturnService(TransactionalDocumentService):
                 accounting_events=accounting_events[row.id],
                 warning=warnings.get(row.id),
                 vendor=vendors.get(row.vendor_id),
+                serials=serials,
+                tracked=tracked,
             )
             for row in rows
         ]
@@ -1366,6 +1392,8 @@ class PurchaseReturnService(TransactionalDocumentService):
         accounting_events: list[PurchaseReturnAccountingEvent],
         warning: str | None,
         vendor: tuple[str, str] | None,
+        serials: dict[UUID, list[str]] | None = None,
+        tracked: set[UUID] | None = None,
     ) -> PurchaseReturnResponse:
         """Build one return's response from what the page already read."""
         return PurchaseReturnResponse(
@@ -1408,7 +1436,15 @@ class PurchaseReturnService(TransactionalDocumentService):
             is_deleted=row.is_deleted,
             created_at=row.created_at,
             updated_at=row.updated_at,
-            lines=[self._line_response(item) for item in lines],
+            lines=[
+                self._line_response(item).model_copy(
+                    update={
+                        "serial_tracked": item.product_id in (tracked or set()),
+                        "serial_numbers": list((serials or {}).get(item.id, [])),
+                    }
+                )
+                for item in lines
+            ],
             sources=[self._source_response(item) for item in sources],
             attachments=[self._attachment_response(item) for item in attachments],
             notes=[self._note_response(item) for item in notes],

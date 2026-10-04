@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.batch_serial.models.batch_serial import DocumentLineSerial, SerialNumber
@@ -34,6 +34,12 @@ from app.products.models import Product
 
 DELIVERY_NOTE = "DELIVERY_NOTE"
 SALES_RETURN = "SALES_RETURN"
+GOODS_RECEIPT = "GOODS_RECEIPT"
+PURCHASE_RETURN = "PURCHASE_RETURN"
+
+#: How many serials one statement asks about: psycopg refuses a statement of
+#: more than 65,535 parameters, and a receipt may carry thousands of units.
+_CHUNK = 5000
 
 
 @dataclass(frozen=True)
@@ -72,6 +78,32 @@ def _count(quantity: Decimal) -> int | None:
 def _units(count: int) -> str:
     """Say "1 serial number" or "2 serial numbers"."""
     return f"{count} serial number" + ("" if count == 1 else "s")
+
+
+def serial_key(value: str) -> str:
+    """Return the form two serials are compared in: trimmed, case ignored."""
+    return value.strip().upper()
+
+
+def clean_serials(values: Iterable[str], *, label: str) -> list[str]:
+    """Trim what was typed, drop blank entries and refuse a repeat.
+
+    A scanner sends a blank line as readily as a number, so blanks are
+    dropped rather than refused. A number typed twice is refused by name --
+    " abc1" and "ABC1" are the same unit.
+    """
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        serial = value.strip()
+        if not serial:
+            continue
+        key = serial_key(serial)
+        if key in seen:
+            raise ValidationError(f"{label}: serial {serial} is entered twice.")
+        seen.add(key)
+        cleaned.append(serial)
+    return cleaned
 
 
 class SerialTrailService:
@@ -195,6 +227,70 @@ class SerialTrailService:
             ).all()
         )
 
+    def live_serials(
+        self, firm_id: UUID, serials: Iterable[str]
+    ) -> dict[str, SerialNumber]:
+        """Return the firm's live units carrying these numbers, by key.
+
+        Firm-wide and whatever the product: a serial names one unit in the
+        whole firm (PG-10). Asked in chunks, because a receipt can name
+        thousands.
+        """
+        keys = sorted({serial_key(value) for value in serials})
+        found: dict[str, SerialNumber] = {}
+        for start in range(0, len(keys), _CHUNK):
+            for row in self._session.scalars(
+                select(SerialNumber).where(
+                    SerialNumber.firm_id == firm_id,
+                    func.upper(SerialNumber.serial_number).in_(
+                        keys[start : start + _CHUNK]
+                    ),
+                    SerialNumber.is_deleted.is_(False),
+                )
+            ).all():
+                found[serial_key(row.serial_number)] = row
+        return found
+
+    def product_serials(
+        self, firm_id: UUID, product_id: UUID, serials: Iterable[str]
+    ) -> dict[str, SerialNumber]:
+        """Return one product's live units carrying these numbers, by key."""
+        return {
+            key: row
+            for key, row in self.live_serials(firm_id, serials).items()
+            if row.product_id == product_id
+        }
+
+    def refuse_taken(
+        self, firm_id: UUID, serials: Sequence[str], *, label: str
+    ) -> None:
+        """Refuse a number the firm already gave to a live unit."""
+        taken = self.live_serials(firm_id, serials)
+        for serial in serials:
+            held = taken.get(serial_key(serial))
+            if held is not None:
+                raise ValidationError(
+                    f"{label}: serial {serial} already belongs to a unit in "
+                    f"this firm ({held.status})."
+                )
+
+    def receivers(self, serial_ids: Iterable[UUID]) -> dict[UUID, UUID]:
+        """Return the receipt document each unit arrived on, where one did."""
+        ids = set(serial_ids)
+        found: dict[UUID, UUID] = {}
+        if not ids:
+            return found
+        for serial_id, document_id in self._session.execute(
+            select(DocumentLineSerial.serial_id, DocumentLineSerial.document_id).where(
+                DocumentLineSerial.serial_id.in_(ids),
+                DocumentLineSerial.document_type == GOODS_RECEIPT,
+                DocumentLineSerial.moved_at.is_not(None),
+                DocumentLineSerial.is_deleted.is_(False),
+            )
+        ).all():
+            found[serial_id] = document_id
+        return found
+
     # ---- picking -------------------------------------------------------
 
     def replace_picks(
@@ -303,11 +399,15 @@ class SerialTrailService:
         *,
         verb: str,
         where: str,
+        entered: str = "picked",
+        add: str = "pick",
     ) -> None:
         """Refuse unless one serial is named per unit moving.
 
         ``verb`` is what the line does with the units ("ships", "brings back")
         and ``where`` is the document the storekeeper picks them on.
+        ``entered`` and ``add`` say how the serials got there -- picked from
+        the shelf, or typed off the carton at a receipt.
         """
         label = line.label(self.product(line.product_id))
         units = _count(quantity)
@@ -322,12 +422,12 @@ class SerialTrailService:
         if picked < units:
             raise ValidationError(
                 f"{label} {verb} {units} serial-tracked units but "
-                f"{_units(picked)} {'is' if picked == 1 else 'are'} picked: "
-                f"pick {units - picked} more on the {where}."
+                f"{_units(picked)} {'is' if picked == 1 else 'are'} {entered}: "
+                f"{add} {units - picked} more on the {where}."
             )
         raise ValidationError(
             f"{label} {verb} {units} serial-tracked units but {_units(picked)} "
-            f"are picked: remove {picked - units} on the {where}."
+            f"are {entered}: remove {picked - units} on the {where}."
         )
 
     def check_issuable(
@@ -525,6 +625,223 @@ class SerialTrailService:
                 after_data={
                     "status": serial.status,
                     "current_owner": serial.current_owner,
+                    "document": reference,
+                    "serial_number": serial.serial_number,
+                },
+            )
+        self._session.flush()
+
+    # ---- receiving and sending back to the supplier (PG-10) -------------
+
+    def receive(
+        self,
+        line: LineRef,
+        serials: Sequence[str],
+        *,
+        movement: InventoryTransaction,
+        batch_id: UUID | None,
+        reference: str,
+        actor_id: UUID,
+    ) -> list[SerialNumber]:
+        """Create the units a completed receipt line brought in.
+
+        Each lands AVAILABLE where the receipt's movement put the goods, and
+        its first pick -- moved, naming the movement -- is the receipt line,
+        which is where its trail starts. The numbers are checked against the
+        firm's live units again here: a draft holds nothing, so two drafts
+        may type the same number and only the first to complete takes it.
+        """
+        label = line.label(self.product(line.product_id))
+        self.refuse_taken(line.firm_id, serials, label=label)
+        moved_at = utc_now()
+        created: list[SerialNumber] = []
+        for serial_number in serials:
+            unit = SerialNumber(
+                firm_id=line.firm_id,
+                product_id=line.product_id,
+                inventory_id=movement.inventory_id,
+                warehouse_id=movement.warehouse_id,
+                branch_id=movement.branch_id,
+                batch_id=batch_id,
+                serial_number=serial_number,
+                status=SerialStatus.AVAILABLE.value,
+                created_by=actor_id,
+                updated_by=actor_id,
+            )
+            self._session.add(unit)
+            created.append(unit)
+        self._session.flush()
+        for unit in created:
+            self._session.add(
+                DocumentLineSerial(
+                    firm_id=line.firm_id,
+                    serial_id=unit.id,
+                    document_type=line.document_type,
+                    document_id=line.document_id,
+                    document_line_id=line.line_id,
+                    line_number=line.line_number,
+                    inventory_transaction_id=movement.id,
+                    moved_at=moved_at,
+                    created_by=actor_id,
+                    updated_by=actor_id,
+                )
+            )
+            record_audit(
+                self._session,
+                action="serial_number.received",
+                entity_type="serial_number",
+                entity_id=unit.id,
+                actor_id=actor_id,
+                firm_id=line.firm_id,
+                after_data={
+                    "serial_number": unit.serial_number,
+                    "status": unit.status,
+                    "warehouse_id": str(unit.warehouse_id or ""),
+                    "document": reference,
+                },
+            )
+        self._session.flush()
+        return created
+
+    def received_picks(self, line_ids: Iterable[UUID]) -> list[Pick]:
+        """Return the units these receipt lines brought in, with their picks."""
+        return [
+            (pick, serial)
+            for rows in self.picks(line_ids).values()
+            for pick, serial in rows
+            if pick.document_type == GOODS_RECEIPT and pick.moved_at is not None
+        ]
+
+    def refuse_unreceive(self, picks: Sequence[Pick], *, reference: str) -> None:
+        """Refuse to take back a receipt whose units have since moved.
+
+        A unit sold, sent back to the supplier or carried on any other
+        document since it arrived has a history the receipt cannot undo --
+        even one sold and returned, which reads AVAILABLE again.
+        """
+        ids = {serial.id for _pick, serial in picks}
+        later = (
+            set(
+                self._session.scalars(
+                    select(DocumentLineSerial.serial_id).where(
+                        DocumentLineSerial.serial_id.in_(ids),
+                        DocumentLineSerial.document_type != GOODS_RECEIPT,
+                        DocumentLineSerial.moved_at.is_not(None),
+                        DocumentLineSerial.is_deleted.is_(False),
+                    )
+                ).all()
+            )
+            if ids
+            else set()
+        )
+        for _pick, serial in picks:
+            if serial.status != SerialStatus.AVAILABLE.value or serial.id in later:
+                raise ValidationError(
+                    f"{reference} cannot be cancelled: serial "
+                    f"{serial.serial_number} has left stock since it was "
+                    f"received ({serial.status})."
+                )
+
+    def unreceive_units(
+        self, picks: Sequence[Pick], *, reference: str, actor_id: UUID
+    ) -> None:
+        """Remove the units a cancelled receipt brought in.
+
+        Soft-deleted with their receipt pick, so the numbers are free to be
+        received again while the audit trail keeps what happened.
+        """
+        now = utc_now()
+        for pick, serial in picks:
+            before = serial.status
+            for row in (pick, serial):
+                row.is_deleted = True
+                row.deleted_at = now
+                row.deleted_by = actor_id
+                row.updated_by = actor_id
+            record_audit(
+                self._session,
+                action="serial_number.receipt_cancelled",
+                entity_type="serial_number",
+                entity_id=serial.id,
+                actor_id=actor_id,
+                firm_id=serial.firm_id,
+                before_data={"status": before},
+                after_data={
+                    "is_deleted": True,
+                    "serial_number": serial.serial_number,
+                    "document": reference,
+                },
+            )
+        self._session.flush()
+
+    def mark_sent_back(
+        self,
+        line: LineRef,
+        picks: Sequence[Pick],
+        *,
+        movement_id: UUID,
+        reference: str,
+        actor_id: UUID,
+    ) -> None:
+        """Mark the units a completed purchase return line sent back RETURNED."""
+        moved_at = utc_now()
+        for pick, serial in picks:
+            before: dict[str, object] = {"status": serial.status}
+            serial.status = SerialStatus.RETURNED.value
+            serial.updated_by = actor_id
+            pick.inventory_transaction_id = movement_id
+            pick.moved_at = moved_at
+            pick.updated_by = actor_id
+            record_audit(
+                self._session,
+                action="serial_number.returned_to_supplier",
+                entity_type="serial_number",
+                entity_id=serial.id,
+                actor_id=actor_id,
+                firm_id=line.firm_id,
+                before_data=before,
+                after_data={
+                    "status": serial.status,
+                    "document": reference,
+                    "serial_number": serial.serial_number,
+                },
+            )
+        self._session.flush()
+
+    def unsend(self, line: LineRef, *, reference: str, actor_id: UUID) -> None:
+        """Undo :meth:`mark_sent_back` when a completed return is cancelled.
+
+        The units come back onto the shelf with the stock the cancellation
+        puts back, so each must still read RETURNED.
+        """
+        picks = [
+            (pick, serial)
+            for pick, serial in self.line_picks(line.line_id)
+            if pick.moved_at is not None
+        ]
+        label = line.label(self.product(line.product_id))
+        for _pick, serial in picks:
+            if serial.status != SerialStatus.RETURNED.value:
+                raise ValidationError(
+                    f"{label}: serial {serial.serial_number} is {serial.status}, "
+                    "so the return can no longer be cancelled."
+                )
+        for pick, serial in picks:
+            serial.status = SerialStatus.AVAILABLE.value
+            serial.updated_by = actor_id
+            pick.moved_at = None
+            pick.inventory_transaction_id = None
+            pick.updated_by = actor_id
+            record_audit(
+                self._session,
+                action="serial_number.supplier_return_cancelled",
+                entity_type="serial_number",
+                entity_id=serial.id,
+                actor_id=actor_id,
+                firm_id=line.firm_id,
+                before_data={"status": SerialStatus.RETURNED.value},
+                after_data={
+                    "status": serial.status,
                     "document": reference,
                     "serial_number": serial.serial_number,
                 },

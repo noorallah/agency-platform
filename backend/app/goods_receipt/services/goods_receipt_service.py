@@ -72,6 +72,7 @@ from app.goods_receipt.schemas import (
     GoodsReceiptSummary,
     GoodsReceiptUpdate,
 )
+from app.goods_receipt.serials import ReceiptSerials
 from app.inventory.models import InventoryTransaction, StockLedgerEntry
 from app.inventory.schemas import QuarantineAction, StockQuarantineCreate
 from app.inventory.services import InventoryService, LineConversion
@@ -128,6 +129,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         self._inventory = InventoryService(session)
         self._uom = UomService(session)
         self._tax = TaxRuleService(session)
+        self._serials = ReceiptSerials(session)
 
     def list_receipts(
         self,
@@ -470,6 +472,17 @@ class GoodsReceiptService(TransactionalDocumentService):
         self._validate_lines(
             row, purchase_order=purchase_order, previous_map=previous_map
         )
+        # One serial per unit received on every serial-tracked line, none
+        # already a unit of this firm (PG-10). Checked before anything posts.
+        self._serials.check_counts(
+            row,
+            self._session.scalars(
+                select(GoodsReceiptLine).where(
+                    GoodsReceiptLine.goods_receipt_id == row.id,
+                    GoodsReceiptLine.is_deleted.is_(False),
+                )
+            ).all(),
+        )
         # Warns only: the goods are on the dock whatever it says (backlog 54).
         licence_remark, licence_details = LicenceCheckService(
             self._session
@@ -529,10 +542,14 @@ class GoodsReceiptService(TransactionalDocumentService):
         }:
             return row
         self._assert_receipt_cancellable(row, firm_scope=firm_scope)
+        # A unit sold or sent back since it arrived cannot be un-received
+        # (PG-10); checked before any stock moves back.
+        self._serials.refuse_cancel(row)
         before = row.status
         reversed_lines, stock_value = self._reverse_inventory(
             row, firm_scope=firm_scope, actor_id=actor_id, reason=reason
         )
+        self._serials.withdraw(row, actor_id=actor_id)
         # The stock is back off the shelf; take the journal off the books too,
         # or the ledger keeps a debit for goods the firm no longer holds -- and
         # take it off at what the shelf actually gave back, not at what the
@@ -976,9 +993,12 @@ class GoodsReceiptService(TransactionalDocumentService):
         )
         warnings = self._duplicate_warnings(rows)
         eway_warnings = self._eway_bill_warnings(rows)
-        billing = receipt_line_billing(
-            self._session, [line for found in lines.values() for line in found]
-        )
+        every_line = [line for found in lines.values() for line in found]
+        billing = receipt_line_billing(self._session, every_line)
+        # The serials typed on the page's lines, and which of their products
+        # carry them, each read once for the page (PG-10).
+        serials = self._serials.typed(line.id for line in every_line)
+        tracked = self._serials.tracked(line.product_id for line in every_line)
         vendors = {
             found[0]: (found[1], found[2])
             for found in self._session.execute(
@@ -997,6 +1017,8 @@ class GoodsReceiptService(TransactionalDocumentService):
                 vendor=vendors.get(row.vendor_id),
                 eway_warning=eway_warnings.get(row.id),
                 billing=billing,
+                serials=serials,
+                tracked=tracked,
             )
             for row in rows
         ]
@@ -1017,6 +1039,8 @@ class GoodsReceiptService(TransactionalDocumentService):
         vendor: tuple[str, str] | None,
         eway_warning: str | None = None,
         billing: dict[UUID, ReceiptLineBilling] | None = None,
+        serials: dict[UUID, list[str]] | None = None,
+        tracked: set[UUID] | None = None,
     ) -> GoodsReceiptResponse:
         """Build one receipt's response from what the page already read."""
         payload = GoodsReceiptResponse.model_validate(row).model_dump(mode="python")
@@ -1027,6 +1051,8 @@ class GoodsReceiptService(TransactionalDocumentService):
             line = GoodsReceiptLineResponse.model_validate(item).model_dump(
                 mode="python"
             )
+            line["serial_tracked"] = item.product_id in (tracked or set())
+            line["serial_numbers"] = list((serials or {}).get(item.id, []))
             position = (billing or {}).get(item.id)
             if position is not None:
                 accepted = Decimal(str(item.accepted_quantity))
@@ -1497,6 +1523,7 @@ class GoodsReceiptService(TransactionalDocumentService):
             ).all()
         }
         seen: set[int] = set()
+        kept: dict[int, GoodsReceiptLine] = {}
         purchase_lines = {
             line.id: line
             for line in self._session.scalars(
@@ -1665,6 +1692,7 @@ class GoodsReceiptService(TransactionalDocumentService):
             persisted = existing.get(line.line_number)
             if persisted is None:
                 self._session.add(row)
+                kept[line.line_number] = row
             else:
                 self._apply_line_values(
                     persisted,
@@ -1672,11 +1700,29 @@ class GoodsReceiptService(TransactionalDocumentService):
                     actor_id=actor_id,
                     preserve=("inventory_transaction_id",),
                 )
+                kept[line.line_number] = persisted
             seen.add(line.line_number)
-        for line_number, obsolete in existing.items():
-            if line_number not in seen:
-                self._session.delete(obsolete)
+        obsolete_lines = [
+            obsolete
+            for line_number, obsolete in existing.items()
+            if line_number not in seen
+        ]
+        self._serials.clear_lines(line.id for line in obsolete_lines)
+        for obsolete in obsolete_lines:
+            self._session.delete(obsolete)
         self._session.flush()
+        # The serials each line typed (PG-10). Absent leaves what the line
+        # holds -- a client that never showed them cannot clear them -- and
+        # an empty list clears it.
+        for line in data.lines:
+            if line.serial_numbers is not None:
+                self._serials.replace(
+                    receipt,
+                    kept[line.line_number],
+                    line.serial_numbers,
+                    actor_id=actor_id,
+                )
+        self._serials.refuse_repeats(receipt, list(kept.values()))
         receipt.total_ordered_quantity = self._q(total_ordered)
         receipt.total_previous_received_quantity = self._q(total_previous)
         receipt.total_current_receipt_quantity = self._q(total_current)
@@ -1823,6 +1869,8 @@ class GoodsReceiptService(TransactionalDocumentService):
                 batch_id=batch_id,
             )
             line.inventory_transaction_id = transaction.id
+            # The units start their trail here, where the goods landed.
+            self._serials.receive(receipt, line, transaction, actor_id=actor_id)
             if product is not None and self._needs_inspection(product):
                 self._hold_for_inspection(receipt, line, transaction, actor_id=actor_id)
             line.updated_by = actor_id

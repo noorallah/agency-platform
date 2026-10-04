@@ -3,12 +3,21 @@
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+)
 
 from app.sales.schemas.document_preview import DocumentPreviewLine
+
+#: One serial number as typed; the service trims it and compares without case.
+SerialText = Annotated[str, StringConstraints(max_length=200)]
 
 
 class PurchaseReturnSchema(BaseModel):
@@ -115,6 +124,10 @@ class PurchaseReturnLineWrite(PurchaseReturnSchema):
     expiry_date: date | None = None
     manufacturing_date: date | None = None
     remarks: str | None = None
+    #: Which units go back, for a serial-tracked product (PG-10): one per unit
+    #: returned, each in stock and received from this supplier. Absent (or
+    #: null) keeps what the line already names; an empty list clears it.
+    serial_numbers: list[SerialText] | None = Field(default=None, max_length=10000)
 
 
 class PurchaseReturnCreate(PurchaseReturnSchema):
@@ -283,6 +296,11 @@ class PurchaseReturnLineResponse(PurchaseReturnSchema):
     #: profile alone did (GST-8).
     tax_rule_code: str | None = None
     tax_rule_version: int | None = None
+    #: Whether the product carries a serial per unit, so the line has to
+    #: name the units going back before the return completes (PG-10).
+    serial_tracked: bool = False
+    #: The units the line names, in serial order.
+    serial_numbers: list[str] = Field(default_factory=list)
 
 
 class PurchaseReturnResponse(PurchaseReturnSchema):

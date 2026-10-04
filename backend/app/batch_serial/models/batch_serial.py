@@ -16,6 +16,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     and_,
+    func,
     or_,
     text,
 )
@@ -163,11 +164,18 @@ class SerialNumber(BaseEntity):
 
     __tablename__ = "serial_numbers"
     __table_args__ = (
-        UniqueConstraint(
+        # A serial names one unit in the whole firm, whatever the product and
+        # however it was typed (PG-10): " abc1" and "ABC1" are the same unit.
+        # Live rows only, so a receipt cancelled before anything moved
+        # releases its numbers to be received again. Uniqueness is a decision
+        # about a set of rows, which takes an index rather than a read.
+        Index(
+            "UQ_serial_numbers_firm_serial_active",
             "firm_id",
-            "serial_number",
-            "product_id",
-            name="UQ_serial_numbers_firm_serial_product",
+            func.upper(text("serial_number")),
+            unique=True,
+            postgresql_where=text("NOT is_deleted"),
+            sqlite_where=text("NOT is_deleted"),
         ),
         Index("IX_serial_numbers_firm_product", "firm_id", "product_id"),
         Index("IX_serial_numbers_firm_status", "firm_id", "status"),
@@ -248,7 +256,9 @@ class DocumentLineSerial(BaseEntity):
         ForeignKey("serial_numbers.id", ondelete="RESTRICT"),
         nullable=False,
     )
-    #: ``DELIVERY_NOTE`` (the unit leaves) or ``SALES_RETURN`` (it comes back).
+    #: ``GOODS_RECEIPT`` (the unit arrives, which starts its trail),
+    #: ``PURCHASE_RETURN`` (it goes back to the supplier), ``DELIVERY_NOTE``
+    #: (it leaves for a customer) or ``SALES_RETURN`` (it comes back).
     document_type: Mapped[str] = mapped_column(String(30), nullable=False)
     document_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
     document_line_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)

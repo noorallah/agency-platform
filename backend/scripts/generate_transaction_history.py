@@ -55,7 +55,7 @@ from sqlalchemy import func, inspect, select, text
 from sqlalchemy.engine import Inspector
 from sqlalchemy.orm import Session
 
-from app.batch_serial.models import SerialNumber
+from app.batch_serial.models import DocumentLineSerial, SerialNumber
 from app.batch_serial.schemas import SerialCreate, SerialStatus
 from app.batch_serial.services import BatchSerialService
 from app.branches.models import Branch, Warehouse
@@ -105,7 +105,11 @@ from app.finance.services.control_accounts import (
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm, FirmStorageMapping
 from app.goods_receipt.models import GoodsReceiptLine
-from app.goods_receipt.schemas import GoodsReceiptCreate, GoodsReceiptLineWrite
+from app.goods_receipt.schemas import (
+    GoodsReceiptCreate,
+    GoodsReceiptLineWrite,
+    GoodsReceiptUpdate,
+)
 from app.goods_receipt.services import GoodsReceiptService
 from app.inventory.models import InventoryTransaction
 from app.loyalty.schemas import LoyaltySettingsWrite
@@ -2067,25 +2071,49 @@ class HistoryBuilder:
         assert line is not None
         batch_number, expiry_date = self._batch_for(product, on)
         receipts = GoodsReceiptService(self._session)
+        receipt_line = GoodsReceiptLineWrite(
+            purchase_order_line_id=line.id,
+            line_number=1,
+            current_receipt_quantity=Decimal(quantity),
+            unit_price=Decimal(unit_price),
+            warehouse_id=warehouse.id,
+            batch_number=batch_number,
+            expiry_date=expiry_date,
+        )
         receipt = receipts.create_receipt(
             GoodsReceiptCreate(
-                purchase_order_id=order.id,
-                receipt_date=on,
-                lines=[
-                    GoodsReceiptLineWrite(
-                        purchase_order_line_id=line.id,
-                        line_number=1,
-                        current_receipt_quantity=Decimal(quantity),
-                        unit_price=Decimal(unit_price),
-                        warehouse_id=warehouse.id,
-                        batch_number=batch_number,
-                        expiry_date=expiry_date,
-                    )
-                ],
+                purchase_order_id=order.id, receipt_date=on, lines=[receipt_line]
             ),
             firm_id=self._target.firm_id,
             actor_id=ACTOR,
         )
+        if product.track_serial:
+            # A serial-tracked product is received with one serial per unit
+            # (PG-10), numbered off the receipt the way a storekeeper scans
+            # the cartons. The count is in stock units, so it is read off the
+            # saved line once its conversion is known.
+            saved = self._session.scalar(
+                select(GoodsReceiptLine).where(
+                    GoodsReceiptLine.goods_receipt_id == receipt.id
+                )
+            )
+            assert saved is not None
+            units = int(
+                (saved.accepted_quantity + saved.free_quantity)
+                * saved.conversion_factor
+            )
+            receipt_line.serial_numbers = [
+                f"{product.code}-{receipt.grn_number}-{index:04d}"
+                for index in range(1, units + 1)
+            ]
+            receipts.update_receipt(
+                receipt.id,
+                GoodsReceiptUpdate(
+                    purchase_order_id=order.id, receipt_date=on, lines=[receipt_line]
+                ),
+                firm_scope=self._target.firm_id,
+                actor_id=ACTOR,
+            )
         receipts.complete_receipt(
             receipt.id, firm_scope=self._target.firm_id, actor_id=ACTOR
         )
@@ -2152,6 +2180,28 @@ class HistoryBuilder:
         damaged = condition == 0
         expired = condition == 1
         reason = "DAMAGED" if damaged else "EXPIRED" if expired else "QUALITY_REJECTED"
+        # A serial-tracked line names the units going back (PG-10): the first
+        # of the ones this receipt line brought in that are still on the shelf.
+        serials: list[str] | None = None
+        product = self._session.get(Product, line.product_id)
+        if product is not None and product.track_serial:
+            serials = list(
+                self._session.scalars(
+                    select(SerialNumber.serial_number)
+                    .join(
+                        DocumentLineSerial,
+                        DocumentLineSerial.serial_id == SerialNumber.id,
+                    )
+                    .where(
+                        DocumentLineSerial.document_line_id == line.id,
+                        DocumentLineSerial.is_deleted.is_(False),
+                        SerialNumber.status == SerialStatus.AVAILABLE.value,
+                        SerialNumber.is_deleted.is_(False),
+                    )
+                    .order_by(SerialNumber.serial_number)
+                    .limit(int(quantity * line.conversion_factor))
+                ).all()
+            )
         returns = PurchaseReturnService(self._session)
         try:
             row = returns.create_return(
@@ -2179,6 +2229,7 @@ class HistoryBuilder:
                             expiry_date=line.expiry_date,
                             is_damaged=damaged,
                             is_expired=expired,
+                            serial_numbers=serials,
                         )
                     ],
                 ),

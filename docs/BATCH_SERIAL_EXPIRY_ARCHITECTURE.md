@@ -90,7 +90,7 @@ Creating, changing and deleting a batch, lot or serial number is audited as
 |---|---|---|
 | id | UUID PK | |
 | firm_id | UUID FK → firms | |
-| serial_number | VARCHAR(200) | Unique per firm |
+| serial_number | VARCHAR(200) | Unique per firm among live rows, case ignored (`UQ_serial_numbers_firm_serial_active`, PG-10) |
 | product_id | UUID FK → products | |
 | warehouse_id | UUID FK → warehouses | |
 | branch_id | UUID FK → branches | |
@@ -171,6 +171,7 @@ Base: `/api/v1/batch-serial`
 | GET | /serials/{id} | Get serial detail |
 | PUT | /serials/{id} | Update serial |
 | DELETE | /serials/{id} | Soft delete serial |
+| GET | /serials/{id}/trail | The unit and every document it moved on, its receipt first (PG-10) |
 
 ### Dashboard Endpoints
 
@@ -328,6 +329,58 @@ Decisions taken, following what Tally, SAP Business One, Odoo and Zoho do:
 - A return with damaged or scrap quantity still makes every returned unit
   `AVAILABLE`, as the owner specified; the stock row puts the damaged units in
   the damaged bucket, but the serial does not say which unit is which.
+
+## The trail starts at the receipt (PG-10, backlog 86 #11)
+
+Until 2026-10-05 a serial-tracked product arrived on a goods receipt with no
+serials at all; units were numbered by hand in the serial master, or minted by
+the history generator as they were sold. Now the receipt line carries them:
+
+- **A goods receipt line** for a serial-tracked product takes
+  `serial_numbers: list[str] | null` -- typed, scanned, or filled from a range
+  (`POST /api/v1/goods-receipts/serials/expand` with `{prefix, start, count,
+  width}` returns the list and saves nothing). Absent or null leaves what the
+  line holds; `[]` clears it. Each number is trimmed and blanks are dropped;
+  a number typed twice in the request, or already carried by a live unit of
+  the firm, is refused by name. A product nobody tracks by serial refuses a
+  non-empty list. The line response carries `serial_numbers` and
+  `serial_tracked`.
+- **A draft holds them as typed**, in `goods_receipt_line_serials` (migration
+  `20261005_0311`), and may be short. Nothing is a unit yet, so two drafts may
+  type the same number.
+- **Completing the receipt refuses** until each serial-tracked line has one
+  serial per unit put on the shelf -- accepted plus free, in the stock unit --
+  naming the line, and re-checks every number against the firm's live units.
+  Each then becomes a `serial_numbers` row, `AVAILABLE` in the receipt's
+  warehouse with the line's batch, and a moved `document_line_serials` row
+  (`GOODS_RECEIPT`) names the receipt line and its movement: the start of the
+  unit's trail (`serial_number.received`).
+- **Cancelling a completed receipt** soft-deletes those units and their
+  receipt picks (`serial_number.receipt_cancelled`), which frees the numbers
+  -- and is refused if any unit is no longer `AVAILABLE` or has moved on any
+  other document since, even one sold and returned.
+- **A purchase return line** of a serial-tracked product names the units
+  going back in `serial_numbers`, resolved to the product's live units
+  (case ignored). Each must be `AVAILABLE` and have arrived on a receipt from
+  the return's supplier. The return renumbers its lines on every save, so a
+  line that says nothing keeps its picks by line number. Completion refuses
+  unless there is one per unit leaving (counted off the movement, in the stock
+  unit), re-checks each and that it is in the line's warehouse, and marks them
+  `RETURNED` (`serial_number.returned_to_supplier`). Cancelling a completed
+  return puts them back `AVAILABLE`; cancelling a draft forgets its picks.
+- **A unit is unique in the firm, not per product.** The old key (firm,
+  serial, product, deleted rows included) gave way to a partial unique index
+  on `(firm_id, upper(serial_number))` over live rows. The migration stops,
+  naming them, if a store already holds repeats.
+- **The trail**, `GET /api/v1/batch-serial/serials/{id}/trail`, lists every
+  document the unit moved on -- number, date, supplier or customer -- with the
+  receipt first, then in the order they moved.
+
+Decisions taken: free goods carry serials like paid ones; the count is in the
+stock unit; a receipt raised by a supplier bill (`PurchaseChainService`)
+carries no serials, so a serial-tracked product is received on a goods receipt
+rather than billed straight in; `IN_STOCK` in the backlog is the existing
+`AVAILABLE` status, which dispatch already requires.
 - `require_serial_on_issue` / `require_serial_on_receipt` are still read by
   nothing -- `track_serial` alone decides.
 - Receiving stock (goods receipt, opening stock) numbers no units; serials are
