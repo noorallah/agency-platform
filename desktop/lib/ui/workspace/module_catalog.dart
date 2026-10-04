@@ -859,6 +859,12 @@ abstract final class ModuleCatalog {
           label: 'Requests for quotation',
           requiredPermissions: ['RFQ_VIEW'],
         ),
+        // Rates agreed with a supplier for a window of dates (PG-9).
+        ModuleTabDefinition(
+          id: 'rate-contracts',
+          label: 'Rate contracts',
+          requiredPermissions: ['RATE_CONTRACT_VIEW'],
+        ),
         // Goods held in quarantine until passed (BUY-9).
         ModuleTabDefinition(
           id: 'quality-inspection',
@@ -1935,6 +1941,12 @@ abstract final class ModuleCatalog {
           label: 'Requests for quotation',
           path: 'rfqs',
           icon: Icons.request_quote_outlined,
+        ),
+      if (visibleTabIds.contains('rate-contracts'))
+        const WorkspaceNavigationNode(
+          label: 'Rate contracts',
+          path: 'rate-contracts',
+          icon: Icons.handshake_outlined,
         ),
       if (visibleTabIds.contains('quality-inspection'))
         const WorkspaceNavigationNode(

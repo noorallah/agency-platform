@@ -140,6 +140,8 @@ class PurchaseOrderLine {
     this.toInvoiceQuantity = '',
     this.taxRuleCode,
     this.taxRuleVersion,
+    this.rateSource,
+    this.rateContractLineId = '',
   });
 
   final String id;
@@ -189,6 +191,16 @@ class PurchaseOrderLine {
   final String? taxRuleCode;
   final int? taxRuleVersion;
 
+  /// Where the server took the rate from (RATE_CONTRACT, PRICE_LIST,
+  /// CATALOGUE, PRICE_REVISION, PRODUCT, TYPED); null when it says nothing.
+  /// Read-only: the server sets it and `toWriteJson` never names it (PG-9).
+  final String? rateSource;
+
+  /// The rate-contract line that priced this one; empty when none did.
+  final String rateContractLineId;
+
+  bool get isRateContract => rateSource == 'RATE_CONTRACT';
+
   factory PurchaseOrderLine.fromJson(Json json) => PurchaseOrderLine(
         id: stringValue(json['id']),
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
@@ -230,6 +242,10 @@ class PurchaseOrderLine {
         toInvoiceQuantity: stringValue(json['to_invoice_quantity']),
         taxRuleCode: LineTaxRule.fromJson(json).code,
         taxRuleVersion: LineTaxRule.fromJson(json).version,
+        rateSource: json['rate_source'] is String
+            ? json['rate_source'] as String
+            : null,
+        rateContractLineId: stringValue(json['rate_contract_line_id']),
       );
 
   PurchaseOrderLine copyWith({
@@ -294,6 +310,10 @@ class PurchaseOrderLine {
         invoicedQuantity: invoicedQuantity,
         pendingReceiptQuantity: pendingReceiptQuantity,
         toInvoiceQuantity: toInvoiceQuantity,
+        taxRuleCode: taxRuleCode,
+        taxRuleVersion: taxRuleVersion,
+        rateSource: rateSource,
+        rateContractLineId: rateContractLineId,
       );
 
   Json toWriteJson() => {
@@ -604,7 +624,11 @@ class PurchaseOrder {
     required this.notes,
     this.attributes = const [],
     this.attributeInputs,
+    this.rateContractWarning,
   });
+
+  /// An over-draw warning from a rate contract; never blocks (PG-9).
+  final String? rateContractWarning;
 
   /// The firm's own fields on this order as stored (MST-6); empty on a
   /// response from before they existed.
@@ -779,6 +803,10 @@ class PurchaseOrder {
         attributes: _objects(json['attributes'])
             .map(ProductAttributeValueRecord.fromJson)
             .toList(),
+        rateContractWarning: json['rate_contract_warning'] is String &&
+                (json['rate_contract_warning'] as String).isNotEmpty
+            ? json['rate_contract_warning'] as String
+            : null,
       );
 
   PurchaseOrder copyWith({
@@ -818,6 +846,7 @@ class PurchaseOrder {
         id: id ?? this.id,
         attributes: attributes,
         attributeInputs: attributeInputs ?? this.attributeInputs,
+        rateContractWarning: rateContractWarning,
         firmId: firmId,
         branchId: branchId ?? this.branchId,
         warehouseId: warehouseId ?? this.warehouseId,

@@ -50,6 +50,7 @@ import '../../models/supplier_rebate.dart';
 import '../../models/post_dated_cheque.dart';
 import '../../models/purchase_requisition.dart';
 import '../../models/rfq.dart';
+import '../../models/rate_contract.dart';
 import '../../models/kit.dart';
 import '../../models/repack.dart';
 import '../../models/stock_transfer.dart';
@@ -5462,6 +5463,76 @@ class ApiClient {
     return [
       for (final dynamic order in data is List ? data : const [])
         if (order is Map) Map<String, dynamic>.from(order),
+    ];
+  }
+
+  // ---- supplier rate contracts (PG-9) -----------------------------------
+
+  Future<PagedResult<RateContract>> rateContracts({
+    int page = 1,
+    int pageSize = 50,
+    String search = '',
+    String status = '',
+    String vendorId = '',
+  }) =>
+      _list(
+        '/api/v1/rate-contracts',
+        RateContract.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        additionalQuery: {
+          if (status.isNotEmpty) 'status': status,
+          if (vendorId.isNotEmpty) 'vendor_id': vendorId,
+        },
+      );
+
+  Future<RateContract> createRateContract(Json body) async =>
+      RateContract.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/rate-contracts',
+        body: body,
+      )));
+
+  Future<RateContract> rateContract(String id) async => RateContract.fromJson(
+      _unwrapMap(await request('GET', '/api/v1/rate-contracts/$id')));
+
+  Future<RateContract> updateRateContract(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) async =>
+      RateContract.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/rate-contracts/$id',
+        body: body,
+        expectedVersion: expectedVersion,
+      )));
+
+  /// Draft only.
+  Future<void> deleteRateContract(String id) =>
+      request('DELETE', '/api/v1/rate-contracts/$id');
+
+  /// `action` is `approve`, `close` or `cancel` (which needs a [reason]).
+  Future<RateContract> actOnRateContract(
+    String id,
+    String action, {
+    String? reason,
+  }) async =>
+      RateContract.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/rate-contracts/$id/$action',
+        body: reason == null ? null : {'reason': reason},
+      )));
+
+  Future<List<RateContractRelease>> rateContractReleases(String id) async {
+    final Json response =
+        await request('GET', '/api/v1/rate-contracts/$id/releases');
+    final dynamic data = response['data'];
+    return [
+      for (final dynamic item in data is List ? data : const [])
+        if (item is Map)
+          RateContractRelease.fromJson(Map<String, dynamic>.from(item)),
     ];
   }
 

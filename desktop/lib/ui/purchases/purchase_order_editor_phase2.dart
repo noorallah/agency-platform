@@ -165,6 +165,21 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
                     ],
                   ),
                 ),
+              if (_draft.rateContractWarning != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  child: MaterialBanner(
+                    key: const ValueKey('rate-contract-warning'),
+                    backgroundColor: scheme.tertiaryContainer,
+                    contentTextStyle: theme.textTheme.bodyMedium?.copyWith(
+                      color: scheme.onTertiaryContainer,
+                    ),
+                    leading: Icon(Icons.warning_amber_outlined,
+                        color: scheme.onTertiaryContainer),
+                    content: Text(_draft.rateContractWarning!),
+                    actions: const [SizedBox.shrink()],
+                  ),
+                ),
               Expanded(
                 child: LayoutBuilder(
                   builder: (context, constraints) => Row(
@@ -941,13 +956,17 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
               _changeLine(index, line.copyWith(freeQuantity: value)),
         ),
         _unitCell(context, index, line, text),
-        _cellBox(
-          context,
-          index: index,
-          name: 'rate-$_rateEpoch',
-          value: line.unitPrice,
-          onChanged: (value) =>
-              _changeLine(index, line.copyWith(unitPrice: value)),
+        _rateWithSource(
+          (priced ?? line).isRateContract,
+          index,
+          _cellBox(
+            context,
+            index: index,
+            name: 'rate-$_rateEpoch',
+            value: line.unitPrice,
+            onChanged: (value) =>
+                _changeLine(index, line.copyWith(unitPrice: value)),
+          ),
         ),
         _cellBox(
           context,
@@ -1206,6 +1225,30 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
     ];
   }
 
+  /// A small mark on a rate the server took from a supplier rate contract
+  /// (PG-9). The server sets the source; nothing here is sent back.
+  Widget _rateWithSource(bool fromContract, int index, Widget box) {
+    if (!fromContract) return box;
+    return Stack(
+      children: [
+        box,
+        Positioned(
+          top: 0,
+          right: 2,
+          child: Tooltip(
+            message: 'Rate contract: this rate comes from a supplier contract.',
+            child: Icon(
+              Icons.handshake_outlined,
+              key: ValueKey('po-rate-contract-$index'),
+              size: 12,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _orderSidePanel(BuildContext context) {
     final int index = _current.clamp(0, _draft.lines.length - 1);
     final PurchaseOrderLine line = _draft.lines[index];
@@ -1232,10 +1275,12 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
       DocumentSideHeading('Line ${index + 1} · ${product?.name ?? ''}'),
       DocumentSidePair('Rate', shownRate.isEmpty ? '–' : documentMoney(shownRate)),
       DocumentSideNote(
-        blankRate
-            ? "Blank: the supplier's list price, else the product's "
-                'purchase price'
-            : 'as typed on this order',
+        (priced ?? line).isRateContract
+            ? 'Rate contract: from the rate agreed with this supplier'
+            : blankRate
+                ? "Blank: the supplier's list price, else the product's "
+                    'purchase price'
+                : 'as typed on this order',
       ),
       if (companion != null && companion.lastPrice.isNotEmpty) ...[
         DocumentSidePair(

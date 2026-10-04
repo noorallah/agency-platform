@@ -635,6 +635,14 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         kind: AppNotificationKind.success,
       );
     }
+    final String? drawWarning = outcome.order.rateContractWarning;
+    if (drawWarning != null) {
+      NotificationService.show(
+        context,
+        drawWarning,
+        kind: AppNotificationKind.warning,
+      );
+    }
     await _load();
     _selectOrder(outcome.order);
   }
