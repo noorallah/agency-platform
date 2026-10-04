@@ -5169,6 +5169,13 @@ then 11 -> 13 -> 12 -> 14 -> 18 -> 15 -> 16, 17.
 
 ## 71. Sign-in screen for phase 2, with the agency's own logo and name
 
+**Status, 2026-10-04: building U1-U7 now** (owner: S2 showcase sign-in, keep
+"Agency Platform" names, support details blank, first-run step 1 only; U8
+parked). **U2 built** -- the agency's record on the server (`agency_branding`,
+`/api/v1/branding`) and the product identity in `branding.json`;
+`docs/BRANDING_AND_NAMES.md` section 8 is the reference. Next: U3+U4 sign-in,
+U6 header, U5+U7 first-run and Settings > Branding, U1 installer page.
+
 Owner, 2026-09-28: a wireframe for the sign-in screen, and **the logo and
 agency name must be configurable** -- keep it in the backlog. The wireframe is
 view 8 of `dist\windows\Design\UI phase 2 wireframes.html`, in **three

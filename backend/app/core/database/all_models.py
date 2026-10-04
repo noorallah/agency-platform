@@ -23,6 +23,7 @@ from app.branches.models import (
     branch_warehouse,  # noqa: F401
     user_work_default,  # noqa: F401
 )
+from app.branding.models import agency_branding  # noqa: F401
 from app.business.models import (
     document_attributes,  # noqa: F401
     framework,  # noqa: F401

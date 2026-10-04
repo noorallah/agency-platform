@@ -44,6 +44,9 @@ _PLATFORM_TABLES = (
     # store keeps it -- reset_tenancy_layout drops everything absent from this
     # list from the platform schema.
     "error_reports",
+    # The agency's name and logo: one per installation, above its firms,
+    # read at sign-in before any firm is chosen.
+    "agency_branding",
 )
 
 #: What the platform store keeps when it is pruned of firm-owned tables: the

@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**240 tables**, of which **16** live only in the platform store.
+**240 tables**, of which **17** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -74,6 +74,12 @@ trigger each schema owns its own copy of.
 | `bank_statements` | firm store ¹ | One bank statement file imported against one bank ledger account (ACC-1). | `ledger_accounts` |
 | `bank_statement_lines` | firm store ¹ | One line of it: a deposit or a withdrawal on a day, with the bank's reference and printed balance, and whether the books account for it. | `bank_statements` |
 | `bank_reconciliation_matches` | firm store ¹ | A statement line clearing one posting on the bank account, on the line's date; one live match per posting. | `bank_statement_lines`, `gl_postings` |
+
+### `app/branding`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `agency_branding` | platform | The agency that bought the product: its name, tagline, accent colour and logo; one live row per installation, read at sign-in (backlog 71, U2). |  |
 
 ### `app/batch_serial`
 
