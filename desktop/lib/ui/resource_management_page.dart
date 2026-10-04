@@ -1369,11 +1369,7 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
   late final Map<String, Set<String>> _selections = {
     for (final FieldSpec field
         in widget.fields.where((field) => field.optionsResource != null))
-      field.key: (widget.values[field.key]?.toString() ?? '')
-          .split(',')
-          .map((id) => id.trim())
-          .where((id) => id.isNotEmpty)
-          .toSet(),
+      field.key: _idsIn(widget.values[field.key]),
   };
   late final Map<String, List<AddressRecord>> _addressLists = {
     for (final FieldSpec field
@@ -1398,6 +1394,13 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
   /// edited is often at the foot of a long form, out of sight of it.
   final ScrollController _scroll = ScrollController();
   Map<String, String> _fieldErrors = const {};
+
+  /// The ids a selection field holds, given as a comma-separated value.
+  static Set<String> _idsIn(Object? raw) => (raw?.toString() ?? '')
+      .split(',')
+      .map((id) => id.trim())
+      .where((id) => id.isNotEmpty)
+      .toSet();
 
   static List<R> _decodeRecords<R>(
     Object? raw,
@@ -2137,21 +2140,32 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
           _saving = false;
           _dirty = false;
         });
-        for (final TextEditingController controller in _controllers.values) {
-          controller.text = '';
+        // Back to what a new form starts with, not to blank: Save & New is
+        // offered only on create, so [CrudWorkspaceDialog.values] are the
+        // create defaults. Blanking emptied a new user's Firms box and
+        // unticked Active, so the second user was refused (D-UI-9).
+        for (final MapEntry<String, TextEditingController> entry
+            in _controllers.entries) {
+          entry.value.text = widget.values[entry.key]?.toString() ?? '';
         }
         for (final String key in _booleans.keys) {
-          _booleans[key] = false;
+          _booleans[key] = widget.values[key] as bool? ?? false;
         }
-        for (final Set<String> selection in _selections.values) {
-          selection.clear();
+        for (final MapEntry<String, Set<String>> entry
+            in _selections.entries) {
+          entry.value
+            ..clear()
+            ..addAll(_idsIn(widget.values[entry.key]));
         }
         for (final String key in _addressLists.keys) {
-          _addressLists[key] = [];
+          _addressLists[key] =
+              _decodeRecords(widget.values[key], AddressRecord.fromJson);
         }
         for (final String key in _documentLists.keys) {
-          _documentLists[key] = [];
+          _documentLists[key] =
+              _decodeRecords(widget.values[key], DocumentRecord.fromJson);
         }
+        _dirty = false;
         NotificationService.show(
           context,
           '${widget.title} saved. Ready for a new entry.',

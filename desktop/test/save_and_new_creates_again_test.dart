@@ -33,7 +33,10 @@ class _Api extends ApiClient {
   }
 }
 
-ResourceDefinition<Json> _definition(List<String> assignedTo) =>
+ResourceDefinition<Json> _definition(
+  List<String> assignedTo, {
+  Map<String, dynamic> defaults = const <String, dynamic>{},
+}) =>
     ResourceDefinition<Json>(
       title: 'Things',
       resource: 'things',
@@ -50,14 +53,19 @@ ResourceDefinition<Json> _definition(List<String> assignedTo) =>
       fields: const [
         FieldSpec(key: 'code', label: 'Code', required: true),
         FieldSpec(key: 'name', label: 'Name', required: true),
+        FieldSpec(key: 'country', label: 'Country'),
+        FieldSpec(key: 'is_active', label: 'Active', boolean: true),
       ],
       initialValues: (item) => <String, dynamic>{
+        ...defaults,
         'code': stringValue(item?['code']),
         'name': stringValue(item?['name']),
       },
       payload: (values, _) => <String, dynamic>{
         'code': values['code'],
         'name': values['name'],
+        'country': values['country'],
+        'is_active': values['is_active'],
       },
       saveAssignments: (id, values) async => assignedTo.add(id),
     );
@@ -104,5 +112,45 @@ void main() {
         reason: 'each save after Save & New is a new record');
     expect(assignedTo, ['thing-1', 'thing-2', 'thing-3'],
         reason: "each form's assignments go to its own record, never the first");
+  });
+
+  testWidgets('Save & New starts the next form from the defaults, not blank', (
+    tester,
+  ) async {
+    // D-UI-9, purchasing round 2: the second user's Firms box came back
+    // empty and Active unticked, so the save was refused.
+    tester.view.physicalSize = const Size(1600, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _Api api = _Api();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ResourceManagementPage<Json>(
+            api: api,
+            definition: _definition(
+              <String>[],
+              defaults: const <String, dynamic>{
+                'country': 'IN',
+                'is_active': true,
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('New'));
+    await tester.pumpAndSettle();
+    await _type(tester, 'T1', 'One');
+    await tester.tap(find.text('Save & New'));
+    await tester.pumpAndSettle();
+    await _type(tester, 'T2', 'Two');
+    await tester.tap(find.text('Save & Close'));
+    await tester.pumpAndSettle();
+
+    expect(api.created.map((body) => body['country']), ['IN', 'IN']);
+    expect(api.created.map((body) => body['is_active']), [true, true]);
   });
 }
