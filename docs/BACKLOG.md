@@ -5843,3 +5843,36 @@ reaches it:
 
 The same request is likely for customers and vendors; the clone pattern for
 users (`clone_user_dialog.dart`) already exists.
+
+## 83. Copy from every screen -- medium priority
+
+**Status, 2026-10-04: open.** Owner, after saving a purchase order on QA01 in
+the purchasing walkthrough: "not able to copy anything, we have to enable copy
+on each screen".
+
+**Today** (survey of `desktop/lib`, 2026-10-04):
+
+- `app.dart` wraps the shell in one `SelectionArea`, so plain text on a page is
+  meant to be selectable. **Dialogs and anything shown by `showDialog` sit in
+  the root navigator's overlay, above that `SelectionArea`, and are not
+  selectable** -- every master form, the document dialogs, confirmations and
+  refusals. Text fields copy on their own; read-only values drawn as `Text` do
+  not.
+- Grids: a row click selects the row, so a drag cannot select a cell's text.
+  `workspace_interactions.dart` binds Ctrl+C to a row-copy only on screens
+  that pass a `copy` callback; 16 call sites use `copyTextToClipboard`. Most
+  lists have no Ctrl+C at all.
+- No document shows a copy button beside its number.
+
+**The ask** (industry standard: Tally copies with Ctrl+C on any field; Zoho and
+ERPNext let you select any text and put a copy icon on document numbers):
+
+| # | Item | Detail |
+| --- | --- | --- |
+| 1 | **Text selectable everywhere** | A `SelectionArea` around every dialog and document tab body (one place: the shared dialog and document-tab frames), so any label, value, total or message can be selected and copied. |
+| 2 | **Ctrl+C on every grid** | The selected rows as tab-separated text with the header line, so they paste into Excel; and *Copy cell* on the right-click menu. Built once in `EnterpriseDataGrid`, not per screen. |
+| 3 | **Copy the number** | A small copy icon beside a document's number (PO, GRN, bill, invoice, receipt...), its party's GSTIN, and the IRN / e-way bill number. |
+| 4 | **Messages** | Every error and refusal can be selected and copied (people paste them to support). |
+| 5 | **Guard** | A widget test that a value in a dialog and in a document tab can be selected, and that Ctrl+C on a grid puts the rows on the clipboard. |
+
+No server calls are involved.
