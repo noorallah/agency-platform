@@ -64,6 +64,23 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
                         _saving ? null : () => Navigator.pop(context, _saved),
                     child: Text(_saved == null ? 'Cancel' : 'Close'),
                   ),
+                  TextButton.icon(
+                    key: const ValueKey('goods-receipt-attachments'),
+                    onPressed: _saving
+                        ? null
+                        : () => showDialog<void>(
+                              context: context,
+                              builder: (_) => DocumentAttachmentsDialog(
+                                api: widget.api,
+                                kind: AttachableDocument.goodsReceipt,
+                                documentId: current?.id,
+                                subtitle: current?.grnNumber ?? 'new receipt',
+                                canEdit: widget.canAttach,
+                              ),
+                            ),
+                    icon: const Icon(Icons.attach_file, size: 16),
+                    label: const Text('Attachments'),
+                  ),
                   // Cancel and Close of a saved draft; Complete is the save
                   // button beside it, so the edits on screen go with it.
                   DocumentStepStrip<GoodsReceiptRecord>(

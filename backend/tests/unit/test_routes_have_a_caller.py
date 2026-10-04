@@ -135,17 +135,6 @@ _ACCEPTED: dict[str, str] = {
     "DELETE /api/v1/finance/financial-years/{year_id}": _SCREEN_GAP,
     "GET /api/v1/branch-warehouse/settings": _SCREEN_GAP,
     "GET /api/v1/sales-returns/summary": _SCREEN_GAP,
-    # Uploaded files on a goods receipt (PG-4): desktop in PG-4 part 2. The
-    # bill's four routes already match the desktop's generic
-    # `purchase-invoices/$id/${action}` helper, so only these need pinning.
-    "GET /api/v1/goods-receipts/{receipt_id}/files": "desktop in PG-4 part 2",
-    "POST /api/v1/goods-receipts/{receipt_id}/files": "desktop in PG-4 part 2",
-    "GET /api/v1/goods-receipts/{receipt_id}/files/{file_id}/content": (
-        "desktop in PG-4 part 2"
-    ),
-    "DELETE /api/v1/goods-receipts/{receipt_id}/files/{file_id}": (
-        "desktop in PG-4 part 2"
-    ),
 }
 
 

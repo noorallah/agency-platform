@@ -15,6 +15,8 @@ import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../document_framework/document_steps.dart';
 import '../workspace/desktop_framework.dart';
+import '../../models/document_file.dart';
+import '../purchases/document_attachments_dialog.dart';
 import 'goods_receipt_eway_dialog.dart';
 
 part 'goods_receipt_editor_phase2.dart';
@@ -156,9 +158,14 @@ class GoodsReceiptEditorDialog extends StatefulWidget {
     this.existing,
     this.features = const BusinessFeatures.unknown(),
     this.steps = const [],
+    this.canAttach = true,
   });
 
   final ApiClient api;
+
+  /// Whether the user may add and delete files on the receipt
+  /// (`PURCHASE_RECEIVE`); without it they can only look.
+  final bool canAttach;
 
   /// Orders that can still be received against.
   final List<PurchaseOrder> purchaseOrders;

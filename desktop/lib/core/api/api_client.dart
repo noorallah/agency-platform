@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import '../../models/geography.dart';
 import '../../models/entities.dart';
+import '../../models/document_file.dart';
 import '../../models/audit.dart';
 import '../../models/adjustment_approval.dart';
 import '../../models/bulk_action.dart';
@@ -3726,6 +3727,70 @@ class ApiClient {
         ),
         StockAttachmentRecord.fromJson,
       );
+
+  // The supplier's bill or a photo of it, kept with a bill or a goods
+  // receipt (PG-4).
+
+  String _documentFilesPath(AttachableDocument kind, String documentId) =>
+      kind == AttachableDocument.purchaseInvoice
+          ? '/api/v1/purchase-invoices/$documentId/files'
+          : '/api/v1/goods-receipts/$documentId/files';
+
+  Future<List<DocumentFileRecord>> listDocumentFiles(
+    AttachableDocument kind,
+    String documentId,
+  ) async =>
+      _unwrapList(
+        await request('GET', _documentFilesPath(kind, documentId)),
+        DocumentFileRecord.fromJson,
+      );
+
+  Future<DocumentFileRecord> uploadDocumentFile(
+    AttachableDocument kind,
+    String documentId, {
+    required String fileName,
+    required List<int> bytes,
+    String caption = '',
+  }) async =>
+      DocumentFileRecord.fromJson(
+        _unwrapMap(await multipartRequest(
+          'POST',
+          _documentFilesPath(kind, documentId),
+          fields: {if (caption.trim().isNotEmpty) 'caption': caption.trim()},
+          fileField: 'file',
+          fileName: fileName,
+          fileBytes: bytes,
+          fileContentType: fileName.toLowerCase().endsWith('.pdf')
+              ? 'application/pdf'
+              : fileName.toLowerCase().endsWith('.png')
+                  ? 'image/png'
+                  : 'image/jpeg',
+        )),
+      );
+
+  Future<List<int>> downloadDocumentFile(
+    AttachableDocument kind,
+    String documentId,
+    String fileId,
+  ) =>
+      downloadBytes(
+        kind == AttachableDocument.purchaseInvoice
+            ? '/api/v1/purchase-invoices/$documentId/files/$fileId/content'
+            : '/api/v1/goods-receipts/$documentId/files/$fileId/content',
+      );
+
+  Future<void> removeDocumentFile(
+    AttachableDocument kind,
+    String documentId,
+    String fileId,
+  ) async {
+    await request(
+      'DELETE',
+      kind == AttachableDocument.purchaseInvoice
+          ? '/api/v1/purchase-invoices/$documentId/files/$fileId'
+          : '/api/v1/goods-receipts/$documentId/files/$fileId',
+    );
+  }
 
   Future<void> removeStockAttachment(String id) async {
     await request('DELETE', '/api/v1/inventory/attachments/$id');

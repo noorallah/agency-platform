@@ -247,6 +247,7 @@ class GoodsReceiptRecord {
     required this.remarks,
     required this.status,
     required this.totalOrderedQuantity,
+    this.attachedFileCount = 0,
     required this.totalPreviousReceivedQuantity,
     required this.totalCurrentReceiptQuantity,
     required this.totalAcceptedQuantity,
@@ -302,6 +303,7 @@ class GoodsReceiptRecord {
   final String remarks;
   final String status;
   final String totalOrderedQuantity;
+  final int attachedFileCount;
   final String totalPreviousReceivedQuantity;
   final String totalCurrentReceiptQuantity;
   final String totalAcceptedQuantity;
@@ -370,6 +372,8 @@ class GoodsReceiptRecord {
         remarks: stringValue(json['remarks']),
         status: stringValue(json['status']),
         totalOrderedQuantity: stringValue(json['total_ordered_quantity']),
+        attachedFileCount:
+            int.tryParse(stringValue(json['attached_file_count'])) ?? 0,
         totalPreviousReceivedQuantity:
             stringValue(json['total_previous_received_quantity']),
         totalCurrentReceiptQuantity:
