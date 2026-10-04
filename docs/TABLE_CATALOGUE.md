@@ -281,6 +281,7 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `goods_receipt_attachments` | firm store ¹ | Store goods receipt attachments. | `goods_receipts`, `firms` |
 | `goods_receipt_lines` | firm store ¹ | Store one goods receipt line. | `goods_receipts`, `firms`, `purchase_order_lines`, `products`, `tax_profiles`, `packaging_types`, `uoms`, `warehouses`, `warehouse_storage_nodes`, `batches`, `inventory_transactions` |
+| `goods_receipt_line_serials` | firm store ¹ | One serial typed on a receipt line, held until the receipt completes (PG-10). | `goods_receipts`, `goods_receipt_lines` |
 | `goods_receipt_notes` | firm store ¹ | Store goods receipt notes. | `goods_receipts`, `firms` |
 | `goods_receipts` | firm store ¹ | Store one goods receipt note header. | `firms`, `purchase_orders`, `vendors`, `branches`, `warehouses`, `users` |
 

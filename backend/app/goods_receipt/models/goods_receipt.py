@@ -280,6 +280,50 @@ class GoodsReceiptLine(BaseEntity):
     tax_rule_version: Mapped[int | None] = mapped_column(Integer)
 
 
+class GoodsReceiptLineSerial(BaseEntity):
+    """One serial number typed on a receipt line (PG-10).
+
+    What the storekeeper scanned or typed, in the order they did, while the
+    receipt is still a draft. Nothing here is a unit yet: the units are
+    ``serial_numbers`` rows, created when the receipt completes and linked to
+    this line through ``document_line_serials``, which starts their trail. A
+    draft may hold an incomplete list; completing the receipt refuses until
+    there is one per unit received.
+    """
+
+    __tablename__ = "goods_receipt_line_serials"
+    __table_args__ = (
+        UniqueConstraint(
+            "goods_receipt_line_id",
+            "position",
+            name="UQ_goods_receipt_line_serials_line_position",
+        ),
+        Index(
+            "IX_goods_receipt_line_serials_firm_receipt",
+            "firm_id",
+            "goods_receipt_id",
+        ),
+    )
+
+    #: No foreign key: `firms` lives only in the platform schema.
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    goods_receipt_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("goods_receipts.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    goods_receipt_line_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("goods_receipt_lines.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    #: Where the serial sits in the list the person typed, from 1.
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: Trimmed, case kept as typed; compared without regard to case.
+    serial_number: Mapped[str] = mapped_column(String(200), nullable=False)
+
+
 class GoodsReceiptAttachment(BaseEntity):
     """Store goods receipt attachments."""
 

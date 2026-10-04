@@ -1105,7 +1105,7 @@ class BatchSerialService:
             warehouse_id=data.warehouse_id,
             branch_id=data.branch_id,
             batch_id=data.batch_id,
-            serial_number=data.serial_number,
+            serial_number=data.serial_number.strip(),
             status=data.status,
             manufactured_date=data.manufactured_date,
             warranty_start=data.warranty_start,
@@ -1122,7 +1122,7 @@ class BatchSerialService:
         except IntegrityError as exc:
             self._session.rollback()
             raise ConflictError(
-                "A serial number already exists for this product."
+                "This serial number already belongs to a unit in this firm."
             ) from exc
         record_audit(
             self._session,
@@ -1166,7 +1166,7 @@ class BatchSerialService:
         except IntegrityError as exc:
             self._session.rollback()
             raise ConflictError(
-                "A serial number already exists for this product."
+                "This serial number already belongs to a unit in this firm."
             ) from exc
         record_audit(
             self._session,

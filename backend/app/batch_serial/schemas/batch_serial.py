@@ -408,6 +408,28 @@ class SerialResponse(SerialSchema):
     updated_at: datetime
 
 
+class SerialTrailEvent(SerialSchema):
+    """One document a serialised unit moved on, oldest first (PG-10)."""
+
+    #: ``GOODS_RECEIPT``, ``PURCHASE_RETURN``, ``DELIVERY_NOTE`` or
+    #: ``SALES_RETURN``.
+    document_type: str
+    document_id: UUID
+    document_number: str
+    document_date: date | None
+    #: The supplier on a receipt or purchase return, the customer otherwise.
+    party_name: str
+    line_number: int
+    moved_at: datetime | None
+
+
+class SerialTrail(SerialSchema):
+    """A unit and every document it moved on; the receipt comes first."""
+
+    serial: SerialResponse
+    events: list[SerialTrailEvent]
+
+
 class SerialListFilters(SerialSchema):
     """Validated filters for serial number listing."""
 

@@ -78,6 +78,13 @@ _ACCEPTED: dict[str, str] = {
     "PUT /api/v1/sales-territories/addresses/{owner_type}/{owner_id}": (
         "superseded by the per-module address forms"
     ),
+    "POST /api/v1/goods-receipts/serials/expand": (
+        "serial range fill for the receipt line's serial panel; desktop in "
+        "PG-10 part 2"
+    ),
+    "GET /api/v1/batch-serial/serials/{serial_id}/trail": (
+        "a unit's documents, its receipt first; desktop in PG-10 part 2"
+    ),
     "POST /api/v1/customers/import": _API_SURFACE,
     "POST /api/v1/vendors/import": _API_SURFACE,
     "POST /api/v1/products/import": _API_SURFACE,

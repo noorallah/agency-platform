@@ -31,9 +31,10 @@ from app.batch_serial.schemas import (
     SerialStatus,
     SerialUpdate,
 )
-from app.batch_serial.schemas.batch_serial import ReturnDueResponse
+from app.batch_serial.schemas.batch_serial import ReturnDueResponse, SerialTrail
 from app.batch_serial.services import BatchSalePolicyService, BatchSerialService
 from app.batch_serial.services.expiry_rules import expiry_rules, returns_due
+from app.batch_serial.services.serial_history import serial_trail
 from app.business.gating import require_feature
 from app.common.scope import (
     ResolvedFirmScope,
@@ -502,6 +503,18 @@ def get_serial(
         firm_scope=scope.firm_id, serial_id=serial_id
     )
     return ApiResponse(data=SerialResponse.model_validate(record))
+
+
+@router.get("/serials/{serial_id}/trail", response_model=ApiResponse[SerialTrail])
+def get_serial_trail(
+    serial_id: UUID,
+    scope: SerialViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SerialTrail]:
+    """Return a unit and every document it moved on, its receipt first (PG-10)."""
+    return ApiResponse(
+        data=serial_trail(db, firm_id=scope.firm_id, serial_id=serial_id)
+    )
 
 
 @router.put(

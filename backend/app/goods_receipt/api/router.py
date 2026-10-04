@@ -48,7 +48,10 @@ from app.goods_receipt.schemas import (
     GoodsReceiptStatus,
     GoodsReceiptSummary,
     GoodsReceiptUpdate,
+    SerialRangeRequest,
+    SerialRangeResponse,
 )
+from app.goods_receipt.serials import expand_range
 from app.goods_receipt.services import GoodsReceiptService
 from app.goods_receipt.services.inspection_service import GoodsInspectionService
 from app.products.services.barcode_labels import (
@@ -242,6 +245,30 @@ def export_goods_receipts(
         iter([csv_content.encode("utf-8")]),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=goods_receipts.csv"},
+    )
+
+
+@router.post("/serials/expand", response_model=ApiResponse[SerialRangeResponse])
+def expand_serial_range(
+    data: SerialRangeRequest,
+    scope: GoodsReceiptCreateScope,
+) -> ApiResponse[SerialRangeResponse]:
+    """Fill a run of serial numbers for a receipt line; saves nothing (PG-10).
+
+    ``{"prefix": "SN", "start": 7, "count": 3, "width": 4}`` gives SN0007,
+    SN0008 and SN0009. A convenience for the line's serial panel: the numbers
+    are only checked when the receipt is saved.
+    """
+    del scope  # Gated on receiving goods; reads nothing of the firm's.
+    return ApiResponse(
+        data=SerialRangeResponse(
+            serial_numbers=expand_range(
+                prefix=data.prefix,
+                start=data.start,
+                count=data.count,
+                width=data.width,
+            )
+        )
     )
 
 
