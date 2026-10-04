@@ -47,6 +47,7 @@ from app.finance.services.document_posting import DocumentPostingService
 from app.goods_receipt.billing import (
     RETURNED_STATES,
     ReceiptLineBilling,
+    has_left_to_bill,
     receipt_line_billing,
 )
 from app.goods_receipt.models import (
@@ -184,6 +185,9 @@ class GoodsReceiptService(TransactionalDocumentService):
         if filters.created_to is not None:
             statement = statement.where(GoodsReceipt.receipt_date <= filters.created_to)
             count = count.where(GoodsReceipt.receipt_date <= filters.created_to)
+        if filters.billable:
+            statement = statement.where(has_left_to_bill())
+            count = count.where(has_left_to_bill())
         if search:
             token = f"%{search.strip()}%"
             condition = or_(

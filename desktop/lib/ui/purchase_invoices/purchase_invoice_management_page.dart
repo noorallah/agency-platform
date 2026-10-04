@@ -136,7 +136,9 @@ class _PurchaseInvoiceManagementPageState
             pageSize: maxApiPageSize,
             sortBy: 'receipt_date',
             descending: true,
-            filters: const {'status': 'COMPLETED'},
+            // Only receipts with goods left to bill: one billed in full, or
+            // sent back, is not offered again (D-BUY-27).
+            filters: const {'status': 'COMPLETED', 'billable': 'true'},
           ),
         ),
         fetchAllPages<Product>(

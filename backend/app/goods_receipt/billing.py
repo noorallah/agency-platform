@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, exists, func, select
 from sqlalchemy.orm import Session
 
 from app.goods_receipt.models import GoodsReceiptLine
@@ -133,6 +133,57 @@ def receipt_line_billing(
     }
 
 
+def has_left_to_bill() -> ColumnElement[bool]:
+    """Return a condition on ``GoodsReceipt``: some line still has goods to bill.
+
+    The same arithmetic as ``ReceiptLineBilling.left_to_bill`` written for the
+    list's WHERE clause, so the list can drop a receipt billed in full without
+    paging through every one the firm ever received (D-BUY-27). Correlated
+    subqueries, so it costs the page one statement whatever the firm's volume.
+    """
+    from app.goods_receipt.models import GoodsReceipt
+    from app.purchase_invoice.models import PurchaseInvoice, PurchaseInvoiceLine
+    from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
+
+    billed = (
+        select(func.coalesce(func.sum(PurchaseInvoiceLine.current_invoice_quantity), 0))
+        .join(
+            PurchaseInvoice,
+            PurchaseInvoice.id == PurchaseInvoiceLine.purchase_invoice_id,
+        )
+        .where(
+            PurchaseInvoiceLine.source_document_type == "GOODS_RECEIPT",
+            PurchaseInvoiceLine.source_document_line_id == GoodsReceiptLine.id,
+            PurchaseInvoiceLine.is_deleted.is_(False),
+            PurchaseInvoice.is_deleted.is_(False),
+            PurchaseInvoice.status.in_(BILLED_STATES),
+        )
+        .correlate(GoodsReceiptLine)
+        .scalar_subquery()
+    )
+    returned = (
+        select(func.coalesce(func.sum(PurchaseReturnLine.unbilled_quantity), 0))
+        .join(
+            PurchaseReturn,
+            PurchaseReturn.id == PurchaseReturnLine.purchase_return_id,
+        )
+        .where(
+            PurchaseReturnLine.source_document_type == "GOODS_RECEIPT",
+            PurchaseReturnLine.source_document_line_id == GoodsReceiptLine.id,
+            PurchaseReturnLine.is_deleted.is_(False),
+            PurchaseReturn.is_deleted.is_(False),
+            PurchaseReturn.status.in_(RETURNED_STATES),
+        )
+        .correlate(GoodsReceiptLine)
+        .scalar_subquery()
+    )
+    return exists().where(
+        GoodsReceiptLine.goods_receipt_id == GoodsReceipt.id,
+        GoodsReceiptLine.is_deleted.is_(False),
+        GoodsReceiptLine.accepted_quantity - billed - returned > 0,
+    )
+
+
 def receipt_line_costs(
     session: Session, lines: Iterable[GoodsReceiptLine]
 ) -> dict[UUID, Decimal]:
@@ -164,6 +215,7 @@ __all__ = [
     "BILLED_STATES",
     "RETURNED_STATES",
     "ReceiptLineBilling",
+    "has_left_to_bill",
     "receipt_line_billing",
     "receipt_line_costs",
 ]
