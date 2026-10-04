@@ -5,12 +5,41 @@ a sale, what the platform already does about it, and what it must change. The
 work is `docs/BACKLOG.md` §77 (HIGH PRIORITY).
 
 Written 2026-10-02 from a discussion with the owner, checked against the code
-on that date. **The rules below are a summary to confirm with the firm's
+on that date. **Brought up to date 2026-10-04, release 1.3.0:** the menu paths
+and settings in "Where this is in 1.3.0" below, and the GST screens added by
+release 1.2.0 (GST checks, quarterly filing, rule 42, amendments). The legal
+rules and decisions in sections 1 to 6 are unchanged. **The rules below are a summary to confirm with the firm's
 chartered accountant before building**, not legal advice; figures (thresholds,
 limits) change, so each one carries the date it was read.
 
 The chain this applies to is described in `docs/SALES_TO_RECEIPT_FLOW.md`; the
 rules about what a firm may skip are in `docs/SALES_CHAIN_RULES.md`.
+
+## Where this is in 1.3.0
+
+Every path starts from the top menu bar or the gear. **All <Area> screens** is
+the link at the foot of an area's drop-down; **Ctrl+K** finds any screen by
+name. Settings are described field by field, with defaults, in
+`docs/CONFIGURATION_SETTINGS_GUIDE.md` (section 9, Tax).
+
+| What | Where | Default for a new firm |
+| --- | --- | --- |
+| Dispatch before the invoice (Off / Warn / Block), van or route sales, e-invoicing applies from, 30-day rule from, e-invoice filing route (Sandbox / Offline), e-way bill limit, claim input credit (all bills / matched only), matching tolerance, supplier bill without an IRN, rule 37, rule 42, returns filed monthly or quarterly (QRMP), PMT-06 method | Settings (gear) > Tax > **GST Documents** | Dispatch **Warn**; e-invoicing not applicable; **Sandbox**; limit 50,000; all bills; tolerance 1.00; IRN check **Warn**; rule 37 and rule 42 **Report only**; **Monthly** |
+| TDS on purchases (194Q) | Settings > Tax > **TDS on Purchases (194Q)** | Off |
+| TCS | Settings > Selling > **TCS Settings** (the list: Accounts > All Accounts screens > Tax filing > TCS) | Off |
+| Tax rules (input credit blocked, reverse charge) and the GST template | Settings > Tax > Tax Rules, Tax Configuration | From the GST template applied at firm set-up |
+| Document numbering (the 16-character check) | Settings > Firm > **Numbering Series** | Set up with the firm |
+| Challan reason, Dispatch, **Dispatch and invoice** | Sell > **Delivery Notes** (the reason is a field on the note; the actions are on the picked row's bar) | Reason Sale |
+| Sales invoice, e-invoice reference copy | Sell > **Sales Invoices**; Accounts > All Accounts screens > Tax filing > **E-Invoice** (including *To register*) | -- |
+| Credit note, customer debit note, sales return | Sell > **Returns & notes** > Credit Notes, Customer Debit Notes, Sales Returns | -- |
+| GSTR-1 and GSTR-3B, filed return and amendments | Accounts > **GST Returns** | -- |
+| GSTR-2B import and matching | Accounts > All Accounts screens > Tax filing > **GSTR-2B Reconciliation** | -- |
+| Rule 37 (180 days), Rule 42 | Accounts > All Accounts screens > Tax filing > **Rule 37 (180 days)**, **Rule 42** | -- |
+| GST checks before filing | Accounts > All Accounts screens > Tax filing > **GST checks** | -- |
+| GST payment, PMT-06 deposits, TDS challans, bank details on bills | Accounts > All Accounts screens > Tax filing > GST Payment, PMT-06 deposits, TDS Challans, Bank Details | -- |
+| Supplier's IRN, e-way bill number on a receipt | Buy > **Purchase Invoices** (the bill); Buy > **Goods Receipts** (the receipt) | -- |
+| A supplier's GST type, *Supplier e-invoices* | Masters > **Vendors** > the supplier | Null type: a GSTIN reads as regular |
+| A customer's GST registration type | Masters > **Customers** > the customer | Null: a GSTIN reads as regular |
 
 ## 1. The rules
 
@@ -78,7 +107,7 @@ rules about what a firm may skip are in `docs/SALES_CHAIN_RULES.md`.
 | E-invoice live through a GSP | **Not built** (§55 M2) |
 | E-invoice for a sales return's credit note | **Built 2026-10-02** (D-TAX-2, A45): a completed return of billed goods registers as a CRN naming each invoice it returns goods from; a return of goods never invoiced is not registered |
 | Whether a firm must e-invoice | **Enforced 2026-10-02** (§77 row 6, A43): past the dated *e-invoicing applies from* setting, a B2B invoice, credit note or debit note prints and is emailed only once it has a live IRN; before that only as a reference copy marked not valid. The automatic *Invoice approved* email waits for the IRN |
-| The 30-day rule | **Enforced 2026-10-02** (§77 row 7, A44): from the firm's *30-day rule from* date, registering (portal or offline export) refuses a document more than 30 days old, naming its last day; **E-invoice > To register** lists every B2B document without an IRN with days left, due soon within 5 days, late after |
+| The 30-day rule | **Enforced 2026-10-02** (§77 row 7, A44): from the firm's *30-day rule from* date, registering (portal or offline export) refuses a document more than 30 days old, naming its last day; **Accounts > All Accounts screens > Tax filing > E-Invoice > To register** lists every B2B document without an IRN with days left, due soon within 5 days, late after |
 | E-way bill for a firm that does not e-invoice | Built 2026-10-02 (§77 row 9), see above |
 | E-way bill for a challan with no invoice (stock transfer, job work) | Built 2026-10-02 (§77 row 9), see above |
 | Dispatch before the invoice exists | **Judged by a firm policy** (#903): OFF, WARN (the default) or BLOCK, applied to a Sale note (and a van or route sale only if the firm says *route sales need the invoice first*) dispatched by hand with no approved invoice; the warning is recorded on the dispatch and names CGST s.31. A bill that dispatches the note it raised is never judged (`GstComplianceService.dispatch_check`) |

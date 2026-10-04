@@ -1,5 +1,7 @@
 # Purchase to payment: stock, and the money
 
+Brought up to date 2026-10-04, release 1.3.0: every menu path is the 1.3.0 path (light menu, Settings page), the settings table matches `CONFIGURATION_SETTINGS_GUIDE.md`, and a section carries what release 1.2.0 added to the chain (requisitions, order amendments, approval levels, bill tolerance, budgets, quality inspection, payment runs, landed costs). The traced figures below are from 2026-08 and are unchanged.
+
 Updated 2026-10-02: the order's quantity picture and billing status (A33); reverse charge taken off by a return or debit note; what a firm configures (table below); input credit per bill line and where blocked tax posts; the supplier's GST type; GSTR-2B import and matching; a purchase return's outcome (credit, replacement, refund); a return off a paid bill; reorder planning from sales (backlog 69 row 12). Brought up to #947 the same night: a debit note's excess as supplier credit (A4); the preferred supplier (A18); rule 37; the supplier's IRN on the bill; the e-way bill on the goods receipt; a batch's MRP from the receipt (§78 rows 4-6, A41).
 
 How a purchase becomes stock on the shelf and money out of the bank, which
@@ -42,12 +44,35 @@ Nothing before those three moves a number that matters. Raising an order,
 submitting it, approving it, and even raising a draft goods receipt all leave
 stock and the ledger completely untouched.
 
+### Where each step is in 1.3.0
+
+A path such as *Buy > Purchase Orders* means: open **Buy** in the menu bar, then
+the item. **All Buy screens** is the link at the foot of the drop-down; the
+daily list is what the drop-down shows first. **Ctrl+K** finds any screen.
+
+| Step | Where |
+| --- | --- |
+| Requisition (what to buy), convert to orders | Buy > All Buy screens > Documents > **Requisitions**; Reports > Operational > Below reorder level |
+| 1-2. Purchase order, submit, approve, amend | Buy > **Purchase Orders** |
+| Approvals waiting for a level's sign-off | Buy > All Buy screens > Documents > **Approvals** |
+| Quality inspection of received goods | Buy > All Buy screens > Documents > **Quality Inspection** |
+| 3-4. Goods receipt, complete | Buy > **Goods Receipts** |
+| 5-6. Purchase invoice, approve | Buy > **Purchase Invoices** |
+| 7. Payment, supplier credits | Buy > **Payments**; Buy > All Buy screens > Money > Payment Runs, Post-dated Cheques |
+| What the firm owes a supplier | Buy > **Supplier Statements** |
+| Purchase return, supplier debit note | Buy > **Returns & notes** > Purchase Returns, Debit Notes |
+| Landed costs, supplier rebates, principal claims, supplier gifts | Buy > All Buy screens > Money > Landed Costs, Supplier Rebates, Principal Claims, Supplier Gifts |
+| Rate trend, purchase analysis, dashboard | Buy > All Buy screens > Insight |
+| GSTR-2B matching, rule 37 | Accounts > All Accounts screens > Tax filing > GSTR-2B Reconciliation, Rule 37 (180 days) |
+| The ledger entries each step posts | Accounts > **Journal Entries** |
+| Stock after each step | Stock > All Stock screens > Stock > **Inventory**; Stock > **Stock Ledger** |
+
 ---
 
 ## What a firm configures
 
 Every row is a setting a firm changes without a release. **Where** gives the
-phase 2 path (Settings gear, then the group) and the API. A firm that has set
+1.3.0 path (the gear, then *Settings* and its group, or *Set up*) and the API. A firm that has set
 nothing gets the default in the third column, which is the chain as it always
 worked.
 
@@ -55,13 +80,15 @@ worked.
 
 | Setting | Where | Choices / default | What it changes in the chain |
 | --- | --- | --- | --- |
-| Purchase Settings (`purchase_workflow_settings`) | Settings > Buying > Purchase Settings; `GET/PUT /api/v1/purchases/workflow-settings` | `purchase_order_stage` and `goods_receipt_stage`: both on by default. A receipt is always raised against an order, so the receipt stage cannot be on while the order stage is off | Steps 1-4. An off stage means the bill raises that document itself. Stock still arrives at the goods receipt and the accrual still passes through Goods Received Not Invoiced |
+| Purchase Settings (`purchase_workflow_settings`) | Settings > Buying > Purchase Settings; `GET/PUT /api/v1/purchases/workflow-settings` | `purchase_order_stage` and `goods_receipt_stage`: both on by default. A receipt is always raised against an order, so the receipt stage cannot be on while the order stage is off. The same screen holds *Rate may exceed the order by (%)* and *Whole bill may exceed the order by (amount)* (no check by default: past either, approving the bill needs `PURCHASE_APPROVE_OVER_TOLERANCE` and names each line), *Order quantities off the supplier's terms* (**Warn**, or Refuse) and *Past a purchase budget* (**Warn**, or Needs approval, which needs `PURCHASE_APPROVE_OVER_BUDGET`) | Steps 1-4. An off stage means the bill raises that document itself. Stock still arrives at the goods receipt and the accrual still passes through Goods Received Not Invoiced |
 | Default branch and warehouse (same row) | Same screen | `default_branch_id`, `default_warehouse_id`: null falls back to the firm's default branch and warehouse | Where a raised-for-you receipt puts the goods; receiving refuses a line with no warehouse |
-| Reorder planning (`reorder_planning_settings`) | Settings > Buying > Purchase Settings > Reorder planning; `GET/PUT /api/v1/purchases/reorder-planning` (decision A39) | `basis` LEVELS (default) or SALES; `sales_window_days` 90, `lead_time_days` 7, `safety_days` 7, `cover_days` 30 | What *Below reorder level* lists and suggests before step 1: on SALES, every product with no typed level is reordered at average daily sales x (lead + safety) and ordered up to that plus the cover, in whole units, less what is on order; a typed level still wins (`PURCHASE_FRAMEWORK.md`) |
+| Reorder planning (`reorder_planning_settings`) | Reports > Operational > Below reorder level > Reorder planning; `GET/PUT /api/v1/purchases/reorder-planning` (decision A39) | `basis` LEVELS (default) or SALES; `sales_window_days` 90, `lead_time_days` 7, `safety_days` 7, `cover_days` 30 | What *Below reorder level* lists and suggests before step 1: on SALES, every product with no typed level is reordered at average daily sales x (lead + safety) and ordered up to that plus the cover, in whole units, less what is on order; a typed level still wins (`PURCHASE_FRAMEWORK.md`) |
 | Approval Limits (`role_purchase_approval_limits`) | Settings > Buying > Approval Limits; `GET/PUT /api/v1/purchases/approval-limits` (decision A30) | One `max_order_amount` per role code, compared with the order's grand total, tax included. A role with no row has no limit of its own; a person's limit is the largest of their roles' limits; somebody with none, or a platform administrator, is not limited | Step 2. An order above the approver's limit is refused at approval, naming the amount needed, and stays submitted for somebody allowed more. The approval that clears it records both figures |
 | GST Documents (`gst_compliance_settings`) | Settings > Tax > GST Documents; `GET/PUT /api/v1/tax-framework/gst-compliance-settings` | `itc_claim_basis` `ALL` (default) or `MATCHED_ONLY`; `gstr2b_tolerance` 1.00 (rupees); `rule37_mode` OFF, REPORT (default) or POST; `supplier_irn_check` OFF or WARN (default); `eway_bill_limit` 50,000 | See "GST on the purchase" below. `supplier_irn_check` warns on a bill from a supplier marked *Supplier e-invoices* that carries no IRN (§78 row 5); `eway_bill_limit` is the receipt value above which a receipt with no e-way bill is warned about (§78 row 6). The same row carries the selling-side fields, described in `SALES_TO_RECEIPT_FLOW.md` |
-| Trade licences (`trade_licence_settings`) | `app/trade_licences`; `GET/PUT /api/v1/trade-licences/settings` | `purchase_enforcement` OFF or `WARN` (default). Never BLOCK | A purchase order or goods receipt for a licensed product, with the firm holding no valid licence, warns. It never refuses: the goods are already on the dock |
-| Party adjustments (`party_adjustment_settings`) | `GET/PUT /api/v1/party-adjustments/settings` | A rounding limit (10.00 unless set) and an approval threshold (1,000.00 unless set); see `app/party_adjustments` | Step 7: how much a payment may round off, and when a write-back needs a second person holding `PARTY_ADJUSTMENT_APPROVE` |
+| Trade licences (`trade_licence_settings`) | Settings > Set up > Party lists > **Licence Check**; `GET/PUT /api/v1/trade-licences/settings` | `purchase_enforcement` OFF or `WARN` (default). Never BLOCK | A purchase order or goods receipt for a licensed product, with the firm holding no valid licence, warns. It never refuses: the goods are already on the dock |
+| Party adjustments (`party_adjustment_settings`) | Accounts > All Accounts screens > Books > Party Adjustments; `GET/PUT /api/v1/party-adjustments/settings` | A rounding limit (10.00 unless set) and an approval threshold (1,000.00 unless set); see `app/party_adjustments` | Step 7: how much a payment may round off, and when a write-back needs a second person holding `PARTY_ADJUSTMENT_APPROVE` |
+| Approval Levels | Settings > Firm > Approval Levels (purchase levels need `PURCHASE_MANAGE_SETTINGS`) | None: one approval is enough. A rule is a document type (purchase order, purchase bill), a level 1 to 3, a from-amount and a role | Steps 2 and 6: a document at or above a rule's amount needs each level signed in order, by different people, the last signature approving. Approving early is refused naming the level and role; a total that rises after a signature needs that level again; *Reject* needs a reason |
+| Purchase Budgets | Settings > Buying > Purchase Budgets | None | Step 2: a monthly amount by branch and category; *Used* is the value before tax of approved orders dated in the month. Going over warns or needs approval, as chosen under *Past a purchase budget* in Purchase Settings |
 | Numbering Series | Settings > Firm > Numbering Series; `/api/v1/document-framework/numbering-rules` | Per document type; see `app/document_framework` for the fields | The number on every document above |
 | Messaging (`messaging_settings`) | Settings > Firm > Messaging; `GET/PUT /api/v1/messaging/settings` | `is_enabled` off: a firm with no row queues and records nothing. `due_soon_days` 3; `overdue_every_days` 7; `overdue_stop_after_days` 90 (A12) | Payment due and overdue reminders. `MESSAGING_FRAMEWORK.md` |
 | Control accounts | Per firm, `ControlAccountPurpose` | `INELIGIBLE_INPUT_TAX` is *Input Tax Not Claimable*, 5450, an expense account | Where tax the firm may not claim posts. A firm without it mapped is refused the bill, not posted wrong |
@@ -70,10 +97,10 @@ worked.
 
 | Setting | Where | Choices / default | What it changes in the chain |
 | --- | --- | --- | --- |
-| GST registration type | Supplier, `gst_registration_type` (`app/vendors/gst_registration.py`) | REGULAR, COMPOSITION, UNREGISTERED, OVERSEAS, SEZ. Null: a GSTIN reads as REGULAR, none as UNREGISTERED | A **declared** Composition, Unregistered or Overseas supplier charges no GST: the bill's lines carry none and no credit is claimed (A37). A null type never drops tax, even with no GSTIN on file. A *Reverse charge* rule still applies. Reaches the tax engine as `vendor_type` |
+| GST registration type | Masters > Vendors > the supplier, `gst_registration_type` (`app/vendors/gst_registration.py`) | REGULAR, COMPOSITION, UNREGISTERED, OVERSEAS, SEZ. Null: a GSTIN reads as REGULAR, none as UNREGISTERED | A **declared** Composition, Unregistered or Overseas supplier charges no GST: the bill's lines carry none and no credit is claimed (A37). A null type never drops tax, even with no GSTIN on file. A *Reverse charge* rule still applies. Reaches the tax engine as `vendor_type` |
 | Supplier e-invoices | Supplier, `issues_e_invoices` (form; import column `EInvoicing`) | Off | Step 5: the bill from such a supplier is warned about until it records the supplier's IRN, under `supplier_irn_check` |
-| Preferred supplier | Product, `preferred_vendor_id` (A18) | Null | Before step 1: *Below reorder level* drafts the order to this supplier, else to the one last billed |
-| Payment terms | Supplier, `payment_terms_days` | Default 0 | A bill's due date defaults from it when nobody typed one (`app/purchase_invoice/services/msme.py`) |
+| Preferred supplier | Masters > Products > the product, `preferred_vendor_id` (A18) | Null | Before step 1: *Below reorder level* drafts the order to this supplier, else to the one last billed |
+| Payment terms | Masters > Vendors > the supplier, `payment_terms_days` | Default 0 | A bill's due date defaults from it when nobody typed one (`app/purchase_invoice/services/msme.py`) |
 | MSME fields | Supplier, `udyam_number`, `msme_category`, `msme_written_agreement` | Category MICRO, SMALL or MEDIUM | A micro or small supplier must be paid within 45 days (15 where nothing was agreed in writing); the bill carries the date (MSMED Act s.15, Income Tax s.43B(h)). MEDIUM is recorded and outside the rule |
 | Status BLOCKED | Supplier, `status` and `blocked_reason` | `blocked_reason` is required with BLOCKED and cleared otherwise | Step 1: no new purchase order can be raised to a blocked supplier, and the refusal repeats the reason |
 | Input credit eligibility | Product, `itc_eligibility` | ELIGIBLE (default), BLOCKED (s.17(5)), INELIGIBLE. Changing it needs `PRODUCT_TAX_MANAGE` | The default for each bill line; the line may say otherwise. See "GST on the purchase" |
@@ -362,7 +389,7 @@ appears.
 
 ### Rule 37: a bill unpaid 180 days
 
-`GET /api/v1/gst-returns/rule37`, behind **Accounts > Tax filing > Rule 37 (180
+`GET /api/v1/gst-returns/rule37`, behind **Accounts > All Accounts screens > Tax filing > Rule 37 (180
 days)**, lists every bill dated (the supplier's date, else ours) more than 180
 days ago with credit
 claimed and money still owed -- what it owes read from the payments service, so
@@ -375,6 +402,44 @@ since shows its reclaim. Under `rule37_mode` the firm chooses OFF, REPORT
 recorded in `itc_reversals` (`LEDGER_POSTING_RULES.md`). GSTR-3B reports the
 reversals in 4(B)(2) and reclaims in 4(A)(5) and 4(D)(1). Interest under s.50
 is not computed.
+
+---
+
+## What release 1.2.0 added to the chain
+
+Each is off, or has no effect, until a firm switches it on or sets a figure;
+nothing in the traced chain above changes for a firm that does not.
+
+- **Requisitions.** A requisition (Buy > All Buy screens > Documents >
+  Requisitions, or *Raise requisition* on Reports > Operational > Below reorder
+  level) is submitted and approved, and *Convert to orders* makes one **draft
+  order per supplier**, priced from that supplier's terms. It moves nothing.
+- **Supplier terms on the order.** A supplier's catalogue (their code, price,
+  pack, minimum order and multiple, lead time) and standing discount fill a new
+  order's blank price and discount, the expected date, and a hint for the
+  multiple.
+- **Amending an approved order** (Purchase Orders > Amend) keeps each revision
+  and asks for approval again when the total rises past the approver's limit.
+- **Approval levels and approval limits** (see the table above) decide who may
+  approve an order or a bill: levels by amount and role, limits by role.
+- **Quality inspection.** For a product or category marked *Inspect on
+  receipt*, received goods wait in quarantine until released or rejected
+  (Buy > All Buy screens > Documents > Quality Inspection); the receipt's
+  ledger entry is unchanged.
+- **Payment runs** (Buy > All Buy screens > Money > Payment Runs). Pick the
+  bills due by a date, approve once (`PAYMENT_RUN_APPROVE`, which the cashier
+  does not hold), and one payment per supplier is posted as step 7 posts it; a
+  bank file is exported.
+- **Landed costs** (Buy > All Buy screens > Money > Landed Costs). Freight,
+  duty or handling is spread over completed receipts by value, quantity or
+  weight: the share belonging to stock still on hand raises the stock's average
+  cost, and the share belonging to goods already sold goes to cost of goods
+  sold. The journal is Dr Inventory and Cost of Goods Sold, Cr *Expenses
+  Included in Valuation*, so the chain's receipt and bill entries are not
+  disturbed. See `LEDGER_POSTING_RULES.md`.
+- **Money in more modes.** A payment records Cash, UPI, cheque, NEFT or card
+  with its number and date; a post-dated cheque is held, posting nothing, until
+  its date.
 
 ---
 

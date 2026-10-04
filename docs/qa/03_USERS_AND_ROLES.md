@@ -1,8 +1,12 @@
 # Users, roles, job templates and hiring
 
-Part of the QA test suite in `docs/qa/`. Read `00_README.md` first: it
-explains the preparations, the accounts and how to record results. Generated
-on 2026-10-03 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
+Part of the QA test suite in `docs/qa/` for **release 1.3.0**, the first
+end-to-end test pass (it includes 1.2.0). Read `00_README.md` first: it
+explains the preparations, the accounts and how to record results. Every menu
+path is the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down on the menu
+bar, `Sell > All Sell screens > Documents > Proforma` is a screen that is not
+daily work, and `Settings > Set up > Pricing > Price Lists` is the gear at the
+right of the bar. Generated on 2026-10-04 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
 
@@ -25,21 +29,21 @@ their own firm, through **Roles by firm**.
 
 - **Preconditions:** A firm administrator of QA01, and a QA01 user given two roles picked by hand.
 - **Steps**
-  1. Sign in as the prepared **Firm admin** → Administration → **Users**.
+  1. Sign in as the prepared **Firm admin** → Settings > Platform > People > **Users**.
   2. Select **Manual Hire (qa)** — in QA01 only — → **Edit**.
 - **Expect:** **New** and **Edit** offered; the edit form opens normally, writable.
 ### TC-USER-002 — Somebody who also works elsewhere opens read-only, and says why
 
 - **Preconditions:** The platform administrator, a firm administrator of QA01, a user who is a member of QA01 and QA02, and a user in QA02 only.
 - **Steps**
-  1. As the prepared **Firm admin**, Users → select **Shared Member (qa)** → **Edit**.
+  1. As the prepared **Firm admin**, Settings > Platform > People > Users → select **Shared Member (qa)** → **Edit**.
   2. Double-click the row; then the context menu's **Edit**.
 - **Expect:** all three open the record **read-only**, never silently: the subtitle reads "… also works in another firm, so their profile is managed by a platform administrator. Use Roles by firm to set what they do in yours." The refusal is about writing; the row is still one somebody meant to look at, so it opens.
 ### TC-USER-003 — New starts in the firm that is open
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
 - **Steps**
-  1. As the prepared **Firm admin**, Users → **New**. Look at **Firms** before typing anything; open its list.
+  1. As the prepared **Firm admin**, Settings > Platform > People > Users → **New**. Look at **Firms** before typing anything; open its list.
   2. Name `In Firm qa`, email `qa.infirm@qa.test`, a 12-character password → Save.
 - **Expect**
   - Step 1: **QA01 already ticked** — the firm open in the switcher — and the list offers the firms *you* belong to (`/api/v1/me/firms`; `/api/v1/firms` is platform-only and answers a firm admin 403). The form used to open empty and then silently remove the membership the save had just made.
@@ -48,8 +52,8 @@ their own firm, through **Roles by firm**.
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
 - **Steps**
-  1. As the prepared **Firm admin**, Users → **New**: name `No Firm qa`, email `qa.nofirm@qa.test`, password; **clear** the Firms box; no job, no roles → Save.
-  2. Users → **Add existing user** → type `qa.nofirm`.
+  1. As the prepared **Firm admin**, Settings > Platform > People > Users → **New**: name `No Firm qa`, email `qa.nofirm@qa.test`, password; **clear** the Firms box; no job, no roles → Save.
+  2. Settings > Platform > People > Users → **Add existing user** → type `qa.nofirm`.
   3. New again: `qa.nofirm2@qa.test`, Firms cleared, and this time pick a role under Roles in this firm → Save. Then look them up as in step 2.
 - **Expect**
   - Step 1: created, in **no** firm — allowed and deliberate — and **not** in the grid.
@@ -59,7 +63,7 @@ their own firm, through **Roles by firm**.
 ### TC-USER-005 — A platform administrator's New form
 
 - **Preconditions:** The platform administrator (`platform-admin@agency.local`), who belongs to no firm.
-- **Steps:** sign in as the prepared **Platform admin** → Administration → Users → **New**; look at Firms and open its list.
+- **Steps:** sign in as the prepared **Platform admin** → Settings > Platform > People > Users → **New**; look at Firms and open its list.
 - **Expect:** Firms is **empty**, not prefilled — a platform administrator has no firm of their own, and quietly using whichever one the switcher shows would be a surprise. The list offers **every** firm (`/api/v1/firms`). Same field, a different source.
 ### TC-USER-006 — A firm outside your reach is refused by name
 
@@ -71,7 +75,7 @@ their own firm, through **Roles by firm**.
 - **Preconditions:** The platform administrator, a firm administrator of QA01, a user who is a member of QA01 and QA02, and a user in QA02 only.
 - **Steps**
   1. **(HTTP)** As the prepared firm admin: `PUT /api/v1/users/{Shared Member's id}/firms` naming **QA01 only**: `{"assignments": [{"firm_id": "<QA01 id>", "is_primary": false, "is_active": true}]}`.
-  2. Sign in as the prepared **Platform admin** → Users → Shared Member (or `GET /api/v1/users/{id}/firms`).
+  2. Sign in as the prepared **Platform admin** → Settings > Platform > People > Users → Shared Member (or `GET /api/v1/users/{id}/firms`).
 - **Expect**
   - Step 1: **200** — naming only your own firm is legitimate.
   - Step 2: **both** memberships, QA02 still primary. The endpoint replaces for a platform caller and **merges** for a scoped one: memberships outside the caller's reach are carried through untouched, or a firm administrator correcting their own firm would silently remove that person from every other firm. The screen refuses this edit anyway (TC-USER-002); the merge protects the API from any other client.
@@ -86,10 +90,10 @@ their own firm, through **Roles by firm**.
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
 - **Steps**
-  1. As the prepared **Firm admin**, Users → New: name, `qa.counter@qa.test`, password, **Job template** Counter Sales, Roles left alone → Save. (`docs/USER_ADMINISTRATION_GUIDE.md` §3 end to end.)
-  2. Sign in as them and read the sidebar; open Finance.
-- **Expect:** **Sales** and **Inventory** offered; **Finance** offered holding **exactly Receipts and Payments**; no Administration. None of Chart of Accounts, Control Accounts, Cost Centres, Profit Centres, Journal Entries, Ledgers, Trial Balance, Profit & Loss, Balance Sheet or Refunds.
-  - **Two opposite failures:** no Finance at all means the module gate was reverted and the empty-sidebar bug is back; Finance *with the ledger in it* means the tabs lost their own codes and the module gate is doing the work alone.
+  1. As the prepared **Firm admin**, Settings > Platform > People > Users → New: name, `qa.counter@qa.test`, password, **Job template** Counter Sales, Roles left alone → Save. (`docs/USER_ADMINISTRATION_GUIDE.md` §3 end to end.)
+  2. Sign in as them and read the menu bar; open Accounts, then the Sell and Buy menus.
+- **Expect:** **Sell** and **Stock** offered; the only money screens are **Sell > Receipts** and **Buy > Payments**; no Platform part under Settings. No **Accounts** menu at all, so none of Chart of Accounts, Control Accounts, Cost Centres, Profit Centres, Journal Entries, Ledgers, Trial Balance, Profit & Loss, Balance Sheet or Refunds (confirm).
+  - **Two opposite failures:** no Receipts or Payments at all means the module gate was reverted and the empty-menu bug is back; the books (Accounts) *offered* means the tabs lost their own codes and the module gate is doing the work alone.
 
 ## Hiring somebody who already has an account
 
@@ -109,7 +113,7 @@ one job, and **one route answers two callers differently**:
 
 - **Preconditions:** The platform administrator, a firm administrator of QA01, and a cashier who belongs to QA02 only. (Outsider works in QA02 alone.)
 - **Steps**
-  1. Sign in as the prepared **Firm admin** → Administration → Users → **Add existing user**, with no row selected.
+  1. Sign in as the prepared **Firm admin** → Settings > Platform > People > Users → **Add existing user**, with no row selected.
   2. Type `t0`.
   3. Type `qa.outs`; then clear and type `Outsider (qa)`.
   4. Type `qa`.
@@ -131,7 +135,7 @@ one job, and **one route answers two callers differently**:
 - **Steps**
   1. As the prepared **Firm admin**, select **Outsider (qa)** → **Edit**; double-click the row; the context menu's Edit.
   2. Select them → **Apply job template** → Warehouse → Apply. Then **Roles by firm**.
-  3. Sign in as the prepared **Platform admin** → Users → Outsider → Edit.
+  3. Sign in as the prepared **Platform admin** → Settings > Platform > People > Users → Outsider → Edit.
 - **Expect**
   - Step 1: all three open **read-only**, the subtitle saying they also work in another firm, so their profile is managed by a platform administrator, and Roles by firm is what to use.
   - Step 2: both work. Roles by firm shows **one section, QA01** — not QA02, though they work there: the dialog offers only firms you hold `USER_CREATE` in.
@@ -151,18 +155,18 @@ one job, and **one route answers two callers differently**:
 
 - **Preconditions:** A QA01 user hired with the *Field Sales* job template (role SALES_EXECUTIVE only). (and `firm-admin` (two runs, or any two))
 - **Steps**
-  1. Sign in as the `sales-executive` preparation's **Seller**; look for Administration → Users.
+  1. Sign in as the `sales-executive` preparation's **Seller**; look for Settings > Platform > People > Users.
   2. **(HTTP)** As the seller with `X-Firm-ID` QA01: `GET /api/v1/users/lookup?q=fixtures`.
   3. **(HTTP)** As the `firm-admin` preparation's firm admin: `GET /api/v1/users/lookup?q=`, then `?q=qa.test&page=2&page_size=2`.
 - **Expect**
-  1. No Administration at all, so no Add existing user.
+  1. No Platform part on the Settings page, so no Add existing user.
   2. **403** — the lookup needs `USER_CREATE`, deliberately not `USER_VIEW`.
   3. **422**, "Type at least 3 characters to look somebody up." — an empty term is the shortest of all. Page 2: **empty**, and a plain `?q=qa.test` returns **10** however many match: a firm caller gets "is this them?", not "who works here?".
 ### TC-LOOK-006 — A platform administrator gets the directory
 
 - **Preconditions:** The platform administrator, a firm administrator of QA01, and a cashier who belongs to QA02 only.
 - **Steps**
-  1. Sign in as the prepared **Platform admin**, switch into **QA01** → Users → **Add existing user**.
+  1. Sign in as the prepared **Platform admin**, switch into **QA01** → Settings > Platform > People > Users → **Add existing user**.
   2. Type `e`; clear the box.
   3. Type `qa.outs`, pick Outsider, Add, close. Open Add existing user again and type `qa`.
   4. **(HTTP)** As the platform admin with `X-Firm-ID` QA01: `GET /api/v1/users/lookup?q=&page=1&page_size=2`.
@@ -171,11 +175,11 @@ one job, and **one route answers two callers differently**:
   - Step 2: filtered on one character; the three-character rule is a firm caller's. Clearing brings the full list back.
   - Step 3: Outsider is added, and **absent** the second time. A firm caller's lookup *flags* a member; a platform caller's directory *excludes* them.
   - Step 4: two rows and a `pagination` block whose `total_records` is everybody not in QA01.
-### TC-LOOK-007 — User-Firm Assignments is a platform administrator's tab
+### TC-LOOK-007 — User-Firm Assignments is a platform administrator's screen
 
 - **Preconditions:** The platform administrator and a firm administrator of QA01. ((a firm admin and a platform admin))
-- **Steps:** open Administration as the prepared **Firm admin**; then as its **Platform admin**, with no firm and then with QA01 selected.
-- **Expect:** the firm admin sees Users, Roles & Permissions and User Templates — **no User-Firm Assignments**; Users → Edit → Firms and Add existing user are their ways to the same thing. The platform admin sees **User-Firm Assignments**, with the Firm filter, either way. A tab-level `requiresPlatformAdmin`, because a platform administrator passes code checks by designation.
+- **Steps:** open Settings > Platform > People as the prepared **Firm admin**; then as its **Platform admin**, with no firm and then with QA01 selected.
+- **Expect:** the firm admin sees Users, Roles, Permissions and User Templates — **no User-Firm Assignments**; Settings > Platform > People > Users → Edit → Firms and Add existing user are their ways to the same thing. The platform admin sees **User-Firm Assignments**, with the Firm filter, either way. A tab-level `requiresPlatformAdmin`, because a platform administrator passes code checks by designation.
 ---
 
 ## Hiring like an existing person
@@ -192,7 +196,7 @@ digit, symbol.
 
 - **Preconditions:** A firm administrator of QA01, and a QA01 salesperson to hire somebody like.
 - **Steps**
-  1. Sign in as the prepared **Firm admin** → Administration → Users → select **Source Seller (qa)** → **Hire like this person**.
+  1. Sign in as the prepared **Firm admin** → Settings > Platform > People > Users → select **Source Seller (qa)** → **Hire like this person**.
   2. Press **Create** with the form empty.
   3. Name `Clone Test`, email `not-an-email`, any password → Create.
   4. Email `qa.clone@qa.test`, password `short` → Create.
@@ -211,7 +215,7 @@ digit, symbol.
 - **Expect**
   - Step 1: "Clone Test qa was created with the same access as Source Seller (qa), and must change their password on first sign-in."
   - Step 2: `SALES_EXECUTIVE` in QA01 and QA01 as their firm (primary) — the same as the source. **Blank** mobile, employee code, department, joining date; **Also applies here** reads None.
-  - Step 3: a **Set a new password** screen instead of the application — Current password, New password, Confirm new password, **Update password** — and nothing else opens until it is done. Afterwards: the source's access and no Administration. A password somebody else chose is not a password.
+  - Step 3: a **Set a new password** screen instead of the application — Current password, New password, Confirm new password, **Update password** — and nothing else opens until it is done. Afterwards: the source's access and no Platform part on the Settings page. A password somebody else chose is not a password.
 ### TC-HIRE-003 — A clone is a starting point, not a link
 
 - **Preconditions:** A firm administrator of QA01, and a QA01 salesperson to hire somebody like.
@@ -224,10 +228,10 @@ digit, symbol.
 
 - **Preconditions:** A firm administrator of QA01, and a QA01 salesperson to hire somebody like.
 - **Steps**
-  1. Sign in as the prepared **Source** (a `SALES_EXECUTIVE`) and look for the users grid.
+  1. Sign in as the prepared **Source** (a `SALES_EXECUTIVE`) and click the gear: look for Platform > People > Users.
   2. **(HTTP)** As the source, with `X-Firm-ID` of QA01: `POST /api/v1/users/{their own id}/clone` with `{"email": "qa.x@qa.test", "full_name": "x", "password": "Welcome@12345"}`.
 - **Expect**
-  - Step 1: **Administration is not offered**, so there is no Hire like this person.
+  - Step 1: **No Platform part is offered** (so no Users screen and no Hire like this person).
   - Step 2: **403**. The action needs `ROLE_ASSIGN` — somebody who may open accounts but not grant access must not be able to copy access instead.
 ---
 
@@ -249,7 +253,7 @@ offered to every firm; cases count only the eleven.
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
 - **Steps**
-  1. Sign in as the prepared **Firm admin** → Administration → **User Templates**.
+  1. Sign in as the prepared **Firm admin** → Settings > Platform > People > **User Templates**.
   2. Select **Counter Sales**; look at **Edit** and **Delete**; open it.
   3. **(HTTP)** `PATCH /api/v1/user-templates/{Counter Sales id}` with `{"name": "x"}`.
 - **Expect**
@@ -269,7 +273,7 @@ offered to every firm; cases count only the eleven.
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
 - **Steps**
-  1. As the prepared **Firm admin**, Administration → Users → **New**: name `Job Hire qa`, email `qa.jobhire@qa.test`, a 12-character password, **Job template** Counter Sales. Save.
+  1. As the prepared **Firm admin**, Settings > Platform > People > Users → **New**: name `Job Hire qa`, email `qa.jobhire@qa.test`, a 12-character password, **Job template** Counter Sales. Save.
   2. New again: `Hand Hire qa`, `qa.handhire@qa.test`, Job template **blank**, Roles in this firm `CUSTOMER_SUPPORT` and `VIEWER`. Save.
 - **Expect**
   - Step 1: created **and** holding `CASHIER` and `BILLING_EXECUTIVE` — one step, no second visit to the grid.
@@ -278,7 +282,7 @@ offered to every firm; cases count only the eleven.
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
 - **Steps**
-  1. As the prepared **Firm admin**, Users → **New**. Pick `ACCOUNTANT` under Roles in this firm; then choose the **Read Only** job; then clear the job.
+  1. As the prepared **Firm admin**, Settings > Platform > People > Users → **New**. Pick `ACCOUNTANT` under Roles in this firm; then choose the **Read Only** job; then clear the job.
   2. Choose Read Only again and save (name, `qa.readonly@qa.test`, password).
   3. Edit that user.
 - **Expect**
@@ -289,7 +293,7 @@ offered to every firm; cases count only the eleven.
 
 - **Preconditions:** A firm administrator of QA01, and a QA01 user given two roles picked by hand.
 - **Steps**
-  1. As the prepared **Firm admin**, Users → select **Manual Hire (qa)** → **Apply job template**.
+  1. As the prepared **Firm admin**, Settings > Platform > People > Users → select **Manual Hire (qa)** → **Apply job template**.
   2. Type `inventory` in **Search jobs**; clear it.
   3. Choose **Counter Sales** → Apply.
 - **Expect**
@@ -300,14 +304,14 @@ offered to every firm; cases count only the eleven.
 
 - **Preconditions:** The platform administrator, a firm administrator of QA01, and a user holding one platform-wide role and one QA01 role.
 - **Steps**
-  1. As the prepared **Firm admin**, Users → **Two Tier Hire (qa)** → Apply job template → **Counter Sales** → Apply.
+  1. As the prepared **Firm admin**, Settings > Platform > People > Users → **Two Tier Hire (qa)** → Apply job template → **Counter Sales** → Apply.
   2. Sign in as the prepared **Platform admin**, open the same user.
 - **Expect:** **Roles in every firm** still `VIEWER`, `CUSTOMER_SUPPORT`; **Roles in specific firms** now `QA01: BILLING_EXECUTIVE · CASHIER` (was ACCOUNTANT, INVENTORY_MANAGER). A template overwrites the tier its caller writes and never touches the other.
 ### TC-TMPL-007 — A platform administrator's template writes the global tier only
 
 - **Preconditions:** The platform administrator, a firm administrator of QA01, and a user holding one platform-wide role and one QA01 role.
 - **Steps**
-  1. As the prepared **Platform admin**, Users → **Two Tier Hire (qa)** → Apply job template → **Warehouse** → Apply.
+  1. As the prepared **Platform admin**, Settings > Platform > People > Users → **Two Tier Hire (qa)** → Apply job template → **Warehouse** → Apply.
   2. Reopen the user.
 - **Expect:** **Roles in every firm** becomes exactly `INVENTORY_MANAGER` (Warehouse carries that one role) — VIEWER and CUSTOMER_SUPPORT are gone — while **Roles in specific firms** still reads `QA01: ACCOUNTANT · INVENTORY_MANAGER`, untouched. The desktop never names a firm on this call for a platform administrator. *(The plan said "four roles, a different four"; Warehouse has one role, so it is three.)*
 ### TC-TMPL-008 — After a template, somebody is an ordinary user
@@ -319,15 +323,15 @@ offered to every firm; cases count only the eleven.
 ### TC-TMPL-009 — Somebody without role codes has no templates to see
 
 - **Preconditions:** A QA01 user hired with the *Field Sales* job template (role SALES_EXECUTIVE only).
-- **Steps:** sign in as the prepared **Seller**; look for Administration.
-- **Expect:** **Administration is not offered at all**. `SALES_EXECUTIVE` holds `CUSTOMER_VIEW`, `SALES_VIEW`, `SALES_QUOTATION_CREATE`, `SALES_ORDER_CREATE`, `SALES_INVOICE_CREATE`, `TERRITORY_VIEW` — no `ROLE_VIEW`. **(HTTP)** `GET /api/v1/user-templates` with `X-Firm-ID` of QA01 → **403**.
+- **Steps:** sign in as the prepared **Seller**; click the gear and look for a **Platform** part.
+- **Expect:** **No Platform part is offered on the Settings page**. `SALES_EXECUTIVE` holds `CUSTOMER_VIEW`, `SALES_VIEW`, `SALES_QUOTATION_CREATE`, `SALES_ORDER_CREATE`, `SALES_INVOICE_CREATE`, `TERRITORY_VIEW` — no `ROLE_VIEW`. **(HTTP)** `GET /api/v1/user-templates` with `X-Firm-ID` of QA01 → **403**.
 ### TC-TMPL-010 — Retiring a template is a decision about future hires
 
 - **Preconditions:** A firm administrator of QA01, a QA01 job template of its own, and somebody hired into it.
 - **Steps**
   1. As the prepared **Firm admin**, User Templates → select the prepared **Job template** → **Delete** (confirm).
-  2. Users → open **Night Counter Hire (qa)**.
-  3. Users → New → open the Job template list.
+  2. Settings > Platform > People > Users → open **Night Counter Hire (qa)**.
+  3. Settings > Platform > People > Users → New → open the Job template list.
 - **Expect**
   - Step 1: the row leaves the grid (a soft delete; there is no button called Retire).
   - Step 2: still `BILLING_EXECUTIVE` and `CASHIER`.
@@ -348,7 +352,7 @@ every firm, deliberately.
 ### TC-TMPL-012 — A platform administrator chooses who a job is offered to
 
 - **Preconditions:** The platform administrator (`platform-admin@agency.local`), who belongs to no firm.
-- **Steps:** sign in as the prepared **Platform admin** (on Platform) → Administration → **User Templates** → **New**.
+- **Steps:** sign in as the prepared **Platform admin** (on Platform) → Settings > Platform > People > **User Templates** → **New**.
 - **Expect:** the tab opens with no firm selected — it carries `requiresFirm: false`, since a platform operator has no firm of their own. The General section has an **Offered to** picker: one chip per firm reading `CODE · Name`, helper "Leave blank to offer this job to every firm." A firm administrator's form has no such field. It is create-only.
 ### TC-TMPL-013 — A job offered to one firm is not offered to another
 
@@ -399,7 +403,7 @@ global grant.
 
 - **Preconditions:** The platform administrator, a firm administrator of QA01, a user who is a member of QA01 and QA02, and a user in QA02 only. (Shared Member is in QA02 and QA01 with no roles.)
 - **Steps**
-  1. Sign in as the prepared **Platform admin** → Users → edit **Shared Member (qa)**. Read the roles field.
+  1. Sign in as the prepared **Platform admin** → Settings > Platform > People > Users → edit **Shared Member (qa)**. Read the roles field.
   2. Set it to `VIEWER` → Save & Close.
   3. Select the row → **Roles by firm**.
   4. Give QA01 `SALES_MANAGER` → that section's **Save**.
@@ -419,7 +423,7 @@ global grant.
 
 - **Preconditions:** As *shared-member*, with the QA01/QA02 member holding a role in each tier.
 - **Steps**
-  1. As the prepared **Firm admin** (QA01), Users → open **Shared Member (qa)** (it opens read-only, TC-USER-002) and look under Security.
+  1. As the prepared **Firm admin** (QA01), Settings > Platform > People > Users → open **Shared Member (qa)** (it opens read-only, TC-USER-002) and look under Security.
   2. As the prepared **Platform admin**, edit the same person.
   3. As the platform admin, Roles by firm → clear QA02's CASHIER → Save; reopen the form.
 - **Expect**
@@ -430,7 +434,7 @@ global grant.
 
 - **Preconditions:** As *shared-member*, with the QA01/QA02 member holding a role in each tier.
 - **Steps**
-  1. As the prepared **Firm admin**, Users → select **Shared Member (qa)** → **Roles by firm**.
+  1. As the prepared **Firm admin**, Settings > Platform > People > Users → select **Shared Member (qa)** → **Roles by firm**.
   2. Remove `SALES_MANAGER` → Save.
 - **Expect**
   - Step 1: **one section, QA01**, with chips that respond. QA02 is not listed — its Save would be refused by name. `VIEWER` shown greyed under Applies in every firm, not clearable. This dialog used to read the platform-only firm list, answer 403 and show a firm administrator no firm at all.
@@ -439,7 +443,7 @@ global grant.
 
 - **Preconditions:** The platform administrator (`platform-admin@agency.local`), who belongs to no firm.
 - **Steps**
-  1. As the prepared **Platform admin**, Users → **New**; read the Security section.
+  1. As the prepared **Platform admin**, Settings > Platform > People > Users → **New**; read the Security section.
   2. Create `qa.global1@qa.test`: Firms QA01 and QA02, Roles in every firm `CUSTOMER_SUPPORT` → Save. Select them → **Roles by firm**.
   3. Create `qa.global2@qa.test` in QA01 with **Job template** Read Only → Save → Roles by firm.
 - **Expect**
@@ -450,7 +454,7 @@ global grant.
 
 - **Preconditions:** As *shared-member*, with the QA01/QA02 member holding a role in each tier.
 - **Steps**
-  1. As the prepared **Platform admin**, switch into **QA01**. Users → edit **Shared Member (qa)**.
+  1. As the prepared **Platform admin**, switch into **QA01**. Settings > Platform > People > Users → edit **Shared Member (qa)**.
   2. Add `CUSTOMER_SUPPORT` to the roles field → Save → Roles by firm.
 - **Expect**
   - Step 1: **one** roles field, **Roles in every firm**, plus the read-only **Roles in specific firms** listing both firms — QA01 included. No second column. The helper says a role in one firm only is set under Roles by firm.
@@ -459,7 +463,7 @@ global grant.
 
 - **Preconditions:** The platform administrator, a firm administrator of QA01, and a user holding one platform-wide role and one QA01 role. (global VIEWER and CUSTOMER_SUPPORT; QA01 ACCOUNTANT and INVENTORY_MANAGER.)
 - **Steps**
-  1. As the prepared **Firm admin**, Users → edit **Two Tier Hire (qa)**.
+  1. As the prepared **Firm admin**, Settings > Platform > People > Users → edit **Two Tier Hire (qa)**.
   2. Press **Roles by firm** in the dialog footer; close it. Close the form, open it in **view**, press it again.
 - **Expect**
   - Step 1: the roles field labelled **Roles in this firm** (ACCOUNTANT, INVENTORY_MANAGER) and **Also applies here** showing CUSTOMER_SUPPORT and VIEWER read-only. Nothing names a firm.
@@ -490,7 +494,7 @@ own roles and templates without anybody writing code.
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
 - **Steps**
   1. Sign in as the prepared **Firm admin**. Select **QA01** in the firm switcher if it is not already selected.
-  2. Sidebar → **Administration** → **Roles & Permissions** → **Roles** tab.
+  2. Click the gear → Platform > People > **Roles**.
 - **Expect**
   - **Twelve rows subtitled *System role*:** `ACCOUNTANT`, `BILLING_EXECUTIVE`, `CASHIER`, `CUSTOMER_SUPPORT`, `FIRM_ADMIN`, `FIRM_MANAGER`, `INVENTORY_MANAGER`, `PURCHASE_EXECUTIVE`, `PURCHASE_MANAGER`, `SALES_EXECUTIVE`, `SALES_MANAGER`, `VIEWER`.
   - **None of the four platform roles:** `PLATFORM_ADMIN`, `SUPPORT_ADMIN`, `LICENSE_ADMIN`, `SYSTEM_AUDITOR`.
@@ -500,7 +504,7 @@ own roles and templates without anybody writing code.
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
 - **Steps**
   1. Sign in as the prepared **Firm admin**, QA01 selected.
-  2. Administration → Roles & Permissions → Roles → **New**.
+  2. Settings > Platform > People > Roles → **New**.
   3. **Role code:** `qa-my-role` (your preparation's suffix — codes must be unique in the firm). **Name:** anything.
   4. Scroll to the **Permissions** section **on the same form** — it is not a separate screen.
   5. Search the picker for `FIRM_CREATE`, then `PLATFORM_SETTINGS`, `VOID_INVOICE`, `AUDIT_LOG_VIEW`.
@@ -521,8 +525,8 @@ own roles and templates without anybody writing code.
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
 - **Steps**
   1. Sign in as the prepared **Firm admin**, QA01 selected.
-  2. Sidebar → **Settings** → **Audit Logs**.
-  3. Administration → Roles & Permissions → Roles → **New** → Permissions → search `AUDIT_LOG_VIEW`. Cancel.
+  2. Click the gear → Platform > System > **Audit Logs**.
+  3. Settings > Platform > People > Roles → **New** → Permissions → search `AUDIT_LOG_VIEW`. Cancel.
 - **Expect**
   - Step 2: **opens**, on QA01's trail.
   - Step 3: **not offered**.
@@ -532,7 +536,7 @@ own roles and templates without anybody writing code.
 - **Preconditions:** A firm administrator of QA01, and a custom role *Night Desk* holding exactly SALES_VIEW, CUSTOMER_VIEW, RECEIPT_VIEW and RECEIPT_CREATE.
 - **Steps**
   1. Sign in as the prepared **Firm admin**, QA01 selected.
-  2. Administration → **User Templates** → **New**.
+  2. Settings > Platform > People > **User Templates** → **New**.
   3. **Template code** `qa-my-job`, **Job name** anything.
   4. **Roles** → tick the prepared **Custom role** (`Night Desk qa`). **Save.**
 - **Expect:** created, **Origin: This firm**. This is the first place the screen *says* the custom role belongs to QA01 — the roles grid only says "Custom role".
@@ -541,7 +545,7 @@ own roles and templates without anybody writing code.
 - **Preconditions:** The *Night Desk* custom role, and a QA01 job template that bundles it.
 - **Steps**
   1. Sign in as the prepared **Firm admin**, QA01 selected.
-  2. Administration → **Users** → **New**.
+  2. Settings > Platform > People > **Users** → **New**.
   3. Full name anything; email `qa.hire@qa.test`; **Initial password** the prepared password (twelve or more characters — the form does not say which rule it refused on if shorter).
   4. **Job template** → the prepared **Job template**. Leave **Roles** empty. Firms as prefilled. **Save.**
   5. Select the new row → **Roles by firm**.
@@ -551,33 +555,28 @@ own roles and templates without anybody writing code.
 - **Preconditions:** The *Night Desk* custom role, and a QA01 user holding that role and nothing else.
 - **Steps**
   1. Sign in as the prepared **Role holder** (no password change is asked for). QA01 is their only firm.
-  2. Read the sidebar, and open each module to see its tabs.
-- **Expect** — exactly these, taken from the desktop's own visibility logic:
+  2. Read the menu bar, and open each menu to see its screens.
+- **Expect** — exactly these, taken from the desktop's own visibility and menu logic (confirm: translated from the catalogue; not driven on the 1.3.0 menu):
 
-  | Sidebar | Tabs inside |
+  | Menu | Screens inside |
   | --- | --- |
-  | **Masters** | Customers, Statements |
-  | **Sales** | GST Returns |
-  | **Quotations** | — |
-  | **Sales Orders** | — |
-  | **Delivery Notes** | Delivery Notes |
-  | **Sales Invoices** | Sales Invoices |
-  | **Sales Returns** | — |
-  | **Finance** | **Receipts only**, with **Record Receipt** offered |
+  | **Sell** | Quotations, Sales Orders, Delivery Notes, Sales Invoices, Returns & notes (Sales Returns), **Receipts** (with **Record Receipt** offered), Customer Statements |
+  | **Accounts** | GST Returns |
+  | **Masters** | Customers |
 
-  **No** Dashboard, Purchases, Inventory, Reports, Settings or Administration. Four codes — `SALES_VIEW`, `CUSTOMER_VIEW`, `RECEIPT_VIEW`, `RECEIPT_CREATE` — rendered as screens.
-- **Why Finance holds Receipts at all:** the role carries `RECEIPT_VIEW` beside `RECEIPT_CREATE`. With the create code alone there is no Receipts screen to record on — Finance opens on the view code — which is the mistake plan row 25.3 used to make.
+  **No** Buy, Stock or Reports menu, and no Platform part and no Money screen other than Receipts on the Settings page. Four codes — `SALES_VIEW`, `CUSTOMER_VIEW`, `RECEIPT_VIEW`, `RECEIPT_CREATE` — rendered as screens.
+- **Why Receipts is offered at all:** the role carries `RECEIPT_VIEW` beside `RECEIPT_CREATE`. With the create code alone there is no Receipts screen to record on — the screen opens on the view code — which is the mistake plan row 25.3 used to make.
 ### TC-ROLE-008 — Editing a role signs out everyone holding it
 
 - **Preconditions:** The *Night Desk* custom role, and a QA01 user holding that role and nothing else.
 - **Steps** — two windows:
-  1. **Window A:** sign in as the prepared **Role holder**. Open Finance → Receipts. **Record Receipt** is there.
+  1. **Window A:** sign in as the prepared **Role holder**. Open Sell > Receipts. **Record Receipt** is there.
   2. **Window B:** sign in as the prepared **Firm admin**, QA01 selected. Roles → the prepared **Custom role** → **Edit** → untick **`RECEIPT_CREATE`** → **Save**.
   3. **Window A:** click anything.
-  4. Sign back in as the holder. Finance → Receipts.
+  4. Sign back in as the holder. Sell > Receipts.
 - **Expect**
   - Step 3: **signed out on that click** — nobody asked them to. Editing a role revokes every holder's tokens.
-  - Step 4: the **sidebar is unchanged** (the table in TC-ROLE-007), and on Receipts **Record Receipt is gone**. `RECEIPT_CREATE` gates the button, not the screen.
+  - Step 4: the **menu is unchanged** (the table in TC-ROLE-007), and on Receipts **Record Receipt is gone**. `RECEIPT_CREATE` gates the button, not the screen.
   - A role is not versioned: editing it changes everybody holding it, immediately.
 ### TC-ROLE-009 — Deleting a role somebody holds just goes through
 
@@ -588,7 +587,7 @@ own roles and templates without anybody writing code.
   3. **Window A:** click anything. Then sign back in as the holder.
 - **Expect**
   - Step 2: **it deletes.** No refusal, no warning, no count of who holds it. The only guard in `delete_role` is against System roles.
-  - Step 3: **signed out** on the click; signed back in, an **empty sidebar** — no module at all — and nothing on screen says why.
+  - Step 3: **signed out** on the click; signed back in, an **empty menu bar** — nothing offered but Home and the gear — and nothing on screen says why.
   - Recorded as the behaviour, **not a defect**. Whether deleting a held role should refuse, or warn with the count, is an open decision for the owner.
 ---
 
@@ -598,11 +597,11 @@ One standard check for every screen in this area. Run it once per screen as the 
 
 | ID | Screen | Expected | Result | Notes |
 | --- | --- | --- | --- | --- |
-| 03-S01 | **Administration → Users** | Offered to any role holding `USER_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 03-S02 | **Administration → Roles** | Offered to any role holding `ROLE_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 03-S03 | **Administration → Permissions** | Offered to any role holding `PERMISSION_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 03-S04 | **Administration → User Templates** | Offered to any role holding `ROLE_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 03-S05 | **Administration → User-Firm Assignments** | Offered to the platform administrator only. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 03-S01 | **Settings > Platform > People > Users** | Offered to any role holding `USER_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 03-S02 | **Settings > Platform > People > Roles** | Offered to any role holding `ROLE_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 03-S03 | **Settings > Platform > People > Permissions** | Offered to any role holding `PERMISSION_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 03-S04 | **Settings > Platform > People > User Templates** | Offered to any role holding `ROLE_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 03-S05 | **Settings > Platform > People > User-Firm Assignments** | Offered to the platform administrator only. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
 
 ## Results summary
 

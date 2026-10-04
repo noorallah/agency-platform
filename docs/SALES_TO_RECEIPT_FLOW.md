@@ -1,5 +1,7 @@
 # Sale to receipt: stock, and the money
 
+Brought up to date 2026-10-04, release 1.3.0: every menu path is the 1.3.0 path (light menu, Settings page), the settings table matches `CONFIGURATION_SETTINGS_GUIDE.md`, and the flow carries what releases 1.1.0 and 1.2.0 changed (enquiries, approval levels, customer-first billing of delivery notes, split tenders at the counter, stock held for an order lapsing, new outlets waiting for approval). The traced money figures below are from 2026-08 and are unchanged.
+
 Updated 2026-10-02: what a firm configures (table below); the delivery note's challan reason; the dispatch-before-invoice check; Dispatch and invoice; choosing batches on the delivery note (backlog 79). Brought up to #947 the same night: batches on the counter bill, a pinned batch, minimum shelf life and batch MRP; e-invoice registration (route, notes, sales returns, the 30-day limit), the no-IRN print and email gate, e-way bills without an IRN.
 
 How an offer becomes goods off the shelf and money in the bank, which document
@@ -33,7 +35,7 @@ decided, [`TAX_FRAMEWORK.md`](TAX_FRAMEWORK.md).
   no ledger         no ledger                            Cr Output Tax
 ```
 
-**Three moments matter.** Everything else is paperwork:
+**Four moments matter.** Everything else is paperwork:
 
 | Moment | What it does |
 | --- | --- |
@@ -43,7 +45,30 @@ decided, [`TAX_FRAMEWORK.md`](TAX_FRAMEWORK.md).
 | **Recording a receipt** | Money actually arrives |
 
 A quotation moves nothing at all. Neither does raising an order, a draft
-delivery note, or a draft invoice.
+delivery note, or a draft invoice. An **enquiry** (a prospect and what they
+asked for) comes before the quotation and moves nothing either.
+
+### Where each step is in 1.3.0
+
+A path such as *Sell > Quotations* means: open **Sell** in the menu bar, then
+the item. **All Sell screens** is the link at the foot of the drop-down; the
+daily list is what the drop-down shows first. **Ctrl+K** finds any screen.
+
+| Step | Where |
+| --- | --- |
+| Enquiry (prospect, follow-ups, *Convert to quotation*) | Sell > All Sell screens > Documents > **Enquiries** |
+| 1-2. Quotation, convert to order | Sell > **Quotations** |
+| 3. Sales order, approve, hold, release | Sell > **Sales Orders** |
+| Approvals waiting for a level's sign-off | Sell > All Sell screens > Documents > **Approvals** |
+| 4-5. Delivery note, dispatch, dispatch and invoice | Sell > **Delivery Notes** |
+| 6-7. Sales invoice, approve, print | Sell > **Sales Invoices** |
+| 7a. E-invoice | Accounts > All Accounts screens > Tax filing > **E-Invoice** |
+| 8. Receipt, refund, post-dated cheque | Sell > **Receipts**; Sell > All Sell screens > Money > Refunds, Post-dated Cheques |
+| What a customer owes | Sell > **Customer Statements** |
+| Sales return, credit note, customer debit note | Sell > **Returns & notes** > Sales Returns, Credit Notes, Customer Debit Notes |
+| Proforma invoice | Sell > All Sell screens > Documents > Proforma |
+| The ledger entries each step posts | Accounts > **Journal Entries** |
+| Stock after each step | Stock > All Stock screens > Stock > **Inventory**; Stock > **Stock Ledger** |
 
 ---
 
@@ -53,7 +78,7 @@ Every setting in every area, with why it exists and what each choice does, is in
 [`CONFIGURATION_SETTINGS_GUIDE.md`](CONFIGURATION_SETTINGS_GUIDE.md).
 
 Every row is a setting a firm changes without a release. **Where** gives the
-phase 2 path (Settings gear, then the group) and the API. A firm that has set
+1.3.0 path (the gear, then *Settings* and its group, or *Set up*) and the API. A firm that has set
 nothing gets the default in the third column; most defaults warn rather than
 block, because a check that stops the counter on the day it ships is a check
 nobody switches on.
@@ -62,22 +87,24 @@ nobody switches on.
 
 | Setting | Where | Choices / default | What it changes in the chain |
 | --- | --- | --- | --- |
-| Sales Stages (`sales_workflow_settings`) | Settings > Selling > Sales Stages; `GET/PUT /api/v1/sales-orders/workflow-settings` | `quotation_stage`, `sales_order_stage`, `delivery_note_stage`: each on by default. An off stage means the service raises that document itself | Steps 1-5. Stock still leaves at dispatch and cost of goods sold still belongs to the delivery note; the document is only no longer typed by hand |
+| Sales Stages (`sales_workflow_settings`) | Settings > Selling > Sales Stages; `GET/PUT /api/v1/sales-orders/workflow-settings` | `quotation_stage`, `sales_order_stage`, `delivery_note_stage`: each on by default. **The quotation stage is recorded only: in 1.3.0 it changes nothing, and quotations stay available either way.** With the order and the delivery note both off, the person types only the bill and saving it raises both documents itself; stock then leaves when the bill is approved. With either on, a bill line must name the order or note it bills | Steps 2-6. Stock still leaves at dispatch and cost of goods sold still belongs to the delivery note; the document is only no longer typed by hand |
 | Default branch and warehouse (same row) | Same screen | `default_branch_id`, `default_warehouse_id`: null falls back to the firm's default branch and warehouse | Where a raised-for-you delivery note ships from; dispatch refuses a line with no warehouse |
+| New outlets wait for approval; release stock held by unshipped orders after N days (same row) | Same screen | Both off (stock is never released by time) | A customer added by somebody who cannot approve customers can take orders but **cannot be billed** until approved (singly or in bulk). An approved order not shipped in N days gives its reservation back, stays approved, and can reserve again (step 3) |
 | Promotions meeting on a document (same row) | Same screen | `promotion_mode`: `COMBINE` (default) or `BEST_OFFER`. `max_line_discount_percent`: null = no cap, used in COMBINE | How many offers stack on a line, and the most they may take off it. See `PRICING_AND_PROMOTIONS.md` |
 | Rate includes tax (same row) | Same screen | `rate_includes_tax`: off by default | Only the default for a new counter bill; each bill carries its own switch |
-| Credit Control (`credit_control_settings`) | Settings > Selling > Credit Control; `GET/PUT /api/v1/customers/credit-settings` | `enforcement` OFF / `WARN` (default) / BLOCK; `warn_at_percent` 80; `block_at_percent` 100 (ignored unless BLOCK). A customer's `credit_limit` of zero means unset | Steps 3 and 7: assessed when an order is approved and again when an invoice is. Writing it needs `CUSTOMER_MANAGE_SETTINGS` |
+| Credit Control (`credit_control_settings`) | Settings > Selling > Credit Control (also Masters > Customers > **...** > Settings); `GET/PUT /api/v1/customers/credit-settings` | `enforcement` OFF / `WARN` (default) / BLOCK; `warn_at_percent` 80; `block_at_percent` 100 (ignored unless BLOCK). A customer's `credit_limit` of zero means unset. The same dialog holds the cash discount (pay within N days, discount %) and the overdue interest rate and grace days, all off by default | Steps 3 and 7: assessed when an order is approved and again when an invoice is. Writing it needs `CUSTOMER_MANAGE_SETTINGS` |
 | Price Floor (`price_floor_settings`) | Settings > Selling > Price Floor; `GET/PUT /api/v1/sales-orders/price-floor-settings` | `enforcement` OFF / `WARN` (default) / BLOCK; `include_cost` on by default | Judged when an order or a bill is approved: a line below the product's `minimum_selling_price`, and below cost if `include_cost`. A person holding `SALES_PRICE_OVERRIDE` may go below it |
 | Batch Rules (`batch_sale_settings`) | Settings > Stock > Batch Rules; `GET/PUT /api/v1/batch-serial/sale-settings` | `near_expiry_days` 30; `near_expiry_policy` `WARN` / REASON; `fefo_skip_policy` `RECORD` / REASON; `near_expiry_below_floor` on; `shelf_life_policy` `BLOCK` / WARN; `price_from_batch` off | Step 5: a near-expiry batch or a later batch chosen ahead of an earlier one is recorded at dispatch, or needs a reason; a batch shorter than the customer's minimum shelf life chosen by hand is refused or warned. A line wholly from near-expiry batches may be sold below the price floor (A2). `price_from_batch` lets a chosen batch's own selling price fill the line's rate (A41). Writing it needs `SALES_MANAGE_SETTINGS` |
 | Discount Limits (`role_discount_limits`) | Settings > Selling > Discount Limits; `GET/PUT /api/v1/sales-orders/discount-limits` | One `max_discount_percent` (0-100) per role code. The list is replaced whole; a role left out has no limit | At approval, a **typed** discount above the approver's largest limit is refused, naming the limit needed. A price list's, a promotion's or the customer's standing rate is never limited |
 | Loyalty Scheme (`loyalty_settings`) | Settings > Selling > Loyalty Scheme; `GET/PUT /api/v1/loyalty/settings` | `is_enabled` off by default; `points_per_amount` 1 per hundred billed; `amount_per_point` 1; `minimum_redemption_points` 0; `expiry_months` null = never expire | Points are earned on the invoice and may settle a later bill |
 | TCS Settings (`tcs_settings`) | Settings > Selling > TCS Settings; `GET/PUT /api/v1/tcs/settings` | `is_enabled` off by default; `threshold_amount` 5,000,000; `rate_percent` 0.1; `rate_without_pan_percent` 1; `preceding_year_turnover` 0; `seller_turnover_threshold` 100,000,000 | Tax collected at source on the **receipt** (step 8), once the buyer's year passes the threshold |
-| Trade licences (`trade_licence_settings`) | `app/trade_licences`; `GET/PUT /api/v1/trade-licences/settings` | `sale_enforcement` OFF / `WARN` (default) / BLOCK for orders, delivery notes and invoices | A sale of a licensed product to a buyer with no valid licence warns or is refused. The buying side never blocks |
+| Trade licences (`trade_licence_settings`) | Settings > Set up > Party lists > **Licence Check**; `GET/PUT /api/v1/trade-licences/settings` | `sale_enforcement` OFF / `WARN` (default) / BLOCK for orders, delivery notes and invoices | A sale of a licensed product to a buyer with no valid licence warns or is refused. The buying side never blocks |
 | GST Documents (`gst_compliance_settings`) | Settings > Tax > GST Documents; `GET/PUT /api/v1/tax-framework/gst-compliance-settings` | `dispatch_without_invoice` OFF / `WARN` (default) / BLOCK; `route_sale_needs_invoice` off; `einvoice_applicable_from` and `thirty_day_rule_from`: null = does not apply; `eway_bill_limit` 50,000 | Step 5, the dispatch-before-invoice check. The two dates say from when the firm must e-invoice -- from then a B2B invoice, credit or debit note is not printed or emailed without its IRN (A43) -- and from when a document more than 30 days old is refused at registration (A44); the platform never guesses them. The limit is the value above which a consignment is listed as needing an e-way bill. `GST_DOCUMENT_COMPLIANCE.md` is the reference |
 | E-invoice route (`einvoice_settings`) | Settings > Tax > GST Documents; `GET/PUT /api/v1/einvoice/settings` | `provider` `SANDBOX` (default, nothing filed) / OFFLINE | Step 7a: whether registering goes to the sandbox, or into the portal's bulk-upload file (`POST /api/v1/einvoice/offline/export`, then `/offline/import` of the portal's result). A route not built cannot be chosen (A42) |
+| Approval Levels | Settings > Firm > Approval Levels (sales levels need `SALES_MANAGE_SETTINGS`) | None: one approval is enough. A rule is a document type (sales order, sales invoice), a level 1 to 3, a from-amount and a role | Steps 3 and 7: a document at or above a rule's amount needs each level signed in order, by different people; the last signature approves. Approving early is refused naming the level and role; a total that rises after a signature needs that level again; *Reject* needs a reason. Waiting documents are under Sell > All Sell screens > Documents > Approvals, on Home and under the bell |
 | Numbering Series | Settings > Firm > Numbering Series; `/api/v1/document-framework/numbering-rules` | Per document type; see `app/document_framework` for the fields | The number on every document above |
 | Messaging (`messaging_settings`) | Settings > Firm > Messaging; `GET/PUT /api/v1/messaging/settings` | `is_enabled` off: a firm with no row queues, skips and records nothing. `due_soon_days` 3; `overdue_every_days` 7; `overdue_stop_after_days` 90 (A12). Each channel has the firm's own account | Messages about the bill and its reminders. `MESSAGING_FRAMEWORK.md` |
-| Print templates (`document_print_templates`) | Beside the Print button; changing needs `SETTINGS_UPDATE` | See "Sending the bill" below | What the printed bill carries around its fixed statutory spine |
+| Print templates (`document_print_templates`) | The **Print** button (or **...** > Print settings) on Sales Invoices, Delivery Notes and Purchase Orders; changing needs `SETTINGS_UPDATE` | See "Sending the bill" below | What the printed bill carries around its fixed statutory spine |
 
 ### On the customer and the product
 
@@ -89,9 +116,9 @@ does.
 | GST registration type | Customer, `gst_registration_type` (`app/customers/gst_registration.py`) | REGULAR, COMPOSITION, UNREGISTERED, SEZ_WITH_PAYMENT, SEZ_WITHOUT_PAYMENT, DEEMED_EXPORT, OVERSEAS. Null: a GSTIN reads as REGULAR, none as UNREGISTERED | Tax charged (an SEZ buyer is inter-state, so IGST), GSTR-1 section, e-invoice type. A "without payment" buyer billed tax is warned about, not refused |
 | Credit limit | Customer, `credit_limit` | Zero means unset | Compared in steps 3 and 7 under the firm's Credit Control policy |
 | Standing discount | Customer, `default_discount_percent` | 0 | The third answer in "What a line is discounted by" |
-| Customer group, price list | Customer group and price lists | See `PRICING_AND_PROMOTIONS.md` | A group's rate and a price list's price rank beside the standing rate in the same order |
+| Customer group, price list, price level | Customer group (Settings > Set up > Party lists > Customer Groups); price lists, levels and promotions (Settings > Set up > Pricing) | See `PRICING_AND_PROMOTIONS.md` | A group's rate and a price list's price rank beside the standing rate in the same order |
 | Tax group | Product, `tax_profile_group_code` | Null | Part of the context tax rules match on; rules attach to the transaction, never the product |
-| Minimum selling price, MRP | Product, `minimum_selling_price`, `mrp` | Both null | The floor the Price Floor check reads; the product's MRP stands in for a batch with none of its own |
+| Minimum selling price, MRP | Masters > Products, `minimum_selling_price`, `mrp` | Both null | The floor the Price Floor check reads; the product's MRP stands in for a batch with none of its own |
 | Batch MRP and selling price | Batch, `mrp`, `selling_price`, captured on the goods receipt line (A41) | Null | No bill may charge more, tax included, than the lowest MRP of the batches a line ships; the challan and invoice print each batch with its MRP |
 | Minimum shelf life | Customer, `minimum_shelf_life_days` | Null = none (1 to 3,650) | Steps 3 and 5: allocation passes over a batch with fewer days left on the document's date; one chosen by hand is judged by `shelf_life_policy` |
 | Pinned batch | Sales order line, `pinned_batch_id` | Null | Step 3 reserves that batch rather than the earliest expiry; step 4 starts the note's line with it picked |
@@ -102,6 +129,8 @@ does.
 ## Step by step
 
 ### 1. Quotation — a price offered
+
+(An **enquiry** can come first: *Convert to quotation* on it makes the customer from the prospect and a draft quotation, and the enquiry reads WON when that quotation becomes an order. Nothing moves.)
 
 `POST /api/v1/quotations` → `/send` → `/accept`
 
@@ -132,6 +161,8 @@ by name: *"already became SO-2026-2027-000013"*.
 `POST /api/v1/sales-orders/{id}/approve`
 
 Two things happen, in this order, and the order matters:
+
+Where the firm has set **approval levels**, they are checked before either: an order at or above a level's amount is refused at Approve until each level has been signed (Settings > Firm > Approval Levels).
 
 1. **Credit is assessed.** Under `WARN` the assessment is recorded on the
    order; under `BLOCK` it raises *before* anything is reserved. Credit is
@@ -243,7 +274,15 @@ either.
 `POST /api/v1/sales-invoices`
 
 A draft invoice posts nothing. Each line names its source — a delivery note
-line, a sales order line, or nothing at all for a manual invoice.
+line, a sales order line, or nothing at all for a manual invoice (only where
+the firm has switched the order and delivery note stages off).
+
+On the screen, **Sales Invoices > + New** bills delivery notes **customer first**:
+pick the customer, then tick the customer's dispatched notes that still have
+something to bill. Notes that clash on branch, salesman, territory or route
+are refused by name. A **counter bill** is entered by product: a scan field
+adds a line, and *Save & print (F9)* saves, approves, prints and opens the
+next bill.
 
 ### 7. Approve the invoice — **the customer becomes a debtor**
 
@@ -326,8 +365,9 @@ cleared, and the customer's balances are put back by the deltas stored on the
 original row rather than recomputed.
 
 **Money taken at the counter is entered on the bill** (backlog 64 row 5,
-migration `20261001_0179`). `received_now_amount`, `_method` (CASH or BANK)
-and `_reference` on the invoice; approving it creates this same receipt,
+migration `20261001_0179`). `received_now_amount`, `_method`
+and `_reference` on the invoice (since 1.2.0 the tender can be split, for
+example Cash and UPI, each tender its own receipt); approving it creates this same receipt,
 allocated to the bill, through `ReceiptService.create` **inside**
 `stage_approval` -- so the bill, its stock and its payment commit together or
 not at all, and anything that composes approval settles the payment too (the
@@ -505,7 +545,7 @@ are holding -- Original for Recipient, Duplicate for Transporter, Triplicate
 for Supplier are offered without anybody typing them, and a firm may name them
 whatever it likes. Choosing none prints one unlabelled copy. Reading the
 settings needs only the permission to see the document; changing them needs
-`PLATFORM_SETTINGS`.
+`SETTINGS_UPDATE`.
 
 ---
 
@@ -576,12 +616,13 @@ reason the discount fields on the line-write schemas are `Decimal | None` with
 no default rather than defaulting to zero, and it is what makes "this customer
 gets ten percent, except on clearance stock" expressible at all.
 
-**The rate is read on the server, not sent by the client.** There is no
-sales-order or sales-invoice line editor in the desktop, conversions happen on
-the server, and an API client would otherwise bypass the arrangement. The
-quotation editor is the one screen that types lines, and it *shows* the rate --
-prefilled, labelled with where it came from, and overridable -- because a
-salesman who cannot see the discount cannot tell that it applied.
+**The rate is read on the server, not sent by the client.** Conversions happen
+on the server, and an API client would otherwise bypass the arrangement. The
+document screens (quotation, sales order, invoice) are priced by the server as
+the lines are typed and *show* the rate -- labelled in the side panel with where
+it came from, and overridable in the *Disc %* box, which is left blank so an
+inherited arrangement is not turned into an override -- because a salesman who
+cannot see the discount cannot tell that it applied.
 
 **An invoice inherits from the line it bills**, rather than re-reading the
 customer: a price agreed on an order in March must not be rewritten by an edit
@@ -684,8 +725,8 @@ the cap was inflated by the whole conversion factor as well. The cap is
 The printed bill shows it beside the quantity -- "10 + 1 free" -- rather than
 in a column of its own, which would be empty on almost every bill.
 
-The desktop's quotation editor is where a line is given away. It had no field
-for it on any screen, so free goods were unreachable without going to the API.
+Free goods are typed on the quotation, sales order and delivery note lines (a
+promotion can also give them); the invoice inherits them.
 
 ## Two rules worth carrying
 
