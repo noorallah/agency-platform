@@ -56,7 +56,6 @@ _MACHINE_EXPORT = (
     "show from the grid"
 )
 _SCREEN_GAP = "a screen gap, recorded in docs/BACKLOG.md §76 (D-GOLIVE-2 triage)"
-_RATE_CONTRACTS = "desktop in PG-9 part 2 (docs/BACKLOG_BUILD_PLAN.md PG-9)"
 
 #: Routes deliberately left without a desktop caller, and why. Every entry has
 #: been looked at; if one of these ever gains a screen, delete its line.
@@ -136,17 +135,6 @@ _ACCEPTED: dict[str, str] = {
     "DELETE /api/v1/finance/financial-years/{year_id}": _SCREEN_GAP,
     "GET /api/v1/branch-warehouse/settings": _SCREEN_GAP,
     "GET /api/v1/sales-returns/summary": _SCREEN_GAP,
-    # Rate contracts (PG-9): the server merged first; delete these lines when
-    # the desktop window lands.
-    "GET /api/v1/rate-contracts": _RATE_CONTRACTS,
-    "POST /api/v1/rate-contracts": _RATE_CONTRACTS,
-    "GET /api/v1/rate-contracts/{contract_id}": _RATE_CONTRACTS,
-    "PUT /api/v1/rate-contracts/{contract_id}": _RATE_CONTRACTS,
-    "DELETE /api/v1/rate-contracts/{contract_id}": _RATE_CONTRACTS,
-    "POST /api/v1/rate-contracts/{contract_id}/approve": _RATE_CONTRACTS,
-    "POST /api/v1/rate-contracts/{contract_id}/close": _RATE_CONTRACTS,
-    "POST /api/v1/rate-contracts/{contract_id}/cancel": _RATE_CONTRACTS,
-    "GET /api/v1/rate-contracts/{contract_id}/releases": _RATE_CONTRACTS,
 }
 
 
