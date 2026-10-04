@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**304 tables**, of which **17** live only in the platform store.
+**310 tables**, of which **17** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -262,9 +262,9 @@ trigger each schema owns its own copy of.
 | `profit_centers` | firm store ¹ | Represent a profit centre used to attribute revenue. | `firms` |
 | `tally_ledger_mappings` | firm store ¹ | What one of our accounts is called in the CA's Tally, and its group. | `ledger_accounts` |
 | `tds_194q_settings` | firm store ¹ | One firm's 194Q switch, threshold and rates. |  |
-| `tds_section_settings` | firm store ¹ | One firm's 194C or 194J switch, thresholds and rates (PG-5); no row reads as the defaults. |  |
-| `tds_challan_items` | firm store ¹ | One deduction a challan paid: a payment's or an expense's. | `tds_challans`, `settlements`, `expenses` |
+| `tds_challan_items` | firm store ¹ | One deduction a challan paid: a payment's, an expense's or a bill's. | `tds_challans`, `settlements`, `expenses`, `purchase_invoices` |
 | `tds_challans` | firm store ¹ | One deposit of TDS under one section. | `ledger_accounts`, `journal_entries` |
+| `tds_section_settings` | firm store ¹ | One firm's switch, thresholds and rates for 194C or 194J. |  |
 | `vendor_ledgers` | firm store ¹ | Hold derived payable totals for one vendor and period. | `firms`, `vendors`, `accounting_periods` |
 | `voucher_types` | firm store ¹ | Classify vouchers such as invoice, receipt, or payment. | `firms` |
 
@@ -484,6 +484,16 @@ trigger each schema owns its own copy of.
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
 | `report_layouts` | firm store ¹ | One named layout of one report, kept by one person in one firm. |  |
+
+### `app/rfq`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `rfq_lines` | firm store ¹ | One product asked about, and the quote chosen for it. | `rfqs`, `products`, `uoms` |
+| `rfq_suppliers` | firm store ¹ | A supplier invited to quote, and the order raised on them. | `rfqs`, `vendors`, `purchase_orders` |
+| `rfqs` | firm store ¹ | One request for quotation, sent to several suppliers. | `firms`, `branches`, `warehouses`, `purchase_requisitions` |
+| `supplier_quotation_lines` | firm store ¹ | The rate a supplier quoted for one RFQ line. | `supplier_quotations`, `rfq_lines` |
+| `supplier_quotations` | firm store ¹ | One supplier's answer to an RFQ: one per RFQ and supplier. | `rfqs`, `vendors` |
 
 ### `app/sales`
 

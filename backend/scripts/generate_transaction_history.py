@@ -324,6 +324,14 @@ RESET_ORDER: tuple[str, ...] = (
     "goods_receipt_notes",
     "goods_receipt_lines",
     "goods_receipts",
+    # An RFQ is numbered from its own series and names the orders it raised
+    # (PG-8); its quotations and lines cascade but are listed so the order is
+    # plain.
+    "supplier_quotation_lines",
+    "supplier_quotations",
+    "rfq_suppliers",
+    "rfq_lines",
+    "rfqs",
     "purchase_attachments",
     "purchase_notes",
     "purchase_order_lines",

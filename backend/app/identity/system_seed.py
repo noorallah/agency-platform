@@ -264,6 +264,11 @@ PERMISSION_GROUPS = {
         # Raising a purchase requisition (BUY-7): asking for goods, which a
         # storeman does without being able to order them.
         "PURCHASE_REQUISITION_CREATE",
+        # Requests for quotation (PG-8): reading them and the comparison, and
+        # raising, sending, quoting and choosing on them. Raising the orders
+        # from the chosen quotes also takes `PURCHASE_CREATE`.
+        "RFQ_VIEW",
+        "RFQ_MANAGE",
         "PURCHASE_IMPORT",
         "PURCHASE_EXPORT",
         # Which of purchase order and goods receipt this firm raises by hand.

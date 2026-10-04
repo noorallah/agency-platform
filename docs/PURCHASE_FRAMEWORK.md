@@ -522,15 +522,54 @@ reordering rule or an ERPNext item reorder level does. The report rows carry
 is firm-wide until suppliers carry their own (row 3), and there is no MOQ or
 order-multiple rounding until the supplier catalogue exists (rows 1-2).
 
+## Requests for quotation (PG-8, backlog 86 #1, 2026-10-05)
+
+`app/rfq`, routes under `/api/v1/rfqs`, migration `20261005_0309`. An RFQ
+asks several suppliers for their prices on a list of products; its number
+comes from its own series (`RFQ`, document framework).
+
+- **Lifecycle.** `DRAFT` -> `SENT` -> `CLOSED`, or `CANCELLED` from either of
+  the first two. The status moves only through `/send`, `/close`, `/cancel` and
+  `/raise-orders`; `PUT /{id}` changes a draft only (lines, invited suppliers
+  in `vendor_ids`, dates, notes) and leaves alone what it does not name.
+- **Quotations.** One per RFQ and supplier, entered or replaced whole with
+  `PUT /{id}/quotations/{vendor_id}` while the RFQ is `SENT`: per RFQ line a
+  rate, a discount percent, a lead time and notes. A supplier who was not
+  invited is refused, and so is any quote on a closed or cancelled RFQ.
+- **Comparison.** `GET /{id}/comparison` lists every supplier's landed rate
+  per line -- the rate after its discount, **before tax**: tax follows the
+  product and the transaction rather than who quotes, and purchase lines carry
+  no tax-inclusive flag, so it would not separate the quotes. Cheapest first
+  (ties by lead time), every quote at the lowest rate marked `is_lowest`.
+- **Choice.** `PUT /{id}/selections` replaces the whole list of choices, one
+  quote per line; a line left out has none. A quote that is not the lowest
+  needs a reason, which the line keeps; raising orders checks it again,
+  because a quote edited after the choice can stop being the lowest.
+- **Raise orders.** `POST /{id}/raise-orders` (needs `RFQ_MANAGE` and
+  `PURCHASE_CREATE`) stages one draft purchase order per chosen supplier
+  through `PurchaseService.stage_order`, each line at the quoted rate and
+  discount, `reference_number` = the RFQ number and `external_reference` = the
+  supplier's quote reference; records the order on the invited supplier's row,
+  closes the RFQ and, when it was started from an approved requisition, marks
+  that requisition ORDERED -- all in one commit.
+- **From a requisition.** `POST /from-requisition/{requisition_id}` starts a
+  draft RFQ from an **approved** requisition: its lines, and as suppliers the
+  ones its lines name plus the products' preferred ones. One live RFQ per
+  requisition.
+- **Permissions.** `RFQ_VIEW` and `RFQ_MANAGE`, in the purchase group, so the
+  purchase executive, the purchase manager and the firm administrator hold
+  both.
+- **Not built.** Emailing the RFQ to the suppliers: the send-document service
+  sends one document to one party with its own PDF, and an RFQ has neither a
+  print layout nor a single recipient. Left for later.
+
 ## Not built
 
 - ~~The purchase order's received status~~ -- built: receiving moves the
   order to PARTIALLY_RECEIVED / RECEIVED (`PurchaseService`), corrected
   2026-09-28.
-- **RFQ and Vendor Quotation.** No model, table, service, endpoint or API
-  client method for either. The desktop advertised both in a Sourcing group
-  whose two screens said the backend "does not yet expose" them; that group was
-  removed on 2026-08-22. Nothing in the product now claims they exist.
+- ~~RFQ and Vendor Quotation~~ -- server built 2026-10-05 (PG-8), see
+  *Requests for quotation* above; the desktop screens are PG-8 part 2.
 - **Purchase analytics.** The fixed reports exist (register, pending,
   overdue, by vendor, by buyer, by product under
   `/api/v1/purchases/reports/*`, corrected 2026-09-28); an analysis by any
