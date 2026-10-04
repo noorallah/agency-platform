@@ -5879,7 +5879,7 @@ No server calls are involved.
 
 ## 84. Purchase bills and returns numbered like the order and the receipt -- low priority
 
-**Status, 2026-10-04: built, PR pending (items 1-3).** Items 1 and 3 are
+**Status, 2026-10-04: built, PR #1089 (items 1-3).** Items 1 and 3 are
 in code and below; item 2 holds because only the three specs changed and
 `_ensure_document_setup` creates a rule only when a firm has none. Decided
 with the owner. Seen on
