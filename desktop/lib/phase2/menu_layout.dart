@@ -443,6 +443,14 @@ abstract final class MenuLayout {
             AppModule.accounting, 'bank-reconciliation', 'Bank Reconciliation'),
         MenuItemSpec(AppModule.accounting, 'tally-export', 'Export to Tally'),
       ]),
+      MenuGroupSpec('Fixed assets', [
+        MenuItemSpec(AppModule.accounting, 'fixed-assets', 'Asset register'),
+        MenuItemSpec(AppModule.accounting, 'asset-classes', 'Asset classes'),
+        MenuItemSpec(
+            AppModule.accounting, 'depreciation-runs', 'Depreciation runs'),
+        MenuItemSpec(AppModule.accounting, 'it-block-schedule',
+            'Income-tax block schedule'),
+      ]),
       MenuGroupSpec('Statements', [
         MenuItemSpec(AppModule.accounting, 'trial-balance', 'Trial Balance'),
         MenuItemSpec(AppModule.accounting, 'profit-loss', 'Profit & Loss'),

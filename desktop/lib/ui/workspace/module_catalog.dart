@@ -1127,6 +1127,7 @@ abstract final class ModuleCatalog {
         'PAYMENT_VIEW',
         'EXPENSE_VIEW',
         'PARTY_ADJUSTMENT_VIEW',
+        'FIXED_ASSET_VIEW',
       ],
       requiresAnyPermission: true,
       tabs: [
@@ -1252,6 +1253,29 @@ abstract final class ModuleCatalog {
           label: 'Bank details',
           requiredPermissions: ['ACCOUNT_VIEW', 'PAYMENT_CREATE'],
           requiresAnyPermission: true,
+        ),
+        // Fixed assets (PG-13): the register, the classes that say how each
+        // kind is depreciated, the runs that charge it, and the Income-tax
+        // block schedule.
+        ModuleTabDefinition(
+          id: 'fixed-assets',
+          label: 'Asset register',
+          requiredPermissions: ['FIXED_ASSET_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'asset-classes',
+          label: 'Asset classes',
+          requiredPermissions: ['FIXED_ASSET_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'depreciation-runs',
+          label: 'Depreciation runs',
+          requiredPermissions: ['FIXED_ASSET_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'it-block-schedule',
+          label: 'Income-tax block schedule',
+          requiredPermissions: ['FIXED_ASSET_VIEW'],
         ),
         ModuleTabDefinition(
           id: 'ledgers',

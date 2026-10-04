@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/entities.dart';
+import '../../models/fixed_asset.dart';
 import '../../models/goods_receipt.dart';
 import '../../models/product.dart';
 import '../../models/purchase.dart';
@@ -87,6 +88,11 @@ class PurchaseInvoiceDraftLine {
   /// otherwise ELIGIBLE, BLOCKED or INELIGIBLE. Never prefilled.
   String itcEligibility = '';
 
+  /// PG-13: a capital-goods line raises a fixed asset when the bill is
+  /// approved. Both keys are sent only when ticked.
+  bool capitalGoods = false;
+  String assetClassId = '';
+
   bool get billsAnOrder => sourceDocumentType == 'PURCHASE_ORDER';
 
   /// What the receipt (or the order) still has to be billed for.
@@ -116,6 +122,8 @@ class PurchaseInvoiceDraftLine {
         // carries, and a literal zero would refuse it.
         if (taxProfileId.isNotEmpty) 'tax_profile_id': taxProfileId,
         if (itcEligibility.isNotEmpty) 'itc_eligibility': itcEligibility,
+        if (capitalGoods) 'is_capital_goods': true,
+        if (capitalGoods) 'asset_class_id': assetClassId,
         if (purchaseUomId.isNotEmpty) 'purchase_uom_id': purchaseUomId,
         if (purchaseUomId.isNotEmpty) 'invoice_uom_id': purchaseUomId,
         if (warehouseId.isNotEmpty) 'warehouse_id': warehouseId,
@@ -141,6 +149,10 @@ class PurchaseDirectLine {
   /// Blank takes the product's input credit setting; never prefilled.
   String itcEligibility = '';
 
+  /// PG-13: ticked, the line raises a fixed asset of the chosen class.
+  bool capitalGoods = false;
+  String assetClassId = '';
+
   /// Bumped when a value is filled in for the user, so its box re-reads it.
   int epoch = 0;
 
@@ -158,6 +170,8 @@ class PurchaseDirectLine {
         if (discountPercent.trim().isNotEmpty)
           'discount_percent': discountPercent.trim(),
         if (itcEligibility.isNotEmpty) 'itc_eligibility': itcEligibility,
+        if (capitalGoods) 'is_capital_goods': true,
+        if (capitalGoods) 'asset_class_id': assetClassId,
         if (freeQuantity.trim().isNotEmpty)
           'free_quantity': freeQuantity.trim(),
         if (batchNumber.trim().isNotEmpty) 'batch_number': batchNumber.trim(),
@@ -289,6 +303,31 @@ class _PurchaseInvoiceEditorDialogState
   int _supplierNumberEpoch = 0;
 
   void _setState(VoidCallback change) => setState(change);
+
+  /// PG-13: the asset classes, read the first time a line is ticked as
+  /// capital goods so a bill with none costs no call.
+  List<AssetClass> _assetClasses = const [];
+  bool _assetClassesAsked = false;
+
+  Future<void> _loadAssetClasses() async {
+    if (_assetClassesAsked) return;
+    _assetClassesAsked = true;
+    try {
+      final PagedResult<AssetClass> page =
+          await widget.api.assetClasses(pageSize: 100);
+      if (!mounted) return;
+      setState(() => _assetClasses = [
+            for (final AssetClass c in page.items)
+              if (c.isActive) c
+          ]);
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      setState(() {
+        _assetClassesAsked = false;
+        _error = refusalMessage(exception);
+      });
+    }
+  }
 
   /// The supplier the bill is for, whichever way it was chosen.
   String? get _billSupplierId =>
@@ -704,6 +743,10 @@ class _PurchaseInvoiceEditorDialogState
         return 'Line ${line.lineNumber}: the unit price must be a number of '
             'zero or more, or blank to take the receipt price.';
       }
+      if (line.capitalGoods && line.assetClassId.isEmpty) {
+        return 'Line ${line.lineNumber}: choose the asset class of the '
+            'capital goods.';
+      }
     }
     return null;
   }
@@ -713,6 +756,10 @@ class _PurchaseInvoiceEditorDialogState
     for (int index = 0; index < _directLines.length; index++) {
       final PurchaseDirectLine line = _directLines[index];
       if (!line.sendable) continue;
+      if (line.capitalGoods && line.assetClassId.isEmpty) {
+        return 'Line ${index + 1}: choose the asset class of the capital '
+            'goods.';
+      }
       for (final (String name, String value) in [
         ('rate', line.unitPrice),
         ('free quantity', line.freeQuantity),

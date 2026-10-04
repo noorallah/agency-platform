@@ -51,6 +51,7 @@ import '../../models/post_dated_cheque.dart';
 import '../../models/purchase_requisition.dart';
 import '../../models/rfq.dart';
 import '../../models/bill_of_entry.dart';
+import '../../models/fixed_asset.dart';
 import '../../models/rate_contract.dart';
 import '../../models/supplier_scheme.dart';
 import '../../models/kit.dart';
@@ -5623,6 +5624,150 @@ class ApiClient {
 
   Future<void> deleteSupplierScheme(String id) =>
       request('DELETE', '/api/v1/supplier-schemes/$id');
+
+  // ---- Fixed assets (PG-13) -----------------------------------------------
+
+  Future<PagedResult<AssetClass>> assetClasses({
+    int page = 1,
+    int pageSize = 50,
+    String search = '',
+  }) =>
+      _list('/api/v1/fixed-assets/classes', AssetClass.fromJson, page, search,
+          pageSize: pageSize);
+
+  Future<AssetClass> assetClass(String id) async => AssetClass.fromJson(
+      _unwrapMap(await request('GET', '/api/v1/fixed-assets/classes/$id')));
+
+  Future<AssetClass> createAssetClass(Json body) async =>
+      AssetClass.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/fixed-assets/classes',
+        body: body,
+      )));
+
+  Future<AssetClass> updateAssetClass(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) async =>
+      AssetClass.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/fixed-assets/classes/$id',
+        body: body,
+        expectedVersion: expectedVersion,
+      )));
+
+  Future<void> deleteAssetClass(String id) =>
+      request('DELETE', '/api/v1/fixed-assets/classes/$id');
+
+  Future<PagedResult<FixedAsset>> fixedAssets({
+    int page = 1,
+    int pageSize = 50,
+    String search = '',
+    String status = '',
+    String assetClassId = '',
+    String branchId = '',
+    String asOf = '',
+  }) =>
+      _list(
+        '/api/v1/fixed-assets',
+        FixedAsset.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        additionalQuery: {
+          if (status.isNotEmpty) 'status': status,
+          if (assetClassId.isNotEmpty) 'asset_class_id': assetClassId,
+          if (branchId.isNotEmpty) 'branch_id': branchId,
+          if (asOf.isNotEmpty) 'as_of': asOf,
+        },
+      );
+
+  Future<FixedAsset> fixedAsset(String id) async => FixedAsset.fromJson(
+      _unwrapMap(await request('GET', '/api/v1/fixed-assets/$id')));
+
+  Future<FixedAsset> createFixedAsset(Json body) async =>
+      FixedAsset.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/fixed-assets',
+        body: body,
+      )));
+
+  Future<FixedAsset> updateFixedAsset(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) async =>
+      FixedAsset.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/fixed-assets/$id',
+        body: body,
+        expectedVersion: expectedVersion,
+      )));
+
+  Future<void> deleteFixedAsset(String id) =>
+      request('DELETE', '/api/v1/fixed-assets/$id');
+
+  Future<AssetSchedule> fixedAssetSchedule(String id) async =>
+      AssetSchedule.fromJson(_unwrapMap(
+          await request('GET', '/api/v1/fixed-assets/$id/schedule')));
+
+  Future<FixedAsset> disposeFixedAsset(String id, Json body) async =>
+      FixedAsset.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/fixed-assets/$id/dispose',
+        body: body,
+      )));
+
+  Future<PagedResult<DepreciationRun>> depreciationRuns({
+    int page = 1,
+    int pageSize = 50,
+    String status = '',
+    String runType = '',
+  }) =>
+      _list(
+        '/api/v1/fixed-assets/depreciation-runs',
+        DepreciationRun.fromJson,
+        page,
+        '',
+        pageSize: pageSize,
+        additionalQuery: {
+          if (status.isNotEmpty) 'status': status,
+          if (runType.isNotEmpty) 'run_type': runType,
+        },
+      );
+
+  Future<DepreciationRun> depreciationRun(String id) async =>
+      DepreciationRun.fromJson(_unwrapMap(
+          await request('GET', '/api/v1/fixed-assets/depreciation-runs/$id')));
+
+  Future<DepreciationRun> createDepreciationRun(Json body) async =>
+      DepreciationRun.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/fixed-assets/depreciation-runs',
+        body: body,
+      )));
+
+  Future<DepreciationRun> cancelDepreciationRun(
+          String id, String reason) async =>
+      DepreciationRun.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/fixed-assets/depreciation-runs/$id/cancel',
+        body: {'reason': reason},
+      )));
+
+  /// The Income-tax block schedule for a financial year.
+  Future<List<ItBlockRow>> itBlockSchedule(String financialYearId) async {
+    final Json data = _unwrapMap(await request(
+      'GET',
+      '/api/v1/fixed-assets/reports/it-block-schedule',
+      query: {'financial_year_id': financialYearId},
+    ));
+    return [
+      for (final Object? row in data['blocks'] as List? ?? const [])
+        if (row is Map) ItBlockRow.fromJson(Map<String, dynamic>.from(row)),
+    ];
+  }
 
   // ---- Bills of Entry (PG-12 part B) --------------------------------------
 
