@@ -16,6 +16,7 @@ The subcommands are the things an installed copy actually does::
     agency-server backup
     agency-server check
     agency-server messaging-run-once
+    agency-server set-branding --file branding.json
     agency-server --version
 
 Each is thin. The work lives in ``app/core`` where the application can also
@@ -251,6 +252,37 @@ def _messaging_run_once(args: argparse.Namespace) -> int:
     return 1 if report.errors else 0
 
 
+def _set_branding(args: argparse.Namespace) -> int:
+    """Save the agency's branding typed on the installer's Branding page.
+
+    A branding problem never fails an install: an unreadable file is an error
+    (Setup logs it as a warning), but a refused logo is reported and the name
+    is still saved.
+    """
+    from pathlib import Path
+
+    from app.branding.services.installer import (
+        apply_installer_branding,
+        read_installer_branding,
+    )
+    from app.core.database.engine import DatabaseManager
+
+    try:
+        values = read_installer_branding(Path(args.file))
+    except (OSError, ValueError) as error:
+        print(f"error: the branding file could not be read: {error}", file=sys.stderr)
+        return 2
+    platform = DatabaseManager.from_settings(Settings())
+    try:
+        schema = platform.config.default_schema or "platform"
+        with platform.sessions(schema=schema).session() as session:
+            for message in apply_installer_branding(session, values):
+                print(message)
+    finally:
+        platform.dispose()
+    return 0
+
+
 def _quick_check(args: argparse.Namespace) -> int:
     """Check this installation end to end, read only, and write an HTML page.
 
@@ -419,6 +451,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Send queued messages and reminders for every firm, once.",
     )
     messaging.set_defaults(handler=_messaging_run_once)
+
+    branding = subcommands.add_parser(
+        "set-branding",
+        help="Save the agency's name, tagline and logo given to Setup.",
+    )
+    branding.add_argument(
+        "--file",
+        required=True,
+        help="JSON with agency_name, tagline and logo_path, all optional.",
+    )
+    branding.set_defaults(handler=_set_branding)
 
     return parser
 
