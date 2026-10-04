@@ -1423,6 +1423,7 @@ class SalesOrderService(TransactionalDocumentService):
         return SalesOrderResponse(
             id=row.id,
             version=row.version,
+            created_by=row.created_by,
             firm_id=row.firm_id,
             customer_id=row.customer_id,
             customer_name=customer_name,

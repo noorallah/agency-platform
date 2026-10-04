@@ -179,7 +179,11 @@ Future<void> _pumpPage(WidgetTester tester, _BatchApi api) async {
           api: api,
           preferences: DesktopPreferencesService(directory: dir),
           permissions:
-              _permissions(const ['SALES_VIEW', 'SALES_APPROVE', 'SALES_CREATE']),
+              _permissions(const [
+                'SALES_VIEW',
+                'SALES_APPROVE',
+                'SALES_INVOICE_CREATE',
+              ]),
           hasActiveFirm: true,
         ),
       ),

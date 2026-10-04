@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.common.scope import (
     ResolvedFirmScope,
+    assert_may_edit_draft,
     firm_any_permission_scope,
     firm_permission_scope,
 )
@@ -97,11 +98,18 @@ SalesInvoiceViewScope = Annotated[
 SalesInvoiceReportScope = Annotated[
     ResolvedFirmScope, firm_any_permission_scope("SALES_VIEW", "REPORT_VIEW")
 ]
+#: A bill is written under its own code. `BILLING_EXECUTIVE` and
+#: `SALES_EXECUTIVE` held `SALES_INVOICE_CREATE` from the first seed and the
+#: route asked for `SALES_CREATE`, so Counter Sales could not raise a bill
+#: (D-ROLE-2).
 SalesInvoiceCreateScope = Annotated[
-    ResolvedFirmScope, firm_permission_scope("SALES_CREATE")
+    ResolvedFirmScope, firm_permission_scope("SALES_INVOICE_CREATE")
 ]
+#: Whoever raised a draft bill may correct it; anyone else's needs
+#: `SALES_UPDATE`. The handler narrows the create code to the author.
 SalesInvoiceUpdateScope = Annotated[
-    ResolvedFirmScope, firm_permission_scope("SALES_UPDATE")
+    ResolvedFirmScope,
+    firm_any_permission_scope("SALES_UPDATE", "SALES_INVOICE_CREATE"),
 ]
 SalesInvoiceApproveScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("SALES_APPROVE")
@@ -333,10 +341,14 @@ def update_sales_invoice(
     to make the race reachable.
     """
     service = SalesInvoiceService(db)
-    assert_version(
-        service.get_invoice(invoice_id, firm_scope=scope.firm_id).version,
-        expected_version,
+    current = service.get_invoice(invoice_id, firm_scope=scope.firm_id)
+    assert_may_edit_draft(
+        scope,
+        created_by=current.created_by,
+        edit_code="SALES_UPDATE",
+        document="sales invoice",
     )
+    assert_version(current.version, expected_version)
     row = service.update_invoice(
         invoice_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
     )

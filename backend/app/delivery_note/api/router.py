@@ -463,11 +463,12 @@ def dispatch_and_invoice_delivery_note(
 
     Backlog 77 row 2: the invoice exists when the goods leave (CGST s.31).
     Dispatching and approving a bill both take SALES_APPROVE; raising the bill
-    takes SALES_CREATE as well.
+    takes SALES_INVOICE_CREATE as well, the code `POST /sales-invoices` asks
+    for (D-ROLE-2).
     """
-    if not scope.principal.has_permission("SALES_CREATE"):
+    if not scope.principal.has_permission("SALES_INVOICE_CREATE"):
         raise AuthorizationError(
-            "Dispatch and invoice raises a bill, which needs SALES_CREATE."
+            "Dispatch and invoice raises a bill, which needs SALES_INVOICE_CREATE."
         )
     service = SalesInvoiceService(db)
     row = service.dispatch_and_invoice(

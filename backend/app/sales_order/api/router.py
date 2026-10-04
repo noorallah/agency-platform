@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.common.scope import (
     ResolvedFirmScope,
+    assert_may_edit_draft,
     firm_any_permission_scope,
     firm_permission_scope,
 )
@@ -95,11 +96,18 @@ SalesOrderViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("SALES_
 SalesOrderReportScope = Annotated[
     ResolvedFirmScope, firm_any_permission_scope("SALES_VIEW", "REPORT_VIEW")
 ]
+#: An order is written under its own code, as a quotation is under
+#: `SALES_QUOTATION_CREATE`. `SALES_EXECUTIVE` held `SALES_ORDER_CREATE` from the
+#: first seed and the route asked for `SALES_CREATE`, so Field Sales could quote
+#: and never take the order (D-ROLE-2).
 SalesOrderCreateScope = Annotated[
-    ResolvedFirmScope, firm_permission_scope("SALES_CREATE")
+    ResolvedFirmScope, firm_permission_scope("SALES_ORDER_CREATE")
 ]
+#: Whoever raised a draft order may correct it; anyone else's needs
+#: `SALES_UPDATE`. The handler narrows the create code to the author.
 SalesOrderUpdateScope = Annotated[
-    ResolvedFirmScope, firm_permission_scope("SALES_UPDATE")
+    ResolvedFirmScope,
+    firm_any_permission_scope("SALES_UPDATE", "SALES_ORDER_CREATE"),
 ]
 SalesOrderApproveScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("SALES_APPROVE")
@@ -433,9 +441,14 @@ def update_sales_order(
 ) -> ApiResponse[SalesOrderResponse]:
     """Replace one sales order."""
     service = SalesOrderService(db)
-    assert_version(
-        service.get_order(order_id, firm_scope=scope.firm_id).version, expected_version
+    current = service.get_order(order_id, firm_scope=scope.firm_id)
+    assert_may_edit_draft(
+        scope,
+        created_by=current.created_by,
+        edit_code="SALES_UPDATE",
+        document="sales order",
     )
+    assert_version(current.version, expected_version)
     row = service.update_order(
         order_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )

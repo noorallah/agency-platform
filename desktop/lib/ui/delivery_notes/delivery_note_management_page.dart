@@ -966,10 +966,11 @@ class _DeliveryNoteManagementPageState
   }
 
   /// Dispatching and invoicing in one step takes both permissions: it
-  /// approves the dispatch and creates the invoice.
+  /// approves the dispatch and creates the invoice -- under
+  /// `SALES_INVOICE_CREATE`, the code a bill is raised under (D-ROLE-2).
   bool _mayDispatchAndInvoice() =>
       widget.permissions.hasPermission('SALES_APPROVE') &&
-      widget.permissions.hasPermission('SALES_CREATE');
+      widget.permissions.hasPermission('SALES_INVOICE_CREATE');
 
   Future<void> _dispatchAndInvoice(
     _DeliveryNoteRecord note, {

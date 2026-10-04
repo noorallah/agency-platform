@@ -225,3 +225,42 @@ def firm_any_permission_scope(*codes: str) -> object:
 
 OptionalFirmScope = Annotated[FirmScope, Depends(optional_firm_scope)]
 RequiredFirmScope = Annotated[ResolvedFirmScope, Depends(required_firm_scope)]
+
+
+def assert_may_edit_draft(
+    scope: ResolvedFirmScope,
+    *,
+    created_by: UUID | None,
+    edit_code: str,
+    document: str,
+) -> None:
+    """Refuse an edit by somebody who holds only the document's create code.
+
+    A sales document is written under its own create code -- an order under
+    `SALES_ORDER_CREATE`, a bill under `SALES_INVOICE_CREATE` -- and edited
+    under the module's `edit_code`. A field salesman or a counter clerk holds
+    the first and not the second, and the draft they typed is theirs to
+    correct until somebody approves it, which is how ERPNext's "if owner"
+    and Zoho's own-records rights read (D-ROLE-2). Anyone else's draft still
+    needs `edit_code`. The route admits either code; this narrows the create
+    code to the caller's own document. The service refuses anything past a
+    draft whoever asks.
+
+    Args:
+        scope: The caller and the firm they act in.
+        created_by: Who raised the document.
+        edit_code: The code that edits any such document.
+        document: The document's name, for the refusal.
+
+    Raises:
+        AuthorizationError: If the caller holds only the create code and did
+            not raise this document.
+
+    """
+    if scope.principal.has_permission(edit_code):
+        return
+    if created_by is not None and created_by == scope.principal.subject:
+        return
+    raise AuthorizationError(
+        f"Only whoever raised this {document} may edit it without {edit_code}."
+    )

@@ -179,6 +179,27 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
   /// offered buttons the server would refuse.
   bool _mayApprove() => widget.permissions.hasPermission('SALES_APPROVE');
 
+  /// D-ROLE-2: a sales order is raised under `SALES_ORDER_CREATE`, the code the server
+  /// asks for, so Field Sales and Counter Sales are offered New.
+  bool get _mayCreate => widget.permissions.hasPermission('SALES_ORDER_CREATE');
+
+  /// Whether Edit is offered at all: `SALES_UPDATE` edits any draft, and the
+  /// create code the caller's own.
+  bool get _mayEditSome =>
+      widget.permissions.hasPermission('SALES_UPDATE') || _mayCreate;
+
+  /// Whether [row] may be edited by the signed-in user: anyone's draft under
+  /// `SALES_UPDATE`, or a draft they raised under `SALES_ORDER_CREATE` -- the same
+  /// question the server asks of `created_by`.
+  bool _mayEdit(Map<String, dynamic>? row) {
+    if (widget.permissions.hasPermission('SALES_UPDATE')) return true;
+    final String? me = widget.permissions.userId;
+    return _mayCreate &&
+        row != null &&
+        me != null &&
+        '${row['created_by'] ?? ''}' == me;
+  }
+
   bool _mayRun(DocumentToolbarAction action) => switch (action) {
         DocumentToolbarAction.approve ||
         DocumentToolbarAction.close ||
@@ -188,12 +209,8 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         DocumentToolbarAction.cancel ||
         DocumentToolbarAction.reject =>
           widget.permissions.hasPermission('SALES_CANCEL'),
-        DocumentToolbarAction.newDocument => widget.permissions.hasPermission(
-            'SALES_CREATE',
-          ),
-        DocumentToolbarAction.save => widget.permissions.hasPermission(
-            'SALES_UPDATE',
-          ),
+        DocumentToolbarAction.newDocument => _mayCreate,
+        DocumentToolbarAction.save => _mayEdit(_selected),
         DocumentToolbarAction.exportDocument =>
           widget.permissions.hasPermission(
             'SALES_EXPORT',
@@ -641,8 +658,8 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
     final String status = '${selected?['status'] ?? ''}';
     final bool held = selected?['is_on_hold'] == true;
     final bool finished = status == 'CANCELLED' || status == 'CLOSED';
-    final bool canCreate = widget.permissions.hasPermission('SALES_CREATE');
-    final bool canEdit = widget.permissions.hasPermission('SALES_UPDATE');
+    final bool canCreate = _mayCreate;
+    final bool canEdit = _mayEditSome;
     return WorkspaceToolbar(
       // Period right after the search, as Sales Returns has it (owner,
       // 2026-09-27), then Columns.
@@ -658,7 +675,10 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
           switch (action) {
             ToolbarAction.view => selected != null && !_bulkMode,
             ToolbarAction.edit =>
-              selected != null && status == 'DRAFT' && !_bulkMode,
+              selected != null &&
+              status == 'DRAFT' &&
+              _mayEdit(selected) &&
+              !_bulkMode,
             ToolbarAction.refresh => true,
             ToolbarAction.newItem => widget.hasActiveFirm,
             _ => false,
@@ -791,7 +811,7 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
           // converting a quotation, so a phone order had to be typed as a
           // quotation and immediately accepted -- two documents, and an
           // acceptance the customer never gave.
-          if (widget.permissions.hasPermission('SALES_CREATE'))
+          if (_mayCreate)
             Padding(
               padding: const EdgeInsets.only(left: 8),
               child: FilledButton.icon(
@@ -805,12 +825,13 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
           // picks against and what credit was committed on, so a correction
           // withdraws the approval rather than editing underneath it -- and
           // the service refuses the write anyway.
-          if (widget.permissions.hasPermission('SALES_UPDATE'))
+          if (_mayEditSome)
             Padding(
               padding: const EdgeInsets.only(left: 8),
               child: OutlinedButton.icon(
                 onPressed: _selected == null ||
-                        '${_selected?['status'] ?? ''}' != 'DRAFT'
+                        '${_selected?['status'] ?? ''}' != 'DRAFT' ||
+                        !_mayEdit(_selected)
                     ? null
                     : () => unawaited(_editOrder(_selected!)),
                 icon: const Icon(Icons.edit_outlined, size: 18),

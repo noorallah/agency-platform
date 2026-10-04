@@ -158,6 +158,27 @@ class _SalesInvoiceManagementPageState
   /// offered buttons the server would refuse.
   bool _mayApprove() => widget.permissions.hasPermission('SALES_APPROVE');
 
+  /// D-ROLE-2: a bill is raised under `SALES_INVOICE_CREATE`, the code the server
+  /// asks for, so Field Sales and Counter Sales are offered New.
+  bool get _mayCreate => widget.permissions.hasPermission('SALES_INVOICE_CREATE');
+
+  /// Whether Edit is offered at all: `SALES_UPDATE` edits any draft, and the
+  /// create code the caller's own.
+  bool get _mayEditSome =>
+      widget.permissions.hasPermission('SALES_UPDATE') || _mayCreate;
+
+  /// Whether [row] may be edited by the signed-in user: anyone's draft under
+  /// `SALES_UPDATE`, or a draft they raised under `SALES_INVOICE_CREATE` -- the same
+  /// question the server asks of `created_by`.
+  bool _mayEdit(Map<String, dynamic>? row) {
+    if (widget.permissions.hasPermission('SALES_UPDATE')) return true;
+    final String? me = widget.permissions.userId;
+    return _mayCreate &&
+        row != null &&
+        me != null &&
+        '${row['created_by'] ?? ''}' == me;
+  }
+
   bool _mayRun(DocumentToolbarAction action) => switch (action) {
         DocumentToolbarAction.approve ||
         DocumentToolbarAction.close ||
@@ -167,12 +188,8 @@ class _SalesInvoiceManagementPageState
         DocumentToolbarAction.cancel ||
         DocumentToolbarAction.reject =>
           widget.permissions.hasPermission('SALES_CANCEL'),
-        DocumentToolbarAction.newDocument => widget.permissions.hasPermission(
-            'SALES_CREATE',
-          ),
-        DocumentToolbarAction.save => widget.permissions.hasPermission(
-            'SALES_UPDATE',
-          ),
+        DocumentToolbarAction.newDocument => _mayCreate,
+        DocumentToolbarAction.save => _mayEdit(_selected),
         DocumentToolbarAction.exportDocument =>
           widget.permissions.hasPermission(
             'SALES_EXPORT',
@@ -834,8 +851,8 @@ class _SalesInvoiceManagementPageState
   Widget _phase2Toolbar() {
     final Map<String, dynamic>? selected = _selected;
     final String status = '${selected?['status'] ?? ''}';
-    final bool canCreate = widget.permissions.hasPermission('SALES_CREATE');
-    final bool canEdit = widget.permissions.hasPermission('SALES_UPDATE');
+    final bool canCreate = _mayCreate;
+    final bool canEdit = _mayEditSome;
     return WorkspaceToolbar(
       // Period right after the search, as Sales Returns has it (owner,
       // 2026-09-27), then Columns.
@@ -851,7 +868,10 @@ class _SalesInvoiceManagementPageState
           switch (action) {
             ToolbarAction.view => selected != null && !_bulkMode,
             ToolbarAction.edit =>
-              selected != null && status == 'DRAFT' && !_bulkMode,
+              selected != null &&
+              status == 'DRAFT' &&
+              _mayEdit(selected) &&
+              !_bulkMode,
             ToolbarAction.refresh => true,
             ToolbarAction.newItem => widget.hasActiveFirm,
             _ => false,
@@ -977,7 +997,7 @@ class _SalesInvoiceManagementPageState
           // First in the row, because raising a bill is the reason somebody
           // opens this screen -- and until 2026-08-23 there was no way to do
           // it from the desktop at all.
-          if (widget.permissions.hasPermission('SALES_CREATE'))
+          if (_mayCreate)
             Padding(
               padding: const EdgeInsets.only(left: 8),
               child: FilledButton.icon(
@@ -991,12 +1011,13 @@ class _SalesInvoiceManagementPageState
           // Only a draft: once approved the journal is posted and the
           // customer owes the money, so a correction is a cancellation and a
           // fresh bill rather than a quiet edit.
-          if (widget.permissions.hasPermission('SALES_UPDATE'))
+          if (_mayEditSome)
             Padding(
               padding: const EdgeInsets.only(left: 8),
               child: OutlinedButton.icon(
                 onPressed: _selected == null ||
-                        '${_selected?['status'] ?? ''}' != 'DRAFT'
+                        '${_selected?['status'] ?? ''}' != 'DRAFT' ||
+                        !_mayEdit(_selected)
                     ? null
                     : () => unawaited(_editInvoice(_selected!)),
                 icon: const Icon(Icons.edit_outlined, size: 18),
