@@ -143,6 +143,13 @@ class Settlement(BaseEntity):
     discount_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 2), nullable=False, default=Decimal("0.00"), server_default="0"
     )
+    #: A payment in a supplier's currency (PG-12): the currency, the rate of
+    #: the day it was paid (rupees per unit) and the amount in that currency.
+    #: ``amount`` is still the rupees that left the bank -- the amount at this
+    #: rate. NULL on a rupee settlement.
+    currency_code: Mapped[str | None] = mapped_column(String(3))
+    exchange_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    currency_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     method: Mapped[str] = mapped_column(String(20), nullable=False)
     #: The cash or bank account the money actually moved through, resolved from
     #: the firm's control accounts at the time and then stored. Re-deriving it
@@ -260,6 +267,14 @@ class SettlementAllocation(BaseEntity):
         UUIDType(), ForeignKey("customer_opening_bills.id", ondelete="RESTRICT")
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    #: Against a bill in another currency (PG-12): what this cleared in the
+    #: bill's currency, and what that part of the bill was worth in rupees at
+    #: the bill's own rate -- what comes off its rupee outstanding.
+    #: ``amount`` stays the rupees paid for it at the payment's rate; the
+    #: difference is the exchange gain or loss. NULL on a rupee allocation,
+    #: where ``amount`` is all three.
+    currency_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    base_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     #: The day the money met the bill. For an allocation made with the
     #: settlement it is the settlement's own date; for an advance applied to a
     #: bill raised since (`allocate`) it is the day the bill existed to be

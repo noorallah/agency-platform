@@ -127,6 +127,16 @@ class SettlementCreate(SettlementSchema):
     discount_amount: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=2
     )
+    #: A payment to a supplier's bills in another currency (PG-12): its ISO
+    #: code and the day's rate, rupees per unit. With one, ``amount`` and each
+    #: allocation's ``amount`` are in that currency, every allocation must be
+    #: to a bill in it, and they must use the whole amount. The rupees paid
+    #: are the amount at this rate; against the bills' own rate the
+    #: difference is an exchange gain or loss. Blank or INR is rupees.
+    currency_code: str | None = Field(default=None, max_length=3)
+    exchange_rate: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, decimal_places=6
+    )
 
     @model_validator(mode="after")
     def _mode_fits_the_method(self) -> "SettlementCreate":
@@ -199,6 +209,14 @@ class SettlementAllocationResponse(SettlementSchema):
     #: an advance applied to a bill raised since. Commission and targets count
     #: the collection in this day's period (D-TER-6).
     allocated_on: date
+    #: Against a bill in another currency (PG-12): what this cleared in the
+    #: bill's currency, what that part of the bill was worth in rupees at
+    #: the bill's rate, and ``amount`` (the rupees paid at the payment's
+    #: rate) less that -- a loss above zero, a gain below. Null and zero on
+    #: a rupee allocation.
+    currency_amount: Decimal | None = None
+    base_amount: Decimal | None = None
+    exchange_difference: Decimal = Decimal("0")
 
 
 class SettlementResponse(SettlementSchema):
@@ -229,6 +247,13 @@ class SettlementResponse(SettlementSchema):
     bank_charges_amount: Decimal = Decimal("0")
     discount_amount: Decimal = Decimal("0")
     cash_amount: Decimal | None = None
+    #: A payment in another currency (PG-12): the currency, the day's rate,
+    #: the amount in that currency (``amount`` is the rupees), and the
+    #: exchange difference posted -- a loss above zero, a gain below.
+    currency_code: str | None = None
+    exchange_rate: Decimal | None = None
+    currency_amount: Decimal | None = None
+    exchange_difference: Decimal = Decimal("0")
     method: SettlementMethodEnum
     payment_mode: SettlementModeEnum | None = None
     ledger_account_id: UUID
@@ -269,6 +294,14 @@ class OutstandingInvoiceRecord(SettlementSchema):
     #: a purchase invoice. It is paid the same way, but it is not a purchase
     #: invoice and cannot be opened as one.
     is_opening_bill: bool = False
+    #: A supplier's bill in another currency (PG-12): the three figures above
+    #: are rupees at the bill's rate; these are the bill's own currency, its
+    #: total and what it still owes in it -- what a payment allocates. Null
+    #: for a rupee bill.
+    currency_code: str | None = None
+    exchange_rate: Decimal | None = None
+    currency_total: Decimal | None = None
+    currency_outstanding: Decimal | None = None
 
 
 class SettlementPartyRecord(SettlementSchema):

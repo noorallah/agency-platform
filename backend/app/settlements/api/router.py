@@ -147,8 +147,24 @@ def _to_responses(
                     # Rows older than the column carry nothing; the settlement's
                     # date is what the backfill wrote for them.
                     allocated_on=allocation.allocated_on or row.settlement_date,
+                    # Against a bill in another currency (PG-12).
+                    currency_amount=allocation.currency_amount,
+                    base_amount=allocation.base_amount,
+                    exchange_difference=(
+                        Decimal("0")
+                        if allocation.base_amount is None
+                        else allocation.amount - allocation.base_amount
+                    ),
                 )
             )
+        exchange_difference = sum(
+            (
+                allocation.amount - allocation.base_amount
+                for allocation in allocations.get(row.id, [])
+                if allocation.base_amount is not None
+            ),
+            Decimal("0"),
+        )
         party_id, party_code, party_name = parties[row.id]
         responses.append(
             SettlementResponse(
@@ -175,6 +191,10 @@ def _to_responses(
                 ),
                 allocated_amount=row.allocated_amount,
                 unallocated_amount=row.unallocated_amount,
+                currency_code=row.currency_code,
+                exchange_rate=row.exchange_rate,
+                currency_amount=row.currency_amount,
+                exchange_difference=exchange_difference,
                 sales_order_id=row.sales_order_id,
                 sales_order_number=(
                     None

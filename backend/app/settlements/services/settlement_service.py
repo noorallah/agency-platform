@@ -13,12 +13,14 @@ rather than recorded half-way.
 """
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import Select, and_, func, or_, select
+from sqlalchemy import null as sa_null
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.common.audit.services import record_audit
@@ -52,6 +54,12 @@ from app.document_framework.services.transactional_document_service import (
     DocumentStateSpec,
     DocumentTypeSpec,
     TransactionalDocumentService,
+)
+from app.finance.currency import (
+    check_currency,
+    is_foreign,
+    normalize_currency,
+    to_base,
 )
 from app.finance.models import LedgerAccount
 from app.finance.services.control_accounts import (
@@ -368,6 +376,29 @@ def _start_of_day_after(day: date) -> datetime:
     return datetime.combine(day + timedelta(days=1), time.min, tzinfo=UTC)
 
 
+@dataclass(frozen=True, slots=True)
+class _ForeignPart:
+    """One bill's share of a payment in its currency (PG-12)."""
+
+    #: What the share cleared in the bill's currency.
+    currency_amount: Decimal
+    #: The rupees paid for it at the payment's rate.
+    paid: Decimal
+    #: What it took off the bill's rupee value, at the bill's rate.
+    base: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class _ForeignPayment:
+    """A payment in a supplier's currency, worked out in rupees (PG-12)."""
+
+    #: What left the bank: the amount at the payment's rate.
+    rupees: Decimal
+    #: Rupees paid less the bills' rupee value cleared: a loss above zero.
+    difference: Decimal
+    parts: dict[UUID, _ForeignPart]
+
+
 class SettlementService(TransactionalDocumentService):
     """Record a settlement, allocate it to invoices, and post it."""
 
@@ -420,10 +451,25 @@ class SettlementService(TransactionalDocumentService):
         # The allocation rows stay: the reversed settlement still shows what it
         # had been applied to, which is what somebody asks first when a
         # correction is queried.
+        # A supplier's bill in another currency comes off at its own rupee
+        # value, not at the rupees paid (PG-12): ``base_amount``, where the
+        # allocation has one. Its own currency comes off by what was
+        # allocated in it.
         allocated = (
             select(
                 allocation_column.label("invoice_id"),
-                func.coalesce(func.sum(SettlementAllocation.amount), 0).label("total"),
+                func.coalesce(
+                    func.sum(
+                        func.coalesce(
+                            SettlementAllocation.base_amount,
+                            SettlementAllocation.amount,
+                        )
+                    ),
+                    0,
+                ).label("total"),
+                func.coalesce(func.sum(SettlementAllocation.currency_amount), 0).label(
+                    "currency_total"
+                ),
             )
             .join(Settlement, Settlement.id == SettlementAllocation.settlement_id)
             .where(
@@ -443,10 +489,14 @@ class SettlementService(TransactionalDocumentService):
         # nine in ten of Customer Outstanding's rows (PLT-4).
         # What the bill is worth to the party: a supplier's bill carries the
         # TCS it charged on top (PG-6), which the payable was credited with.
+        # A bill in another currency is owed in rupees at its own rate (PG-12).
         owed: Any = (
             invoice.grand_total
             if is_receipt
-            else PurchaseInvoice.grand_total + PurchaseInvoice.tcs_amount
+            else func.coalesce(
+                PurchaseInvoice.base_grand_total, PurchaseInvoice.grand_total
+            )
+            + PurchaseInvoice.tcs_amount
         )
         open_bills: list[Any] = [
             allocated.c.total.is_(None),
@@ -475,6 +525,15 @@ class SettlementService(TransactionalDocumentService):
                 owed.label("grand_total"),
                 invoice.due_date,
                 party_column.label("party_id"),
+                # The bill's own currency (PG-12); a customer's bill has none.
+                (sa_null() if is_receipt else PurchaseInvoice.currency_code).label(
+                    "currency_code"
+                ),
+                (sa_null() if is_receipt else PurchaseInvoice.exchange_rate).label(
+                    "exchange_rate"
+                ),
+                invoice.grand_total.label("document_total"),
+                func.coalesce(allocated.c.currency_total, 0).label("currency_paid"),
                 func.coalesce(allocated.c.total, 0),
             )
             .outerjoin(allocated, allocated.c.invoice_id == invoice.id)
@@ -529,6 +588,8 @@ class SettlementService(TransactionalDocumentService):
             outstanding = total - already
             if outstanding <= ZERO:
                 continue
+            foreign = is_foreign(row.currency_code)
+            currency_total = quantize_ledger(Decimal(row.document_total))
             records.append(
                 OutstandingInvoiceRecord(
                     invoice_id=row.id,
@@ -539,6 +600,14 @@ class SettlementService(TransactionalDocumentService):
                     outstanding_amount=outstanding,
                     party_id=row.party_id,
                     due_date=row.due_date,
+                    currency_code=row.currency_code if foreign else None,
+                    exchange_rate=row.exchange_rate if foreign else None,
+                    currency_total=currency_total if foreign else None,
+                    currency_outstanding=(
+                        currency_total - quantize_ledger(Decimal(row.currency_paid))
+                        if foreign
+                        else None
+                    ),
                 )
             )
         records.extend(
@@ -715,10 +784,14 @@ class SettlementService(TransactionalDocumentService):
         rows = self._session.execute(
             select(
                 PurchaseInvoice.id,
-                # The TCS the supplier charged is owed with the bill (PG-6).
-                (PurchaseInvoice.grand_total + PurchaseInvoice.tcs_amount).label(
-                    "grand_total"
-                ),
+                # The TCS the supplier charged is owed with the bill (PG-6); a
+                # bill in another currency in rupees at its rate (PG-12).
+                (
+                    func.coalesce(
+                        PurchaseInvoice.base_grand_total, PurchaseInvoice.grand_total
+                    )
+                    + PurchaseInvoice.tcs_amount
+                ).label("grand_total"),
             ).where(
                 PurchaseInvoice.firm_id == firm_id,
                 PurchaseInvoice.id.in_(invoice_ids),
@@ -734,7 +807,15 @@ class SettlementService(TransactionalDocumentService):
             for invoice_id, total in self._session.execute(
                 select(
                     SettlementAllocation.purchase_invoice_id,
-                    func.coalesce(func.sum(SettlementAllocation.amount), 0),
+                    func.coalesce(
+                        func.sum(
+                            func.coalesce(
+                                SettlementAllocation.base_amount,
+                                SettlementAllocation.amount,
+                            )
+                        ),
+                        0,
+                    ),
                 )
                 .join(Settlement, Settlement.id == SettlementAllocation.settlement_id)
                 .where(
@@ -933,16 +1014,37 @@ class SettlementService(TransactionalDocumentService):
         )
         party = self._require_party(firm_id=firm_id, party_id=data.party_id)
         order = self._advance_order(data, firm_id=firm_id)
-        amount = quantize_ledger(data.amount)
-        allocated = self._validate_allocations(
-            data, firm_id=firm_id, party_id=data.party_id, amount=amount
+        currency = normalize_currency(data.currency_code)
+        # A payment in a supplier's currency (PG-12): the request's amounts
+        # are in that currency, and what is stored and posted is rupees.
+        fx = (
+            self._foreign_allocations(
+                data, firm_id=firm_id, party_id=data.party_id, currency=currency
+            )
+            if is_foreign(currency)
+            else None
         )
-        deductions = self._deductions(data, firm_id=firm_id, allocated=allocated)
+        deductions: dict[ControlAccountPurpose, Decimal]
+        if fx is not None:
+            amount = fx.rupees
+            allocated = amount
+            deductions = {}
+        else:
+            amount = quantize_ledger(data.amount)
+            allocated = self._validate_allocations(
+                data, firm_id=firm_id, party_id=data.party_id, amount=amount
+            )
+            deductions = self._deductions(data, firm_id=firm_id, allocated=allocated)
         # 194C and 194J are deducted at the earlier of credit and payment
         # (PG-5): what this payment should deduct is worked out before it is
         # written, so it is not its own past, and kept beside what it did.
+        # Not on a payment abroad, which neither section reaches (PG-12).
         tds_proposed: Decimal | None = None
-        if self.DIRECTION == SettlementDirection.PAYMENT and isinstance(party, Vendor):
+        if (
+            self.DIRECTION == SettlementDirection.PAYMENT
+            and isinstance(party, Vendor)
+            and fx is None
+        ):
             # Imported here: the finance services read this module's models.
             from app.finance.services.tds_sections import TdsSectionService
 
@@ -1002,6 +1104,7 @@ class SettlementService(TransactionalDocumentService):
                 actor_id=actor_id,
                 tds_amount=tds_amount,
                 deductions=deductions,
+                exchange_difference=ZERO if fx is None else fx.difference,
             )
         )
         row = Settlement(
@@ -1026,6 +1129,9 @@ class SettlementService(TransactionalDocumentService):
             ),
             allocated_amount=allocated,
             unallocated_amount=amount - allocated,
+            currency_code=None if fx is None else currency,
+            exchange_rate=None if fx is None else data.exchange_rate,
+            currency_amount=None if fx is None else quantize_ledger(data.amount),
             sales_order_id=None if order is None else order.id,
             method=data.method.value,
             payment_mode=(
@@ -1050,6 +1156,7 @@ class SettlementService(TransactionalDocumentService):
         )
         for allocation in data.allocations:
             opening = allocation.invoice_id in opening_bills
+            part = None if fx is None else fx.parts[allocation.invoice_id]
             self._session.add(
                 SettlementAllocation(
                     firm_id=firm_id,
@@ -1057,7 +1164,15 @@ class SettlementService(TransactionalDocumentService):
                     **self._allocation_target(
                         allocation.invoice_id, is_receipt=is_receipt, opening=opening
                     ),
-                    amount=quantize_ledger(allocation.amount),
+                    # The rupees paid for this bill; in another currency, what
+                    # it cleared in that currency and at the bill's rate too.
+                    amount=(
+                        quantize_ledger(allocation.amount)
+                        if part is None
+                        else part.paid
+                    ),
+                    currency_amount=None if part is None else part.currency_amount,
+                    base_amount=None if part is None else part.base,
                     # Applied with the money, so it met the bill the day the
                     # money arrived.
                     allocated_on=data.settlement_date,
@@ -1140,6 +1255,17 @@ class SettlementService(TransactionalDocumentService):
                 },
                 "allocated_amount": str(allocated),
                 "party": party.code,
+                # A payment in another currency (PG-12).
+                **(
+                    {}
+                    if fx is None
+                    else {
+                        "currency_code": currency,
+                        "exchange_rate": str(data.exchange_rate),
+                        "currency_amount": str(quantize_ledger(data.amount)),
+                        "exchange_difference": str(fx.difference),
+                    }
+                ),
             },
         )
         self._session.flush()
@@ -1336,6 +1462,7 @@ class SettlementService(TransactionalDocumentService):
                 f"{'customer' if is_receipt else 'supplier'}, is not "
                 "approved, or is already settled in full."
             )
+        self._refuse_rupees_for_foreign_bill(record)
         if asked > record.outstanding_amount:
             raise ValidationError(
                 f"{record.invoice_number} owes only {record.outstanding_amount}."
@@ -1801,6 +1928,7 @@ class SettlementService(TransactionalDocumentService):
                     "An allocated invoice does not belong to this party, is "
                     "not approved, or is already settled in full."
                 )
+            self._refuse_rupees_for_foreign_bill(record)
             allocated = quantize_ledger(allocation.amount)
             if allocated > record.outstanding_amount:
                 raise ValidationError(
@@ -1815,6 +1943,113 @@ class SettlementService(TransactionalDocumentService):
                 f"{amount} that moved."
             )
         return total
+
+    @staticmethod
+    def _refuse_rupees_for_foreign_bill(record: OutstandingInvoiceRecord) -> None:
+        """Refuse rupees set against a bill in another currency (PG-12).
+
+        Such a bill is owed in its currency; how many rupees clear it depends
+        on the day's rate, which only a payment in that currency states.
+        """
+        if record.currency_code is not None:
+            raise ValidationError(
+                f"Bill {record.invoice_number} is in {record.currency_code}. "
+                f"Pay it with a payment in {record.currency_code} at the "
+                "day's rate."
+            )
+
+    def _foreign_allocations(
+        self,
+        data: SettlementCreate,
+        *,
+        firm_id: UUID,
+        party_id: UUID,
+        currency: str | None,
+    ) -> _ForeignPayment:
+        """Check a payment in a supplier's currency and work out its rupees.
+
+        Rules, decided on 2026-10-05 by the Tally and ERPNext convention
+        (PG-12):
+
+        * Only a payment to a supplier, applied to its bills in that currency,
+          and the whole amount: money abroad held on account would need a
+          rate of its own to apply later, so an advance is not carried.
+        * No TDS and no deductions -- neither 194C/194J nor 194Q reaches a
+          supplier abroad, and a rounding or discount is a rupee figure.
+        * The rupees paid are the amount at the payment's rate, each bill's
+          share rounded on its own and the last taking the residual, so the
+          shares sum to what left the bank. What comes off each bill is its
+          share at the bill's own rate -- or, where the payment clears the
+          bill, whatever rupees it still owed -- so a part payment settles in
+          proportion and the last one leaves nothing behind.
+
+        Raises:
+            ValidationError: If any rule above is broken.
+
+        """
+        if self.DIRECTION != SettlementDirection.PAYMENT:
+            raise ValidationError(
+                "Only a payment to a supplier is recorded in another currency."
+            )
+        check_currency(currency, data.exchange_rate)
+        rate = data.exchange_rate
+        if rate is None:  # pragma: no cover - check_currency refused it
+            raise ValidationError("A payment in another currency needs its rate.")
+        taken = (
+            (data.tds_amount or ZERO)
+            + (data.rounding_amount or ZERO)
+            + (data.bank_charges_amount or ZERO)
+            + (data.discount_amount or ZERO)
+        )
+        if taken > ZERO:
+            raise ValidationError(
+                f"A payment in {currency} takes no TDS, rounding, bank charges "
+                "or discount; record it for the amount that was sent."
+            )
+        total = quantize_ledger(data.amount)
+        if not data.allocations or (
+            sum((quantize_ledger(item.amount) for item in data.allocations), ZERO)
+            != total
+        ):
+            raise ValidationError(
+                f"A payment in {currency} is applied in full to the supplier's "
+                f"bills in {currency}; an advance in another currency is not "
+                "carried."
+            )
+        outstanding = {
+            record.invoice_id: record
+            for record in self.outstanding_invoices(firm_id=firm_id, party_id=party_id)
+        }
+        rupees = to_base(total, rate)
+        parts: dict[UUID, _ForeignPart] = {}
+        paid_so_far = ZERO
+        for index, allocation in enumerate(data.allocations):
+            record = outstanding.get(allocation.invoice_id)
+            if record is None or record.currency_code != currency:
+                raise ValidationError(
+                    f"A payment in {currency} is applied only to this "
+                    f"supplier's open bills in {currency}."
+                )
+            share = quantize_ledger(allocation.amount)
+            left = record.currency_outstanding or ZERO
+            if share > left:
+                raise ValidationError(
+                    f"Bill {record.invoice_number} has {left} {currency} "
+                    f"outstanding, so {share} cannot be allocated to it."
+                )
+            last = index == len(data.allocations) - 1
+            paid = rupees - paid_so_far if last else to_base(share, rate)
+            paid_so_far += paid
+            base = (
+                record.outstanding_amount
+                if share == left
+                else to_base(share, record.exchange_rate or rate)
+            )
+            parts[allocation.invoice_id] = _ForeignPart(
+                currency_amount=share, paid=paid, base=base
+            )
+        cleared = sum((part.base for part in parts.values()), ZERO)
+        return _ForeignPayment(rupees=rupees, difference=rupees - cleared, parts=parts)
 
     def ledger_account_name(self, account_id: UUID) -> str:
         """Return the name of the account money moved through."""

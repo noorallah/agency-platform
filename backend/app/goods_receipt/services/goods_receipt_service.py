@@ -43,6 +43,7 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
+from app.finance.currency import check_currency, is_foreign
 from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
 from app.goods_receipt.billing import (
@@ -1796,6 +1797,13 @@ class GoodsReceiptService(TransactionalDocumentService):
     ) -> None:
         """Post inventory."""
         received_cost = ZERO
+        # An order in another currency priced its lines as the supplier bills
+        # (PG-12); the stock is valued in rupees at the order's rate, which
+        # for a bill that raised its own order is the bill's.
+        rupees_per_unit = Decimal("1")
+        if is_foreign(purchase_order.currency_code):
+            check_currency(purchase_order.currency_code, purchase_order.exchange_rate)
+            rupees_per_unit = purchase_order.exchange_rate or Decimal("1")
         for line in self._session.scalars(
             select(GoodsReceiptLine).where(
                 GoodsReceiptLine.goods_receipt_id == receipt.id,
@@ -1854,7 +1862,7 @@ class GoodsReceiptService(TransactionalDocumentService):
                 reference_number=receipt.grn_number,
                 transaction_date=receipt.receipt_date,
                 total_quantity=self._q(line.accepted_quantity + line.free_quantity),
-                unit_cost=self._receipt_unit_cost(line),
+                unit_cost=self._receipt_unit_cost(line) * rupees_per_unit,
                 blocked_quantity=self._q(line.rejected_quantity),
                 damaged_quantity=self._q(line.damaged_quantity),
                 entered_quantity=self._q(

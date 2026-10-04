@@ -327,8 +327,12 @@ class PayablesReportService:
             # TDS deducted on the bill went to TDS Payable, not the supplier
             # (PG-5), so the bill is owed that less; TCS the supplier charged
             # (PG-6) is owed on top.
+            # A bill in another currency is owed in rupees at its own rate
+            # (PG-12).
             (
-                PurchaseInvoice.grand_total
+                func.coalesce(
+                    PurchaseInvoice.base_grand_total, PurchaseInvoice.grand_total
+                )
                 + PurchaseInvoice.tcs_amount
                 - PurchaseInvoice.tds_amount
             ).label("total"),
@@ -368,10 +372,17 @@ class PayablesReportService:
             SettlementAllocation.purchase_invoice_id,
             SettlementAllocation.vendor_opening_bill_id,
         )
+        # What came off a bill in another currency is its rupee value at the
+        # bill's rate (PG-12); the rest of the rupees paid was an exchange
+        # gain or loss, never the supplier's.
         allocated = (
             select(
                 allocation_bill.label("bill_id"),
-                func.sum(SettlementAllocation.amount).label("amount"),
+                func.sum(
+                    func.coalesce(
+                        SettlementAllocation.base_amount, SettlementAllocation.amount
+                    )
+                ).label("amount"),
             )
             .join(Settlement, Settlement.id == SettlementAllocation.settlement_id)
             .where(
@@ -714,12 +725,26 @@ class PayablesReportService:
             ),
             else_=width - 1,
         )
+        # A payment in another currency took the bills' rupee value off the
+        # payable, not the rupees it cost (PG-12); the rest was an exchange
+        # gain or loss, so it is counted at what it cleared.
+        cleared = (
+            select(func.coalesce(func.sum(SettlementAllocation.base_amount), 0))
+            .where(
+                SettlementAllocation.settlement_id == Settlement.id,
+                SettlementAllocation.is_deleted.is_(False),
+            )
+            .scalar_subquery()
+        )
+        paid = case(
+            (Settlement.currency_code.is_(None), Settlement.amount), else_=cleared
+        )
         figures: dict[UUID, _Acc] = {}
         for vendor, index, amount, count in self._session.execute(
             select(
                 Settlement.vendor_id,
                 bucket,
-                func.sum(Settlement.amount),
+                func.sum(paid),
                 func.count(Settlement.id),
             )
             .where(

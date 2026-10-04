@@ -199,11 +199,26 @@ class VendorWrite(VendorSchema):
     #: For 194J (PG-5): technical services (the lower rate) rather than
     #: professional fees.
     tds_technical_services: bool = False
+    #: The currency the supplier bills in (PG-12), ISO code; blank is rupees.
+    currency_code: str | None = Field(default=None, max_length=3)
     #: What the supplier normally takes off a line (BUY-3); a purchase line
     #: with no discount of its own starts at it.
     standing_discount_percent: Decimal = Field(
         default=Decimal("0"), ge=0, le=100, max_digits=9, decimal_places=4
     )
+
+    @field_validator("currency_code", mode="before")
+    @classmethod
+    def _currency(cls, value: str | None) -> str | None:
+        """Accept a three-letter ISO code in any case; blank is rupees."""
+        if value is None or not str(value).strip():
+            return None
+        normalized = str(value).strip().upper()
+        if not re.fullmatch(r"[A-Z]{3}", normalized):
+            raise ValueError(
+                "A currency is its three-letter ISO code, such as USD or EUR."
+            )
+        return normalized
 
     @field_validator("default_tds_section", mode="before")
     @classmethod
@@ -494,6 +509,7 @@ class VendorResponse(VendorSchema):
     default_tds_section: str | None = None
     tds_individual_huf: bool | None = None
     tds_technical_services: bool = False
+    currency_code: str | None = None
     standing_discount_percent: Decimal = Decimal("0")
     license_number: str | None
     registration_number: str | None

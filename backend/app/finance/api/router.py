@@ -87,6 +87,10 @@ from app.finance.schemas.bank_details import (
     BankAccountDetailsResponse,
     BankAccountDetailsWrite,
 )
+from app.finance.schemas.fx_revaluation import (
+    FxRevaluationRequest,
+    FxRevaluationResponse,
+)
 from app.finance.schemas.tds_194q import (
     Supplier194QRecord,
     Tds194QSettingsResponse,
@@ -120,6 +124,7 @@ from app.finance.services.control_accounts import (
     ControlAccountService,
     ControlAccountView,
 )
+from app.finance.services.fx_revaluation import FxRevaluationService
 from app.finance.services.journal_engine import assert_manual_reference
 from app.finance.services.ledger_attachments import LedgerAttachmentService
 from app.finance.services.opening_balances import (
@@ -1923,4 +1928,37 @@ def tally_export(
                 f'attachment; filename="tally-{from_date:%Y%m%d}-{to_date:%Y%m%d}.xml"'
             )
         },
+    )
+
+
+# ---- Exchange revaluation (PG-12 part A) ------------------------------------
+
+
+@router.post(
+    "/fx-revaluation",
+    response_model=ApiResponse[FxRevaluationResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def revalue_foreign_payables(
+    payload: FxRevaluationRequest,
+    scope: JournalPostScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[FxRevaluationResponse]:
+    """Restate open foreign-currency payables at a period end's rates.
+
+    Posts the net unrealised gain or loss dated ``as_of`` -- Dr or Cr
+    exchange gain/loss against payables -- and its reversal the next day.
+    Nothing is posted when nothing moved.
+    """
+    result = FxRevaluationService(db).revalue(
+        payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    db.commit()
+    return ApiResponse(
+        data=result,
+        message=(
+            f"Revalued {len(result.lines)} bill(s) as of {result.as_of.isoformat()}."
+            if result.journal_entry_id is not None
+            else "Nothing to revalue: no open bill in those currencies moved."
+        ),
     )

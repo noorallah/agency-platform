@@ -375,6 +375,66 @@ no PAN is written `PANNOTAVBL` with reason `C` (deducted at the higher rate,
 206AA). When challans are recorded as documents, the FVU file becomes
 possible and this is where it belongs.
 
+## A bill in another currency posts rupees at its rate; the payment realises the difference
+
+PG-12 part A (2026-10-05, migration `20261005_0313`), decided by the Tally and
+ERPNext convention. The books are rupees (`BASE_CURRENCY` in
+`app/finance/currency.py`); blank and `INR` are both rupees, and a rupee bill
+posts and reads exactly as it did.
+
+- **The bill** keeps its lines and totals as the supplier typed them, with
+  `currency_code` (a new bill takes the supplier's `vendors.currency_code`)
+  and `exchange_rate` (rupees per unit, required for any other currency). The
+  ledger posts `base_grand_total` = `quantize_ledger(goods x rate) +
+  quantize_ledger(tax x rate)` -- the legs converted one by one, never the
+  total -- and each tax head converted the same way. Dr GRNI at the accrual,
+  Cr Payables `base_grand_total`, as for any bill.
+- **The stock** is the movement's: a receipt against an order in another
+  currency is valued at the order's rate (`_post_inventory`), so a bill that
+  raised its own order and receipt clears the accrual with no variance. A
+  receipt raised from an order at a different rate posts the gap to price
+  variance, as any bill does.
+- **Owed** is derived in both currencies from `settlement_allocations`: rupees
+  as `base_grand_total` less each allocation's `base_amount`, the bill's
+  currency as `grand_total` less each `currency_amount`. The outstanding
+  record carries `currency_code`, `exchange_rate`, `currency_total` and
+  `currency_outstanding` beside the rupee figures; the payables report reads
+  the rupees.
+- **The payment** names `currency_code` and its own `exchange_rate`; its
+  `amount` and allocations are in that currency and must all go to the
+  supplier's bills in it (no advance in a foreign currency, no TDS and no
+  deductions). Stored: `settlements.amount` = rupees paid (`currency_amount`
+  x the payment's rate), each allocation's `amount` its share of those rupees,
+  `base_amount` what it took off the bill at the bill's rate (the bill's whole
+  remaining rupees when the payment clears it, so a part payment settles in
+  proportion and the last leaves nothing). Journal: Cr Cash/Bank the rupees
+  paid, Dr Payables the bills' rupee value, and the difference to *Exchange
+  Gain/Loss* (`EXCHANGE_GAIN_LOSS`, seeded as *4950*, revenue) -- **Dr when
+  it is a loss, Cr when a gain**.
+- **Reversing the payment** mirrors its journal, gain or loss leg included,
+  and the allocations stop counting, so the bill owes its whole value in both
+  currencies again.
+- **Rupees are refused against a foreign bill** -- an ordinary payment, an
+  advance applied later, and the cash purchase's *Paid now* -- because only a
+  payment in the bill's currency states the day's rate.
+- **TDS and TCS** do not apply: a TCS on a foreign bill is refused when the
+  bill is saved, no 194C/194J deduction is proposed and an override is
+  refused (withholding on a payment abroad is section 195, not built).
+- **Period-end revaluation** (`POST /finance/fx-revaluation`, `JOURNAL_POST`)
+  takes `{as_of, rates: {USD: 84.1}}`, restates what each open bill dated by
+  then still owes in its currency at the new rate, and posts the net once:
+  Dr Exchange Gain/Loss / Cr Payables for a loss (the reverse for a gain),
+  source module `fx_revaluation`, reference `FXREV-YYYYMMDD`, dated `as_of`,
+  with its mirror `FXREV-YYYYMMDD-REV` dated the day after. Unrealised, so
+  nothing on a bill or allocation changes and the payment still realises the
+  whole difference against the bill's own rate. Minimal: it reads what each
+  bill owes now, refuses a second revaluation of the same day, and refuses
+  the whole thing when no period is open for the reversal's day. Between the
+  two dates the payables report's books check differs by the revaluation.
+- **Not built yet** (part B): the Bill of Entry, customs duty into landed
+  cost and import IGST in 3B; purchase returns and debit notes are still
+  rupee documents.
+
 ## A balance is cleared without money by a deduction or a party adjustment, never by tax
 
 Backlog 74 row 2 (2026-10-01). A receipt three rupees short, a bank charge the

@@ -12,7 +12,7 @@ missing control account or a closed period refuses the approval outright.
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -1518,6 +1518,7 @@ class DocumentPostingService:
         actor_id: UUID,
         tds_amount: Decimal = ZERO,
         deductions: dict[ControlAccountPurpose, Decimal] | None = None,
+        exchange_difference: Decimal = ZERO,
     ) -> JournalEntry:
         """Post money arriving from a customer or going out to a vendor.
 
@@ -1549,6 +1550,12 @@ class DocumentPostingService:
                 each (a cost the firm accepted); a payment credits each (what
                 the supplier let go). The money leg shrinks by their total and
                 the party leg still clears the whole ``amount``.
+            exchange_difference: On a payment to bills in another currency
+                (PG-12), the rupees paid less the bills' rupee value at their
+                own rate. The payable is debited only with that value, so it
+                clears exactly what the bills credited; a loss (above zero)
+                is debited to `EXCHANGE_GAIN_LOSS`, a gain credited to it.
+                The money leg is still the whole ``amount``.
 
         Returns:
             The posted journal entry.
@@ -1560,6 +1567,9 @@ class DocumentPostingService:
         purposes: tuple[ControlAccountPurpose, ...] = (
             RECEIPT_PURPOSES if is_receipt else PAYMENT_PURPOSES
         )
+        fx = quantize_ledger(quantize_money(exchange_difference))
+        if fx != ZERO:
+            purposes = (*purposes, ControlAccountPurpose.EXCHANGE_GAIN_LOSS)
         tds_purpose = (
             ControlAccountPurpose.TDS_RECEIVABLE
             if is_receipt
@@ -1624,10 +1634,26 @@ class DocumentPostingService:
         tds_legs = [*tds_legs, *deduction_legs]
         party_leg = JournalLineData(
             ledger_account_id=accounts[party_purpose],
-            debit_amount=ZERO if is_receipt else total,
+            debit_amount=ZERO if is_receipt else total - fx,
             credit_amount=total if is_receipt else ZERO,
             description=f"{kind} {settlement_number}",
         )
+        if fx != ZERO:
+            # Paid abroad (PG-12): the payable clears at the bills' rupee
+            # value, and the rupee's movement since is a loss or a gain.
+            tds_legs.append(
+                JournalLineData(
+                    ledger_account_id=accounts[
+                        ControlAccountPurpose.EXCHANGE_GAIN_LOSS
+                    ],
+                    debit_amount=fx if fx > ZERO else ZERO,
+                    credit_amount=-fx if fx < ZERO else ZERO,
+                    description=(
+                        f"Exchange {'loss' if fx > ZERO else 'gain'} on "
+                        f"{kind.lower()} {settlement_number}"
+                    ),
+                )
+            )
         entry = self._journals.create_entry(
             firm_id=firm_id,
             journal_type_id=context.journal_type_id,
@@ -1642,6 +1668,99 @@ class DocumentPostingService:
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_fx_revaluation(
+        self,
+        *,
+        firm_id: UUID,
+        revaluation_id: UUID,
+        reference: str,
+        as_of: date,
+        difference: Decimal,
+        actor_id: UUID,
+    ) -> tuple[JournalEntry, JournalEntry]:
+        """Post an unrealised exchange difference and its reversal (PG-12).
+
+        Open payables in another currency are restated at the period end's
+        rate: a payable worth more in rupees is a loss -- Dr exchange
+        gain/loss, Cr payables -- and one worth less a gain. Unrealised, so
+        it is reversed the next day, as Tally and ERPNext do: the payment
+        still settles against the bill's own rate and realises the whole
+        difference then. Both entries are posted here, so a period end
+        either has both or neither.
+
+        Args:
+            firm_id: The owning firm.
+            revaluation_id: The source id both journals carry.
+            reference: The journal reference; the reversal adds ``-REV``.
+            as_of: The period end the entry is dated; the reversal is dated
+                the day after.
+            difference: Revalued rupees less carried rupees: a loss above
+                zero, a gain below.
+            actor_id: The user revaluing.
+
+        Returns:
+            The posted entry and its reversal.
+
+        Raises:
+            ValidationError: If accounts are missing, or no open period
+                covers the period end or the day after it.
+
+        """
+        amount = quantize_ledger(quantize_money(abs(difference)))
+        if amount == ZERO:
+            raise ValidationError("There is no exchange difference to post.")
+        accounts = self._require_mapping(
+            firm_id,
+            (
+                ControlAccountPurpose.ACCOUNTS_PAYABLE,
+                ControlAccountPurpose.EXCHANGE_GAIN_LOSS,
+            ),
+        )
+        context = self.context_for(firm_id, as_of)
+        next_day = as_of + timedelta(days=1)
+        # Checked first, so a reversal with nowhere to go refuses the whole
+        # revaluation rather than leaving an unrealised entry standing.
+        self.context_for(firm_id, next_day)
+        loss = difference > ZERO
+        lines = [
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.EXCHANGE_GAIN_LOSS],
+                debit_amount=amount if loss else ZERO,
+                credit_amount=ZERO if loss else amount,
+                description=(
+                    f"Unrealised exchange {'loss' if loss else 'gain'} {reference}"
+                ),
+            ),
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.ACCOUNTS_PAYABLE],
+                debit_amount=ZERO if loss else amount,
+                credit_amount=amount if loss else ZERO,
+                description=f"Foreign-currency payables restated {reference}",
+            ),
+        ]
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=as_of,
+            reference_number=reference,
+            description=f"Exchange revaluation {reference}",
+            lines=lines,
+            source_module="fx_revaluation",
+            source_id=revaluation_id,
+            actor_id=actor_id,
+        )
+        posted = self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+        reversal = self._journals.reverse_entry(
+            posted.id,
+            firm_id=firm_id,
+            reference_number=f"{reference}-REV",
+            journal_date=next_day,
+            actor_id=actor_id,
+        )
+        return posted, reversal
 
     def post_party_adjustment(
         self,
