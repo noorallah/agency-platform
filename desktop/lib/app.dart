@@ -8,6 +8,7 @@ import 'core/preferences/user_preferences.dart';
 import 'core/security/permission_service.dart';
 import 'core/theme/theme_manager.dart';
 import 'phase2/display_dates.dart';
+import 'phase2/sign_in_screen.dart';
 import 'ui/auth_screens.dart';
 import 'ui/desktop_shell.dart';
 import 'ui/server_connection_gate.dart';
@@ -206,17 +207,32 @@ class _AgencyAppState extends State<AgencyApp> {
                   case SessionStatus.authenticating:
                   case SessionStatus.signedOut:
                   case SessionStatus.error:
+                    final String? signInError =
+                        _session.status == SessionStatus.error
+                            ? _session.error
+                            : null;
+                    final DateTime? signInLock =
+                        _session.status == SessionStatus.error
+                            ? _session.lockedUntil
+                            : null;
+                    if (widget.phase2) {
+                      return Phase2SignInScreen(
+                        session: _session,
+                        preferences: _preferences,
+                        branding: _branding,
+                        themes: _themes,
+                        error: signInError,
+                        lockedUntil: signInLock,
+                        notice: _session.notice,
+                      );
+                    }
                     return LoginScreen(
                       session: _session,
                       preferences: _preferences,
                       branding: _branding,
                       themes: _themes,
-                      error: _session.status == SessionStatus.error
-                          ? _session.error
-                          : null,
-                      lockedUntil: _session.status == SessionStatus.error
-                          ? _session.lockedUntil
-                          : null,
+                      error: signInError,
+                      lockedUntil: signInLock,
                       notice: _session.notice,
                     );
                   case SessionStatus.requiresPasswordChange:
