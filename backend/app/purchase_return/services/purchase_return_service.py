@@ -139,6 +139,8 @@ class PurchaseReturnService(TransactionalDocumentService):
         category="PURCHASE",
         module="purchase_return",
         prefix="PR",
+        include_branch_code=True,
+        include_company_code=True,
         states=(
             DocumentStateSpec("DRAFT", "Draft", 1, allows_edit=True),
             DocumentStateSpec("APPROVED", "Approved", 2),
