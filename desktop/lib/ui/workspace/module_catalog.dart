@@ -853,6 +853,12 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['PURCHASE_VIEW', 'PURCHASE_REQUISITION_CREATE'],
           requiresAnyPermission: true,
         ),
+        // Ask several suppliers for a price, compare, raise orders (PG-8).
+        ModuleTabDefinition(
+          id: 'rfqs',
+          label: 'Requests for quotation',
+          requiredPermissions: ['RFQ_VIEW'],
+        ),
         // Goods held in quarantine until passed (BUY-9).
         ModuleTabDefinition(
           id: 'quality-inspection',
@@ -1923,6 +1929,12 @@ abstract final class ModuleCatalog {
           label: 'Requisitions',
           path: 'purchase-requisitions',
           icon: Icons.playlist_add_check_outlined,
+        ),
+      if (visibleTabIds.contains('rfqs'))
+        const WorkspaceNavigationNode(
+          label: 'Requests for quotation',
+          path: 'rfqs',
+          icon: Icons.request_quote_outlined,
         ),
       if (visibleTabIds.contains('quality-inspection'))
         const WorkspaceNavigationNode(

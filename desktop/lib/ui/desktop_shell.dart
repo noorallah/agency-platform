@@ -73,6 +73,7 @@ import 'commission/commission_page.dart';
 import 'commission/sales_target_page.dart';
 import 'purchases/debit_note_page.dart';
 import 'purchases/purchase_requisition_page.dart';
+import 'purchases/rfq_page.dart';
 import 'purchases/quality_inspection_page.dart';
 import 'approvals/approval_rules_dialog.dart';
 import 'approvals/approvals_page.dart';
@@ -3628,6 +3629,13 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
         ),
+      'rfqs' => RfqPage(
+          api: widget.api,
+          preferences: widget.preferences,
+          permissions: widget.permissions,
+          hasActiveFirm: hasActiveFirm,
+          onOpenPurchaseOrders: () => widget.router.selectTab('purchase-orders'),
+        ),
       'quality-inspection' => QualityInspectionPage(
           api: widget.api,
           preferences: widget.preferences,
@@ -3688,6 +3696,7 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
         'purchase-orders' => 'Purchase Orders',
         'debit-notes' => 'Debit Notes',
         'purchase-requisitions' => 'Purchase Requisitions',
+        'rfqs' => 'Requests for quotation',
         'quality-inspection' => 'Quality Inspection',
         'supplier-rebates' => 'Supplier Rebates',
         'approvals' => 'Approvals',
@@ -3712,6 +3721,9 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
         'purchase-requisitions' =>
           'Requests to buy: raised by whoever sees the need, approved, then '
               'converted into draft purchase orders per supplier.',
+        'rfqs' =>
+          'Ask several suppliers for a price on the same lines, key in what '
+              'each answers, compare, and raise an order to each one chosen.',
         'quality-inspection' =>
           'Received goods held in quarantine until they are passed; rejected '
               'goods are written off or kept to return to the supplier.',

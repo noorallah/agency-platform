@@ -49,6 +49,7 @@ import '../../models/principal_claim.dart';
 import '../../models/supplier_rebate.dart';
 import '../../models/post_dated_cheque.dart';
 import '../../models/purchase_requisition.dart';
+import '../../models/rfq.dart';
 import '../../models/kit.dart';
 import '../../models/repack.dart';
 import '../../models/stock_transfer.dart';
@@ -5360,6 +5361,103 @@ class ApiClient {
       'POST',
       '/api/v1/purchases/requisitions/$id/convert',
     );
+    final dynamic data = response['data'];
+    return [
+      for (final dynamic order in data is List ? data : const [])
+        if (order is Map) Map<String, dynamic>.from(order),
+    ];
+  }
+
+  // ---- requests for quotation (PG-8) ------------------------------------
+
+  Future<PagedResult<Rfq>> rfqs({
+    int page = 1,
+    int pageSize = 50,
+    String search = '',
+    String status = '',
+  }) =>
+      _list(
+        '/api/v1/rfqs',
+        Rfq.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        additionalQuery: {if (status.isNotEmpty) 'status': status},
+      );
+
+  Future<Rfq> createRfq(Json body) async =>
+      Rfq.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/rfqs',
+        body: body,
+      )));
+
+  /// Ask for quotes on an approved requisition's lines; no body.
+  Future<Rfq> createRfqFromRequisition(String requisitionId) async =>
+      Rfq.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/rfqs/from-requisition/$requisitionId',
+      )));
+
+  Future<Rfq> rfq(String id) async =>
+      Rfq.fromJson(_unwrapMap(await request('GET', '/api/v1/rfqs/$id')));
+
+  Future<Rfq> updateRfq(String id, Json body, {int? expectedVersion}) async =>
+      Rfq.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/rfqs/$id',
+        body: body,
+        expectedVersion: expectedVersion,
+      )));
+
+  /// `action` is `send`, `close` or `cancel` (which needs a [reason]).
+  Future<Rfq> actOnRfq(String id, String action, {String? reason}) async =>
+      Rfq.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/rfqs/$id/$action',
+        body: reason == null ? null : {'reason': reason},
+      )));
+
+  Future<List<SupplierQuotation>> rfqQuotations(String id) async {
+    final Json response = await request('GET', '/api/v1/rfqs/$id/quotations');
+    final dynamic data = response['data'];
+    return [
+      for (final dynamic item in data is List ? data : const [])
+        if (item is Map)
+          SupplierQuotation.fromJson(Map<String, dynamic>.from(item)),
+    ];
+  }
+
+  Future<SupplierQuotation> saveRfqQuotation(
+    String id,
+    String vendorId,
+    Json body,
+  ) async =>
+      SupplierQuotation.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/rfqs/$id/quotations/$vendorId',
+        body: body,
+      )));
+
+  Future<RfqComparison> rfqComparison(String id) async =>
+      RfqComparison.fromJson(
+          _unwrapMap(await request('GET', '/api/v1/rfqs/$id/comparison')));
+
+  /// Replaces the whole list of choices; answers the comparison.
+  Future<RfqComparison> saveRfqSelections(
+    String id,
+    List<Json> selections,
+  ) async =>
+      RfqComparison.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/rfqs/$id/selections',
+        body: {'selections': selections},
+      )));
+
+  /// One purchase order per supplier chosen; answers the orders raised.
+  Future<List<Json>> raiseRfqOrders(String id) async {
+    final Json response =
+        await request('POST', '/api/v1/rfqs/$id/raise-orders');
     final dynamic data = response['data'];
     return [
       for (final dynamic order in data is List ? data : const [])

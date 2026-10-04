@@ -15,6 +15,7 @@ import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
 import '../../models/product.dart';
 import '../../models/purchase_requisition.dart';
+import '../../models/rfq.dart';
 import '../../models/vendor.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
@@ -136,6 +137,17 @@ class _PurchaseRequisitionPageState extends State<PurchaseRequisitionPage> {
       _say('${row.number}: ${orders.length} purchase '
           '${orders.length == 1 ? 'order' : 'orders'} raised.');
       await _load();
+    } on ApiException catch (error) {
+      _say(error.message, error: true);
+    }
+  }
+
+  /// Ask suppliers to quote on an approved requisition's lines.
+  Future<void> _createRfq(PurchaseRequisition row) async {
+    try {
+      final Rfq rfq = await widget.api.createRfqFromRequisition(row.id);
+      _say('${rfq.number} created from ${row.number}. Find it under '
+          'Requests for quotation.');
     } on ApiException catch (error) {
       _say(error.message, error: true);
     }
@@ -263,6 +275,15 @@ class _PurchaseRequisitionPageState extends State<PurchaseRequisitionPage> {
             icon: Icons.shopping_cart_checkout_outlined,
             onPressed: row != null && status == 'APPROVED'
                 ? () => unawaited(_convert(row))
+                : null,
+          ),
+        if (_may('RFQ_MANAGE'))
+          ToolbarCommand(
+            id: 'rfq',
+            label: 'Create RFQ',
+            icon: Icons.request_quote_outlined,
+            onPressed: row != null && status == 'APPROVED'
+                ? () => unawaited(_createRfq(row))
                 : null,
           ),
         if (_mayRaise)
@@ -668,7 +689,7 @@ class _RequisitionDialogState extends State<RequisitionDialog>
         children: [
           Expanded(
             flex: 4,
-            child: _ProductBox(
+            child: ProductSearchBox(
               fieldKey: ValueKey('requisition-product-$index'),
               api: widget.api,
               controller: line.product,
@@ -749,8 +770,9 @@ class _RequisitionDialogState extends State<RequisitionDialog>
 }
 
 /// A product box that searches the firm's products as you type.
-class _ProductBox extends StatefulWidget {
-  const _ProductBox({
+class ProductSearchBox extends StatefulWidget {
+  const ProductSearchBox({
+    super.key,
     required this.fieldKey,
     required this.api,
     required this.controller,
@@ -767,10 +789,10 @@ class _ProductBox extends StatefulWidget {
   final VoidCallback onCleared;
 
   @override
-  State<_ProductBox> createState() => _ProductBoxState();
+  State<ProductSearchBox> createState() => ProductSearchBoxState();
 }
 
-class _ProductBoxState extends State<_ProductBox> {
+class ProductSearchBoxState extends State<ProductSearchBox> {
   final FocusNode _focus = FocusNode();
 
   @override
