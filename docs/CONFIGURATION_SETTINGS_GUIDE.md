@@ -123,6 +123,7 @@ These are starting points, not rules. Agree the tax ones with the firm's CA.
 | Setting | Small shop / counter billing | Distributor with salesmen and a warehouse | Pharma or food (batches and expiry) |
 | --- | --- | --- | --- |
 | Sales Stages | Quotation, order and delivery note **off**: type only the bill | All **on** | All **on** |
+| Buying stages (Purchase Settings) | Purchase order **off** (goods receipt goes with it): type only the supplier's bill -- see `SMALL_FIRM_SETUP_GUIDE.md` | All **on** | All **on** |
 | Rates typed include GST | **On** | Off | Off |
 | GST Documents: dispatch before invoice | Warn (the bill ships the goods anyway) | **Block** -- goods leave only with *Dispatch and invoice* or a challan reason | **Block** |
 | Van or route sales need the invoice first | Off | Off if vans sell on the road; **on** if every load is pre-billed | As for distributor |
