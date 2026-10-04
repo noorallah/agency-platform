@@ -3001,6 +3001,42 @@ class ApiClient {
         )),
       );
 
+  /// A range of serial numbers filled from a prefix and a counter; nothing
+  /// is saved (PG-10).
+  Future<List<String>> expandSerials({
+    required String prefix,
+    required int start,
+    required int count,
+    int width = 0,
+  }) async {
+    final Json response = await request(
+      'POST',
+      '/api/v1/goods-receipts/serials/expand',
+      body: {'prefix': prefix, 'start': start, 'count': count, 'width': width},
+    );
+    final dynamic data = response['data'];
+    final dynamic list = data is Map ? data['serial_numbers'] : null;
+    if (list is! List) return const [];
+    return [for (final dynamic item in list) '$item'];
+  }
+
+  /// The documents one serialised unit has passed through, its receipt
+  /// first (PG-10).
+  Future<List<SerialTrailEvent>> serialTrail(String serialId) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/batch-serial/serials/$serialId/trail',
+    );
+    final dynamic data = response['data'];
+    final dynamic list = data is Map ? data['events'] : data;
+    if (list is! List) return const [];
+    return [
+      for (final dynamic item in list)
+        if (item is Map)
+          SerialTrailEvent.fromJson(Map<String, dynamic>.from(item)),
+    ];
+  }
+
   Future<void> deleteSerial(String id) =>
       request('DELETE', '/api/v1/batch-serial/serials/$id');
 

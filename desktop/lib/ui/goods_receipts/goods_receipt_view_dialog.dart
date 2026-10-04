@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 
+import '../../core/api/api_client.dart';
 import '../../models/document_framework.dart';
 import '../../models/goods_receipt.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../document_framework/document_line_labels.dart';
 import '../document_framework/document_steps.dart';
 import '../workspace/desktop_framework.dart';
+import 'serial_entry_dialog.dart';
 
 /// One goods receipt: its header, its lines, its totals and its timeline.
 ///
@@ -27,7 +29,11 @@ class GoodsReceiptViewDialog extends StatelessWidget {
     required this.history,
     this.labels = const DocumentLineLabels(),
     this.steps = const [],
+    this.api,
   });
+
+  /// Needed to read a unit's trail; without it the serials are not offered.
+  final ApiClient? api;
 
   final GoodsReceiptRecord receipt;
   final List<DocumentTimelineSnapshot> history;
@@ -81,6 +87,29 @@ class GoodsReceiptViewDialog extends StatelessWidget {
                   ),
               ],
             ),
+            if (api != null)
+              for (final GoodsReceiptLine line in receipt.lines)
+                if (line.serialTracked && line.serialNumbers.isNotEmpty)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      key: ValueKey<String>('view-serials-${line.lineNumber}'),
+                      icon: const Icon(Icons.qr_code_2, size: 16),
+                      label: Text(
+                        'Line ${line.lineNumber}: '
+                        '${line.serialNumbers.length} serial numbers',
+                      ),
+                      onPressed: () => showSerialEntryDialog(
+                        context,
+                        api: api!,
+                        title: 'Serial numbers · line ${line.lineNumber}',
+                        needed: line.serialNumbers.length,
+                        initial: line.serialNumbers,
+                        productId: line.productId,
+                        readOnly: true,
+                      ),
+                    ),
+                  ),
             const SizedBox(height: 12),
             EnterpriseTotalsPanel(totals: totals),
             const SizedBox(height: 12),

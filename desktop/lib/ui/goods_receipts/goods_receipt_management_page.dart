@@ -828,6 +828,7 @@ class _GoodsReceiptManagementPageState
         history: _history,
         labels: _labels,
         steps: _steps,
+        api: widget.api,
       ),
     );
     await _afterWindow(outcome);

@@ -21,6 +21,7 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
     DocumentColumn('Rejected', 70, numeric: true),
     DocumentColumn('Damaged', 70, numeric: true),
     DocumentColumn('Batch', 110),
+    DocumentColumn('Serials', 96),
     DocumentColumn('Value', 96, numeric: true),
   ];
 
@@ -500,11 +501,57 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
           hint: line.batchRequired ? 'required' : null,
           onChanged: (value) => line.batchNumber = value,
         ),
+        _serialsCell(context, index, line, product),
         Text(
           indianAmount(accepted * _number(line.unitPrice), full: true),
           style: text?.copyWith(fontWeight: FontWeight.w600),
         ),
       ],
+    );
+  }
+
+  /// The serials button of a serial-tracked line: "n of m entered" against
+  /// accepted plus free. Other lines show nothing.
+  Widget _serialsCell(
+    BuildContext context,
+    int index,
+    GoodsReceiptDraftLine line,
+    Product? product,
+  ) {
+    if (!line.serialTracked) return const SizedBox.shrink();
+    final int needed =
+        (_number(line.receiptQuantity) + _number(line.freeQuantity)).round();
+    return TextButton(
+      key: ValueKey<String>('goods-receipt-serials-$index'),
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        minimumSize: const Size(0, 28),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        alignment: Alignment.centerLeft,
+      ),
+      onPressed: _saving
+          ? null
+          : () async {
+              _setState(() => _current = index);
+              final List<String>? picked = await showSerialEntryDialog(
+                context,
+                api: widget.api,
+                title: 'Serial numbers · '
+                    '${product?.name ?? line.description}',
+                needed: needed,
+                initial: line.serials,
+                productId: line.productId,
+              );
+              if (picked == null) return;
+              _setState(() {
+                line.serials = picked;
+                line.serialsTouched = true;
+              });
+            },
+      child: Text(
+        '${line.serials.length} of $needed',
+        overflow: TextOverflow.ellipsis,
+      ),
     );
   }
 

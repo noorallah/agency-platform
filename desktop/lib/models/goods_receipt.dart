@@ -44,7 +44,15 @@ class GoodsReceiptLine {
     this.taxRuleVersion,
     this.schemeName = '',
     this.returnedUnbilledQuantity = '',
+    this.serialTracked = false,
+    this.serialNumbers = const [],
   });
+
+  /// Whether the product carries a serial per unit (PG-10).
+  final bool serialTracked;
+
+  /// The serials the line holds, in the order they were entered.
+  final List<String> serialNumbers;
 
   /// The supplier's scheme the free goods came under; empty when none.
   final String schemeName;
@@ -140,6 +148,12 @@ class GoodsReceiptLine {
         schemeName: stringValue(json['scheme_name']),
         returnedUnbilledQuantity:
             stringValue(json['returned_unbilled_quantity']),
+        serialTracked: json['serial_tracked'] == true,
+        serialNumbers: [
+          for (final dynamic item
+              in (json['serial_numbers'] as List<dynamic>? ?? const []))
+            stringValue(item),
+        ],
         taxRuleCode: LineTaxRule.fromJson(json).code,
         taxRuleVersion: LineTaxRule.fromJson(json).version,
       );
