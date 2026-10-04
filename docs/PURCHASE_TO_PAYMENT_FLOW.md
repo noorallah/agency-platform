@@ -446,8 +446,25 @@ nothing in the traced chain above changes for a firm that does not.
 
 ## Goods coming back
 
-`POST /api/v1/purchase-returns`. Completing a return debits Trade Payables with
-its total and takes the stock off, whatever the outcome (see "Undoing it").
+`POST /api/v1/purchase-returns`. Completing a return takes the stock off and,
+whatever the outcome (see "Undoing it"), posts it in up to two parts
+(D-BUY-26):
+
+- **Before billing** -- the part of a goods receipt line no approved bill has
+  reached yet: **Dr GRNI / Cr Inventory** at the receipt's cost. No payable and
+  no tax, because neither existed yet, and what is left to bill on the receipt
+  line falls by that much -- the supplier bills what the firm kept. A bill for
+  more is refused, on save and at approval, naming the line. The receipt's
+  response shows `left_to_bill_quantity` and `left_to_bill_amount` per line and
+  in total.
+- **After billing** -- anything beyond that, and every line raised off a bill:
+  a debit note, **Dr Trade Payables** with its tax-inclusive value, input tax
+  reversed head by head as the bill claimed it.
+
+Example: 6 received at 100 + 18%, 3 billed, 4 returned -- 3 come off GRNI
+(300), 1 is a debit note (Dr Payables 118, Cr CGST 9, Cr SGST 9), and
+Inventory is credited 400. The return line records the split
+(`unbilled_quantity`, `grni_amount`).
 
 ### What the supplier gives for it: the outcome
 
@@ -508,8 +525,8 @@ against it stands.
 | Action | Stock | Ledger |
 | --- | --- | --- |
 | Cancel a **draft** receipt | nothing to undo | nothing to undo |
-| Cancel a **completed** receipt | reversed, line by line | mirror journal cancels it; refused outright once the receipt has been invoiced |
-| Purchase return, completed | stock goes back off | posted; input tax reversed head by head (CGST, SGST, IGST) as the bill claimed it, whether raised off the bill or off the receipt it billed (D-BUY-28); blocked tax credits 5450, not input tax |
+| Cancel a **completed** receipt | reversed, line by line | mirror journal cancels it; refused outright once the receipt has been invoiced, or while a completed return stands against it |
+| Purchase return, completed | stock goes back off | posted; what went back before billing debits GRNI at the receipt's cost with no tax (D-BUY-26); the rest is a debit note, input tax reversed head by head (CGST, SGST, IGST) as the bill claimed it, whether raised off the bill or off the receipt it billed (D-BUY-28); blocked tax credits 5450, not input tax |
 | Cancel a purchase return | reversed | mirror journal cancels it; refused while a supplier refund stands against it |
 | Cancel a debit note | nothing moved | mirror journal; credit it left that was set against other bills is withdrawn; refused while a supplier refund stands against it (A4) |
 | Reverse a supplier refund | — | mirror journal cancels it; the return's credit is free again |

@@ -244,6 +244,11 @@ class PurchaseReturnLineResponse(PurchaseReturnSchema):
     already_returned_quantity: Decimal
     current_return_quantity: Decimal
     rejected_quantity: Decimal
+    #: The part taken off what the receipt line still had to bill, and what
+    #: it took off goods received not invoiced (D-BUY-26); the rest of the
+    #: line is the debit note. Set when the return completes.
+    unbilled_quantity: Decimal = Decimal("0")
+    grni_amount: Decimal = Decimal("0")
     reason_code: str | None
     item_condition: str | None
     replacement_required: bool

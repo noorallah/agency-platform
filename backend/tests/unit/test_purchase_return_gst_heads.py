@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.branches.models import Warehouse
 from app.finance.models import JournalEntry
+from app.goods_receipt.models import GoodsReceiptLine
 from app.purchase_invoice.models import PurchaseInvoiceLine, PurchaseInvoiceLineTax
 from app.purchase_return.schemas import (
     PurchaseReturnCreate,
@@ -37,7 +38,17 @@ D = Decimal
 def _return_off_the_receipt(
     session: Session, firm_id: UUID, actor_id: UUID, bill_line: PurchaseInvoiceLine
 ) -> UUID:
-    """Send 2 of the 4 back against the goods receipt the bill line billed."""
+    """Send 2 of the 4 back against the goods receipt the bill line billed.
+
+    The receipt is cut to the 4 the bill billed, so the 2 go back off billed
+    goods -- a debit note. Off the 6 nothing billed they would come off goods
+    received not invoiced instead, with no tax (D-BUY-26).
+    """
+    receipt_line = session.get(GoodsReceiptLine, bill_line.source_document_line_id)
+    assert receipt_line is not None
+    receipt_line.current_receipt_quantity = D("4")
+    receipt_line.accepted_quantity = D("4")
+    session.commit()
     warehouse_id = session.scalars(
         select(Warehouse.id).where(Warehouse.firm_id == firm_id)
     ).one()

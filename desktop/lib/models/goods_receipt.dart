@@ -43,10 +43,15 @@ class GoodsReceiptLine {
     this.taxRuleCode,
     this.taxRuleVersion,
     this.schemeName = '',
+    this.returnedUnbilledQuantity = '',
   });
 
   /// The supplier's scheme the free goods came under; empty when none.
   final String schemeName;
+
+  /// What went back to the supplier before any bill reached it, so is not
+  /// the supplier's to bill (D-BUY-26); empty from an older server.
+  final String returnedUnbilledQuantity;
 
   /// Per stock unit, tax included; empty when none was recorded.
   final String mrp;
@@ -133,6 +138,8 @@ class GoodsReceiptLine {
         mrp: stringValue(json['mrp']),
         sellingPrice: stringValue(json['selling_price']),
         schemeName: stringValue(json['scheme_name']),
+        returnedUnbilledQuantity:
+            stringValue(json['returned_unbilled_quantity']),
         taxRuleCode: LineTaxRule.fromJson(json).code,
         taxRuleVersion: LineTaxRule.fromJson(json).version,
       );

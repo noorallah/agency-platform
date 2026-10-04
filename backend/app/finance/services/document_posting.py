@@ -585,7 +585,8 @@ class DocumentPostingService:
         tax_by_component: dict[str, Decimal] | None = None,
         reverse_charge_by_component: dict[str, Decimal] | None = None,
         blocked_tax_amount: Decimal = ZERO,
-    ) -> JournalEntry:
+        grni_amount: Decimal = ZERO,
+    ) -> JournalEntry | None:
         """Post goods going back to a supplier.
 
         The supplier owes the firm the whole credit note, so **accounts payable
@@ -619,15 +620,29 @@ class DocumentPostingService:
             blocked_tax_amount: The returned goods' share of tax their bill
                 could not claim (backlog 78 row 1), credited back to
                 `INELIGIBLE_INPUT_TAX` rather than off input tax.
+            grni_amount: What the part returned before any bill reached it
+                takes off goods received not invoiced, at the receipt's cost
+                (D-BUY-26). That part is no payable and took no input
+                credit, so ``total_amount`` and ``tax_amount`` are only the
+                billed part's; a return wholly before billing posts Dr GRNI /
+                Cr inventory and nothing else.
 
         Returns:
-            The posted journal entry.
+            The posted journal entry, or None when the return moved no value
+            at all -- goods that cost nothing, sent back before any bill.
 
         Raises:
             ValidationError: If accounts or an open period are missing.
 
         """
         accounts = self._require_mapping(firm_id, PURCHASE_RETURN_PURPOSES)
+        ledger_grni = quantize_ledger(quantize_money(grni_amount))
+        if ledger_grni != ZERO:
+            accounts.update(
+                self._require_mapping(
+                    firm_id, (ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED,)
+                )
+            )
         context = self.context_for(firm_id, return_date)
 
         # Derived at the ledger's scale from the two figures the supplier sees,
@@ -637,20 +652,34 @@ class DocumentPostingService:
         ledger_tax = quantize_ledger(quantize_money(tax_amount))
         ledger_goods = ledger_total - ledger_tax
         ledger_stock = quantize_ledger(quantize_money(stock_value))
-        variance = ledger_goods - ledger_stock
+        variance = ledger_goods + ledger_grni - ledger_stock
 
-        lines = [
-            JournalLineData(
-                ledger_account_id=accounts[ControlAccountPurpose.ACCOUNTS_PAYABLE],
-                debit_amount=ledger_total,
-                description=f"Purchase return {return_number}",
-            ),
+        lines = []
+        if ledger_total != ZERO:
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=accounts[ControlAccountPurpose.ACCOUNTS_PAYABLE],
+                    debit_amount=ledger_total,
+                    description=f"Purchase return {return_number}",
+                )
+            )
+        if ledger_grni != ZERO:
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=accounts[
+                        ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED
+                    ],
+                    debit_amount=ledger_grni,
+                    description=f"Returned before billing on {return_number}",
+                )
+            )
+        lines.append(
             JournalLineData(
                 ledger_account_id=accounts[ControlAccountPurpose.INVENTORY],
                 credit_amount=ledger_stock,
                 description=f"Goods returned on {return_number}",
-            ),
-        ]
+            )
+        )
         # The share the bill could not claim goes back to the cost account
         # it was booked to, not off input tax (backlog 78 row 1).
         ledger_blocked = min(
@@ -692,6 +721,10 @@ class DocumentPostingService:
             )
         )
 
+        if all(
+            line.debit_amount == ZERO and line.credit_amount == ZERO for line in lines
+        ):
+            return None
         entry = self._journals.create_entry(
             firm_id=firm_id,
             journal_type_id=context.journal_type_id,

@@ -242,6 +242,14 @@ class GoodsReceiptLineResponse(GoodsReceiptSchema):
     #: profile alone did (GST-8).
     tax_rule_code: str | None = None
     tax_rule_version: int | None = None
+    #: Where the line stands against billing (D-BUY-26): what approved bills
+    #: billed, what went back before any bill reached it, and what is left
+    #: for the supplier to bill -- accepted less both -- with its value, tax
+    #: included, at the line's own price.
+    billed_quantity: Decimal = Decimal("0")
+    returned_unbilled_quantity: Decimal = Decimal("0")
+    left_to_bill_quantity: Decimal = Decimal("0")
+    left_to_bill_amount: Decimal = Decimal("0")
 
 
 class GoodsReceiptResponse(GoodsReceiptSchema):
@@ -299,6 +307,9 @@ class GoodsReceiptResponse(GoodsReceiptSchema):
     #: The goods are worth more than the firm's e-way bill limit and no
     #: e-way bill is recorded (backlog 78 row 6).
     eway_bill_warning: str | None = None
+    #: What is left to bill on the receipt, its lines summed (D-BUY-26).
+    left_to_bill_quantity: Decimal = Decimal("0")
+    left_to_bill_amount: Decimal = Decimal("0")
 
 
 class GoodsReceiptListFilters(GoodsReceiptSchema):

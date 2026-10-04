@@ -723,4 +723,32 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   });
+
+  // D-BUY-26: goods sent back off the receipt before any bill reached them
+  // are not the supplier's to bill, so the line starts at what is left.
+  test('a bill line offers what was kept, not what was received', () {
+    final GoodsReceiptLine line = GoodsReceiptLine.fromJson({
+      'id': 'grn-line-1',
+      'accepted_quantity': '6',
+      'returned_unbilled_quantity': '2',
+    });
+    expect(line.returnedUnbilledQuantity, '2');
+    final PurchaseInvoiceDraftLine draft = PurchaseInvoiceDraftLine(
+      sourceDocumentId: 'grn-1',
+      sourceDocumentLineId: line.id,
+      lineNumber: 1,
+      productId: 'product-1',
+      description: '',
+      receivedQuantity: line.acceptedQuantity,
+      alreadyInvoiced: '0',
+      returnedBeforeBilling: line.returnedUnbilledQuantity,
+      receiptUnitPrice: '100',
+      purchaseUomId: '',
+      taxProfileId: '',
+      warehouseId: '',
+      batchNumber: '',
+      invoiceQuantity: '0',
+    );
+    expect(draft.outstanding, 4);
+  });
 }

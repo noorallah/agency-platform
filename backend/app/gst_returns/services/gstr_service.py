@@ -855,6 +855,7 @@ class GstReturnService:
         )
         from app.purchase_return.models import PurchaseReturn
         from app.purchase_return.services.purchase_return_service import (
+            return_billed_amounts,
             return_tax_by_component,
         )
 
@@ -973,7 +974,11 @@ class GstReturnService:
             for code, amount in split.items():
                 reversed_ = reversed_.plus(_bucket(code, amount))
                 placed += amount
-            rest = quantize_money(Decimal(str(purchase_return.tax_total)) - placed)
+            # Only the part that reversed a bill took credit (D-BUY-26).
+            billed_tax = return_billed_amounts(self._session, [purchase_return])[
+                purchase_return.id
+            ][1]
+            rest = quantize_money(billed_tax - placed)
             if rest > ZERO:
                 unplaced += rest
                 unplaced_count += 1

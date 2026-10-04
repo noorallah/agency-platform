@@ -619,6 +619,54 @@ supplier charges nothing and the firm owes the tax itself:
   less. Cancelling the return or the note mirrors its journal, legs included,
   and 3B leaves a cancelled one out.
 
+## A return before billing reverses the accrual, not the payable
+
+**A return off a goods receipt line is taken first off what that line still
+had to bill** (D-BUY-26, 2026-10-04; ERPNext's return against a purchase
+receipt, the same in effect in Tally and Zoho). Until then every receipt-raised
+return posted as a debit note -- Dr Trade Payables tax-inclusive / Cr
+Inventory / Cr input tax -- even when no bill had reached the goods: QA01's
+PR-2026-2027-000001 sent 2 of 6 unbilled units back and put the supplier at
+-236 and input tax at -36 with no payable and no credit behind either, and the
+bill then offered all 6, so a supplier who billed the 4 kept had the 2
+deducted twice.
+
+- **Left to bill** on a receipt line is accepted, less what approved or
+  closed bills billed, less what completed returns took off before billing
+  (`app/goods_receipt/billing.py`, `receipt_line_billing`). The goods
+  receipt's response carries it per line and in total --
+  `billed_quantity`, `returned_unbilled_quantity`, `left_to_bill_quantity`,
+  `left_to_bill_amount` (tax included, at the line's own price).
+- **Completing a return splits each receipt line** (`_split_against_billing`):
+  up to what is left to bill is `unbilled_quantity`, stored on the return
+  line with the accrual it took off (`grni_amount`, migration
+  `20261004_0304`). That part posts **Dr goods received not invoiced (2300)**
+  at the receipt's own cost -- the counterparty-facing leg valued from the
+  receipt document -- against the one **Cr Inventory** at the movement's
+  value, the gap to purchase price variance as before. No payable, no input
+  tax: neither ever existed. Only the rest is the debit note #1080 fixed.
+  One journal either way; a line can be both.
+- **Rounding.** Each part's accrual is its quantity's share of the receipt
+  line's cost. The bill that completes a receipt still takes the residual,
+  now after what returns took (`_replay_accrual`, `returned`,
+  `returned_cost`); a return that leaves nothing to bill or return on its
+  receipt takes it instead, so the receipt's 2300 nets to exactly zero
+  whichever comes last.
+- **The bill is capped at what is left**, on save and again at approval
+  (`_refuse_past_left_to_bill`), naming the receipt and line -- a draft
+  bill for all 6 is refused once 2 have gone back.
+- **Everything that reads a return's money reads the billed part**:
+  `return_billed_amounts` (the payable and its tax) for the posting, the
+  supplier credit and GSTR-3B's unplaced reversals; `return_tax_by_component`
+  and `return_reverse_charge` scale each line by its billed share, so 4(B)(2)
+  reverses only credit that was taken.
+- **Cancelling mirrors the journal**, 2300 included, and a cancelled return
+  drops out of left to bill. A goods receipt with a completed return against
+  it cannot be cancelled -- the goods and their accrual would come off twice.
+- Returns completed before `20261004_0304` read zero unbilled and stay debit
+  notes. One raised off unbilled goods is put right by cancelling it and
+  raising it again.
+
 ## Input tax is claimed head by head
 
 **A bill's input tax posts one leg per GST head, and a return reverses the
@@ -650,9 +698,9 @@ be derived from the books (D-CMP-20). Four things changed, in four PRs:
   approved or closed bill lines that billed that receipt line, weighted by
   the quantity each billed (`_billed_lines`, D-BUY-28 -- the desktop raises
   returns off the receipt, and until 2026-10-04 those reversed 1300 whole
-  while the bill had debited CGST and SGST). Only a return off an order, or
-  off a receipt line nothing has billed yet, names no bill and reverses 1300
-  as a whole. The same mapping takes a receipt-raised return's share of
+  while the bill had debited CGST and SGST). Only a return off an order names
+  no bill and reverses 1300 as a whole; what goes back off a receipt line
+  nothing has billed yet reverses no tax at all (next section, D-BUY-26). The same mapping takes a receipt-raised return's share of
   reverse charge and of blocked tax. **Without a map the total posts to 1300 as it always
   did** -- a bill approved before the rows existed keeps its posting and is
   not backfilled, because re-running the tax engine on old dates can answer

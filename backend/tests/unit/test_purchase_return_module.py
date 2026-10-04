@@ -319,13 +319,63 @@ def test_purchase_return_creates_lifecycle_setup() -> None:
     assert session.scalar(select(AuditLog.id)) is not None
 
 
+def _billed_in_full(
+    session: Session, receipt: GoodsReceipt, line: GoodsReceiptLine
+) -> None:
+    """Record an approved bill for the whole receipt line, as rows.
+
+    A return off a receipt line is a debit note only for what a bill has
+    reached; what nothing billed yet comes off goods received not invoiced
+    instead (D-BUY-26). These cases are about the debit note, so the line is
+    billed first. No journal moves, as with the receipt itself.
+    """
+    from app.purchase_invoice.models import PurchaseInvoice
+
+    bill = PurchaseInvoice(
+        firm_id=receipt.firm_id,
+        vendor_id=receipt.vendor_id,
+        branch_id=receipt.branch_id,
+        invoice_number="PI-RECEIPT",
+        invoice_date=receipt.receipt_date,
+        supplier_invoice_number="SUP-RECEIPT",
+        supplier_invoice_date=receipt.receipt_date,
+        status="APPROVED",
+        grand_total=Decimal("1000.00"),
+    )
+    session.add(bill)
+    session.flush()
+    session.add(
+        PurchaseInvoiceLine(
+            purchase_invoice_id=bill.id,
+            firm_id=receipt.firm_id,
+            line_number=1,
+            source_document_type="GOODS_RECEIPT",
+            source_document_id=receipt.id,
+            source_document_number=receipt.grn_number,
+            source_document_line_id=line.id,
+            source_document_line_number=line.line_number,
+            product_id=line.product_id,
+            received_quantity=line.accepted_quantity,
+            current_invoice_quantity=line.accepted_quantity,
+            unit_price=line.unit_price,
+        )
+    )
+    session.commit()
+
+
 def _approved_return(
-    session: Session, *, firm_id: UUID, batch_number: str | None = None
+    session: Session,
+    *,
+    firm_id: UUID,
+    batch_number: str | None = None,
+    billed: bool = True,
 ) -> tuple[PurchaseReturnService, PurchaseReturn, UUID]:
     """Create and approve a return, stopping before it is completed.
 
     Completion is what posts the stock, so anything a test needs in place
     first -- a registered batch, a product flag -- goes between the two.
+    The receipt is billed in full first unless ``billed`` is False, so the
+    return is a debit note (D-BUY-26).
 
     Returns:
         The service, the approved return, and the product being returned.
@@ -348,6 +398,8 @@ def _approved_return(
     )
     assert po_line is not None
     receipt, receipt_line = _received(session, po_line)
+    if billed:
+        _billed_in_full(session, receipt, receipt_line)
 
     service = PurchaseReturnService(session)
     row = service.create_return(

@@ -44,6 +44,11 @@ from app.document_framework.services.transactional_document_service import (
 )
 from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
+from app.goods_receipt.billing import (
+    RETURNED_STATES,
+    ReceiptLineBilling,
+    receipt_line_billing,
+)
 from app.goods_receipt.models import (
     GoodsReceipt,
     GoodsReceiptAttachment,
@@ -623,7 +628,33 @@ class GoodsReceiptService(TransactionalDocumentService):
             .limit(1)
         )
         if billed is None:
-            return
+            from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
+
+            # Goods sent back off the receipt already left the shelf and took
+            # their share of the accrual off (D-BUY-26); cancelling the whole
+            # receipt would take both off a second time.
+            returned = self._session.scalar(
+                select(PurchaseReturn.return_number)
+                .join(
+                    PurchaseReturnLine,
+                    PurchaseReturnLine.purchase_return_id == PurchaseReturn.id,
+                )
+                .where(
+                    PurchaseReturnLine.source_document_type == "GOODS_RECEIPT",
+                    PurchaseReturnLine.source_document_id == receipt.id,
+                    PurchaseReturnLine.is_deleted.is_(False),
+                    PurchaseReturn.firm_id == firm_scope,
+                    PurchaseReturn.is_deleted.is_(False),
+                    PurchaseReturn.status.in_(RETURNED_STATES),
+                )
+                .limit(1)
+            )
+            if returned is None:
+                return
+            raise ValidationError(
+                f"Goods sent back off {receipt.grn_number} on {returned} have "
+                "already left the shelf. Cancel that purchase return first."
+            )
         raise ValidationError(
             f"Goods receipt {receipt.grn_number} has been invoiced, so "
             "cancelling it would leave the accrual and the payable "
@@ -938,6 +969,9 @@ class GoodsReceiptService(TransactionalDocumentService):
         )
         warnings = self._duplicate_warnings(rows)
         eway_warnings = self._eway_bill_warnings(rows)
+        billing = receipt_line_billing(
+            self._session, [line for found in lines.values() for line in found]
+        )
         vendors = {
             found[0]: (found[1], found[2])
             for found in self._session.execute(
@@ -955,6 +989,7 @@ class GoodsReceiptService(TransactionalDocumentService):
                 warning=warnings.get(row.id),
                 vendor=vendors.get(row.vendor_id),
                 eway_warning=eway_warnings.get(row.id),
+                billing=billing,
             )
             for row in rows
         ]
@@ -969,13 +1004,35 @@ class GoodsReceiptService(TransactionalDocumentService):
         warning: str | None,
         vendor: tuple[str, str] | None,
         eway_warning: str | None = None,
+        billing: dict[UUID, ReceiptLineBilling] | None = None,
     ) -> GoodsReceiptResponse:
         """Build one receipt's response from what the page already read."""
         payload = GoodsReceiptResponse.model_validate(row).model_dump(mode="python")
-        payload["lines"] = [
-            GoodsReceiptLineResponse.model_validate(item).model_dump(mode="python")
-            for item in lines
-        ]
+        payload["lines"] = []
+        left_quantity = ZERO
+        left_amount = ZERO
+        for item in lines:
+            line = GoodsReceiptLineResponse.model_validate(item).model_dump(
+                mode="python"
+            )
+            position = (billing or {}).get(item.id)
+            if position is not None:
+                accepted = Decimal(str(item.accepted_quantity))
+                left = position.left_to_bill
+                amount = (
+                    self._q(Decimal(str(item.net_amount)) * left / accepted)
+                    if accepted > ZERO
+                    else ZERO
+                )
+                line["billed_quantity"] = position.billed
+                line["returned_unbilled_quantity"] = position.returned_unbilled
+                line["left_to_bill_quantity"] = left
+                line["left_to_bill_amount"] = amount
+                left_quantity += left
+                left_amount += amount
+            payload["lines"].append(line)
+        payload["left_to_bill_quantity"] = left_quantity
+        payload["left_to_bill_amount"] = left_amount
         payload["attachments"] = [
             GoodsReceiptAttachmentResponse.model_validate(item).model_dump(
                 mode="python"
