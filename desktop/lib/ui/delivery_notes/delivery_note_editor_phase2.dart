@@ -329,45 +329,101 @@ extension _Phase2DeliveryNoteEditor on _DeliveryNoteEditorDialogState {
   /// The e-way bill takes whatever is blank on it from these.
   List<Widget> _transportFields(BuildContext context) {
     final DateTime? lrDay = DateTime.tryParse(_lrDate);
+    // Choosing a carrier re-keys the three boxes it fills (SG-5), so each
+    // starts again from the text just copied in.
+    final Key refilled = ValueKey<int>(_transporterEpoch);
     return [
-      _box(
-        context,
-        label: 'Transporter',
-        value: _transporterName,
+      DocumentField(
+        label: 'Carrier (master)',
         width: 170,
-        onChanged: (value) => _transporterName = value,
-      ),
-      DocumentField(
-        label: 'Transporter GSTIN',
-        width: 160,
-        child: TextFormField(
-          key: const ValueKey('delivery-note-transporter-gstin'),
-          initialValue: _transporterGstin,
-          readOnly: _saving,
-          textCapitalization: TextCapitalization.characters,
-          decoration: documentBoxDecoration(context),
-          onChanged: (next) => _setState(() => _transporterGstin = next),
-        ),
-      ),
-      DocumentField(
-        label: 'Moving by',
-        width: 110,
         child: DropdownButtonFormField<String?>(
-          key: const ValueKey('delivery-note-transport-mode'),
-          initialValue: _transportMode,
+          key: const ValueKey('delivery-note-transporter'),
+          initialValue: _transporters.any((t) => t.id == _transporterId)
+              ? _transporterId
+              : null,
           isExpanded: true,
           isDense: true,
           decoration: documentBoxDecoration(context),
-          items: const [
-            DropdownMenuItem<String?>(value: null, child: Text('—')),
-            DropdownMenuItem<String?>(value: 'ROAD', child: Text('Road')),
-            DropdownMenuItem<String?>(value: 'RAIL', child: Text('Rail')),
-            DropdownMenuItem<String?>(value: 'AIR', child: Text('Air')),
-            DropdownMenuItem<String?>(value: 'SHIP', child: Text('Ship')),
+          items: [
+            const DropdownMenuItem<String?>(value: null, child: Text('(none)')),
+            for (final TransporterRecord row in _transporters)
+              DropdownMenuItem<String?>(
+                value: row.id,
+                child: Text(row.name, overflow: TextOverflow.ellipsis),
+              ),
+          ],
+          onChanged: _saving ? null : _chooseTransporter,
+        ),
+      ),
+      DocumentField(
+        label: 'Freight',
+        width: 120,
+        child: DropdownButtonFormField<String?>(
+          key: const ValueKey('delivery-note-freight-terms'),
+          initialValue: _freightTerms,
+          isExpanded: true,
+          isDense: true,
+          decoration: documentBoxDecoration(context),
+          items: [
+            const DropdownMenuItem<String?>(value: null, child: Text('—')),
+            for (final MapEntry<String, String> term in kFreightTerms.entries)
+              DropdownMenuItem<String?>(
+                value: term.key,
+                child: Text(term.value, overflow: TextOverflow.ellipsis),
+              ),
           ],
           onChanged: _saving
               ? null
-              : (value) => _setState(() => _transportMode = value),
+              : (value) => _setState(() => _freightTerms = value),
+        ),
+      ),
+      KeyedSubtree(
+        key: refilled,
+        child: _box(
+          context,
+          label: 'Transporter',
+          value: _transporterName,
+          width: 170,
+          onChanged: (value) => _transporterName = value,
+        ),
+      ),
+      KeyedSubtree(
+        key: ValueKey<String>('gstin-$_transporterEpoch'),
+        child: DocumentField(
+          label: 'Transporter GSTIN',
+          width: 160,
+          child: TextFormField(
+            key: const ValueKey('delivery-note-transporter-gstin'),
+            initialValue: _transporterGstin,
+            readOnly: _saving,
+            textCapitalization: TextCapitalization.characters,
+            decoration: documentBoxDecoration(context),
+            onChanged: (next) => _setState(() => _transporterGstin = next),
+          ),
+        ),
+      ),
+      KeyedSubtree(
+        key: ValueKey<String>('mode-$_transporterEpoch'),
+        child: DocumentField(
+          label: 'Moving by',
+          width: 110,
+          child: DropdownButtonFormField<String?>(
+            key: const ValueKey('delivery-note-transport-mode'),
+            initialValue: _transportMode,
+            isExpanded: true,
+            isDense: true,
+            decoration: documentBoxDecoration(context),
+            items: const [
+              DropdownMenuItem<String?>(value: null, child: Text('—')),
+              DropdownMenuItem<String?>(value: 'ROAD', child: Text('Road')),
+              DropdownMenuItem<String?>(value: 'RAIL', child: Text('Rail')),
+              DropdownMenuItem<String?>(value: 'AIR', child: Text('Air')),
+              DropdownMenuItem<String?>(value: 'SHIP', child: Text('Ship')),
+            ],
+            onChanged: _saving
+                ? null
+                : (value) => _setState(() => _transportMode = value),
+          ),
         ),
       ),
       _box(

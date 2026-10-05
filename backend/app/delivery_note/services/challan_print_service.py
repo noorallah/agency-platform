@@ -289,6 +289,11 @@ class DeliveryChallanPrintService:
             references.append(("Transporter GSTIN", note.transporter_gstin))
         if note.transport_mode:
             references.append(("Mode", note.transport_mode.title()))
+        if note.freight_terms:
+            # Who pays the carrier (backlog 87 #5).
+            references.append(
+                ("Freight", note.freight_terms.replace("_", " ").capitalize())
+            )
         if note.lr_number:
             references.append(
                 (

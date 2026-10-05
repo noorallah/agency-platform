@@ -40,7 +40,10 @@ from app.customer_debit_note.models import (  # noqa: F401
 from app.customers.models import customer, customer_records  # noqa: F401
 from app.customers.models import opening_bill as _customer_opening_bill  # noqa: F401
 from app.debit_note.models import debit_note as _debit_note  # noqa: F401
-from app.delivery_note.models import delivery_note  # noqa: F401
+from app.delivery_note.models import (
+    delivery_note,  # noqa: F401
+    transporter,  # noqa: F401
+)
 from app.diagnostics.models import error_report  # noqa: F401
 from app.document_files.models import document_file  # noqa: F401
 from app.document_framework.models import document_framework  # noqa: F401

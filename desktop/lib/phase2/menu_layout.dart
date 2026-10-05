@@ -619,6 +619,7 @@ abstract final class MenuLayout {
       MenuItemSpec(AppModule.sales, 'territories', 'Territories'),
       MenuItemSpec(AppModule.sales, 'route-types', 'Route Types'),
       MenuItemSpec(AppModule.sales, 'route-builder', 'Route Builder'),
+      MenuItemSpec(AppModule.masters, 'transporters', 'Transporters'),
     ], part: MenuPart.setUp),
     MenuGroupSpec('Account structure', [
       MenuItemSpec(

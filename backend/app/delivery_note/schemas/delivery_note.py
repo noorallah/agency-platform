@@ -14,6 +14,8 @@ from app.core.validation.common import normalize_gstin
 
 #: How goods can travel, as an e-way bill names it.
 TransportModeValue = Literal["ROAD", "RAIL", "AIR", "SHIP"]
+#: Who pays the carrier (backlog 87 #5).
+FreightTermsValue = Literal["PAID", "TO_PAY", "TO_BE_BILLED"]
 #: Why a delivery note's goods go out (backlog 77 row 3, decision A35).
 ChallanReasonValue = Literal[
     "SALE", "ROUTE_SALE", "ON_APPROVAL", "QUANTITY_UNKNOWN", "JOB_WORK", "OTHER"
@@ -128,6 +130,12 @@ class DeliveryNoteCreate(DeliveryNoteSchema):
     driver: str | None = Field(default=None, max_length=120)
     #: How the goods travel (backlog 67 row 5). On an update, leaving any of
     #: these out keeps the note's own.
+    #: The carrier from the transporter master (backlog 87 #5). Naming
+    #: one fills the name, the id and the mode below wherever this
+    #: request leaves them blank.
+    transporter_id: UUID | None = None
+    #: Who pays the carrier. Absent on an update keeps the note's own.
+    freight_terms: FreightTermsValue | None = None
     transporter_name: str | None = Field(default=None, max_length=200)
     transporter_gstin: str | None = Field(default=None, max_length=20)
     transport_mode: TransportModeValue | None = None
@@ -353,6 +361,8 @@ class DeliveryNoteResponse(DeliveryNoteSchema):
     vehicle: str | None
     driver: str | None
     #: How the goods travel (backlog 67 row 5).
+    transporter_id: UUID | None = None
+    freight_terms: str | None = None
     transporter_name: str | None = None
     transporter_gstin: str | None = None
     transport_mode: str | None = None

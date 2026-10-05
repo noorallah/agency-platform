@@ -92,6 +92,7 @@ from app.delivery_note.schemas import (
     DeliveryNoteSummary,
     DeliveryProofWrite,
 )
+from app.delivery_note.services.transporters import TransporterService
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentTypeDefinition,
@@ -458,6 +459,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             vehicle=data.vehicle,
             driver=data.driver,
             **{name: getattr(data, name) for name in TRANSPORT_FIELDS},
+            freight_terms=data.freight_terms,
             **dict(
                 zip(
                     ("challan_reason", "challan_reason_note"),
@@ -473,6 +475,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             updated_by=actor_id,
         )
         self._session.add(row)
+        self._apply_transporter(row, data)
         self._session.flush()
         totals = self._replace_lines(
             row,
@@ -582,9 +585,10 @@ class DeliveryNoteService(TransactionalDocumentService):
         row.driver = data.driver
         # Absent keeps what the note says: an editor that never showed the
         # transport details must not clear them (backlog 67 row 5).
-        for name in TRANSPORT_FIELDS:
+        for name in (*TRANSPORT_FIELDS, "freight_terms"):
             if name in data.model_fields_set:
                 setattr(row, name, getattr(data, name))
+        self._apply_transporter(row, data)
         # The same for why the goods go out (backlog 77 row 3).
         if "challan_reason" in data.model_fields_set:
             row.challan_reason, row.challan_reason_note = _challan(
@@ -1373,6 +1377,8 @@ class DeliveryNoteService(TransactionalDocumentService):
             shipping_address_id=row.shipping_address_id,
             vehicle=row.vehicle,
             driver=row.driver,
+            transporter_id=row.transporter_id,
+            freight_terms=row.freight_terms,
             transporter_name=row.transporter_name,
             transporter_gstin=row.transporter_gstin,
             transport_mode=row.transport_mode,
@@ -3079,6 +3085,41 @@ class DeliveryNoteService(TransactionalDocumentService):
             max(source_line.reserved_quantity - line.delivered_quantity, ZERO)
         )
         line.updated_by = actor_id
+
+    def _apply_transporter(self, row: DeliveryNote, data: DeliveryNoteCreate) -> None:
+        """Name the note's carrier and fill what the request left blank.
+
+        The master's name, GSTIN (or TRANSIN) and usual mode are copied onto
+        the note wherever the request did not type one, so the challan and
+        the e-way bill go on reading the note's own columns (backlog 87 #5).
+        Absent leaves the note's carrier alone; null takes it off and keeps
+        the text.
+
+        Raises:
+            ValidationError: If the transporter is not in use any more.
+
+        """
+        if "transporter_id" not in data.model_fields_set:
+            return
+        row.transporter_id = data.transporter_id
+        if data.transporter_id is None:
+            return
+        carrier = TransporterService(self._session).get(
+            data.transporter_id, row.firm_id
+        )
+        if not carrier.is_active:
+            raise ValidationError(
+                f"{carrier.name} is marked inactive. Choose another transporter "
+                "or make it active again."
+            )
+        filled = (
+            ("transporter_name", carrier.name),
+            ("transporter_gstin", carrier.gstin or carrier.transporter_ref),
+            ("transport_mode", carrier.default_mode),
+        )
+        for name, value in filled:
+            if getattr(data, name) is None and value:
+                setattr(row, name, value)
 
     def _assert_chosen_in_stock(
         self,

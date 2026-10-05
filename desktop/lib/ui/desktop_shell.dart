@@ -30,6 +30,7 @@ import '../models/notification_feed.dart';
 import '../models/purchase.dart';
 import '../models/uom_packaging.dart';
 import '../models/product.dart';
+import '../models/transporter.dart';
 import '../models/report.dart' show ReportPage;
 import '../models/sales_invoice.dart';
 import '../models/settlement_direction.dart';
@@ -3010,6 +3011,10 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           api: widget.api,
           definition: brandDefinition(widget.api, widget.permissions),
         ),
+      'transporters' => ResourceManagementPage<TransporterRecord>(
+          api: widget.api,
+          definition: transporterDefinition(widget.api, widget.permissions),
+        ),
       'vendor-categories' => ResourceManagementPage<VendorClassification>(
           api: widget.api,
           definition: vendorClassificationDefinition(
@@ -3097,6 +3102,7 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
         'product-categories' => 'Product Categories',
         'principals' => 'Principals',
         'brands' => 'Brands',
+        'transporters' => 'Transporters',
         'vendors' => 'Vendor Management',
         'vendor-categories' => 'Vendor Categories',
         'vendor-types' => 'Vendor Types',
@@ -3136,6 +3142,9 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
         'brands' =>
           'The brands products are filed under, each with its principal; '
               'sales can be analysed by either.',
+        'transporters' =>
+          'The carriers goods are dispatched with; a delivery note picks one '
+              'and copies its name, GSTIN and mode.',
         'vendors' =>
           'Manage enterprise vendor masters with contacts, addresses, banking, and tax details.',
         'vendor-categories' => 'Group vendors by what they supply.',
@@ -3175,6 +3184,7 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           'product-categories' => 'Product Categories',
           'principals' => 'Principals',
           'brands' => 'Brands',
+          'transporters' => 'Transporters',
           'vendors' => 'Vendor Management',
           'vendor-categories' => 'Vendor Categories',
           'vendor-types' => 'Vendor Types',
@@ -6427,6 +6437,81 @@ ResourceDefinition<BrandRecord> brandDefinition(
       payload: (values, isCreating) => {
         'name': values['name'],
         'principal_id': _blankToNull(values['principal_id']),
+        'is_active': values['is_active'] != false,
+      },
+    );
+
+/// The carriers a delivery note is dispatched with (SG-5): name, GSTIN or
+/// TRANSIN, phone and the mode they usually run.
+ResourceDefinition<TransporterRecord> transporterDefinition(
+  ApiClient api,
+  PermissionService permissions,
+) =>
+    ResourceDefinition(
+      title: 'Transporters',
+      resource: 'delivery-notes/transporters',
+      description: 'The carriers goods are dispatched with.',
+      searchHint: 'Search transporters by name, GSTIN or phone',
+      headers: const [
+        'Name',
+        'GSTIN',
+        'Transporter ID',
+        'Phone',
+        'Mode',
+        'Active',
+      ],
+      cells: (TransporterRecord row) => [
+        row.name,
+        row.gstin,
+        row.transporterRef,
+        row.phone,
+        transportModeLabel(row.defaultMode),
+        row.isActive ? 'Yes' : 'No',
+      ],
+      id: (TransporterRecord row) => row.id,
+      load: api.transportersPage,
+      canUseAction: (action, _) => _canUseResourceAction(
+        permissions,
+        action,
+        view: const ['SALES_VIEW'],
+        create: const ['SALES_UPDATE'],
+        update: const ['SALES_UPDATE'],
+        delete: const ['SALES_UPDATE'],
+      ),
+      fields: const [
+        FieldSpec(key: 'name', label: 'Name', required: true),
+        FieldSpec(key: 'gstin', label: 'GSTIN'),
+        FieldSpec(
+          key: 'transporter_ref',
+          label: 'Transporter ID (TRANSIN)',
+          helperText: 'The id the e-way bill portal knows the carrier by.',
+        ),
+        FieldSpec(key: 'phone', label: 'Phone'),
+        FieldSpec(
+          key: 'default_mode',
+          label: 'Usual mode',
+          choices: ['', 'ROAD', 'RAIL', 'AIR', 'SHIP'],
+          choiceLabels: kTransportModes,
+          helperText: 'Leave empty when the carrier has no usual mode.',
+        ),
+        FieldSpec(key: 'is_active', label: 'Active', boolean: true),
+      ],
+      initialValues: (TransporterRecord? row) => row == null
+          ? <String, dynamic>{'is_active': true}
+          : <String, dynamic>{
+              'name': row.name,
+              'gstin': row.gstin,
+              'transporter_ref': row.transporterRef,
+              'phone': row.phone,
+              'default_mode': row.defaultMode,
+              'is_active': row.isActive,
+            },
+      payload: (values, isCreating) => {
+        'name': values['name'],
+        'gstin': _blankToNull(values['gstin']),
+        'transporter_ref': _blankToNull(values['transporter_ref']),
+        'phone': _blankToNull(values['phone']),
+        'default_mode': _blankToNull(values['default_mode']),
         'is_active': values['is_active'] != false,
       },
     );

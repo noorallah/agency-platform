@@ -283,6 +283,29 @@ from the latest delivery note the invoice billed, and sends its LR as
 `TransDocNo` / `TransDocDt`. A distance is still required from one or the
 other.
 
+### The carrier is chosen from a master, and the note still owns it
+
+Backlog §87 #5 (SG-5, 2026-10-05). `transporters` keeps each carrier once --
+name, GSTIN, the TRANSIN an unregistered carrier enrols for, phone, usual mode
+-- under `/api/v1/delivery-notes/transporters`
+(`app/delivery_note/services/transporters.py`; read with `SALES_VIEW`, kept
+with `SALES_UPDATE`). A note names one with `transporter_id`, and
+`_apply_transporter` **copies** the name, the GSTIN or TRANSIN and the mode
+into the note's own columns wherever the request left them blank. The challan
+and the e-way bill go on reading the note, so:
+
+- what is typed on the note wins over the master, for a one-off;
+- editing or removing a carrier rewrites no note already raised, which is why
+  removing one is never refused;
+- an edit that does not mention the carrier keeps it; naming another takes
+  that one's details; an inactive carrier is refused by name.
+
+`freight_terms` on the note is PAID, TO_PAY or TO_BE_BILLED -- who pays the
+carrier -- and prints on the challan as *Freight*. It records the term and
+moves no money: freight charged to the customer is still the bill's
+`freight_amount`. Migration `20261005_0320`;
+`tests/unit/test_transporter_master.py`.
+
 ## Goods leave with an invoice, or on a challan that says why
 
 Every delivery note carries a **reason** (`challan_reason`: Sale by default;

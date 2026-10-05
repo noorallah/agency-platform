@@ -13,6 +13,7 @@ import '../../models/entities.dart';
 import '../../models/gst_documents.dart';
 import '../../models/inventory.dart';
 import '../../models/product.dart';
+import '../../models/transporter.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../document_framework/document_steps.dart';
@@ -255,6 +256,15 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
   String _transporterName = '';
   String _transporterGstin = '';
   String? _transportMode;
+
+  /// The carrier chosen from the transporter master (SG-5), and how the
+  /// freight is settled. Choosing a carrier fills the three boxes above, and
+  /// [_transporterEpoch] re-keys them so the new text shows.
+  String? _transporterId;
+  String? _freightTerms;
+  int _transporterEpoch = 0;
+  List<TransporterRecord> _transporters = const [];
+  bool _transportersRequested = false;
   String _lrNumber = '';
   String _lrDate = '';
   String _distanceKm = '';
@@ -291,6 +301,43 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
   void initState() {
     super.initState();
     unawaited(_customFields.start());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Phase 2 only, and once: the carriers the Transporter box offers.
+    if (_transportersRequested || !Phase2Scope.of(context)) return;
+    _transportersRequested = true;
+    unawaited(_loadTransporters());
+  }
+
+  Future<void> _loadTransporters() async {
+    try {
+      final List<TransporterRecord> rows =
+          await widget.api.transporters(activeOnly: true);
+      if (mounted) setState(() => _transporters = rows);
+    } catch (_) {
+      // The box then offers only "(none)"; a note can still be typed by hand.
+    }
+  }
+
+  /// Choosing a carrier copies its name, GSTIN and usual mode into the
+  /// boxes, which the user may then overtype; the server fills the same
+  /// three from the master when they arrive blank.
+  void _chooseTransporter(String? id) {
+    _setState(() {
+      _transporterId = id;
+      if (id == null) return;
+      final TransporterRecord? row = _transporters
+          .cast<TransporterRecord?>()
+          .firstWhere((t) => t!.id == id, orElse: () => null);
+      if (row == null) return;
+      _transporterName = row.name;
+      _transporterGstin = row.gstin;
+      _transportMode = row.defaultMode.isEmpty ? null : row.defaultMode;
+      _transporterEpoch++;
+    });
   }
 
   @override
@@ -599,6 +646,8 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
           'transporter_name': _blankToNull(_transporterName),
           'transporter_gstin': _blankToNull(_transporterGstin)?.toUpperCase(),
           'transport_mode': _transportMode,
+          'transporter_id': _transporterId,
+          'freight_terms': _freightTerms,
           'lr_number': _blankToNull(_lrNumber),
           'lr_date': _lrDate.isEmpty ? null : _lrDate,
           'distance_km': int.tryParse(_distanceKm.trim()),

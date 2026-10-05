@@ -84,6 +84,15 @@ class DeliveryNote(BaseEntity):
     #: TRANSIN, the same shape) is format-checked; the mode is ROAD, RAIL,
     #: AIR or SHIP; the LR is the lorry receipt or docket the transporter
     #: issues; the distance is in whole kilometres, as the portal takes it.
+    #: The carrier chosen from the transporter master (backlog 87 #5).
+    #: Choosing one fills the three columns below; they stay the note's
+    #: own, so a later edit of the master leaves this note alone.
+    transporter_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("transporters.id", ondelete="RESTRICT")
+    )
+    #: Who pays the carrier: PAID (the seller has), TO_PAY (the buyer
+    #: pays on delivery) or TO_BE_BILLED (charged on the invoice).
+    freight_terms: Mapped[str | None] = mapped_column(String(15))
     transporter_name: Mapped[str | None] = mapped_column(String(200))
     transporter_gstin: Mapped[str | None] = mapped_column(String(15))
     transport_mode: Mapped[str | None] = mapped_column(String(10))
