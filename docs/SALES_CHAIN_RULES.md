@@ -114,9 +114,50 @@ and shipped 3, and one could not grow at all.
   request leaves out is compared from the bill's line, so a bill saved
   before D-SELL-77 at terms its order does not hold raises the pair again
   whatever the edit says.
+- **A coupon counts as what the bill charges.** One the order does not hold
+  raises the pair again with it; the one it holds changes nothing; left out
+  it stays; `null` takes it off (`docs/PRICING_AND_PROMOTIONS.md`).
+- **A quantity of nothing is refused in words** (D-SELL-78): "Line 1 bills a
+  quantity of 0 and supplies nothing free. Type a quantity, or leave the
+  line off the bill." Sent back by the source line it used to answer 500,
+  the schema's refusal raised from inside the service.
 - **Only a draft counter bill.** A bill of documents somebody raised is
   still changed through its own lines and refuses a product line by name
   (D-SELL-69); an approved bill is not edited at all.
+
+## An edit that leaves a header field out leaves it alone
+
+**On the edit of any draft bill, absent means leave alone and an explicit
+null or zero clears** (D-SELL-79; `_keeping_what_the_bill_holds` in
+`app/sales_invoice/services/sales_invoice_service.py`). The update read every
+header field straight off the request, so an edit that named only its lines
+cleared the reference and the remarks and dropped the bill discount; on a
+counter bill whose order was raised again the freight went too, because the
+new order was raised from the request and had none for the bill to inherit.
+
+- **Kept when left out**: `reference_number`, `remarks`,
+  `customer_invoice_number`, `payment_terms`, `currency_code`,
+  `exchange_rate`, `business_profile_id`, `additional_charges`, `round_off`,
+  the bill discount, `attachments` and `notes` -- beside the ship-to, the
+  walk-in buyer, the money received, the tenders, the charges, the firm's own
+  fields and the GST-inclusive switch, which already were.
+- **The bill discount is kept as its rate.** The bill stores the rate and
+  the amount and not which was typed, and a rate still means the same on
+  other quantities. A flat amount that must stay flat is sent again.
+- **Freight is kept on a counter bill and inherited on any other.** A bill
+  of somebody's notes takes its freight from them, pro-rated by the share
+  billed (D-SELL-36), and that share is what an edit changes; there `null`
+  still means "as the notes say" and zero waives it. On a counter bill the
+  freight is the bill's own: left out it stays, `null` or zero removes it.
+- **Still derived on every save**: the due date (from the date, the
+  customer and the order's terms, unless sent), the place of supply, and the
+  salesman, territory and route (from what the bill continues, then the
+  customer). None of them records whether a person typed it, so keeping one
+  would freeze a figure that is meant to follow the bill.
+- **A counter bill's order and note carry the header again whenever they are
+  raised again**, so the bill never inherits less than it held. Between a
+  header-only edit and the next one that raises them, the hidden order and
+  note keep the header they were raised with; the bill is what is posted.
 
 ## Goods back before billing credit nothing
 

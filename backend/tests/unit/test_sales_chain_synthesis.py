@@ -47,10 +47,11 @@ from app.inventory.services import InventoryService
 from app.products.models import Product
 from app.promotions.models import Promotion, PromotionAction, PromotionCoupon
 from app.promotions.schemas import PromotionActionType, PromotionStatus
-from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
+from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine, SalesInvoiceNote
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
     SalesInvoiceLineWrite,
+    SalesInvoiceNoteWrite,
     SalesInvoiceStatus,
 )
 from app.sales_invoice.services import SalesInvoiceService
@@ -1127,32 +1128,31 @@ def test_a_bill_typed_straight_in_honours_the_customers_coupon() -> None:
 
 
 def test_a_coupon_on_a_bill_of_documents_already_priced_is_refused() -> None:
-    """A field that gives money away must not be accepted and do nothing."""
-    session = _session_factory()()
-    setup = _Firm(session)
-    setup.stages(quotation=False, sales_order=False, delivery_note=False)
-    service = SalesInvoiceService(session)
-    invoice = service.create_invoice(
-        setup.bare_bill(), firm_id=setup.firm.id, actor_id=uuid4()
-    )
-    note = session.scalars(select(DeliveryNote)).one()
-    line = session.scalars(select(SalesInvoiceLine)).one()
-    sourced = SalesInvoiceCreate(
-        customer_id=setup.customer.id,
-        invoice_date=date(2026, 8, 4),
-        coupon_code="SAVE10",
-        lines=[
-            SalesInvoiceLineWrite(
-                source_document_type="DELIVERY_NOTE",
-                source_document_id=note.id,
-                source_document_line_id=line.source_document_line_id,
-                line_number=1,
-                current_invoice_quantity=Decimal("4"),
-            )
-        ],
-    )
+    """A field that gives money away must not be accepted and do nothing.
 
-    with pytest.raises(ValidationError, match="coupon"):
+    A bill of a note somebody raised: its prices were set on their order. A
+    counter bill is priced on the bill, so its edit takes a coupon -- see
+    `test_a_saved_counter_bill_takes_a_coupon_on_either_kind_of_edit`.
+    """
+    session = _request_session()
+    setup = _Firm(session)
+    setup.stages(delivery_note=True)
+    _coupon_offer(setup)
+    note = _persons_note(setup)
+    DeliveryNoteService(session).stage_dispatch(
+        note.id, firm_scope=setup.firm.id, actor_id=uuid4()
+    )
+    session.commit()
+    service = SalesInvoiceService(session)
+    sourced = _bill_of(setup, note).model_copy(update={"coupon_code": "SAVE10"})
+
+    with pytest.raises(ValidationError, match="continues documents already priced"):
+        service.create_invoice(sourced, firm_id=setup.firm.id, actor_id=uuid4())
+    session.rollback()
+    invoice = service.create_invoice(
+        _bill_of(setup, note), firm_id=setup.firm.id, actor_id=uuid4()
+    )
+    with pytest.raises(ValidationError, match="continues documents already priced"):
         service.update_invoice(
             invoice.id, sourced, firm_id=setup.firm.id, actor_id=uuid4()
         )
@@ -1699,6 +1699,235 @@ def test_a_bill_out_of_step_with_its_order_is_put_right_by_its_next_edit() -> No
     session.refresh(invoice)
     assert invoice.grand_total == Decimal("360.0000")
     assert _live_terms(session) == _both_at("4.0000", "90.0000")
+
+
+def test_quantity_nothing_on_a_counter_bills_own_line_is_refused_in_words() -> None:
+    """D-SELL-78: the 0 sent back by the source line answered 500.
+
+    The line is restated as a product line, whose schema refuses a quantity
+    of nothing -- from inside the service, where that is a server error.
+    """
+    session, setup, service, invoice = _counter_draft("3")
+    before = _chain_of(session)
+
+    with pytest.raises(ValidationError) as refused:
+        service.update_invoice(
+            invoice.id,
+            _sent_back(service, invoice, "0"),
+            firm_id=setup.firm.id,
+            actor_id=uuid4(),
+        )
+    session.rollback()
+
+    assert str(refused.value) == (
+        "Line 1 bills a quantity of 0 and supplies nothing free. Type a "
+        "quantity, or leave the line off the bill."
+    )
+    assert _chain_of(session) == before
+    assert _reserved(session) == Decimal("3.0000")
+
+
+def _with_header(setup: _Firm, quantity: str = "3") -> SalesInvoiceCreate:
+    """Describe a counter bill with every header figure an edit might drop."""
+    return setup.bare_bill(Decimal(quantity)).model_copy(
+        update={
+            "reference_number": "PO-77",
+            "remarks": "Leave at the gate.",
+            "customer_invoice_number": "CUST-9",
+            "payment_terms": "Net 15",
+            "freight_amount": Decimal("50"),
+            "bill_discount_percent": Decimal("10"),
+            "additional_charges": Decimal("5"),
+            "round_off": Decimal("0.25"),
+            "notes": [SalesInvoiceNoteWrite(note="Rang ahead.")],
+        }
+    )
+
+
+def _header_of(invoice: SalesInvoice) -> dict[str, object]:
+    """Return the header fields an edit that names none must leave alone."""
+    return {
+        name: getattr(invoice, name)
+        for name in (
+            "reference_number",
+            "remarks",
+            "customer_invoice_number",
+            "payment_terms",
+            "freight_amount",
+            "bill_discount_percent",
+            "additional_charges",
+            "round_off",
+        )
+    }
+
+
+def test_an_edit_that_names_only_its_lines_leaves_the_header_alone() -> None:
+    """D-SELL-79: absent means leave alone, on both kinds of edit.
+
+    Driven 2026-10-05: 3 with freight 50 and a 10% bill discount. Sent back
+    at 3 with neither, the bill discount went; sent back at 4, the freight
+    went too -- the order raised again had none for the bill to inherit --
+    and any edit cleared the reference and the remarks.
+    """
+    session = _request_session()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    service = SalesInvoiceService(session)
+    actor = uuid4()
+    invoice = service.create_invoice(
+        _with_header(setup), firm_id=setup.firm.id, actor_id=actor
+    )
+    # 300 less 10% is 270, plus 50 freight, 5 of charges and 0.25 rounding.
+    assert invoice.grand_total == Decimal("325.2500")
+    header = _header_of(invoice)
+
+    service.update_invoice(
+        invoice.id,
+        _sent_back(service, invoice, "3"),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+    session.refresh(invoice)
+    assert _header_of(invoice) == header
+    assert invoice.grand_total == Decimal("325.2500")
+    assert [note.note for note in session.scalars(select(SalesInvoiceNote))] == [
+        "Rang ahead."
+    ]
+
+    service.update_invoice(
+        invoice.id,
+        _sent_back(service, invoice, "4"),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+    session.refresh(invoice)
+    assert _header_of(invoice) == header
+    # 400 less 10% is 360, plus the same 50, 5 and 0.25.
+    assert invoice.grand_total == Decimal("415.2500")
+    session.expire_all()
+    order = session.scalars(
+        select(SalesOrder).where(SalesOrder.status == "APPROVED")
+    ).one()
+    assert (order.freight_amount, order.reference_number) == (
+        Decimal("50.0000"),
+        "PO-77",
+    ), "the order raised again carries what the bill holds"
+    assert [note.note for note in session.scalars(select(SalesInvoiceNote))] == [
+        "Rang ahead."
+    ]
+
+
+def test_an_explicit_null_or_zero_clears_what_silence_keeps() -> None:
+    """D-SELL-79, the other half: saying so is how a header field is cleared."""
+    session = _request_session()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    service = SalesInvoiceService(session)
+    invoice = service.create_invoice(
+        _with_header(setup), firm_id=setup.firm.id, actor_id=uuid4()
+    )
+    cleared = SalesInvoiceCreate(
+        **_sent_back(service, invoice, "3").model_dump(exclude_unset=True),
+        reference_number=None,
+        remarks=None,
+        customer_invoice_number=None,
+        freight_amount=None,
+        bill_discount_percent=Decimal("0"),
+        additional_charges=Decimal("0"),
+        round_off=Decimal("0"),
+        notes=[],
+    )
+
+    service.update_invoice(invoice.id, cleared, firm_id=setup.firm.id, actor_id=uuid4())
+
+    session.refresh(invoice)
+    assert _header_of(invoice) == {
+        "reference_number": None,
+        "remarks": None,
+        "customer_invoice_number": None,
+        "payment_terms": "Net 15",
+        "freight_amount": Decimal("0.0000"),
+        "bill_discount_percent": Decimal("0.0000"),
+        "additional_charges": Decimal("0.0000"),
+        "round_off": Decimal("0.0000"),
+    }
+    assert invoice.grand_total == Decimal("300.0000")
+    assert session.scalars(select(SalesInvoiceNote)).all() == []
+
+
+def test_a_bill_of_a_persons_note_keeps_its_header_too() -> None:
+    """D-SELL-79 is not a counter-bill rule: every draft bill's edit obeys it."""
+    session = _request_session()
+    setup = _Firm(session)
+    setup.stages(delivery_note=True)
+    note = _persons_note(setup)
+    DeliveryNoteService(session).stage_dispatch(
+        note.id, firm_scope=setup.firm.id, actor_id=uuid4()
+    )
+    session.commit()
+    service = SalesInvoiceService(session)
+    invoice = service.create_invoice(
+        _bill_of(setup, note).model_copy(
+            update={
+                "reference_number": "PO-9",
+                "remarks": "Second floor.",
+                "bill_discount_percent": Decimal("10"),
+            }
+        ),
+        firm_id=setup.firm.id,
+        actor_id=uuid4(),
+    )
+    assert invoice.grand_total == Decimal("360.0000")
+
+    service.update_invoice(
+        invoice.id, _bill_of(setup, note), firm_id=setup.firm.id, actor_id=uuid4()
+    )
+
+    session.refresh(invoice)
+    assert (invoice.reference_number, invoice.remarks) == ("PO-9", "Second floor.")
+    assert invoice.bill_discount_percent == Decimal("10.0000")
+    assert invoice.grand_total == Decimal("360.0000")
+
+
+def test_a_saved_counter_bill_takes_a_coupon_on_either_kind_of_edit() -> None:
+    """A coupon was 422 on an edit that ships the same, and taken on one that grew.
+
+    A counter bill is priced on the bill -- "a bill typed straight in" -- so
+    its edit takes a coupon whichever kind it is. The order holds it: sent
+    again it changes nothing, left out it stays, and null takes it off.
+    """
+    session, setup, service, invoice = _counter_draft("3")
+    _coupon_offer(setup)
+    actor = uuid4()
+
+    def save(quantity: str, **header: object) -> Decimal:
+        """Send the bill's line back at a quantity, and return its new total."""
+        edit = SalesInvoiceCreate(
+            **_sent_back(service, invoice, quantity).model_dump(exclude_unset=True),
+            **header,
+        )
+        service.update_invoice(invoice.id, edit, firm_id=setup.firm.id, actor_id=actor)
+        session.refresh(invoice)
+        return invoice.grand_total
+
+    def held() -> list[str | None]:
+        """Return the coupon each live order holds."""
+        session.expire_all()
+        return list(
+            session.scalars(
+                select(SalesOrder.coupon_code).where(SalesOrder.status == "APPROVED")
+            )
+        )
+
+    assert save("3", coupon_code="save10") == Decimal("270.0000")
+    assert held() == ["SAVE10"]
+    chain = _chain_of(session)
+    assert save("3", coupon_code="SAVE10") == Decimal("270.0000")
+    assert _chain_of(session) == chain, "the coupon it holds changes nothing"
+    assert save("4") == Decimal("360.0000")
+    assert held() == ["SAVE10"]
+    assert save("4", coupon_code=None) == Decimal("400.0000")
+    assert held() == [None]
 
 
 def test_an_arrangement_nobody_typed_is_resolved_again_when_the_bill_grows() -> None:

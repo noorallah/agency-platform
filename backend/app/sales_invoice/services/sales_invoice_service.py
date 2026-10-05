@@ -144,7 +144,10 @@ from app.sales_order.services.discount_limit import (
     invoice_discounts,
 )
 from app.sales_order.services.price_floor import PriceFloorService, invoice_lines
-from app.sales_order.services.sales_order_service import SalesOrderService
+from app.sales_order.services.sales_order_service import (
+    SalesOrderService,
+    normalized_coupon,
+)
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
 from app.settlements.schemas import OutstandingInvoiceRecord
 from app.tax.schemas import TaxRuleSimulationRequest
@@ -793,16 +796,38 @@ class SalesInvoiceService(TransactionalDocumentService):
         # Absent leaves the bill's switch as it is (backlog 64 row 4).
         if data.rate_includes_tax is not None:
             row.rate_includes_tax = data.rate_includes_tax
+        # What the request itself said, before anything below restates it:
+        # absent means leave alone, and only this tells absent from null.
+        sent = frozenset(data.model_fields_set)
+        counter = self._own_counter_chain(row)
+        data = self._keeping_what_the_bill_holds(
+            row, data, sent=sent, ships_its_own=counter is not None
+        )
         # A draft counter bill whose edit changes what it ships has its
         # hidden order and note raised again, so all four always agree
         # (D-SELL-72, D-SELL-59).
-        raised_again = self._raise_counter_chain_again(
-            row, data, firm_id=firm_id, actor_id=actor_id
+        raised_again = (
+            None
+            if counter is None
+            else self._raise_counter_chain_again(
+                row,
+                data,
+                notes=counter[0],
+                orders=counter[1],
+                sent=sent,
+                firm_id=firm_id,
+                actor_id=actor_id,
+            )
         )
         entered_rates: dict[UUID, tuple[Decimal, Decimal]]
         if raised_again is not None:
             data, own_notes, entered_rates = raised_again
         else:
+            if counter is not None:
+                # A counter bill that ships and charges what its order and
+                # note already do, coupon included: the order holds the
+                # coupon, and the bill that continues it carries none.
+                data = data.model_copy(update={"coupon_code": None})
             if any(line.product_id is not None for line in data.lines):
                 # Said by name, where it used to surface three layers down as
                 # "Unsupported source document type." (D-SELL-69). Only a
@@ -841,7 +866,9 @@ class SalesInvoiceService(TransactionalDocumentService):
                 if row.rate_includes_tax
                 else {}
             )
-        self._delete_children(row.id)
+        self._delete_children(
+            row.id, attachments="attachments" in sent, notes="notes" in sent
+        )
         header, source_rows, line_specs = self._prepare_invoice_sources(
             data, firm_id, own_notes=own_notes
         )
@@ -851,7 +878,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         # Absent keeps the bill's own ship-to while it still names the
         # buyer's address; otherwise it is inherited again from what it bills.
         if (
-            "shipping_address_id" in data.model_fields_set
+            "shipping_address_id" in sent
             or row.customer_id != customer_before
             or not ship_to_is_valid(
                 self._session,
@@ -1002,10 +1029,14 @@ class SalesInvoiceService(TransactionalDocumentService):
             + row.additional_charges
             + row.round_off
         )
-        self._replace_attachments(
-            row, data.attachments, actor_id=actor_id, firm_id=firm_id
-        )
-        self._replace_notes(row, data.notes, actor_id=actor_id, firm_id=firm_id)
+        # Absent leaves the bill's attachments and notes alone; sent, each is
+        # replaced whole, and an empty list clears it (D-SELL-79).
+        if "attachments" in sent:
+            self._replace_attachments(
+                row, data.attachments, actor_id=actor_id, firm_id=firm_id
+            )
+        if "notes" in sent:
+            self._replace_notes(row, data.notes, actor_id=actor_id, firm_id=firm_id)
         self._replace_accounting_events(row, actor_id=actor_id, firm_id=firm_id)
         self._record_event(
             firm_id=firm_id,
@@ -1917,11 +1948,94 @@ class SalesInvoiceService(TransactionalDocumentService):
 
     # ---- a draft counter bill is raised again when its edit changes it -----
 
+    def _own_counter_chain(
+        self, row: SalesInvoice
+    ) -> tuple[list[DeliveryNote], list[SalesOrder]] | None:
+        """Return the live note and order a counter bill raised for itself.
+
+        None where the bill is not a counter bill: it raised no note, or the
+        order behind its note is one a person raised.
+        """
+        notes = list(
+            self._session.scalars(
+                select(DeliveryNote).where(
+                    DeliveryNote.raised_by_sales_invoice_id == row.id,
+                    DeliveryNote.status == DeliveryNoteStatus.APPROVED.value,
+                    DeliveryNote.is_deleted.is_(False),
+                )
+            ).all()
+        )
+        orders = list(
+            self._session.scalars(
+                select(SalesOrder).where(
+                    SalesOrder.raised_by_sales_invoice_id == row.id,
+                    SalesOrder.status.not_in(("CANCELLED", "CLOSED")),
+                    SalesOrder.is_deleted.is_(False),
+                )
+            ).all()
+        )
+        return (notes, orders) if notes and orders else None
+
+    def _keeping_what_the_bill_holds(
+        self,
+        row: SalesInvoice,
+        data: SalesInvoiceCreate,
+        *,
+        sent: frozenset[str],
+        ships_its_own: bool,
+    ) -> SalesInvoiceCreate:
+        """Fill what an edit left out of the header from the bill itself.
+
+        Absent means leave alone, and an explicit null or zero clears
+        (D-SELL-79). The update used to read every header field straight off
+        the request, so an edit that named only its lines cleared the
+        reference and the remarks and dropped the bill discount -- and on a
+        counter bill whose order was raised again, the freight too, since
+        the new order was raised from the request and had none to inherit.
+
+        A bill discount left out is carried as its **rate**: the bill keeps
+        both figures and not which was typed, and a rate is the one that
+        still means the same on other quantities. Freight is carried only
+        for a bill that ships its own goods; any other bill inherits it from
+        the notes it bills, pro-rated by the share billed (D-SELL-36), and
+        that share is what an edit changes. There a null still means "as the
+        notes say"; on a counter bill it means none.
+        """
+        kept: dict[str, object] = {
+            name: getattr(row, name)
+            for name in (
+                "business_profile_id",
+                "customer_invoice_number",
+                "currency_code",
+                "exchange_rate",
+                "payment_terms",
+                "reference_number",
+                "remarks",
+                "additional_charges",
+                "round_off",
+            )
+            if name not in sent
+        }
+        if (
+            not {"bill_discount_percent", "bill_discount_amount"} & sent
+            and row.bill_discount_amount > ZERO
+        ):
+            kept["bill_discount_percent"] = row.bill_discount_percent
+        if ships_its_own:
+            if "freight_amount" not in sent:
+                kept["freight_amount"] = row.freight_amount
+            elif data.freight_amount is None:
+                kept["freight_amount"] = ZERO
+        return data.model_copy(update=kept)
+
     def _raise_counter_chain_again(
         self,
         row: SalesInvoice,
         data: SalesInvoiceCreate,
         *,
+        notes: list[DeliveryNote],
+        orders: list[SalesOrder],
+        sent: frozenset[str],
         firm_id: UUID,
         actor_id: UUID,
     ) -> (
@@ -1944,33 +2058,29 @@ class SalesInvoiceService(TransactionalDocumentService):
         bill is, or back by the source fields the bill returns, which are
         read as the same products at the same terms.
 
+        A coupon is taken on any edit of a draft counter bill, because the
+        bill is where its order is priced: one the order does not already
+        hold raises the order again with it, the one it holds changes
+        nothing, an explicit null takes it off, and silence keeps it. The
+        edit that ships the same used to refuse a coupon the quantity edit
+        took.
+
+        Args:
+            row: The draft counter bill.
+            data: The edit, its header already filled from the bill.
+            notes: The live notes the bill raised.
+            orders: The live orders the bill raised.
+            sent: The fields the request itself named.
+            firm_id: The firm.
+            actor_id: Who is editing.
+
         Returns:
             The payload rebound to the new note, that note's id, and the
-            GST-inclusive rates typed -- or None where the bill is not a
-            counter bill or the edit ships exactly what the note already
-            does, and the bill is edited as any other is.
+            GST-inclusive rates typed -- or None where the edit ships and
+            charges exactly what the note and order already do, and the bill
+            is edited as any other is.
 
         """
-        notes = list(
-            self._session.scalars(
-                select(DeliveryNote).where(
-                    DeliveryNote.raised_by_sales_invoice_id == row.id,
-                    DeliveryNote.status == DeliveryNoteStatus.APPROVED.value,
-                    DeliveryNote.is_deleted.is_(False),
-                )
-            ).all()
-        )
-        orders = list(
-            self._session.scalars(
-                select(SalesOrder).where(
-                    SalesOrder.raised_by_sales_invoice_id == row.id,
-                    SalesOrder.status.not_in(("CANCELLED", "CLOSED")),
-                    SalesOrder.is_deleted.is_(False),
-                )
-            ).all()
-        )
-        if not notes or not orders:
-            return None
         note_lines = {
             line.id: line
             for line in self._session.scalars(
@@ -2010,22 +2120,25 @@ class SalesInvoiceService(TransactionalDocumentService):
                 )
             ).all()
         }
-        if self._ships_as_raised(data, note_lines, picked) and all(
-            self._charges_as_raised(
-                line,
-                note_line=note_lines[line.source_document_line_id],
-                order_lines=order_lines,
-                was=billed.get(line.source_document_line_id),
+        held = next((order.coupon_code for order in orders if order.coupon_code), None)
+        coupon = normalized_coupon(data.coupon_code) if "coupon_code" in sent else held
+        if (
+            coupon == held
+            and self._ships_as_raised(data, note_lines, picked)
+            and all(
+                self._charges_as_raised(
+                    line,
+                    note_line=note_lines[line.source_document_line_id],
+                    order_lines=order_lines,
+                    was=billed.get(line.source_document_line_id),
+                )
+                for line in data.lines
+                if line.source_document_line_id is not None
             )
-            for line in data.lines
-            if line.source_document_line_id is not None
         ):
             return None
         bare = self._as_product_lines(
             row, data, note_lines, picked, order_lines=order_lines, billed=billed
-        )
-        coupon = data.coupon_code or next(
-            (order.coupon_code for order in orders if order.coupon_code), None
         )
         restated = data.model_copy(
             update={
@@ -2289,6 +2402,18 @@ class SalesInvoiceService(TransactionalDocumentService):
             free_quantity = line.free_quantity
             if free_quantity is None and same_quantity and note_line.free_quantity:
                 free_quantity = self._q(note_line.free_quantity)
+            if line.current_invoice_quantity <= ZERO and not (
+                free_quantity is not None and free_quantity > ZERO
+            ):
+                # Said here in the words every other bill uses. The product
+                # line built below refuses the same thing, but from inside
+                # the service, where the schema's refusal answered 500
+                # (D-SELL-78).
+                raise ValidationError(
+                    f"Line {line.line_number} bills a quantity of 0 and "
+                    "supplies nothing free. Type a quantity, or leave the line "
+                    "off the bill."
+                )
             kept_batches = (
                 [
                     DeliveryNoteBatchPick(batch_id=batch_id, quantity=quantity)
@@ -4280,7 +4405,15 @@ class SalesInvoiceService(TransactionalDocumentService):
                     "Every invoice line must reference a selected source document."
                 )
 
-    def _delete_children(self, invoice_id: UUID) -> None:
+    def _delete_children(
+        self, invoice_id: UUID, *, attachments: bool, notes: bool
+    ) -> None:
+        """Clear the child rows an edit rebuilds.
+
+        The lines, sources and accounting events always; the attachments and
+        the notes only where the edit sent them, because an edit that leaves
+        them out leaves them alone (D-SELL-79).
+        """
         self._session.query(SalesInvoiceAccountingEvent).filter(
             SalesInvoiceAccountingEvent.sales_invoice_id == invoice_id
         ).delete(synchronize_session=False)
@@ -4290,12 +4423,14 @@ class SalesInvoiceService(TransactionalDocumentService):
         self._session.query(SalesInvoiceSource).filter(
             SalesInvoiceSource.sales_invoice_id == invoice_id
         ).delete(synchronize_session=False)
-        self._session.query(SalesInvoiceAttachment).filter(
-            SalesInvoiceAttachment.sales_invoice_id == invoice_id
-        ).delete(synchronize_session=False)
-        self._session.query(SalesInvoiceNote).filter(
-            SalesInvoiceNote.sales_invoice_id == invoice_id
-        ).delete(synchronize_session=False)
+        if attachments:
+            self._session.query(SalesInvoiceAttachment).filter(
+                SalesInvoiceAttachment.sales_invoice_id == invoice_id
+            ).delete(synchronize_session=False)
+        if notes:
+            self._session.query(SalesInvoiceNote).filter(
+                SalesInvoiceNote.sales_invoice_id == invoice_id
+            ).delete(synchronize_session=False)
 
     @staticmethod
     def _due_date(
