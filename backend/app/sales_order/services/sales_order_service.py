@@ -919,7 +919,26 @@ class SalesOrderService(TransactionalDocumentService):
         actor_id: UUID,
         reason: str | None = None,
     ) -> SalesOrder:
-        """Cancel one sales order."""
+        """Cancel one sales order and commit it."""
+        row = self.stage_cancel(
+            order_id, firm_scope=firm_scope, actor_id=actor_id, reason=reason
+        )
+        self._session.commit()
+        return row
+
+    def stage_cancel(
+        self,
+        order_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        reason: str | None = None,
+    ) -> SalesOrder:
+        """Cancel one sales order without committing it.
+
+        A draft bill that raised its own order withdraws it inside the bill's
+        own cancel, so the two stand or fall together (D-SELL-54).
+        """
         row = self.get_order(order_id, firm_scope=firm_scope)
         if row.status in {
             SalesOrderStatus.CANCELLED.value,
@@ -961,7 +980,6 @@ class SalesOrderService(TransactionalDocumentService):
             firm_id=firm_scope,
             after_data={"order_number": row.order_number, "status": row.status},
         )
-        self._session.commit()
         return row
 
     def _refuse_if_documents_raised(self, row: SalesOrder) -> None:
