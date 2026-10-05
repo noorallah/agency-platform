@@ -1,5 +1,6 @@
 """Purchase return backend lifecycle and source-matching tests."""
 
+from collections.abc import Callable
 from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
@@ -383,8 +384,12 @@ def _approved_return(
     firm_id: UUID,
     batch_number: str | None = None,
     billed: bool = True,
+    before_save: Callable[[GoodsReceiptLine], None] | None = None,
 ) -> tuple[PurchaseReturnService, PurchaseReturn, UUID]:
     """Create and approve a return, stopping before it is completed.
+
+    ``before_save`` is handed the receipt line before the return is typed:
+    a batch the return names has to be in the register by then (D-BUY-59).
 
     Completion is what posts the stock, so anything a test needs in place
     first -- a registered batch, a product flag -- goes between the two.
@@ -414,6 +419,8 @@ def _approved_return(
     receipt, receipt_line = _received(session, po_line)
     if billed:
         _billed_in_full(session, receipt, receipt_line)
+    if before_save is not None:
+        before_save(receipt_line)
 
     service = PurchaseReturnService(session)
     row = service.create_return(
@@ -643,11 +650,18 @@ def test_a_return_takes_its_stock_out_of_the_batch_it_names() -> None:
     session = _session_factory()()
     firm = _firm(session)
     service, row, product_id = _approved_return(
-        session, firm_id=firm.id, batch_number="B-2026-07"
+        session,
+        firm_id=firm.id,
+        batch_number="B-2026-07",
+        before_save=lambda line: _register_batch(
+            session,
+            firm_id=firm.id,
+            product_id=line.product_id,
+            batch_number="B-2026-07",
+        )
+        and None,
     )
-    batch = _register_batch(
-        session, firm_id=firm.id, product_id=product_id, batch_number="B-2026-07"
-    )
+    batch = session.scalars(select(BatchRecord)).one()
 
     service.complete_return(row.id, firm_scope=firm.id, actor_id=uuid4())
 
@@ -675,15 +689,74 @@ def test_a_return_cannot_name_a_batch_that_was_never_received() -> None:
     Receiving creates an unknown batch because the goods are on the dock.
     Issuing must not: inventing the batch here would write a delivery that did
     not happen, and leave the new batch holding a negative quantity.
+
+    Refused where the return is saved (D-BUY-59): it used to save, be
+    approved, and be refused only at Complete.
     """
     session = _session_factory()()
     firm = _firm(session)
-    service, row, _ = _approved_return(
-        session, firm_id=firm.id, batch_number="NEVER-ARRIVED"
-    )
 
     with pytest.raises(ValidationError, match="was never received"):
-        service.complete_return(row.id, firm_scope=firm.id, actor_id=uuid4())
+        _approved_return(session, firm_id=firm.id, batch_number="NEVER-ARRIVED")
+    session.rollback()
+    assert session.scalars(select(PurchaseReturn)).all() == []
+
+
+def test_a_return_that_names_no_batch_takes_its_receipt_lines() -> None:
+    """D-BUY-59: the receipt line named the batch; the return left it blank.
+
+    It saved and was approved with no batch, and Complete refused it: "This
+    location holds 0 available ... Name the batch the goods are leaving."
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+
+    def came_in_a_batch(receipt_line: GoodsReceiptLine) -> None:
+        """Say the receipt line brought its goods in as batch B-RCPT."""
+        batch = _register_batch(
+            session,
+            firm_id=firm.id,
+            product_id=receipt_line.product_id,
+            batch_number="B-RCPT",
+        )
+        receipt_line.batch_number = "B-RCPT"
+        receipt_line.batch_id = batch.id
+        session.commit()
+
+    service, row, _ = _approved_return(
+        session, firm_id=firm.id, before_save=came_in_a_batch
+    )
+    line = session.scalars(
+        select(PurchaseReturnLine).where(
+            PurchaseReturnLine.purchase_return_id == row.id
+        )
+    ).one()
+    assert line.batch_number == "B-RCPT"
+    assert service.return_response(row).lines[0].batch_number == "B-RCPT"
+
+    service.complete_return(row.id, firm_scope=firm.id, actor_id=uuid4())
+    batch = session.scalars(select(BatchRecord)).one()
+    movement = session.get(InventoryTransaction, line.inventory_transaction_id)
+    assert movement is not None
+    assert movement.batch_id == batch.id
+
+
+def test_a_batch_only_product_with_no_batch_is_refused_where_it_is_saved() -> None:
+    """D-BUY-59: nothing to take the batch from, so the person is told now."""
+    session = _session_factory()()
+    firm = _firm(session)
+
+    def batch_only(receipt_line: GoodsReceiptLine) -> None:
+        """Mark the product as one that may only leave from a batch."""
+        product = session.get(Product, receipt_line.product_id)
+        assert product is not None
+        product.require_batch_on_issue = True
+        session.commit()
+
+    with pytest.raises(ValidationError, match="may only be issued from a batch"):
+        _approved_return(session, firm_id=firm.id, before_save=batch_only)
+    session.rollback()
+    assert session.scalars(select(PurchaseReturn)).all() == []
 
 
 def test_a_batch_only_product_cannot_be_returned_without_a_batch() -> None:

@@ -282,6 +282,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         """Create one purchase return and commit it."""
         self._refuse_empty_return_lines(data)
         row = self.stage_return(data, firm_id=firm_id, actor_id=actor_id)
+        self._refuse_unresolved_batches(row)
         self._session.commit()
         return row
 
@@ -564,6 +565,7 @@ class PurchaseReturnService(TransactionalDocumentService):
             actor_id=actor_id,
             firm_id=firm_scope,
         )
+        self._refuse_unresolved_batches(row)
         self._session.commit()
         return row
 
@@ -1036,6 +1038,58 @@ class PurchaseReturnService(TransactionalDocumentService):
         )
         rejected = Decimal(str(receipt_line.inspection_rejected_quantity or ZERO))
         return max(ZERO, rejected + Decimal(str(taken or 0)))
+
+    def _line_batch_number(
+        self, spec: dict[str, object], source_line: SourceLine
+    ) -> str | None:
+        """Return the batch a line sends back: typed, else its receipt line's.
+
+        A receipt line names one batch, so a return off it that names none is
+        returning that batch: the server already knows, and used to leave the
+        line blank, approve it, and refuse it at Complete for want of the
+        number (D-BUY-59). A line off a bill takes the batch of the receipt
+        line the bill line billed. An order line names no batch.
+        """
+        typed = str(spec.get("batch_number") or "").strip()
+        if typed:
+            return typed
+        receipt_line: object = source_line
+        if (
+            isinstance(source_line, PurchaseInvoiceLine)
+            and source_line.source_document_type
+            == PurchaseReturnSourceType.GOODS_RECEIPT.value
+            and source_line.source_document_line_id is not None
+        ):
+            receipt_line = self._session.get(
+                GoodsReceiptLine, source_line.source_document_line_id
+            )
+        if not isinstance(receipt_line, GoodsReceiptLine):
+            return None
+        return (receipt_line.batch_number or "").strip() or None
+
+    def _refuse_unresolved_batches(self, row: PurchaseReturn) -> None:
+        """Refuse at save a line whose batch completion would refuse (D-BUY-59).
+
+        A product that may only leave from a batch with none named, or a
+        number nobody ever received: both were told to the person only at
+        Complete, after the return had been approved. Asked where the return
+        is saved, not where it is previewed.
+
+        Raises:
+            ValidationError: In the words completion uses.
+
+        """
+        # Request sessions do not autoflush, and the lines were just written.
+        self._session.flush()
+        for line in self._session.scalars(
+            select(PurchaseReturnLine)
+            .where(
+                PurchaseReturnLine.purchase_return_id == row.id,
+                PurchaseReturnLine.is_deleted.is_(False),
+            )
+            .order_by(PurchaseReturnLine.line_number)
+        ).all():
+            self._resolve_return_batch(line)
 
     def _resolve_return_batch(self, line: PurchaseReturnLine) -> UUID | None:
         """Return the batch this line is sending back, if it names one.
@@ -2130,7 +2184,7 @@ class PurchaseReturnService(TransactionalDocumentService):
                 conversion_version=spec.get("conversion_version"),
                 warehouse_id=_optional_uuid(spec.get("warehouse_id")),
                 storage_node_id=spec.get("storage_node_id"),
-                batch_number=spec.get("batch_number"),
+                batch_number=self._line_batch_number(spec, source_line),
                 expiry_date=spec.get("expiry_date"),
                 manufacturing_date=spec.get("manufacturing_date"),
                 remarks=spec.get("remarks"),

@@ -323,7 +323,12 @@ completed, and a return with no lines is refused.
 
 For a batch-tracked product the line names the batch being sent back — a
 dropdown of that product's registered batches, defaulting to the one the
-receipt brought in. There is no free-text batch box, by design.
+receipt brought in. There is no free-text batch box, by design. The server
+does the same for any other client (D-BUY-59): a line that names no batch
+takes the batch of the receipt line it returns (a bill line's, through the
+receipt line it billed), and a batch nobody received, or none at all on a
+product that may only leave from a batch, is refused when the return is
+**saved** rather than after it has been approved.
 
 **Completion sends back only goods that are there** (D-BUY-44, D-BUY-45).
 Goods an inspection rejected *for a return* leave the quarantine bucket,
