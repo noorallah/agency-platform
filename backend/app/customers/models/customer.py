@@ -114,6 +114,15 @@ class Customer(BaseEntity):
             ),
             sqlite_where=text("linked_vendor_id IS NOT NULL AND is_deleted = 0"),
         ),
+        # One walk-in customer per firm (SG-2): every counter bill with no
+        # customer record is billed to it, so two would split the cash sales.
+        Index(
+            "UQ_customers_cash_sale_active",
+            "firm_id",
+            unique=True,
+            postgresql_where=text("is_cash_sale = true AND is_deleted = false"),
+            sqlite_where=text("is_cash_sale = 1 AND is_deleted = 0"),
+        ),
     )
 
     firm_id: Mapped[UUID] = mapped_column(
@@ -198,6 +207,12 @@ class Customer(BaseEntity):
     #: Messaging (backlog 51): skip PAYMENT_DUE_SOON and PAYMENT_OVERDUE for
     #: this customer. Documents still go; only reminders stop.
     no_reminders: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    #: The firm's built-in *Cash sale* customer (backlog 87 #2): the buyer on
+    #: a counter bill for somebody with no customer record. Never set through
+    #: the API; `app/customers/services/cash_customer.py` creates the one row.
+    is_cash_sale: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
     #: EMAIL, WHATSAPP or SMS: tried first when an event offers it.

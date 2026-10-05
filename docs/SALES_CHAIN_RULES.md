@@ -161,6 +161,32 @@ invoice has met it.
 
 **Credit limits warn, and block only if a firm asks.** `customers.credit_limit` constrained nothing until `20260810_0057`. `CreditControlService` compares it against exposure — `current_outstanding - unapplied_advance + the document being saved` — at sales order and sales invoice approval, the two points where credit is committed. Policy is per firm in `credit_control_settings` (`OFF` / `WARN` / `BLOCK`, with warn and block percentages); a firm with no row warns at 80% and never blocks, and a `credit_limit` of zero means unset rather than no credit, so shipping this stopped nobody trading. `GET /api/v1/customers/{id}/credit-status?amount=` answers the question before a document is saved rather than reporting the breach after, and `GET`/`PUT /api/v1/customers/credit-settings` carries the policy. Writing the policy needs `CUSTOMER_MANAGE_SETTINGS`, deliberately **not** granted to `SALES_MANAGER`: the role the limit constrains must not be able to switch it off. **Moving a customer's `credit_limit` needs the same code** (D-CFG-17): raising it, or setting it to zero, lifts a BLOCK as surely as switching the policy off, so `PUT /customers/{id}` refuses a changed limit by name without it and the desktop shows the field read-only; resending the stored figure is not a change, and a new customer's limit is anyone's to set because every customer otherwise starts with none. The desktop **warns and never blocks**: `warnOnCreditExposure` (`desktop/lib/ui/sales/credit_notice.dart`) runs on Approve for sales orders and sales invoices, before the action so the document is not counted twice, and stays silent when `would_block` is true because the server's refusal already carries the same sentence. A client that blocked on its own would enforce a rule the firm may not have chosen and could be bypassed by any other client. The policy itself is edited from the Settings action on the customers workspace (`credit_settings_dialog.dart`), which is readable with `CUSTOMER_VIEW` — someone the policy warns should see the rule behind the warning — and writable only with `CUSTOMER_MANAGE_SETTINGS`.
 
+## A walk-in bill names the cash customer and is paid in full
+
+Backlog §87 #2 (SG-2, 2026-10-05), decided by what Tally, Busy and Marg do: a
+counter sells to people who have no customer record, and every such bill is
+made out to one built-in party. Each firm has exactly one customer marked
+`is_cash_sale` (*Cash sale*), held to one by `UQ_customers_cash_sale_active`.
+It is **made the first time a counter asks for it** --
+`POST /api/v1/sales-invoices/walk-in-customer`, under the permission that
+raises a bill, `app/customers/services/cash_customer.py` -- rather than seeded
+with the firm or by a migration: a firm that existed before needs no backfill,
+and a migration in a firm store cannot name the firms in it.
+
+- The bill carries `buyer_name` and `buyer_phone`, typed at the counter and
+  printed in place of the cash customer's own name. They are refused on a
+  bill to any other customer, which has a name of its own.
+- **Approval refuses a walk-in bill that is not paid in full**
+  (`received_now_amount` or its tenders equal to the total). The cash
+  customer is nobody in particular, so nothing may be left owing on it; a
+  sale on credit needs a customer record.
+- It earns no loyalty points -- they would pool on an account that belongs to
+  nobody -- and it is unregistered, which is what places its bills in B2C.
+- The customer cannot be deleted, given a credit limit or a GSTIN, or made
+  inactive. `is_cash_sale` is not writable through the API.
+
+`tests/unit/test_walk_in_cash_sale.py` holds each rule.
+
 ## Where the goods go: the ship-to is chosen on the order and inherited
 
 Backlog 67 row 3, 2026-10-01. A customer keeps several addresses, and until

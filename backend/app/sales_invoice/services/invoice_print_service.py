@@ -124,6 +124,22 @@ def _dated(number: str, on: object) -> str:
     return f"{number} dt. {on:%d %b %Y}" if on is not None else number
 
 
+def _as_typed_at_the_counter(buyer: PartyBlock, invoice: SalesInvoice) -> PartyBlock:
+    """Print a walk-in bill to the buyer typed on it (backlog 87 #2).
+
+    The *Cash sale* customer is nobody in particular; the name and phone
+    typed at the counter are who the bill is for. A bill that names none
+    prints the customer as it is.
+    """
+    if not invoice.buyer_name and not invoice.buyer_phone:
+        return buyer
+    return replace(
+        buyer,
+        name=invoice.buyer_name or buyer.name,
+        contact=invoice.buyer_phone or buyer.contact,
+    )
+
+
 class SalesInvoicePrintService:
     """Render one invoice, with the firm's template around it."""
 
@@ -365,8 +381,11 @@ class SalesInvoicePrintService:
                 ),
             ),
             buyer=replace(
-                self._customer_block(invoice.customer_id, "BILLING")
-                or PartyBlock(name="", address_lines=[]),
+                _as_typed_at_the_counter(
+                    self._customer_block(invoice.customer_id, "BILLING")
+                    or PartyBlock(name="", address_lines=[]),
+                    invoice,
+                ),
                 licences=tuple(
                     licences.valid_numbers(
                         firm_id=firm_scope,

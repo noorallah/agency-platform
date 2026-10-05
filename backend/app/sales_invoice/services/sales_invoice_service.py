@@ -167,6 +167,31 @@ def _optional_uuid(value: object) -> UUID | None:
     return value if isinstance(value, UUID) else None
 
 
+def _walk_in_buyer(
+    customer: Customer | None, data: SalesInvoiceCreate
+) -> tuple[str | None, str | None]:
+    """Return the buyer a walk-in bill names, as typed at the counter.
+
+    Only a bill to the firm's *Cash sale* customer carries one (backlog 87
+    #2): any other customer has a name of its own, and a second one typed on
+    the bill would print a buyer the books do not know.
+
+    Raises:
+        ValidationError: When a buyer is typed on a bill to another customer.
+
+    """
+    name = (data.buyer_name or "").strip() or None
+    phone = (data.buyer_phone or "").strip() or None
+    if customer is not None and customer.is_cash_sale:
+        return name, phone
+    if name or phone:
+        raise ValidationError(
+            "A buyer's name and phone are typed only on a walk-in bill. This "
+            "bill names a customer with a record; correct the customer instead."
+        )
+    return None, None
+
+
 def _receivable_amount(value: Decimal) -> Decimal:
     """Round an invoice total to the scale the receivable ledger stores.
 
@@ -606,6 +631,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         if customer is not None:
             # A new outlet waiting for the office takes orders, not bills.
             assert_customer_may_be_billed(customer)
+        buyer_name, buyer_phone = _walk_in_buyer(customer, data)
         shipping_address_id = self._ship_to(
             data.shipping_address_id,
             customer_id=customer_id,
@@ -641,6 +667,8 @@ class SalesInvoiceService(TransactionalDocumentService):
             buyer_gst_registration_type=_buyer_gst_type(customer),
             reference_number=data.reference_number,
             remarks=data.remarks,
+            buyer_name=buyer_name,
+            buyer_phone=buyer_phone,
             received_now_amount=self._q(data.received_now_amount),
             received_now_method=data.received_now_method,
             received_now_reference=data.received_now_reference,
@@ -829,6 +857,12 @@ class SalesInvoiceService(TransactionalDocumentService):
         row.place_of_supply = self._place_of_supply(
             buyer, shipping_address_id=row.shipping_address_id
         )
+        # Absent leaves a walk-in bill's buyer alone; a bill moved to a
+        # customer with a record drops it.
+        if {"buyer_name", "buyer_phone"} & data.model_fields_set or not (
+            buyer is not None and buyer.is_cash_sale
+        ):
+            row.buyer_name, row.buyer_phone = _walk_in_buyer(buyer, data)
         row.buyer_gst_registration_type = _buyer_gst_type(buyer)
         row.reference_number = data.reference_number
         row.remarks = data.remarks
@@ -1228,6 +1262,19 @@ class SalesInvoiceService(TransactionalDocumentService):
             .with_for_update()
             .execution_options(populate_existing=True)
         )
+        walk_in = customer is not None and customer.is_cash_sale
+        if walk_in and Decimal(str(row.received_now_amount or 0)) != (
+            _receivable_amount(row.grand_total)
+        ):
+            # The cash customer is nobody in particular, so nothing can be
+            # left owing on its account (backlog 87 #2).
+            raise ValidationError(
+                f"A walk-in bill is paid in full at the counter: "
+                f"{row.invoice_number} comes to "
+                f"{_receivable_amount(row.grand_total)} and "
+                f"{row.received_now_amount} was received. Take the rest, or "
+                "bill a customer with a record to sell on credit."
+            )
         if customer is not None:
             assert_customer_may_be_billed(customer)
             CreditControlService(self._session).assert_within_limit(
@@ -1333,9 +1380,13 @@ class SalesInvoiceService(TransactionalDocumentService):
         # be staged after `approve_invoice` had committed, and nothing
         # committed again, so no bill approved through the API or the desktop
         # ever earned (D-SELL-1, 2026-09-19).
-        LoyaltyService(self._session).stage_earning(
-            row, firm_id=firm_scope, actor_id=actor_id
-        )
+        #
+        # A walk-in bill earns nothing: the points would pool on an account
+        # that belongs to nobody (backlog 87 #2).
+        if not walk_in:
+            LoyaltyService(self._session).stage_earning(
+                row, firm_id=firm_scope, actor_id=actor_id
+            )
         self._record_event(
             firm_id=firm_scope,
             document_type=self._document_type(firm_scope),
@@ -2191,6 +2242,8 @@ class SalesInvoiceService(TransactionalDocumentService):
             additional_charges=row.additional_charges,
             round_off=row.round_off,
             grand_total=row.grand_total,
+            buyer_name=row.buyer_name,
+            buyer_phone=row.buyer_phone,
             received_now_amount=row.received_now_amount,
             received_now_method=row.received_now_method,
             received_now_reference=row.received_now_reference,

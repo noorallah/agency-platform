@@ -304,6 +304,10 @@ class SalesInvoiceCreate(SalesInvoiceSchema):
     freight_amount: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=4
     )
+    #: Who a walk-in bill is made out to (backlog 87 #2): only on a bill to
+    #: the firm's *Cash sale* customer, and printed in place of its name.
+    buyer_name: str | None = Field(default=None, max_length=200)
+    buyer_phone: str | None = Field(default=None, max_length=30)
     #: Money taken at the counter as the bill is made (backlog 64 row 5).
     #: Approving the bill records it as a receipt against this invoice.
     received_now_amount: Decimal = Field(
@@ -557,6 +561,9 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     additional_charges: Decimal
     round_off: Decimal
     grand_total: Decimal
+    #: Set on a walk-in bill: who it was made out to at the counter (SG-2).
+    buyer_name: str | None = None
+    buyer_phone: str | None = None
     received_now_amount: Decimal = Decimal("0")
     received_now_method: str | None = None
     received_now_reference: str | None = None
