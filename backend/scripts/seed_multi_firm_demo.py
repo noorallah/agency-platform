@@ -1385,6 +1385,9 @@ def _seed_customers(
             ),
             firm_id=firm.id,
             actor_id=actor_id,
+            # The seeder is the office: these customers carry a credit limit
+            # and credit days (D-SELL-76).
+            may_set_standing_discount=True,
         )
         # No hand-posted balances here. These called
         # `CustomerService.post_receivable_transaction`, which moves a

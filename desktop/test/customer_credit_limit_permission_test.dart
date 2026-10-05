@@ -110,13 +110,18 @@ void main() {
     expect(find.textContaining(_helper), findsNothing);
   });
 
-  testWidgets('a new customer can be given a limit by whoever creates it',
+  testWidgets('a new customer takes a limit only from the settings code',
       (tester) async {
-    // Every new customer otherwise starts with none, so a limit typed here
-    // can only tighten what they would have had.
+    // D-SELL-76: the server refuses a limit on a new customer without the
+    // code, as it refuses a moved one, so the box is locked there too. It
+    // used to be open on a create, on the reasoning that a limit can only
+    // tighten; who sets a customer's terms is the office's call either way.
     await _open(tester, mode: CustomerDialogMode.create, mayChange: false);
     await _financialTab(tester);
+    expect(_limitBox(tester).readOnly, isTrue);
 
+    await _open(tester, mode: CustomerDialogMode.create, mayChange: true);
+    await _financialTab(tester);
     expect(_limitBox(tester).readOnly, isFalse);
   });
 }

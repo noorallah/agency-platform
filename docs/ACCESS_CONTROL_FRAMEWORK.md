@@ -1524,7 +1524,21 @@ could add a customer could also approve one, so nobody's outlet ever started
 PENDING. `SALES_EXECUTIVE` now holds `CUSTOMER_CREATE` (migration
 `20261005_0332` for existing databases). **Its blast radius is one endpoint**,
 `POST /api/v1/customers` -- import, edit, retire and the settings each have
-their own code. What that one endpoint lets a salesman write is the whole new
-record: the credit limit and an opening balance among it, which on an *edit*
-take `CUSTOMER_MANAGE_SETTINGS` and on a create do not, for any role. A
-standing discount is refused without that code on both.
+their own code.
+
+**A new customer's money terms take `CUSTOMER_MANAGE_SETTINGS` (D-SELL-76,
+2026-10-05).** That one endpoint used to accept the whole record: driven as
+Field Sales, a new outlet carried a credit limit of 50,000, an opening
+balance that posted Dr 1100 / Cr 3000, credit days and cash-discount terms,
+and only the standing discount was refused. All five are now refused without
+the code, 403, in the same words and at the same place
+(`CustomerService._assert_may_set_standing_discount`) -- by the form, by
+`POST /customers/import` and by the file import, which all pass through it.
+Zero or blank is not a term and is never refused, so adding a shop is its
+name, address, GSTIN, group and territory, and the office sets what it may
+owe and on what terms. **The Sales Manager does not hold the code either**
+(the table above: the role the limit constrains must not switch it off), so
+the same applies to it on a create as it always has on an edit. The desktop
+locks the five boxes on a new customer without the code. A seeder or an
+internal caller that sets them passes `may_set_standing_discount=True`: it
+is the office.

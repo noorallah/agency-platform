@@ -35,6 +35,7 @@ Future<void> _open(
   WidgetTester tester, {
   required CustomerDialogMode mode,
   required bool mayChange,
+  bool mayChangeLimit = true,
   void Function(Json payload)? onSaved,
 }) async {
   tester.view.physicalSize = const Size(1700, 1400);
@@ -49,6 +50,7 @@ Future<void> _open(
             : null,
         loadPlaces: (level, {parentId = ''}) async => const [],
         mayChangeStandingDiscount: mayChange,
+        mayChangeCreditLimit: mayChangeLimit,
         onSave: (payload) async {
           onSaved?.call(payload);
           return Customer.fromJson(_customerJson());
@@ -71,7 +73,56 @@ TextField _discountBox(WidgetTester tester) => tester.widget<TextField>(
       ),
     );
 
+bool _readOnly(WidgetTester tester, String label) => tester
+    .widget<TextField>(
+      find.descendant(
+        of: find.widgetWithText(TextFormField, label),
+        matching: find.byType(TextField),
+      ),
+    )
+    .readOnly;
+
+const List<String> _moneyTerms = <String>[
+  'Credit limit',
+  'Opening balance',
+  'Payment terms (days)',
+  'Cash discount (days)',
+  'Cash discount %',
+];
+
 void main() {
+  testWidgets('a new customer leaves its money terms to the office',
+      (tester) async {
+    // D-SELL-76: the server refuses a credit limit, an opening balance,
+    // credit days and cash-discount terms on a new customer without the
+    // settings code, so the form locks the boxes and sends zero or blank.
+    await _open(
+      tester,
+      mode: CustomerDialogMode.create,
+      mayChange: false,
+      mayChangeLimit: false,
+    );
+    await _financialTab(tester);
+
+    for (final String label in _moneyTerms) {
+      expect(_readOnly(tester, label), isTrue, reason: label);
+    }
+    expect(
+      find.textContaining('manage customer settings permission'),
+      findsWidgets,
+    );
+  });
+
+  testWidgets('with the settings code a new customer takes them',
+      (tester) async {
+    await _open(tester, mode: CustomerDialogMode.create, mayChange: true);
+    await _financialTab(tester);
+
+    for (final String label in _moneyTerms) {
+      expect(_readOnly(tester, label), isFalse, reason: label);
+    }
+  });
+
   testWidgets('without the settings code the discount cannot be edited',
       (tester) async {
     await _open(tester, mode: CustomerDialogMode.edit, mayChange: false);
