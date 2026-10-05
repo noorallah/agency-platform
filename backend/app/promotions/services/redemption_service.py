@@ -7,6 +7,11 @@ engine knows which offers applied and what each was worth. It counts against no
 limit: a draft somebody edits five times and never approves has claimed
 nothing.
 
+"Approved" means the document a person approves. A counter bill raises a
+sales order nobody typed and approves it at every save, so that order's claims
+stay PENDING until the **bill** is approved (D-SELL-85); the rows are still
+the order's, so every reader counts one claim per sale.
+
 **CLAIMED** is written when the document is approved, under a row lock on the
 offer, because approval is the moment two people can be racing for the last one
 of something. The loser is refused rather than quietly given a benefit the
@@ -144,6 +149,35 @@ class RedemptionService:
             row.updated_by = actor_id
         self._session.flush()
 
+    def has_run_out(self, *, firm_id: UUID, document_ids: list[UUID]) -> bool:
+        """Say whether any offer these documents priced with has none left.
+
+        Asked when a draft is saved again, without a lock and without
+        refusing: a document whose claim would be refused at approval has to
+        be priced again without the offer, and a save that changed nothing
+        else would otherwise keep the price it can never be approved at
+        (D-SELL-85). The answer at approval is still `claim`'s, under the
+        lock.
+        """
+        if not document_ids:
+            return False
+        for row in self._session.scalars(
+            select(PromotionRedemption).where(
+                PromotionRedemption.firm_id == firm_id,
+                PromotionRedemption.document_id.in_(document_ids),
+                PromotionRedemption.status == PENDING,
+                PromotionRedemption.is_deleted.is_(False),
+            )
+        ).all():
+            promotion = self._session.get(Promotion, row.promotion_id)
+            if promotion is None:
+                continue
+            try:
+                self._assert_room(promotion, row, firm_id=firm_id, lock=False)
+            except ValidationError:
+                return True
+        return False
+
     def reverse(self, *, firm_id: UUID, document_id: UUID, actor_id: UUID) -> None:
         """Give back everything this document claimed."""
         for row in self._session.scalars(
@@ -160,12 +194,18 @@ class RedemptionService:
         self._session.flush()
 
     def _assert_room(
-        self, promotion: Promotion, row: PromotionRedemption, *, firm_id: UUID
+        self,
+        promotion: Promotion,
+        row: PromotionRedemption,
+        *,
+        firm_id: UUID,
+        lock: bool = True,
     ) -> None:
         """Refuse the claim when the offer has none left.
 
         Counted here rather than trusted from pricing time, because the whole
-        point of the lock is that the answer may have changed since.
+        point of the lock is that the answer may have changed since. ``lock``
+        is false only for `has_run_out`, which asks and claims nothing.
         """
         if promotion.max_redemptions is not None:
             total = self._count(firm_id=firm_id, promotion_id=promotion.id)
@@ -187,11 +227,8 @@ class RedemptionService:
                 )
         if row.coupon_id is None:
             return
-        coupon = self._session.scalar(
-            select(PromotionCoupon)
-            .where(PromotionCoupon.id == row.coupon_id)
-            .with_for_update()
-        )
+        wanted = select(PromotionCoupon).where(PromotionCoupon.id == row.coupon_id)
+        coupon = self._session.scalar(wanted.with_for_update() if lock else wanted)
         if coupon is None:
             return
         if coupon.max_redemptions is not None:

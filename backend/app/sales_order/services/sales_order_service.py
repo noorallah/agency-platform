@@ -740,8 +740,15 @@ class SalesOrderService(TransactionalDocumentService):
         check_licences: bool = True,
         price_override_reason: str | None = None,
         held_batches: Mapping[int, Sequence[tuple[UUID, Decimal]]] | None = None,
+        claim_offers: bool = True,
     ) -> SalesOrder:
         """Approve one sales order without committing it.
+
+        ``claim_offers`` is false only where a counter bill raises this order
+        for itself: that order is approved at every *save* of a draft bill,
+        so claiming here let drafts and held bills use up a limited offer
+        (D-SELL-85). Its claims stay PENDING and the bill's own approval
+        makes them, through the same `RedemptionService.claim`.
 
         Reserves stock and commits credit, so a caller composing the chain gets
         both effects rolled back with everything else if a later step refuses.
@@ -837,10 +844,12 @@ class SalesOrderService(TransactionalDocumentService):
         )
         # Before stock is reserved: an offer that has run out refuses the
         # approval, and refusing after a reservation would leave stock held
-        # against an order nobody approved.
-        RedemptionService(self._session).claim(
-            firm_id=firm_scope, document_id=row.id, actor_id=actor_id
-        )
+        # against an order nobody approved. An order a counter bill raised
+        # for itself claims when that bill is approved, not here (D-SELL-85).
+        if claim_offers:
+            RedemptionService(self._session).claim(
+                firm_id=firm_scope, document_id=row.id, actor_id=actor_id
+            )
         self._reserve_inventory(row, actor_id=actor_id, held_batches=held_batches)
         row.status = SalesOrderStatus.APPROVED.value
         row.approved_at = utc_now()
