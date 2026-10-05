@@ -279,13 +279,16 @@ class _PurchaseInvoiceEditorDialogState
   String _tcsAmount = '';
 
   /// PG-12: the currency typed by the person, once they have touched the
-  /// box. Until then the bill takes its supplier's, which the server also
-  /// does when none is sent. Blank is rupees.
+  /// box. Until then the bill takes its order's, or its supplier's where it
+  /// names no order, which the server also does when none is sent. Blank is
+  /// rupees.
   String _currency = '';
   bool _currencyTouched = false;
 
-  /// The rupees one unit of a foreign currency was worth on the bill's date.
+  /// The rupees one unit of a foreign currency was worth on the bill's date,
+  /// once typed. Until the box is touched the bill takes its order's rate.
   String _exchangeRate = '';
+  bool _rateTouched = false;
   bool _saving = false;
   bool _loadingLines = false;
   String? _error;
@@ -346,12 +349,38 @@ class _PurchaseInvoiceEditorDialogState
     return '';
   }
 
-  /// The bill's currency: what was typed, else the supplier's. Blank and INR
-  /// are both rupees and read as blank here.
+  /// The currency and rate of the order the bill's goods came on, which the
+  /// server puts ahead of the supplier's own (D-BUY-39): the receipt says
+  /// its order's, an order billed directly its own. Null for a bill that
+  /// names neither; blank is rupees.
+  (String, String)? get _orderCurrency {
+    final GoodsReceiptRecord? receipt = _receipt;
+    if (receipt != null) return (receipt.currencyCode, receipt.exchangeRate);
+    final PurchaseOrder? order = _order;
+    if (order != null) return (order.currencyCode, order.exchangeRate);
+    return null;
+  }
+
+  /// What the bill starts in while nobody has typed a currency (D-BUY-42).
+  String get _startingCurrency => _orderCurrency?.$1 ?? _supplierCurrency;
+
+  /// The bill's currency: what was typed, else its order's, else the
+  /// supplier's. Blank and INR are both rupees and read as blank here.
   String get _billCurrency {
     final String code =
-        (_currencyTouched ? _currency : _supplierCurrency).trim().toUpperCase();
+        (_currencyTouched ? _currency : _startingCurrency).trim().toUpperCase();
     return code == 'INR' ? '' : code;
+  }
+
+  /// The bill's rate: what was typed, else its order's while the bill is in
+  /// the order's currency -- the rate the goods were received at.
+  String get _billRate {
+    if (_rateTouched) return _exchangeRate.trim();
+    final (String, String)? order = _orderCurrency;
+    if (order == null || order.$1.trim().toUpperCase() != _billCurrency) {
+      return '';
+    }
+    return order.$2.trim();
   }
 
   bool get _foreign => _billCurrency.isNotEmpty;
@@ -727,7 +756,7 @@ class _PurchaseInvoiceEditorDialogState
         !RegExp(r'^[A-Z]{3}$').hasMatch(_billCurrency)) {
       return 'The currency is a three-letter code, such as USD.';
     }
-    if (_foreign && (double.tryParse(_exchangeRate.trim()) ?? 0) <= 0) {
+    if (_foreign && (double.tryParse(_billRate) ?? 0) <= 0) {
       return 'Enter the exchange rate: the rupees one $_billCurrency was '
           "worth on the supplier's invoice date.";
     }
@@ -843,11 +872,12 @@ class _PurchaseInvoiceEditorDialogState
       if (!_foreign && _tcsFigure(_tcsAmount) != null)
         'tcs_amount': _tcsAmount.trim(),
       // PG-12: sent once the person has chosen a currency (blank or INR is
-      // rupees); until then the server starts the bill in its supplier's.
-      // The rate is sent only for a foreign bill, and only once typed.
+      // rupees); until then the server starts the bill in its order's, or
+      // its supplier's. The rate is sent only for a foreign bill: what was
+      // typed, else the order's.
       if (_currencyTouched) 'currency_code': _foreign ? _billCurrency : 'INR',
-      if (_foreign && (double.tryParse(_exchangeRate.trim()) ?? 0) > 0)
-        'exchange_rate': _exchangeRate.trim(),
+      if (_foreign && (double.tryParse(_billRate) ?? 0) > 0)
+        'exchange_rate': _billRate,
       // Only once the definitions arrived, and never while merely pricing:
       // absent leaves the stored values alone.
       if (!pricing && _customFields.hasFields)

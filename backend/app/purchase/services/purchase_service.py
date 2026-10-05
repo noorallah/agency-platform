@@ -501,7 +501,9 @@ class PurchaseService(TransactionalDocumentService):
         )
         # An order in another currency needs its rate where it is typed, not
         # at the dock when the goods arrive (D-BUY-39).
-        check_currency(data.currency_code, data.exchange_rate)
+        check_currency(
+            data.currency_code, data.exchange_rate, document="purchase order"
+        )
         document_type, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
@@ -692,7 +694,7 @@ class PurchaseService(TransactionalDocumentService):
             else row.currency_code
         )
         rate = data.exchange_rate if "exchange_rate" in sent else row.exchange_rate
-        check_currency(currency, rate)
+        check_currency(currency, rate, document="purchase order")
         if (currency, rate) == (row.currency_code, row.exchange_rate):
             return
         received = self._session.scalar(

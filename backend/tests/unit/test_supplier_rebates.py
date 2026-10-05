@@ -318,3 +318,19 @@ def test_a_reversed_rebate_can_be_accrued_again() -> None:
         ).all()
     )
     assert references == [f"REBATE-{row.code}", f"REBATE-{row.code}-2"]
+
+
+def test_a_bill_in_another_currency_counts_in_rupees() -> None:
+    """D-BUY-43: 1,000 USD at 83 is 83,000 of volume, on the 2% slab."""
+    books = _books()
+    _bill(books, "PI-1", _product(books, "A"), "1180")
+    bill = books.session.scalars(
+        select(PurchaseInvoice).where(PurchaseInvoice.invoice_number == "PI-1")
+    ).one()
+    bill.currency_code = "USD"
+    bill.exchange_rate = Decimal("83")
+    books.session.commit()
+
+    view = _view(books, _agreement(books))
+
+    assert (view.volume, view.rate_percent) == (Decimal("83000.00"), Decimal("2"))

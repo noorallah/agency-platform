@@ -58,11 +58,12 @@ from sqlalchemy import (
     select,
     union_all,
 )
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.core.exceptions import ValidationError
 from app.core.utils.money import ZERO, quantize_ledger
 from app.debit_note.models import DebitNote
+from app.finance.currency import rupee_rate_sql
 from app.finance.models import JournalEntry, JournalLine, JournalStatus
 from app.finance.services.control_accounts import (
     ControlAccountPurpose,
@@ -399,14 +400,26 @@ class PayablesReportService:
             .group_by(allocation_bill)
             .subquery("allocated")
         )
+        # A return or a debit note against a bill in another currency came
+        # off it in rupees at the bill's own rate (D-BUY-41).
+        returned_bill = aliased(PurchaseInvoice)
+        returned_rupees = rupee_rate_sql(
+            returned_bill.currency_code, returned_bill.exchange_rate
+        )
         per_return = (
             select(
                 PurchaseReturnLine.source_document_id.label("bill_id"),
-                func.round(func.sum(PurchaseReturnLine.net_amount), 2).label("amount"),
+                func.round(
+                    func.sum(PurchaseReturnLine.net_amount * returned_rupees), 2
+                ).label("amount"),
             )
             .join(
                 PurchaseReturn,
                 PurchaseReturn.id == PurchaseReturnLine.purchase_return_id,
+            )
+            .join(
+                returned_bill,
+                returned_bill.id == PurchaseReturnLine.source_document_id,
             )
             .where(
                 PurchaseReturnLine.firm_id == firm_id,
@@ -434,10 +447,11 @@ class PayablesReportService:
             select(
                 DebitNote.purchase_invoice_id.label("bill_id"),
                 func.sum(
-                    func.round(DebitNote.taxable_amount, 2)
-                    + func.round(DebitNote.tax_amount, 2)
+                    func.round(DebitNote.taxable_amount * returned_rupees, 2)
+                    + func.round(DebitNote.tax_amount * returned_rupees, 2)
                 ).label("amount"),
             )
+            .join(returned_bill, returned_bill.id == DebitNote.purchase_invoice_id)
             .where(
                 DebitNote.firm_id == firm_id,
                 DebitNote.is_deleted.is_(False),
@@ -560,11 +574,20 @@ class PayablesReportService:
             select(
                 PurchaseReturnLine.purchase_return_id,
                 PurchaseReturnLine.source_document_id,
-                func.sum(PurchaseReturnLine.net_amount),
+                func.sum(
+                    PurchaseReturnLine.net_amount
+                    * rupee_rate_sql(
+                        PurchaseInvoice.currency_code, PurchaseInvoice.exchange_rate
+                    )
+                ),
             )
             .join(
                 PurchaseReturn,
                 PurchaseReturn.id == PurchaseReturnLine.purchase_return_id,
+            )
+            .join(
+                PurchaseInvoice,
+                PurchaseInvoice.id == PurchaseReturnLine.source_document_id,
             )
             .where(
                 PurchaseReturnLine.firm_id == firm_id,

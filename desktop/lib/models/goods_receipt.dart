@@ -259,6 +259,8 @@ class GoodsReceiptRecord {
     required this.firmId,
     required this.purchaseOrderId,
     required this.purchaseOrderNumber,
+    this.currencyCode = '',
+    this.exchangeRate = '',
     required this.vendorId,
     this.vendorName = '',
     this.vendorCode = '',
@@ -313,6 +315,12 @@ class GoodsReceiptRecord {
   final String firmId;
   final String purchaseOrderId;
   final String purchaseOrderNumber;
+
+  /// The currency its order priced the goods in and the rate they were
+  /// valued at (PG-12); both blank for an order in rupees. A bill for the
+  /// goods is in this currency, whatever the supplier's own (D-BUY-42).
+  final String currencyCode;
+  final String exchangeRate;
   final String vendorId;
 
   /// Whose receipt it is, so the list can say so (owner, 2026-09-27).
@@ -384,6 +392,8 @@ class GoodsReceiptRecord {
         firmId: stringValue(json['firm_id']),
         purchaseOrderId: stringValue(json['purchase_order_id']),
         purchaseOrderNumber: stringValue(json['purchase_order_number']),
+        currencyCode: stringValue(json['currency_code']),
+        exchangeRate: stringValue(json['exchange_rate']),
         vendorId: stringValue(json['vendor_id']),
         vendorName: stringValue(json['vendor_name']),
         vendorCode: stringValue(json['vendor_code']),

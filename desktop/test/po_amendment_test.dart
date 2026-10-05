@@ -122,8 +122,9 @@ Future<void> _pump(
   required PurchaseDialogMode mode,
   int revision = 0,
   String status = 'APPROVED',
+  Size size = const Size(1600, 900),
 }) async {
-  tester.view.physicalSize = const Size(1600, 900);
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MaterialApp(
@@ -234,6 +235,22 @@ void main() {
     expect(find.byKey(const ValueKey('purchase-order-save')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  // D-UI-11: the section strip ran 112px past the right edge of a window
+  // 800 wide, in every mode. 1366x768 is the smallest screen supported.
+  for (final PurchaseDialogMode mode in <PurchaseDialogMode>[
+    PurchaseDialogMode.view,
+    PurchaseDialogMode.amend,
+  ]) {
+    for (final Size size in const <Size>[Size(800, 900), Size(1366, 768)]) {
+      testWidgets(
+          'the editor fits a ${size.width.toInt()}x${size.height.toInt()} '
+          'window (${mode.name})', (tester) async {
+        await _pump(tester, _Api(), mode: mode, revision: 1, size: size);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
 
   testWidgets('an amended order says which amendment it is', (tester) async {
     final _Api api = _Api();

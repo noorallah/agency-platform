@@ -34,6 +34,7 @@ from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_money
+from app.finance.currency import rupee_rate, rupee_rate_sql
 from app.gst_returns.models import Gstr2bDocument, Gstr2bImport
 
 #: The sections of a 2B file this reads; anything else present is reported.
@@ -339,6 +340,11 @@ class Gstr2bService:
                 PurchaseInvoice.grand_total,
                 PurchaseInvoice.tax_total,
                 func.upper(Vendor.gstin),
+                # 2B is in rupees; a bill in another currency is compared at
+                # its own rate, as its journal posted it (D-CMP-23).
+                rupee_rate_sql(
+                    PurchaseInvoice.currency_code, PurchaseInvoice.exchange_rate
+                ),
             )
             .join(Vendor, Vendor.id == PurchaseInvoice.vendor_id)
             .where(
@@ -349,6 +355,7 @@ class Gstr2bService:
             )
         ).all()
         ids = [row[0] for row in rows]
+        rupees = {row[0]: Decimal(str(row[6])) for row in rows}
         heads: dict[UUID, dict[str, Decimal]] = {
             bill_id: dict.fromkeys(_HEADS, ZERO) for bill_id in ids
         }
@@ -371,17 +378,19 @@ class Gstr2bService:
                     PurchaseInvoiceLineTax.included_in_price.is_(False),
                 )
             ).all():
-                bucket = _bucket(code, Decimal(str(amount)))
+                bucket = _bucket(code, Decimal(str(amount)) * rupees[bill_id])
                 for head in _HEADS:
                     heads[bill_id][head] += getattr(bucket, head)
         found: dict[str, list[_BookDocument]] = {}
-        for bill_id, number, on, total, tax, gstin in rows:
+        for bill_id, number, on, total, tax, gstin, rate in rows:
             found.setdefault(str(gstin), []).append(
                 _BookDocument(
                     id=bill_id,
                     number=normalise_number(number),
                     document_date=on,
-                    taxable_value=_paise(Decimal(str(total)) - Decimal(str(tax))),
+                    taxable_value=_paise(
+                        (Decimal(str(total)) - Decimal(str(tax))) * Decimal(str(rate))
+                    ),
                     heads={h: _paise(v) for h, v in heads[bill_id].items()},
                 )
             )
@@ -390,14 +399,19 @@ class Gstr2bService:
     def _notes(self, firm_id: UUID, gstins: set[str]) -> dict[str, list[_BookDocument]]:
         """Return debit notes recording a supplier's credit note, by GSTIN."""
         from app.debit_note.models import DebitNote, DebitNoteStatus
+        from app.purchase_invoice.models import PurchaseInvoice
         from app.vendors.models import Vendor
 
         if not gstins:
             return {}
         found: dict[str, list[_BookDocument]] = {}
-        for note in self._session.scalars(
-            select(DebitNote)
+        # A note is in its bill's currency: in rupees at the bill's rate.
+        for note, currency, rate in self._session.execute(
+            select(
+                DebitNote, PurchaseInvoice.currency_code, PurchaseInvoice.exchange_rate
+            )
             .join(Vendor, Vendor.id == DebitNote.vendor_id)
+            .join(PurchaseInvoice, PurchaseInvoice.id == DebitNote.purchase_invoice_id)
             .where(
                 DebitNote.firm_id == firm_id,
                 DebitNote.is_deleted.is_(False),
@@ -405,7 +419,7 @@ class Gstr2bService:
                 DebitNote.supplier_credit_note_number.is_not(None),
                 func.upper(Vendor.gstin).in_(sorted(gstins)),
             )
-        ).all():
+        ).tuples():
             vendor = self._session.get(Vendor, note.vendor_id)
             gstin = (vendor.gstin or "").upper() if vendor else ""
             found.setdefault(gstin, []).append(
@@ -414,7 +428,9 @@ class Gstr2bService:
                     number=normalise_number(note.supplier_credit_note_number),
                     document_date=note.supplier_credit_note_date
                     or note.debit_note_date,
-                    taxable_value=_paise(Decimal(str(note.taxable_amount))),
+                    taxable_value=_paise(
+                        Decimal(str(note.taxable_amount)) * rupee_rate(currency, rate)
+                    ),
                     heads={},
                 )
             )
@@ -586,7 +602,9 @@ class Gstr2bService:
                         PurchaseInvoice.supplier_invoice_date,
                         Vendor.display_name,
                         Vendor.gstin,
-                        PurchaseInvoice.tax_total,
+                        func.coalesce(
+                            PurchaseInvoice.base_tax_total, PurchaseInvoice.tax_total
+                        ),
                     )
                     .join(Vendor, Vendor.id == PurchaseInvoice.vendor_id)
                     .where(

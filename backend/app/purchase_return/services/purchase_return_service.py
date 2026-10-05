@@ -44,6 +44,7 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
+from app.finance.currency import is_foreign, normalize_currency, rupee_rate
 from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
 from app.goods_receipt.billing import (
@@ -64,6 +65,7 @@ from app.purchase_invoice.services.reverse_charge import (
     ReverseChargeShare,
     reverse_charge_share,
 )
+from app.purchase_invoice.services.rupees import bill_line_rupee_rates
 from app.purchase_return.models import (
     PurchaseReturn,
     PurchaseReturnAccountingEvent,
@@ -347,6 +349,9 @@ class PurchaseReturnService(TransactionalDocumentService):
                 vendor_id=vendor_id,
                 supplier_return_number=data.supplier_return_number,
             )
+        currency_code, exchange_rate = self._source_currency(
+            source_rows, firm_id=firm_id
+        )
         return_number = self._issue_number(
             numbering_rule,
             typed=data.return_number.strip().upper() if data.return_number else None,
@@ -375,10 +380,10 @@ class PurchaseReturnService(TransactionalDocumentService):
             reference_invoice_number=data.reference_invoice_number,
             return_reason=data.return_reason,
             outcome=(data.outcome or "CREDIT"),
-            currency_code=(
-                data.currency_code.strip().upper() if data.currency_code else None
-            ),
-            exchange_rate=data.exchange_rate,
+            # Never what was typed: a return is in the currency of what it
+            # sends back, at that document's rate (D-BUY-41).
+            currency_code=currency_code,
+            exchange_rate=exchange_rate,
             payment_terms=data.payment_terms,
             due_date=data.due_date,
             reference_number=data.reference_number,
@@ -481,10 +486,9 @@ class PurchaseReturnService(TransactionalDocumentService):
         # Absent keeps what the return comes back as (69 row 7).
         if data.outcome is not None:
             row.outcome = data.outcome
-        row.currency_code = (
-            data.currency_code.strip().upper() if data.currency_code else None
+        row.currency_code, row.exchange_rate = self._source_currency(
+            source_rows, firm_id=firm_scope
         )
-        row.exchange_rate = data.exchange_rate
         row.payment_terms = data.payment_terms
         row.due_date = data.due_date
         row.reference_number = data.reference_number
@@ -684,6 +688,11 @@ class PurchaseReturnService(TransactionalDocumentService):
         # accrual; only the rest is a debit note (D-BUY-26).
         grni_amount = self._split_against_billing(lines)
         self._session.flush()
+        # A return of goods bought in another currency is priced in it; what
+        # the supplier is debited with and the tax reversed post in rupees at
+        # the bill's own rate, as the bill posted them (D-BUY-41). The stock
+        # leg above is the movement's rupee cost, so a gap is a variance.
+        self._stamp_billed_rate(row, lines)
         billed_total, billed_tax = return_billed_amounts(self._session, [row])[row.id]
         # Posting runs before the commit and may fail the completion, matching
         # every other document: goods that left stock with no journal behind
@@ -737,6 +746,92 @@ class PurchaseReturnService(TransactionalDocumentService):
         )
         self._session.commit()
         return row
+
+    def _source_currency(
+        self, source_rows: Sequence[dict[str, object]], *, firm_id: UUID
+    ) -> tuple[str | None, Decimal | None]:
+        """Return the currency and rate of the documents a return sends back.
+
+        A supplier's bill in another currency (PG-12) carries its own; a goods
+        receipt is in its order's, at the rate its stock was valued at. Both
+        None for rupees. The bill's rate is preferred where a return names
+        both, because the bill is what raised the payable (D-BUY-41).
+
+        Raises:
+            ValidationError: If the documents are in different currencies.
+
+        """
+        found: list[tuple[str | None, Decimal | None, bool]] = []
+        for source in source_rows:
+            source_id = _required_uuid(source["source_document_id"])
+            is_bill = (
+                source["source_document_type"]
+                == PurchaseReturnSourceType.PURCHASE_INVOICE.value
+            )
+            if is_bill:
+                pair = self._session.execute(
+                    select(
+                        PurchaseInvoice.currency_code, PurchaseInvoice.exchange_rate
+                    ).where(
+                        PurchaseInvoice.id == source_id,
+                        PurchaseInvoice.firm_id == firm_id,
+                    )
+                ).first()
+            else:
+                pair = self._session.execute(
+                    select(PurchaseOrder.currency_code, PurchaseOrder.exchange_rate)
+                    .join(
+                        GoodsReceipt,
+                        GoodsReceipt.purchase_order_id == PurchaseOrder.id,
+                    )
+                    .where(
+                        GoodsReceipt.id == source_id,
+                        GoodsReceipt.firm_id == firm_id,
+                    )
+                ).first()
+            code, rate = (None, None) if pair is None else (pair[0], pair[1])
+            if is_foreign(code) and rate is not None:
+                found.append((normalize_currency(code), Decimal(str(rate)), is_bill))
+            else:
+                found.append((None, None, is_bill))
+        currencies = {code for code, _, _ in found}
+        if len(currencies) > 1:
+            named = ", ".join(sorted(code or "rupees" for code in currencies))
+            raise ValidationError(
+                f"These documents are in different currencies ({named}). Raise "
+                "one purchase return for each currency.",
+                details={"field": "source_documents"},
+            )
+        # Bills first: False sorts ahead of True.
+        found.sort(key=lambda item: not item[2])
+        code, rate, _ = found[0] if found else (None, None, False)
+        return code, rate
+
+    def _stamp_billed_rate(
+        self, row: PurchaseReturn, lines: Sequence[PurchaseReturnLine]
+    ) -> None:
+        """Give a return in another currency the rate of the bill it reverses.
+
+        A return raised off a goods receipt starts at its order's rate; once a
+        bill has reached those goods, the bill's rate is what the payable and
+        the input credit were posted at, and so what comes off them.
+        """
+        if not is_foreign(row.currency_code):
+            return
+        bill_lines = sorted(
+            {
+                bill_line_id
+                for named in _billed_lines(self._session, lines).values()
+                for bill_line_id, _ in named
+            },
+            key=str,
+        )
+        rates = bill_line_rupee_rates(self._session, bill_lines)
+        for bill_line_id in bill_lines:
+            rate = rates.get(bill_line_id)
+            if rate is not None and rate != Decimal("1"):
+                row.exchange_rate = rate
+                return
 
     def _split_against_billing(self, lines: Sequence[PurchaseReturnLine]) -> Decimal:
         """Take each receipt line's return off what was still to bill first.
@@ -1834,6 +1929,17 @@ class PurchaseReturnService(TransactionalDocumentService):
                 )
             if source_line is None:
                 raise ResourceNotFoundError("Source document line not found.")
+            if getattr(source_line, "is_capital_goods", False):
+                # Capital goods never entered stock (PG-13), so a return has
+                # no movement to take out and would send the shelf negative.
+                raise ValidationError(
+                    f"Line {index} is capital goods: it was received as a "
+                    "fixed asset and never entered stock, so it cannot go "
+                    "back as a purchase return. Claim its value with a debit "
+                    "note against the supplier's bill and dispose of the "
+                    "asset under Fixed Assets.",
+                    details={"field": "lines"},
+                )
             requested_quantity = self._q(Decimal(str(spec["current_return_quantity"])))
             source_quantity = self._source_quantity(spec, source_line)
             source_uom_id = self._source_uom_id(source_line)
@@ -2777,9 +2883,13 @@ def return_billed_amounts(
     goods takes nothing off payables -- its rounding and charges included.
     The posting and the supplier's credit both read this, so the payable the
     journal debited and the credit the supplier is shown cannot drift.
+
+    In rupees: a return of goods bought in another currency is worth its
+    figures at the rate it carries, its bill's (D-BUY-41).
     """
     if not rows:
         return {}
+    rupees = return_rupee_rates(session, rows)
     parts: dict[UUID, list[tuple[Decimal, Decimal, Decimal, Decimal]]] = defaultdict(
         list
     )
@@ -2820,8 +2930,63 @@ def return_billed_amounts(
             share = min(unbilled, quantity) / quantity
             total -= quantize_money(net * share)
             tax_total -= quantize_money(tax * share)
-        amounts[row.id] = (max(total, ZERO), max(tax_total, ZERO))
+        rate = rupees.get(row.id, Decimal("1"))
+        amounts[row.id] = (max(total, ZERO) * rate, max(tax_total, ZERO) * rate)
     return amounts
+
+
+def return_rupee_rates(
+    session: Session, rows: Sequence[PurchaseReturn]
+) -> dict[UUID, Decimal]:
+    """Return the rupees one unit of each return's currency is worth.
+
+    One for a return in rupees, which is every return but those of goods
+    bought in another currency -- and nothing is read for them. A return's
+    currency is stamped from its documents when it is saved (D-BUY-41); the
+    column was a free box before that, so a rate is believed only where one
+    of the return's documents really is in that currency.
+    """
+    rates = {row.id: Decimal("1") for row in rows}
+    stamped = {
+        row.id: row
+        for row in rows
+        if rupee_rate(row.currency_code, row.exchange_rate) != Decimal("1")
+    }
+    if not stamped:
+        return rates
+    bill = PurchaseReturnSourceType.PURCHASE_INVOICE.value
+    in_currency: dict[UUID, set[str | None]] = defaultdict(set)
+    for return_id, code in session.execute(
+        select(PurchaseReturnSource.purchase_return_id, PurchaseInvoice.currency_code)
+        .join(
+            PurchaseInvoice,
+            PurchaseInvoice.id == PurchaseReturnSource.source_document_id,
+        )
+        .where(
+            PurchaseReturnSource.purchase_return_id.in_(list(stamped)),
+            PurchaseReturnSource.source_document_type == bill,
+            PurchaseReturnSource.is_deleted.is_(False),
+        )
+    ).all():
+        in_currency[return_id].add(normalize_currency(code))
+    for return_id, code in session.execute(
+        select(PurchaseReturnSource.purchase_return_id, PurchaseOrder.currency_code)
+        .join(
+            GoodsReceipt,
+            GoodsReceipt.id == PurchaseReturnSource.source_document_id,
+        )
+        .join(PurchaseOrder, PurchaseOrder.id == GoodsReceipt.purchase_order_id)
+        .where(
+            PurchaseReturnSource.purchase_return_id.in_(list(stamped)),
+            PurchaseReturnSource.source_document_type != bill,
+            PurchaseReturnSource.is_deleted.is_(False),
+        )
+    ).all():
+        in_currency[return_id].add(normalize_currency(code))
+    for return_id, row in stamped.items():
+        if normalize_currency(row.currency_code) in in_currency[return_id]:
+            rates[return_id] = rupee_rate(row.currency_code, row.exchange_rate)
+    return rates
 
 
 def return_tax_by_component(
@@ -2854,6 +3019,18 @@ def return_tax_by_component(
     reversed_bill_lines = _billed_lines(session, lines)
     if not reversed_bill_lines:
         return {}
+    # Each head goes back in rupees at its bill's own rate (D-BUY-41).
+    rupees = bill_line_rupee_rates(
+        session,
+        sorted(
+            {
+                bill_line_id
+                for named in reversed_bill_lines.values()
+                for bill_line_id, _ in named
+            },
+            key=str,
+        ),
+    )
     shares: dict[UUID, list[tuple[str, Decimal, bool]]] = {}
     for line_id, code, amount, recoverable in session.execute(
         select(
@@ -2880,11 +3057,21 @@ def return_tax_by_component(
         )
     totals: dict[str, Decimal] = {}
     for line in lines:
+        named = reversed_bill_lines.get(line.id, [])
         parts = [
             (code, amount * weight, recoverable)
-            for bill_line_id, weight in reversed_bill_lines.get(line.id, [])
+            for bill_line_id, weight in named
             for code, amount, recoverable in shares.get(bill_line_id, [])
         ]
+        # One return line reverses bills of one currency at one rate.
+        rate = next(
+            (
+                rupees[bill_line_id]
+                for bill_line_id, _ in named
+                if bill_line_id in rupees
+            ),
+            Decimal("1"),
+        )
         # Shared out over everything the bill line charged; only the part
         # asked for -- claimed, or blocked (backlog 78 row 1) -- is returned.
         charged = sum((amount for _, amount, _ in parts), ZERO)
@@ -2894,7 +3081,11 @@ def return_tax_by_component(
             if recoverable is not claimable:
                 continue
             totals[code] = totals.get(code, ZERO) + quantize_money(
-                Decimal(str(line.tax_amount)) * _billed_share(line) * amount / charged
+                Decimal(str(line.tax_amount))
+                * rate
+                * _billed_share(line)
+                * amount
+                / charged
             )
     return totals
 

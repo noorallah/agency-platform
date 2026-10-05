@@ -21,6 +21,7 @@ from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_ledger
+from app.finance.currency import rupee_rate_sql
 from app.finance.models import JournalEntry
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
@@ -435,8 +436,17 @@ class SupplierRebateService:
             select(
                 agreement.id,
                 func.coalesce(
+                    # In rupees: a bill in another currency at its own rate,
+                    # and a return at the rate it carries (D-BUY-43).
                     func.sum(
-                        PurchaseInvoiceLine.net_amount - PurchaseInvoiceLine.tax_amount
+                        (
+                            PurchaseInvoiceLine.net_amount
+                            - PurchaseInvoiceLine.tax_amount
+                        )
+                        * rupee_rate_sql(
+                            PurchaseInvoice.currency_code,
+                            PurchaseInvoice.exchange_rate,
+                        )
                     ),
                     0,
                 ),
@@ -468,7 +478,10 @@ class SupplierRebateService:
                 agreement.id,
                 func.coalesce(
                     func.sum(
-                        PurchaseReturnLine.net_amount - PurchaseReturnLine.tax_amount
+                        (PurchaseReturnLine.net_amount - PurchaseReturnLine.tax_amount)
+                        * rupee_rate_sql(
+                            PurchaseReturn.currency_code, PurchaseReturn.exchange_rate
+                        )
                     ),
                     0,
                 ),

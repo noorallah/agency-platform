@@ -46,7 +46,7 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
-from app.finance.currency import check_currency, is_foreign
+from app.finance.currency import check_currency, is_foreign, normalize_currency
 from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
 from app.goods_receipt.billing import (
@@ -1046,8 +1046,26 @@ class GoodsReceiptService(TransactionalDocumentService):
         ]
         # Uploaded files, counted for the page in one grouped read (PG-4).
         files = goods_receipt_file_counts(self._session, ids)
+        # The currency each receipt's order is in, read once for the page.
+        currencies = {
+            order_id: (normalize_currency(code), rate)
+            for order_id, code, rate in self._session.execute(
+                select(
+                    PurchaseOrder.id,
+                    PurchaseOrder.currency_code,
+                    PurchaseOrder.exchange_rate,
+                ).where(
+                    PurchaseOrder.id.in_({row.purchase_order_id for row in rows}),
+                    PurchaseOrder.exchange_rate.is_not(None),
+                )
+            )
+            if is_foreign(code)
+        }
         for response in answer:
             response.attached_file_count = files.get(response.id, 0)
+            response.currency_code, response.exchange_rate = currencies.get(
+                response.purchase_order_id, (None, None)
+            )
         return answer
 
     def _receipt_response(
@@ -1861,7 +1879,11 @@ class GoodsReceiptService(TransactionalDocumentService):
         # for a bill that raised its own order is the bill's.
         rupees_per_unit = Decimal("1")
         if is_foreign(purchase_order.currency_code):
-            check_currency(purchase_order.currency_code, purchase_order.exchange_rate)
+            check_currency(
+                purchase_order.currency_code,
+                purchase_order.exchange_rate,
+                document="purchase order",
+            )
             rupees_per_unit = purchase_order.exchange_rate or Decimal("1")
         for line in self._session.scalars(
             select(GoodsReceiptLine).where(

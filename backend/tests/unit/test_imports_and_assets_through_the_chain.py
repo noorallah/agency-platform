@@ -316,7 +316,10 @@ def test_a_foreign_bill_against_a_rupee_order_is_refused_by_name() -> None:
 def test_an_order_in_another_currency_needs_its_rate() -> None:
     """Refused where it is typed, not at the dock when the goods arrive."""
     firm = _firm()
-    with pytest.raises(ValidationError, match="needs its exchange rate"):
+    # In an order's words, not a bill's.
+    with pytest.raises(
+        ValidationError, match="A purchase order in USD needs its exchange rate"
+    ):
         _order(firm, currency_code="USD")
 
 
@@ -536,3 +539,16 @@ def test_cancelling_the_capital_receipt_moves_no_stock() -> None:
     assert firm.stock() == D("0")
     assert firm.balance(ControlAccountPurpose.INVENTORY) == 0
     assert _balanced(firm)
+
+
+def test_a_receipt_says_what_currency_its_order_is_in() -> None:
+    """The bill editor reads it off the receipt it already has (D-BUY-42)."""
+    firm = _firm()
+    receipts = GoodsReceiptService(firm.session)
+
+    usd, _ = _receive(firm, _order(firm, currency_code="USD", exchange_rate="83"))
+    rupees, _ = _receive(firm, _order(firm))
+
+    in_usd, in_rupees = receipts.receipt_responses([usd, rupees])
+    assert (in_usd.currency_code, in_usd.exchange_rate) == ("USD", D("83"))
+    assert (in_rupees.currency_code, in_rupees.exchange_rate) == (None, None)

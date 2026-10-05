@@ -383,7 +383,11 @@ Future<void> _pumpVendor(WidgetTester tester, _Api api, Size size) async {
   await tester.pumpAndSettle();
 }
 
-GoodsReceiptRecord _receipt() => GoodsReceiptRecord.fromJson({
+/// A receipt of goods ordered in [currency] at [rate]; blank is rupees.
+GoodsReceiptRecord _receipt({String currency = 'USD', String rate = '83'}) =>
+    GoodsReceiptRecord.fromJson({
+      if (currency.isNotEmpty) 'currency_code': currency,
+      if (currency.isNotEmpty) 'exchange_rate': rate,
       'id': 'grn-1',
       'grn_number': 'GRN-2026-000001',
       'receipt_date': '2026-08-10',
@@ -406,14 +410,19 @@ GoodsReceiptRecord _receipt() => GoodsReceiptRecord.fromJson({
       ],
     });
 
-Future<void> _pumpBill(WidgetTester tester, _Api api, Size size) async {
+Future<void> _pumpBill(
+  WidgetTester tester,
+  _Api api,
+  Size size, {
+  String orderCurrency = 'USD',
+}) async {
   _size(tester, size);
   await tester.pumpWidget(MaterialApp(
     home: Scaffold(
       body: Phase2Scope(
         child: PurchaseInvoiceEditorDialog(
           api: api,
-          receipts: [_receipt()],
+          receipts: [_receipt(currency: orderCurrency)],
           vendors: [Vendor.fromJson(_vendorJson(currency: 'USD'))],
           products: [
             Product.fromJson({
@@ -538,14 +547,19 @@ void main() {
         (tester) async {
       final _Api api = _Api();
       await _pumpBill(tester, api, const Size(1600, 900));
-      // The supplier's currency is the bill's, with no TCS to offer.
-      expect(find.byKey(const ValueKey('purchase-invoice-exchange-rate-USD')),
-          findsOneWidget);
+      // The order's currency is the bill's, with no TCS to offer, at the
+      // rate the goods were received at (D-BUY-42).
+      final Finder rate =
+          find.byKey(const ValueKey('purchase-invoice-exchange-rate-USD'));
+      expect(rate, findsOneWidget);
+      expect(tester.widget<TextFormField>(rate).initialValue, '83');
       expect(find.byKey(const ValueKey('purchase-invoice-tcs-rate')),
           findsNothing);
       expect(find.byKey(const ValueKey('purchase-invoice-foreign-note')),
           findsOneWidget);
 
+      // Cleared, the bill has no rate: it is not quietly the order's again.
+      await _type(tester, 'purchase-invoice-exchange-rate-USD', '');
       await _type(tester, 'purchase-invoice-supplier-number-0', 'SZ-1');
       await tester.tap(find.byKey(const ValueKey('purchase-invoice-save')));
       await tester.pumpAndSettle();
@@ -561,9 +575,46 @@ void main() {
       await tester.pumpAndSettle();
       final Json sent = api.bodies['bill']!;
       expect(sent['exchange_rate'], '84.1');
-      // Untouched, so the server starts the bill in its supplier's currency.
+      // Untouched, so the server starts the bill in its order's currency.
       expect(sent.containsKey('currency_code'), isFalse);
       expect(sent.containsKey('tcs_rate_percent'), isFalse);
+    });
+
+    testWidgets('untouched, it is saved at the rate its order was received at',
+        (tester) async {
+      final _Api api = _Api();
+      await _pumpBill(tester, api, const Size(1600, 900));
+      await _type(tester, 'purchase-invoice-supplier-number-0', 'SZ-1');
+      expect(api.previews!.last['exchange_rate'], '83');
+
+      await tester.tap(find.byKey(const ValueKey('purchase-invoice-save')));
+      await tester.pumpAndSettle();
+
+      expect(api.bodies['bill']!['exchange_rate'], '83');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a USD supplier ordered from in rupees is billed in rupees',
+        (tester) async {
+      // D-BUY-42: the editor showed USD and asked for a rate while the
+      // server, which follows the order, saved the bill in rupees.
+      final _Api api = _Api();
+      await _pumpBill(tester, api, const Size(1600, 900), orderCurrency: '');
+      expect(find.byKey(const ValueKey('purchase-invoice-exchange-rate-USD')),
+          findsNothing);
+      expect(find.byKey(const ValueKey('purchase-invoice-foreign-note')),
+          findsNothing);
+      expect(find.byKey(const ValueKey('purchase-invoice-tcs-rate')),
+          findsOneWidget);
+
+      await _type(tester, 'purchase-invoice-supplier-number-0', 'SZ-1');
+      await tester.tap(find.byKey(const ValueKey('purchase-invoice-save')));
+      await tester.pumpAndSettle();
+
+      final Json sent = api.bodies['bill']!;
+      expect(sent.containsKey('currency_code'), isFalse);
+      expect(sent.containsKey('exchange_rate'), isFalse);
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('approval offers no Paid now and no TDS', (tester) async {
