@@ -16,6 +16,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
+from app.common.firm_metadata import firm_today
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
@@ -398,7 +399,7 @@ def pending_registrations(
     is due soon or already late.
     """
     items = pending(db, scope.firm_id)
-    today = utc_now().date()
+    today = firm_today(db, scope.firm_id)
     return ApiResponse(
         data=PendingRegistrationResponse(
             thirty_day_rule_applies=last_day(

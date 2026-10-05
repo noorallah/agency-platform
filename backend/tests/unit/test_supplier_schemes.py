@@ -29,7 +29,7 @@ from app.core.enums import TokenType
 from app.core.exceptions import ValidationError
 from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
-from app.core.utils.dates import utc_now
+from app.core.utils.dates import business_today
 from app.core.utils.pricing import resolve_supplier_free_goods
 from app.finance.services.control_accounts import ControlAccountPurpose
 from app.goods_receipt.models import GoodsReceiptLine
@@ -57,7 +57,8 @@ from app.vendors.models import Vendor
 from tests.unit.test_purchase_chain_synthesis import _Firm
 
 D = Decimal
-TODAY = utc_now().date()
+# The firm's own day, not the UTC one (D-CFG-25): every firm here is in India.
+TODAY = business_today("IN")
 
 
 @pytest.fixture

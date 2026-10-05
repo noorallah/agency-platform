@@ -28,7 +28,7 @@ from app.branches.models import Branch, Warehouse
 from app.common.audit.models import AuditLog
 from app.core.database.base import Base
 from app.core.exceptions import ConflictError, ResourceNotFoundError
-from app.core.utils.dates import utc_now
+from app.core.utils.dates import business_today
 from app.customers.models import customer as _customer_models  # noqa: F401
 from app.firms.models import Firm
 from app.identity.models import (
@@ -423,7 +423,7 @@ def test_expiry_dashboard() -> None:
         data=BatchCreate(
             product_id=product.id,
             batch_number="EXP-002",
-            expiry_date=utc_now().date(),
+            expiry_date=business_today("IN"),
         ),
     )
     # Quarantine batch
@@ -589,7 +589,7 @@ def test_expired_counts_come_from_the_date_not_a_status() -> None:
     actor_id = uuid4()
     service = BatchSerialService(session)
     warehouse = _warehouse(session, firm.id, _branch(session, firm.id).id)
-    today = utc_now().date()
+    today = business_today("IN")
 
     for number, expiry, status in (
         ("PAST-1", today - timedelta(days=5), BatchStatus.AVAILABLE),
@@ -633,7 +633,7 @@ def test_a_destroyed_batch_is_not_counted_as_expired() -> None:
         data=BatchCreate(
             product_id=product.id,
             batch_number="GONE",
-            expiry_date=utc_now().date() - timedelta(days=10),
+            expiry_date=business_today("IN") - timedelta(days=10),
             status=BatchStatus.DESTROYED,
         ),
     )
@@ -697,7 +697,7 @@ def test_the_expiry_cards_count_batches_that_still_hold_stock() -> None:
     warehouse = _warehouse(session, firm.id, _branch(session, firm.id).id)
     actor_id = uuid4()
     service = BatchSerialService(session)
-    today = utc_now().date()
+    today = business_today("IN")
 
     def batch(number: str, expiry: date, quantity: str | None) -> None:
         """Create a batch and, if a quantity is given, put it on the shelf."""

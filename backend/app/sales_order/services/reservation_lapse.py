@@ -16,7 +16,7 @@ from uuid import UUID
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
-from app.core.utils.dates import utc_now
+from app.common.firm_metadata import firm_today
 from app.sales_order.models import SalesOrder, SalesOrderLine
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ def lapse_firm(session: Session, firm_id: UUID, *, on: date | None = None) -> in
     )
     if not days:
         return 0
-    cutoff = (on or utc_now().date()) - timedelta(days=days)
+    cutoff = (on or firm_today(session, firm_id)) - timedelta(days=days)
     orders = list(
         session.scalars(
             select(SalesOrder).where(

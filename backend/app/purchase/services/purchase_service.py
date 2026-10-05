@@ -116,8 +116,8 @@ from app.vendors.models import Vendor
 from app.vendors.services.order_quantities import quantity_hints
 
 
-def _batch_is_expired(batch: BatchRecord) -> bool:
-    """Return whether a batch has expired as of today.
+def _batch_is_expired(batch: BatchRecord, today: date) -> bool:
+    """Return whether a batch has expired as of ``today``, the firm's day.
 
     Expiry is decided by the date. Nothing sets ``status = 'EXPIRED'``, so the
     original status check never fired and expired stock could be purchased.
@@ -126,7 +126,7 @@ def _batch_is_expired(batch: BatchRecord) -> bool:
         return False
     if batch.status == "EXPIRED":
         return True
-    return batch.expiry_date is not None and batch.expiry_date <= utc_now().date()
+    return batch.expiry_date is not None and batch.expiry_date <= today
 
 
 class PurchaseService(TransactionalDocumentService):
@@ -2799,7 +2799,9 @@ class PurchaseService(TransactionalDocumentService):
                     BatchRecord.is_deleted.is_(False),
                 )
             )
-            if existing_batch is not None and _batch_is_expired(existing_batch):
+            if existing_batch is not None and _batch_is_expired(
+                existing_batch, firm_today(self._session, line.firm_id)
+            ):
                 raise ValidationError("Expired products cannot be purchased.")
 
     def _assert_tax_profile_available(

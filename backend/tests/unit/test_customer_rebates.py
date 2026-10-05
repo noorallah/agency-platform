@@ -22,8 +22,8 @@ from fastapi import Response
 from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ConflictError, ValidationError
-from app.core.utils.dates import utc_now
 from app.credit_note.models import CreditNote
 from app.customer_debit_note.models import CustomerDebitNote
 from app.customer_rebates.api.router import (
@@ -434,7 +434,7 @@ def test_a_group_agreement_sums_its_customers() -> None:
 
 def test_the_period_must_be_over_before_it_is_accrued() -> None:
     books = _books()
-    today = utc_now().date()
+    today = firm_today(books.session, books.firm.id)
     row = _agreement(books, period=(today - timedelta(days=10), today))
 
     with pytest.raises(ValidationError, match="accrue it after"):

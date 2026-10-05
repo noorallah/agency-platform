@@ -25,7 +25,6 @@ from app.common.firm_metadata import firm_today
 from app.core.concurrency import assert_version
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.chunks import chunks
-from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_money
 from app.finance.services.control_accounts import ControlAccountPurpose
 from app.finance.services.document_posting import DocumentPostingService
@@ -3181,7 +3180,9 @@ class InventoryService:
         )
         if only_batch is not None:
             rows = [row for row in rows if row.batch_id == only_batch]
-        rows, expired, held_expired = self._without_expired(rows, as_of=as_of)
+        rows, expired, held_expired = self._without_expired(
+            rows, firm_scope=firm_scope, as_of=as_of
+        )
         short: dict[UUID, tuple[str, date]] = {}
         if only_batch is None:
             # The batches dispatch will pass over for this customer are not
@@ -3241,7 +3242,11 @@ class InventoryService:
         from app.batch_serial.services.expiry_rules import expiry_rules
 
         rule = expiry_rules(self._session, firm_scope, {product_id}).get(product_id)
-        stop_at = rule.sell_until(as_of or utc_now().date()) if rule else None
+        stop_at = (
+            rule.sell_until(as_of or firm_today(self._session, firm_scope))
+            if rule
+            else None
+        )
         if stop_at is not None and (keep_until is None or stop_at > keep_until):
             keep_until = stop_at
         if keep_until is None:
@@ -3551,7 +3556,9 @@ class InventoryService:
                 f"{product.code} ({product.name}) is issued by choosing the "
                 "batch: pick the batches on the line before dispatching it."
             )
-        rows, expired, held_expired = self._without_expired(rows, as_of=as_of)
+        rows, expired, held_expired = self._without_expired(
+            rows, firm_scope=firm_scope, as_of=as_of
+        )
         # The product's own stop-selling window (STK-5) is a date its goods
         # must outlast, like a customer's minimum shelf life.
         rows, short = self._without_short_dated(
@@ -3586,7 +3593,7 @@ class InventoryService:
         return allocation
 
     def _without_expired(
-        self, rows: list[InventoryRecord], *, as_of: date | None
+        self, rows: list[InventoryRecord], *, firm_scope: UUID, as_of: date | None
     ) -> tuple[list[InventoryRecord], dict[UUID, tuple[str, date]], Decimal]:
         """Drop the rows whose batch had expired by ``as_of``.
 
@@ -3604,7 +3611,7 @@ class InventoryService:
         """
         expired = self._expired_batches(
             {row.batch_id for row in rows if row.batch_id is not None},
-            as_of=as_of or utc_now().date(),
+            as_of=as_of or firm_today(self._session, firm_scope),
         )
         held_expired = sum(
             (

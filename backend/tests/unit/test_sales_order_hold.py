@@ -24,9 +24,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.branches.models import Branch, Warehouse
+from app.common.firm_metadata import firm_today
 from app.core.database.base import Base
 from app.core.exceptions import ValidationError
-from app.core.utils.dates import utc_now
 from app.customers.models import Customer
 from app.delivery_note.schemas import DeliveryNoteCreate, DeliveryNoteLineWrite
 from app.delivery_note.services import DeliveryNoteService
@@ -396,7 +396,7 @@ def test_a_release_is_dated_when_it_happened_never_before_the_hold(
     a day before its reservation (D-STK-7).
     """
     books = _Books(_session_factory()())
-    today = utc_now().date()
+    today = firm_today(books.session, books.order.firm_id)
     books.order.order_date = today + timedelta(days=days_ahead)
     books.session.commit()
     service = SalesOrderService(books.session)

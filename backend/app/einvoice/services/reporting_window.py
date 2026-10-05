@@ -26,8 +26,8 @@ from uuid import UUID
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ValidationError
-from app.core.utils.dates import utc_now
 from app.customers.models import Customer
 from app.einvoice.models import EInvoiceRegistration
 from app.sales_invoice.models import SalesInvoice
@@ -77,7 +77,7 @@ def last_day(
     the date has not come yet.
     """
     since = _rule_from(session, firm_scope)
-    today = today or utc_now().date()
+    today = today or firm_today(session, firm_scope)
     if since is None or today < since:
         return None
     return on + timedelta(days=REPORTING_DAYS)
@@ -98,7 +98,7 @@ def refuse_if_late(
             document's last day has passed.
 
     """
-    today = today or utc_now().date()
+    today = today or firm_today(session, firm_scope)
     deadline = last_day(session, firm_scope=firm_scope, on=on, today=today)
     if deadline is None or today <= deadline:
         return
@@ -141,7 +141,7 @@ def pending(
     ).einvoice_applicable_from
     if since is None:
         return []
-    today = today or utc_now().date()
+    today = today or firm_today(session, firm_scope)
     rule_from = _rule_from(session, firm_scope)
     binds = rule_from is not None and today >= rule_from
     b2b = and_(

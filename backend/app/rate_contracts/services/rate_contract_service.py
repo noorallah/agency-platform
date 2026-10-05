@@ -30,6 +30,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.document_framework.services.transactional_document_service import (
@@ -54,9 +55,9 @@ from app.vendors.models import Vendor
 ZERO = Decimal("0")
 
 
-def display_status(row: RateContract) -> str:
-    """Return the contract's status as read: ``EXPIRED`` is derived, never stored."""
-    if row.status == "ACTIVE" and row.valid_to < utc_now().date():
+def display_status(row: RateContract, today: date) -> str:
+    """Return the status as read on ``today``: ``EXPIRED`` is derived, not stored."""
+    if row.status == "ACTIVE" and row.valid_to < today:
         return "EXPIRED"
     return row.status
 
@@ -214,7 +215,7 @@ class RateContractService(TransactionalDocumentService):
         """
         row = self.get(contract_id, firm_id=firm_id)
         self._require(row, "DRAFT", "Only a draft rate contract can be approved.")
-        if row.valid_to < utc_now().date():
+        if row.valid_to < firm_today(self._session, firm_id):
             raise ValidationError(
                 f"{row.contract_number} ended on {row.valid_to.isoformat()}; "
                 "change its period before approving it."
@@ -324,7 +325,7 @@ class RateContractService(TransactionalDocumentService):
         """Return one page of the firm's contracts and the total."""
         return self._rows.page(
             firm_id,
-            today=utc_now().date(),
+            today=firm_today(self._session, firm_id),
             vendor_id=vendor_id,
             status=status,
             search=search,
@@ -341,6 +342,7 @@ class RateContractService(TransactionalDocumentService):
         products = self._rows.products(line.product_id for line in every_line)
         vendors = self._rows.vendors(row.vendor_id for row in rows)
         drawn = drawn_quantities(self._session, [line.id for line in every_line])
+        today = firm_today(self._session, rows[0].firm_id)
         answer: list[RateContractResponse] = []
         for row in rows:
             vendor = vendors.get(row.vendor_id)
@@ -355,7 +357,7 @@ class RateContractService(TransactionalDocumentService):
                     valid_to=row.valid_to,
                     reference=row.reference,
                     notes=row.notes,
-                    status=display_status(row),
+                    status=display_status(row, today),
                     approved_at=row.approved_at,
                     closed_at=row.closed_at,
                     cancel_reason=row.cancel_reason,

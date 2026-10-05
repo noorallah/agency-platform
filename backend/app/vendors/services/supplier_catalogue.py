@@ -91,7 +91,7 @@ class SupplierCatalogueService:
     ) -> list[SupplierProductResponse]:
         """Return the rows in force today, or with ``history`` every row."""
         self._vendor(vendor_id, firm_id=firm_id)
-        today = utc_now().date()
+        today = firm_today(self._session, firm_id)
         current = current_rows(
             self._session,
             firm_id=firm_id,
@@ -271,7 +271,7 @@ class SupplierCatalogueService:
             firm_id=row.firm_id,
             vendor_id=row.vendor_id,
             product_ids=[row.product_id],
-            on=utc_now().date(),
+            on=firm_today(self._session, row.firm_id),
         )
         return {r.id for r in current.values()}
 

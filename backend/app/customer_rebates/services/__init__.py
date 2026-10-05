@@ -26,6 +26,7 @@ from sqlalchemy import ColumnElement, and_, func, or_, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.concurrency import assert_version
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.pagination.reports import WHOLE_HISTORY, ReportWindow, mapped_like
@@ -510,7 +511,7 @@ class CustomerRebateService:
         row = self.get(agreement_id, firm_id=firm_id)
         assert_version(row.version, expected_version)
         self._assert_counting(row, doing="accrued")
-        today = utc_now().date()
+        today = firm_today(self._session, firm_id)
         if today <= row.period_to:
             raise ValidationError(
                 f"The period runs to {row.period_to:%d %b %Y}; accrue it after "

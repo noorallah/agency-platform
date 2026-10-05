@@ -36,6 +36,7 @@ from app.batch_serial.services import BatchSalePolicyService, BatchSerialService
 from app.batch_serial.services.expiry_rules import expiry_rules, returns_due
 from app.batch_serial.services.serial_history import serial_trail
 from app.business.gating import require_feature
+from app.common.firm_metadata import firm_today
 from app.common.scope import (
     ResolvedFirmScope,
     firm_any_permission_scope,
@@ -47,7 +48,6 @@ from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
-from app.core.utils.dates import utc_now
 
 router = APIRouter(
     prefix="/api/v1/batch-serial",
@@ -169,7 +169,7 @@ def batch_availability(
     ``near_expiry_days`` defaults to the firm's own window (79 row 6), and
     ``customer_id`` flags the batches too short-dated for that customer.
     """
-    on = as_of or utc_now().date()
+    on = as_of or firm_today(db, scope.firm_id)
     policy = BatchSalePolicyService(db)
     # The product's own rules (STK-5): its alert window, and its stop-selling
     # window as a date the batch must outlast, beside the customer's.
@@ -209,7 +209,9 @@ def batch_returns_due(
     return ApiResponse(
         data=[
             ReturnDueResponse.model_validate(record, from_attributes=True)
-            for record in returns_due(db, scope.firm_id, on=utc_now().date())
+            for record in returns_due(
+                db, scope.firm_id, on=firm_today(db, scope.firm_id)
+            )
         ]
     )
 

@@ -22,7 +22,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Protocol
 
-from app.core.utils.dates import utc_now
+from app.core.utils.dates import business_today, utc_now
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,7 +155,9 @@ class SandboxPortal:
         return PortalResult(
             ok=True,
             reference=f"SBX{int(digest[:11], 16)}"[:15],
-            valid_until=utc_now().date() + timedelta(days=days),
+            # The portal is India's, whoever calls it: its day is India's
+            # day (D-CFG-25), not the UTC one this server keeps time in.
+            valid_until=business_today("IN") + timedelta(days=days),
         )
 
     def cancel_eway_bill(self, reference: str, *, reason: str) -> PortalResult:
