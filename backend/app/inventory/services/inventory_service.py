@@ -3511,6 +3511,32 @@ class InventoryService:
         self._session.flush()
         return transaction
 
+    def available_at(
+        self,
+        *,
+        firm_scope: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        storage_node_id: UUID | None,
+        product_id: UUID,
+        batch_id: UUID | None,
+    ) -> Decimal:
+        """Return what one stock row can still give: on hand less held and blocked.
+
+        For a caller that names the batch itself rather than asking
+        ``allocate_for_dispatch`` to choose, and so has to make the allocator's
+        refusal for itself (D-SELL-50). A place holding no row holds nothing.
+        """
+        row = self._find_inventory_row(
+            firm_id=firm_scope,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            storage_locator=self._storage_locator(storage_node_id),
+            product_id=product_id,
+            batch_id=batch_id,
+        )
+        return ZERO if row is None else Decimal(str(row.available_quantity))
+
     def export_inventory_csv(self, *, firm_scope: UUID, search: str | None) -> str:
         """Render the filtered projections as CSV."""
         rows, _ = self.list_inventory(
