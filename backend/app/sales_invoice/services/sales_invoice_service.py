@@ -84,6 +84,7 @@ from app.loyalty.services import LoyaltyService
 from app.messaging.services import MessagingDocument, stage_document_event
 from app.products.models import Product
 from app.products.services.free_issue import assert_not_sold_at_a_price
+from app.promotions.services import RedemptionService
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales.services.document_preview import line_companions
 from app.sales.services.scope_resolution import (
@@ -1644,6 +1645,9 @@ class SalesInvoiceService(TransactionalDocumentService):
             | (discount_details or {})
             | (sez_details or {})
         ) or None
+        # Before any stock leaves, as an order claims before it reserves: an
+        # offer that has run out refuses the approval by name.
+        self._claim_own_offers(row, firm_scope=firm_scope, actor_id=actor_id)
         # The goods leave now, not when the draft was saved: a draft is a
         # proposal, and it used to ship the stock and post cost of goods sold
         # the moment it was typed (D-SELL-13, driven 2026-09-19).
@@ -1761,6 +1765,33 @@ class SalesInvoiceService(TransactionalDocumentService):
         self._stage_received_now(row, firm_scope=firm_scope, actor_id=actor_id)
         self._stamp_counter_shift(row, firm_scope=firm_scope, actor_id=actor_id)
         return row
+
+    def _claim_own_offers(
+        self, row: SalesInvoice, *, firm_scope: UUID, actor_id: UUID
+    ) -> None:
+        """Claim the offers a counter bill's own order was priced with.
+
+        A counter bill raises a sales order nobody typed, and that order is
+        approved at every **save** of the draft. Claiming there meant a
+        draft, a held bill and every edit held a live claim, so unapproved
+        bills could use up an offer limited to a few (D-SELL-85). The order's
+        claims now stay PENDING until the bill is approved, and are made
+        here by the function an order's approval calls: under the lock on
+        the offer's version group, with the loser refused by the offer's
+        name. An order a person typed claimed at its own approval and has
+        nothing pending, so only orders carrying this bill's stamp are asked.
+        """
+        for order_id in self._session.scalars(
+            select(SalesOrder.id)
+            .where(
+                SalesOrder.raised_by_sales_invoice_id == row.id,
+                SalesOrder.is_deleted.is_(False),
+            )
+            .order_by(SalesOrder.id)
+        ).all():
+            RedemptionService(self._session).claim(
+                firm_id=firm_scope, document_id=order_id, actor_id=actor_id
+            )
 
     def _stamp_counter_shift(
         self, row: SalesInvoice, *, firm_scope: UUID, actor_id: UUID
@@ -2130,8 +2161,16 @@ class SalesInvoiceService(TransactionalDocumentService):
         }
         held = next((order.coupon_code for order in orders if order.coupon_code), None)
         coupon = normalized_coupon(data.coupon_code) if "coupon_code" in sent else held
+        # An offer the order was priced with may have run out since: another
+        # bill was approved first and took the last of it. Saving again is
+        # how this one is priced without, so that save raises the order
+        # again even when nothing on the bill changed (D-SELL-85).
+        spent = RedemptionService(self._session).has_run_out(
+            firm_id=firm_id, document_ids=[order.id for order in orders]
+        )
         if (
             coupon == held
+            and not spent
             and self._ships_as_raised(data, note_lines, picked)
             and all(
                 self._charges_as_raised(

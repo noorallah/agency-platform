@@ -224,6 +224,11 @@ class SalesChainService:
             firm_scope=firm_id,
             actor_id=actor_id,
             check_licences=False,
+            # This approval happens at every save of a draft bill, so the
+            # offers it priced with are not claimed here: a draft, a held
+            # bill and each edit held a live claim on a limited offer. They
+            # stay PENDING and the bill's approval claims them (D-SELL-85).
+            claim_offers=False,
             # The order line has one batch to pin and a split line has
             # several, so the split is handed to the approval that holds the
             # stock rather than stored: 1 of one batch and 3 of another held

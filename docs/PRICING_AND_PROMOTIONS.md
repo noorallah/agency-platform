@@ -158,6 +158,30 @@ create and on edit ("This bill continues documents already priced, so it
 cannot take one."), because a field that gives money away must not be
 accepted and do nothing (D-SELL-40).
 
+**"Approval" is the approval of the document a person approves: a counter
+bill claims when the bill is approved, not when its hidden order is**
+(D-SELL-85, 2026-10-06). The order behind a counter bill is approved at every
+*save* of the draft, because that is what reserves the stock, and the claim
+was made there with it. So a draft held one live claim, a held bill held one,
+and every edit reversed it and claimed again on the order raised in its
+place: two unapproved bills could exhaust an offer limited to two, which is
+the rule above broken by another route. The chain now approves that order
+with `claim_offers=False`, its rows stay PENDING, and
+`SalesInvoiceService.stage_approval` makes the claim through the same
+`RedemptionService.claim` -- the same lock on the version group, the same
+refusal: "Promotion TENOFF has been claimed as often as it allows. Re-save
+the document to price it without." A draft, a held bill, an edited bill and a
+cancelled draft hold nothing. The rows are still the order's
+(`document_type` SALES_ORDER), so the redemption, performance and coupon
+reports count one claim per sale as they did, and an order a person types
+claims at its own approval exactly as before. **"Re-save" has to be true for
+a bill**: a save that changes nothing on a counter bill normally raises
+nothing again, so the save asks `RedemptionService.has_run_out` first, and
+where an offer the order was priced with has none left the order is raised
+again and priced without it -- otherwise the bill would keep a price it can
+never be approved at. Sending `coupon_code: null` does the same by hand.
+`tests/unit/test_counter_bill_claims_at_approval.py` is the guard.
+
 **Bonus points are an offer settled at approval, not at pricing** (SEL-4,
 A73): `LOYALTY_MULTIPLIER` is the only benefit on its offer, the pricing
 engine passes over it, and `LoyaltyService.bonus_for` applies the largest
