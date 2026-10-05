@@ -327,7 +327,13 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     if (!_isWalkIn || _receivedTouched || _splitTender) return;
     if (_editing && '${_existing?['status'] ?? 'DRAFT'}' != 'DRAFT') return;
     if (_billTotal <= 0) return;
-    _receivedNow.text = stringValue(_preview?.invoice['grand_total']);
+    // What is asked for at the counter is the bill in whole paise
+    // (`amount_payable`): a total of 97.1376 is paid with 97.14, and the
+    // unrounded figure cannot be typed or tendered (D-SELL-83).
+    final String payable = stringValue(_preview?.invoice['amount_payable']);
+    _receivedNow.text = payable.isNotEmpty
+        ? payable
+        : stringValue(_preview?.invoice['grand_total']);
   }
 
   /// Choose the cash customer: ask the server for it (made on the first
@@ -1259,9 +1265,13 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     );
   }
 
-  /// The bill's grand total as last priced, for the received-now checks.
+  /// What the bill asks for as last priced, in whole paise where the server
+  /// says so, for the received-now checks: that is the figure the server
+  /// holds the money against (D-SELL-83).
   double get _billTotal =>
-      double.tryParse(stringValue(_preview?.invoice['grand_total'])) ?? 0;
+      double.tryParse(stringValue(_preview?.invoice['amount_payable'])) ??
+      double.tryParse(stringValue(_preview?.invoice['grand_total'])) ??
+      0;
 
   /// Money taken at the counter. Editable while the bill is a draft; once it
   /// is approved the server has recorded the receipt and this only reports it.

@@ -227,7 +227,11 @@ class CounterShiftService:
             select(
                 SalesInvoice.counter_shift_id,
                 func.count(),
-                func.coalesce(func.sum(SalesInvoice.grand_total), 0),
+                # Each bill at what its buyer is asked to pay, in whole
+                # paise, and then summed: a bill of 97.1376 is paid with
+                # 97.14 (D-SELL-83), and adding the unrounded totals put the
+                # shift a paisa from its own tenders over many such bills.
+                func.coalesce(func.sum(func.round(SalesInvoice.grand_total, 2)), 0),
             )
             .where(*counted)
             .group_by(SalesInvoice.counter_shift_id)
