@@ -226,6 +226,33 @@ def test_live_firm_schemas_match_the_orm(engine: Engine) -> None:
     assert not missing, f"schema drift against the ORM: {sorted(missing)}"
 
 
+def test_no_firm_store_keeps_the_two_source_challan_check(engine: Engine) -> None:
+    """A TDS challan item may name a purchase bill alone in every store.
+
+    PG-5 widened the check on ``tds_challan_items`` to three documents, and its
+    migration looked the old two-source check up by a name it was never
+    deployed under -- the naming convention had been applied twice -- so both
+    checks stood side by side and a bill-only item was refused (D-FIN-25).
+    The unit suite builds its schema from the ORM and never saw it.
+    """
+    inspector = inspect(engine)
+    stale: list[str] = []
+    for schema in inspector.get_schema_names():
+        if "tds_challan_items" not in inspector.get_table_names(schema=schema):
+            continue
+        for check in inspector.get_check_constraints(
+            "tds_challan_items", schema=schema
+        ):
+            told = str(check.get("sqltext") or "")
+            if (
+                "settlement_id" in told
+                and "expense_id" in told
+                and "purchase_invoice_id" not in told
+            ):
+                stale.append(f"{schema}.{check.get('name')}")
+    assert not stale, f"a bill-only challan item is refused by: {sorted(stale)}"
+
+
 def test_every_deployed_table_can_be_inserted_into(engine: Engine) -> None:
     """`created_at` and `updated_at` carry a default in the deployed schemas.
 
