@@ -2012,3 +2012,80 @@ def test_a_good_return_import_writes_every_record() -> None:
     assert [row.status for row in rows] == ["DRAFT", "DRAFT"]
     assert len({row.return_number for row in rows}) == 2
     assert _returns_held(goods) == 2
+
+
+def test_the_reconciliation_counts_free_goods_like_the_by_product_report() -> None:
+    """D-BUY-63: a return of 12 read 10, and a free-only return read 0.
+
+    The line stores its bought units with the free ones beside them. The
+    by-product report added the two; the reconciliation and the line's
+    received figure did not, so 12 went back against "10 received".
+    """
+    goods = _Billed(free="2")
+    carton = goods.send_back(goods.line("1", free_quantity="1"))
+    rest = goods.send_back(goods.line("11"))
+
+    by_return = {
+        record.return_id: record
+        for record in goods.service.reconciliation_report(firm_scope=goods.firm_id)
+    }
+    free_only, whole = by_return[carton.id], by_return[rest.id]
+
+    assert (
+        free_only.received_quantity,
+        free_only.already_returned_quantity,
+        free_only.current_return_quantity,
+        free_only.pending_quantity,
+    ) == (Decimal("12.0000"), Decimal("0.0000"), Decimal("1.0000"), Decimal("11.0000"))
+    assert (
+        whole.received_quantity,
+        whole.already_returned_quantity,
+        whole.current_return_quantity,
+        whole.pending_quantity,
+    ) == (Decimal("12.0000"), Decimal("1.0000"), Decimal("11.0000"), Decimal("0.0000"))
+    (by_product,) = goods.service.by_product_report(firm_scope=goods.firm_id)
+    assert by_product.return_quantity == Decimal("12.0000")
+    # The document reads the same: 11 going back of 12 received, 1 before.
+    (line,) = goods.service.return_response(rest).lines
+    assert (line.received_quantity, line.already_returned_quantity) == (
+        Decimal("12.0000"),
+        Decimal("1.0000"),
+    )
+    assert (rest.total_source_quantity, rest.total_already_returned_quantity) == (
+        Decimal("12.0000"),
+        Decimal("1.0000"),
+    )
+
+
+@pytest.mark.parametrize("off_the_bill", [False, True])
+def test_a_return_sends_back_only_the_batch_its_receipt_brought(
+    off_the_bill: bool,
+) -> None:
+    """D-BUY-64: the receipt brought B-RCPT and the return named B-OTHER.
+
+    Any batch the product was ever received into was accepted, and the stock
+    left B-OTHER on another delivery's paper. Off the receipt line or off the
+    bill line billing it, a typed batch is the receipt line's own.
+    """
+    goods = _Billed(batch_number="B-RCPT")
+    for number in ("B-RCPT", "B-OTHER"):
+        _register_batch(
+            goods.session,
+            firm_id=goods.firm_id,
+            product_id=goods.receipt_line.product_id,
+            batch_number=number,
+        )
+
+    assert goods.refused(
+        goods.line("2", off_the_bill=off_the_bill, batch_number="B-OTHER")
+    ) == (
+        "Line 1: the goods receipt brought these goods in as batch B-RCPT, so "
+        "batch B-OTHER cannot go back against it. Return batch B-RCPT on this "
+        "line, or raise the return off the receipt that brought B-OTHER."
+    )
+    assert _returns_held(goods) == 0
+
+    typed = goods.send_back(
+        goods.line("2", off_the_bill=off_the_bill, batch_number=" B-RCPT ")
+    )
+    assert goods.saved_line(typed).batch_number == "B-RCPT"

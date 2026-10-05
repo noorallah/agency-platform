@@ -1071,8 +1071,9 @@ class PurchaseReturnService(TransactionalDocumentService):
 
         A product that may only leave from a batch with none named, or a
         number nobody ever received: both were told to the person only at
-        Complete, after the return had been approved. Asked where the return
-        is saved, not where it is previewed.
+        Complete, after the return had been approved. A batch other than the
+        one the line's receipt brought in is refused here too (D-BUY-64).
+        Asked where the return is saved, not where it is previewed.
 
         Raises:
             ValidationError: In the words completion uses.
@@ -1090,6 +1091,31 @@ class PurchaseReturnService(TransactionalDocumentService):
         ).all():
             self._resolve_return_batch(line)
 
+    def _batch_brought_in(self, line: PurchaseReturnLine) -> str | None:
+        """Return the batch a saved line's receipt line brought in, if any.
+
+        A receipt line names one batch. The line may be off that receipt line
+        or off a bill line billing it; a receipt line that named no batch says
+        nothing about which may go back.
+        """
+        source_line: SourceLine | None = None
+        if line.source_document_type == PurchaseReturnSourceType.GOODS_RECEIPT.value:
+            source_line = self._session.get(
+                GoodsReceiptLine, line.source_document_line_id
+            )
+        elif line.source_document_type == (
+            PurchaseReturnSourceType.PURCHASE_INVOICE.value
+        ):
+            source_line = self._session.get(
+                PurchaseInvoiceLine, line.source_document_line_id
+            )
+        if source_line is None:
+            return None
+        receipt_line = self._receipt_line_behind(source_line)
+        if receipt_line is None:
+            return None
+        return (receipt_line.batch_number or "").strip() or None
+
     def _resolve_return_batch(self, line: PurchaseReturnLine) -> UUID | None:
         """Return the batch this line is sending back, if it names one.
 
@@ -1098,6 +1124,10 @@ class PurchaseReturnService(TransactionalDocumentService):
         instead of the product's untracked one -- without it a batch could be
         received, sold from, and then returned against stock that was never in
         it, leaving the batch holding goods that have left the building.
+
+        A line whose receipt line named a batch may send back only that one
+        (D-BUY-64): a slip of the hand otherwise drains another delivery's
+        batch, perhaps another supplier's goods.
 
         ``require_batch_on_issue`` is the product saying its goods cannot leave
         unidentified, and a return to the supplier is stock leaving. Dispatch
@@ -1111,6 +1141,17 @@ class PurchaseReturnService(TransactionalDocumentService):
 
         """
         number = (line.batch_number or "").strip()
+        brought = self._batch_brought_in(line)
+        if number and brought and number != brought:
+            # Any batch the product was ever received into used to be taken,
+            # and its stock went back on another delivery's paper (D-BUY-64).
+            raise ValidationError(
+                f"Line {line.line_number}: the goods receipt brought these "
+                f"goods in as batch {brought}, so batch {number} cannot go "
+                f"back against it. Return batch {brought} on this line, or "
+                f"raise the return off the receipt that brought {number}.",
+                details={"field": "lines"},
+            )
         if not number:
             product = self._session.get(Product, line.product_id)
             if product is not None and product.require_batch_on_issue:
@@ -1894,10 +1935,12 @@ class PurchaseReturnService(TransactionalDocumentService):
                 continue
             if expired_only and not row.is_expired:
                 continue
+            # The line stores its bought units; the free ones went back beside
+            # them and are counted, as the by-product report counts them. A
+            # free-only return read as nothing returned (D-BUY-63).
+            returning = self._q(row.current_return_quantity + row.free_quantity)
             pending = self._q(
-                row.received_quantity
-                - row.already_returned_quantity
-                - row.current_return_quantity
+                row.received_quantity - row.already_returned_quantity - returning
             )
             result.append(
                 PurchaseReturnReconciliationRecord(
@@ -1915,7 +1958,7 @@ class PurchaseReturnService(TransactionalDocumentService):
                     product_name=product_names.get(row.product_id, str(row.product_id)),
                     received_quantity=row.received_quantity,
                     already_returned_quantity=row.already_returned_quantity,
-                    current_return_quantity=row.current_return_quantity,
+                    current_return_quantity=returning,
                     pending_quantity=pending if pending >= ZERO else ZERO,
                     reason_code=row.reason_code,
                     is_damaged=row.is_damaged,
@@ -2118,6 +2161,7 @@ class PurchaseReturnService(TransactionalDocumentService):
                 source_document_line_id=source_line.id,
             )
             charged_left = self._q(source_quantity - already_returned)
+            source_free = self._source_free_quantity(source_type, source_line)
             # A bill line and the receipt line it billed are the same goods:
             # what went back by either route counts against what came in
             # (D-BUY-61).
@@ -2135,9 +2179,7 @@ class PurchaseReturnService(TransactionalDocumentService):
                 total=return_quantity,
                 typed_free=self._typed_free(spec, requested_quantity, return_quantity),
                 charged_left=charged_left,
-                free_left=self._q(
-                    self._source_free_quantity(source_type, source_line) - already_free
-                ),
+                free_left=self._q(source_free - already_free),
                 off_a_receipt=(
                     source_type == PurchaseReturnSourceType.GOODS_RECEIPT.value
                 ),
@@ -2197,8 +2239,11 @@ class PurchaseReturnService(TransactionalDocumentService):
                 source_document_line_number=self._source_line_number(source_line),
                 product_id=self._product_id(source_line),
                 description=self._source_description(source_line),
-                received_quantity=source_quantity,
-                already_returned_quantity=already_returned,
+                # Everything the source line brought in and everything that
+                # has gone back, free goods included, like the quantity this
+                # line reads beside them (D-BUY-63).
+                received_quantity=self._q(source_quantity + source_free),
+                already_returned_quantity=self._q(already_returned + already_free),
                 current_return_quantity=return_quantity,
                 free_quantity=free_quantity,
                 rejected_quantity=self._q(
@@ -2236,8 +2281,8 @@ class PurchaseReturnService(TransactionalDocumentService):
                 updated_by=actor_id,
             )
             self._session.add(line)
-            totals["total_source_quantity"] += source_quantity
-            totals["total_already_returned_quantity"] += already_returned
+            totals["total_source_quantity"] += source_quantity + source_free
+            totals["total_already_returned_quantity"] += already_returned + already_free
             totals["total_current_return_quantity"] += return_quantity + free_quantity
             totals["line_discount_total"] += discount_amount
             # subtotal is the taxable base: gross less discount, before tax and
