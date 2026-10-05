@@ -10,6 +10,10 @@ before this module reads as rupees and behaves exactly as it did.
 """
 
 from decimal import Decimal
+from typing import Any
+
+from sqlalchemy import SQLColumnExpression, and_, case, func, literal
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.exceptions import ValidationError
 from app.core.utils.money import quantize_ledger
@@ -56,6 +60,34 @@ def check_currency(code: str | None, rate: Decimal | None) -> None:
             f"{normalized} was worth on the bill's date.",
             details={"field": "exchange_rate"},
         )
+
+
+def rupee_rate(code: str | None, rate: Decimal | None) -> Decimal:
+    """Return the rupees one unit of a document's currency is worth.
+
+    One for a document in rupees, and for one in another currency that
+    carries no rate -- which the bill's own checks refuse, so it is only ever
+    a row written before they existed. A report multiplies by this to show a
+    foreign bill in rupees, as its journal posted it.
+    """
+    if is_foreign(code) and rate is not None:
+        return Decimal(str(rate))
+    return Decimal("1")
+
+
+def rupee_rate_sql(
+    code: SQLColumnExpression[Any], rate: SQLColumnExpression[Any]
+) -> ColumnElement[Any]:
+    """Return `rupee_rate` as SQL over a document's two columns.
+
+    For a report that sums in the database: the rate where the code is a
+    currency other than rupees and a rate is stored, and one otherwise.
+    """
+    token = func.upper(func.trim(func.coalesce(code, "")))
+    return case(
+        (and_(token.not_in(("", BASE_CURRENCY)), rate.is_not(None)), rate),
+        else_=literal(1),
+    )
 
 
 def to_base(amount: Decimal, rate: Decimal) -> Decimal:

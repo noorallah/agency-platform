@@ -130,9 +130,12 @@ class PurchaseInvoiceLineWrite(PurchaseInvoiceSchema):
     itc_eligibility: Literal["ELIGIBLE", "BLOCKED", "INELIGIBLE"] | None = None
     #: Capital goods (PG-13): approving the bill raises a fixed asset in
     #: ``asset_class_id`` instead of putting the goods into stock. The line
-    #: must bill the bill's own receipt (a firm typing only the bill) or an
-    #: order line; a receipt already completed has put the goods in stock.
-    is_capital_goods: bool = False
+    #: bills the bill's own receipt (a firm typing only the bill), or a
+    #: receipt line that was itself received as capital goods (D-BUY-40);
+    #: a line a receipt has already taken into stock is refused. Absent takes
+    #: the receipt line's mark; false on a line received as capital goods is
+    #: refused.
+    is_capital_goods: bool | None = None
     asset_class_id: UUID | None = None
     packaging_type_id: UUID | None = None
     purchase_uom_id: UUID | None = None

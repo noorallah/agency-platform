@@ -29,6 +29,13 @@ receipt line -- `return_tax_by_component`'s reading, through the same
 `_billed_lines`. What went back before any bill took no credit and is left
 out, and a return made only of such lines is not listed.
 
+Every figure is in **rupees** (D-BUY-35). A bill in another currency (PG-12)
+is stored as typed, so its taxable value and total are its stored rupee
+figures (`base_grand_total`, `base_tax_total`) and each head is the component
+at the bill's own rate -- what its journal posted. A debit note or a return
+against such a bill is in the bill's currency too, and is read at the bill's
+rate: the credit goes back at the value it was taken at.
+
 Both reports read a constant number of statements whatever the window holds
 (`docs/PERFORMANCE_AT_VOLUME.md`): the page of documents, the bills, notes
 and returns on it, their lines and taxes, then the supplier names.
@@ -53,6 +60,7 @@ from app.core.pagination.reports import (
 )
 from app.core.utils.money import quantize_money
 from app.debit_note.models import DebitNote, DebitNoteLine, DebitNoteStatus
+from app.finance.currency import rupee_rate
 from app.purchase_invoice.models import (
     PurchaseInvoice,
     PurchaseInvoiceLine,
@@ -61,6 +69,7 @@ from app.purchase_invoice.models import (
 from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
 
 ZERO = Decimal("0")
+ONE = Decimal("1")
 
 #: A bill that has claimed its tax: approved, or approved and then closed.
 CLAIMED_STATES = ("APPROVED", "CLOSED")
@@ -125,6 +134,8 @@ class _TakenBack:
     #: The part of the tax that sat on a capital-goods bill line.
     capital: Decimal = ZERO
     bills: set[str] = field(default_factory=set)
+    #: Rupees per unit of the bill it takes back from; one for a rupee bill.
+    rate: Decimal = ONE
 
 
 @dataclass
@@ -148,7 +159,11 @@ class HsnPurchaseRow:
 def _heads_by_line(
     session: Session, line_ids: list[UUID]
 ) -> dict[UUID, dict[str, Decimal]]:
-    """Return IGST, CGST, SGST and cess charged on each line, by line id."""
+    """Return IGST, CGST, SGST and cess charged on each line, by line id.
+
+    In rupees: a component on a bill in another currency is read at the
+    bill's own rate, as its journal posted it.
+    """
     from app.gst_returns.services.gstr_service import _bucket
 
     heads: dict[UUID, dict[str, Decimal]] = defaultdict(
@@ -156,18 +171,29 @@ def _heads_by_line(
     )
     if not line_ids:
         return heads
-    for line_id, code, amount in session.execute(
+    for line_id, code, amount, currency, rate in session.execute(
         select(
             PurchaseInvoiceLineTax.purchase_invoice_line_id,
             PurchaseInvoiceLineTax.component_code,
             PurchaseInvoiceLineTax.amount,
-        ).where(
+            PurchaseInvoice.currency_code,
+            PurchaseInvoice.exchange_rate,
+        )
+        .join(
+            PurchaseInvoiceLine,
+            PurchaseInvoiceLine.id == PurchaseInvoiceLineTax.purchase_invoice_line_id,
+        )
+        .join(
+            PurchaseInvoice,
+            PurchaseInvoice.id == PurchaseInvoiceLine.purchase_invoice_id,
+        )
+        .where(
             PurchaseInvoiceLineTax.purchase_invoice_line_id.in_(line_ids),
             PurchaseInvoiceLineTax.is_deleted.is_(False),
             PurchaseInvoiceLineTax.included_in_price.is_(False),
         )
     ).all():
-        bucket = _bucket(code, Decimal(str(amount)))
+        bucket = _bucket(code, Decimal(str(amount)) * rupee_rate(currency, rate))
         for head in HEADS:
             heads[line_id][head] += getattr(bucket, head)
     return heads
@@ -187,7 +213,9 @@ def _taken_back(session: Session, lines: list[_Taking]) -> dict[UUID, _TakenBack
             reverses with each one's weight, its taxable value, its tax).
 
     Returns:
-        By line id, positive figures. The tax is shared over what the supplier
+        By line id, positive figures in rupees -- each share at the rate of
+        the bill it comes off, which is also kept as the line's ``rate`` for
+        its own taxable value. The tax is shared over what the supplier
         charged on the bill lines, as `debit_note_tax_by_component` and
         `return_tax_by_component` share it; reverse charge is the share the
         line's taxable value is of the bill line's, as `reverse_charge_share`
@@ -212,8 +240,18 @@ def _taken_back(session: Session, lines: list[_Taking]) -> dict[UUID, _TakenBack
             bool(capital),
             Decimal(str(net)) - Decimal(str(tax)),
             number,
+            rupee_rate(currency, rate),
         )
-        for line_id, eligibility, capital, net, tax, number in session.execute(
+        for (
+            line_id,
+            eligibility,
+            capital,
+            net,
+            tax,
+            number,
+            currency,
+            rate,
+        ) in session.execute(
             select(
                 PurchaseInvoiceLine.id,
                 PurchaseInvoiceLine.itc_eligibility,
@@ -221,6 +259,8 @@ def _taken_back(session: Session, lines: list[_Taking]) -> dict[UUID, _TakenBack
                 PurchaseInvoiceLine.net_amount,
                 PurchaseInvoiceLine.tax_amount,
                 PurchaseInvoice.invoice_number,
+                PurchaseInvoice.currency_code,
+                PurchaseInvoice.exchange_rate,
             )
             .join(
                 PurchaseInvoice,
@@ -257,8 +297,9 @@ def _taken_back(session: Session, lines: list[_Taking]) -> dict[UUID, _TakenBack
         for bill_line_id, weight in named:
             if bill_line_id not in bill_lines:
                 continue
-            claimable, capital, bill_value, number = bill_lines[bill_line_id]
+            claimable, capital, bill_value, number, rate = bill_lines[bill_line_id]
             taken.bills.add(number)
+            taken.rate = rate
             ratio = (
                 min(taxable * weight / bill_value, Decimal("1"))
                 if bill_value > ZERO
@@ -266,10 +307,10 @@ def _taken_back(session: Session, lines: list[_Taking]) -> dict[UUID, _TakenBack
             )
             for code, amount, reverse in charged.get(bill_line_id, []):
                 if reverse:
-                    share = amount * ratio
+                    share = amount * ratio * rate
                     taken.reverse_charge += share
                 elif supplier_tax > ZERO:
-                    share = tax * amount * weight / supplier_tax
+                    share = tax * amount * weight / supplier_tax * rate
                 else:
                     continue
                 bucket = _bucket(code, share)
@@ -457,7 +498,15 @@ class GstPurchaseRegisterService:
         for bill in bills:
             heads = per_bill[bill.id]
             tax = sum((heads[head] for head in HEADS), ZERO)
-            total = Decimal(str(bill.grand_total))
+            # A bill in another currency is listed at its stored rupee
+            # figures, the ones its journal posted (D-BUY-35).
+            rate = rupee_rate(bill.currency_code, bill.exchange_rate)
+            if rate != ONE and bill.base_grand_total is not None:
+                total = Decimal(str(bill.base_grand_total))
+                charged = Decimal(str(bill.base_tax_total or ZERO))
+            else:
+                total = Decimal(str(bill.grand_total)) * rate
+                charged = Decimal(str(bill.tax_total)) * rate
             name, gstin = vendors.get(bill.vendor_id, (str(bill.vendor_id), None))
             rows[bill.id] = GstPurchaseRegisterRow(
                 invoice_id=bill.id,
@@ -470,7 +519,7 @@ class GstPurchaseRegisterService:
                 vendor_gstin=gstin,
                 # What the bill charged before tax, as the GSTR-2B
                 # reconciliation reads it: the total less the tax on it.
-                taxable_value=quantize_money(total - Decimal(str(bill.tax_total))),
+                taxable_value=quantize_money(total - charged),
                 igst=quantize_money(heads["igst"]),
                 cgst=quantize_money(heads["cgst"]),
                 sgst=quantize_money(heads["sgst"]),
@@ -478,7 +527,7 @@ class GstPurchaseRegisterService:
                 total_tax=quantize_money(tax),
                 itc_not_claimable=quantize_money(heads["not_claimable"]),
                 reverse_charge_tax=quantize_money(
-                    Decimal(str(bill.reverse_charge_tax_total or ZERO))
+                    Decimal(str(bill.reverse_charge_tax_total or ZERO)) * rate
                 ),
                 invoice_total=quantize_money(total),
                 capital_goods_tax=quantize_money(heads["capital"]),
@@ -620,6 +669,10 @@ class GstPurchaseRegisterService:
             head: sum((part.heads[head] for part in taken), ZERO) for head in HEADS
         }
         bills = sorted({bill for part in taken for bill in part.bills})
+        # The document is in its bill's currency; its own value goes back at
+        # the bill's rate, as each head above already has.
+        rate = next((part.rate for part in taken if part.rate != ONE), ONE)
+        taxable, total = taxable * rate, total * rate
         name, gstin = vendors.get(vendor_id, (str(vendor_id), None))
         return GstPurchaseRegisterRow(
             invoice_id=document_id,
@@ -694,6 +747,8 @@ class GstPurchaseRegisterService:
                 PurchaseInvoiceLine.current_invoice_quantity,
                 PurchaseInvoiceLine.net_amount,
                 PurchaseInvoiceLine.tax_amount,
+                PurchaseInvoice.currency_code,
+                PurchaseInvoice.exchange_rate,
             )
             .join(
                 PurchaseInvoice,
@@ -714,7 +769,7 @@ class GstPurchaseRegisterService:
         ).all()
         line_heads = _heads_by_line(self._session, [line[0] for line in lines])
         groups: dict[tuple[str, str], HsnPurchaseRow] = {}
-        for line_id, bill_id, hsn, name, unit, quantity, net, tax in lines:
+        for line_id, bill_id, hsn, name, unit, quantity, net, tax, code, rate in lines:
             row = groups.get((hsn, unit))
             if row is None:
                 row = groups[(hsn, unit)] = HsnPurchaseRow(
@@ -725,7 +780,9 @@ class GstPurchaseRegisterService:
                     taxable_value=ZERO,
                 )
             row.quantity += Decimal(str(quantity))
-            row.taxable_value += Decimal(str(net)) - Decimal(str(tax))
+            row.taxable_value += (Decimal(str(net)) - Decimal(str(tax))) * rupee_rate(
+                code, rate
+            )
             for head in HEADS:
                 setattr(row, head, getattr(row, head) + line_heads[line_id][head])
             row._bill_ids.add(bill_id)
@@ -844,7 +901,7 @@ class GstPurchaseRegisterService:
                     taxable_value=ZERO,
                 )
             row.quantity -= quantity
-            row.taxable_value -= taxable
+            row.taxable_value -= taxable * taken[line_id].rate
             for head in HEADS:
                 setattr(row, head, getattr(row, head) - taken[line_id].heads[head])
         rows = []

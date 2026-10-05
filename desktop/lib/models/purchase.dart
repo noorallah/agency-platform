@@ -144,7 +144,12 @@ class PurchaseOrderLine {
     this.rateContractLineId = '',
     this.schemeId = '',
     this.schemeName = '',
+    this.isCapitalGoods = false,
   });
+
+  /// A fixed asset rather than stock: received without entering stock, and
+  /// the bill raises the asset (D-BUY-40).
+  final bool isCapitalGoods;
 
   final String id;
   final int lineNumber;
@@ -255,6 +260,7 @@ class PurchaseOrderLine {
         rateContractLineId: stringValue(json['rate_contract_line_id']),
         schemeId: stringValue(json['scheme_id']),
         schemeName: stringValue(json['scheme_name']),
+        isCapitalGoods: boolValue(json['is_capital_goods']),
       );
 
   PurchaseOrderLine copyWith({
@@ -281,6 +287,7 @@ class PurchaseOrderLine {
     String? remarks,
     String? schemeId,
     String? schemeName,
+    bool? isCapitalGoods,
   }) =>
       PurchaseOrderLine(
         id: id ?? this.id,
@@ -327,6 +334,7 @@ class PurchaseOrderLine {
         rateContractLineId: rateContractLineId,
         schemeId: schemeId ?? this.schemeId,
         schemeName: schemeName ?? this.schemeName,
+        isCapitalGoods: isCapitalGoods ?? this.isCapitalGoods,
       );
 
   /// A line that only gives goods: nothing is paid for, a scheme says why.
@@ -404,6 +412,8 @@ class PurchaseOrderLine {
         if (warehouseId.isNotEmpty) 'warehouse_id': warehouseId,
         if (storageNodeId.isNotEmpty) 'storage_node_id': storageNodeId,
         if (remarks.isNotEmpty) 'remarks': remarks,
+        // Named only when ticked: silence is stock.
+        if (isCapitalGoods) 'is_capital_goods': true,
       };
 }
 
@@ -688,7 +698,16 @@ class PurchaseOrder {
     this.attributes = const [],
     this.attributeInputs,
     this.rateContractWarning,
+    this.savedCurrencyCode,
+    this.savedExchangeRate,
   });
+
+  /// The currency and rate the server held when this order was read; null on
+  /// an order that has not been saved. An update sends the two keys only when
+  /// they differ from these, because a key left out keeps what the order
+  /// holds (D-BUY-39).
+  final String? savedCurrencyCode;
+  final String? savedExchangeRate;
 
   /// An over-draw warning from a rate contract; never blocks (PG-9).
   final String? rateContractWarning;
@@ -870,6 +889,8 @@ class PurchaseOrder {
                 (json['rate_contract_warning'] as String).isNotEmpty
             ? json['rate_contract_warning'] as String
             : null,
+        savedCurrencyCode: stringValue(json['currency_code']),
+        savedExchangeRate: stringValue(json['exchange_rate']),
       );
 
   PurchaseOrder copyWith({
@@ -910,6 +931,8 @@ class PurchaseOrder {
         attributes: attributes,
         attributeInputs: attributeInputs ?? this.attributeInputs,
         rateContractWarning: rateContractWarning,
+        savedCurrencyCode: savedCurrencyCode,
+        savedExchangeRate: savedExchangeRate,
         firmId: firmId,
         branchId: branchId ?? this.branchId,
         warehouseId: warehouseId ?? this.warehouseId,
@@ -974,8 +997,11 @@ class PurchaseOrder {
           'expected_delivery_date': expectedDeliveryDate,
         if (paymentTerms.isNotEmpty) 'payment_terms': paymentTerms,
         if (deliveryTerms.isNotEmpty) 'delivery_terms': deliveryTerms,
-        if (currencyCode.isNotEmpty) 'currency_code': currencyCode,
-        if (exchangeRate.isNotEmpty) 'exchange_rate': exchangeRate,
+        // Rupees, blank or INR, send neither key; a foreign order sends both
+        // (D-BUY-39).
+        if (_foreignCurrency(currencyCode)) 'currency_code': currencyCode,
+        if (_foreignCurrency(currencyCode) && exchangeRate.isNotEmpty)
+          'exchange_rate': exchangeRate,
         if (referenceNumber.isNotEmpty) 'reference_number': referenceNumber,
         if (externalReference.isNotEmpty)
           'external_reference': externalReference,
@@ -1013,7 +1039,35 @@ class PurchaseOrder {
     // validation failed." -- seven times on the day it was found, with the
     // editor showing only that sentence.
     body.remove('po_number');
+    // A key left out keeps what the order holds and an explicit null clears
+    // it, so the two travel only when they changed from what was read.
+    body.remove('currency_code');
+    body.remove('exchange_rate');
+    final String now = _foreignCurrency(currencyCode)
+        ? currencyCode.trim().toUpperCase()
+        : '';
+    final String was = _foreignCurrency(savedCurrencyCode ?? '')
+        ? (savedCurrencyCode ?? '').trim().toUpperCase()
+        : '';
+    final String nowRate = now.isEmpty ? '' : exchangeRate.trim();
+    final String wasRate = was.isEmpty ? '' : (savedExchangeRate ?? '').trim();
+    if (now != was) body['currency_code'] = now.isEmpty ? null : now;
+    if (!_sameRate(nowRate, wasRate)) {
+      body['exchange_rate'] = nowRate.isEmpty ? null : nowRate;
+    }
     return body;
+  }
+
+  static bool _foreignCurrency(String code) {
+    final String upper = code.trim().toUpperCase();
+    return upper.isNotEmpty && upper != 'INR';
+  }
+
+  static bool _sameRate(String a, String b) {
+    if (a == b) return true;
+    final double? x = double.tryParse(a);
+    final double? y = double.tryParse(b);
+    return x != null && y != null && x == y;
   }
 }
 

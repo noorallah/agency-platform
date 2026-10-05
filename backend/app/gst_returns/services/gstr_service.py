@@ -62,6 +62,7 @@ from app.customers.gst_registration import (
 )
 from app.customers.models import Customer, CustomerReceivableTransaction
 from app.debit_note.models import DebitNote, DebitNoteStatus
+from app.finance.currency import rupee_rate_sql
 from app.gst_returns.services.filing_frequency import (
     FilingFrequencyService,
     FilingPlan,
@@ -887,11 +888,16 @@ class GstReturnService:
             else set()
         )
         billed_ids: set[UUID] = set()
+        # A bill in another currency claims in rupees at its own rate, as
+        # its journal posted and the GST purchase register lists (D-BUY-35).
         for invoice_id, code, amount, recoverable, eligibility in self._session.execute(
             select(
                 PurchaseInvoice.id,
                 PurchaseInvoiceLineTax.component_code,
-                PurchaseInvoiceLineTax.amount,
+                PurchaseInvoiceLineTax.amount
+                * rupee_rate_sql(
+                    PurchaseInvoice.currency_code, PurchaseInvoice.exchange_rate
+                ),
                 PurchaseInvoiceLineTax.recoverable,
                 PurchaseInvoiceLine.itc_eligibility,
             )
@@ -1242,6 +1248,9 @@ class GstReturnService:
         owed = GstBuckets()
         credit = GstBuckets()
         lines_counted: set[UUID] = set()
+        rupees = rupee_rate_sql(
+            PurchaseInvoice.currency_code, PurchaseInvoice.exchange_rate
+        )
         for (
             line_id,
             line_net,
@@ -1252,10 +1261,12 @@ class GstReturnService:
         ) in self._session.execute(
             select(
                 PurchaseInvoiceLine.id,
-                PurchaseInvoiceLine.net_amount,
-                PurchaseInvoiceLine.tax_amount,
+                # In rupees: an import of services under reverse charge is
+                # billed in the supplier's currency (D-BUY-35).
+                PurchaseInvoiceLine.net_amount * rupees,
+                PurchaseInvoiceLine.tax_amount * rupees,
                 PurchaseInvoiceLineTax.component_code,
-                PurchaseInvoiceLineTax.amount,
+                PurchaseInvoiceLineTax.amount * rupees,
                 PurchaseInvoiceLineTax.recoverable,
             )
             .join(

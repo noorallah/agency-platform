@@ -2646,6 +2646,49 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
 
   void _setState(VoidCallback change) => setState(change);
 
+  /// D-BUY-39: whether the currency box was typed in. Until it is, a new
+  /// order shows the supplier's own currency and sends it, because the server
+  /// holds only what the client sends and does not default it.
+  bool _currencyTouched = false;
+
+  /// The currency of the supplier's account; blank is rupees.
+  String get _supplierCurrency {
+    for (final Vendor item in widget.vendors) {
+      if (item.id == _draft.vendorId) return item.currencyCode;
+    }
+    return '';
+  }
+
+  /// The order's currency: what was typed, else the supplier's on a new
+  /// order, else what the order holds. Blank and INR both read as blank.
+  String get _orderCurrency {
+    final bool followsSupplier =
+        !_currencyTouched && widget.mode == PurchaseDialogMode.create;
+    final String code =
+        (followsSupplier ? _supplierCurrency : _draft.currencyCode)
+            .trim()
+            .toUpperCase();
+    return code == 'INR' ? '' : code;
+  }
+
+  bool get _foreignOrder => _orderCurrency.isNotEmpty;
+
+  bool get _rateIsValid =>
+      (double.tryParse(_draft.exchangeRate.trim()) ?? 0) > 0;
+
+  /// The draft as it is sent: its currency settled and, for a rupee order,
+  /// no rate. A foreign order whose rate is not yet typed is priced as it
+  /// stands, because the server refuses one without a rate.
+  PurchaseOrder _draftToSend({bool pricing = false}) {
+    if (!_foreignOrder || (pricing && !_rateIsValid)) {
+      return _draft.copyWith(currencyCode: '', exchangeRate: '');
+    }
+    return _draft.copyWith(
+      currencyCode: _orderCurrency,
+      exchangeRate: _draft.exchangeRate.trim(),
+    );
+  }
+
   /// The firm's own fields on a purchase order (MST-6), sent only once the
   /// definitions arrived.
   late final CustomFieldsController _customFields = CustomFieldsController(
@@ -2706,7 +2749,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
     if (!_phase2 || _locked) return;
     _previewTimer?.cancel();
     _previewTimer = Timer(const Duration(milliseconds: 350), () async {
-      final PurchaseOrder draft = _draft;
+      final PurchaseOrder draft = _draftToSend(pricing: true);
       if (draft.vendorId.isEmpty ||
           draft.branchId.isEmpty ||
           draft.warehouseId.isEmpty ||
@@ -3814,6 +3857,16 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
       });
       return;
     }
+    if (_orderCurrency.isNotEmpty &&
+        !RegExp(r'^[A-Z]{3}$').hasMatch(_orderCurrency)) {
+      setState(() => _error = 'A currency is a three-letter code, like USD.');
+      return;
+    }
+    if (_foreignOrder && !_rateIsValid) {
+      setState(() => _error = 'Enter the exchange rate: the rupees one '
+          '$_orderCurrency is worth, above 0.');
+      return;
+    }
     final String? customField = _customFields.validate();
     if (customField != null) {
       setState(() => _error = customField);
@@ -3822,8 +3875,8 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
     // Only once the definitions arrived: absent leaves the stored values
     // alone, and an empty list would clear them.
     final PurchaseOrder sending = _customFields.hasFields
-        ? _draft.copyWith(attributeInputs: _customFields.payload())
-        : _draft;
+        ? _draftToSend().copyWith(attributeInputs: _customFields.payload())
+        : _draftToSend();
     String? amendReason;
     if (widget.isAmending) {
       amendReason = await askForReason(

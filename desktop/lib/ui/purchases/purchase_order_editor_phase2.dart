@@ -655,6 +655,49 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
               _setState(() => _draft = _draft.copyWith(priority: value)),
         ),
       ),
+      // D-BUY-39: the currency the supplier is paid in. Untouched, a new
+      // order shows the supplier's own and sends it; blank or INR is rupees.
+      DocumentField(
+        label: 'Currency',
+        width: 110,
+        child: TextFormField(
+          key: ValueKey<String>(
+            'purchase-order-currency-${_draft.vendorId}-$_supplierCurrency',
+          ),
+          initialValue: _orderCurrency,
+          readOnly: _locked,
+          maxLength: 3,
+          textCapitalization: TextCapitalization.characters,
+          decoration: documentBoxDecoration(context, hint: 'INR').copyWith(
+            counterText: '',
+          ),
+          onChanged: (value) {
+            _setState(() {
+              _draft = _draft.copyWith(
+                currencyCode: value.trim().toUpperCase(),
+              );
+              _currencyTouched = true;
+            });
+            _schedulePreview();
+          },
+        ),
+      ),
+      if (_foreignOrder)
+        DocumentField(
+          label: 'Exchange rate (₹ per $_orderCurrency)',
+          width: 190,
+          child: TextFormField(
+            key: ValueKey<String>('purchase-order-exchange-rate-$_orderCurrency'),
+            initialValue: _draft.exchangeRate,
+            readOnly: _locked,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: documentBoxDecoration(context, hint: 'e.g. 84.10'),
+            onChanged: (value) {
+              _setState(() => _draft = _draft.copyWith(exchangeRate: value));
+              _schedulePreview();
+            },
+          ),
+        ),
     ]);
   }
 
@@ -1189,9 +1232,18 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
     final double charges =
         _number(order?.additionalCharges ?? _draft.additionalCharges);
     final bool? interstate = _preview?.interstate;
+    final double grand =
+        order == null ? taxable + charges : _number(order.grandTotal);
     return DocumentTotalsBar(
       total: order == null ? null : _number(order.grandTotal),
-      note: _draft.vendorId.isEmpty ||
+      note: _foreignOrder
+          ? (_rateIsValid
+              ? 'Totals are in $_orderCurrency; about '
+                  '${indianAmount(grand * _number(_draft.exchangeRate), full: true)}'
+                  ' in rupees at ${_draft.exchangeRate.trim()}.'
+              : 'Totals are in $_orderCurrency; the rupee equivalent follows '
+                  'once the rate is typed.')
+          : _draft.vendorId.isEmpty ||
               _draft.branchId.isEmpty ||
               _draft.warehouseId.isEmpty
           ? 'Choose the vendor, branch and warehouse, and the order is priced '
@@ -1212,10 +1264,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
           ('SGST', tax / 2),
         ],
         if (charges != 0) ('Other charges', charges),
-        (
-          'Total',
-          order == null ? taxable + charges : _number(order.grandTotal)
-        ),
+        (_foreignOrder ? 'Total $_orderCurrency' : 'Total', grand),
       ],
     );
   }
@@ -1403,6 +1452,27 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
           if (product.taxProfileGroupCode.isNotEmpty)
             'tax group ${product.taxProfileGroupCode}',
         ].join(' · ')),
+      // D-BUY-40: a fixed asset rather than stock. Sent only when ticked.
+      Row(
+        children: [
+          Checkbox(
+            key: ValueKey<String>('purchase-order-capital-${_draft.id}-$index'),
+            visualDensity: VisualDensity.compact,
+            value: line.isCapitalGoods,
+            onChanged: _locked || _saving
+                ? null
+                : (value) => _changeLine(
+                      index,
+                      line.copyWith(isCapitalGoods: value ?? false),
+                    ),
+          ),
+          const Expanded(child: Text('Capital goods')),
+        ],
+      ),
+      const DocumentSideNote(
+        'A fixed asset, not stock: received without entering stock, and the '
+        'bill raises the asset.',
+      ),
       if (_showsProgress && line.id.isNotEmpty) ...[
         const DocumentSideHeading('Received and billed'),
         DocumentSidePair('Received', _qty(line.receivedQuantity)),

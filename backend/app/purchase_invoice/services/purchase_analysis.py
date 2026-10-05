@@ -15,6 +15,10 @@ receipts -- what arrived, billed or not -- and **ordered** reads purchase
 orders approved or further on, never a draft, one awaiting approval or a
 cancelled one. Nothing is netted off either. The **rate trend** lists one
 product's billed rate bill by bill, so a buyer sees a supplier's price creep.
+
+Every value is in **rupees** (D-BUY-35): a bill, an order or a return in
+another currency (PG-12) counts at its own rate, and a receipt at its order's,
+which is the rate its stock was valued at. Quantities are never converted.
 """
 
 from dataclasses import dataclass
@@ -29,6 +33,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from app.branches.models import Branch
 from app.core.exceptions import ValidationError
+from app.finance.currency import rupee_rate_sql
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.products.models import Product, ProductCategory
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
@@ -168,7 +173,10 @@ class PurchaseAnalysisService:
     ) -> list[tuple[PurchaseInvoice, Decimal]]:
         """List the bills behind a cell, with what their matching lines came to."""
         query = (
-            select(PurchaseInvoice, func.sum(PurchaseInvoiceLine.net_amount))
+            select(
+                PurchaseInvoice,
+                func.sum(PurchaseInvoiceLine.net_amount * self._rupees("bill")),
+            )
             .join(
                 PurchaseInvoiceLine,
                 PurchaseInvoiceLine.purchase_invoice_id == PurchaseInvoice.id,
@@ -210,7 +218,8 @@ class PurchaseAnalysisService:
             raise ValidationError("The period must not run backwards.")
         quantity = func.sum(PurchaseInvoiceLine.current_invoice_quantity)
         taxable = func.sum(
-            PurchaseInvoiceLine.net_amount - PurchaseInvoiceLine.tax_amount
+            (PurchaseInvoiceLine.net_amount - PurchaseInvoiceLine.tax_amount)
+            * self._rupees("bill")
         )
         query = (
             select(
@@ -341,8 +350,44 @@ class PurchaseAnalysisService:
             PurchaseInvoiceLine.is_deleted.is_(False),
         ]
 
+    @staticmethod
+    def _rupees(kind: str) -> ColumnElement[Any]:
+        """Return the rupees one unit of a document of this kind is worth."""
+        if kind == "bill":
+            return rupee_rate_sql(
+                PurchaseInvoice.currency_code, PurchaseInvoice.exchange_rate
+            )
+        if kind == "order":
+            return rupee_rate_sql(
+                PurchaseOrder.currency_code, PurchaseOrder.exchange_rate
+            )
+        if kind == "receipt":
+            # A receipt carries no currency of its own: its order's.
+            ordered = PurchaseOrder.__table__.alias("receipt_order")
+            return func.coalesce(
+                select(rupee_rate_sql(ordered.c.currency_code, ordered.c.exchange_rate))
+                .where(ordered.c.id == GoodsReceipt.purchase_order_id)
+                .scalar_subquery(),
+                1,
+            )
+        return rupee_rate_sql(
+            PurchaseReturn.currency_code, PurchaseReturn.exchange_rate
+        )
+
     def _sources(self, kind: str) -> dict[str, Any]:
-        """Return the columns each kind contributes, under one set of names."""
+        """Return the columns each kind contributes, under one set of names.
+
+        The three values are in rupees; the quantity is as entered.
+        """
+        source = self._columns(kind)
+        rupees = self._rupees(kind)
+        return {
+            **source,
+            **{name: source[name] * rupees for name in ("taxable", "tax", "net")},
+        }
+
+    def _columns(self, kind: str) -> dict[str, Any]:
+        """Return each kind's columns as its documents hold them."""
         if kind == "bill":
             return {
                 "date": PurchaseInvoice.invoice_date,

@@ -290,9 +290,12 @@ Dr  1330 Input SGST                     3285.00
 ```
 
 The GST is claimed in full and shown apart in the GST purchase register as
-*Capital goods tax*. This works where the bill raises its own receipt (the
-receipt stage off): a line billing a receipt somebody already completed is
-refused, because those goods are in stock. Afterwards the asset
+*Capital goods tax*. A firm on the whole chain marks the line **Capital
+goods** on the purchase order (or on the receipt): the receipt then brings it
+in with no stock movement and no accrual, and the bill line billing it is
+capital goods and posts the same journal (D-BUY-40). Only a line a receipt
+has already taken into stock is refused, because those goods are in stock --
+untick it, or cancel the receipt and mark the line first. Afterwards the asset
 is depreciated by run (Dr 6950 Depreciation / Cr 1590 Accumulated
 Depreciation) and leaves at book value on disposal, with the difference to
 4960; cancelling the bill takes the asset off the register unless it has been
@@ -560,6 +563,14 @@ On GSTR-3B, blocked credit is reported in 4(A)(5) and reversed in 4(B)(1)
 a 4(B)(2) reversal, because nothing was claimed.
 
 ### The GST purchase register and HSN summary
+
+**Every figure is in rupees** (D-BUY-35). A bill in another currency is listed
+at its stored rupee totals (`base_grand_total`, `base_tax_total`) and each
+head at the bill's own rate -- what its journal posted -- and a debit note or
+a return against it at the same rate. GSTR-3B's input credit (4(A)(5)) and
+reverse charge (3.1(d), 4(A)(3)) read the bill the same way, and so do the
+purchase invoice register and purchase analysis (an order at its own rate, a
+receipt at its order's).
 
 Reports > Financial > *GST purchase register* and *HSN summary of purchases*
 (`GET /api/v1/purchase-invoices/reports/gst-register` and `/hsn-summary`,

@@ -76,10 +76,65 @@ class _TdsSectionSettingsCardState extends State<TdsSectionSettingsCard> {
     return body;
   }
 
+  /// What the server refuses, said before the call (D-BUY-38): a rate is a
+  /// number more than 0 and at most 30, a threshold is a number not below 0,
+  /// and only the per-single-payment limit of 194C may be left blank (that
+  /// clears it). Only fields about to be sent are looked at.
+  String? _refusal(Json body) {
+    String? rate(String key, String name) {
+      if (!body.containsKey(key)) return null;
+      final String text = '${body[key] ?? ''}';
+      final double? value = double.tryParse(text);
+      if (text.isEmpty) {
+        return 'Enter $name: a number more than 0 and at most 30.';
+      }
+      if (value == null || !(value > 0 && value <= 30)) {
+        return '$name must be a number more than 0 and at most 30.';
+      }
+      return null;
+    }
+
+    String? threshold(String key, String name, {required bool mayBeBlank}) {
+      if (!body.containsKey(key)) return null;
+      final String text = '${body[key] ?? ''}';
+      if (text.isEmpty) {
+        return mayBeBlank ? null : 'Enter $name (0 means no limit).';
+      }
+      final double? value = double.tryParse(text);
+      if (value == null) return '$name must be a number.';
+      if (value < 0) return '$name cannot be below 0.';
+      return null;
+    }
+
+    return (_hasSingle
+            ? threshold('single_threshold_amount', 'The limit per payment',
+                mayBeBlank: true)
+            : null) ??
+        threshold('annual_threshold_amount',
+            'The limit per supplier, per year',
+            mayBeBlank: false) ??
+        rate('rate_percent', _rateLabel) ??
+        rate('lower_rate_percent', _lowerLabel) ??
+        rate('rate_without_pan_percent', 'The rate without a PAN');
+  }
+
+  String get _rateLabel => _hasSingle
+      ? 'Rate % (companies, firms and others)'
+      : 'Rate % for professional fees';
+
+  String get _lowerLabel => _hasSingle
+      ? 'Rate % for an individual or HUF'
+      : 'Rate % for technical services, call centres and royalty on films';
+
   Future<void> _save() async {
     final Json body = _changes();
     if (body.isEmpty) {
       setState(() => _error = 'Nothing has changed.');
+      return;
+    }
+    final String? refusal = _refusal(body);
+    if (refusal != null) {
+      setState(() => _error = refusal);
       return;
     }
     setState(() {
@@ -109,6 +164,7 @@ class _TdsSectionSettingsCardState extends State<TdsSectionSettingsCard> {
     String label,
     TextEditingController box, {
     String? helper,
+    int? helperMaxLines,
   }) =>
       Padding(
         padding: const EdgeInsets.only(top: AppSpacing.sm),
@@ -116,7 +172,11 @@ class _TdsSectionSettingsCardState extends State<TdsSectionSettingsCard> {
           key: ValueKey('tds${widget.section}-$key'),
           controller: box,
           enabled: widget.editable && !_saving,
-          decoration: InputDecoration(labelText: label, helperText: helper),
+          decoration: InputDecoration(
+            labelText: label,
+            helperText: helper,
+            helperMaxLines: helperMaxLines,
+          ),
         ),
       );
 
@@ -141,13 +201,18 @@ class _TdsSectionSettingsCardState extends State<TdsSectionSettingsCard> {
         ),
         if (_hasSingle) _field('single', 'Threshold per payment', _single),
         _field('annual', 'Threshold per supplier, per year', _annual),
-        _field('rate', 'Rate %', _rate),
+        _field('rate', _rateLabel, _rate),
         _field(
           'lower',
-          'Lower rate % (certificate)',
+          _lowerLabel,
           _lower,
-          helper: 'Only where the supplier holds a lower-deduction '
-              'certificate; blank means none.',
+          helper: _hasSingle
+              ? 'Used where the supplier is marked an individual or HUF on '
+                  'the supplier form, or, when that is left on Auto, where '
+                  'the fourth letter of the PAN is P or H.'
+              : 'Used where the supplier is marked as providing technical '
+                  'services on the supplier form.',
+          helperMaxLines: 3,
         ),
         _field(
           'no-pan',

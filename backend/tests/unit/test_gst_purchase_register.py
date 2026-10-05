@@ -15,6 +15,7 @@ from app.branches.models import Branch
 from app.core.database.base import Base
 from app.core.pagination.reports import ReportRows, ReportWindow
 from app.debit_note.models import DebitNote, DebitNoteLine
+from app.finance.currency import to_base
 from app.firms.models import Firm
 from app.products.models import Product
 from app.purchase_invoice.models import (
@@ -130,11 +131,15 @@ class _World:
         status: str = "APPROVED",
         day: date = DAY,
         reverse_charge_tax: Decimal = Decimal("0"),
+        currency: str | None = None,
+        rate: str | None = None,
     ) -> PurchaseInvoice:
         """Write one bill whose lines carry the tax components given.
 
         Each line is ``product``, ``uom``, ``quantity``, ``taxable``,
-        ``taxes`` (component code to amount) and optionally ``eligibility``.
+        ``taxes`` (component code to amount) and optionally ``eligibility``
+        and ``capital``. A ``currency`` and ``rate`` make it a bill in another
+        currency, stamped with its rupee totals as saving one stamps them.
         """
         self._numbers += 1
         taxable = sum((Decimal(line["taxable"]) for line in lines), Decimal("0"))
@@ -155,6 +160,14 @@ class _World:
             tax_total=tax,
             grand_total=taxable + tax,
             reverse_charge_tax_total=reverse_charge_tax,
+            currency_code=currency,
+            exchange_rate=Decimal(rate) if rate else None,
+            base_tax_total=to_base(tax, Decimal(rate)) if rate else None,
+            base_grand_total=(
+                to_base(taxable, Decimal(rate)) + to_base(tax, Decimal(rate))
+                if rate
+                else None
+            ),
         )
         self.session.add(bill)
         self.session.flush()
@@ -177,6 +190,7 @@ class _World:
                 net_amount=Decimal(spec["taxable"]) + line_tax,
                 invoice_uom_id=spec["uom"].id,
                 itc_eligibility=spec.get("eligibility", "ELIGIBLE"),
+                is_capital_goods=bool(spec.get("capital", False)),
             )
             self.session.add(line)
             self.session.flush()
@@ -413,6 +427,84 @@ def test_the_hsn_summary_nets_a_debit_note() -> None:
     assert rows[0].bills == 1
 
 
+def _usd_line(world: _World, **extra: object) -> dict[str, Any]:
+    """Return a line of 1,000 USD carrying 180 USD of IGST."""
+    return {
+        "product": world.soap,
+        "uom": world.pcs,
+        "quantity": "10",
+        "taxable": "1000",
+        "taxes": {"IGST": "180"},
+        **extra,
+    }
+
+
+def test_a_bill_in_another_currency_is_listed_in_rupees() -> None:
+    """D-BUY-35: 1,000 USD at 83.25 is 83,250.00, never 1,000.00."""
+    session = _session()
+    world = _World(session)
+    bill = world.bill(
+        world.interstate,
+        [
+            _usd_line(world),
+            _usd_line(world, eligibility="BLOCKED", capital=True),
+        ],
+        reverse_charge_tax=Decimal("10"),
+        currency="USD",
+        rate="83.25",
+    )
+    rupees = world.bill(world.local, [world.within_state(world.soap, world.pcs)])
+
+    rows = _by_number(GstPurchaseRegisterService(session).register(world.firm.id))
+
+    row = rows[bill.invoice_number]
+    assert row.taxable_value == Decimal("166500.00")
+    assert row.igst == row.total_tax == Decimal("29970.00")
+    assert row.invoice_total == Decimal("196470.00")
+    # The figures the bill's journal posted, to the paisa.
+    assert row.invoice_total == bill.base_grand_total
+    assert row.total_tax == bill.base_tax_total
+    assert row.itc_not_claimable == Decimal("14985.00")
+    assert row.capital_goods_tax == Decimal("14985.00")
+    assert row.reverse_charge_tax == Decimal("832.50")
+    # A rupee bill beside it reads exactly as it always did.
+    assert rows[rupees.invoice_number].taxable_value == Decimal("1000.00")
+    assert rows[rupees.invoice_number].invoice_total == Decimal("1180.00")
+
+
+def test_a_debit_note_against_a_foreign_bill_goes_back_at_the_bills_rate() -> None:
+    """A tenth of a USD bill taken back is a tenth of its rupees."""
+    session = _session()
+    world = _World(session)
+    bill = world.bill(
+        world.interstate, [_usd_line(world)], currency="USD", rate="83.25"
+    )
+    _note(world, bill, taxable="100", tax="18", quantity="1")
+
+    rows = _by_number(GstPurchaseRegisterService(session).register(world.firm.id))
+
+    note = rows["DN-001"]
+    assert note.taxable_value == Decimal("-8325.00")
+    assert note.igst == note.total_tax == Decimal("-1498.50")
+    assert note.invoice_total == Decimal("-9823.50")
+
+
+def test_the_hsn_summary_is_in_rupees_for_a_foreign_bill() -> None:
+    """The HSN fold of a USD bill, and of a note against it, is rupees."""
+    session = _session()
+    world = _World(session)
+    bill = world.bill(
+        world.interstate, [_usd_line(world)], currency="USD", rate="83.25"
+    )
+    _note(world, bill, taxable="100", tax="18", quantity="1")
+
+    (row,) = GstPurchaseRegisterService(session).hsn_summary(world.firm.id)
+
+    assert row.quantity == Decimal("9")
+    assert row.taxable_value == Decimal("74925.00")
+    assert row.igst == row.total_tax == Decimal("13486.50")
+
+
 def test_a_blocked_credit_line_counts_as_not_claimable() -> None:
     """Only the blocked line's tax is not claimable; the heads keep all of it."""
     session = _session()
@@ -569,3 +661,23 @@ def _statements(bills: int) -> tuple[int, int]:
 def test_the_statements_do_not_grow_with_the_bills() -> None:
     """Two bills with their notes and twelve cost the same statements."""
     assert _statements(2) == _statements(12)
+
+
+def test_gstr_3b_claims_a_foreign_bill_in_rupees_as_the_register_lists_it() -> None:
+    """D-BUY-35: the return and the register read one bill at one value."""
+    from app.gst_returns.services.gstr_service import GstReturnService
+
+    session = _session()
+    world = _World(session)
+    world.firm.gst_number = "29AAAAA0000A1Z5"
+    session.commit()
+    world.bill(world.interstate, [_usd_line(world)], currency="USD", rate="83.25")
+
+    summary = GstReturnService(session).gstr3b(
+        firm_scope=world.firm.id, from_date=date(2026, 8, 1), to_date=date(2026, 8, 31)
+    )
+    (row,) = GstPurchaseRegisterService(session).register(world.firm.id)
+
+    eligible = summary["eligible_itc"]
+    assert isinstance(eligible, dict)
+    assert Decimal(str(eligible["integrated_tax"])) == row.igst == Decimal("14985.00")

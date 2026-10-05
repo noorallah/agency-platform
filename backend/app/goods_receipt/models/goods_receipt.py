@@ -254,6 +254,13 @@ class GoodsReceiptLine(BaseEntity):
     #: per stock unit before tax: handed to the batch on completion.
     ptr: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     pts: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    #: Capital goods (PG-13, D-BUY-40): received, but put into no stock and
+    #: accrued nothing -- the bill debits it to a fixed asset. Taken from the
+    #: order line unless the receipt says otherwise, and fixed once the
+    #: receipt is completed.
+    is_capital_goods: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     inventory_transaction_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("inventory_transactions.id", ondelete="SET NULL")
     )

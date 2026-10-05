@@ -90,6 +90,9 @@ class PurchaseLineWrite(PurchaseSchema):
     batch_required: bool = False
     expiry_required: bool = False
     serial_required: bool = False
+    #: Capital goods (D-BUY-40): the receipt brings the line in without
+    #: putting it into stock, and the bill raises a fixed asset for it.
+    is_capital_goods: bool = False
     manufacturing_date: date | None = None
     expiry_date: date | None = None
     warehouse_id: UUID | None = None
@@ -143,6 +146,11 @@ class PurchaseOrderWrite(PurchaseSchema):
     expected_delivery_date: date | None = None
     payment_terms: str | None = Field(default=None, max_length=200)
     delivery_terms: str | None = Field(default=None, max_length=200)
+    #: The currency the supplier bills in (PG-12, D-BUY-39), an ISO code.
+    #: Blank or INR is rupees. Any other needs ``exchange_rate``, the rupees
+    #: one unit is worth; prices are then in that currency, receipts value
+    #: stock in rupees at the rate, and the bill is in the same currency.
+    #: Absent on an edit keeps what the order holds.
     currency_code: str | None = Field(default=None, max_length=10)
     exchange_rate: Decimal | None = Field(
         default=None, gt=0, max_digits=18, decimal_places=6
@@ -254,6 +262,7 @@ class PurchaseOrderLineResponse(PurchaseSchema):
     batch_required: bool
     expiry_required: bool
     serial_required: bool
+    is_capital_goods: bool = False
     manufacturing_date: date | None
     expiry_date: date | None
     warehouse_id: UUID | None

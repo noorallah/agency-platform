@@ -59,7 +59,15 @@ class GoodsReceiptDraftLine {
     this.remarks = '',
     this.schemeName = '',
     this.serialTracked = false,
+    this.orderedAsCapital = false,
+    this.capitalGoods = false,
   });
+
+  /// D-BUY-40: whether the order line was ordered as capital goods, and
+  /// whether this line is received as such. The key travels only when they
+  /// differ, so silence keeps meaning "as ordered".
+  final bool orderedAsCapital;
+  bool capitalGoods;
 
   /// Whether the product carries a serial per unit (PG-10).
   bool serialTracked;
@@ -156,6 +164,7 @@ class GoodsReceiptDraftLine {
         if (remarks.trim().isNotEmpty) 'remarks': remarks.trim(),
         if (schemeName.trim().isNotEmpty) 'scheme_name': schemeName.trim(),
         if (serialTracked && serialsTouched) 'serial_numbers': serials,
+        if (capitalGoods != orderedAsCapital) 'is_capital_goods': capitalGoods,
       };
 }
 
@@ -425,6 +434,7 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
       draft.schemeName = line.schemeName;
       draft.serialTracked = draft.serialTracked || line.serialTracked;
       draft.serials = List<String>.of(line.serialNumbers);
+      draft.capitalGoods = line.isCapitalGoods;
     }
     return drafts;
   }
@@ -453,6 +463,8 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
       expiryRequired: line.expiryRequired,
       receiptQuantity: '0',
       warehouseId: defaultWarehouse,
+      orderedAsCapital: line.isCapitalGoods,
+      capitalGoods: line.isCapitalGoods,
       serialTracked: widget.products
           .any((item) => item.id == line.productId && item.trackSerial),
     );

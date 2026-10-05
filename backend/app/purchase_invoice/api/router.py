@@ -42,6 +42,7 @@ from app.document_framework.schemas.bulk_actions import (
     BulkCancelRequest,
 )
 from app.document_framework.services.bulk_actions import run_each
+from app.finance.schemas.tds_sections import TdsProposalRecord
 from app.purchase_invoice.schemas import (
     PurchaseInvoiceApproveRequest,
     PurchaseInvoiceCreate,
@@ -678,6 +679,27 @@ def get_purchase_invoice(
             service.get_invoice(invoice_id, firm_scope=scope.firm_id)
         )
     )
+
+
+@router.get(
+    "/{invoice_id}/tds-proposal",
+    response_model=ApiResponse[TdsProposalRecord],
+)
+def purchase_invoice_tds_proposal(
+    invoice_id: UUID,
+    scope: PurchaseInvoiceViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[TdsProposalRecord]:
+    """Return what approving this bill would deduct under 194C or 194J (PG-5).
+
+    Worked on the bill's own base -- its lines and its additional charges,
+    before GST -- by the method approval uses, so the Approve dialog shows
+    the figure that will be posted (D-BUY-37).
+    """
+    proposal = PurchaseInvoiceService(db).tds_proposal(
+        invoice_id, firm_scope=scope.firm_id
+    )
+    return ApiResponse(data=TdsProposalRecord.model_validate(proposal))
 
 
 @router.get(
