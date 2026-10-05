@@ -77,7 +77,10 @@ void main() {
     await _financialTab(tester);
 
     expect(_limitBox(tester).readOnly, isTrue);
-    expect(find.textContaining(_helper), findsOneWidget);
+    // The limit's own hint, and the one under each of the other money terms
+    // the same code now locks on an edit.
+    expect(find.textContaining('Changing a credit limit needs'), findsOneWidget);
+    expect(find.textContaining(_helper), findsWidgets);
   });
 
   testWidgets('an unrelated edit still sends the stored limit unchanged',

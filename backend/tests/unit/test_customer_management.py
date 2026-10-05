@@ -621,6 +621,78 @@ def test_a_credit_limit_moves_only_for_whoever_writes_the_credit_policy() -> Non
     assert lifted.data.credit_limit == Decimal("0")
 
 
+@pytest.mark.parametrize(
+    ("field", "moved", "named"),
+    [
+        ("payment_terms_days", 90, "credit days"),
+        ("cash_discount_days", 7, "cash-discount terms"),
+        ("cash_discount_percent", "2.5", "cash-discount terms"),
+        ("opening_balance", "999.00", "opening balance"),
+    ],
+)
+def test_an_edit_moves_the_other_money_terms_only_with_the_settings_code(
+    field: str, moved: object, named: str
+) -> None:
+    """What a new customer may not be given, an edit may not give it either.
+
+    D-SELL-76 refused credit days, cash-discount terms and an opening balance
+    on a new customer without `CUSTOMER_MANAGE_SETTINGS`; the edit still took
+    all three on `CUSTOMER_UPDATE`, which the sales manager holds, so the
+    refusal lasted one save. Closed on the owner's word, 2026-10-05.
+    """
+    factory = _session_factory()
+    setup = factory()
+    firm = _firm(setup, "TERMS")
+    user_id = uuid4()
+    setup.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
+    setup.commit()
+    setup.close()
+
+    session = factory()
+    desk = _principal(user_id, {"CUSTOMER_VIEW", "CUSTOMER_UPDATE"})
+    scope = _firm_scope(desk, session, firm.id)
+    customer_id = create_customer(
+        _customer_data(), _office(user_id, session, firm.id), session
+    ).data.id
+    form = _customer_data().model_dump(mode="json")
+
+    # A form resending what is stored changes nothing and is not refused.
+    update_customer(
+        customer_id,
+        CustomerUpdate.model_validate({**form, "name": "Renamed"}),
+        scope,
+        Response(),
+        session,
+        None,
+    )
+    with pytest.raises(AuthorizationError, match=named) as refused:
+        update_customer(
+            customer_id,
+            CustomerUpdate.model_validate({**form, field: moved}),
+            scope,
+            Response(),
+            session,
+            None,
+        )
+    assert "CUSTOMER_MANAGE_SETTINGS" in str(refused.value)
+    session.rollback()
+
+    controller = _principal(
+        user_id, {"CUSTOMER_VIEW", "CUSTOMER_UPDATE", "CUSTOMER_MANAGE_SETTINGS"}
+    )
+    update_customer(
+        customer_id,
+        CustomerUpdate.model_validate({**form, field: moved}),
+        _firm_scope(controller, session, firm.id),
+        Response(),
+        session,
+        None,
+    )
+    stored = session.get(Customer, customer_id)
+    assert stored is not None
+    assert Decimal(str(getattr(stored, field))) == Decimal(str(moved))
+
+
 def test_a_standing_discount_moves_only_for_whoever_sets_the_prices() -> None:
     """The role that sells on a discount cannot hand itself one.
 
@@ -1096,6 +1168,8 @@ def test_revising_an_opening_balance_mirrors_the_one_it_replaces() -> None:
         ),
         firm_scope=firm.id,
         actor_id=actor_id,
+        may_change_credit_limit=True,
+        may_change_standing_discount=True,
     )
 
     references = sorted(
@@ -1331,6 +1405,8 @@ def test_revising_a_balance_twice_does_not_collide_with_its_own_reversal() -> No
             ),
             firm_scope=firm.id,
             actor_id=actor_id,
+            may_change_credit_limit=True,
+            may_change_standing_discount=True,
         )
 
     session.refresh(customer)

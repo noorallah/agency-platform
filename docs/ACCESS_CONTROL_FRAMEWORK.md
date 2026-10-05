@@ -1542,3 +1542,13 @@ the same applies to it on a create as it always has on an edit. The desktop
 locks the five boxes on a new customer without the code. A seeder or an
 internal caller that sets them passes `may_set_standing_discount=True`: it
 is the office.
+
+**An edit answers to the same code for all five** (owner's decision,
+2026-10-05). The credit limit and the standing discount already did
+(D-CFG-17, D-MST-2); credit days, cash-discount terms and the opening balance
+still rode on `CUSTOMER_UPDATE`, which the Sales Manager holds, so the
+refusal on a new customer lasted exactly one save.
+`CustomerService._assert_may_change_money_terms` refuses a *moved* figure;
+a form resending what is stored is not a change, and blank and zero are the
+same answer. The desktop locks the boxes on an edit as on a new customer and
+sends the stored figures back.

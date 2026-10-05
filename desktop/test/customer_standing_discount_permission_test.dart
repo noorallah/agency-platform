@@ -26,6 +26,8 @@ Json _customerJson() => <String, dynamic>{
       'status': 'ACTIVE',
       'credit_limit': '25000.00',
       'default_discount_percent': '7.5000',
+      'payment_terms_days': 45,
+      'opening_balance': '150.00',
       'addresses': const <Json>[],
       'contacts': const <Json>[],
     };
@@ -121,6 +123,34 @@ void main() {
     for (final String label in _moneyTerms) {
       expect(_readOnly(tester, label), isFalse, reason: label);
     }
+  });
+
+  testWidgets('an edit leaves the money terms to the office as well',
+      (tester) async {
+    // What a new customer may not be given, an edit may not give it: the
+    // server refuses moved credit days, cash-discount terms and an opening
+    // balance without the settings code, so the boxes are locked and the
+    // stored figures go back unchanged.
+    Json? saved;
+    await _open(
+      tester,
+      mode: CustomerDialogMode.edit,
+      mayChange: false,
+      mayChangeLimit: false,
+      onSaved: (payload) => saved = payload,
+    );
+    await _financialTab(tester);
+
+    for (final String label in _moneyTerms) {
+      expect(_readOnly(tester, label), isTrue, reason: label);
+    }
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(saved, isNotNull);
+    expect(saved!['credit_limit'], '25000.00');
+    expect(saved!['payment_terms_days'], 45);
+    expect(saved!['opening_balance'], '150.00');
   });
 
   testWidgets('without the settings code the discount cannot be edited',
