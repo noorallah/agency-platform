@@ -886,6 +886,27 @@ receivable from the supplier), reverse an accrual that was wrong, and settle it
 with a supplier adjustment of kind *Supplier rebate* rather than a debit note
 (which must name one bill).
 
+**Customer rebates** (server built 2026-10-05, SG-9; the screen follows). The
+same thing the other way round: "2% back on the year's purchases over 10 lakh",
+promised to **one customer or one customer group** for a period, with slabs.
+The turnover is counted from the documents GSTR-1 counts -- approved bills at
+taxable value, less completed sales returns and approved credit notes, plus
+approved debit notes, each on its own date -- and the highest slab reached sets
+the rate on the whole of it. A group's agreement adds up its members. One live
+agreement covers a customer over any dates: a second of its own whose period
+overlaps is refused, and so is one of its own beside its group's. Once the
+period is over the rebate is *accrued* (booked as owed to the customer), an
+accrual nothing has settled can be reversed and accrued again, and it is
+settled with a party adjustment of kind *Customer rebate*, which takes it off
+what the customer owes. The statement shows the turnover by customer, the slab
+reached, the next slab and how much more reaches it, what is accrued, settled
+and still to settle. **No GST is computed on a rebate.** The agreement records
+whether it was *agreed before the sale*: only then (CGST Act s.15(3)(b)) may
+the firm's CA reduce the taxable value with a GST credit note; otherwise the
+rebate is a financial credit and the tax charged stands. Not built: settling
+by linking a GST credit note, paying a rebate out in money where the customer
+owes less than the rebate, and accruing part-way through a period.
+
 **Principal Claims** (*Buy → All Buy screens → Money → Principal Claims*). What a principal (the
 brand owner) owes the firm: for each principal and period it gathers, once
 each, the redemptions of the schemes the principal funds (at its share), expiry

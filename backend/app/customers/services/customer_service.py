@@ -683,11 +683,13 @@ class CustomerService:
             # than turning given-up debt into money held for the customer.
             CustomerReceivableTransactionType.WRITE_OFF,
             CustomerReceivableTransactionType.SET_OFF,
+            # A rebate settlement clears a balance the same way (SG-9).
+            CustomerReceivableTransactionType.REBATE,
         }:
             if amount > current:
                 raise ValidationError(
                     f"The customer owes {current}, so {amount} cannot be "
-                    "written off or set off."
+                    "written off, set off or settled by a rebate."
                 )
             outstanding_delta = -amount
         elif tx_type == CustomerReceivableTransactionType.ADVANCE_RECEIPT:

@@ -43,6 +43,7 @@ from app.core.tenancy import (
 from app.counter_shifts.api import router as counter_shifts_router
 from app.credit_note.api.router import router as credit_notes_router
 from app.customer_debit_note.api.router import router as customer_debit_notes_router
+from app.customer_rebates.api import router as customer_rebates_router
 from app.customers.api import router as customers_router
 from app.debit_note.api.router import router as debit_notes_router
 from app.delivery_note.api import router as delivery_notes_router
@@ -195,6 +196,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(sales_targets_router)
     application.include_router(report_layouts_router)
     application.include_router(supplier_rebates_router)
+    application.include_router(customer_rebates_router)
     application.include_router(principal_claims_router)
     application.include_router(landed_costs_router)
     application.include_router(approvals_router)

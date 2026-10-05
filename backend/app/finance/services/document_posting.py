@@ -1835,6 +1835,9 @@ class DocumentPostingService:
           against what the firm owes it.
         * ``PRINCIPAL_CLAIM`` -- Dr payable, Cr claims receivable: a
           principal's credit note settling a claim (SEL-11).
+        * ``CUSTOMER_REBATE`` -- Dr customer rebate payable, Cr receivable:
+          an accrued turnover rebate (SG-9) set against what the customer
+          owes.
 
         No tax leg, ever. Reducing the value of a supply is a credit or debit
         note, which reverses tax; this only says the balance will not be paid.
@@ -1876,6 +1879,10 @@ class DocumentPostingService:
             "PRINCIPAL_CLAIM": (
                 ControlAccountPurpose.ACCOUNTS_PAYABLE,
                 ControlAccountPurpose.PRINCIPAL_CLAIM_RECEIVABLE,
+            ),
+            "CUSTOMER_REBATE": (
+                ControlAccountPurpose.CUSTOMER_REBATE_PAYABLE,
+                ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
             ),
         }
         if kind not in legs:
@@ -1962,6 +1969,65 @@ class DocumentPostingService:
                 ),
             ],
             source_module="supplier_rebates",
+            source_id=agreement_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_customer_rebate_accrual(
+        self,
+        *,
+        firm_id: UUID,
+        agreement_id: UUID,
+        reference_number: str,
+        agreement_code: str,
+        accrual_date: date,
+        amount: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Book a customer's turnover rebate earned over a period (SG-9).
+
+        Dr rebates allowed, Cr customer rebate payable: the firm owes the
+        customer the rebate from the day the period closes, whether it is set
+        against their account that week or that quarter. No tax leg: a rebate
+        does not move a bill's taxable value (CGST Act s.15(3)).
+
+        ``reference_number`` is the caller's, because an agreement accrued,
+        reversed and accrued again needs a reference per accrual.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        expense = ControlAccountPurpose.REBATES_ALLOWED
+        payable = ControlAccountPurpose.CUSTOMER_REBATE_PAYABLE
+        accounts = self._require_mapping(firm_id, (expense, payable))
+        context = self.context_for(firm_id, accrual_date)
+        value = quantize_ledger(quantize_money(amount))
+        describe = f"Turnover rebate {agreement_code}"
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=accrual_date,
+            reference_number=reference_number,
+            description=describe,
+            lines=[
+                JournalLineData(
+                    ledger_account_id=accounts[expense],
+                    debit_amount=value,
+                    credit_amount=ZERO,
+                    description=describe,
+                ),
+                JournalLineData(
+                    ledger_account_id=accounts[payable],
+                    debit_amount=ZERO,
+                    credit_amount=value,
+                    description=describe,
+                ),
+            ],
+            source_module="customer_rebates",
             source_id=agreement_id,
             actor_id=actor_id,
         )

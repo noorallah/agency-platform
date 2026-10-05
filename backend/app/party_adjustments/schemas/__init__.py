@@ -24,6 +24,7 @@ class PartyAdjustmentKindEnum(StrEnum):
     SET_OFF = "SET_OFF"
     SUPPLIER_REBATE = "SUPPLIER_REBATE"
     PRINCIPAL_CLAIM = "PRINCIPAL_CLAIM"
+    CUSTOMER_REBATE = "CUSTOMER_REBATE"
 
 
 class PartyAdjustmentStatusEnum(StrEnum):
@@ -82,6 +83,8 @@ class PartyAdjustmentCreate(PartyAdjustmentSchema):
     rebate_agreement_id: UUID | None = None
     #: The claim a ``PRINCIPAL_CLAIM`` settles, and only then (SEL-11).
     principal_claim_id: UUID | None = None
+    #: The turnover rebate a ``CUSTOMER_REBATE`` settles, and only then (SG-9).
+    customer_rebate_agreement_id: UUID | None = None
 
     @model_validator(mode="after")
     def _shape(self) -> "PartyAdjustmentCreate":
@@ -100,6 +103,14 @@ class PartyAdjustmentCreate(PartyAdjustmentSchema):
             raise ValueError("Name the claim this settles.")
         if not claim and self.principal_claim_id is not None:
             raise ValueError("Only a claim settlement names a claim.")
+        turnover = self.kind == PartyAdjustmentKindEnum.CUSTOMER_REBATE
+        if turnover and self.customer_rebate_agreement_id is None:
+            raise ValueError("Name the rebate agreement this settles.")
+        if not turnover and self.customer_rebate_agreement_id is not None:
+            raise ValueError(
+                "Only a customer's rebate settlement names a customer rebate "
+                "agreement."
+            )
         return self
 
 
@@ -172,6 +183,7 @@ class PartyAdjustmentResponse(PartyAdjustmentSchema):
     version: int
     rebate_agreement_id: UUID | None = None
     principal_claim_id: UUID | None = None
+    customer_rebate_agreement_id: UUID | None = None
 
 
 class PartyAdjustmentOpenBills(PartyAdjustmentSchema):

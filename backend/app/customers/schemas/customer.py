@@ -72,6 +72,10 @@ class CustomerReceivableTransactionType(StrEnum):
     #: as a supplier -- a party adjustment's set-off. Its journal debits the
     #: payable rather than cash.
     SET_OFF = "SET_OFF"
+    #: A turnover rebate the firm accrued, set against what the customer owes
+    #: -- a party adjustment's rebate settlement (SG-9). Its journal debits
+    #: the rebate payable rather than cash, and it carries no tax.
+    REBATE = "REBATE"
     #: Undoes an earlier transaction by its exact deltas. It is not a category
     #: of business event -- it is the record of one being taken back -- so it
     #: carries no rule of its own and cannot be posted directly.

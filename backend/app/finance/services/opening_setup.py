@@ -357,6 +357,24 @@ CHART: tuple[SeedAccount, ...] = (
         ControlAccountPurpose.DISCOUNT_ALLOWED,
     ),
     SeedAccount(
+        # A turnover rebate promised to a customer, booked when its period
+        # is over (SG-9). Migration 20261005_0325 gives existing firms the
+        # same account and the payable beside it.
+        "5310",
+        "Rebates Allowed",
+        AccountTypeEnum.EXPENSE,
+        "EXP",
+        ControlAccountPurpose.REBATES_ALLOWED,
+    ),
+    SeedAccount(
+        # That rebate accrued and not yet set against the customer's account.
+        "2900",
+        "Customer Rebates Payable",
+        AccountTypeEnum.LIABILITY,
+        "CL",
+        ControlAccountPurpose.CUSTOMER_REBATE_PAYABLE,
+    ),
+    SeedAccount(
         # Tax on a purchase that gives no credit -- a car, catering, goods
         # for personal use (s.17(5)) -- is a cost of buying (backlog 78 row 1).
         "5450",
