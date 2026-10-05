@@ -401,8 +401,12 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
               : (payload) =>
                   widget.api.createCustomerOpeningBill(customer.id, payload),
           onCancelOpeningBill: widget.api.cancelCustomerOpeningBill,
+          // An opening bill is the customer's opening balance entered
+          // another way, so it takes the settings code as that does
+          // (D-MST-14); the server refuses it without.
           canManageOpeningBills:
-              widget.permissions.hasPermission('CUSTOMER_UPDATE'),
+              widget.permissions.hasPermission('CUSTOMER_UPDATE') &&
+                  widget.permissions.hasPermission('CUSTOMER_MANAGE_SETTINGS'),
           // Bank accounts and files (MST-4), phase 2 only, existing records
           // only. The number arrives masked without the bank-details code.
           loadBankAccounts: phase2 &&
@@ -758,7 +762,8 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
                   ? null
                   : () => unawaited(_approve(selected)),
             ),
-        if (_canImport)
+        if (_canImport &&
+            widget.permissions.hasPermission('CUSTOMER_MANAGE_SETTINGS'))
           ToolbarCommand(
             id: 'import-opening-bills',
             label: 'Import opening bills',
