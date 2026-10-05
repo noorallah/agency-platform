@@ -481,6 +481,24 @@ def test_settings_default_save_partly_and_are_checked() -> None:
         )
     with pytest.raises(ValidationError, match="not worked out here"):
         service.settings(books.firm.id, "194Q")
+    # An explicit null is refused by name, not answered 500 (D-FIN-26).
+    for field, words in (
+        ("rate_percent", "The rate cannot be blank"),
+        ("annual_threshold_amount", "The yearly limit cannot be blank"),
+        ("lower_rate_percent", "The lower rate cannot be blank"),
+        ("rate_without_pan_percent", "The rate without a PAN cannot be blank"),
+        ("is_enabled", "The switch cannot be blank"),
+    ):
+        with pytest.raises(ValidationError, match=words):
+            service.save_settings(
+                books.firm.id, "194C", {field: None}, actor_id=uuid4()
+            )
+    # The single-bill limit is the one setting null clears.
+    cleared = service.save_settings(
+        books.firm.id, "194C", {"single_threshold_amount": None}, actor_id=uuid4()
+    )
+    assert cleared.single_threshold_amount is None
+    assert cleared.rate_percent == Decimal("2.5")
 
     service.save_settings(
         books.firm.id, "194C", {"is_enabled": False}, actor_id=uuid4()

@@ -2032,15 +2032,28 @@ class PurchaseService(TransactionalDocumentService):
     ) -> None:
         """Refuse lines off the supplier's terms, if the firm says so (BUY-5).
 
+        And, for every firm, a line that orders nothing and nothing free.
+
         Raises:
             ValidationError: Naming each line and the quantity that would do,
-                when the firm's order quantity policy is ``REFUSE``.
+                when the firm's order quantity policy is ``REFUSE``; or the
+                line that orders nothing.
 
         """
         from app.purchase.services.workflow_settings_service import (
             PurchaseWorkflowService,
         )
 
+        # Whatever the firm's policy: a blank free quantity on a line of 0
+        # earns nothing from a scheme either (D-BUY-53).
+        self._refuse_lines_for_nothing(
+            (
+                (number, line.ordered_quantity, line.free_quantity)
+                for number, line in enumerate(lines, start=1)
+            ),
+            does="orders",
+            document="order",
+        )
         policy = PurchaseWorkflowService(self._session).settings_response(order.firm_id)
         if policy.order_quantity_policy != "REFUSE":
             return

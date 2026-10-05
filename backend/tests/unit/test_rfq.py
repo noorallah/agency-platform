@@ -14,10 +14,11 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from decimal import Decimal
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.routing import APIRoute
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -416,3 +417,16 @@ def test_the_list_costs_the_same_at_any_length(firm: _Firm) -> None:
     small = _page_statements(firm, 3)
     large = _page_statements(firm, 9)
     assert large <= small, f"{small} statements at 3 rows, {large} at 12"
+
+
+def test_a_quote_needs_a_rate_above_nothing() -> None:
+    """D-BUY-53: a quote at 0 was accepted, and would win every comparison."""
+    body = {
+        "quote_date": "2026-08-04",
+        "lines": [{"rfq_line_id": str(uuid4()), "rate": "0"}],
+    }
+    with pytest.raises(PydanticValidationError) as refusal:
+        SupplierQuotationWrite.model_validate(body)
+    assert "A quoted rate is above 0" in str(refusal.value)
+    body["lines"][0]["rate"] = "12.50"  # type: ignore[index]
+    assert SupplierQuotationWrite.model_validate(body).lines[0].rate == Decimal("12.50")

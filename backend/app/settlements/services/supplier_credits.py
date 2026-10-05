@@ -944,6 +944,7 @@ def reverse_supplier_refund(
     Posts the mirror of its journal and frees that much of the credit again.
     Refused once already reversed.
     """
+    from app.finance.models import JournalEntry
     from app.finance.services.journal_engine import JournalEntryEngine
 
     if not reason.strip():
@@ -956,10 +957,17 @@ def reverse_supplier_refund(
     source_id = refund.purchase_return_id or refund.debit_note_id
     assert source_id is not None
     _locked_source(session, firm_id=firm_id, source_id=source_id)
+    # Referenced as every other reversal is: its original's reference with
+    # ``-REV``, not a bare id nobody can trace (D-BUY-47). A refund's number
+    # counts reversed refunds too, so no two share one.
+    posted = session.get(JournalEntry, refund.journal_entry_id)
+    reference = (
+        posted.reference_number if posted is not None else refund.id.hex[:8].upper()
+    )
     mirror = JournalEntryEngine(session).reverse_entry(
         refund.journal_entry_id,
         firm_id=firm_id,
-        reference_number=f"{refund.id.hex[:8].upper()}-REV",
+        reference_number=f"{reference}-REV",
         actor_id=actor_id,
     )
     refund.status = "REVERSED"

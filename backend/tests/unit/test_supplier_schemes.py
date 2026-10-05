@@ -488,6 +488,80 @@ def test_a_free_only_line_flows_to_the_receipt_and_the_bill(firm: _Firm) -> None
     assert (final.billing_status, final.is_complete) == ("INVOICED", True)
 
 
+def test_an_order_line_for_nothing_is_refused_where_it_is_saved(firm: _Firm) -> None:
+    """D-BUY-53: an order of 0 with nothing free saved and was approved at 0.00."""
+    purchases = PurchaseService(firm.session)
+    with pytest.raises(ValidationError) as refusal:
+        _create(firm, _soap(firm, "10"), _soap(firm, "0"))
+    assert str(refusal.value.message) == (
+        "Line 2 orders a quantity of 0 and nothing free. Type a quantity, or "
+        "leave the line off the order."
+    )
+    firm.session.rollback()
+    # A typed zero for the free goods is nothing free as well.
+    with pytest.raises(ValidationError, match="Line 1 orders a quantity of 0"):
+        _create(firm, _soap(firm, "0", free_quantity="0"))
+    firm.session.rollback()
+    # The preview is not asked: the line being typed has no quantity yet.
+    preview = purchases.preview_order(
+        _payload(firm, _soap(firm, "0")), firm_id=firm.firm.id, actor_id=firm.actor_id
+    )
+    assert preview.order.grand_total == D("0")
+    # Free goods alone are goods, and an edit is asked what a create is.
+    order = _create(firm, _soap(firm, "0", free_quantity="2"))
+    with pytest.raises(ValidationError, match="Line 1 orders a quantity of 0"):
+        purchases.update_order(
+            order.id,
+            PurchaseOrderUpdate.model_validate(
+                _payload(firm, _soap(firm, "0")).model_dump(
+                    mode="json", exclude_unset=True
+                )
+            ),
+            firm_scope=firm.firm.id,
+            actor_id=firm.actor_id,
+        )
+
+
+def test_a_receipt_line_for_nothing_is_refused(firm: _Firm) -> None:
+    """D-BUY-53: a receipt of 0 saved and completed, moving nothing."""
+    order = _create(firm, _soap(firm, "10"))
+    purchases = PurchaseService(firm.session)
+    purchases.submit_order(order.id, firm_scope=firm.firm.id, actor_id=firm.actor_id)
+    purchases.approve_order(order.id, firm_scope=firm.firm.id, actor_id=firm.actor_id)
+    (line,) = _lines(firm, order)
+
+    def received(quantity: str, free: str) -> GoodsReceiptCreate:
+        return GoodsReceiptCreate.model_validate(
+            {
+                "purchase_order_id": order.id,
+                "receipt_date": TODAY.isoformat(),
+                "lines": [
+                    {
+                        "purchase_order_line_id": line.id,
+                        "line_number": 1,
+                        "current_receipt_quantity": quantity,
+                        "free_quantity": free,
+                    }
+                ],
+            }
+        )
+
+    receipts = GoodsReceiptService(firm.session)
+    with pytest.raises(ValidationError) as refusal:
+        receipts.create_receipt(
+            received("0", "0"), firm_id=firm.firm.id, actor_id=firm.actor_id
+        )
+    assert str(refusal.value.message) == (
+        "Line 1 receives a quantity of 0 and nothing free. Type a quantity, or "
+        "leave the line off the receipt."
+    )
+    firm.session.rollback()
+    kept = receipts.create_receipt(
+        received("4", "0"), firm_id=firm.firm.id, actor_id=firm.actor_id
+    )
+    assert kept.status == "DRAFT"
+
+
 def _codes(route: APIRoute) -> set[str]:
     """Return every permission code a route's dependencies enforce."""
     found: set[str] = set()

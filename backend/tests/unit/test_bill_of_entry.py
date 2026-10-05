@@ -325,6 +325,23 @@ def test_posting_a_duplicate_is_refused_even_when_the_draft_is_read_first() -> N
     assert firm.session.scalar(select(func.count()).select_from(JournalEntry)) == 1
 
 
+def test_the_journal_is_referenced_by_the_documents_number_once() -> None:
+    """D-BUY-47: the posting read ``BOE-BOE-2026-2027-000002``."""
+    firm = _firm()
+    row = _post(firm, _create(firm))
+    assert row.document_number.startswith("BOE-")
+    posted = firm.session.get(JournalEntry, row.journal_entry_id)
+    assert posted is not None
+    assert posted.reference_number == row.document_number
+    BillOfEntryService(firm.session).cancel(
+        row.id, "Typed twice", firm_id=firm.firm.id, actor_id=firm.actor_id
+    )
+    mirror = firm.session.scalars(
+        select(JournalEntry).where(JournalEntry.reversal_of_id == posted.id)
+    ).one()
+    assert mirror.reference_number == f"{row.document_number}-REV"
+
+
 def test_an_update_leaves_out_what_it_does_not_send() -> None:
     firm = _firm()
     row = _create(firm)

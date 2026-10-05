@@ -15,7 +15,7 @@ bill only what is left. Only what goes back beyond that is a debit note.
 
 from datetime import date
 from decimal import Decimal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
@@ -27,7 +27,7 @@ from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.goods_receipt.services import GoodsReceiptService
 from app.gst_returns.services.gstr_service import GstReturnService
 from app.inventory.models import InventoryRecord
-from app.purchase_invoice.models import PurchaseInvoice
+from app.purchase_invoice.models import PurchaseInvoice, PurchaseInvoiceLine
 from app.purchase_invoice.schemas import (
     PurchaseInvoiceCreate,
     PurchaseInvoiceLineWrite,
@@ -471,3 +471,44 @@ def test_a_return_of_goods_already_sold_is_refused() -> None:
     _send_back(fixture, receipt, "2")
     fixture.session.refresh(held)
     assert held.current_quantity == D("-2")
+
+
+def test_a_bill_line_that_names_no_unit_takes_its_receipt_lines() -> None:
+    """D-BUY-49: stored with none, it showed a blank unit in the HSN summary."""
+    fixture, receipt = _received("UNIT49")
+    line = _receipt_line(fixture, receipt)
+    # The receipt was typed in a unit; the bill's line says nothing of one.
+    unit = line.purchase_uom_id or line.inventory_uom_id or uuid4()
+    line.purchase_uom_id = unit
+    fixture.session.commit()
+
+    bill = _bill(fixture, receipt, "4", number="SUP-UNIT", approve=False)
+
+    billed = fixture.session.scalars(
+        select(PurchaseInvoiceLine).where(
+            PurchaseInvoiceLine.purchase_invoice_id == bill.id
+        )
+    ).one()
+    assert (billed.purchase_uom_id, billed.invoice_uom_id) == (unit, unit)
+
+
+def test_a_bill_or_a_return_of_nothing_is_refused_where_it_is_saved() -> None:
+    """D-BUY-53: a bill of 0 saved, a return of 0 saved, approved and completed."""
+    fixture, receipt = _received("ZERO53")
+    with pytest.raises(ValidationError) as refusal:
+        _bill(fixture, receipt, "0", number="SUP-ZERO", approve=False)
+    assert str(refusal.value.message) == (
+        "Line 1 bills a quantity of 0 and nothing free. Type a quantity, or "
+        "leave the line off the bill."
+    )
+    fixture.session.rollback()
+    assert fixture.session.scalars(select(PurchaseInvoice)).all() == []
+
+    with pytest.raises(ValidationError) as refusal:
+        _send_back(fixture, receipt, "0")
+    assert str(refusal.value.message) == (
+        "Line 1 returns a quantity of 0. Type a quantity, or leave the line "
+        "off the return."
+    )
+    fixture.session.rollback()
+    assert fixture.session.scalars(select(PurchaseReturnLine)).all() == []

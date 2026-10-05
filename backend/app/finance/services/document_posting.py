@@ -271,6 +271,20 @@ class PostingContext:
     accounting_period_id: UUID
 
 
+def prefixed_reference(prefix: str, number: str) -> str:
+    """Return a journal reference that says what it is, once.
+
+    A landed cost voucher and a Bill of Entry are referenced under ``LCV-``
+    and ``BOE-``. Their own numbers start that way by default, and the
+    posting added the prefix regardless: ``LCV-LCV-2026-2027-000001``
+    (D-BUY-47). The prefix is kept for a firm that numbers the document some
+    other way.
+    """
+    if number.upper().startswith(f"{prefix}-"):
+        return number
+    return f"{prefix}-{number}"
+
+
 class DocumentPostingService:
     """Turn approved documents into balanced journal entries."""
 
@@ -2181,7 +2195,7 @@ class DocumentPostingService:
             voucher_type_id=context.voucher_type_id,
             accounting_period_id=context.accounting_period_id,
             journal_date=voucher_date,
-            reference_number=f"LCV-{reference_number}",
+            reference_number=prefixed_reference("LCV", reference_number),
             description=describe,
             lines=lines,
             source_module="landed_costs",
@@ -2259,7 +2273,7 @@ class DocumentPostingService:
             voucher_type_id=context.voucher_type_id,
             accounting_period_id=context.accounting_period_id,
             journal_date=boe_date,
-            reference_number=f"BOE-{reference_number}",
+            reference_number=prefixed_reference("BOE", reference_number),
             description=describe,
             lines=lines,
             source_module="bill_of_entry",
@@ -4015,6 +4029,13 @@ class DocumentPostingService:
                 )
             )
 
+        # A bill of capital goods alone clears no accrual, and a leg of 0.00
+        # says nothing: it is left off the journal (D-BUY-52).
+        lines = [
+            line
+            for line in lines
+            if line.debit_amount != ZERO or line.credit_amount != ZERO
+        ]
         entry = self._journals.create_entry(
             firm_id=firm_id,
             journal_type_id=context.journal_type_id,

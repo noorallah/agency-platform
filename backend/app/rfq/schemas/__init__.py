@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class RfqSchema(BaseModel):
@@ -106,6 +106,22 @@ class SupplierQuotationLineWrite(RfqSchema):
 
     rfq_line_id: UUID
     rate: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
+
+    @field_validator("rate")
+    @classmethod
+    def _a_rate_above_nothing(cls, value: Decimal) -> Decimal:
+        """Refuse a quoted rate of 0 in plain words (D-BUY-53).
+
+        A line the supplier did not quote is left out, not quoted at nothing:
+        a rate of 0 would win every comparison.
+        """
+        if value <= 0:
+            raise ValueError(
+                "A quoted rate is above 0. Leave out a line the supplier did "
+                "not quote."
+            )
+        return value
+
     discount_percent: Decimal = Field(
         default=Decimal("0"), ge=0, le=100, max_digits=9, decimal_places=4
     )

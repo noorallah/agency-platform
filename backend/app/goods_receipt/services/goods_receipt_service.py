@@ -291,9 +291,27 @@ class GoodsReceiptService(TransactionalDocumentService):
         self, data: GoodsReceiptCreate, *, firm_id: UUID, actor_id: UUID
     ) -> GoodsReceipt:
         """Create receipt and commit."""
+        self._refuse_empty_receipt_lines(data.lines)
         row = self.stage_receipt(data, firm_id=firm_id, actor_id=actor_id)
         self._session.commit()
         return row
+
+    def _refuse_empty_receipt_lines(
+        self, lines: Sequence[GoodsReceiptLineWrite]
+    ) -> None:
+        """Refuse a typed receipt line that brought nothing in (D-BUY-53).
+
+        Asked of a receipt somebody types, not of one a supplier bill raises
+        behind itself: the bill asks the same of its own lines.
+        """
+        self._refuse_lines_for_nothing(
+            (
+                (line.line_number, line.current_receipt_quantity, line.free_quantity)
+                for line in lines
+            ),
+            does="receives",
+            document="receipt",
+        )
 
     def stage_receipt(
         self, data: GoodsReceiptCreate, *, firm_id: UUID, actor_id: UUID
@@ -401,6 +419,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         row = self.get_receipt(receipt_id, firm_scope=firm_scope)
         if row.status != GoodsReceiptStatus.DRAFT.value:
             raise ValidationError("Only draft goods receipts can be updated.")
+        self._refuse_empty_receipt_lines(data.lines)
         purchase_order = self._purchase_order(row.purchase_order_id, firm_id=firm_scope)
         before_status = row.status
         row.receipt_date = data.receipt_date

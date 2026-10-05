@@ -472,6 +472,17 @@ def test_the_bill_capitalises_what_the_receipt_brought_in() -> None:
     assert firm.balance(ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED) == 0
     assert firm.balance(ControlAccountPurpose.PURCHASE_PRICE_VARIANCE) == 0
     assert _balanced(firm)
+    # Nothing was accrued, so no accrual leg: the journal carried a line of
+    # 0.00 on Goods Received Not Invoiced (D-BUY-52).
+    legs = firm.session.execute(
+        select(JournalLine.debit_amount, JournalLine.credit_amount)
+        .join(JournalEntry, JournalEntry.id == JournalLine.journal_entry_id)
+        .where(
+            JournalEntry.source_module == "purchase_invoice",
+            JournalEntry.source_id == bill.id,
+        )
+    ).all()
+    assert legs and all(debit or credit for debit, credit in legs)
 
 
 def test_a_bill_line_takes_capital_goods_from_its_receipt_line() -> None:
