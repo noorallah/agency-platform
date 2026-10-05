@@ -26,6 +26,7 @@ from app.finance.models import JournalEntry
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.goods_receipt.services import GoodsReceiptService
 from app.gst_returns.services.gstr_service import GstReturnService
+from app.inventory.models import InventoryRecord
 from app.purchase_invoice.models import PurchaseInvoice
 from app.purchase_invoice.schemas import (
     PurchaseInvoiceCreate,
@@ -436,3 +437,37 @@ def test_a_receipt_with_goods_sent_back_cannot_be_cancelled() -> None:
             actor_id=fixture.actor_id,
             reason="wrong",
         )
+
+
+def test_a_return_of_goods_already_sold_is_refused() -> None:
+    """D-BUY-45: a return completed for goods no longer there, to -2 on hand."""
+    fixture, receipt = _received("NEG45")
+    held = fixture.session.scalars(select(InventoryRecord)).one()
+    # Five of the six received have since been sold.
+    held.current_quantity = D("1.0000")
+    held.available_quantity = D("1.0000")
+    fixture.session.commit()
+
+    with pytest.raises(ValidationError) as refusal:
+        _send_back(fixture, receipt, "2")
+    assert str(refusal.value.message) == (
+        "This location holds 1.0000 available, so 2.0000 cannot be returned "
+        "to the supplier from it."
+    )
+    fixture.session.rollback()
+    fixture.session.refresh(held)
+    assert held.current_quantity == D("1.0000")
+    assert not fixture.session.scalars(
+        select(JournalEntry).where(JournalEntry.source_module == "purchase_return")
+    ).all()
+
+    # What is there may go back.
+    _send_back(fixture, receipt, "1")
+    fixture.session.refresh(held)
+    assert held.current_quantity == D("0")
+    # A product the firm lets run negative is not held to it.
+    fixture.product.allow_negative_stock = True
+    fixture.session.commit()
+    _send_back(fixture, receipt, "2")
+    fixture.session.refresh(held)
+    assert held.current_quantity == D("-2")

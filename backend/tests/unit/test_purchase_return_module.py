@@ -143,6 +143,11 @@ def _product(session: Session, *, firm_id: UUID) -> Product:
         name="Product SKU-001",
         product_type="STOCK_ITEM",
         status="ACTIVE",
+        # ``_received`` records a receipt as rows and moves no stock, so
+        # these cases can follow the return's own movement from nothing. A
+        # product that may not go negative is refused that (D-BUY-45);
+        # ``test_a_return_of_goods_already_sold_is_refused`` covers one.
+        allow_negative_stock=True,
     )
     session.add(row)
     session.commit()

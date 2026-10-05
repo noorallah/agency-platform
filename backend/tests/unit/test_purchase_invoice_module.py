@@ -137,6 +137,10 @@ def _product(session: Session, *, firm_id: UUID) -> Product:
         name="Product SKU-001",
         product_type="STOCK_ITEM",
         status="ACTIVE",
+        # The receipts here are rows and move no stock, so a return off one
+        # starts from nothing; only a product that may go negative is let
+        # do that (D-BUY-45).
+        allow_negative_stock=True,
     )
     session.add(row)
     session.commit()
