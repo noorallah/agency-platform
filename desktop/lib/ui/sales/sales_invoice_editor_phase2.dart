@@ -291,6 +291,26 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     };
   }
 
+  /// The other charges, sent on every phase 2 save and preview: a row with a
+  /// name is a charge, and an empty list clears what a draft held.
+  Map<String, dynamic> _chargeFields() {
+    if (!_phase2) return const <String, dynamic>{};
+    return <String, dynamic>{
+      'charges': <Map<String, dynamic>>[
+        for (final _ChargeRow row in _charges)
+          if (row.name.text.trim().isNotEmpty)
+            <String, dynamic>{
+              'name': row.name.text.trim(),
+              'amount':
+                  row.amount.text.trim().isEmpty ? '0' : row.amount.text.trim(),
+              'tax_profile_id': row.taxProfileId,
+              if (row.sac.text.trim().isNotEmpty)
+                'hsn_sac': row.sac.text.trim(),
+            },
+      ],
+    };
+  }
+
   /// A walk-in bill is paid in full: offer the total until a figure is typed.
   void _defaultWalkInReceived() {
     if (!_isWalkIn || _receivedTouched || _splitTender) return;
@@ -1002,6 +1022,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
               },
             ),
           ),
+        _chargesSection(context),
         _receivedNowSection(context),
         if (_direct)
           SizedBox(
@@ -1016,6 +1037,164 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
             ),
           ),
       ]);
+
+  static const int _maxCharges = 10;
+
+  /// Other charges (packing, installation), each taxed by the server at the
+  /// profile chosen on its row. Read-only once the bill is not a draft.
+  Widget _chargesSection(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final bool locked =
+        _editing && '${_existing?['status'] ?? 'DRAFT'}' != 'DRAFT';
+    if (locked && _charges.isEmpty) return const SizedBox.shrink();
+    // The server prices the rows that have a name, in order.
+    final List<dynamic> priced = _preview?.invoice['charges'] is List
+        ? _preview!.invoice['charges'] as List
+        : (_existing?['charges'] is List
+            ? _existing!['charges'] as List
+            : const []);
+    final List<_ChargeRow> named = <_ChargeRow>[
+      for (final _ChargeRow row in _charges)
+        if (row.name.text.trim().isNotEmpty) row,
+    ];
+    String taxOf(_ChargeRow row) {
+      final int at = named.indexOf(row);
+      if (at < 0 || at >= priced.length || priced[at] is! Map) return '';
+      final double tax =
+          double.tryParse(stringValue((priced[at] as Map)['tax_amount'])) ?? 0;
+      return tax == 0 ? '' : 'GST ${indianAmount(tax, full: true)}';
+    }
+
+    return DocumentField(
+      label: 'Other charges',
+      width: 560,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (int i = 0; i < _charges.length; i++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 150,
+                    child: TextFormField(
+                      key: ValueKey<String>('sales-invoice-charge-name-$i'),
+                      controller: _charges[i].name,
+                      enabled: !locked,
+                      maxLength: 120,
+                      decoration: documentBoxDecoration(context).copyWith(
+                        hintText: 'Name',
+                        counterText: '',
+                      ),
+                      onChanged: (_) {
+                        _setState(() {});
+                        _schedulePreview();
+                      },
+                    ),
+                  ),
+                  SizedBox(
+                    width: 90,
+                    child: TextFormField(
+                      key: ValueKey<String>('sales-invoice-charge-amount-$i'),
+                      controller: _charges[i].amount,
+                      enabled: !locked,
+                      keyboardType: TextInputType.number,
+                      decoration: documentBoxDecoration(context)
+                          .copyWith(hintText: 'Amount'),
+                      onChanged: (_) {
+                        _setState(() {});
+                        _schedulePreview();
+                      },
+                    ),
+                  ),
+                  SizedBox(
+                    width: 140,
+                    child: DropdownButtonFormField<String?>(
+                      key: ValueKey<String>('sales-invoice-charge-tax-$i'),
+                      initialValue: _taxProfiles
+                              .any((p) => p.id == _charges[i].taxProfileId)
+                          ? _charges[i].taxProfileId
+                          : null,
+                      isExpanded: true,
+                      decoration: documentBoxDecoration(context),
+                      items: [
+                        const DropdownMenuItem<String?>(
+                          value: null,
+                          child: Text('(no tax)'),
+                        ),
+                        for (final TaxProfileRecord profile in _taxProfiles)
+                          DropdownMenuItem<String?>(
+                            value: profile.id,
+                            child: Text(
+                              profile.label.isEmpty
+                                  ? profile.name
+                                  : profile.label,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: locked
+                          ? null
+                          : (String? value) {
+                              _setState(() => _charges[i].taxProfileId = value);
+                              _schedulePreview();
+                            },
+                    ),
+                  ),
+                  SizedBox(
+                    width: 80,
+                    child: TextFormField(
+                      key: ValueKey<String>('sales-invoice-charge-sac-$i'),
+                      controller: _charges[i].sac,
+                      enabled: !locked,
+                      maxLength: 20,
+                      decoration: documentBoxDecoration(context).copyWith(
+                        hintText: 'SAC',
+                        counterText: '',
+                      ),
+                      onChanged: (_) => _schedulePreview(),
+                    ),
+                  ),
+                  if (taxOf(_charges[i]).isNotEmpty)
+                    Text(
+                      taxOf(_charges[i]),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontSize: 11,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  if (!locked)
+                    IconButton(
+                      key: ValueKey<String>('sales-invoice-charge-remove-$i'),
+                      tooltip: 'Remove charge',
+                      iconSize: 16,
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () {
+                        _setState(() => _charges.removeAt(i).dispose());
+                        _schedulePreview();
+                      },
+                      icon: const Icon(Icons.close),
+                    ),
+                ],
+              ),
+            ),
+          if (!locked)
+            TextButton.icon(
+              key: const ValueKey('sales-invoice-add-charge'),
+              onPressed: _charges.length >= _maxCharges
+                  ? null
+                  : () => _setState(() => _charges.add(_ChargeRow())),
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text('Add charge'),
+            ),
+        ],
+      ),
+    );
+  }
 
   /// The bill's grand total as last priced, for the received-now checks.
   double get _billTotal =>
@@ -1302,6 +1481,8 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     final double tax = double.tryParse(stringValue(invoice?['tax_total'])) ?? 0;
     final double total =
         double.tryParse(stringValue(invoice?['grand_total'])) ?? subtotal;
+    final double charges =
+        double.tryParse(stringValue(invoice?['charges_total'])) ?? 0;
     final bool interstate = _preview?.interstate ?? false;
     return DocumentTotalsBar(
       total: invoice == null ? null : total,
@@ -1311,6 +1492,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
           : 'Choose what to bill, and it is priced with its tax.',
       figures: [
         ('Taxable', subtotal),
+        if (charges != 0) ('Charges', charges),
         if (interstate)
           ('IGST', tax)
         else ...[
