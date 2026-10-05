@@ -330,6 +330,18 @@ receipt line it billed), and a batch nobody received, or none at all on a
 product that may only leave from a batch, is refused when the return is
 **saved** rather than after it has been approved.
 
+**A line sends back the batch its receipt brought, and no other** (D-BUY-64).
+Where the receipt line behind a return line names a batch -- the line is off
+that receipt line, or off a bill line billing it -- a typed batch has to be
+that one. Any batch the product had ever been received into used to be
+accepted, so a slip of the hand took 2 out of another delivery's batch,
+perhaps another supplier's goods, and left the right one untouched. Refused at
+save, and again at Complete for a return saved earlier: "Line 1: the goods
+receipt brought these goods in as batch B-RCPT, so batch B-OTHER cannot go
+back against it. Return batch B-RCPT on this line, or raise the return off the
+receipt that brought B-OTHER." A receipt line that named no batch says nothing
+about which may go back, and the line may name any batch received.
+
 **Completion sends back only goods that are there** (D-BUY-44, D-BUY-45).
 Goods an inspection rejected *for a return* leave the quarantine bucket,
 first; anything beyond them leaves sellable stock, and is refused when the
@@ -362,6 +374,16 @@ many of those are free:
   many arrived; a line raised off a bill sends back bought units only. The
   refusal says how much is left: "... line 1 can still send back 10 bought and
   2 free."
+
+- **Every quantity beside it counts free goods too** (D-BUY-63). The line's
+  `received_quantity` is bought plus free on the source line and its
+  `already_returned_quantity` is both kinds already sent back off it, as are
+  the header's `total_source_quantity` and `total_already_returned_quantity`.
+  The reconciliation report's returned and pending figures add the free units
+  the way the by-product report does: a return of 12 used to read 10 against
+  "10 received", and a free-only return read 0. The figures are written when
+  the return is saved, so one saved before this keeps its bought-only
+  `received_quantity`.
 
 **The same goods go back once, whichever document the return names**
 (D-BUY-61, the buying twin of D-SELL-7). A bill line and the receipt line it
