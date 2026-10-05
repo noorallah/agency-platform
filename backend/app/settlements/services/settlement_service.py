@@ -607,7 +607,10 @@ class SettlementService(TransactionalDocumentService):
                     allocated_amount=already,
                     outstanding_amount=outstanding,
                     party_id=row.party_id,
-                    due_date=row.due_date,
+                    # A bill with no credit days is due the day it is raised:
+                    # the ageing has always read it so, and the collection
+                    # sheet and the overdue report must agree (D-SELL-87).
+                    due_date=row.due_date or row.invoice_date,
                     currency_code=row.currency_code if foreign else None,
                     exchange_rate=row.exchange_rate if foreign else None,
                     currency_total=currency_total if foreign else None,
@@ -661,7 +664,7 @@ class SettlementService(TransactionalDocumentService):
                     allocated_amount=already,
                     outstanding_amount=total - already,
                     party_id=row.customer_id,
-                    due_date=row.due_date,
+                    due_date=row.due_date or row.bill_date,
                     is_opening_bill=True,
                 )
             )
@@ -698,7 +701,7 @@ class SettlementService(TransactionalDocumentService):
                     allocated_amount=already,
                     outstanding_amount=total - already,
                     party_id=row.vendor_id,
-                    due_date=row.due_date,
+                    due_date=row.due_date or row.bill_date,
                     is_opening_bill=True,
                 )
             )
