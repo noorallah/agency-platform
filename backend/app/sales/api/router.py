@@ -19,6 +19,7 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.common.firm_metadata import firm_today
 from app.common.scope import (
     RequiredFirmScope,
     ResolvedFirmScope,
@@ -35,7 +36,6 @@ from app.core.security.authorization import (
     Principal,
     require_platform_admin,
 )
-from app.core.utils.dates import utc_now
 from app.sales.schemas import (
     AddressMasterResponse,
     AddressMasterWrite,
@@ -1036,10 +1036,9 @@ def beat_plan_call_list(
     return ApiResponse(
         data=_service(db).call_list(
             firm_scope=scope.firm_id,
-            # `utc_now()`, never `date.today()`: everything persisted here is
-            # UTC, so the server's local clock is a different day for part of
-            # every day on any non-UTC deployment.
-            on_date=on_date or utc_now().date(),
+            # The firm's own day, never `date.today()`: the clock is UTC
+            # and the server's local day is not the firm's (D-CFG-25).
+            on_date=on_date or firm_today(db, scope.firm_id),
             beat_plan_id=beat_plan_id,
         )
     )
@@ -1059,7 +1058,7 @@ def call_lists(
     return ApiResponse(
         data=_service(db).call_list(
             firm_scope=scope.firm_id,
-            on_date=on_date or utc_now().date(),
+            on_date=on_date or firm_today(db, scope.firm_id),
             salesman_id=salesman_id,
         )
     )

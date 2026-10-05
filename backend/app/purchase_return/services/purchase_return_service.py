@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.batch_serial.services import BatchSerialService
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.common.report_names import (
     branch_names,
     vendor_names,
@@ -1726,7 +1727,7 @@ class PurchaseReturnService(TransactionalDocumentService):
 
         Cancelled and closed returns are excluded: neither is still owing.
         """
-        today = utc_now().date()
+        today = firm_today(self._session, firm_scope)
         return list(
             self._session.scalars(
                 select(PurchaseReturn).where(

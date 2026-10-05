@@ -36,7 +36,7 @@ from app.collections.schemas import (
     PromiseStatus,
 )
 from app.common.audit.services import record_audit
-from app.common.firm_metadata import FirmMetadataReader
+from app.common.firm_metadata import FirmMetadataReader, firm_today
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO
@@ -230,7 +230,7 @@ class PromiseService:
             data: What was promised.
             firm_id: The owning firm.
             actor_id: Who is writing it down.
-            today: The UTC day it is taken; the clock's when omitted.
+            today: The day it is taken; the firm's own today when omitted.
 
         Raises:
             ResourceNotFoundError: If the customer or the bill is not the
@@ -240,7 +240,7 @@ class PromiseService:
                 the amount, or the collector is not a member of the firm.
 
         """
-        on = today or utc_now().date()
+        on = today or firm_today(self._session, firm_id)
         if data.promised_on < on:
             raise ValidationError("A promise is for today or a later day.")
         customer = self._session.scalar(
@@ -302,7 +302,7 @@ class PromiseService:
         today: date | None = None,
     ) -> PaymentPromiseResponse:
         """Record one promise; commit. See ``stage_record``."""
-        on = today or utc_now().date()
+        on = today or firm_today(self._session, firm_id)
         row = self.stage_record(data, firm_id=firm_id, actor_id=actor_id, today=on)
         self._session.commit()
         return self.get(row.id, firm_id=firm_id, today=on)
@@ -405,7 +405,7 @@ class PromiseService:
         ``due_from`` and ``due_to`` bound the day promised for, both included;
         ``collector_id`` is who took the promise.
         """
-        on = today or utc_now().date()
+        on = today or firm_today(self._session, firm_id)
         conditions: list[ColumnElement[bool]] = []
         if customer_id is not None:
             conditions.append(PaymentPromise.customer_id == customer_id)
@@ -467,7 +467,7 @@ class PromiseService:
         promise on the same bill (or the same account), oldest first. A bill
         promise whose bill no longer owes anything is left out.
         """
-        on = today or utc_now().date()
+        on = today or firm_today(self._session, firm_id)
         statement = self._promises(firm_id).where(
             PaymentPromise.cancelled_at.is_(None),
             received_amount() < PaymentPromise.amount,
@@ -524,7 +524,7 @@ class PromiseService:
         """
         if not rows:
             return []
-        on = today or utc_now().date()
+        on = today or firm_today(self._session, firm_id)
         customers: dict[UUID, tuple[str, str]] = {
             customer_id: (code, name)
             for customer_id, code, name in self._session.execute(

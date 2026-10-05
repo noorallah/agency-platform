@@ -25,6 +25,7 @@ from app.common.file_import import (
     file_format_of,
     report_response,
 )
+from app.common.firm_metadata import firm_today
 from app.common.scope import (
     ResolvedFirmScope,
     firm_any_permission_scope,
@@ -307,7 +308,7 @@ def inventory_alerts(
     Low, out, over maximum, near expiry, in transit, open counts -- each
     counted, with the first rows of each kind.
     """
-    alerts = stock_alerts(db, scope.firm_id, on=utc_now().date())
+    alerts = stock_alerts(db, scope.firm_id, on=firm_today(db, scope.firm_id))
     return ApiResponse(data=StockAlertsRecord.model_validate(alerts))
 
 
@@ -334,7 +335,8 @@ def stock_valuation(
     report screen can call it like its siblings.
     """
     del from_date
-    on = min(to_date or utc_now().date(), utc_now().date())
+    today = firm_today(db, scope.firm_id)
+    on = min(to_date or today, today)
     rows = StockValuationService(db).valuation(
         scope.firm_id, on=on, warehouse_id=warehouse_id, include_zero=include_zero
     )
@@ -389,7 +391,7 @@ def stock_statement(
     rows = StockStatementService(db).statement(
         scope.firm_id,
         from_date=from_date,
-        to_date=min(to_date, utc_now().date()),
+        to_date=min(to_date, firm_today(db, scope.firm_id)),
         warehouse_id=warehouse_id,
     )
     window = ReportWindow(None, None, page, page_size)
@@ -458,7 +460,8 @@ def stock_ageing(
     ``from_date`` is accepted and ignored, as the valuation's is.
     """
     del from_date
-    on = min(to_date or utc_now().date(), utc_now().date())
+    today = firm_today(db, scope.firm_id)
+    on = min(to_date or today, today)
     rows = StockAgeingService(db).ageing(scope.firm_id, on=on)
     window = ReportWindow(None, None, page, page_size)
     return window.respond(
@@ -476,7 +479,8 @@ def _slow_stock(
     window: ReportWindow,
 ) -> PaginatedResponse[SlowStockRecord]:
     """Answer the slow-moving or the dead stock, one page."""
-    on = min(to_date or utc_now().date(), utc_now().date())
+    today = firm_today(db, firm_id)
+    on = min(to_date or today, today)
     rows = StockAgeingService(db).slow_moving(
         firm_id, on=on, days=days, dead_only=dead_only
     )
@@ -864,7 +868,7 @@ async def import_opening_stock_file(
         except ValueError as error:
             raise ValidationError("posting_date must be a date, yyyy-mm-dd.") from error
     else:
-        on = utc_now().date()
+        on = firm_today(db, scope.firm_id)
     report = OpeningStockFileImporter(db).run(
         content,
         file_format=file_format,
@@ -1550,7 +1554,7 @@ def inventory_abc_classes(
 
     A product not listed is C.
     """
-    classes = abc_classes(db, scope.firm_id, on=utc_now().date())
+    classes = abc_classes(db, scope.firm_id, on=firm_today(db, scope.firm_id))
     return ApiResponse(data={str(key): value for key, value in classes.items()})
 
 
@@ -1561,7 +1565,9 @@ def list_count_plans(
 ) -> ApiResponse[list[CountPlanResponse]]:
     """Return the firm's count plans, the due ones first (STK-6)."""
     return ApiResponse(
-        data=CountPlanService(db).list_plans(scope.firm_id, on=utc_now().date())
+        data=CountPlanService(db).list_plans(
+            scope.firm_id, on=firm_today(db, scope.firm_id)
+        )
     )
 
 
