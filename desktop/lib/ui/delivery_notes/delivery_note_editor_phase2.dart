@@ -702,6 +702,7 @@ extension _Phase2DeliveryNoteEditor on _DeliveryNoteEditorDialogState {
         picks: line.batchPicks,
         enabled: !_saving,
         comparable: comparable,
+        showPtrPts: widget.features.isEnabled('BATCH_PTR_PTS'),
         onChanged: (picks) => _setState(() => line.batchPicks = picks),
       ),
     ];

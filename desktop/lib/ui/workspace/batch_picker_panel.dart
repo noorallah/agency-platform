@@ -35,6 +35,7 @@ class BatchPickerPanel extends StatefulWidget {
     this.salesOrderLineId,
     this.customerId,
     this.comparable = true,
+    this.showPtrPts = false,
     this.onBatchPrice,
     this.keyPrefix = 'delivery-note',
     this.unreadableNote = 'could not read the batches; they will go earliest '
@@ -68,6 +69,11 @@ class BatchPickerPanel extends StatefulWidget {
   /// False when the line is in another unit than stock, so the editor cannot
   /// say whether the split adds up.
   final bool comparable;
+
+  /// Show each batch's PTR and PTS beside its MRP (BATCH_PTR_PTS). Display
+  /// only: the line's price is never filled from them here, the server does
+  /// that when the price is left blank.
+  final bool showPtrPts;
 
   /// Told the selling price of the one batch the line ships from, once the
   /// batches are read and whenever the split changes: null when it ships
@@ -282,6 +288,10 @@ class _BatchPickerPanelState extends State<BatchPickerPanel> {
                               'can take ${_trimmed(batch.availableToLine)}',
                               if (batch.mrp != null)
                                 'MRP ${batch.mrp!.toStringAsFixed(2)}',
+                              if (widget.showPtrPts && batch.ptr != null)
+                                'PTR ${batch.ptr!.toStringAsFixed(2)}',
+                              if (widget.showPtrPts && batch.pts != null)
+                                'PTS ${batch.pts!.toStringAsFixed(2)}',
                               if (batch.sellingPrice != null)
                                 'price ${batch.sellingPrice!.toStringAsFixed(2)}',
                             ].join(' · '),

@@ -176,6 +176,7 @@ class Customer {
     this.whatsappOptInAt = '',
     this.linkedVendorId = '',
     this.priceLevelId,
+    this.tradeClass,
   });
 
   final String id;
@@ -266,6 +267,10 @@ class Customer {
   /// group's level, else the product's price.
   final String? priceLevelId;
 
+  /// RETAILER, STOCKIST or OTHER; null reads as OTHER. Picks the batch rate
+  /// (PTR or PTS) a blank sales price takes.
+  final String? tradeClass;
+
   String get city {
     final Iterable<CustomerAddress> defaults =
         addresses.where((address) => address.isDefaultBilling);
@@ -335,6 +340,7 @@ class Customer {
         whatsappOptInAt: stringValue(json['whatsapp_opt_in_at']),
         linkedVendorId: stringValue(json['linked_vendor_id']),
         priceLevelId: json['price_level_id'] as String?,
+        tradeClass: json['trade_class'] as String?,
       );
 }
 

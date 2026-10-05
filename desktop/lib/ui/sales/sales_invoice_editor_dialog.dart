@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/business/business_features.dart';
 import '../../core/api/concurrency.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
@@ -48,9 +49,13 @@ class SalesInvoiceEditorDialog extends StatefulWidget {
     this.mayApprove = false,
     this.printer,
     this.steps = const [],
+    this.features = const BusinessFeatures.unknown(),
   });
 
   final ApiClient api;
+
+  /// The firm's features; BATCH_PTR_PTS shows PTR and PTS in the batch list.
+  final BusinessFeatures features;
 
   /// The invoice's next steps, as the list toolbar offers them (D-BUY-22):
   /// *Save & approve* where the user may approve -- with the credit, licence

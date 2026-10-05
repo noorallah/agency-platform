@@ -709,6 +709,32 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
             onChanged: (value) => line.sellingPrice = value,
           ),
         ),
+        if (widget.features.isEnabled('BATCH_PTR_PTS')) ...[
+          DocumentField(
+            label: 'PTR per unit (retailer)',
+            width: 258,
+            child: TextFormField(
+              key: ValueKey<String>('goods-receipt-ptr-${_order?.id}-$index'),
+              initialValue: line.ptr.isEmpty ? '' : documentQuantity(line.ptr),
+              readOnly: _saving,
+              keyboardType: TextInputType.number,
+              decoration: documentBoxDecoration(context, hint: 'optional'),
+              onChanged: (value) => line.ptr = value,
+            ),
+          ),
+          DocumentField(
+            label: 'PTS per unit (stockist)',
+            width: 258,
+            child: TextFormField(
+              key: ValueKey<String>('goods-receipt-pts-${_order?.id}-$index'),
+              initialValue: line.pts.isEmpty ? '' : documentQuantity(line.pts),
+              readOnly: _saving,
+              keyboardType: TextInputType.number,
+              decoration: documentBoxDecoration(context, hint: 'optional'),
+              onChanged: (value) => line.pts = value,
+            ),
+          ),
+        ],
       ],
       DocumentField(
         label: 'Scheme',

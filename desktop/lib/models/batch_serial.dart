@@ -40,7 +40,13 @@ class BatchRecord {
     this.version = 0,
     this.mrp = '',
     this.sellingPrice = '',
+    this.ptr = '',
+    this.pts = '',
   });
+
+  /// Per stock unit; empty when none is recorded (BATCH_PTR_PTS).
+  final String ptr;
+  final String pts;
 
   /// Per stock unit, tax included; empty when none is recorded.
   final String mrp;
@@ -118,6 +124,8 @@ class BatchRecord {
   version: (d['version'] as num?)?.toInt() ?? 0,
       mrp: stringValue(d['mrp']),
       sellingPrice: stringValue(d['selling_price']),
+      ptr: stringValue(d['ptr']),
+      pts: stringValue(d['pts']),
     );
   }
 }
@@ -326,7 +334,13 @@ class BatchAvailabilityRecord {
     this.shortForCustomer = false,
     this.mrp,
     this.sellingPrice,
+    this.ptr,
+    this.pts,
   });
+
+  /// Retailer / stockist rate per stock unit; null when the batch has none.
+  final double? ptr;
+  final double? pts;
 
   /// Per stock unit, tax included; null when the batch has none.
   final double? mrp;
@@ -374,6 +388,8 @@ class BatchAvailabilityRecord {
         mrp: json['mrp'] == null ? null : _num(json['mrp']),
         sellingPrice:
             json['selling_price'] == null ? null : _num(json['selling_price']),
+        ptr: json['ptr'] == null ? null : _num(json['ptr']),
+        pts: json['pts'] == null ? null : _num(json['pts']),
       );
 }
 
