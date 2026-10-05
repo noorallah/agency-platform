@@ -161,6 +161,19 @@ def _settled_customer_data(code: str = "CUST-001") -> CustomerCreate:
     return _customer_data(code).model_copy(update={"opening_balance": Decimal("0.00")})
 
 
+def _office(user_id: UUID, session: Session, firm_id: UUID) -> ResolvedFirmScope:
+    """Return the scope of somebody who may set a customer's money terms.
+
+    The shared payload carries a credit limit and credit days, which a new
+    customer takes only from a holder of CUSTOMER_MANAGE_SETTINGS (D-SELL-76).
+    """
+    return _firm_scope(
+        _principal(user_id, {"CUSTOMER_CREATE", "CUSTOMER_MANAGE_SETTINGS"}),
+        session,
+        firm_id,
+    )
+
+
 def _principal(user_id: UUID, permissions: set[str]) -> Principal:
     return Principal(
         subject=user_id,
@@ -208,17 +221,28 @@ def test_customer_service_enforces_firm_uniqueness_scope_and_audit() -> None:
     service = CustomerService(session)
 
     customer = service.create(
-        _settled_customer_data(), firm_id=first_firm.id, actor_id=actor_id
+        _settled_customer_data(),
+        firm_id=first_firm.id,
+        actor_id=actor_id,
+        may_set_standing_discount=True,
     )
     assert customer.display_name == "Acme Customer"
     assert customer.addresses[0].city == "Chennai"
     assert customer.contacts[0].is_primary is True
 
     with pytest.raises(ConflictError):
-        service.create(_customer_data(), firm_id=first_firm.id, actor_id=actor_id)
+        service.create(
+            _customer_data(),
+            firm_id=first_firm.id,
+            actor_id=actor_id,
+            may_set_standing_discount=True,
+        )
 
     other_firm_customer = service.create(
-        _customer_data(), firm_id=second_firm.id, actor_id=actor_id
+        _customer_data(),
+        firm_id=second_firm.id,
+        actor_id=actor_id,
+        may_set_standing_discount=True,
     )
     assert other_firm_customer.firm_id == second_firm.id
     with pytest.raises(ResourceNotFoundError, match="Customer not found"):
@@ -265,7 +289,10 @@ def test_customer_search_filters_summary_and_soft_delete() -> None:
     actor_id = uuid4()
     service = CustomerService(session)
     customer = service.create(
-        _settled_customer_data(), firm_id=firm.id, actor_id=actor_id
+        _settled_customer_data(),
+        firm_id=firm.id,
+        actor_id=actor_id,
+        may_set_standing_discount=True,
     )
 
     rows, total = service.list_customers(
@@ -315,7 +342,9 @@ def test_customer_receivable_transactions_track_outstanding_and_advance() -> Non
     payload = _customer_data("CUST-AR-001").model_copy(
         update={"opening_balance": Decimal("0.00")}
     )
-    customer = service.create(payload, firm_id=firm.id, actor_id=actor_id)
+    customer = service.create(
+        payload, firm_id=firm.id, actor_id=actor_id, may_set_standing_discount=True
+    )
 
     tx = service.post_receivable_transaction(
         customer.id,
@@ -357,7 +386,12 @@ def test_nested_customer_removal_is_soft_deleted_and_audit_is_immutable() -> Non
     firm = _firm(session, "CHILDREN")
     actor_id = uuid4()
     service = CustomerService(session)
-    customer = service.create(_customer_data(), firm_id=firm.id, actor_id=actor_id)
+    customer = service.create(
+        _customer_data(),
+        firm_id=firm.id,
+        actor_id=actor_id,
+        may_set_standing_discount=True,
+    )
     address_id = customer.addresses[0].id
     contact_id = customer.contacts[0].id
     update_data = _customer_data().model_dump(mode="json")
@@ -414,7 +448,9 @@ def test_customer_api_enforces_membership_permissions_and_restore() -> None:
     principal = _principal(user_id, permissions)
     session = factory()
     scope = _firm_scope(principal, session, firm.id)
-    created = create_customer(_settled_customer_data(), scope, session)
+    created = create_customer(
+        _settled_customer_data(), _office(user_id, session, firm.id), session
+    )
     customer_id = created.data.id
 
     listed = list_customers(
@@ -473,7 +509,9 @@ def test_a_reader_is_told_the_version_it_must_send_back() -> None:
         user_id, {"CUSTOMER_CREATE", "CUSTOMER_VIEW", "CUSTOMER_UPDATE"}
     )
     scope = _firm_scope(principal, session, firm.id)
-    created = create_customer(_customer_data(), scope, session)
+    created = create_customer(
+        _customer_data(), _office(user_id, session, firm.id), session
+    )
     customer_id = created.data.id
 
     read = Response()
@@ -527,7 +565,9 @@ def test_a_credit_limit_moves_only_for_whoever_writes_the_credit_policy() -> Non
     session = factory()
     desk = _principal(user_id, {"CUSTOMER_CREATE", "CUSTOMER_VIEW", "CUSTOMER_UPDATE"})
     scope = _firm_scope(desk, session, firm.id)
-    customer_id = create_customer(_customer_data(), scope, session).data.id
+    customer_id = create_customer(
+        _customer_data(), _office(user_id, session, firm.id), session
+    ).data.id
     form = _customer_data().model_dump(mode="json")
 
     # A form resending the stored figure, in any spelling, is not a change.
@@ -614,8 +654,8 @@ def test_a_standing_discount_moves_only_for_whoever_sets_the_prices() -> None:
     controller = _principal(user_id, desk_codes | {"CUSTOMER_MANAGE_SETTINGS"})
     controller_scope = _firm_scope(controller, session, firm.id)
 
-    # A new customer at no discount is what a form left alone sends.
-    customer_id = create_customer(_customer_data(), scope, session).data.id
+    # The office adds the customer, with its credit limit and credit days.
+    customer_id = create_customer(_customer_data(), controller_scope, session).data.id
     form = _customer_data().model_dump(mode="json")
 
     # A form resending the stored figure, in any spelling, is not a change,
@@ -660,6 +700,8 @@ def test_a_standing_discount_moves_only_for_whoever_sets_the_prices() -> None:
     # Creating one at 100% off, by form or by file, is the same act.
     generous = {**form, "code": "CUST-GIFT", "gst_number": None, "pan_number": None}
     generous["default_discount_percent"] = "100"
+    # Nothing else the desk may not set, so the discount is what is refused.
+    generous |= {"credit_limit": "0", "opening_balance": "0", "payment_terms_days": 0}
     with pytest.raises(AuthorizationError, match="CUST-GIFT"):
         create_customer(CustomerCreate.model_validate(generous), scope, session)
     session.rollback()
@@ -1013,6 +1055,7 @@ def test_an_opening_balance_reaches_the_ledger() -> None:
         _customer_data("CUST-OB"),
         firm_id=firm.id,
         actor_id=actor_id,
+        may_set_standing_discount=True,
     )
 
     # The customer data opens 150.00 in credit, so the firm owes them: the
@@ -1040,7 +1083,10 @@ def test_revising_an_opening_balance_mirrors_the_one_it_replaces() -> None:
     service = CustomerService(session)
     actor_id = uuid4()
     customer = service.create(
-        _customer_data("CUST-OB2"), firm_id=firm.id, actor_id=actor_id
+        _customer_data("CUST-OB2"),
+        firm_id=firm.id,
+        actor_id=actor_id,
+        may_set_standing_discount=True,
     )
 
     service.update(
@@ -1081,7 +1127,12 @@ def test_a_firm_with_no_chart_of_accounts_says_so() -> None:
     service = CustomerService(session)
 
     with pytest.raises(ValidationError, match="chart of accounts"):
-        service.create(_customer_data("CUST-BARE"), firm_id=firm.id, actor_id=uuid4())
+        service.create(
+            _customer_data("CUST-BARE"),
+            firm_id=firm.id,
+            actor_id=uuid4(),
+            may_set_standing_discount=True,
+        )
     # The customer was staged before the posting ran, and a request that gets
     # this error rolls back with it.
     session.rollback()
@@ -1093,6 +1144,7 @@ def test_a_firm_with_no_chart_of_accounts_says_so() -> None:
         ),
         firm_id=firm.id,
         actor_id=uuid4(),
+        may_set_standing_discount=True,
     )
     assert without.code == "CUST-BARE"
 
@@ -1130,6 +1182,7 @@ def test_a_customer_who_owes_money_cannot_be_deleted() -> None:
         ),
         firm_id=firm.id,
         actor_id=actor_id,
+        may_set_standing_discount=True,
     )
     in_credit = service.create(
         _customer_data("CUST-ADV").model_copy(
@@ -1137,6 +1190,7 @@ def test_a_customer_who_owes_money_cannot_be_deleted() -> None:
         ),
         firm_id=firm.id,
         actor_id=actor_id,
+        may_set_standing_discount=True,
     )
     before = _receivable_net(session, firm.id)
     assert before == Decimal("24850.00")
@@ -1167,6 +1221,7 @@ def test_a_customer_who_owes_money_cannot_be_deleted() -> None:
         ),
         firm_id=firm.id,
         actor_id=actor_id,
+        may_set_standing_discount=True,
     )
     service.delete(square.id, firm_scope=firm.id, actor_id=actor_id)
     assert square.is_deleted is True
@@ -1190,6 +1245,7 @@ def test_restoring_a_customer_whose_delete_reversed_its_balance_reposts_it() -> 
         ),
         firm_id=firm.id,
         actor_id=actor_id,
+        may_set_standing_discount=True,
     )
     # What a delete did before the guard: mirror the journal, keep the balance.
     service._reverse_opening_balance_postings(customer, actor_id=actor_id)
@@ -1253,6 +1309,7 @@ def test_revising_a_balance_twice_does_not_collide_with_its_own_reversal() -> No
         ),
         firm_id=firm.id,
         actor_id=actor_id,
+        may_set_standing_discount=True,
     )
     posted = session.scalar(
         select(CustomerReceivableTransaction).where(
@@ -1317,6 +1374,7 @@ def test_editing_a_customer_does_not_discard_what_they_owe() -> None:
         ),
         firm_id=firm.id,
         actor_id=actor_id,
+        may_set_standing_discount=True,
     )
     # The customer trades: an invoice puts them 4,000 further into debt.
     service.post_receivable_transaction(
@@ -1455,7 +1513,12 @@ def test_an_update_that_omits_the_addresses_keeps_them() -> None:
     firm = _firm(session, "DISC04")
     service = CustomerService(session)
     actor_id = uuid4()
-    customer = service.create(_customer_data(), firm_id=firm.id, actor_id=actor_id)
+    customer = service.create(
+        _customer_data(),
+        firm_id=firm.id,
+        actor_id=actor_id,
+        may_set_standing_discount=True,
+    )
     assert len(customer.addresses) == 1
 
     service.update(
@@ -1468,3 +1531,115 @@ def test_an_update_that_omits_the_addresses_keeps_them() -> None:
     session.refresh(customer)
     live = [address for address in customer.addresses if not address.is_deleted]
     assert [address.address_line1 for address in live] == ["1 Main Street"]
+
+
+def _desk_and_office(
+    factory: sessionmaker[Session],
+) -> tuple[Session, ResolvedFirmScope, ResolvedFirmScope]:
+    """Return a session, a desk that adds customers, and the office."""
+    setup = factory()
+    firm = _firm(setup, "MONEYTERMS")
+    user_id = uuid4()
+    setup.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
+    setup.commit()
+    setup.close()
+    session = factory()
+    desk_codes = {"CUSTOMER_CREATE", "CUSTOMER_VIEW", "CUSTOMER_IMPORT"}
+    desk = _firm_scope(_principal(user_id, desk_codes), session, firm.id)
+    office = _firm_scope(
+        _principal(user_id, desk_codes | {"CUSTOMER_MANAGE_SETTINGS"}),
+        session,
+        firm.id,
+    )
+    return session, desk, office
+
+
+def _bare_shop(code: str, **terms: object) -> CustomerCreate:
+    """Describe a new outlet as a salesman adds it, plus any money terms."""
+    return CustomerCreate.model_validate(
+        {
+            "code": code,
+            "customer_type": "BUSINESS",
+            "name": f"Shop {code}",
+            "currency_code": "INR",
+            **terms,
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("terms", "named"),
+    [
+        ({"credit_limit": "50000"}, "a credit limit"),
+        ({"opening_balance": "1500"}, "an opening balance"),
+        ({"opening_balance": "-200"}, "an opening balance"),
+        ({"payment_terms_days": 90}, "credit days"),
+        (
+            {"cash_discount_days": 30, "cash_discount_percent": "5"},
+            "cash-discount terms",
+        ),
+        ({"default_discount_percent": "12.5"}, "a standing discount"),
+    ],
+)
+def test_a_new_customers_money_terms_need_the_settings_code(
+    terms: dict[str, object], named: str
+) -> None:
+    """D-SELL-76: a salesman's new outlet carried a limit and a posted balance.
+
+    Driven 2026-10-05 as Field Sales: ``POST /customers`` took a credit limit
+    of 50,000, an opening balance of 1,500 (which posted Dr 1100 / Cr 3000),
+    credit days and cash-discount terms; only the standing discount was
+    refused. All of them answer to CUSTOMER_MANAGE_SETTINGS now, by form and
+    by file, and the office sets them.
+    """
+    session, desk, office = _desk_and_office(_session_factory())
+
+    with pytest.raises(AuthorizationError, match=f"SHOP-1: giving a customer {named}"):
+        create_customer(_bare_shop("SHOP-1", **terms), desk, session)
+    session.rollback()
+    with pytest.raises(AuthorizationError, match=f"SHOP-1: giving a customer {named}"):
+        import_customers(
+            CustomerImportRequest.model_validate(
+                {"records": [_bare_shop("SHOP-1", **terms).model_dump(mode="json")]}
+            ),
+            desk,
+            session,
+        )
+    session.rollback()
+    assert session.scalar(select(Customer.id).where(Customer.code == "SHOP-1")) is None
+
+    if "opening_balance" not in terms:
+        # The office may: the same record, saved.
+        saved = create_customer(_bare_shop("SHOP-1", **terms), office, session)
+        assert saved.data is not None and saved.data.code == "SHOP-1"
+
+
+def test_a_new_customer_with_no_money_terms_needs_only_the_create_code() -> None:
+    """Zero and blank are what a form left alone sends, and are not terms."""
+    session, desk, _office_scope = _desk_and_office(_session_factory())
+
+    saved = create_customer(
+        _bare_shop(
+            "SHOP-2",
+            credit_limit="0",
+            opening_balance="0",
+            payment_terms_days=0,
+            cash_discount_days=None,
+            cash_discount_percent=None,
+            default_discount_percent="0",
+            gst_number=None,
+        ),
+        desk,
+        session,
+    )
+
+    assert saved.data is not None
+    assert (saved.data.credit_limit, saved.data.payment_terms_days) == (Decimal("0"), 0)
+
+
+def test_neither_sales_role_sets_a_new_customers_money_terms() -> None:
+    """The roles the limit constrains do not hold the code that sets it."""
+    for role in ("SALES_EXECUTIVE", "SALES_MANAGER"):
+        held = ROLE_PERMISSION_CODES[role]
+        assert "CUSTOMER_CREATE" in held
+        assert "CUSTOMER_MANAGE_SETTINGS" not in held

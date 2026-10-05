@@ -35,7 +35,10 @@ def _customer() -> tuple[object, object, object]:
     session = _session_factory()()
     firm = _firm(session, "MST4")
     customer = CustomerService(session).create(
-        _settled_customer_data(), firm_id=firm.id, actor_id=uuid4()
+        _settled_customer_data(),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+        may_set_standing_discount=True,
     )
     return session, firm, customer
 

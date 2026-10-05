@@ -2046,6 +2046,14 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         ]),
       );
 
+  /// Whether this is a new customer being added by somebody who may not
+  /// set its money terms.
+  bool get _newTermsLocked =>
+      widget.mode == CustomerDialogMode.create && !widget.mayChangeCreditLimit;
+
+  static const String _newTermsHelper =
+      'Set by somebody with the manage customer settings permission.';
+
   Widget _financialTab() => Form(
         key: _forms[3],
         child: _tabPage([
@@ -2059,8 +2067,9 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
               'credit_limit',
               'Credit limit',
               nonNegative: true,
-              locked: widget.mode == CustomerDialogMode.edit &&
-                  !widget.mayChangeCreditLimit,
+              // On a new customer too: the server refuses a limit typed
+              // without the code (D-SELL-76), and zero is what is sent.
+              locked: !widget.mayChangeCreditLimit,
               lockedHelper: 'Changing a credit limit needs the manage '
                   'customer settings permission.',
             ),
@@ -2074,12 +2083,22 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
               lockedHelper: 'Setting a standing discount needs the manage '
                   'customer settings permission.',
             ),
-            _number('opening_balance', 'Opening balance'),
+            // The rest of a new customer's money terms answer to the same
+            // code (D-SELL-76): whoever adds the shop leaves them for the
+            // office, and the form sends zero or blank.
+            _number(
+              'opening_balance',
+              'Opening balance',
+              locked: _newTermsLocked,
+              lockedHelper: _newTermsHelper,
+            ),
             _number(
               'payment_terms_days',
               'Payment terms (days)',
               integer: true,
               nonNegative: true,
+              locked: _newTermsLocked,
+              lockedHelper: _newTermsHelper,
             ),
             _number(
               'cash_discount_days',
@@ -2089,6 +2108,8 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
               nonNegative: true,
               maximum: 365,
               helper: "Blank: the firm's terms; 0 days: none",
+              locked: _newTermsLocked,
+              lockedHelper: _newTermsHelper,
             ),
             _number(
               'cash_discount_percent',
@@ -2097,6 +2118,8 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
               nonNegative: true,
               maximum: 100,
               helper: 'Taken off a bill paid within those days',
+              locked: _newTermsLocked,
+              lockedHelper: _newTermsHelper,
             ),
             _text('currency_code', 'Currency', required: true),
             _number(

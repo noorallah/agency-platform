@@ -35,16 +35,19 @@ def test_blank_customer_codes_come_from_the_series_in_order() -> None:
         _customer_data(code=" ").model_copy(update={"gst_number": None}),
         firm_id=firm.id,  # type: ignore[attr-defined]
         actor_id=actor,
+        may_set_standing_discount=True,
     )
     typed = service.create(
         _customer_data(code="CUS-00002").model_copy(update={"gst_number": None}),
         firm_id=firm.id,  # type: ignore[attr-defined]
         actor_id=actor,
+        may_set_standing_discount=True,
     )
     third = service.create(
         _customer_data(code="").model_copy(update={"gst_number": None}),
         firm_id=firm.id,  # type: ignore[attr-defined]
         actor_id=actor,
+        may_set_standing_discount=True,
     )
     assert first.code == "CUS-00001"
     assert typed.code == "CUS-00002"

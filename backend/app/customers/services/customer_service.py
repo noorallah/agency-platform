@@ -105,7 +105,10 @@ class CustomerService:
         ``may_set_standing_discount`` says the caller holds
         ``CUSTOMER_MANAGE_SETTINGS``; without it the customer starts at no
         standing discount, which is what a form that leaves the box alone
-        sends (D-MST-2).
+        sends (D-MST-2). The same flag covers the rest of the money terms --
+        a credit limit, an opening balance, credit days and cash-discount
+        terms (D-SELL-76) -- which is why a seeder or an internal caller that
+        sets them passes it.
         """
         self._assert_may_set_standing_discount(
             [data], allowed=may_set_standing_discount
@@ -993,23 +996,48 @@ class CustomerService:
     def _assert_may_set_standing_discount(
         records: list[CustomerCreate], *, allowed: bool
     ) -> None:
-        """Refuse a new customer that starts with a standing discount.
+        """Refuse a new customer that starts with money terms of its own.
 
-        Creating a customer at 100% off is the same act as editing one to it,
-        so the form and the import both answer to the same code. Zero -- the
-        default, and what a form that leaves the box alone sends -- is not a
-        discount and is never refused.
+        A standing discount, a credit limit, an opening balance, credit days
+        and cash-discount terms. Creating a customer at 100% off is the same
+        act as editing one to it, so the form and the import both answer to
+        the same code. Zero or blank -- the default, and what a form that
+        leaves the box alone sends -- is not a term and is never refused.
         """
         if allowed:
             return
         for data in records:
             if data.default_discount_percent != 0:
                 raise AuthorizationError(
-                    f"{data.code}: giving a customer a standing discount needs "
+                    f"{data.code or data.name}: giving a customer a standing "
+                    "discount needs "
                     "the manage customer settings permission "
                     "(CUSTOMER_MANAGE_SETTINGS). Leave it at zero, or ask "
                     "somebody who holds it."
                 )
+            # The rest of the money terms answer to the same code, on a new
+            # customer as on an edit (D-SELL-76). Adding a shop is its name,
+            # address, GSTIN, group and territory; what it may owe and on
+            # what terms is the office's to set. A salesman's new outlet
+            # carried a credit limit, an opening balance that posted a
+            # journal, credit days and cash-discount terms.
+            for what, typed in (
+                ("a credit limit", data.credit_limit != 0),
+                ("an opening balance", data.opening_balance != 0),
+                ("credit days", data.payment_terms_days != 0),
+                (
+                    "cash-discount terms",
+                    bool(data.cash_discount_days) or bool(data.cash_discount_percent),
+                ),
+            ):
+                if typed:
+                    raise AuthorizationError(
+                        f"{data.code or data.name}: giving a customer {what} "
+                        "needs the "
+                        "manage customer settings permission "
+                        "(CUSTOMER_MANAGE_SETTINGS). Leave it at zero, or ask "
+                        "somebody who holds it."
+                    )
 
     def _assert_linked_vendor(
         self,

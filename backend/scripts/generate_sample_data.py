@@ -3205,6 +3205,9 @@ def _seed_customers(
             records,
             firm_id=context.firm.id,
             actor_id=actor_id,
+            # The seeder is the office: these customers carry credit limits,
+            # opening balances and credit days (D-SELL-76).
+            may_set_standing_discount=True,
         )
     return result
 
