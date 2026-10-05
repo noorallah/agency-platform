@@ -197,7 +197,16 @@ A rate contract line and a supplier's quoted line need a rate above 0.
 
 **A purchase requisition is numbered `PRQ-`**, not the purchase return's `PR-`
 (D-BUY-46, migration `20261005_0327` for stores that had already raised one;
-numbers already issued stay as issued).
+numbers already issued stay as issued). For the same reason a rate contract is
+`RTC-`, not the customer receipt's `RC-` (D-BUY-57), and a reverse-charge
+self-invoice `RSI-`, not the sales invoice's `SI-` (D-BUY-58; migration
+`20261005_0328`). **Every document type has a default prefix of its own**: a
+number is issued by stepping over numbers of the same type and over journal
+references, so two types under one prefix take the same numbers as soon as
+one of them posts no journal under its number.
+`test_no_two_document_types_share_a_default_prefix` in
+`tests/unit/test_purchase_document_series_defaults.py` fails the build on the
+next pair.
 
 ---
 

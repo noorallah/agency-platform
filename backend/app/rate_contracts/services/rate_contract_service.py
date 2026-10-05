@@ -70,7 +70,10 @@ class RateContractService(TransactionalDocumentService):
         description="Rates agreed with a supplier for a period.",
         category="PURCHASE",
         module="rate_contracts",
-        prefix="RC",
+        # Its own, not the customer receipt's ``RC``: a contract posts no
+        # journal under its number, so the next receipt took the same one
+        # (D-BUY-57).
+        prefix="RTC",
         rule_code="RATE_CONTRACT_DEFAULT",
         rule_name="Rate Contract Default Numbering",
         states=(

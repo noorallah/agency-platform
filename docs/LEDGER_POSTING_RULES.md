@@ -857,7 +857,9 @@ supplier charges nothing and the firm owes the tax itself:
   2250). Its own liability rather than output tax, because it is paid in cash
   only.
 - Approval issues the **self-invoice number** (rule 47A) from its own series,
-  `RCM_SELF_INVOICE` (prefix SI) -- never the bill's -- and a cancelled bill
+  `RCM_SELF_INVOICE` (prefix `RSI`, as `RSI-26-27-000001`; it was `SI`, the
+  sales invoice's, and the two series issued the same numbers -- D-BUY-58,
+  migration `20261005_0328`) -- never the bill's -- and a cancelled bill
   keeps it.
 - Cancelling mirrors the journal, so the liability and the credit go with it.
 - GSTR-3B: 3.1(d) `inward_reverse_charge`, 4(A)(3) `itc_reverse_charge`; the

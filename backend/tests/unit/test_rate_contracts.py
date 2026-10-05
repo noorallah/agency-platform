@@ -167,7 +167,8 @@ def test_the_contract_rate_is_taken_over_the_suppliers_price_list(
     firm: _Firm,
 ) -> None:
     contract = _contract(firm)
-    assert contract.contract_number.startswith("RC")
+    # Its own prefix, not the customer receipt's RC (D-BUY-57).
+    assert contract.contract_number.startswith("RTC-")
     line = _line(firm, _order(firm))
     assert (line.unit_price, line.discount_percent) == (D("70"), D("2"))
     assert line.rate_source == "RATE_CONTRACT"
