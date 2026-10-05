@@ -352,8 +352,8 @@ and switch it back. The import and capital-goods cases otherwise run on the
 full chain. **The TDS cases (TC-BUY-043 to 048) each need a supplier with no
 other bill or payment in the financial year.** D-BUY-35 to D-BUY-40, found by
 reading this code, were fixed on 2026-10-05 (#1175) and the cases follow the
-fixes; D-BUY-41 and D-CMP-23 (`docs/DEFECTS.md`), found on the way, are open
-and not yet driven.
+fixes; D-BUY-41 to D-BUY-43, D-CMP-23 and D-UI-11, found on the way, were fixed
+the same day (#1177; TC-BUY-091 and 092).
 
 
 ## 8. Stock

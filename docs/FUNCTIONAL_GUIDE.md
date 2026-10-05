@@ -350,10 +350,10 @@ summary of sales*, *GST purchase register*, *HSN summary of purchases*, *TCS
 paid to suppliers* and *Customer rebate statement*. Buy › All Buy screens ›
 Money › *Payables by Month* is a screen of its own.
 
-**Not built**, and open defects not yet driven: see the end of sections 15 and
-16, and D-BUY-41 and D-CMP-23 in `DEFECTS.md`. The eight found while the cases
-were written (D-BUY-35 to D-BUY-40, D-SELL-51, D-SELL-52) were fixed the same
-day.
+**Not built**: see the end of sections 15 and 16. The eight defects found
+while the cases were written (D-BUY-35 to D-BUY-40, D-SELL-51, D-SELL-52)
+and the five found after them (D-BUY-41 to D-BUY-43, D-CMP-23, D-UI-11) were
+fixed on 2026-10-05.
 
 ## What 1.3.0 changed in the menu
 
@@ -2502,11 +2502,13 @@ assets** under **Accounts › All Accounts screens**.
 
 **Two things that bite.** A machine must be marked **Capital goods** on the
 order or the receipt **before** the receipt is completed: once a receipt has
-taken a line into stock the bill refuses to capitalise it. And a debit note
-or a purchase return against a foreign-currency bill is not converted in the
-ledger or in GSTR-3B's reversal (D-BUY-41, open), nor are GSTR-2B matching,
-rule 37 and rule 42 for such a bill (D-CMP-23, open); the registers, purchase
-analysis and GSTR-3B's input side do show it in rupees at the bill's rate.
+taken a line into stock the bill refuses to capitalise it. And capital goods
+cannot go back as a purchase return -- they never entered stock -- so claim
+their value with a debit note and dispose of the asset under Fixed Assets.
+A debit note or a purchase return against a foreign-currency bill is typed
+in the bill's currency and posts rupees at the **bill's** rate, not the
+day's (D-BUY-41); the registers, purchase analysis, GSTR-2B matching, rule
+37, rule 42 and GSTR-3B all show such a bill in rupees at that rate.
 
 **Not built:** OCR of a supplier's bill; emailing an RFQ; a Bill of Entry in
 the GST purchase register and against GSTR-2B; returns and debit notes in

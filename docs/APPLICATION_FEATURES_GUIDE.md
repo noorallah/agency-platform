@@ -1097,9 +1097,10 @@ bill is in the order's currency: a bill in any other is refused, naming the
 order, and a bill at another rate posts only the rate difference to price
 variance. Neither the currency nor the rate of an order can change once a
 receipt has been completed against it. A bill typed alone (the order and
-receipt stages off) works as before. Not yet converted: a debit note or a
-purchase return against a foreign-currency bill (D-BUY-41), and GSTR-2B
-matching, rule 37 and rule 42 for such a bill (D-CMP-23).
+receipt stages off) works as before. A debit note or a purchase return
+against a foreign-currency bill is typed in the bill's currency and posts
+rupees at the bill's own rate (D-BUY-41), and GSTR-2B matching, rule 37 and
+rule 42 read such a bill in rupees (D-CMP-23).
 
 **Bills of entry** (*Buy → All Buy screens → Documents → Bills of entry*).
 The customs document for an import. Link the bills and receipts it covers;

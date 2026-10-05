@@ -58,7 +58,7 @@ TC-TERR-006, TC-COMP-009 to 019) are now also in
 
 **Cases added on 2026-10-05** cover the purchasing build (backlog 86, PG-1 to
 PG-14) and the selling build (backlog 87, SG-1 to SG-9), both part of release
-1.3.0: **TC-BUY-029 to TC-BUY-090** (62 cases, `06_PURCHASING`) and
+1.3.0: **TC-BUY-029 to TC-BUY-092** (64 cases, `06_PURCHASING`) and
 **TC-SELL-036 to TC-SELL-087** (52 cases, `08_SELLING`). **These features have
 not been through a full test suite, a CI run or a hand test, and none of the
 114 cases has been run**: they were written from the code and its automated
@@ -90,11 +90,10 @@ and Collection Sheet, Payment Promises and the four Fixed assets screens
 written (D-SELL-51, D-SELL-52 and D-BUY-35 to D-BUY-40) were fixed on
 2026-10-05, and the cases were corrected to what the application does now:
 the shift cases sign in as a Counter Sales user whose bills a manager
-approves (TC-SELL-067, 068, 087), and TC-BUY-086 to 090 were added. Two
-defects found on the way are open and not yet driven, D-BUY-41 and D-CMP-23
-in `docs/DEFECTS.md`: do not raise a debit note or a purchase return against
-a foreign-currency bill, and do not expect GSTR-2B matching, rule 37 or rule
-42 to convert one.
+approves (TC-SELL-067, 068, 087), and TC-BUY-086 to 090 were added. Five
+more found on the way (D-BUY-41 to D-BUY-43, D-CMP-23, D-UI-11 in
+`docs/DEFECTS.md`) were fixed the same day, with TC-BUY-091 and 092 for a
+debit note and a purchase return against a foreign-currency bill.
 
 **What 1.2.0 changed (carried into 1.3.0): the menu.** Each drop-down now shows daily work only; every other screen is behind **All <area> screens** at its foot, under the same group name, so a path such as *Sell > Insight > Sales Analysis* is now *Sell > All Sell screens > Insight > Sales Analysis*. **Returns & notes** opens the returns and notes. The **Admin** area has left the bar: Users, Roles, Firms, Audit Logs and Backups are under **Settings > Platform** (People, Firms, Agency, System); the set-up lists (price lists, promotions, territories, customer groups, product categories, units, places) are under **Settings > Set up**. Ctrl+K finds any screen by name. Cases TC-ME-009 to TC-ME-013 (`02_SIGN_IN_AND_ACCOUNTS`) cover the new menu, Settings > Set up, favourites and My preferences, which replaces the *Primary firm* menu entry. For one tester's book across every module, with sample data and what to check after each action, see `docs/QA_TEST_BOOK.md`. For a module-by-module reference (what to configure, which screens to open, what to verify elsewhere, known limits) see `docs/QA_MODULE_REFERENCE.md`.
 
@@ -130,7 +129,7 @@ If it fails, the cases below cannot be trusted until the failure is fixed.
 | `13_CROSS_CUTTING` | Permissions enforced by the server, two people editing one record | 17 | |
 | `14_TEST_DATA` | The values to type for every firm, person, master and case (written by hand) | | |
 
-In all: **449 detailed cases, 134 screen checks and 11 role checks** (counted
+In all: **451 detailed cases, 134 screen checks and 11 role checks** (counted
 from the files on 2026-10-05). The
 installation itself is tested separately by `docs/INSTALLER_QA_CHECKLIST.md`,
 and `docs/QA_FUNCTIONAL_WALKTHROUGH.md` is a one-day end-to-end run that

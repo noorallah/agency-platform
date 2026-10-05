@@ -666,9 +666,13 @@ not say in one place:
     receipt has already taken **into stock** is still refused as capital
     goods at the bill, with a message saying to untick it, or to cancel the
     receipt and mark the line on the order or the receipt.
-  - *Not built:* a purchase return or a debit note against a capital-goods
-    receipt line or a foreign-currency bill (D-BUY-41), and GSTR-2B, rule 37
-    and rule 42 for a bill in another currency (D-CMP-23).
+  - A purchase return naming a capital-goods line, off the receipt or off
+    the bill, is **refused**: nothing entered stock, so a return has no
+    movement to take out. The message says to claim the value with a debit
+    note and dispose of the asset under Fixed Assets (D-BUY-41).
+  - A debit note or a purchase return against a foreign-currency bill posts
+    rupees at the bill's rate (D-BUY-41), and GSTR-2B, rule 37 and rule 42
+    read such a bill in rupees (D-CMP-23); `docs/LEDGER_POSTING_RULES.md`.
 - **What a bill owes is `grand_total + tcs_amount - tds_amount`**, in every
   place a payable is read: Record Payment, the payables report, *Paid now*.
 - **Paid now, TDS and TCS are rupee matters.** A bill in another currency
