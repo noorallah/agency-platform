@@ -301,6 +301,14 @@ For a batch-tracked product the line names the batch being sent back — a
 dropdown of that product's registered batches, defaulting to the one the
 receipt brought in. There is no free-text batch box, by design.
 
+**Completion sends back only goods that are there** (D-BUY-44, D-BUY-45).
+Goods an inspection rejected *for a return* leave the quarantine bucket,
+first; anything beyond them leaves sellable stock, and is refused when the
+location does not hold it available -- "This location holds 1.0000 available,
+so 2.0000 cannot be returned to the supplier from it." -- unless the product
+is marked *allow negative stock*. Like a transfer and unlike a dispatch: goods
+that have been sold cannot be crated up for the supplier.
+
 ### What the supplier gives back, and a bill already paid (A34, D-BUY-20)
 
 A return records an **outcome**, changeable until it is cancelled because the

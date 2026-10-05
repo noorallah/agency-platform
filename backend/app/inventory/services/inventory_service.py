@@ -2734,7 +2734,8 @@ class InventoryService:
 
         Raises:
             ValidationError: If more is returned from quarantine than the
-                location holds there.
+                location holds there, or more from sellable stock than is
+                available there and the product may not go negative.
 
         """
         (
@@ -2787,6 +2788,26 @@ class InventoryService:
             quarantine_base,
             min(base_quantity, rejects_held, inventory.quarantine_quantity),
         )
+        # Like a transfer and unlike a dispatch: goods that are not here
+        # cannot be crated up for the supplier, so a return of them is a
+        # keying error -- usually goods already sold (D-BUY-45). What comes
+        # out of quarantine was checked against quarantine above.
+        from_sellable = base_quantity - quarantine_base
+        available = inventory.current_quantity - inventory.reserved_quantity
+        if from_sellable > ZERO and from_sellable > available:
+            product = self._session.get(Product, product_id)
+            if product is None or not product.allow_negative_stock:
+                hint = (
+                    " Name the batch the goods are leaving."
+                    if batch_id is None
+                    and self._held_in_batches(inventory, product_id=product_id)
+                    else ""
+                )
+                raise ValidationError(
+                    f"This location holds {available} available, so "
+                    f"{from_sellable} cannot be returned to the supplier "
+                    f"from it.{hint}"
+                )
         transaction = self._stage_movement(
             inventory,
             actor_id=actor_id,
@@ -2797,7 +2818,7 @@ class InventoryService:
                 reference_type="PURCHASE_RETURN",
                 transaction_date=transaction_date,
                 quantity=base_quantity,
-                current_delta=-(base_quantity - quarantine_base),
+                current_delta=-from_sellable,
                 blocked_delta=ZERO,
                 damaged_delta=ZERO,
                 quarantine_delta=-quarantine_base,
@@ -2820,6 +2841,24 @@ class InventoryService:
             )
         self._session.flush()
         return transaction
+
+    def _held_in_batches(self, inventory: InventoryRecord, *, product_id: UUID) -> bool:
+        """Say whether this warehouse holds the product in a batch's own row."""
+        return (
+            self._session.scalar(
+                select(InventoryRecord.id)
+                .where(
+                    InventoryRecord.firm_id == inventory.firm_id,
+                    InventoryRecord.warehouse_id == inventory.warehouse_id,
+                    InventoryRecord.product_id == product_id,
+                    InventoryRecord.batch_id.is_not(None),
+                    InventoryRecord.is_deleted.is_(False),
+                    InventoryRecord.current_quantity > ZERO,
+                )
+                .limit(1)
+            )
+            is not None
+        )
 
     def record_sales_return(
         self,
