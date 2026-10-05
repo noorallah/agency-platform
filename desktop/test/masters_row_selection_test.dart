@@ -216,8 +216,12 @@ void main() {
           body: Phase2Scope(
             child: CustomerManagementPage(
               api: _CustomerApi(),
-              permissions: _withPermissions(
-                  ['CUSTOMER_VIEW', 'CUSTOMER_CREATE', 'CUSTOMER_IMPORT']),
+              permissions: _withPermissions([
+                'CUSTOMER_VIEW',
+                'CUSTOMER_CREATE',
+                'CUSTOMER_IMPORT',
+                'CUSTOMER_MANAGE_SETTINGS',
+              ]),
               hasActiveFirm: true,
             ),
           ),
@@ -233,6 +237,35 @@ void main() {
         find.byKey(
             const ValueKey('toolbar-command-import-opening-bills-menu')),
         findsOneWidget,
+      );
+    });
+
+    testWidgets('without the settings code the opening bills are not offered',
+        (tester) async {
+      // D-MST-14: an opening bill is the opening balance entered another
+      // way, and the server refuses its import without the settings code.
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: CustomerManagementPage(
+              api: _CustomerApi(),
+              permissions: _withPermissions(
+                  ['CUSTOMER_VIEW', 'CUSTOMER_CREATE', 'CUSTOMER_IMPORT']),
+              hasActiveFirm: true,
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('toolbar-command-import-opening-bills-menu')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('toolbar-command-import-opening-bills')),
+        findsNothing,
       );
     });
 

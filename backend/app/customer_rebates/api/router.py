@@ -7,7 +7,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    ResolvedFirmScope,
+    firm_any_permission_scope,
+    firm_permission_scope,
+)
 from app.core.concurrency import ExpectedVersion, publish_version
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
@@ -38,6 +42,11 @@ router = APIRouter(
 #: a party adjustment, which that role does not hold.
 RebateViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("SALES_VIEW")]
 RebateManageScope = Annotated[ResolvedFirmScope, firm_permission_scope("SALES_APPROVE")]
+#: A report opens to whoever may read the module or holds `REPORT_VIEW`
+#: (D-RPT-4).
+RebateReportScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("SALES_VIEW", "REPORT_VIEW")
+]
 
 
 def _one(
@@ -98,7 +107,7 @@ def create_customer_rebate(
     response_model=PaginatedResponse[CustomerRebateStatementRow],
 )
 def customer_rebate_statement_report(
-    scope: RebateViewScope,
+    scope: RebateReportScope,
     from_date: date | None = None,
     to_date: date | None = None,
     page: Annotated[int, Query(ge=1)] = 1,
