@@ -55,6 +55,7 @@ class PartyAdjustment {
     this.journalEntryId = '',
     this.cancelReason = '',
     this.rebateAgreementId = '',
+    this.customerRebateAgreementId = '',
     this.principalClaimId = '',
     this.version = 0,
     this.allocations = const <PartyAdjustmentAllocation>[],
@@ -72,6 +73,11 @@ class PartyAdjustment {
   /// The supplier rebate a `SUPPLIER_REBATE` adjustment settles; empty for
   /// every other kind.
   final String rebateAgreementId;
+
+  /// The customer turnover rebate a `CUSTOMER_REBATE` adjustment settles
+  /// (SG-9, started from the Customer Rebates screen); empty for every other
+  /// kind.
+  final String customerRebateAgreementId;
 
   /// The principal's claim a `PRINCIPAL_CLAIM` adjustment settles (SEL-11);
   /// empty for every other kind.
@@ -130,6 +136,8 @@ class PartyAdjustment {
         journalEntryId: stringValue(json['journal_entry_id']),
         cancelReason: stringValue(json['cancel_reason']),
         rebateAgreementId: stringValue(json['rebate_agreement_id']),
+        customerRebateAgreementId:
+            stringValue(json['customer_rebate_agreement_id']),
         principalClaimId: stringValue(json['principal_claim_id']),
         version: (json['version'] as num?)?.toInt() ?? 0,
         allocations: [
@@ -147,6 +155,7 @@ String partyAdjustmentKindLabel(String kind) => switch (kind) {
       'SUPPLIER_WRITE_BACK' => 'Written back',
       'SET_OFF' => 'Set-off',
       'SUPPLIER_REBATE' => 'Rebate settlement',
+      'CUSTOMER_REBATE' => 'Customer rebate',
       'PRINCIPAL_CLAIM' => 'Claim settlement',
       _ => kind,
     };

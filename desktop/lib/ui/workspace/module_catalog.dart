@@ -603,6 +603,12 @@ abstract final class ModuleCatalog {
           label: 'Counter Shifts',
           requiredPermissions: ['SALES_VIEW'],
         ),
+        // What the firm gives a customer back on a period's turnover (SG-9).
+        ModuleTabDefinition(
+          id: 'customer-rebates',
+          label: 'Customer Rebates',
+          requiredPermissions: ['SALES_VIEW'],
+        ),
         ModuleTabDefinition(
           id: 'proforma-invoices',
           label: 'Proforma',

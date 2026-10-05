@@ -44,6 +44,7 @@ const Map<String, List<String>> _synonyms = {
   'masters/customer-statements': ['statement', 'outstanding'],
   'masters/supplier-statements': ['statement', 'payable', 'creditor'],
   'purchases/supplier-rebates': ['rebate', 'volume rebate', 'supplier credit'],
+  'sales/customer-rebates': ['rebate', 'turnover rebate', 'customer credit'],
   'sales/enquiries': ['enquiry', 'lead', 'prospect', 'follow up'],
   'purchases/principal-claims': ['principal claim', 'scheme claim', 'expiry claim'],
   'purchases/landed-costs': ['landed cost', 'freight', 'clearing charges'],
