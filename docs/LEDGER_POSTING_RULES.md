@@ -47,6 +47,28 @@ have arrived. Cancelling the bill afterwards is refused while the receipt is
 applied to it, naming the receipt, as for any money applied to a bill: reverse
 the receipt first, then cancel.
 
+**The money is judged against the receivable, never the document total**
+(D-SELL-83, 2026-10-06). A bill carries four decimals and the books two: a
+walk-in bill of 97.1376 debits Trade Receivables `quantize_ledger(grand_total)`
+= 97.14, and 97.14 is what the customer is asked for. The over-tender check
+compared the money with the unrounded 97.1376 while the walk-in "paid in full"
+rule beside it compared with 97.14, so 97.14 was refused as more than the bill
+and 97.13 as less than it -- no amount approved the bill unless somebody typed
+a round-off. Both sides of every comparison (received now, the sum of the
+tenders, change, "take the rest") are now at the ledger's scale, and the
+invoice and preview responses carry that figure as **`amount_payable`**, which
+is the amount a client offers to collect. Receipts already allocated against
+`quantize_ledger(grand_total)`, so 97.14 through `/receipts` clears the bill
+too.
+
+No leg is posted for the fraction of a paisa, and none is needed: the
+invoice's revenue leg is derived as the rounded total less the rounded tax
+(`post_sales_invoice`), so the 0.0024 lands in Sales with the rest of the
+rounding and the entry balances at two decimals. A typed `round_off` goes the
+same way -- it is inside `grand_total`, and so inside revenue -- rather than to
+the `ROUNDING` control account, which today only a settlement's write-off
+uses. `tests/unit/test_bill_settled_at_its_receivable.py` is the guard.
+
 ## A proforma posts nothing
 
 **A proforma posts nothing, and the absence of anywhere to record that it

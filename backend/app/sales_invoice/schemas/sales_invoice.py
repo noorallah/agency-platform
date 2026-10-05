@@ -621,6 +621,11 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     additional_charges: Decimal
     round_off: Decimal
     grand_total: Decimal
+    #: What the customer is asked to pay: ``grand_total`` at the two decimals
+    #: the receivable and the journal carry (D-SELL-83). Money received,
+    #: tenders and receipts are judged against this, never the four-decimal
+    #: total, so it is the figure a client offers as the amount to collect.
+    amount_payable: Decimal = Decimal("0")
     #: Set on a walk-in bill: who it was made out to at the counter (SG-2).
     buyer_name: str | None = None
     buyer_phone: str | None = None
