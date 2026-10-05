@@ -16,6 +16,7 @@ import '../../models/product.dart';
 import '../../models/sales_invoice.dart';
 import '../../models/document_preview.dart';
 import '../../models/line_tax_rule.dart';
+import '../../models/tax_framework.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../../phase2/source_tick_dialog.dart';
@@ -129,6 +130,11 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
 
   /// A draft read back that carries a buyer: it was a walk-in bill.
   bool _editedWalkIn = false;
+
+  /// Other charges on the bill (87 row 4), each taxed at its own rate by the
+  /// server; the profiles the Tax box offers are read once on opening.
+  final List<_ChargeRow> _charges = <_ChargeRow>[];
+  List<TaxProfileRecord> _taxProfiles = const <TaxProfileRecord>[];
 
   /// SEL-12: the counter payment split by how it was paid. Used only once
   /// the person opens the split; otherwise the single amount above is sent
@@ -305,6 +311,17 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     super.initState();
     _load();
     _readBatchRules();
+    _readTaxProfiles();
+  }
+
+  Future<void> _readTaxProfiles() async {
+    try {
+      final PagedResult<TaxProfileRecord> read =
+          await widget.api.taxProfiles(page: 1, pageSize: 100);
+      if (mounted) setState(() => _taxProfiles = read.items);
+    } on Object {
+      // Charges are then offered with no tax profile to pick.
+    }
   }
 
   Future<void> _readBatchRules() async {
@@ -328,6 +345,9 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     _receivedRef.dispose();
     _buyerName.dispose();
     _buyerPhone.dispose();
+    for (final _ChargeRow row in _charges) {
+      row.dispose();
+    }
     _scan.dispose();
     _scanFocus.dispose();
     for (final _TenderRow row in _tenders) {
@@ -428,6 +448,18 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   /// correction can go up as well as down.
   void _adoptExisting(Json invoice) {
     _customFields.seed(attributeValuesFrom(invoice['attributes']));
+    for (final _ChargeRow row in _charges) {
+      row.dispose();
+    }
+    _charges.clear();
+    for (final dynamic item in (invoice['charges'] as List?) ?? const []) {
+      if (item is! Map) continue;
+      _charges.add(_ChargeRow(
+        name: '${item['name'] ?? ''}',
+        amount: '${item['amount'] ?? ''}',
+        sac: '${item['hsn_sac'] ?? ''}',
+      )..taxProfileId = _blankToNull('${item['tax_profile_id'] ?? ''}'));
+    }
     final List<dynamic> lines =
         invoice['lines'] is List ? invoice['lines'] as List : const [];
     if (lines.isEmpty) return;
@@ -871,6 +903,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         'freight_amount': _freight.text.trim(),
       ..._receivedFields(),
       ..._buyerFields(),
+      ..._chargeFields(),
       ..._attributeFields(),
       'lines': lines,
     };
@@ -932,6 +965,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         'freight_amount': _freight.text.trim(),
       ..._receivedFields(),
       ..._buyerFields(),
+      ..._chargeFields(),
       ..._attributeFields(),
       'lines': lines,
     };
@@ -1177,6 +1211,10 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       _receivedTouched = false;
       _buyerName.clear();
       _buyerPhone.clear();
+      for (final _ChargeRow row in _charges) {
+        row.dispose();
+      }
+      _charges.clear();
       _receivedMethod = 'CASH';
       _splitTender = false;
       _hadTenders = false;
@@ -1901,6 +1939,27 @@ class _DirectLine {
 }
 
 /// One way of paying on a counter bill (SEL-12): mode, amount, reference.
+/// One other charge on the bill (backlog 87 row 4): packing, installation.
+class _ChargeRow {
+  _ChargeRow({String name = '', String amount = '', String sac = ''})
+      : name = TextEditingController(text: name),
+        amount = TextEditingController(text: amount),
+        sac = TextEditingController(text: sac);
+
+  final TextEditingController name;
+  final TextEditingController amount;
+  final TextEditingController sac;
+
+  /// Null is "(no tax)".
+  String? taxProfileId;
+
+  void dispose() {
+    name.dispose();
+    amount.dispose();
+    sac.dispose();
+  }
+}
+
 class _TenderRow {
   _TenderRow({this.mode = 'CASH', String amount = '', String reference = ''})
       : amount = TextEditingController(text: amount),
