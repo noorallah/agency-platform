@@ -480,9 +480,13 @@ supplier GSTIN, taxable value, IGST, CGST, SGST, cess, tax not claimable
 (BLOCKED or INELIGIBLE lines), reverse-charge tax and total -- and the same
 inward supplies folded by HSN code and unit. Heads are read off each line's
 stored components through the same `_bucket` GSTR-3B uses, leaving out tax
-included in the price; a product with no HSN sits under a blank code. Supplier
-debit notes are not netted in yet: a note keeps one tax amount per line, not
-its components by head.
+included in the price; a product with no HSN sits under a blank code. An
+approved supplier debit note is a row of its own in the register, in minus, on
+the note's own date and naming its bill; its one tax amount per line is split
+across the heads as its bill line was charged, the split the ledger posts and
+GSTR-3B reverses. The HSN summary takes the note's quantity, value and tax off
+the code and unit of the bill line it names. Purchase returns are not in
+either report.
 
 ### The supplier's GST type
 

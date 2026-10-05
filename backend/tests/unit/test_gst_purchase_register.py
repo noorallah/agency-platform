@@ -7,12 +7,14 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.branches.models import Branch
 from app.core.database.base import Base
+from app.core.pagination.reports import ReportRows, ReportWindow
+from app.debit_note.models import DebitNote, DebitNoteLine
 from app.firms.models import Firm
 from app.products.models import Product
 from app.purchase_invoice.models import (
@@ -206,6 +208,58 @@ class _World:
         }
 
 
+def _note(
+    world: _World,
+    bill: PurchaseInvoice,
+    *,
+    taxable: str,
+    tax: str,
+    quantity: str = "0",
+    status: str = "APPROVED",
+    day: date = DAY,
+    number: str = "DN-001",
+    supplier_credit_note: str | None = None,
+) -> DebitNote:
+    """Write a debit note against the first line of ``bill``."""
+    line = world.session.scalars(
+        select(PurchaseInvoiceLine)
+        .where(PurchaseInvoiceLine.purchase_invoice_id == bill.id)
+        .order_by(PurchaseInvoiceLine.line_number)
+    ).first()
+    assert line is not None
+    note = DebitNote(
+        firm_id=world.firm.id,
+        vendor_id=bill.vendor_id,
+        branch_id=world.branch.id,
+        purchase_invoice_id=bill.id,
+        debit_note_number=number,
+        debit_note_date=day,
+        status=status,
+        taxable_amount=Decimal(taxable),
+        tax_amount=Decimal(tax),
+        total_amount=Decimal(taxable) + Decimal(tax),
+        supplier_credit_note_number=supplier_credit_note,
+        supplier_credit_note_date=day if supplier_credit_note else None,
+    )
+    world.session.add(note)
+    world.session.flush()
+    world.session.add(
+        DebitNoteLine(
+            debit_note_id=note.id,
+            firm_id=world.firm.id,
+            line_number=1,
+            purchase_invoice_line_id=line.id,
+            product_id=line.product_id,
+            quantity=Decimal(quantity),
+            taxable_amount=Decimal(taxable),
+            tax_amount=Decimal(tax),
+            total_amount=Decimal(taxable) + Decimal(tax),
+        )
+    )
+    world.session.commit()
+    return note
+
+
 def _by_number(rows: list[Any]) -> dict[str, Any]:
     """Index register rows by the firm's bill number."""
     return {row.invoice_number: row for row in rows}
@@ -250,6 +304,113 @@ def test_a_bill_is_read_by_tax_head() -> None:
         Decimal("0.00"),
     )
     assert second.taxable_value == Decimal("500.00")
+
+
+def test_a_debit_note_is_a_negative_row_split_as_its_bill_was_charged() -> None:
+    """A tenth of the bill claimed back takes a tenth of each head off."""
+    session = _session()
+    world = _World(session)
+    bill = world.bill(world.local, [world.within_state(world.soap, world.pcs)])
+    _note(world, bill, taxable="100", tax="18", supplier_credit_note="CN-77")
+
+    found = GstPurchaseRegisterService(session).register(world.firm.id)
+    rows = _by_number(found)
+
+    note = rows["DN-001"]
+    assert note.document_type == "DEBIT_NOTE"
+    assert note.against_invoice_number == bill.invoice_number
+    assert note.supplier_invoice_number == "CN-77"
+    assert note.vendor_gstin == "29ABCDE1234F1Z5"
+    assert note.taxable_value == Decimal("-100.00")
+    assert (note.cgst, note.sgst, note.igst) == (
+        Decimal("-9.00"),
+        Decimal("-9.00"),
+        Decimal("0.00"),
+    )
+    assert note.total_tax == Decimal("-18.00")
+    assert note.invoice_total == Decimal("-118.00")
+    assert note.itc_not_claimable == Decimal("0.00")
+    assert rows[bill.invoice_number].document_type == "BILL"
+    assert rows[bill.invoice_number].against_invoice_number == ""
+    assert sum(row.total_tax for row in found) == Decimal("162.00")
+
+
+def test_a_note_against_a_blocked_line_takes_back_tax_never_claimed() -> None:
+    """The note's tax on a blocked-credit line comes off Not claimable too."""
+    session = _session()
+    world = _World(session)
+    bill = world.bill(
+        world.local,
+        [world.within_state(world.car, world.pcs, eligibility="BLOCKED")],
+    )
+    _note(world, bill, taxable="100", tax="18")
+
+    rows = _by_number(GstPurchaseRegisterService(session).register(world.firm.id))
+
+    assert rows["DN-001"].itc_not_claimable == Decimal("-18.00")
+
+
+def test_only_an_approved_note_counts_and_on_its_own_date() -> None:
+    """A draft and a cancelled note are left out; the window reads the note."""
+    session = _session()
+    world = _World(session)
+    bill = world.bill(
+        world.local,
+        [world.within_state(world.soap, world.pcs)],
+        day=date(2026, 7, 20),
+    )
+    _note(world, bill, taxable="100", tax="18", number="DN-AUG")
+    _note(world, bill, taxable="50", tax="9", number="DN-DRAFT", status="DRAFT")
+    _note(world, bill, taxable="50", tax="9", number="DN-GONE", status="CANCELLED")
+    service = GstPurchaseRegisterService(session)
+
+    august = service.register(
+        world.firm.id, ReportWindow(date(2026, 8, 1), date(2026, 8, 31))
+    )
+    july = service.register(
+        world.firm.id, ReportWindow(date(2026, 7, 1), date(2026, 7, 31))
+    )
+
+    assert [row.invoice_number for row in august] == ["DN-AUG"]
+    assert [row.invoice_number for row in july] == [bill.invoice_number]
+
+
+def test_bills_and_notes_are_paged_together() -> None:
+    """A page is a page of the register, and the count covers both."""
+    session = _session()
+    world = _World(session)
+    bill = world.bill(
+        world.local,
+        [world.within_state(world.soap, world.pcs)],
+        day=date(2026, 8, 2),
+    )
+    _note(world, bill, taxable="100", tax="18", day=date(2026, 8, 5))
+    service = GstPurchaseRegisterService(session)
+
+    first = service.register(world.firm.id, ReportWindow(page=1, page_size=1))
+    second = service.register(world.firm.id, ReportWindow(page=2, page_size=1))
+
+    assert isinstance(first, ReportRows)
+    assert first.total_records == 2
+    assert [row.invoice_number for row in first] == ["DN-001"]
+    assert [row.invoice_number for row in second] == [bill.invoice_number]
+
+
+def test_the_hsn_summary_nets_a_debit_note() -> None:
+    """A short-supply note takes its units, value and tax off the code."""
+    session = _session()
+    world = _World(session)
+    bill = world.bill(world.local, [world.within_state(world.soap, world.pcs)])
+    _note(world, bill, taxable="100", tax="18", quantity="1")
+
+    rows = GstPurchaseRegisterService(session).hsn_summary(world.firm.id)
+
+    assert [(row.hsn_code, row.unit) for row in rows] == [("3401", "PCS")]
+    assert rows[0].quantity == Decimal("9")
+    assert rows[0].taxable_value == Decimal("900.00")
+    assert (rows[0].cgst, rows[0].sgst) == (Decimal("81.00"), Decimal("81.00"))
+    assert rows[0].total_tax == Decimal("162.00")
+    assert rows[0].bills == 1
 
 
 def test_a_blocked_credit_line_counts_as_not_claimable() -> None:
@@ -364,6 +525,7 @@ def test_the_routes_take_a_window_and_a_page() -> None:
 
     assert page.pagination.total_records == 2
     assert [row.invoice_date for row in page.data] == [days[2]]
+    assert [row.document_type_label for row in page.data] == ["Bill"]
     assert [row.bills for row in hsn.data] == [2]
     for path in ("gst-register", "hsn-summary"):
         assert_page_size_is_bounded(router, f"/api/v1/purchase-invoices/reports/{path}")
@@ -392,7 +554,8 @@ def _statements(bills: int) -> tuple[int, int]:
     world = _World(session)
     for index in range(bills):
         vendor = world.local if index % 2 else world.interstate
-        world.bill(vendor, [world.within_state(world.soap, world.pcs)])
+        bill = world.bill(vendor, [world.within_state(world.soap, world.pcs)])
+        _note(world, bill, taxable="100", tax="18", number=f"DN-{index:03d}")
     session.expire_all()
     service = GstPurchaseRegisterService(session)
     firm_id: UUID = world.firm.id
@@ -404,5 +567,5 @@ def _statements(bills: int) -> tuple[int, int]:
 
 
 def test_the_statements_do_not_grow_with_the_bills() -> None:
-    """Two bills and twelve cost the same number of statements."""
+    """Two bills with their notes and twelve cost the same statements."""
     assert _statements(2) == _statements(12)
