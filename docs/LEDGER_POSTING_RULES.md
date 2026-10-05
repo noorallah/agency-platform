@@ -1328,7 +1328,11 @@ bill (`settlement_allocations`), or, for a promise on the account, what the
 customer paid in that window. Past that day without them it is *broken*; on
 the day, *due today*; before it, *pending*. Reversing a receipt therefore
 un-keeps the promise it had kept, with nothing to put right. Money that came
-before the promise was taken, or after its day, does not count toward it.
+before the promise was taken, or after its day, does not count toward it --
+**before by time, not by day**: a receipt recorded earlier the same day does
+not keep a promise taken after it (`Settlement.created_at >=
+PaymentPromise.created_at`, D-SELL-56). **A kept promise cannot be
+withdrawn**; the server refuses it, not only the screen (D-SELL-62).
 The amount received is one correlated expression (`received_amount` in
 `app/collections/services/promises.py`), so the list filters on status and
 pages in SQL.

@@ -9,7 +9,7 @@ patching the clock.
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -702,3 +702,61 @@ def test_the_routes_are_served_and_bound_their_pages() -> None:
     assert "post" in paths["/api/v1/collections/promises"]
     assert "post" in paths["/api/v1/collections/promises/{promise_id}/withdraw"]
     assert "get" in paths["/api/v1/collections/sheet/pdf"]
+
+
+def test_money_received_earlier_the_same_day_does_not_keep_a_promise() -> None:
+    """D-SELL-56: the morning's receipt kept a promise taken in the afternoon.
+
+    Driven 2026-10-05: a receipt of 500 on a bill, then a promise of 500 for
+    three days on -- it came back KEPT with 500.00 received while the bill
+    still owed, so it never reached the chase list. Receipts were counted
+    from the promise's **day**; a promise is about money still to come, so
+    only a receipt recorded after it counts.
+    """
+    setup = _world()
+    bill = _bill(setup)
+    earlier = _pay(setup, bill, Decimal("100.00"), TAKEN)
+    promise = _promise(setup, bill, Decimal("100.00"))
+    # The unit suite's clock has one-second steps, so say which came first.
+    taken_at = setup.session.scalar(
+        select(PaymentPromise.created_at).where(PaymentPromise.id == promise.id)
+    )
+    assert taken_at is not None
+    earlier.created_at = taken_at - timedelta(hours=3)
+    setup.session.commit()
+
+    same_day = _status(setup, promise.id, TAKEN)
+    assert same_day.received_amount == Decimal("0.00")
+    assert same_day.status is PromiseStatus.PENDING
+    chase, _count = PromiseService(setup.session).chase_list(
+        setup.firm.id, page=1, page_size=50, today=AFTER
+    )
+    assert [row.id for row in chase] == [promise.id], "broken, so it is chased"
+
+    # Money that comes after the promise, the same day, does keep it.
+    later = _pay(setup, bill, Decimal("100.00"), TAKEN)
+    later.created_at = taken_at + timedelta(hours=1)
+    setup.session.commit()
+    kept = _status(setup, promise.id, AFTER)
+    assert kept.status is PromiseStatus.KEPT
+    assert kept.received_amount == Decimal("100.00")
+
+
+def test_a_kept_promise_cannot_be_withdrawn() -> None:
+    """D-SELL-62: only the screen held the button back; the server withdrew it."""
+    setup = _world()
+    bill = _bill(setup)
+    promise = _promise(setup, bill, Decimal("100.00"))
+    _pay(setup, bill, Decimal("100.00"), date(2026, 8, 12))
+    assert _status(setup, promise.id, AFTER).status is PromiseStatus.KEPT
+
+    with pytest.raises(ValidationError, match="was kept"):
+        PromiseService(setup.session).withdraw(
+            promise.id,
+            "Changed his mind",
+            firm_id=setup.firm.id,
+            actor_id=_actor(setup),
+            today=AFTER,
+        )
+
+    assert _status(setup, promise.id, AFTER).status is PromiseStatus.KEPT

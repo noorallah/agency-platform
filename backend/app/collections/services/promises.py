@@ -1,9 +1,10 @@
 """Promises to pay: record, withdraw, and say what became of each (SG-8).
 
 **The status is derived on every read.** A promise is *kept* when the receipts
-dated from the day it was taken up to and including the day it was promised
-for cover its amount -- for a bill promise, what those receipts allocated to
-the bill; for a promise on the account, what the customer paid in all. Only a
+recorded after it was taken, and dated up to and including the day it was
+promised for, cover its amount (D-SELL-56: after by time, not by day) -- for
+a bill promise, what those receipts allocated to the bill; for a promise on
+the account, what the customer paid in all. Only a
 posted receipt counts, so reversing one un-keeps the promise it had kept. A
 promise is *broken* once its day has passed without that, *due today* on its
 day, *pending* before it, and *withdrawn* when it was taken back.
@@ -63,8 +64,12 @@ def _money(value: object) -> Decimal:
 def _counted_receipt() -> tuple[ColumnElement[bool], ...]:
     """Return what makes a receipt count toward the promise being read.
 
-    Posted -- a reversed receipt keeps nothing -- and dated inside the
-    promise's window, both ends included.
+    Posted -- a reversed receipt keeps nothing -- dated inside the promise's
+    window, both ends included, **and written after the promise was**. The
+    day alone let money received that morning keep a promise taken in the
+    afternoon: it came back KEPT while the bill still owed, and never reached
+    the chase list (D-SELL-56). A promise is about money still to come, so
+    only a receipt recorded after it counts.
     """
     return (
         Settlement.firm_id == PaymentPromise.firm_id,
@@ -73,6 +78,7 @@ def _counted_receipt() -> tuple[ColumnElement[bool], ...]:
         Settlement.is_deleted.is_(False),
         Settlement.settlement_date >= PaymentPromise.recorded_on,
         Settlement.settlement_date <= PaymentPromise.promised_on,
+        Settlement.created_at >= PaymentPromise.created_at,
     )
 
 
@@ -310,6 +316,8 @@ class PromiseService:
         Raises:
             ResourceNotFoundError: If the firm has no such promise.
             ConflictError: If it was already withdrawn.
+            ValidationError: If it was kept: the money came, so there is
+                nothing to take back (D-SELL-62).
 
         """
         row = self._session.scalar(
@@ -323,6 +331,18 @@ class PromiseService:
             raise ResourceNotFoundError("Promise not found.")
         if row.cancelled_at is not None:
             raise ConflictError("That promise was already withdrawn.")
+        # Only the screen held this back: the server withdrew a promise the
+        # customer had kept, and its record then read as though they had not.
+        received = _money(
+            self._session.scalar(
+                select(received_amount()).where(PaymentPromise.id == row.id)
+            )
+        )
+        if received >= Decimal(str(row.amount)):
+            raise ValidationError(
+                "That promise was kept: the money promised was received, so "
+                "there is nothing to withdraw."
+            )
         before = self._snapshot(row)
         row.cancelled_at = utc_now()
         row.cancel_reason = reason
