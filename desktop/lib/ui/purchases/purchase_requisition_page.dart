@@ -64,8 +64,13 @@ class _PurchaseRequisitionPageState extends State<PurchaseRequisitionPage> {
       _error = null;
     });
     try {
-      final List<PurchaseRequisition> rows =
-          await widget.api.listPurchaseRequisitions(status: _status);
+      final List<PurchaseRequisition> rows = await fetchAllPages(
+        (int page) => widget.api.purchaseRequisitions(
+          page: page,
+          pageSize: maxApiPageSize,
+          status: _status,
+        ),
+      );
       if (!mounted) return;
       setState(() {
         _rows = rows;

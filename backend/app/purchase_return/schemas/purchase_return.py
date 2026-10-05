@@ -306,6 +306,10 @@ class PurchaseReturnLineResponse(PurchaseReturnSchema):
 class PurchaseReturnResponse(PurchaseReturnSchema):
     """Return one purchase return."""
 
+    #: The optimistic-concurrency version, published so a client can send
+    #: it back as ``If-Match``. In the body as well as the ``ETag`` header
+    #: because a list carries many records and a header carries one.
+    version: int = 1
     id: UUID
     firm_id: UUID
     vendor_id: UUID

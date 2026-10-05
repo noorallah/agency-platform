@@ -419,6 +419,10 @@ class PurchaseInvoiceResponse(PurchaseInvoiceSchema):
     #: How many uploaded files the bill carries (PG-4), so a list can show a
     #: paper clip without asking per row. Counted once for the page.
     attached_file_count: int = 0
+    #: The optimistic-concurrency version, published so a client can send
+    #: it back as ``If-Match``. In the body as well as the ``ETag`` header
+    #: because a list carries many records and a header carries one.
+    version: int = 1
 
     id: UUID
     firm_id: UUID

@@ -24,6 +24,7 @@ from app.common.scope import (
     firm_any_permission_scope,
     firm_permission_scope,
 )
+from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import AuthorizationError, ValidationError
@@ -220,11 +221,13 @@ def purchase_invoice_summary(
 def create_purchase_invoice(
     data: PurchaseInvoiceCreate,
     scope: PurchaseInvoiceCreateScope,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseInvoiceResponse]:
     """Create one purchase invoice."""
     service = PurchaseInvoiceService(db)
     row = service.create_invoice(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    set_etag(response, row)
     return ApiResponse(data=service.invoice_response(row))
 
 
@@ -543,13 +546,24 @@ def update_purchase_invoice(
     invoice_id: UUID,
     data: PurchaseInvoiceCreate,
     scope: PurchaseInvoiceUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[PurchaseInvoiceResponse]:
-    """Replace one purchase invoice."""
+    """Replace one purchase invoice.
+
+    ``If-Match`` with the version last read refuses a save over somebody
+    else's newer one (D-BUY-54); sending none saves with no precondition.
+    """
     service = PurchaseInvoiceService(db)
+    assert_version(
+        service.get_invoice(invoice_id, firm_scope=scope.firm_id).version,
+        expected_version,
+    )
     row = service.update_invoice(
         invoice_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
+    set_etag(response, row)
     return ApiResponse(data=service.invoice_response(row))
 
 
@@ -670,15 +684,14 @@ def close_purchase_invoice(
 def get_purchase_invoice(
     invoice_id: UUID,
     scope: PurchaseInvoiceViewScope,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseInvoiceResponse]:
     """Return one purchase invoice."""
     service = PurchaseInvoiceService(db)
-    return ApiResponse(
-        data=service.invoice_response(
-            service.get_invoice(invoice_id, firm_scope=scope.firm_id)
-        )
-    )
+    row = service.get_invoice(invoice_id, firm_scope=scope.firm_id)
+    set_etag(response, row)
+    return ApiResponse(data=service.invoice_response(row))
 
 
 @router.get(
