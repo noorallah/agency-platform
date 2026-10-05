@@ -375,6 +375,10 @@ class _ReleaseRecorder:
         """Say the whole hold sits on the untracked row."""
         return [(None, quantity)]
 
+    def held_by_reference(self, **_: object) -> dict[UUID | None, Decimal]:
+        """Say the order holds nothing by batch: the release asks first."""
+        return {}
+
     def release_sales_order_reservation(
         self, *, transaction_date: date, **_: object
     ) -> None:

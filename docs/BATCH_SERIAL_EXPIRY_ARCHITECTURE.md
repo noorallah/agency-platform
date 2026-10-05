@@ -546,6 +546,28 @@ the later one, and refused its dispatch "short by 6" for stock it had itself
 reserved (D-SELL-58, second half). The batch picker reads the same figure, so
 "available to line" and the pre-fill name the batch the line really holds.
 
+**A counter bill line split across batches holds each for what was picked**
+(D-SELL-81). One of the early batch and three of the late held all four on
+the early one: three held that would never ship, and the three that would
+left open to any other order, whose taking them refused the bill's approval.
+An order line has one batch to pin and a split has several, so the split is
+not stored: the chain hands it to the approval that holds the stock
+(`stage_approval(held_batches=)`, `_held_as_chosen`), which holds each batch
+as a pinned one is held -- what a batch cannot cover is a back order, never
+a hold on another batch. No column was added. Picks that do not add up to
+what the line reserves -- half typed, or a gift an offer added -- are held
+earliest expiry first as before; the bill's approval is what refuses them.
+Reserving a counter bill's hidden order again by hand (`reserve_again`)
+still holds earliest first, because nothing on the order remembers the
+split.
+
+**Withdrawing an order lets go of its own hold first too.** Cancelling or
+releasing an order went by expiry alone, so an order held on a later batch
+let go of another order's hold on the earlier one and kept its own: the
+totals were right and each batch was wrong. Found while fixing D-SELL-81,
+where every changed pick withdraws an order; `_release_inventory` now passes
+`own=` exactly as dispatch does.
+
 **The back-order report reads stock by batch** (D-SELL-60): stock in an
 expired batch is not counted, and a pinned line is measured against its own
 batch alone.
