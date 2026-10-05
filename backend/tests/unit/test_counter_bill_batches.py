@@ -173,6 +173,9 @@ def test_an_edited_draft_restates_its_batches_on_its_own_note() -> None:
     )
     shop.session.commit()
 
+    # Another pick is a change to what leaves, so the note is raised again
+    # and holds the batches the bill now names (D-SELL-72).
+    [line] = shop.bills.invoice_response(draft).lines
     stored = {
         row.batch_id: row.quantity
         for row in shop.session.scalars(

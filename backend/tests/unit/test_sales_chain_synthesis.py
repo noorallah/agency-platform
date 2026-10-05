@@ -1263,34 +1263,253 @@ def test_more_than_the_bill_is_refused_and_nothing_is_approved() -> None:
     assert _dispatches(session) == 0
 
 
-def test_a_product_line_on_a_saved_counter_bill_is_refused_by_name() -> None:
-    """D-SELL-69: it surfaced as "Unsupported source document type.".
-
-    A saved counter bill is changed through the lines it already has. One
-    sent a product line was refused three layers down, in words an API
-    client could not act on.
-    """
+def _counter_draft(
+    quantity: str = "3",
+) -> tuple[Session, _Firm, SalesInvoiceService, SalesInvoice]:
+    """Save a draft counter bill on a request-shaped session."""
     session = _request_session()
     setup = _Firm(session)
     setup.stages(quotation=False, sales_order=False, delivery_note=False)
     service = SalesInvoiceService(session)
-    actor = uuid4()
     invoice = service.create_invoice(
-        setup.bare_bill(), firm_id=setup.firm.id, actor_id=actor
+        setup.bare_bill(Decimal(quantity)), firm_id=setup.firm.id, actor_id=uuid4()
+    )
+    return session, setup, service, invoice
+
+
+def _sent_back(
+    service: SalesInvoiceService, invoice: SalesInvoice, quantity: str
+) -> SalesInvoiceCreate:
+    """Describe an edit the way the desktop sends one: by the source fields."""
+    [line] = service.invoice_response(invoice).lines
+    return SalesInvoiceCreate(
+        customer_id=invoice.customer_id,
+        invoice_date=invoice.invoice_date,
+        lines=[
+            SalesInvoiceLineWrite(
+                source_document_type="DELIVERY_NOTE",
+                source_document_id=line.source_document_id,
+                source_document_line_id=line.source_document_line_id,
+                line_number=1,
+                current_invoice_quantity=Decimal(quantity),
+                unit_price=line.unit_price,
+            )
+        ],
+    )
+
+
+def _chain_of(session: Session) -> dict[str, list[tuple[str, Decimal]]]:
+    """Return every order and note with its status and quantity, oldest first."""
+    session.expire_all()
+    return {
+        "orders": [
+            (order.status, line.quantity)
+            for order, line in session.execute(
+                select(SalesOrder, SalesOrderLine)
+                .join(SalesOrderLine, SalesOrderLine.sales_order_id == SalesOrder.id)
+                .order_by(SalesOrder.order_number, SalesOrderLine.line_number)
+            ).all()
+        ],
+        "notes": [
+            (note.status, line.current_delivery_quantity)
+            for note, line in session.execute(
+                select(DeliveryNote, DeliveryNoteLine)
+                .join(
+                    DeliveryNoteLine,
+                    DeliveryNoteLine.delivery_note_id == DeliveryNote.id,
+                )
+                .order_by(
+                    DeliveryNote.delivery_note_number, DeliveryNoteLine.line_number
+                )
+            ).all()
+        ],
+    }
+
+
+def test_a_counter_bill_cut_down_ships_what_it_bills() -> None:
+    """D-SELL-72: a draft cut from 3 to 2 billed 2 and shipped 3.
+
+    Driven 2026-10-05: the edit changed the bill alone; its hidden note still
+    delivered 3, so the third unit left at cost with nobody billed, on a note
+    no screen of a counter firm offers. The edit now withdraws the note and
+    the order and raises them again, so all four agree.
+    """
+    session, setup, service, invoice = _counter_draft("3")
+    actor = uuid4()
+    assert _reserved(session) == Decimal("3.0000")
+
+    service.update_invoice(
+        invoice.id,
+        _sent_back(service, invoice, "2"),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+
+    assert _reserved(session) == Decimal("2.0000"), "the hold follows the bill"
+    assert _chain_of(session) == {
+        "orders": [("CANCELLED", Decimal("3.0000")), ("APPROVED", Decimal("2.0000"))],
+        "notes": [("CANCELLED", Decimal("3.0000")), ("APPROVED", Decimal("2.0000"))],
+    }
+    session.refresh(invoice)
+    assert invoice.grand_total == Decimal("200.0000")
+
+    service.approve_invoice(invoice.id, firm_scope=setup.firm.id, actor_id=actor)
+
+    moved = session.scalars(
+        select(InventoryTransaction).where(
+            InventoryTransaction.transaction_type == "DISPATCH"
+        )
+    ).all()
+    assert [abs(row.current_quantity_delta) for row in moved] == [Decimal("2.0000")]
+    assert _reserved(session) == Decimal("0.0000")
+    assert service.billable_documents(firm_scope=setup.firm.id) == []
+
+
+def test_a_counter_bill_grows_and_takes_another_product() -> None:
+    """D-SELL-59: a saved counter bill could only be reduced.
+
+    Quantity 3 to 4 was "Invoice quantity exceeds the available source
+    quantity", and a product line was refused outright. Sent as product
+    lines, the way a new counter bill is, the edit raises the chain again.
+    """
+    session, setup, service, invoice = _counter_draft("3")
+    actor = uuid4()
+    other = Product(
+        firm_id=setup.firm.id,
+        code="SKU-002",
+        name="Product SKU-002",
+        product_type="STOCK_ITEM",
+        status="ACTIVE",
+    )
+    session.add(other)
+    session.commit()
+    InventoryService(session).create_adjustment(
+        InventoryAdjustmentCreate(
+            branch_id=setup.branch.id,
+            warehouse_id=setup.warehouse.id,
+            product_id=other.id,
+            quantity=Decimal("10"),
+            reference_number="ADJ-OTHER",
+            reference_type="ADJUSTMENT",
+            transaction_date=date(2026, 8, 1),
+        ),
+        firm_scope=setup.firm.id,
+        actor_id=actor,
+    )
+    grown = setup.bare_bill(Decimal("4"))
+    grown.lines.append(
+        SalesInvoiceLineWrite(
+            product_id=other.id,
+            line_number=2,
+            current_invoice_quantity=Decimal("2"),
+            unit_price=Decimal("50"),
+        )
+    )
+
+    service.update_invoice(invoice.id, grown, firm_id=setup.firm.id, actor_id=actor)
+
+    session.refresh(invoice)
+    assert invoice.grand_total == Decimal("500.0000")
+    assert _reserved(session) == Decimal("6.0000")
+    lines = service.invoice_response(invoice).lines
+    assert [(line.product_id, line.current_invoice_quantity) for line in lines] == [
+        (setup.product.id, Decimal("4.0000")),
+        (other.id, Decimal("2.0000")),
+    ]
+    service.approve_invoice(invoice.id, firm_scope=setup.firm.id, actor_id=actor)
+    assert _reserved(session) == Decimal("0.0000")
+    assert _dispatches(session) == 2
+
+
+def test_a_held_bill_recalled_and_grown_ships_what_it_now_bills() -> None:
+    """The customer comes back for one more: hold, recall, 3 becomes 4."""
+    session, setup, service, invoice = _counter_draft("3")
+    actor = uuid4()
+    service.hold_invoice(invoice.id, firm_scope=setup.firm.id, actor_id=actor)
+    assert _reserved(session) == Decimal("3.0000")
+    service.recall_invoice(invoice.id, firm_scope=setup.firm.id, actor_id=actor)
+
+    service.update_invoice(
+        invoice.id,
+        _sent_back(service, invoice, "4"),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+
+    assert _reserved(session) == Decimal("4.0000")
+    session.refresh(invoice)
+    assert invoice.grand_total == Decimal("400.0000")
+    service.approve_invoice(invoice.id, firm_scope=setup.firm.id, actor_id=actor)
+    moved = session.scalars(
+        select(InventoryTransaction).where(
+            InventoryTransaction.transaction_type == "DISPATCH"
+        )
+    ).all()
+    assert [abs(row.current_quantity_delta) for row in moved] == [Decimal("4.0000")]
+
+
+def test_an_edit_that_ships_the_same_raises_nothing_again() -> None:
+    """A change of reference is not a change to what leaves."""
+    session, setup, service, invoice = _counter_draft("3")
+    same = _sent_back(service, invoice, "3")
+    same.reference_number = "PO-77"
+
+    service.update_invoice(invoice.id, same, firm_id=setup.firm.id, actor_id=uuid4())
+
+    assert _chain_of(session) == {
+        "orders": [("APPROVED", Decimal("3.0000"))],
+        "notes": [("APPROVED", Decimal("3.0000"))],
+    }
+    session.refresh(invoice)
+    assert invoice.reference_number == "PO-77"
+
+
+def test_an_edit_that_is_refused_leaves_the_whole_chain_as_it_was() -> None:
+    """One transaction: the old note and order are not withdrawn on their own."""
+    session, setup, service, invoice = _counter_draft("3")
+    before = _chain_of(session)
+    grown = setup.bare_bill(Decimal("5"))
+    grown.lines[0].warehouse_id = uuid4()
+
+    with pytest.raises(ValidationError, match="was not found in this branch"):
+        service.update_invoice(
+            invoice.id, grown, firm_id=setup.firm.id, actor_id=uuid4()
+        )
+    session.rollback()
+
+    assert _chain_of(session) == before
+    assert _reserved(session) == Decimal("3.0000")
+    session.refresh(invoice)
+    assert invoice.grand_total == Decimal("300.0000")
+    [line] = service.invoice_response(invoice).lines
+    assert line.current_invoice_quantity == Decimal("3.0000")
+    # And it still approves for what it was.
+    service.approve_invoice(invoice.id, firm_scope=setup.firm.id, actor_id=uuid4())
+    assert _reserved(session) == Decimal("0.0000")
+
+
+def test_a_bill_of_a_persons_note_takes_no_product_line() -> None:
+    """D-SELL-69: only a counter bill is raised again; the rest say why not."""
+    session = _request_session()
+    setup = _Firm(session)
+    setup.stages(delivery_note=True)
+    note = _persons_note(setup)
+    DeliveryNoteService(session).stage_dispatch(
+        note.id, firm_scope=setup.firm.id, actor_id=uuid4()
+    )
+    session.commit()
+    service = SalesInvoiceService(session)
+    invoice = service.create_invoice(
+        _bill_of(setup, note), firm_id=setup.firm.id, actor_id=uuid4()
     )
 
     with pytest.raises(ValidationError) as refused:
         service.update_invoice(
-            invoice.id,
-            setup.bare_bill(Decimal("5")),
-            firm_id=setup.firm.id,
-            actor_id=actor,
+            invoice.id, setup.bare_bill(), firm_id=setup.firm.id, actor_id=uuid4()
         )
 
     message = str(refused.value)
-    assert invoice.invoice_number in message
-    assert "source_document_line_id" in message and "no product_id" in message
-    assert "Unsupported" not in message
+    assert invoice.invoice_number in message and "no product_id" in message
 
 
 def test_a_line_naming_a_warehouse_nobody_has_is_refused_by_name() -> None:
