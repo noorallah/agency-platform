@@ -49,6 +49,11 @@ from app.delivery_note.services.challan_print_service import (
     DeliveryChallanPrintService,
 )
 from app.delivery_note.services.dispatch_sheets import DispatchSheetService
+from app.delivery_note.services.transporters import (
+    TransporterResponse,
+    TransporterService,
+    TransporterWrite,
+)
 from app.document_framework.schemas import DocumentLifecycleEventResponse
 from app.document_framework.schemas.bulk_actions import (
     BulkActionResult,
@@ -149,6 +154,70 @@ def _filters(
         )
     except ValueError as error:
         raise ValidationError(str(error)) from error
+
+
+@router.get("/transporters", response_model=ApiResponse[list[TransporterResponse]])
+def list_transporters(
+    scope: DeliveryNoteViewScope,
+    db: Annotated[Session, Depends(get_db)],
+    active_only: bool = False,
+) -> ApiResponse[list[TransporterResponse]]:
+    """Return the firm's transporters by name (backlog 87 #5)."""
+    return ApiResponse(
+        data=TransporterService(db).transporters(scope.firm_id, active_only=active_only)
+    )
+
+
+@router.post(
+    "/transporters",
+    response_model=ApiResponse[TransporterResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_transporter(
+    data: TransporterWrite,
+    scope: DeliveryNoteUpdateScope,
+    db: Annotated[Session, Depends(get_db)],
+) -> ApiResponse[TransporterResponse]:
+    """Add a transporter (backlog 87 #5)."""
+    return ApiResponse(
+        data=TransporterService(db).save(
+            data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
+
+
+@router.put(
+    "/transporters/{transporter_id}",
+    response_model=ApiResponse[TransporterResponse],
+)
+def update_transporter(
+    transporter_id: UUID,
+    data: TransporterWrite,
+    scope: DeliveryNoteUpdateScope,
+    db: Annotated[Session, Depends(get_db)],
+) -> ApiResponse[TransporterResponse]:
+    """Change a transporter; notes already raised keep what they copied."""
+    return ApiResponse(
+        data=TransporterService(db).save(
+            data,
+            firm_id=scope.firm_id,
+            actor_id=scope.actor_id,
+            transporter_id=transporter_id,
+        )
+    )
+
+
+@router.delete("/transporters/{transporter_id}", response_model=ApiResponse[None])
+def delete_transporter(
+    transporter_id: UUID,
+    scope: DeliveryNoteUpdateScope,
+    db: Annotated[Session, Depends(get_db)],
+) -> ApiResponse[None]:
+    """Remove a transporter the firm no longer uses (backlog 87 #5)."""
+    TransporterService(db).delete(
+        transporter_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=None, message="Transporter deleted.")
 
 
 @router.get("", response_model=PaginatedResponse[DeliveryNoteResponse])

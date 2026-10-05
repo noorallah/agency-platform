@@ -7,6 +7,7 @@ from app.delivery_note.models.delivery_note import (
     DeliveryNoteLineBatch,
     DeliveryNoteNote,
 )
+from app.delivery_note.models.transporter import Transporter
 
 __all__ = [
     "DeliveryNote",
@@ -14,4 +15,5 @@ __all__ = [
     "DeliveryNoteLine",
     "DeliveryNoteLineBatch",
     "DeliveryNoteNote",
+    "Transporter",
 ]
