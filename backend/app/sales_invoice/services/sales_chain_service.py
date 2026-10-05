@@ -192,6 +192,11 @@ class SalesChainService:
                         tax_profile_id=line.tax_profile_id,
                         warehouse_id=line.warehouse_id or warehouse_id,
                         storage_node_id=line.storage_node_id,
+                        # A line drawn wholly from one batch it chose holds
+                        # that batch, not the earliest: the draft showed its
+                        # quantity reserved on a batch it would never ship
+                        # (D-SELL-58). Several batches name no one to hold.
+                        pinned_batch_id=self._one_batch(line),
                         remarks=line.remarks,
                     )
                     for line in data.lines
@@ -205,9 +210,9 @@ class SalesChainService:
             # A line drawn wholly from one batch it chose may take that
             # batch's PTR or PTS (PG-14); several batches name no one rate.
             price_batches={
-                line.line_number: line.batches[0].batch_id
+                line.line_number: batch_id
                 for line in data.lines
-                if line.batches and len({pick.batch_id for pick in line.batches}) == 1
+                if (batch_id := self._one_batch(line)) is not None
             },
         )
         self.raised_orders.append(order)
@@ -525,6 +530,14 @@ class SalesChainService:
                 "coupon_code": None,
             }
         )
+
+    @staticmethod
+    def _one_batch(line: SalesInvoiceLineWrite) -> UUID | None:
+        """Return the batch a bare line is drawn wholly from, if it chose one."""
+        if not line.batches:
+            return None
+        chosen = {pick.batch_id for pick in line.batches}
+        return chosen.pop() if len(chosen) == 1 else None
 
     @staticmethod
     def _product_of(line: SalesInvoiceLineWrite) -> UUID:

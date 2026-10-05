@@ -18,7 +18,7 @@ from app.batch_serial.models.batch_serial import BatchRecord
 from app.core.exceptions import ValidationError
 from app.delivery_note.models import DeliveryNoteLineBatch
 from app.delivery_note.schemas import DeliveryNoteBatchPick
-from app.inventory.models import InventoryTransaction
+from app.inventory.models import InventoryRecord, InventoryTransaction
 from app.inventory.services import InventoryService
 from app.products.models import Product
 from app.sales_invoice.schemas import SalesInvoiceCreate, SalesInvoiceLineWrite
@@ -212,3 +212,22 @@ def test_another_products_batch_is_refused_by_line() -> None:
             firm_id=shop.firm.id,
             actor_id=shop.actor,
         )
+
+
+def test_a_draft_counter_bill_reserves_the_batch_it_chose() -> None:
+    """D-SELL-58: the draft held the earlier batch while it would ship LATE."""
+    shop = _Counter()
+
+    shop.bills.create_invoice(
+        shop.bill([shop.pick("LATE")]), firm_id=shop.firm.id, actor_id=shop.actor
+    )
+
+    reserved = {
+        name: shop.session.scalar(
+            select(InventoryRecord.reserved_quantity).where(
+                InventoryRecord.batch_id == batch.id
+            )
+        )
+        for name, batch in shop.batches.items()
+    }
+    assert reserved == {"EARLY": Decimal("0.0000"), "LATE": Decimal("4.0000")}

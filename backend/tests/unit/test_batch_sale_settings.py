@@ -16,6 +16,7 @@ from app.common.audit.models import AuditLog
 from app.core.exceptions import ValidationError
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.document_framework.models import DocumentLifecycleEvent
+from app.inventory.models import InventoryTransaction
 from app.sales_order.models import PriceFloorSettings, SalesOrder
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
@@ -428,3 +429,88 @@ def test_the_picker_flags_a_short_batch_and_never_prefills_it() -> None:
     assert by_name["MARCH"].short_for_customer is True
     assert by_name["MARCH"].fefo == Decimal("0")
     assert by_name["JUNE"].fefo == Decimal("8")
+
+
+def test_approval_reserves_the_batch_the_customers_shelf_life_allows() -> None:
+    """D-SELL-58: the hold went on a batch dispatch would never ship them.
+
+    Driven 2026-10-05: a customer wanting 180 days ordered 8 and approval
+    held the earlier, short-dated batch; the next order took the only batch
+    that suited, and the first order's dispatch was refused "short by 6" with
+    20 on the shelf. MARCH has 196 days and this customer wants 200, so the
+    hold belongs on JUNE -- the batch the note will draw.
+    """
+    shop = _Shop()
+    _wants(shop, 200)
+    march_before = shop.stock("MARCH").reserved_quantity
+    order = _order(shop, "6")
+
+    SalesOrderService(shop.session).approve_order(
+        order.id, firm_scope=shop.firm_id, actor_id=shop.actor_id
+    )
+
+    assert shop.stock("JUNE").reserved_quantity == Decimal("6.0000")
+    assert shop.stock("MARCH").reserved_quantity == march_before
+
+
+def test_a_hold_short_of_suitable_stock_names_the_batch_passed_over() -> None:
+    """More than JUNE holds: the rest is a back order that says why."""
+    shop = _Shop()
+    _wants(shop, 200)
+    order = _order(shop, "12")
+
+    SalesOrderService(shop.session).approve_order(
+        order.id, firm_scope=shop.firm_id, actor_id=shop.actor_id
+    )
+
+    assert shop.stock("JUNE").reserved_quantity == Decimal("10.0000")
+    held = shop.session.scalars(
+        select(InventoryTransaction).where(
+            InventoryTransaction.reference_number == order.order_number,
+            InventoryTransaction.batch_id.is_(None),
+        )
+    ).all()
+    assert [row.reserved_quantity_delta for row in held] == [Decimal("2.0000")]
+    assert "Too short-dated for this customer's minimum shelf life: MARCH" in (
+        held[0].remarks or ""
+    )
+
+
+def test_the_back_order_report_counts_no_expired_stock_and_knows_a_pin() -> None:
+    """D-SELL-60: twelve pinned to a batch of ten read as covered.
+
+    The report summed the product's stock in every batch, expired ones
+    included. STALE's ten are no stock an order can have; a line pinned to
+    JUNE can have only JUNE's.
+    """
+    shop = _Shop()
+    orders = SalesOrderService(shop.session)
+    pinned = orders.create_order(
+        SalesOrderCreate(
+            customer_id=shop.order.customer_id,
+            branch_id=shop.order.branch_id,
+            warehouse_id=shop.warehouse_id,
+            order_date=NOTE_DATE,
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=shop.product.id,
+                    quantity=Decimal("12"),
+                    unit_price=Decimal("100"),
+                    pinned_batch_id=shop.batches["JUNE"].id,
+                )
+            ],
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor_id,
+    )
+    orders.approve_order(pinned.id, firm_scope=shop.firm_id, actor_id=shop.actor_id)
+
+    rows = {
+        row.order_number: row for row in orders.back_orders(firm_scope=shop.firm_id)
+    }
+
+    assert rows[pinned.order_number].back_order_quantity == Decimal("2.0000")
+    # MARCH and JUNE, ten each; STALE's ten have expired and are not counted.
+    assert rows[pinned.order_number].available_stock == Decimal("20.0000")
+    assert shop.order.order_number not in rows, "eight of MARCH's ten is covered"

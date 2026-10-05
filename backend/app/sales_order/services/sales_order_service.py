@@ -11,7 +11,7 @@ from decimal import Decimal
 from functools import partial
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, not_, or_, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.batch_serial.models import BatchRecord
@@ -1701,24 +1701,47 @@ class SalesOrderService(TransactionalDocumentService):
             firm_id=firm_scope,
             sales_order_ids={order.id for _, order in rows},
         )
-        # Physical stock per product per warehouse, one grouped read; a
-        # reservation is a claim on it rather than a subtraction from it, so
-        # the allocation below is what says whose claim the stock meets.
-        on_hand: dict[tuple[UUID, UUID | None], Decimal] = {}
-        for product_id, warehouse_id, total in self._session.execute(
+        # Physical stock per product per warehouse **per batch**, one grouped
+        # read; a reservation is a claim on it rather than a subtraction from
+        # it, so the allocation below is what says whose claim the stock
+        # meets. Stock in a batch that has gone out of date is no stock an
+        # order can have, and a line that pins a batch can have only that
+        # batch's: summed by product, twelve pinned to a batch of ten and an
+        # order behind an expired batch both read as covered (D-SELL-60).
+        today = utc_now().date()
+        in_batches: dict[tuple[UUID, UUID | None], dict[UUID | None, Decimal]] = (
+            defaultdict(dict)
+        )
+        for product_id, warehouse_id, batch_id, total in self._session.execute(
             select(
                 InventoryRecord.product_id,
                 InventoryRecord.warehouse_id,
+                InventoryRecord.batch_id,
                 func.coalesce(func.sum(InventoryRecord.current_quantity), 0),
             )
+            .outerjoin(BatchRecord, BatchRecord.id == InventoryRecord.batch_id)
             .where(
                 InventoryRecord.firm_id == firm_scope,
                 InventoryRecord.is_deleted.is_(False),
                 InventoryRecord.product_id.in_({line.product_id for line, _ in rows}),
+                or_(
+                    InventoryRecord.batch_id.is_(None),
+                    not_(BatchRecord.expired_condition(today)),
+                ),
             )
-            .group_by(InventoryRecord.product_id, InventoryRecord.warehouse_id)
+            .group_by(
+                InventoryRecord.product_id,
+                InventoryRecord.warehouse_id,
+                InventoryRecord.batch_id,
+            )
         ).all():
-            on_hand[(product_id, warehouse_id)] = self._q(Decimal(str(total)))
+            in_batches[(product_id, warehouse_id)][batch_id] = self._q(
+                Decimal(str(total))
+            )
+        on_hand: dict[tuple[UUID, UUID | None], Decimal] = {
+            key: self._q(sum(batches.values(), ZERO))
+            for key, batches in in_batches.items()
+        }
         products = {
             product.id: product
             for product in self._session.scalars(
@@ -1735,7 +1758,6 @@ class SalesOrderService(TransactionalDocumentService):
                 )
             ).all()
         }
-        remaining = dict(on_hand)
         result: list[SalesOrderBackOrderRecord] = []
         for line, order in rows:
             if is_stockless(products.get(line.product_id)):
@@ -1746,9 +1768,24 @@ class SalesOrderService(TransactionalDocumentService):
             if owed <= ZERO:
                 continue
             key = (line.product_id, line.warehouse_id or order.warehouse_id)
-            left = remaining.get(key, ZERO)
-            taken = min(owed, left) if left > ZERO else ZERO
-            remaining[key] = left - taken
+            shelf = in_batches.get(key, {})
+            # A pinned line draws on its batch alone; any other on whatever
+            # batch still has some, in a fixed order so two reads agree.
+            candidates = (
+                [line.pinned_batch_id]
+                if line.pinned_batch_id is not None
+                else sorted(shelf, key=lambda batch_id: str(batch_id or ""))
+            )
+            taken = ZERO
+            for batch_id in candidates:
+                left = shelf.get(batch_id, ZERO)
+                if left <= ZERO:
+                    continue
+                part = min(owed - taken, left)
+                shelf[batch_id] = left - part
+                taken += part
+                if taken >= owed:
+                    break
             short = self._q(owed - taken)
             if short <= ZERO:
                 continue
@@ -2556,6 +2593,14 @@ class SalesOrderService(TransactionalDocumentService):
         services = stockless_products(
             self._session, (line.product_id for line in lines)
         )
+        # The date this customer's goods must last to, as dispatch reads it
+        # off the note: a batch too short-dated for them is not held for them
+        # (D-SELL-58). Imported here, as the note service imports it.
+        from app.batch_serial.services.batch_sale_policy import BatchSalePolicyService
+
+        keep_until = BatchSalePolicyService(self._session).keep_until(
+            row.customer_id, on=row.order_date
+        )
         for line in lines:
             if line.reservable_quantity <= ZERO:
                 continue
@@ -2596,6 +2641,7 @@ class SalesOrderService(TransactionalDocumentService):
                 quantity=line.reservable_quantity,
                 as_of=row.order_date,
                 only_batch=line.pinned_batch_id,
+                keep_until=keep_until,
             )
             allocation = plan.batches
             entered_total = self._q(line.quantity + line.free_quantity)
