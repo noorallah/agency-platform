@@ -26,7 +26,7 @@ from sqlalchemy.pool import StaticPool
 from app.branches.models import Branch
 from app.core.database.base import Base
 from app.core.exceptions import ConflictError, ValidationError
-from app.core.utils.dates import utc_now
+from app.core.utils.dates import business_today, utc_now
 from app.customers.models import Customer
 from app.einvoice.models import (
     EWayBillStatus,
@@ -456,7 +456,7 @@ def test_an_eway_bill_carries_a_validity_the_portal_decided() -> None:
     assert row.eway_bill_number is not None
     assert row.eway_bill_number.startswith("SBX")
     # 450km is three days at 200km a day.
-    assert row.valid_until == utc_now().date() + timedelta(days=3)
+    assert row.valid_until == business_today("IN") + timedelta(days=3)
     # Stored upper-cased, because that is how a registration is read.
     assert row.vehicle_number == "MH12AB1234"
 
@@ -988,9 +988,9 @@ def test_a_consignment_above_the_limit_is_due_until_it_has_a_bill() -> None:
     from app.tax.services.gst_compliance import GstComplianceService
 
     books = _Books(_session_factory()())
-    from app.core.utils.dates import utc_now
+    from app.core.utils.dates import business_today
 
-    books.invoice.invoice_date = utc_now().date()
+    books.invoice.invoice_date = business_today("IN")
     books.session.commit()
     service = EWayBillService(books.session, mode="LIVE", provider="OFFLINE")
     assert service.limit(books.firm.id) == Decimal("50000")

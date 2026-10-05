@@ -5,7 +5,7 @@ from datetime import date, timedelta
 import pytest
 
 from app.core.exceptions import ValidationError
-from app.core.utils.dates import utc_now
+from app.core.utils.dates import business_today
 from app.einvoice.services.offline import OfflineEInvoiceService
 from app.einvoice.services.reporting_window import (
     DUE_SOON,
@@ -39,7 +39,7 @@ def _settings(
 
 def _dated(books: _Books, days_ago: int) -> date:
     """Date the invoice ``days_ago`` days before today."""
-    on = utc_now().date() - timedelta(days=days_ago)
+    on = business_today("IN") - timedelta(days=days_ago)
     books.invoice.invoice_date = on
     books.session.commit()
     return on
@@ -79,7 +79,7 @@ def test_the_limit_binds_only_from_the_firms_date() -> None:
     _settings(
         books,
         einvoice_from=date(2020, 1, 1),
-        thirty_from=utc_now().date() + timedelta(days=1),
+        thirty_from=business_today("IN") + timedelta(days=1),
     )
     _dated(books, 90)
     assert books.register().status == "REGISTERED"  # type: ignore[attr-defined]
@@ -102,7 +102,7 @@ def test_a_late_note_is_refused_too(kind: str) -> None:
     books = _bound(1)
     books.register()
     note = _note(books, kind)
-    old = utc_now().date() - timedelta(days=REPORTING_DAYS + 2)
+    old = business_today("IN") - timedelta(days=REPORTING_DAYS + 2)
     if kind == "CREDIT_NOTE":
         note.credit_note_date = old  # type: ignore[attr-defined]
     else:
@@ -117,7 +117,7 @@ def test_a_late_note_is_refused_too(kind: str) -> None:
 def test_the_list_shows_days_left_and_flags_what_is_close_or_late() -> None:
     """Oldest first; open, due soon and late by the days left."""
     books = _bound(2)
-    today = utc_now().date()
+    today = business_today("IN")
 
     [item] = pending(books.session, books.firm.id)
     assert (item.number, item.state) == ("SI-1", OPEN)

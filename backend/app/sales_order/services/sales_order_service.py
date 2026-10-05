@@ -1723,7 +1723,7 @@ class SalesOrderService(TransactionalDocumentService):
         # order can have, and a line that pins a batch can have only that
         # batch's: summed by product, twelve pinned to a batch of ten and an
         # order behind an expired batch both read as covered (D-SELL-60).
-        today = utc_now().date()
+        today = firm_today(self._session, firm_scope)
         in_batches: dict[tuple[UUID, UUID | None], dict[UUID | None, Decimal]] = (
             defaultdict(dict)
         )

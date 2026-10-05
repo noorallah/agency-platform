@@ -31,6 +31,7 @@ from app.common.file_import import (
     schema_issues,
     service_issue,
 )
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ApplicationError, ConflictError, ResourceNotFoundError
 from app.core.utils.dates import utc_now
 from app.products.models import Product
@@ -118,7 +119,7 @@ class PriceRevisionService:
                 .order_by(ProductPriceRevision.effective_from.desc())
             ).all()
         )
-        today = utc_now().date()
+        today = firm_today(self._session, firm_id)
         current = next((row.id for row in rows if row.effective_from <= today), None)
         return [
             PriceRevisionResponse(

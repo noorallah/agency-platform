@@ -18,7 +18,6 @@ from app.common.audit.services import record_audit
 from app.common.firm_metadata import firm_today
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
-from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_ledger, quantize_money
 from app.customers.models import Customer
 from app.customers.schemas import (
@@ -181,7 +180,9 @@ class LoyaltyService:
             current=self._current_rate(firm_scope),
         )
         floor = 0 if settings is None else settings.minimum_redemption_points
-        horizon = date.fromordinal(utc_now().date().toordinal() + EXPIRING_SOON_DAYS)
+        horizon = firm_today(self._session, firm_scope) + timedelta(
+            days=EXPIRING_SOON_DAYS
+        )
         expiring = self._session.scalar(
             select(func.coalesce(func.sum(LoyaltyEntry.points), 0)).where(
                 LoyaltyEntry.firm_id == firm_scope,
@@ -696,7 +697,7 @@ class LoyaltyService:
         if net >= ZERO:
             return []
         written = []
-        today = utc_now().date()
+        today = firm_today(self._session, firm_id)
         for taken in rows:
             if Decimal(str(taken.points)) >= ZERO:
                 continue
@@ -1023,7 +1024,7 @@ class LoyaltyService:
             How many batches lapsed.
 
         """
-        today = as_of or utc_now().date()
+        today = as_of or firm_today(self._session, firm_scope)
         lapsed = 0
         for customer_id in self._customers_with_lapsing_points(
             firm_scope=firm_scope, today=today
@@ -1612,7 +1613,7 @@ class LoyaltyService:
             runs out.
 
         """
-        today = utc_now().date()
+        today = firm_today(self._session, firm_scope)
         horizon = today + timedelta(days=within_days)
         settings = self.settings_for(firm_scope)
         rate = Decimal(str(settings.amount_per_point)) if settings else ZERO

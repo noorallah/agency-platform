@@ -24,9 +24,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.branches.models import Branch
+from app.common.firm_metadata import firm_today
 from app.core.database.base import Base
 from app.core.exceptions import ValidationError
-from app.core.utils.dates import utc_now
 from app.credit_note.models import CreditNote, CreditNoteLine, CreditNoteStatus
 from app.credit_note.schemas import (
     CreditNoteCreate,
@@ -839,7 +839,7 @@ def test_a_cancelled_note_is_reversed_on_the_day_it_is_cancelled() -> None:
     mirror = books.session.scalars(
         select(JournalEntry).where(JournalEntry.reversal_of_id == note.journal_entry_id)
     ).one()
-    today = utc_now().date()
+    today = firm_today(books.session, books.firm.id)
     in_the_open_year = date(2026, 4, 1) <= today <= date(2027, 3, 31)
     assert mirror.journal_date == (max(today, WHEN) if in_the_open_year else WHEN)
     undo = books.session.scalars(

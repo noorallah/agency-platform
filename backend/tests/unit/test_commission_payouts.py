@@ -33,9 +33,9 @@ from app.commission.schemas.payout import (
     CommissionPayoutUpdate,
 )
 from app.commission.services import CommissionPayoutService, CommissionService
+from app.common.firm_metadata import firm_today
 from app.core.database.base import Base
 from app.core.exceptions import AuthorizationError, ConflictError, ValidationError
-from app.core.utils.dates import utc_now
 from app.credit_note.models import CreditNote
 from app.customers.models import Customer
 from app.customers.schemas.customer import (
@@ -1027,7 +1027,7 @@ def test_a_period_still_running_cannot_be_accrued() -> None:
     and everything collected from the 20th belonged to no payout.
     """
     books = _ready()
-    today = utc_now().date()
+    today = firm_today(books.session, books.firm.id)
 
     with pytest.raises(ValidationError, match="has not ended"):
         _accrue_raw(books, (today - timedelta(days=10), today))
@@ -1043,7 +1043,7 @@ def test_a_period_still_running_cannot_be_accrued() -> None:
 def test_the_booking_date_falls_between_the_period_end_and_today() -> None:
     """The cost belongs to the period, and a journal cannot be dated ahead."""
     books = _ready()
-    today = utc_now().date()
+    today = firm_today(books.session, books.firm.id)
 
     with pytest.raises(ValidationError, match="before the period ends"):
         _accrue_raw(books, APRIL, accrued_on=date(2026, 4, 15))

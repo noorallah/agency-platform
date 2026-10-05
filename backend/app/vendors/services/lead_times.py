@@ -13,7 +13,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.utils.dates import utc_now
+from app.common.firm_metadata import firm_today
 from app.vendors.services.supplier_catalogue import current_rows
 
 #: A receipt that counts: completed, or completed and since closed.
@@ -59,7 +59,7 @@ def lead_time_summary(
             firm_id=firm_id,
             vendor_id=vendor_id,
             product_ids=None,
-            on=utc_now().date(),
+            on=firm_today(session, firm_id),
         ).values()
         if row.lead_time_days is not None
     ]

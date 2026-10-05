@@ -31,7 +31,7 @@ from sqlalchemy.pool import StaticPool
 from app.branches.models import Branch
 from app.core.database.base import Base
 from app.core.exceptions import ResourceNotFoundError, ValidationError
-from app.core.utils.dates import utc_now
+from app.core.utils.dates import business_today
 from app.customers.models import Customer, CustomerReceivableTransaction
 from app.finance.models import JournalEntry, JournalLine, LedgerAccount
 from app.finance.services.control_accounts import (
@@ -763,8 +763,8 @@ def test_a_batch_past_its_date_and_unswept_says_so() -> None:
     """
     books = _Books(_session_factory()())
     books.batch("100", earned_on=date(2026, 6, 1), expires_on=date(2026, 7, 1))
-    later = utc_now().date() + timedelta(days=30)
-    books.batch("50", earned_on=utc_now().date(), expires_on=later)
+    later = business_today("IN") + timedelta(days=30)
+    books.batch("50", earned_on=business_today("IN"), expires_on=later)
 
     lapsed, standing = LoyaltyService(books.session).expiring_report(
         firm_scope=books.firm.id, within_days=3650
@@ -1097,7 +1097,7 @@ def test_a_redemption_names_itself_and_never_predates_its_bill() -> None:
     books = _Books(_session_factory()())
     books.earn(books.invoice("SI-1", total="1000"))
     later = books.invoice("SI-2", total="500")
-    tomorrow = utc_now().date() + timedelta(days=1)
+    tomorrow = business_today("IN") + timedelta(days=1)
     if tomorrow > date(2027, 3, 31):
         pytest.skip("the seeded year has closed")
     later.invoice_date = tomorrow

@@ -12,8 +12,8 @@ from decimal import Decimal
 
 import pytest
 
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ValidationError
-from app.core.utils.dates import utc_now
 from app.debit_note.models import DebitNote
 from app.debit_note.schemas import DebitNoteReasonEnum, DebitNoteUpdate
 from app.debit_note.services import DebitNoteService
@@ -115,7 +115,7 @@ def test_cancelling_it_puts_the_payable_and_the_credit_back() -> None:
         books.vendor.id,
         firm_scope=books.firm.id,
         from_date=APRIL[0],
-        to_date=max(utc_now().date(), APRIL[1]),
+        to_date=max(firm_today(books.session, books.firm.id), APRIL[1]),
     )
     kinds = [line.transaction_type for line in statement.lines]
     assert kinds == ["DEBIT_NOTE", "DEBIT_NOTE_REVERSAL"]

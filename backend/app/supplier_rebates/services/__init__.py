@@ -18,6 +18,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_ledger
@@ -328,7 +329,7 @@ class SupplierRebateService:
         """
         row = self.get(agreement_id, firm_id=firm_id)
         self._assert_counting(row, doing="accrued")
-        today = utc_now().date()
+        today = firm_today(self._session, firm_id)
         if today <= row.period_to:
             raise ValidationError(
                 f"The period runs to {row.period_to:%d %b %Y}; accrue it after "

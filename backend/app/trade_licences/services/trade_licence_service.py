@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.branches.models import Branch
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.customers.models import Customer
@@ -407,7 +408,7 @@ class TradeLicenceService:
         ``on`` -- already expired included, since an expired licence is the
         more urgent case.
         """
-        today = on or utc_now().date()
+        today = on or firm_today(self._session, firm_id)
         query = select(TradeLicence).where(
             TradeLicence.firm_id == firm_id,
             TradeLicence.is_deleted.is_(False),
@@ -457,7 +458,7 @@ class TradeLicenceService:
         on: date | None = None,
     ) -> list[TradeLicenceResponse]:
         """Describe licences with their type, holder and standing."""
-        today = on or utc_now().date()
+        today = on or firm_today(self._session, rows[0].firm_id if rows else None)
         if types is None:
             ids = {row.licence_type_id for row in rows}
             types = {

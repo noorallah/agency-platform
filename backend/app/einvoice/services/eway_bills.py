@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
@@ -87,7 +88,7 @@ class EWayBillService:
         bills yet, from the last ``DUE_WINDOW_DAYS`` days, newest first.
         """
         limit = self.limit(firm_id)
-        since = utc_now().date() - timedelta(days=DUE_WINDOW_DAYS)
+        since = firm_today(self._session, firm_id) - timedelta(days=DUE_WINDOW_DAYS)
         live = {
             row.sales_invoice_id or row.delivery_note_id
             for row in self._session.scalars(

@@ -16,8 +16,8 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy import select
 
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ValidationError
-from app.core.utils.dates import utc_now
 from app.finance.models import GLPosting, JournalEntry, LedgerAccount
 from app.party_adjustments.models import PartyAdjustment
 from app.party_adjustments.schemas import (
@@ -168,7 +168,7 @@ def test_only_this_suppliers_approved_bills_in_the_period_count() -> None:
 
 def test_the_period_must_be_over_before_it_is_accrued() -> None:
     books = _books()
-    today = utc_now().date()
+    today = firm_today(books.session, books.firm.id)
     row = _agreement(books, period=(today - timedelta(days=10), today))
 
     with pytest.raises(ValidationError, match="accrue it after"):

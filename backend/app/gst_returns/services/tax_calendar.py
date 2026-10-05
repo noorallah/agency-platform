@@ -112,7 +112,7 @@ class TaxCalendarService:
         self, firm_id: UUID, *, today: date | None = None
     ) -> list[CalendarItem]:
         """Return what the last few finished months owe, latest month first."""
-        today = today or utc_now().date()
+        today = today or firm_today(self._session, firm_id)
         months = self._months(firm_id, today)
         if not months:
             return []

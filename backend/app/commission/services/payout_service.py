@@ -38,6 +38,7 @@ from app.commission.services.commission_service import (
     CommissionService,
 )
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.concurrency import assert_version
 from app.core.exceptions import (
     AuthorizationError,
@@ -208,7 +209,7 @@ class CommissionPayoutService:
                 for one of the people it would accrue for.
 
         """
-        self._assert_period_has_ended(data)
+        self._assert_period_has_ended(data, firm_id=firm_id)
         report = self._commission.report(
             firm_id=firm_id,
             from_date=data.period_start,
@@ -378,18 +379,24 @@ class CommissionPayoutService:
             Decimal(str(source.earned_amount)) - worth_now - Decimal(str(already or 0))
         )
 
-    def _assert_period_has_ended(self, data: CommissionPayoutAccrue) -> None:
+    def _assert_period_has_ended(
+        self, data: CommissionPayoutAccrue, *, firm_id: UUID
+    ) -> None:
         """Refuse a period still running, and a booking date outside its window.
+
+        Judged on the firm's own day (D-CFG-25): a period that ended
+        yesterday could not be accrued until 05:30 in India.
 
         Args:
             data: The accrual being asked for.
+            firm_id: The firm whose calendar says what today is.
 
         Raises:
             ValidationError: If the period runs backwards or has not ended,
                 or `accrued_on` precedes the period's end or is in the future.
 
         """
-        today = self.utc_today()
+        today = firm_today(self._session, firm_id)
         if data.period_end < data.period_start:
             raise ValidationError("period_end cannot be before period_start.")
         if data.period_end >= today:
@@ -953,7 +960,3 @@ class CommissionPayoutService:
 
         """
         return self._commission.names_for(firm_id)
-
-    def utc_today(self) -> date:
-        """Return today in UTC, which is the only clock this repo reads."""
-        return utc_now().date()

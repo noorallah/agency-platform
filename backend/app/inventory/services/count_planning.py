@@ -20,6 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.inventory.models import InventoryRecord, InventoryTransaction, StockLedgerEntry
@@ -142,7 +143,7 @@ class CountPlanService:
         self._session.flush()
         self._audit("count_plan.created", row, actor_id)
         self._session.commit()
-        return self._response(row, None, utc_now().date())
+        return self._response(row, None, firm_today(self._session, firm_id))
 
     def update(
         self, plan_id: UUID, data: CountPlanWrite, *, firm_id: UUID, actor_id: UUID
@@ -155,7 +156,9 @@ class CountPlanService:
         self._audit("count_plan.updated", row, actor_id)
         self._session.commit()
         return self._response(
-            row, self._last_counted([row.id]).get(row.id), utc_now().date()
+            row,
+            self._last_counted([row.id]).get(row.id),
+            firm_today(self._session, firm_id),
         )
 
     def delete(self, plan_id: UUID, *, firm_id: UUID, actor_id: UUID) -> None:

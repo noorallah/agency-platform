@@ -32,6 +32,7 @@ from app.batch_serial.schemas.batch_serial import (
 from app.branches.models import Branch, Warehouse
 from app.business.gating import assert_feature_fields, feature_enabled
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.concurrency import assert_version
 from app.core.exceptions import (
     ConflictError,
@@ -649,7 +650,7 @@ class BatchSerialService:
 
     def batch_summary(self, *, firm_scope: UUID) -> BatchSummary:
         """Return batch counts, including those past their expiry date."""
-        today = utc_now().date()
+        today = firm_today(self._session, firm_scope)
         near_expiry_cutoff = today + timedelta(days=30)
         total = int(
             self._session.scalar(
@@ -717,7 +718,7 @@ class BatchSerialService:
         batches on every card (D-STK-8). "Expired today" is the batches whose
         expiry date is today; "total expired" is every batch past it.
         """
-        today = utc_now().date()
+        today = firm_today(self._session, firm_scope)
         in_7 = today + timedelta(days=7)
         in_30 = today + timedelta(days=30)
         holds_stock = (

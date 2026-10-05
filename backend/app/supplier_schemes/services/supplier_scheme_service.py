@@ -34,6 +34,7 @@ from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.pricing import SchemeFree, resolve_supplier_free_goods
@@ -320,7 +321,7 @@ class SupplierSchemeService:
             if product_ids
             else {}
         )
-        today = utc_now().date()
+        today = firm_today(self._session, rows[0].firm_id if rows else None)
         out: list[SupplierSchemeResponse] = []
         for row in rows:
             vendor = vendors.get(row.vendor_id) if row.vendor_id else None

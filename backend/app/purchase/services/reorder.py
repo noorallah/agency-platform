@@ -49,7 +49,6 @@ from app.branches.models import Warehouse
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import firm_today
 from app.core.exceptions import ValidationError
-from app.core.utils.dates import utc_now
 from app.inventory.models import InventoryRecord, InventoryTransaction
 from app.inventory.schemas import REVERSAL_SUFFIX
 from app.inventory.services.pipeline import incoming
@@ -423,7 +422,7 @@ class ReorderService:
         dated within the last ``sales_window_days`` up to today. Only what
         actually went out counts: an order nobody shipped is not demand yet.
         """
-        today = utc_now().date()
+        today = firm_today(self._session, firm_id)
         since = today - timedelta(days=planning.sales_window_days)
         kept = -func.sum(InventoryTransaction.current_quantity_delta)
         statement = (
@@ -632,7 +631,7 @@ class ReorderService:
         by_supplier: dict[UUID, list[UUID]] = {}
         for product_id, (supplier, _) in suppliers.items():
             by_supplier.setdefault(supplier, []).append(product_id)
-        today = utc_now().date()
+        today = firm_today(self._session, firm_id)
         found: dict[UUID, SupplierProduct] = {}
         for supplier, product_ids in by_supplier.items():
             found.update(
