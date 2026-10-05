@@ -187,6 +187,91 @@ and a migration in a firm store cannot name the firms in it.
 
 `tests/unit/test_walk_in_cash_sale.py` holds each rule.
 
+## A counter bill can be held, and a shift is counted against its tenders
+
+Backlog §87 #7 (SG-7, 2026-10-05; server -- the counter screen's Hold, Recall
+and Shift panel follow). Decided by what Tally's POS register, Marg and Busy's
+shift closing and ERPNext's POS opening and closing entries do.
+
+**A hold is a flag, not a status** -- the same reasoning as a hold on a sales
+order. `sales_invoices.is_held`, with `held_at` and `held_note` (what the
+cashier typed to know the bill again), is set by
+`POST /api/v1/sales-invoices/{id}/hold` `{note?}` and cleared by
+`POST /api/v1/sales-invoices/{id}/recall`. Both are audited, both write a
+timeline event, and both run under the scope that edits a draft: whoever
+raised the bill, or a holder of `SALES_UPDATE`.
+
+- **Only a draft can be held**, and any draft bill can be -- the flag is not
+  limited to bills raised with the stages off.
+- **A held bill never posts.** `stage_approval` refuses it ("recall it first"),
+  so the single approval, bulk approve and anything composing approval all
+  refuse it, each row with that message.
+- **A held bill can still be edited.** Recall is not needed to change it; an
+  edit leaves the flag and the note alone. Cancelling a held draft clears the
+  flag.
+- `GET /api/v1/sales-invoices?is_held=true` is the counter's list of parked
+  bills (`false` is everything else), and every bill's response carries
+  `is_held`, `held_at` and `held_note` -- columns of the row, so the list adds
+  no statement per bill.
+- **Holding changes nothing about stock.** A counter bill raises and approves
+  its own sales order when the draft is saved, and that approval reserves the
+  stock; a held bill keeps exactly that reservation, as any saved draft
+  counter bill does, and ships nothing until it is approved. The reservation
+  is the order's and is released the way it always was. Holding neither adds
+  to it nor releases it.
+
+**A shift is a cashier's till** (`counter_shifts`, `app/counter_shifts`,
+`/api/v1/counter-shifts`): a branch, a cashier, a cash account, an opening
+float, and at the close a counted amount.
+
+- **One open shift per cashier per firm**, held by the partial unique index
+  `UQ_counter_shifts_open_cashier` rather than by a read; the service checks
+  first so the refusal (409) names the shift already open. Numbers run
+  `SHIFT-000001` per firm, counted from the firm's shifts rather than issued
+  by the document framework -- a shift has no lifecycle configuration, and
+  `UQ_counter_shifts_number` settles two opened at once.
+- **A bill paid at the counter is stamped with its approver's open shift**
+  (`sales_invoices.counter_shift_id`, set in `stage_approval`, in the
+  approval's own transaction) when `received_now_amount` is more than zero --
+  which its tenders make it. The shift row is locked while it is stamped and
+  while it is closed, so no bill lands in a shift after its drawer was counted.
+- **Shifts are optional.** Somebody with no open shift is not refused: the
+  bill posts as it always did and is stamped with none. A one-person firm that
+  counts no drawer is asked for nothing, and one that hires a cashier later
+  starts opening shifts the day it wants to.
+- **Expected cash is derived, never incremented**: the opening float plus the
+  CASH tenders of the shift's bills that are approved or closed and whose
+  receipts still stand (a bill with no tenders counts its
+  `received_now_amount` by its method -- CASH as cash, BANK as a bank
+  transfer). Summed in SQL in four statements however many bills the shift
+  took, and a page of shifts costs what one does. Cancelling a bill needs its
+  receipts reversed first, and a reversed receipt drops out by itself, so the
+  drawer owes less the moment the money is handed back. **There is no counter
+  refund tied to a bill in the codebase** (a customer refund returns an
+  advance and names no bill), so nothing else is taken off.
+- **The close snapshots it.** `POST /api/v1/counter-shifts/{id}/close`
+  `{counted_cash, note?}` stores `expected_cash`, `counted_cash` and
+  `difference` (counted less expected) and posts the difference to *Cash short
+  and over* (`docs/LEDGER_POSTING_RULES.md`). Only the cashier whose till it
+  is, or a holder of `SALES_APPROVE`, may close it. Bills the cashier parked
+  during the shift and never recalled are reported as `summary.held_bills` --
+  a warning, never a refusal: a held bill took no money.
+- **Permissions.** Opening, reading and closing one's own till take
+  `SALES_INVOICE_CREATE` -- the code a bill is actually raised under
+  (D-ROLE-2), not `SALES_CREATE`. The list, one shift and the report
+  (`GET /api/v1/counter-shifts/{id}/report`, a PDF) open to `SALES_VIEW`,
+  `REPORT_VIEW` or that same create code, so a cashier can print their own.
+  No new permission code.
+
+**Not built:** the desktop screens (the API client calls are in); routing a
+shift's cash receipts to a cash account other than the firm's `CASH` control
+account -- a receipt books cash there whatever the shift names, so a shift
+that names another account posts only its difference against it; a counter
+refund against a bill; denominations at the count; handing a shift over to
+another cashier; and stamping a bill that took no money at the counter.
+
+`tests/unit/test_counter_hold_and_shifts.py` holds each rule.
+
 ## A service rides the chain and moves no stock
 
 Backlog §87 #3 (SG-3, 2026-10-05). A product of type `SERVICE` -- freight,

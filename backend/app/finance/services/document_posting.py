@@ -2453,6 +2453,85 @@ class DocumentPostingService:
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
 
+    def post_cash_short_and_over(
+        self,
+        *,
+        firm_id: UUID,
+        shift_id: UUID,
+        shift_number: str,
+        closed_on: date,
+        cash_account_id: UUID,
+        difference: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry | None:
+        """Post what a till was short or over by when it was counted (SG-7).
+
+        Short, the drawer holds less than the books say: Dr *Cash short and
+        over* / Cr the shift's cash account, so cash reads what was counted.
+        Over is the mirror: Dr cash / Cr *Cash short and over*. One account
+        for both, as Tally keeps it -- a credit balance on it is a gain.
+
+        Args:
+            firm_id: The owning firm.
+            shift_id: The shift, as the journal's source.
+            shift_number: Its number, which is the journal reference: a shift
+                closes once, so the reference is its own.
+            closed_on: The day the drawer was counted.
+            cash_account_id: The cash account the shift's money is booked to.
+            difference: Counted less expected: negative short, positive over.
+            actor_id: Who closed the shift.
+
+        Returns:
+            The posted entry, or None when the drawer was exact.
+
+        Raises:
+            ValidationError: If the firm has mapped no *Cash short and over*
+                account, or no open period covers the day.
+
+        """
+        amount = quantize_ledger(abs(quantize_money(difference)))
+        if amount == ZERO:
+            return None
+        accounts = self._require_mapping(
+            firm_id, (ControlAccountPurpose.CASH_SHORT_AND_OVER,)
+        )
+        variance = accounts[ControlAccountPurpose.CASH_SHORT_AND_OVER]
+        short = difference < ZERO
+        debit, credit = (
+            (variance, cash_account_id) if short else (cash_account_id, variance)
+        )
+        description = (
+            f"Cash {'short' if short else 'over'} at the close of {shift_number}"
+        )
+        context = self.context_for(firm_id, closed_on)
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=closed_on,
+            reference_number=shift_number,
+            description=description,
+            lines=[
+                JournalLineData(
+                    ledger_account_id=debit,
+                    debit_amount=amount,
+                    credit_amount=ZERO,
+                    description=description,
+                ),
+                JournalLineData(
+                    ledger_account_id=credit,
+                    debit_amount=ZERO,
+                    credit_amount=amount,
+                    description=description,
+                ),
+            ],
+            source_module="counter_shift",
+            source_id=shift_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
     def post_tds_challan(
         self,
         *,

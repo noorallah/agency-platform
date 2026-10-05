@@ -541,6 +541,16 @@ CHART: tuple[SeedAccount, ...] = (
         ControlAccountPurpose.DEPRECIATION_EXPENSE,
     ),
     SeedAccount(
+        # What a till was short or over by when its shift was counted
+        # (SG-7): short is a debit, over a credit. Migration 20261005_0324
+        # gives existing firms the same account.
+        "6960",
+        "Cash Short and Over",
+        AccountTypeEnum.EXPENSE,
+        "IEXP",
+        ControlAccountPurpose.CASH_SHORT_AND_OVER,
+    ),
+    SeedAccount(
         # Sale money less book value when an asset leaves (PG-13).
         "4960",
         "Profit/Loss on Sale of Assets",

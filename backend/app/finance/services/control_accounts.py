@@ -199,6 +199,10 @@ class ControlAccountPurpose(StrEnum):
     #: Sale money less book value when an asset leaves (PG-13): a gain is a
     #: credit and a loss a debit to the same account.
     ASSET_DISPOSAL_GAIN_LOSS = "ASSET_DISPOSAL_GAIN_LOSS"
+    #: What a till was short or over by when its shift was counted (SG-7):
+    #: a shortage is a debit and an excess a credit to the same account, as
+    #: Tally keeps it, so a credit balance on it is a gain.
+    CASH_SHORT_AND_OVER = "CASH_SHORT_AND_OVER"
 
 
 INPUT_TAX_PURPOSE_BY_COMPONENT.update(
@@ -341,6 +345,9 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     ControlAccountPurpose.ACCUMULATED_DEPRECIATION: frozenset({"ASSET"}),
     ControlAccountPurpose.DEPRECIATION_EXPENSE: frozenset({"EXPENSE"}),
     ControlAccountPurpose.ASSET_DISPOSAL_GAIN_LOSS: frozenset({"INCOME", "EXPENSE"}),
+    # Short is a debit and over a credit to the same account, so either
+    # classification serves, as with rounding.
+    ControlAccountPurpose.CASH_SHORT_AND_OVER: frozenset({"INCOME", "EXPENSE"}),
 }
 
 
@@ -426,6 +433,7 @@ PURPOSE_LABELS: dict[ControlAccountPurpose, str] = {
     ControlAccountPurpose.ACCUMULATED_DEPRECIATION: "Accumulated depreciation",
     ControlAccountPurpose.DEPRECIATION_EXPENSE: "Depreciation",
     ControlAccountPurpose.ASSET_DISPOSAL_GAIN_LOSS: "Profit/loss on sale of assets",
+    ControlAccountPurpose.CASH_SHORT_AND_OVER: "Cash short and over",
 }
 
 

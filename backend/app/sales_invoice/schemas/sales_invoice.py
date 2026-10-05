@@ -623,6 +623,12 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     charges_total: Decimal = Decimal("0")
     #: Whether the rates typed on this bill include GST (backlog 64 row 4).
     rate_includes_tax: bool = False
+    #: Parked at the counter (SG-7): a flag on a draft, never a status.
+    is_held: bool = False
+    held_at: datetime | None = None
+    held_note: str | None = None
+    #: The cashier's shift its counter money was taken in, if one was open.
+    counter_shift_id: UUID | None = None
     approved_at: datetime | None
     closed_at: datetime | None
     cancelled_at: datetime | None = None
@@ -653,6 +659,8 @@ class SalesInvoiceListFilters(SalesInvoiceSchema):
     invoice_to: date | None = None
     due_from: date | None = None
     due_to: date | None = None
+    #: True lists the bills parked at the counter, False everything else.
+    is_held: bool | None = None
     include_deleted: bool = False
 
 
