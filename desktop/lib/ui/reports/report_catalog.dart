@@ -1124,8 +1124,8 @@ const List<ReportDefinition> reportCatalog = [
     label: 'GST purchase register',
     description: 'Approved supplier bills by tax head: GSTIN, taxable value, '
         'IGST, CGST, SGST, cess, tax not claimable and reverse charge. '
-        'Approved debit notes are rows of their own, in minus, on their own '
-        'date.',
+        'Approved debit notes and completed purchase returns are rows of '
+        'their own, in minus, on their own date.',
     path: '/api/v1/purchase-invoices/reports/gst-register',
     permission: 'PURCHASE_VIEW',
     area: ReportArea.financial,

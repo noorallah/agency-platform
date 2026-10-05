@@ -485,8 +485,11 @@ approved supplier debit note is a row of its own in the register, in minus, on
 the note's own date and naming its bill; its one tax amount per line is split
 across the heads as its bill line was charged, the split the ledger posts and
 GSTR-3B reverses. The HSN summary takes the note's quantity, value and tax off
-the code and unit of the bill line it names. Purchase returns are not in
-either report.
+the code and unit of the bill line it names. A completed purchase return is
+netted the same way, for the part of each line that went back after billing,
+on the heads of the bill line it was raised off or of the bill lines that
+billed its receipt line; goods that went back before any bill took no credit
+and are left out.
 
 ### The supplier's GST type
 
