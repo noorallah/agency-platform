@@ -1314,7 +1314,7 @@ from nothing — a minute or two — and then carry one sale to a stage:
 
 | Fixture | Starts you with |
 | --- | --- |
-| `selling-firm` | customers **`<SUFFIX>-C01` Vijaya** (7.5% standing discount, Retailer segment, **no PAN**) and **`<SUFFIX>-C02` Anand** (Wholesaler, PAN, its own `NEGOTIATED` list at 9.25%); **`<SUFFIX>-DET`** at 84, GST 18 local, 100 in MAIN; the firm-wide **`STANDING`** list on DET with breaks 0 → 2%, 15 → 4.25%, 18 → 6.75%; promotions **BULK5** (7.5% on a line of 25+), **BIGORDER** (200 off a bill of 4,500+, ends the stack), **CLEARANCE** (1% on a line of 40+), **WELCOME** (2.5%, coupon only: `WELCOME10`, `WELCOME10B`); **TCS on** with a threshold of 0 (0.1%, 1% without a PAN); loyalty 2 points per 100 |
+| `selling-firm` | customers **`<SUFFIX>-C01` Vijaya** (7.5% standing discount, Retailer segment, **no PAN**) and **`<SUFFIX>-C02` Anand** (Wholesaler, PAN, its own `NEGOTIATED` list at 9.25%); **`<SUFFIX>-DET`** at 84, GST 18 local, 100 in MAIN; the firm-wide **`STANDING`** list on DET with breaks 0 → 2%, 15 → 4.25%, 18 → 6.75%; promotions **BULK5** (7.5% on a line of 25+), **BIGORDER** (200 off a bill of 4,500+, ends the stack), **CLEARANCE** (1% on a line of 40+), **WELCOME** (2.5%, coupon only: `WELCOME10`, `WELCOME10B`); **TCS on** with a threshold of 0 (0.1%, 1% without a PAN) -- which collects nothing on a receipt dated from 1 April 2025, when section 206C(1H) was omitted; loyalty 2 points per 100 |
 | `selling-ordered` | … and Vijaya's order for **12** with coupon `WELCOME10`, approved |
 | `selling-delivered` | … and notes for **5** and **7**, both dispatched |
 | `selling-invoiced` | … and the note for 5 **billed and approved: 483.21** |
@@ -1461,7 +1461,7 @@ promotion, or the customer's standing rate).
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.13 — one `document_print_templates` row (`document_type` SALES_INVOICE, `copy_labels` a JSON list), audit `document_print_template.created` or `.updated`; printing writes nothing.
 - **Leaves:** the firm's print settings for invoices.
 
-### TC-SELL-013 — Receipts charge TCS; an excess with nothing else owed becomes an advance
+### TC-SELL-013 — A receipt collects no TCS from 1 April 2025; an excess with nothing else owed becomes an advance
 
 - **Covers:** plan 9.18, 9.19
 - **Fixture:** `selling-invoiced`
@@ -1469,22 +1469,23 @@ promotion, or the customer's standing rate).
   1. Sell > Receipts → **Record Receipt**: `<SUFFIX>-C01`, Amount **241.60**, Bank; under **Apply to invoices** type 241.60 into the invoice's **Apply** box → Record receipt. Masters > Customers → C01.
   2. Record Receipt again: Amount **341.61**, type **241.61** into Apply → Record receipt. Masters > Customers → C01.
 - **Expect**
-  - Step 1: the TCS notice (small text under **Against order (optional)**) charges **1%** — Vijaya has no PAN — **2.42** on 241.60. "RC-… recorded and posted to the ledger."; the row reads "Cleared SI-…". Outstanding **244.03** (483.21 − 241.60 + 2.42).
-  - Step 2: TCS **3.42**; the running line says 100.00 left over before saving. The invoice drops out of the outstanding list. Customers: Outstanding **3.42** (this receipt's TCS) and Advance **97.58** — the excess over everything owed. *(WHOLE01's Vijaya owed on older bills, so there the excess came off the account instead; this firm has none.)*
-- **Data (HTTP):** `GET /api/v1/customers/{id}` → `current_outstanding`, `unapplied_advance_balance`. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §11.14 — per receipt: `settlements`, `settlement_allocations`, a receivable row `RECEIPT` that stores the balance/advance split, `tcs_collections` and a second receivable row `TCS`, journals `RC-…` (Dr 1010 / Cr 1100) and `TCS-RC-…` (Dr 1100 / Cr 2500), eight audit rows.
+  - Step 1: no TCS is added, although the firm has TCS switched on; the server's reason is "Section 206C(1H) was omitted by the Finance Act 2025 from 1 April 2025, so nothing is collected under it on a receipt from that date." "RC-… recorded and posted to the ledger."; the row reads "Cleared SI-…". Outstanding **241.61** (483.21 − 241.60).
+  - Step 2: the running line says 100.00 left over before saving. The invoice drops out of the outstanding list. Customers: Outstanding **0.00** and Advance **100.00** — the excess over everything owed. *(WHOLE01's Vijaya owed on older bills, so there the excess came off the account instead; this firm has none.)*
+  - Accounts > Journal Entries: one entry per receipt, **Dr 1010 Bank / Cr 1100 Trade Receivables**, and no `TCS-RC-…` entry.
+- **Data (HTTP):** `GET /api/v1/customers/{id}` → `current_outstanding`, `unapplied_advance_balance`; `GET /api/v1/tcs/preview` → `applicable: false` with the reason. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §11.14 — per receipt: `settlements`, `settlement_allocations`, a receivable row `RECEIPT` that stores the balance/advance split, and the journal `RC-…` (Dr 1010 / Cr 1100); no `tcs_collections` row. Driven 2026-10-05 on `fx_t1005j1us_s`.
 - **Leaves:** two receipts.
 
 ### TC-SELL-014 — Applying an advance posts nothing; reversing a receipt puts everything back
 
 - **Covers:** plan 9.20, 9.21
-- **Fixture:** `selling-paid` — the second receipt has 100.00 unallocated; Vijaya: Outstanding 679.91, Advance 97.58.
+- **Fixture:** `selling-paid` — the second receipt has 100.00 unallocated; Vijaya: Outstanding 676.49, Advance 100.00.
 - **Steps**
-  1. Sell > Receipts → on the **341.61** receipt, **Apply to an invoice** → the invoice for 7 → Amount **97.58** → Apply. Then try to apply **5** more.
+  1. Sell > Receipts → on the **341.61** receipt, **Apply to an invoice** → the invoice for 7 → Amount **95** → Apply. Then try to apply **10** more.
   2. On the **241.60** receipt → **Reverse**, give a reason → Reverse. Then Reverse it again.
 - **Expect**
-  - Step 1: "RC-… applied to SI-…"; the dialog says "Nothing moves in the ledger. The money arrived when the receipt was recorded." — Journal Entries has **no** new entry. Customers: Outstanding **584.75**, Advance **2.42** (the net owed is unchanged). Applying 5 more is refused: "RC-… has only 2.42 left unapplied."
-  - Step 2: "RC-… reversed."; badge **Reversed**; Journal Entries shows `RC-…-REV` and the receipt's TCS reversed. Outstanding rises by **239.18** — the 241.60 less the 2.42 TCS that is also undone. Reversing again: "RC-… has already been reversed."
-- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.15 — applying writes an allocation and an `ADVANCE_APPLY` receivable row of 95.16 and no journal; reversing writes `RC-…-REV` and `TCS-RC-…-REV` (dated the first of the month), two `REVERSAL` receivable rows and ten audit rows, and keeps the allocations. A receipt whose advance was applied does not reverse cleanly (D-SELL-8).
+  - Step 1: "RC-… applied to SI-…"; the dialog says "Nothing moves in the ledger. The money arrived when the receipt was recorded." — Journal Entries has **no** new entry. Customers: Outstanding **581.49**, Advance **5.00** (the net owed is unchanged). Applying 10 more is refused: "RC-… has only 5.00 left unapplied."
+  - Step 2: "RC-… reversed."; badge **Reversed**; Journal Entries shows `RC-…-REV`. Outstanding rises by **241.60** to **823.09**; Advance stays 5.00. Reversing again: "RC-… has already been reversed."
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.15 — applying writes an allocation and an `ADVANCE_APPLY` receivable row of 95.00 and no journal; reversing writes `RC-…-REV`, a `REVERSAL` receivable row, and keeps the allocations. A receipt whose advance was applied does not reverse cleanly (D-SELL-8). Driven 2026-10-05 on `fx_t1005j1us_s`.
 - **Leaves:** one receipt reversed, one applied.
 
 ### TC-SELL-015 — A sales return is capped at what was dispatched
@@ -1494,6 +1495,7 @@ promotion, or the customer's standing rate).
 - **Steps:** Sell > Returns & notes > Sales Returns → **New Return** → Returned against the invoice (entries read "SI-… · date · Vijaya Stores <suffix>") → Line 1 → Taken back into MAIN → Quantity returned **9** → Create draft. Then **2** → Create draft → **Approve** → **Complete**.
 - **Expect:** 9 is refused: "Only 5.0 went out on this line." (server: "Return quantity exceeds what was dispatched on the source document (5.0000 sent, 0.0000 already returned)."). With 2: "SR-… created as a draft…", "SR-… approved. Nothing has moved yet…", "SR-… completed: 2 back on the shelf and 193.28 credited to the customer." Ledger `SALES_RETURN` +2; Outstanding down **193.28** (2 × 84 less 2.5% plus 18%).
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.16 — the refused 9 writes nothing; Complete writes a `SALES_RETURN` +2 movement, journals `SR-…` (Dr 4100 163.80 / Dr 2200 29.48 / Cr 1100 193.28) and `SR-…-COST` (Dr 1200 / Cr 5200 120.00), a receivable row `CREDIT_NOTE`, seven audit rows.
+- **Loyalty (D-SELL-47, 2026-10-05):** the return takes back the points the bill earned on the value returned — about **3.87** of the bill's 9.66 (193.28 of 483.21) — a `REVERSED` row in `loyalty_entries` naming the return, with a journal Dr 2600 / Cr 5700. Cancelling the return gives them back.
 - **Leaves:** a completed return.
 
 ### TC-SELL-016 — A credit note reverses the tax the line was charged, and no more than the line
@@ -1507,6 +1509,7 @@ promotion, or the customer's standing rate).
   - Step 1: the row reads `59.00 (tax 9.00)` — 18%, the rate that line was charged. "CN-… — approved. The credit and the tax are on the ledger." Outstanding down **59**.
   - Step 2: refused: "A credit note cannot credit more than the line was charged: 409.5000 charged, 50.0000 already credited."
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.17 — `credit_note_lines.tax_rate_percent` 18.0000; approval posts Dr 4100 50.00 / Dr 2200 9.00 / Cr 1100 59.00 and a receivable row `CREDIT_NOTE` with no reference type, and writes no lifecycle event (D-SELL-23). The refused 400 writes nothing.
+- **Loyalty (D-SELL-47, 2026-10-05):** approving takes back about **1.18** of the bill's 9.66 points (59.00 of 483.21); cancelling the note gives them back.
 - **Leaves:** an approved credit note.
 
 ### TC-SELL-017 — A proforma posts nothing and does not follow the order afterwards
@@ -1957,7 +1960,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 | Fixture | Starts you with |
 | --- | --- |
 | `compliance-firm` | a firm with GSTIN `33…` (Tamil Nadu); **`<SUFFIX>-B2B`** Registered Buyer with a GSTIN; **`<SUFFIX>-B2C`** Walk-in Buyer with none; `<SUFFIX>-P` at HSN **340220**, GST 18 local. This month: **Invoice A** — B2B, 10 × 100 (1,180.00), **collected and e-registered**; **Invoice B** — B2B, 5 × 100 (590.00), unpaid, **e-registered, no e-way bill**; **Invoice C** — B2C, 3 × 100 (354.00), unpaid, not registered |
-| `selling-paid` | (see *Selling*) two receipts from Vijaya, who has no PAN, each charged TCS at 1% |
+| `selling-paid` | (see *Selling*) two receipts from Vijaya, who has no PAN, dated after 1 April 2025 and so charged no TCS |
 
 ### TC-COMP-001 — GSTR-1 for the month
 
@@ -2023,16 +2026,16 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §13.10 — the refused blank-vehicle attempt writes nothing; the raise inserts one `eway_bills` row (`mode` SANDBOX, `status` GENERATED, `eway_bill_number` `SBX…`, `valid_until` today in UTC + 1 day for 120 km, `vehicle_number` TN01AB1234) and audit `eway_bill.generated`; the withdrawal sets CANCELLED, `cancelled_at`, `cancellation_reason`, `version` 2 and writes `eway_bill.cancelled`. Step 3 writes nothing. Withdrawing B's **registration** while its bill is GENERATED is not refused (D-CMP-5).
 - **Leaves:** a withdrawn e-way bill on B.
 
-### TC-COMP-007 — TCS: the register, the settings, and a journal of its own
+### TC-COMP-007 — TCS: the settings stay, and nothing is collected from 1 April 2025
 
 - **Covers:** plan 12.7, 12.8
 - **Fixture:** `selling-paid`
-- **Steps:** as the fixture's **Firm admin**, Accounts > All Accounts screens > Tax filing > **TCS**; open **Settings** (close without saving). Accounts > Journal Entries → search `TCS-RC` → View one.
+- **Steps:** as the fixture's **Firm admin**, Accounts > All Accounts screens > Tax filing > **TCS**; open **Settings** (close without saving). Accounts > Journal Entries → search `TCS-RC`.
 - **Expect**
-  - The banner reads "Collecting under section 206C(1H) • (the threshold, 0) per buyer per year, then 0.100% (1.000% without a PAN)"; the register lists the two receipts from Vijaya — **2.42** and **3.42**, rate **1.000%** (no PAN), **COLLECTED**.
-  - Settings: **Collect under section 206C(1H)** on; preceding year turnover 150,000,000; threshold 0; rate 0.1; without a PAN 1.0.
-  - Journal: `TCS-RC-…` entries separate from the receipts' own; View reads **Dr 1100 Trade Receivables / Cr 2500 TCS Payable** — 2500, not Output Tax.
-- **Data (HTTP):** `GET /api/v1/tcs/collections` → `tcs_amount`, `rate_percent`, `without_pan: true`. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §13.11 in `fx_<suffix>_s` — one `tcs_collections` row per receipt (`cumulative_before` 0 then 241.60, `status` COLLECTED), each with its `TCS-RC-…` journal and a receivable row `TCS`; closing Settings without saving writes nothing (a save would write `tcs.settings_changed`). The second query there should show the collections and 2500 agreeing at 5.84. A back-dated receipt counts later ones in `cumulative_before` (D-CMP-7).
+  - The register is **empty**: both receipts are dated after 1 April 2025, when the Finance Act 2025 omitted section 206C(1H), so neither was charged.
+  - Settings still read as the firm keyed them: **Collect under section 206C(1H)** on; preceding year turnover 150,000,000; threshold 0; rate 0.1; without a PAN 1.0. Switching it on does not bring the tax back.
+  - Journal Entries: no `TCS-RC-…` entry. A receipt dated **before** 1 April 2025 would raise one of its own, **Dr 1100 Trade Receivables / Cr 2500 TCS Payable**; a firm whose books open in 2026-27 cannot date one there, so that half is covered by the unit suite (`tests/unit/test_tcs.py`).
+- **Data (HTTP):** `GET /api/v1/tcs/collections` → no rows. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §13.11 in `fx_<suffix>_s` — `tcs_collections` empty and no line on 2500; closing Settings without saving writes nothing (a save would write `tcs.settings_changed`). Checked 2026-10-05 on `fx_t1005j1us_s`.
 - **Leaves:** unchanged.
 
 ---
@@ -2264,7 +2267,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 
 - **Covers:** plan 13.4
 - **Fixture:** `selling-paid`
-- **Steps:** Accounts > Journal Entries; search each: `SI-2026-2027-000001`, `DN-`, `RC-2026-2027-000001`, `TCS-RC-2026-2027-000001`; open each with **View**.
+- **Steps:** Accounts > Journal Entries; search each: `SI-2026-2027-000001`, `DN-`, `RC-2026-2027-000001`; open each with **View**.
 - **Expect:** each row's subtitle is the entry's description; the View dialog's first line reads "POSTED · posted by <module> · <description>" — sales_invoice, delivery_note, settlements, tcs. The search matches reference or description; there is no source-module filter (BACKLOG §31.15).
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §12.5 — `journal_entries.source_module` is what the View dialog names (`sales_invoice`, `delivery_note`, `settlements`, `tcs`), every entry `GEN`/`JV`; its query lists the four in `fx_<suffix>_s`.
 - **Leaves:** unchanged.
