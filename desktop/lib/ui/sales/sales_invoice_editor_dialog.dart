@@ -119,6 +119,17 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   final TextEditingController _receivedRef = TextEditingController();
   String _receivedMethod = 'CASH';
 
+  /// A walk-in bill (87 row 2): who it was made out to at the counter, and
+  /// whether the amount received was typed rather than defaulted to the bill.
+  final TextEditingController _buyerName = TextEditingController();
+  final TextEditingController _buyerPhone = TextEditingController();
+  String? _walkInId;
+  bool _walkInBusy = false;
+  bool _receivedTouched = false;
+
+  /// A draft read back that carries a buyer: it was a walk-in bill.
+  bool _editedWalkIn = false;
+
   /// SEL-12: the counter payment split by how it was paid. Used only once
   /// the person opens the split; otherwise the single amount above is sent
   /// exactly as before.
@@ -206,7 +217,10 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         final SalesInvoicePreviewRecord priced =
             await widget.api.previewSalesInvoice(draft);
         if (!mounted || serial != _previewSerial) return;
-        setState(() => _preview = priced);
+        setState(() {
+          _preview = priced;
+          _defaultWalkInReceived();
+        });
       } on ApiException {
         // A bill the server refuses as it stands -- serials not yet picked,
         // a quantity past what is left -- keeps the last figures.
@@ -312,6 +326,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     _freight.dispose();
     _receivedNow.dispose();
     _receivedRef.dispose();
+    _buyerName.dispose();
+    _buyerPhone.dispose();
     _scan.dispose();
     _scanFocus.dispose();
     for (final _TenderRow row in _tenders) {
@@ -454,6 +470,11 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         ? 'BANK'
         : 'CASH';
     _receivedRef.text = '${invoice['received_now_reference'] ?? ''}';
+    _receivedTouched = received > 0;
+    _buyerName.text = '${invoice['buyer_name'] ?? ''}';
+    _buyerPhone.text = '${invoice['buyer_phone'] ?? ''}';
+    _editedWalkIn =
+        _buyerName.text.isNotEmpty || _buyerPhone.text.isNotEmpty;
     for (final _TenderRow row in _tenders) {
       row.dispose();
     }
@@ -849,6 +870,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       if (_freight.text.trim().isNotEmpty)
         'freight_amount': _freight.text.trim(),
       ..._receivedFields(),
+      ..._buyerFields(),
       ..._attributeFields(),
       'lines': lines,
     };
@@ -909,6 +931,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       if (_freight.text.trim().isNotEmpty)
         'freight_amount': _freight.text.trim(),
       ..._receivedFields(),
+      ..._buyerFields(),
       ..._attributeFields(),
       'lines': lines,
     };
@@ -1151,6 +1174,9 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       _freight.clear();
       _receivedNow.clear();
       _receivedRef.clear();
+      _receivedTouched = false;
+      _buyerName.clear();
+      _buyerPhone.clear();
       _receivedMethod = 'CASH';
       _splitTender = false;
       _hadTenders = false;

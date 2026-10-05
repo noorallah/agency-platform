@@ -271,6 +271,111 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     );
   }
 
+  /// Whether the bill is made out to the firm's cash customer: a walk-in.
+  bool get _isWalkIn {
+    if (!_direct) return _editedWalkIn;
+    final String? id = _customerId;
+    if (id == null) return false;
+    return id == _walkInId || (_customer?.isCashSale ?? false);
+  }
+
+  /// The buyer, sent for a walk-in bill only: the server refuses the keys on
+  /// a bill to anyone else, and an emptied box says null so it clears.
+  Map<String, dynamic> _buyerFields() {
+    if (!_phase2 || !_isWalkIn) return const <String, dynamic>{};
+    final String name = _buyerName.text.trim();
+    final String phone = _buyerPhone.text.trim();
+    return <String, dynamic>{
+      'buyer_name': name.isEmpty ? null : name,
+      'buyer_phone': phone.isEmpty ? null : phone,
+    };
+  }
+
+  /// A walk-in bill is paid in full: offer the total until a figure is typed.
+  void _defaultWalkInReceived() {
+    if (!_isWalkIn || _receivedTouched || _splitTender) return;
+    if (_editing && '${_existing?['status'] ?? 'DRAFT'}' != 'DRAFT') return;
+    if (_billTotal <= 0) return;
+    _receivedNow.text = stringValue(_preview?.invoice['grand_total']);
+  }
+
+  /// Choose the cash customer: ask the server for it (made on the first
+  /// ask), make sure the list holds it, and select it like any customer.
+  Future<void> _chooseWalkIn() async {
+    _setState(() => _walkInBusy = true);
+    try {
+      final Json made = await widget.api.walkInCustomer();
+      final String id = stringValue(made['id']);
+      if (!mounted) return;
+      _setState(() {
+        _walkInBusy = false;
+        _walkInId = id;
+        if (!_customers.any((item) => item.id == id)) {
+          _customers = <Customer>[
+            Customer.fromJson(<String, dynamic>{
+              'id': id,
+              'code': made['code'],
+              'name': made['name'],
+              'display_name': made['name'],
+              'is_cash_sale': true,
+            }),
+            ..._customers,
+          ];
+        }
+        _customerId = id;
+        _shipToId = null;
+        _error = null;
+      });
+      _schedulePreview();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      _setState(() {
+        _walkInBusy = false;
+        _error = error.message;
+      });
+    }
+  }
+
+  /// The buyer's name and phone, shown for a walk-in bill only.
+  Widget? _buyerField(BuildContext context) {
+    if (!_isWalkIn) return null;
+    return DocumentField(
+      label: 'Buyer (optional)',
+      width: 420,
+      child: Row(
+        children: [
+          Expanded(
+            child: TextFormField(
+              key: const ValueKey('sales-invoice-buyer-name'),
+              controller: _buyerName,
+              maxLength: 200,
+              enabled: !_saving,
+              decoration: documentBoxDecoration(context).copyWith(
+                hintText: 'Buyer name',
+                counterText: '',
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 140,
+            child: TextFormField(
+              key: const ValueKey('sales-invoice-buyer-phone'),
+              controller: _buyerPhone,
+              maxLength: 30,
+              enabled: !_saving,
+              keyboardType: TextInputType.phone,
+              decoration: documentBoxDecoration(context).copyWith(
+                hintText: 'Buyer phone',
+                counterText: '',
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Customer? get _customer {
     final String? id = _direct ? _customerId : _tickCustomerId;
     for (final Customer item in _customers) {
@@ -411,6 +516,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     final String placeOfSupply = stringValue(invoice?['place_of_supply']);
     final Widget? notes = _notesField(context);
     final Widget? inclusive = _rateIncludesTaxField(context);
+    final Widget? buyer = _buyerField(context);
     return DocumentHeader(children: [
       if (_direct)
         DocumentField(
@@ -483,6 +589,17 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
             onSelected: (value) => unawaited(_chooseBillCustomer(value)),
           ),
         ),
+      if (_direct)
+        DocumentField(
+          label: 'Counter sale',
+          width: 110,
+          child: OutlinedButton(
+            key: const ValueKey('sales-invoice-walk-in'),
+            onPressed: _saving || _walkInBusy ? null : _chooseWalkIn,
+            child: const Text('Walk-in'),
+          ),
+        ),
+      if (buyer != null) buyer,
       if (notes != null) notes,
       // "(as delivered)" is null: the server takes the address from the notes
       // billed. Shown when reopening a draft too, with the saved one chosen.
@@ -954,7 +1071,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                   keyboardType: TextInputType.number,
                   decoration: documentBoxDecoration(context),
                   onChanged: (_) {
-                    _setState(() {});
+                    _setState(() => _receivedTouched = true);
                     _schedulePreview();
                   },
                 ),
@@ -1015,8 +1132,10 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
               ),
             )
           else
-            const DocumentSideNote(
-              'Recorded as a receipt when the bill is approved.',
+            DocumentSideNote(
+              _isWalkIn
+                  ? 'A walk-in bill is paid in full at the counter.'
+                  : 'Recorded as a receipt when the bill is approved.',
             ),
         ],
       ),
