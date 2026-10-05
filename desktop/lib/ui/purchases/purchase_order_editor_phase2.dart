@@ -186,25 +186,28 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            _orderHeader(context),
-                            _sectionStrip(context),
-                            Expanded(child: _section(context)),
-                            if (_phase2Section == 0) ...[
-                              AdditionalDetailsSection(
-                                controller: _customFields,
-                                noun: 'purchase orders',
-                                readOnly: _locked,
-                                maxHeight: 132,
-                                padding:
-                                    const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                              ),
-                              _orderTerms(context),
-                              _orderTotals(),
+                        child: _shortWindowScroll(
+                          constraints.maxHeight,
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _orderHeader(context),
+                              _sectionStrip(context),
+                              Expanded(child: _section(context)),
+                              if (_phase2Section == 0) ...[
+                                AdditionalDetailsSection(
+                                  controller: _customFields,
+                                  noun: 'purchase orders',
+                                  readOnly: _locked,
+                                  maxHeight: 132,
+                                  padding:
+                                      const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                                ),
+                                _orderTerms(context),
+                                _orderTotals(),
+                              ],
                             ],
-                          ],
+                          ),
                         ),
                       ),
                       if (constraints.maxWidth >= DocumentSidePanel.showFrom)
@@ -217,6 +220,20 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
           ),
         ),
       ),
+    );
+  }
+
+  /// The least height the order's own column is laid out in. The header, the
+  /// terms and the totals are fixed, so in a window shorter than this the
+  /// column keeps this height and scrolls rather than running off the
+  /// bottom (D-UI-12).
+  static const double _phase2MinHeight = 700;
+
+  Widget _shortWindowScroll(double available, Widget column) {
+    if (!available.isFinite || available >= _phase2MinHeight) return column;
+    return SingleChildScrollView(
+      key: const ValueKey('purchase-order-short-window'),
+      child: SizedBox(height: _phase2MinHeight, child: column),
     );
   }
 
