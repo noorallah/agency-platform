@@ -10,9 +10,11 @@ beside the approver it already names.
 **Only a typed discount counts.** A price list's ladder, a promotion and the
 customer's or group's standing rate are arrangements the firm made, and the
 discount source each line stores says which branch was taken
-(``app/core/utils/pricing.py``). A bill's own bill discount is always typed;
-an order's is typed unless a promotion set it. A bill line that inherited its
-order's discount was judged when that order was approved.
+(``app/core/utils/pricing.py``). An order's bill discount is typed unless a
+promotion set it. A bill's is typed where the bill stated it; the share it
+inherited from its order is handed over as nothing by the caller, like a bill
+line that inherited its order's discount, which was judged when that order
+was approved (D-PRC-1).
 
 **Whose limit.** The approver's: the largest among their roles in the firm
 that have one. A person none of whose roles has a limit is not limited, and
@@ -97,7 +99,7 @@ def order_discounts(
 
 
 def invoice_discounts(lines: Iterable[object]) -> list[DiscountedLine]:
-    """Read bill lines; a bill's own bill discount is always typed."""
+    """Read bill lines; the caller zeroes a bill-discount share nobody typed."""
     result: list[DiscountedLine] = []
     for line in lines:
         amount = Decimal(getattr(line, "discount_amount", None) or _ZERO)

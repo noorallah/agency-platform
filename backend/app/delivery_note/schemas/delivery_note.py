@@ -77,8 +77,11 @@ class DeliveryNoteLineWrite(DeliveryNoteSchema):
     line_number: int = Field(ge=1)
     description: str | None = Field(default=None, max_length=500)
     current_delivery_quantity: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
-    free_quantity: Decimal = Field(
-        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    #: None means the caller said nothing, so the line ships the order line's
+    #: free goods in proportion to the quantity it ships. Zero is an answer:
+    #: none are shipped (D-PRC-4).
+    free_quantity: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
     )
     damaged_quantity: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
@@ -124,10 +127,12 @@ class DeliveryNoteLineWrite(DeliveryNoteSchema):
 
         A quantity of 0 stands where the line carries free goods, or records
         goods that arrived damaged. With neither it ships nothing, and a bill
-        of it could never be approved.
+        of it could never be approved. A line silent about free goods may
+        inherit some from its order line, so the service judges that one.
         """
         if (
             self.current_delivery_quantity <= 0
+            and self.free_quantity is not None
             and self.free_quantity <= 0
             and self.damaged_quantity <= 0
         ):

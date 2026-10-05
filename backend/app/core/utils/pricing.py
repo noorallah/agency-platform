@@ -419,3 +419,76 @@ def inherited_share(amount: Decimal, *, part: Decimal, whole: Decimal) -> Decima
     if part >= whole:
         return quantize_money(amount)
     return quantize_money(amount * part / whole)
+
+
+def continued_share(
+    amount: Decimal, *, before: Decimal, part: Decimal, whole: Decimal
+) -> Decimal:
+    """Return the slice of a source line's amount one continuing line takes.
+
+    A delivery note continues an order line and a bill continues a note line,
+    usually in parts. The source line's share of a discount on the whole
+    order is theirs between them, so each part takes the slice between where
+    the earlier parts stopped and where it stops -- the amount up to
+    ``before + part`` less the amount up to ``before``, each rounded once.
+    The slices therefore sum to the source line's figure exactly, the part
+    that completes the line taking whatever the rounding left, where
+    pro-rating each part alone leaves a residual that belongs to nobody
+    (D-PRC-1).
+
+    Args:
+        amount: The source line's figure.
+        before: The quantity of the source line already continued elsewhere.
+        part: The quantity this line continues.
+        whole: The source line's quantity the figure was computed on.
+
+    Returns:
+        This line's slice; zero where there is nothing to continue.
+
+    """
+    if amount <= ZERO or part <= ZERO or whole <= ZERO:
+        return ZERO
+    start = min(max(before, ZERO), whole)
+    stop = min(start + part, whole)
+    return quantize_money(
+        quantize_money(amount * stop / whole) - quantize_money(amount * start / whole)
+    )
+
+
+def continued_free_goods(
+    offered: Decimal,
+    *,
+    before: Decimal,
+    part: Decimal,
+    whole: Decimal,
+    already: Decimal,
+) -> Decimal:
+    """Return the free goods a continuing line takes when it says nothing.
+
+    The source line's free goods in proportion to the quantity continued, in
+    **whole units**: nobody can hand over 0.923 of a gift. What the share so
+    far has earned, less what already went, goes now; the part that completes
+    the line takes all that is left, so nothing is rounded away and nothing
+    goes twice (D-PRC-4). A source line that charges for nothing -- a gift
+    line -- gives what is left of it whole.
+
+    Args:
+        offered: The source line's free quantity.
+        before: The charged quantity of the source line already continued.
+        part: The charged quantity this line continues.
+        whole: The source line's charged quantity.
+        already: The free goods the earlier lines already took.
+
+    Returns:
+        The free quantity this line takes.
+
+    """
+    left = offered - already
+    if offered <= ZERO or left <= ZERO:
+        return ZERO
+    if whole <= ZERO or before + part >= whole:
+        return left
+    if part <= ZERO:
+        return ZERO
+    earned = (offered * (before + part) / whole) // 1
+    return min(max(earned - already, ZERO), left)

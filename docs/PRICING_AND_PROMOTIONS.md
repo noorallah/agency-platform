@@ -323,6 +323,41 @@ crediting the undiscounted figure hands back more than was charged. All four
 sales services price every line before taxing any of them for this reason --
 `sales_invoice` carries the intermediate state in `_PricedInvoiceLine`.
 
+**The order's bill discount goes down the chain with the lines** (D-PRC-1,
+2026-10-06). A delivery note read only a bill discount typed on itself and a
+bill read only its own, so an order approved at 5,265.16 -- a 7.5% line offer
+and an offer of 200 off the bill -- was delivered and billed at 5,501.16, and
+the journal followed the bill; a typed 100 and a typed 10% were lost the same
+way, while freight was carried. A note line now takes its order line's stored
+share and a bill line its note line's, by the quantity it continues, exactly
+as a line discount amount is inherited. The slice is `continued_share`
+(`app/core/utils/pricing.py`): the share up to where this part stops less the
+share up to where the earlier parts stopped, each rounded once, so two notes
+and two bills of one order sum to the order's figure and its tax to the
+paisa and the part that completes the line takes what rounding left. "Earlier
+parts" are the approved notes of the order line, and every live bill of the
+note line. The header shows the total inherited and the rate it comes to.
+
+**A figure typed on the note or the bill replaces the inherited one**, zero
+included -- the freight precedent, where silence inherits and `0` waives. It
+does not add: a document then states its own discount, split by `apportion`
+over its own lines, and one that continues an order has one rule rather than
+two figures to reconcile. A figure **equal to the one inherited is the
+inheritance sent back** (the editor refills the box with the rate it was shown
+and re-sends it on every save), so it keeps the source lines' own shares and
+moves nothing. On a bill of documents an explicit `null` means "as the
+documents say", as it does for freight; typing `0` is how the discount is
+refused. `sales_invoices.bill_discount_source` (migration `20261006_0336`)
+says `typed` or `inherited`, and both readers need it: an edit that leaves
+the discount out carries only a typed one as its rate (an inherited one is
+inherited again at the share now billed, and a counter bill asks the order it
+raised, whose `bill_discount_source` says `typed` or `promotion`), and the
+approver's discount limit judges only a typed one -- an offer's 200 is
+nobody's hand, and a typed order's was judged on the order. Nothing is
+written to `promotion_redemptions` on the way down: the claim is the order's,
+and what the performance report says an offer gave is now what came off the
+bills.
+
 ## A bill can state what was given away
 
 **A bill can state what was given away.** `free_quantity` is goods supplied at
@@ -336,6 +371,23 @@ by the share being billed, and **refuses** more than the source line offered
 nobody dispatched is one the warehouse cannot reconcile. The desktop's
 quotation editor is the only screen that can give a line away; there was no
 field for it anywhere before, so the column was unreachable without the API.
+
+**A note that says nothing ships the order's free goods** (D-PRC-4,
+2026-10-06). `free_quantity` on a delivery note line defaulted to `0`, so
+silence and a refusal were one value: an order of 12 with 1 free shipped 12,
+stayed part-delivered with one unit reserved, and its bill showed nothing
+free. The field is `Decimal | None` now, for the reason the price and the
+discount are. `None` takes the order line's free goods in proportion to the
+quantity shipped, **in whole units** (`continued_free_goods`): what the share
+shipped so far has earned less what already went, and the delivery that
+completes the line takes all that is left -- 1 free on 10 shipped 4, 3, 3
+goes with the last three, never as 0.4 of a gift and never twice. A number is
+taken as typed and `0` ships none. A bill inherits from its note the same
+way, so a note billed in parts states whole units too. A line of quantity 0
+that is silent about free goods is judged in the service, which alone knows
+whether its order line gives any. **The desktop's note editor still sends an
+explicit `0`** from a box that starts at 0, so the screen ships no free goods
+until it sends nothing for a blank box.
 
 **Goods given free are claimed from the principal at what they cost**
 (2026-10-06). A claim (`app/principal_claims`) counted a scheme's redemptions

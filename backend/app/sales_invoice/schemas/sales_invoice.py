@@ -613,6 +613,10 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     #: What was taken off the whole document, and the rate it represents.
     bill_discount_percent: Decimal
     bill_discount_amount: Decimal
+    #: ``typed`` where the bill stated it, ``inherited`` where it is the
+    #: share agreed on the order the bill continues (D-PRC-1). An editor
+    #: refills its box only from a typed one.
+    bill_discount_source: str | None = None
     #: What was charged for delivery, split across the lines and taxed there.
     freight_amount: Decimal = Decimal("0")
     line_discount_total: Decimal
