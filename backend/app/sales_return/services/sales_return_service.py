@@ -146,6 +146,14 @@ _RETURNED_STATUSES = (
     SalesReturnStatus.CLOSED.value,
 )
 
+#: Statuses in which a return is still on its way: raised, perhaps approved,
+#: and credited to nobody yet. The summary states their documents' totals
+#: apart from what completed returns credited (D-SELL-84).
+_PENDING_STATUSES = (
+    SalesReturnStatus.DRAFT.value,
+    SalesReturnStatus.APPROVED.value,
+)
+
 
 def _optional_uuid(value: object) -> UUID | None:
     """Read a UUID out of an untyped line spec."""
@@ -324,14 +332,25 @@ class SalesReturnService(TransactionalDocumentService):
         """Return aggregate sales return values for the visible firm scope.
 
         Counted and summed in SQL, one row per status, rather than loading every
-        return the firm ever raised (backlog 56 C). The value is what the
-        returns credit (D-SELL-74), and the few that brought goods back
-        before billing are valued by `return_billed_amounts` -- the function
-        the journal, the customer's account and the register read -- rather
-        than by arithmetic of this report's own. Taking the unbilled share of
-        the **lines** off the document total left whatever sits on the header
-        in: a return that credited nothing still counted its additional
-        charges and its rounding (D-SELL-80).
+        return the firm ever raised (backlog 56 C).
+
+        **The value means one thing: what completed returns credited**
+        (D-SELL-84), which is the register's ``credited_amount`` added up over
+        the same returns. A draft or approved return has credited nothing, and
+        what it *will* credit is not knowable until it completes -- the split
+        between billed and unbilled goods is stamped on its lines then. Summing
+        every live status read a never-billed return of 640.00 as 640.00 while
+        it was a draft and as nothing once it completed. What is still on its
+        way is stated beside it, as ``pending_return_value``: the documents'
+        own totals, credited to nobody yet.
+
+        The few that brought goods back before billing are valued by
+        `return_billed_amounts` -- the function the journal, the customer's
+        account and the register read -- rather than by arithmetic of this
+        report's own. Taking the unbilled share of the **lines** off the
+        document total left whatever sits on the header in: a return that
+        credited nothing still counted its additional charges and its
+        rounding (D-SELL-80).
         """
         before_billing = SalesReturn.id.in_(
             select(SalesReturnLine.sales_return_id).where(
@@ -339,12 +358,20 @@ class SalesReturnService(TransactionalDocumentService):
                 SalesReturnLine.unbilled_quantity > 0,
             )
         )
-        by_status: dict[str, tuple[int, Decimal, Decimal]] = {
-            status: (int(count), Decimal(str(value)), Decimal(str(restock)))
-            for status, count, value, restock in self._session.execute(
+        # Per status: how many, their stated totals, the totals of those that
+        # credited the whole of themselves, and what they put back on the shelf.
+        by_status: dict[str, tuple[int, Decimal, Decimal, Decimal]] = {
+            status: (
+                int(count),
+                Decimal(str(stated)),
+                Decimal(str(value)),
+                Decimal(str(restock)),
+            )
+            for status, count, stated, value, restock in self._session.execute(
                 select(
                     SalesReturn.status,
                     func.count(),
+                    func.coalesce(func.sum(SalesReturn.grand_total), 0),
                     func.coalesce(
                         func.sum(
                             case((before_billing, 0), else_=SalesReturn.grand_total)
@@ -360,11 +387,20 @@ class SalesReturnService(TransactionalDocumentService):
                 .group_by(SalesReturn.status)
             ).all()
         }
+        credited_value = sum(
+            (
+                entry[2]
+                for status, entry in by_status.items()
+                if status in _RETURNED_STATUSES
+            ),
+            ZERO,
+        )
         part_credited = list(
             self._session.scalars(
                 select(SalesReturn).where(
                     SalesReturn.firm_id == firm_scope,
                     SalesReturn.is_deleted.is_(False),
+                    SalesReturn.status.in_(_RETURNED_STATUSES),
                     before_billing,
                 )
             ).all()
@@ -375,16 +411,11 @@ class SalesReturnService(TransactionalDocumentService):
             chunk = part_credited[start : start + CHUNK_SIZE]
             credited = return_billed_amounts(self._session, chunk)
             for row in chunk:
-                returns, value, restock = by_status[row.status]
-                by_status[row.status] = (
-                    returns,
-                    value + credited.get(row.id, (ZERO, ZERO))[0],
-                    restock,
-                )
+                credited_value += credited.get(row.id, (ZERO, ZERO))[0]
 
         def count(status: SalesReturnStatus) -> int:
             """Return how many returns are in one status."""
-            return by_status.get(status.value, (0, ZERO, ZERO))[0]
+            return by_status.get(status.value, (0, ZERO, ZERO, ZERO))[0]
 
         live = [
             entry
@@ -397,8 +428,18 @@ class SalesReturnService(TransactionalDocumentService):
             approved_returns=count(SalesReturnStatus.APPROVED),
             completed_returns=count(SalesReturnStatus.COMPLETED),
             cancelled_returns=count(SalesReturnStatus.CANCELLED),
-            total_return_value=self._q(sum((entry[1] for entry in live), ZERO)),
-            total_restock_quantity=self._q(sum((entry[2] for entry in live), ZERO)),
+            total_return_value=self._q(credited_value),
+            pending_return_value=self._q(
+                sum(
+                    (
+                        entry[1]
+                        for status, entry in by_status.items()
+                        if status in _PENDING_STATUSES
+                    ),
+                    ZERO,
+                )
+            ),
+            total_restock_quantity=self._q(sum((entry[3] for entry in live), ZERO)),
         )
 
     def get_return(self, return_id: UUID, *, firm_scope: UUID) -> SalesReturn:
