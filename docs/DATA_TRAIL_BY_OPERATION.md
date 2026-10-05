@@ -5498,8 +5498,10 @@ commit.
   updated in place, one with no id is inserted, and one the payload leaves out
   is **soft-deleted**. An id the customer does not own is refused — "A customer
   address no longer exists."
-- **The opening balance may only move while the account has never traded** —
-  "Opening balance cannot be changed after receivable activity exists."; where
+- **The opening balance may only move while nothing else stands on the
+  account** — "Opening balance cannot be changed while other entries stand on
+  …'s account: receipt RC-… of 600.00. Reverse or cancel them first. …"; a
+  receipt since reversed does not stand (D-MST-15). Where
   it may, the old OB journal is reversed (`<ref>-REV`), the old
   `OPENING_BALANCE` row is physically deleted and the new figure is posted
   (§12.11).

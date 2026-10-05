@@ -5,7 +5,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import case, exists, func, or_, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, aliased, selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.customers.models import (
@@ -257,20 +257,42 @@ class CustomerRepository:
             )
         )
 
-    def has_receivable_transactions(self, customer_id: UUID) -> bool:
-        """Return whether a customer has any receivable activity rows."""
-        return (
-            self._session.scalar(
-                select(func.count())
-                .select_from(CustomerReceivableTransaction)
+    def standing_receivable_transactions(
+        self, customer_id: UUID
+    ) -> list[CustomerReceivableTransaction]:
+        """Return what stands on an account beside its opening balance.
+
+        Every movement that is not the opening balance, is not itself a
+        reversal, and has no reversal row naming it -- oldest first. A receipt
+        taken and then reversed is two rows that say nothing happened, so
+        neither is here; a receipt still standing, a bill, an advance applied
+        are (D-MST-15). Matched row for row on the reversal's reference rather
+        than by summing: a bill of 500 paid by a receipt of 500 sums to
+        nothing and is a customer who has traded.
+        """
+        reversal = aliased(CustomerReceivableTransaction)
+        return list(
+            self._session.scalars(
+                select(CustomerReceivableTransaction)
                 .where(
                     CustomerReceivableTransaction.customer_id == customer_id,
                     CustomerReceivableTransaction.is_deleted.is_(False),
-                    CustomerReceivableTransaction.transaction_type != "OPENING_BALANCE",
+                    CustomerReceivableTransaction.transaction_type.not_in(
+                        ("OPENING_BALANCE", "REVERSAL")
+                    ),
+                    ~exists().where(
+                        reversal.reference_type == "reversal",
+                        reversal.reference_id == CustomerReceivableTransaction.id,
+                        reversal.is_deleted.is_(False),
+                    ),
                 )
-            )
-            or 0
-        ) > 0
+                .order_by(
+                    CustomerReceivableTransaction.transaction_date.asc(),
+                    CustomerReceivableTransaction.created_at.asc(),
+                    CustomerReceivableTransaction.id.asc(),
+                )
+            ).all()
+        )
 
     def list_receivable_transactions(
         self,

@@ -370,7 +370,8 @@ class CustomerOpeningBillService:
             raise ValidationError(
                 f"{row.bill_number} is the opening balance entered on the "
                 "customer, not a bill of its own. Set the customer's opening "
-                "balance to 0 to take it back."
+                "balance to 0 to take it back; reverse any receipt taken "
+                "against it first."
             )
         received = opening_bill_receipts(
             self._session, firm_id=firm_id, bill_ids=[row.id]
@@ -471,8 +472,9 @@ class CustomerOpeningBillService:
         """Stand down the bill for an opening balance that is being revised.
 
         Only reachable while nothing is received against it: the customer
-        service refuses to move an opening balance once the account has any
-        other activity, and a receipt applied to this bill is such activity.
+        service refuses to move an opening balance while anything else stands
+        on the account, and a receipt applied to this bill is such a thing
+        until it is reversed (D-MST-15).
         The journal is the master's to mirror, so nothing is posted here.
         """
         for row in self._session.scalars(

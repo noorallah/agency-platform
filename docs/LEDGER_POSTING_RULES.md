@@ -224,6 +224,28 @@ type rather than `OPENING_BALANCE` because rows of that type are deleted and
 their journals mirrored whenever the master's figure is revised; a bill must
 never go with them.
 
+**The figure may be revised while nothing else stands on the account
+(D-MST-15, 2026-10-06).** Revising rewrites it whole -- the entry mirrored,
+the `OPENING_BALANCE` row replaced, the balances recomputed from the new
+figure -- which is only the truth while the opening balance is all the
+account holds. The guard used to ask whether the account had *any* other
+receivable row, so a receipt taken against a figure typed wrongly and then
+reversed fixed the figure for ever, and cancelling its bill answered "set the
+customer's opening balance to 0": the two refusals pointed at each other.
+`CustomerRepository.standing_receivable_transactions` asks what **stands**
+instead: every row that is not the opening balance, is not a reversal, and
+has no `REVERSAL` row naming it. A receipt and its reversal are two rows that
+say nothing happened, and their stored deltas cancel exactly. It is matched
+row for row, never by summing -- a bill of 500 paid by a receipt of 500 sums
+to nothing and is a customer who has traded. While anything stands the
+refusal names it: "Opening balance cannot be changed while other entries
+stand on C1's account: receipt RC-2026-2027-000001 of 600.00. Reverse or
+cancel them first. Where the customer has really traded, leave the opening
+balance and correct what is owed with a credit note or an adjustment." **A
+cancelled sales invoice still stands for this purpose**: its cancellation
+writes a `CREDIT_NOTE` row rather than a `REVERSAL`, so the account reads as
+one that has been billed, which is the cautious side to err on.
+
 - **Received like an invoice.** `ReceiptService.outstanding_invoices` lists it
   beside the sales invoices (`is_opening_bill: true`), outstanding derived
   from `settlement_allocations.customer_opening_bill_id`; allocation at

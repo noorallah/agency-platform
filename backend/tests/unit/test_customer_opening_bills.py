@@ -42,7 +42,11 @@ from app.customers.models import (
     CustomerOpeningBill,
     CustomerReceivableTransaction,
 )
-from app.customers.schemas.customer import CustomerUpdate
+from app.customers.schemas.customer import (
+    CustomerReceivableTransactionCreate,
+    CustomerReceivableTransactionType,
+    CustomerUpdate,
+)
 from app.customers.schemas.opening_bill import (
     CustomerOpeningBillCancel,
     CustomerOpeningBillImportRequest,
@@ -780,3 +784,86 @@ def test_the_roles_that_enter_opening_bills_at_go_live_still_can() -> None:
 
     assert {"FIRM_ADMIN", "FIRM_MANAGER"} <= holders
     assert not {"SALES_MANAGER", "CUSTOMER_SUPPORT", "SALES_EXECUTIVE"} & holders
+
+
+def test_an_opening_balance_can_be_corrected_once_its_receipt_is_reversed() -> None:
+    """D-MST-15: a receipt taken and reversed used to lock the figure for good.
+
+    Driven 2026-10-06 on two firms: 1,500 typed, 600 received against it and
+    the receipt reversed. Changing the figure was refused for "receivable
+    activity", and cancelling its bill sent the person back to the figure.
+    """
+    books = _Books()
+    _type_opening_balance(books, "1500.00")
+    [bill] = _standing(books)
+    settlement_id = books.receive("600.00", [(bill.id, "600.00")])
+    number = books.receipts.get(settlement_id, firm_id=books.firm.id).settlement_number
+
+    # While the receipt stands the figure stays, and the refusal names it.
+    with pytest.raises(ValidationError) as refused:
+        _type_opening_balance(books, "0")
+    assert refused.value.message == (
+        "Opening balance cannot be changed while other entries stand on C1's "
+        f"account: receipt {number} of 600.00. Reverse or cancel them first. "
+        "Where the customer has really traded, leave the opening balance and "
+        "correct what is owed with a credit note or an adjustment."
+    )
+    books.session.rollback()
+    assert books.balance() == Decimal("900.00")
+
+    books.receipts.reverse(
+        settlement_id, firm_id=books.firm.id, actor_id=books.actor_id
+    )
+    books.session.commit()
+    assert books.balance() == Decimal("1500.00")
+
+    _type_opening_balance(books, "400.00")
+
+    [revised] = _standing(books)
+    assert revised.amount == Decimal("400.00")
+    assert books.owed() == [("Opening balance", Decimal("400.00"), True)]
+    assert books.balance() == Decimal("400.00")
+    receivable = books.account(ControlAccountPurpose.ACCOUNTS_RECEIVABLE)
+    debit, credit = books.session.execute(
+        select(
+            func.coalesce(func.sum(GLPosting.debit_amount), 0),
+            func.coalesce(func.sum(GLPosting.credit_amount), 0),
+        ).where(GLPosting.ledger_account_id == receivable)
+    ).one()
+    assert Decimal(str(debit)) - Decimal(str(credit)) == Decimal("400.00")
+
+    _type_opening_balance(books, "0")
+    assert _standing(books) == []
+    assert books.balance() == Decimal("0.00")
+
+
+def test_an_opening_balance_stays_while_a_bill_stands_on_the_account() -> None:
+    """A customer who has really traded is not reopened by a reversed receipt."""
+    books = _Books()
+    _type_opening_balance(books, "1500.00")
+    CustomerService(books.session).post_receivable_transaction(
+        books.customer.id,
+        CustomerReceivableTransactionCreate(
+            transaction_type=CustomerReceivableTransactionType.INVOICE,
+            transaction_date=CUTOVER,
+            amount=Decimal("500.00"),
+            reference_number="SI-77",
+        ),
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    paid = books.receive("500.00")
+
+    # A bill and the receipt that paid it net to nothing and are still trade.
+    with pytest.raises(ValidationError, match=r"invoice SI-77 of 500\.00; receipt"):
+        _type_opening_balance(books, "0")
+    books.session.rollback()
+
+    books.receipts.reverse(paid, firm_id=books.firm.id, actor_id=books.actor_id)
+    books.session.commit()
+    with pytest.raises(ValidationError) as refused:
+        _type_opening_balance(books, "0")
+    assert "invoice SI-77 of 500.00." in refused.value.message
+    assert "receipt" not in refused.value.message
+    books.session.rollback()
+    assert books.balance() == Decimal("2000.00")
