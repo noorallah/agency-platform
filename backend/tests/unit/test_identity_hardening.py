@@ -749,3 +749,13 @@ def test_a_refresh_on_a_closed_account_names_the_state() -> None:
     session.commit()
     with pytest.raises(AccountExpiredError):
         service.refresh(tokens.refresh_token)
+
+
+def test_a_roles_permission_list_holds_every_seeded_code() -> None:
+    """D-IDN-12: a firm administrator's 190 codes answered 500 at a cap of 100."""
+    from app.identity.schemas.api import IdentifierList
+
+    ids = [uuid4() for _ in SYSTEM_PERMISSION_CODES]
+
+    assert len(ids) > 100
+    assert IdentifierList(ids=ids).ids == ids

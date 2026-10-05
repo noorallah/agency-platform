@@ -369,10 +369,16 @@ class PermissionResponse(ApiSchema):
     is_system: bool
 
 
+#: The most identifiers one list carries. It is also the *response* of a
+#: role's permissions, so it has to hold every code the platform seeds: at
+#: 100 a firm administrator's list of 190 answered 500 (D-IDN-12).
+MAX_IDENTIFIERS = 1000
+
+
 class IdentifierList(ApiSchema):
     """A replacement set of related resource identifiers."""
 
-    ids: list[UUID] = Field(default_factory=list, max_length=100)
+    ids: list[UUID] = Field(default_factory=list, max_length=MAX_IDENTIFIERS)
 
 
 class UserFirmAssignment(ApiSchema):

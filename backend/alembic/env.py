@@ -17,7 +17,13 @@ from app.core.database.engine import EngineFactory
 
 config = context.config
 
-if config.config_file_name is not None:
+# Logging is configured from alembic.ini only when Alembic is the program.
+# An in-process caller (`upgrade_store`, which provisioning and the shipped
+# binary use) names its target on `config.attributes` and already has
+# logging of its own: `fileConfig` replaces the root handlers and disables
+# every existing logger, so the server wrote no request or error line after
+# its first provision until it was restarted (D-RPT-21).
+if config.config_file_name is not None and not config.attributes.get("database_url"):
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
