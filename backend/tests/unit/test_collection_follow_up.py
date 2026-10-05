@@ -575,7 +575,10 @@ def test_the_sheet_is_by_collector_falling_back_to_the_account_manager() -> None
     assert mine.promise_is_for_account is False
     assert rows[0].days_overdue == 0
     assert rows[0].promise_id is None
-    assert rows[2].due_date is None
+    # A bill with no credit days is due the day it was raised (D-SELL-87),
+    # so it is overdue here as it is in the ageing.
+    assert rows[2].due_date == third.invoice_date
+    assert rows[2].days_overdue == (AFTER - third.invoice_date).days
 
     assert [
         row.customer_code for row in sheet.rows(setup.firm.id, collector_id=binod)
@@ -583,7 +586,7 @@ def test_the_sheet_is_by_collector_falling_back_to_the_account_manager() -> None
     assert [
         row.customer_code
         for row in sheet.rows(setup.firm.id, as_of=AFTER, overdue_only=True)
-    ] == ["CUS-001"]
+    ] == ["CUS-001", "CUS-003"]
     page, total = sheet.page(setup.firm.id, page=2, page_size=2, as_of=AFTER)
     assert total == 3
     assert [row.customer_code for row in page] == ["CUS-003"]

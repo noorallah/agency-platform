@@ -503,6 +503,33 @@ def test_a_bill_with_no_terms_is_due_when_it_is_raised() -> None:
     assert row.invoices[0].days_overdue == 30
 
 
+def test_every_reader_calls_a_bill_with_no_terms_due_when_raised() -> None:
+    """D-SELL-87: overdue in the ageing, and on no list anybody collects from.
+
+    Driven 2026-10-06: a credit bill of a customer with no credit days was
+    one day overdue in the ageing, while the collection sheet read it as not
+    overdue (and dropped it under "overdue only") and the overdue report did
+    not list it at all. All three now read one due date off the bill.
+    """
+    from app.collections.services.sheet import CollectionSheetService
+    from app.sales_invoice.services.sales_invoice_service import SalesInvoiceService
+    from app.settlements.services import ReceiptService
+
+    books = _Books(_session_factory()())
+    books.invoice("SI-1", "500", on=date(2026, 4, 1), due=None)
+
+    [owed] = ReceiptService(books.session).outstanding_invoices(
+        firm_id=books.firm.id, party_id=None
+    )
+    assert owed.due_date == date(2026, 4, 1)
+    [late] = SalesInvoiceService(books.session).overdue_report(firm_scope=books.firm.id)
+    assert (late.invoice_number, late.due_date) == ("SI-1", date(2026, 4, 1))
+    sheet = CollectionSheetService(books.session).rows(
+        firm_id=books.firm.id, as_of=date(2026, 5, 1), overdue_only=True
+    )
+    assert [(row.invoice_number, row.days_overdue) for row in sheet] == [("SI-1", 30)]
+
+
 def test_a_bill_not_yet_due_ages_at_zero_days() -> None:
     """Owed, but not late. It still belongs in the total."""
     books = _Books(_session_factory()())

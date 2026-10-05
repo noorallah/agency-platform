@@ -172,7 +172,9 @@ def test_purchase_invoice_summary() -> None:
     assert (got.total, got.draft, got.pending_invoices) == (5, 2, 2)
     assert (got.approved, got.cancelled, got.closed) == (1, 1, 1)
     assert got.total_value == Decimal("150")
-    assert got.overdue_invoices == 0
+    # The approved and the closed bill owe, carry no due date, and are dated
+    # in the past: due the day they were raised, so overdue (D-SELL-87).
+    assert got.overdue_invoices == 2
 
 
 def test_purchase_return_summary() -> None:
