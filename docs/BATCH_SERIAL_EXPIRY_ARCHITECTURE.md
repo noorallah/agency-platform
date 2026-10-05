@@ -523,6 +523,17 @@ The picker's availability takes `customer_id`, flags such a batch
 `SHORT_SHELF_LIFE` and `would_block`. A batch chosen by hand anyway meets
 `shelf_life_policy`.
 
+**A batch is out of date on its expiry date, everywhere** (D-STK-17,
+2026-10-06). `BatchRecord.expired_condition` has always said so, and the
+picker, a pinned order, a batch picked on a note and a counter bill each
+refused such a batch on that day. Earliest-expiry allocation alone read
+"before the date", so the batch nobody was allowed to choose was the one
+chosen for an order that named none, reserved and shipped. The allocator's
+`_expired_batches` now passes it over on the date too, and a serial in such a
+batch is refused the same day. The day before, it is still the first to go.
+The shelf-life and stop-selling tests are a different question -- good *on*
+the day the goods must last to is long enough -- and are unchanged.
+
 **The reservation follows the same rule** (D-SELL-58). Approval reads the
 customer's minimum shelf life on the order's date and passes over a short
 batch exactly as dispatch will (`allocate_for_reservation(keep_until=)`; both

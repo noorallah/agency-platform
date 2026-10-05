@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from io import BytesIO
 from typing import Any
@@ -3251,9 +3251,11 @@ class InventoryService:
             keep_until = stop_at
         if keep_until is None:
             return rows, {}
-        short = self._expired_batches(
+        # Good on the day itself is long enough: the customer's shelf life
+        # and the stop-selling rule both name the last day that will do.
+        short = self._batches_dated_before(
             {row.batch_id for row in rows if row.batch_id is not None},
-            as_of=keep_until,
+            keep_until,
         )
         return [row for row in rows if row.batch_id not in short], short
 
@@ -3464,6 +3466,24 @@ class InventoryService:
         Keyed by batch id, carrying the number and the date, because a refusal
         that cannot name the batch leaves whoever reads it looking for stock
         the screen says is there.
+
+        **A batch is out of date on its expiry date**, the rule
+        `BatchRecord.expired_condition` states and every place a person
+        names a batch already applied: the picker, a pinned order, a batch
+        picked on a note, a counter bill. This one read "before the date",
+        so on that day the batch nobody would let you choose was the one
+        first-expiry-first chose for you and shipped (D-STK-17).
+        """
+        return self._batches_dated_before(batch_ids, as_of + timedelta(days=1))
+
+    def _batches_dated_before(
+        self, batch_ids: set[UUID], day: date
+    ) -> dict[UUID, tuple[str, date]]:
+        """Return the batches among these whose expiry date is before ``day``.
+
+        The one read behind "expired" (before the day after) and "too
+        short-dated for this customer" (before the day the goods must still
+        be good on), which are different questions about the same column.
         """
         if not batch_ids:
             return {}
@@ -3471,7 +3491,7 @@ class InventoryService:
             select(BatchRecord).where(
                 BatchRecord.id.in_(batch_ids),
                 BatchRecord.expiry_date.is_not(None),
-                BatchRecord.expiry_date < as_of,
+                BatchRecord.expiry_date < day,
             )
         ).all()
         return {

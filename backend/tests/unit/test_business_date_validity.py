@@ -112,10 +112,14 @@ def test_a_batch_expiring_today_has_no_days_left() -> None:
 
 
 def test_stock_that_went_out_of_date_yesterday_is_not_held_for_an_order() -> None:
-    """Dispatch's rule: a batch dated the 5th is passed over on the 6th."""
+    """Dispatch's rule: a batch dated the 5th is passed over on the 6th.
+
+    One dated the 6th is too, since D-STK-17: out of date on its own date,
+    as the picker has always read it. The 7th is the first that ships.
+    """
     shop = _BatchShop()
     shop.batches["MARCH"].expiry_date = THE_5TH
-    shop.batches["JUNE"].expiry_date = THE_6TH
+    shop.batches["JUNE"].expiry_date = THE_6TH + timedelta(days=1)
     shop.session.commit()
     rows = list(
         shop.session.scalars(
