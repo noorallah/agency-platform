@@ -146,29 +146,86 @@ date in the company's time zone, and so does this now.
   delivery compared the UTC date of `delivered_at` with the note's date, so
   goods handed over at 01:00 on the note's own day were "received before the
   note".
-- **Where it is applied** (2026-10-06): the "not in the future" and "today or
-  later" checks on a typed date, and every report or list that defaults its
-  day to today, in customers, vendors, settlements, collections, inventory's
-  router, purchase orders, purchase invoices, purchase returns, quotations,
-  sales invoices, proforma and the territory call lists; and the date the
-  server puts on a customer's opening balance. **Where it is not, yet:**
-  dates the server stamps on a document it raises for somebody (an order off
-  a requisition, an RFQ or the reorder list; an invoice raised off a
-  delivery note), validity checks against a stored date outside those
-  modules' reports (a batch's expiry, a rate contract's or a supplier
-  price's period, a reservation's lapse), reversal rows dated
-  `max(today, original)` -- which follow the mirror journal's date, the
-  finance module's -- and the "printed on" line of two PDFs. They still
-  read `utc_now().date()`; `grep -rn "utc_now().date()" app` lists them, and
-  each is the same five and a half hours out. The boundary a report draws
-  round an as-of day on a *timestamp* (`reversed_at`, `cancelled_at`) is
-  UTC midnight as well.
+- **It is applied everywhere a day is a business date** (2026-10-06, in two
+  passes). The first moved the "not in the future" and "today or later"
+  checks on a typed date and the report defaults in the buying, selling,
+  customer, supplier, settlement and inventory modules, and stopped there,
+  listing what it left. A check on the running server the same night showed
+  what the remainder cost: a tax invoice raised by *Dispatch and invoice* at
+  01:00 was dated **yesterday**, a batch on its last day read "1 day", a
+  shift opened at 02:31 on the 6th listed under the 5th and its report said
+  "printed 05-10-2026". The second pass took the whole of `app/` from an
+  inventory rather than a list -- 84 reads of `utc_now().date()`, three
+  `now.date()` on an instant read a line earlier, two on a stored
+  `created_at`, and eight day boundaries built at UTC midnight -- in four
+  pull requests:
+  - **dates the server stamps**: an invoice, order, purchase order or RFQ it
+    raises for somebody; a document number issued with no date, and so its
+    financial year on the night of 31 March; every reversal dated
+    `max(today, original)` -- the mirror journal in
+    `journal_engine.reverse_entry` and the statement, stock and loyalty rows
+    that follow it. Still never before the original (D-FIN-5);
+  - **validity windows**: a batch's expiry and days left, a rate contract's
+    or supplier quote's period, a price revision, a licence, a rebate's or
+    commission period's "is it over", loyalty expiry, a lapsing reservation,
+    the 30-day e-invoice limit;
+  - **report defaults and "printed on"** outside the first pass's modules;
+  - **as-of boundaries on a timestamp**, below.
+- **A price list and a promotion were never in this class**: both are judged
+  on the *document's* date, never on today, so the only day that reaches
+  them is the one on the document -- which is why the date the server puts
+  on a document mattered most.
+- **A helper with no firm to hand takes the day from its caller.**
+  `_batch_is_expired(batch, today)` and `display_status(row, today)` gained a
+  parameter rather than a hidden lookup; a `responses(rows)` builder reads
+  the firm off its first row. A platform screen that holds the `Firm` row --
+  firm readiness and "open books" -- calls `business_today(firm.country)`.
+  The sandbox e-way bill portal dates validity on India's day whoever calls
+  it, because the portal it stands in for is India's.
+- **A day's boundary on a timestamp is `firm_day_after(session, firm_id,
+  day)`** (and `firm_day_start`), built on `business_day_start` in
+  `app/core/utils/dates.py`. "Was it cancelled after the 5th" was asked as
+  `cancelled_at >= midnight UTC on the 6th` in five private copies -- the
+  customer ageing, customer opening bills twice, party adjustments, the
+  payables report, `settled_against` -- and for India that instant is five
+  and a half hours late: a bill cancelled at 01:00 on the 6th read as
+  cancelled on the 5th and left an ageing as on the 5th, when it was still
+  owed that day. The 6th begins in India at 18:30 UTC on the 5th. Compare
+  with `>=` or `<` against the start of the next day; a `time.max` upper
+  bound leaves a microsecond out.
+- **What still reads the UTC day, on purpose**, is short enough to name:
+  `app/diagnostics/quick_check.py`, a command-line client with no session
+  and no firm row, picking last month as a window that holds data; and the
+  `created_from` / `created_to` filters on customers, vendors and branches
+  with the audit trail's date filters, which are inclusive **UTC** calendar
+  days by this document's own convention (the platform trail has no firm at
+  all). A firm with no country known, and a screen with no firm -- no
+  `X-Firm-ID` -- read the UTC day through the same helpers. The territory
+  dashboard's "new in the last 30 days" is thirty times twenty-four hours
+  on an instant, not a calendar window.
+- **`tests/unit/test_time_conventions.py` fails the build on the next one.**
+  Two AST guards beside the local-clock one: `utc_now().date()` (and
+  `now = utc_now()` then `now.date()`) anywhere outside `UTC_DAY_ALLOWED`,
+  and `datetime.combine(..., UTC)` outside `UTC_MIDNIGHT_ALLOWED`. Each entry
+  carries its reason, and a third test fails when an entry no longer needs
+  its exemption. What the guards cannot see is a day computed **in SQL** --
+  none exists today (`func.current_date` and a `created_at` cast to a date
+  appear nowhere in `app/`), and a new one would be the same defect.
+- **Whether a batch dated today has expired was not changed.** The picker
+  and the expiry cards say yes on the day itself (`expired_condition` is
+  `<=`); dispatch and reservation pass a batch over only from the day after
+  (`_expired_batches` is `<`). The two disagreed before this work and still
+  do; only the day both count from moved.
 - **A test freezes `app.core.utils.dates.utc_now`** at 19:30 UTC, which is
   01:00 the next day in India (`tests/unit/test_business_date.py`). A fixture
   firm with `country="IN"` sees India's day, so a test that builds "today"
   from `utc_now().date()` and expects a business rule to agree is wrong for
   five and a half hours of every day: take the day from `firm_today`, or pass
-  the day in.
+  the day in. Eighteen test files were corrected for exactly that across the
+  two passes, found by running them between midnight and 05:30. **Patch the
+  shared clock, not a module's copy of it**: two reversal-date tests set
+  `journal_engine.utc_now`, which stopped deciding the day the moment the
+  engine asked `firm_today`.
 
 ## Never let NULL ordering pick a row
 
