@@ -26,6 +26,10 @@ counted off the routers on 2026-08-24.
 | `app/sales_invoice` | sales invoice | 18 | list, editor (raise and correct), lifecycle, print |
 | `app/sales_return` | sales return / credit note | 18 | list, editor, lifecycle |
 | `app/customer_debit_note` | debit note to a customer (more charged on an invoice already raised) | 9 | Sales > Debit Notes: list, editor, lifecycle |
+| `app/counter_shifts` | a cashier's shift at the counter (SG-7) | 6 | Sell > Counter Shifts; the shift strip on the counter bill |
+| `app/collections` | promise to pay, collection sheet (SG-8) | 6 | Sell > Collection Sheet, Payment Promises |
+| `app/customer_rebates` | turnover rebate agreement (SG-9) | 9 | Sell > Customer Rebates |
+| `app/document_files` | the files kept with a document (SG-6) | none of its own: four per document | Attachments on each of the five lists |
 | `app/sales` | territory, route, beat plan, geography | 63 | six screens |
 | `app/customers` | customer, credit policy, receivables | 17 | list, editor, settings |
 | `app/settlements` | receipt (money in) | 5 | settlements workspace |
@@ -34,6 +38,13 @@ counted off the routers on 2026-08-24.
 
 `app/settlements` is one implementation for money in and money out; a receipt
 and a payment differ only in signs. It is documented with the purchase side.
+
+The four packages marked SG were added on 2026-10-05 and were counted that
+day; the older counts were not re-taken then. The same build added the
+transporter routes to `app/delivery_note`, the two GST reports, the walk-in
+customer, hold and recall to `app/sales_invoice`, and four file routes to each
+of the five document modules. *The nine selling features of backlog 87* below
+describes each.
 
 ### The tables sales owns
 
@@ -77,6 +88,14 @@ original row**, never by recomputing.
 are not writable through an update body.** Both follow their downstream
 documents — `_resync_order_status` derives the order's from the notes that
 have left the warehouse, by summing rather than incrementing.
+
+Added on 2026-10-05, all firm-owned: `sales_invoice_charges` (a bill's
+separately taxed charges), `transporters`, `counter_shifts`,
+`payment_promises`, `customer_rebate_agreements` with
+`customer_rebate_slabs`, and the sales documents' rows in `document_files`.
+The invoice gained `buyer_name`, `buyer_phone`, `is_held`, `held_at`,
+`held_note` and `counter_shift_id`; the delivery note `transporter_id` and
+`freight_terms`; the customer `is_cash_sale` and `collector_id`.
 
 The masters either side: `customers` with `credit_limit`,
 `default_discount_percent` and `credit_control_settings`; `products` with
@@ -212,6 +231,24 @@ and `CUSTOMER_MANAGE_SETTINGS`. The last is deliberately **not** granted to
 `SALES_MANAGER`: the role a credit limit constrains must not be able to switch
 it off.
 
+The features of 2026-10-05 added **no permission code**; each uses a code
+that already meant the same thing:
+
+| What | Read | Write |
+| --- | --- | --- |
+| GST sales register, HSN summary | `SALES_VIEW` or `REPORT_VIEW` | -- |
+| Walk-in customer | -- | `SALES_INVOICE_CREATE` |
+| Transporters | `SALES_VIEW` | `SALES_UPDATE` |
+| Files on a sales document | the document's view code | the document's update code |
+| Hold and recall | `SALES_VIEW` | whoever raised the bill, or `SALES_UPDATE` |
+| Counter shift | `SALES_VIEW`, `REPORT_VIEW` or `SALES_INVOICE_CREATE` | `SALES_INVOICE_CREATE` for one's own till; `SALES_APPROVE` to close another's |
+| Promise to pay, collection sheet | `RECEIPT_VIEW` | `RECEIPT_CREATE` |
+| Rebate agreement | `SALES_VIEW` | `SALES_APPROVE` |
+| Settling a rebate | `PARTY_ADJUSTMENT_VIEW` | `PARTY_ADJUSTMENT_MANAGE`, and `PARTY_ADJUSTMENT_APPROVE` above the firm's threshold |
+
+`SALES_MANAGER` holds neither party adjustment code, so the role that agrees
+a rebate cannot move the customer's account with it.
+
 ## Reports
 
 Twenty-four report endpoints, all reachable from the Reports workspace:
@@ -223,6 +260,13 @@ Twenty-four report endpoints, all reachable from the Reports workspace:
 | Delivery note | register, pending, partial, by-route, by-salesman, by-warehouse |
 | Sales invoice | register, summary, pending, overdue, reconciliation, customer-outstanding |
 | Sales return | register, reconciliation, by-customer, by-product |
+
+Added on 2026-10-05, each with its own entry in `report_catalog.dart` under
+Reports > Financial: the **GST sales register** and the **HSN summary of
+sales** (sales invoice, SG-1) and the **Customer rebate statement**
+(`/api/v1/customer-rebates/reports/statement`, SG-9). The collection sheet
+and the shift report are screens with a PDF of their own, not catalogue
+reports. The table above was not re-counted.
 
 Every module also has `/import`, for a staged batch that commits once — an
 import whose fifth row clashes must not leave the first four written.
@@ -1330,6 +1374,242 @@ The demo runs a scheme in every store — two points per hundred, worth a rupee
 each, a floor of fifty and a two-year life — and spends some of it on one bill
 in seven.
 
+## The nine selling features of backlog 87 — landed 2026-10-05
+
+`docs/BACKLOG.md` §87 compared selling with Tally, Zoho, ERPNext, Busy and
+Marg and the owner chose nine gaps to build (SG-1 to SG-9). Each is described
+here by what exists; **the rule and its story live in the doc each part
+names**, and `docs/SALES_TO_RECEIPT_FLOW.md` shows the journals. The manual
+cases are TC-SELL-036 to TC-SELL-086 in `docs/qa/08_SELLING.md`.
+
+| | Feature | Server | Screen (1.3.0 menu) | Migration |
+| --- | --- | --- | --- | --- |
+| SG-1 | GST sales register, HSN summary of sales | `app/sales_invoice/services/gst_sales_register.py` | Reports > Financial | none |
+| SG-2 | Walk-in cash sale | `app/customers/services/cash_customer.py` | the counter bill's **Walk-in** | `20261005_0318` |
+| SG-3 | Service invoices | `app/products/services/stockless.py` | none of its own | none |
+| SG-4 | Charges with their own GST | `sales_invoice_charges` | the bill's **Other charges** | `20261005_0319` |
+| SG-5 | Transporter master, freight terms | `app/delivery_note/services/transporters.py` | Settings > Set up > Territories & routes > Transporters; the note's **Carrier (master)** and **Freight** | `20261005_0320` |
+| SG-6 | Files on the five sales documents | `app/document_files` | **Attachments** and a **Files** column on each list | `20261005_0321` |
+| SG-7 | Hold and recall; shift closing | `app/counter_shifts`, hold and recall on `app/sales_invoice` | the counter bill's **Hold (F8)**, **Recall** and shift strip; Sell > All Sell screens > Documents > Counter Shifts | `20261005_0324` |
+| SG-8 | Collection follow-up | `app/collections` | Sell > All Sell screens > Money > Collection Sheet, Payment Promises; **Collector** on the customer | `20261005_0322` |
+| SG-9 | Turnover rebate to a customer | `app/customer_rebates` | Sell > All Sell screens > Documents > Customer Rebates | `20261005_0325` |
+
+### SG-1. The GST sales register and the HSN summary of sales
+
+Two reports a CA asks for outside the return: every declared document of a
+period by tax head, and the outward supplies by HSN code and rate.
+`GET /api/v1/sales-invoices/reports/gst-register` and `/reports/hsn-summary`
+take `from_date`, `to_date`, `page` and `page_size`, and open to `SALES_VIEW`
+or `REPORT_VIEW`. Report ids `gst-sales-register` and `hsn-sales-summary` in
+`desktop/lib/ui/reports/report_catalog.dart`.
+
+Neither prices a document: both read through GSTR-1's own readers, so the
+register, the return and the ledger agree to the paisa. An approved bill is a
+row; a credit note, a completed sales return and a late cancellation are rows
+in minus on their own date, and a customer debit note a row in plus. A draft
+is not there. The HSN summary takes any period, where GSTR-1 itself is held to
+three months. No table is written. The rule is in
+`docs/LEDGER_POSTING_RULES.md`, *The GST sales register is GSTR-1 laid out by
+document*; the guard is `tests/unit/test_gst_sales_register.py`.
+
+### SG-2. The walk-in cash sale
+
+A counter sells to people with no customer record. Each firm has one customer
+marked `customers.is_cash_sale` (*Cash sale*, code `CASH`), held to one by
+`UQ_customers_cash_sale_active` and made the first time a counter asks:
+`POST /api/v1/sales-invoices/walk-in-customer`, under `SALES_INVOICE_CREATE`,
+the code that raises a bill. The bill carries `buyer_name` and `buyer_phone`,
+which print in place of the customer's name and are refused on a bill to
+anybody else.
+
+- Approval refuses a walk-in bill that is not paid in full
+  (`received_now_amount`, or its tenders, equal to the total).
+- It earns no loyalty points and is unregistered, so its bills are B2C.
+- The customer cannot be deleted, given a credit limit or a GSTIN, or made
+  inactive, and `is_cash_sale` is not writable through the API.
+
+The rule is in `docs/SALES_CHAIN_RULES.md`, *A walk-in bill names the cash
+customer and is paid in full*; `tests/unit/test_walk_in_cash_sale.py` and
+`desktop/test/counter_billing_test.dart` hold it.
+
+### SG-3. Service invoices
+
+A product of type `SERVICE` is billed with its SAC like any line and moves no
+stock. `stockless_products` names the services among a document's products
+once per document, and the order, the delivery note and the sales return each
+skip the stock half of their step for those lines: no reservation movement,
+no dispatch movement, no batch, no cost of goods sold, never a back order. A
+service still rides the whole chain, so a firm that types delivery notes sees
+it on the note as work delivered. No table, route, permission or screen is
+new.
+
+The rule, and why a service is not billed straight off the order, is in
+`docs/SALES_CHAIN_RULES.md`, *A service rides the chain and moves no stock*.
+`tests/unit/test_service_invoices.py` drives a service bill, a mixed bill and
+a typed order. **A service return has no test of its own**: it is covered only
+by the zero-movement path the return already had.
+
+### SG-4. Charges on the bill with their own GST
+
+A sales invoice carries up to ten **charges** (packing, handling, insurance)
+in `sales_invoice_charges`: a name, an amount before tax, an optional SAC and
+an optional tax profile. They are sent as `charges` on the invoice's create
+and update and come back with `charges_total`. A charge is taxed by the
+profile it names, as the same kind of supply to the same buyer on the bill's
+date, with the tax kept by GST head on the row; one that names no profile
+carries no tax. An update that omits `charges` keeps them and an empty list
+clears them.
+
+Approval credits the charges to **4050 Other Charges Recovered**
+(`ControlAccountPurpose.OTHER_CHARGES_RECOVERED`) and takes the same figure
+off the sales credit. The charge reaches GSTR-1, GSTR-3B, the GST sales
+register, the e-invoice and the print. `freight_amount` and
+`additional_charges` are unchanged beside it.
+
+The rule is in `docs/LEDGER_POSTING_RULES.md`, *A charge on the bill is taxed
+at its own rate and credited to its own account*;
+`tests/unit/test_invoice_charges.py` and
+`desktop/test/invoice_charges_test.dart` hold it. **Not built:** charges are
+not carried from the sales order, and a credit note or a sales return credits
+lines only, so a charge cannot be credited.
+
+### SG-5. The transporter master and freight terms
+
+`transporters` keeps each carrier once: name, GSTIN, the TRANSIN of an
+unregistered carrier, phone, usual mode, active. Routes are
+`GET`/`POST /api/v1/delivery-notes/transporters` and `PUT`/`DELETE
+/api/v1/delivery-notes/transporters/{id}`, read with `SALES_VIEW` and kept
+with `SALES_UPDATE`. A delivery note names one with `transporter_id` and the
+service **copies** the name, the GSTIN or TRANSIN and the mode into the note's
+own columns wherever the request left them blank, so the challan and the e-way
+bill go on reading the note: what is typed on the note wins, and editing or
+removing a carrier rewrites no note already raised. An inactive carrier is
+refused by name. `freight_terms` on the note is PAID, TO_PAY or TO_BE_BILLED;
+it prints on the challan as *Freight* and moves no money.
+
+The rule is in `docs/SALES_CHAIN_RULES.md`, *The carrier is chosen from a
+master, and the note still owns it*; `tests/unit/test_transporter_master.py`
+and `desktop/test/transporter_master_test.dart` hold it. **Limit:** the phase 2
+delivery note editor only creates notes, so the carrier of a note already
+raised cannot be changed on screen.
+
+### SG-6. Files on the five sales documents
+
+The quotation, sales order, delivery note, sales invoice and sales return
+each have `GET` and `POST /{id}/files`, `GET /{id}/files/{file_id}/content`
+and `DELETE /{id}/files/{file_id}` over the shared store in
+`app/document_files` (`document_files`, `document_file_contents`), the store
+purchase bills already used. Each list row carries `attached_file_count`.
+Reading takes the document's view code and adding or deleting its update code
+(`SALES_UPDATE`; on an order or an invoice, also the code that raised it).
+
+A file is a PDF, JPG or PNG of at most 10 MB, checked by name, by declared
+type and by its first bytes, with a caption of up to 200 characters. A file
+belongs to one document of one kind; removing one is audited. The upload is
+gated on the `ATTACHMENTS` business feature. On the desktop each of the five
+lists has an **Attachments** action and a **Files** column
+(`desktop/test/sales_document_files_test.dart`);
+`tests/unit/test_sales_document_files.py` is the server guard.
+
+### SG-7. Hold and recall a counter bill; shift closing
+
+**A hold is a flag on a draft bill**, the same reasoning as a hold on a sales
+order: `sales_invoices.is_held`, `held_at` and `held_note`, set by
+`POST /api/v1/sales-invoices/{id}/hold` and cleared by `/recall`, under the
+scope that edits a draft. A held bill can be edited and is never approved,
+singly or in bulk; `GET /api/v1/sales-invoices?is_held=true` is the list of
+parked bills. Holding changes nothing about stock.
+
+**A shift is a cashier's till** (`counter_shifts`,
+`/api/v1/counter-shifts`): a branch, a cashier, a cash account, an opening
+float and, at the close, a counted amount.
+
+| Route | Does | Code |
+| --- | --- | --- |
+| `POST /api/v1/counter-shifts` | opens the caller's till; 409 if one is open | `SALES_INVOICE_CREATE` |
+| `GET /api/v1/counter-shifts/current` | the caller's open shift, or nothing | `SALES_INVOICE_CREATE` |
+| `GET /api/v1/counter-shifts`, `/{id}`, `/{id}/report` | the list, one shift, the PDF report | `SALES_VIEW`, `REPORT_VIEW` or `SALES_INVOICE_CREATE` |
+| `POST /api/v1/counter-shifts/{id}/close` | closes on `counted_cash` | the cashier whose till it is, or a holder of `SALES_APPROVE` |
+
+One open shift per cashier, held by `UQ_counter_shifts_open_cashier`. A bill
+paid at the counter is stamped with its **approver's** open shift
+(`sales_invoices.counter_shift_id`). Expected cash is derived on every read:
+the float plus the cash tenders whose receipts still stand. The close stores
+expected, counted and the difference, and posts the difference to **6960 Cash
+Short and Over**. Shifts are optional: somebody with none open bills exactly
+as before.
+
+The rules are in `docs/SALES_CHAIN_RULES.md`, *A counter bill can be held, and
+a shift is counted against its tenders*, and `docs/LEDGER_POSTING_RULES.md`,
+*A till's shortage or excess posts to Cash short and over*;
+`tests/unit/test_counter_hold_and_shifts.py` and
+`desktop/test/counter_hold_and_shifts_test.dart` hold them. **Limits:** a cash
+receipt is booked to the firm's cash control account whatever account a shift
+names; there is no counter refund against a bill, no count by denomination
+and no hand-over of a shift.
+
+### SG-8. Collection follow-up
+
+`app/collections` at `/api/v1/collections` keeps what a customer said about
+paying. `payment_promises` holds the day promised for, the amount, a note,
+the day it was taken and who took it, against one bill or the account.
+
+| Route | Does | Code |
+| --- | --- | --- |
+| `POST /api/v1/collections/promises` | records a promise | `RECEIPT_CREATE` |
+| `GET /api/v1/collections/promises` | the list, filtered on the derived status | `RECEIPT_VIEW` |
+| `GET /api/v1/collections/promises/due-today` | the chase list | `RECEIPT_VIEW` |
+| `POST /api/v1/collections/promises/{id}/withdraw` | takes one back, with a reason | `RECEIPT_CREATE` |
+| `GET /api/v1/collections/sheet`, `/sheet/pdf` | the collection sheet and its paper | `RECEIPT_VIEW` |
+
+A promise **posts nothing**. Its status (pending, due today, kept, broken,
+withdrawn) is derived on every read from the receipts dated between the day it
+was taken and the day promised for. It is withdrawn, never edited or deleted.
+A bill promise is refused on a draft, on another customer's bill, on a bill
+that owes nothing and for more than the bill owes. The collector is
+`customers.collector_id`, a member of the firm; blank falls back to the
+account manager. The sheet takes `collector_id`, `route_id`, `as_of` and
+`overdue_only`.
+
+The rule is in `docs/LEDGER_POSTING_RULES.md`, *A promise to pay is recorded,
+never posted*; `tests/unit/test_collection_follow_up.py` and
+`desktop/test/collection_follow_up_test.dart` hold it. On the desktop a
+promise is recorded from a row of the collection sheet, so it is always for a
+bill; a promise for the account as a whole is a server call only. **Not
+built:** the promise on the customer statement, a reminder raised from a
+broken promise, and a promise against an opening bill.
+
+### SG-9. Turnover rebate to a customer
+
+`app/customer_rebates` at `/api/v1/customer-rebates`: an agreement
+(`customer_rebate_agreements`) for one customer **or** one customer group
+over a period, with slabs (`customer_rebate_slabs`), each "from this turnover,
+this rate on all of it". Reading takes `SALES_VIEW`; agreeing, changing,
+accruing, reversing and cancelling take `SALES_APPROVE`.
+
+- **Turnover is derived on every read** from the documents GSTR-1 counts:
+  approved and closed bills before tax, less completed returns and approved
+  credit notes, plus approved customer debit notes, dated in the period.
+- **It accrues once, after the period ends**: Dr 5310 Rebates Allowed, Cr 2900
+  Customer Rebates Payable, dated the period's last day, with what was booked
+  kept on the agreement.
+- **It is settled only by a party adjustment** of kind `CUSTOMER_REBATE`
+  (`app/party_adjustments`), capped at what the accrual has left and at what
+  the customer owes. Drafting one takes `PARTY_ADJUSTMENT_MANAGE`, which
+  `SALES_MANAGER` does not hold: whoever promises a rebate must not be the one
+  who moves the customer's account.
+- **One live agreement per customer per overlapping period**, a customer's own
+  and its group's included.
+- **No leg is tax** and no credit note is raised; `agreed_before_sale` is kept
+  for the firm's CA.
+
+`GET /api/v1/customer-rebates/{id}/statement` and the report *Customer rebate
+statement* (Reports > Financial) say what an agreement was built from and what
+settled it. The posting rule is in `docs/LEDGER_POSTING_RULES.md`, *A balance
+is cleared without money by a deduction or a party adjustment, never by tax*;
+`tests/unit/test_customer_rebates.py` and
+`desktop/test/customer_rebates_test.dart` hold it.
+
 ## What is still not built
 
 Nothing from the original incentive spec is outstanding: margin-based
@@ -1388,6 +1668,15 @@ Worth stating so they are not "fixed" by mistake:
 | Credit control | `backend/app/customers/services/credit_control.py` |
 | Debit note to a customer | `backend/app/customer_debit_note/` |
 | Ledger posting | `backend/app/finance/services/document_posting.py` |
+| GST sales register, HSN summary | `backend/app/sales_invoice/services/gst_sales_register.py` |
+| Walk-in cash customer | `backend/app/customers/services/cash_customer.py` |
+| Services that move no stock | `backend/app/products/services/stockless.py` |
+| Transporter master | `backend/app/delivery_note/services/transporters.py` |
+| Files on documents | `backend/app/document_files/` |
+| Counter shifts | `backend/app/counter_shifts/` |
+| Promises and the collection sheet | `backend/app/collections/` |
+| Customer rebates | `backend/app/customer_rebates/` |
+| Counter bill, hold, shift strip | `desktop/lib/ui/sales/sales_invoice_editor_phase2.dart`, `desktop/lib/ui/sales/sales_invoice_editor_counter.dart`, `desktop/lib/ui/sales/counter_shift_widgets.dart` |
 | Invoice PDF | `backend/app/sales_invoice/services/invoice_pdf.py` |
 | Territory | `backend/app/sales/` |
 | Desktop screens | `desktop/lib/ui/{quotations,sales,delivery_notes,sales_returns}/` |

@@ -285,6 +285,12 @@ the platform administrator's user form.
 | `nightdesk@qa.test` | Night Desk Holder (qa) | QA01 admin, after the role *Night Desk qa* exists (the Night Desk row in E, 03) | QA01 | Roles in this firm: `Night Desk qa` only | TC-ROLE-007..009 (the *Role holder*) |
 | `nightcounter@qa.test` | Night Counter Hire (qa) | QA01 admin, after TC-TMPL-002 | QA01 | Job template **Night Counter renamed** (`qa-night-counter`) | TC-TMPL-010 |
 | `admin@qa03.test` | QA03 Admin (qa) | platform admin | QA03 | Job template Firm Administrator | 08, 09, TC-COMP-007, TC-FIN-002/004/005/008/009, TC-CONC-002/004/005 |
+| `salesmgr@qa03.test` | QA03 Sales Manager (qa) | QA03 admin | QA03 | Job template Sales Manager | TC-SELL-067, 071, 086 (the *Sales Manager*) |
+| `field@qa03.test` | QA03 Field Sales (qa) | QA03 admin | QA03 | Job template Field Sales | TC-SELL-059, 071, 079 (the *Field Sales* user) |
+| `counter@qa03.test` | QA03 Counter Sales (qa) | QA03 admin | QA03 | Job template Counter Sales | TC-SELL-073, 079 (the *Counter Sales* user, and Registered Buyer's collector) |
+| `accounts@qa03.test` | QA03 Accounts (qa) | QA03 admin | QA03 | Job template Accounts | TC-SELL-086 (the *Accounts* user) |
+| `warehouse@qa03.test` | QA03 Warehouse (qa) | QA03 admin | QA03 | Job template Warehouse | TC-SELL-039 (the *Warehouse* user) |
+| `readonly@qa03.test` | QA03 Read Only (qa) | QA03 admin | QA03 | Job template Read Only | TC-SELL-039, 063, 079, 086 (the *Read Only* user) |
 | `admin@qa04.test` | QA04 Admin (qa) | platform admin | QA04 | Firm Administrator | 10, TC-INCENT-006/007, TC-CONC-006 |
 | `asha@qa04.test` | Asha Sales | QA04 admin | QA04 | Job template Field Sales | 10, TC-INCENT-006..008 (*Asha*) |
 | `bala@qa04.test` | Bala Sales | QA04 admin | QA04 | Job template Field Sales | 10, TC-INCENT-006, 007 (*Bala*) |
@@ -396,6 +402,25 @@ That is expected; nothing else in QA02 relies on HO being the default.
 | Coupons (Settings > Set up > Pricing > Promotions → **Coupons** → New) | Offer *WELCOME*; Code `WELCOME10`; Total claims allowed blank. Then Offer *WELCOME*; Code `WELCOME10B`; Total claims allowed blank | as WELCOME |
 | TCS (Accounts > All Accounts screens > Tax filing > TCS → **Settings**) | Collect under section 206C(1H) **on**; Preceding year turnover `150000000`; Threshold `0`; Rate `0.1`; Rate without a PAN `1` | TC-SELL-013, 014, TC-COMP-007 |
 | Loyalty (Settings > Set up > Pricing > Loyalty → **Scheme settings**) | Scheme is running **on**; points per 100 `2`; worth `1` each; Minimum to redeem `50`; Points expire **on**, after `24` months | TC-INCENT-005 |
+
+**Masters for TC-SELL-036 onward** (the nine selling features of backlog 87,
+added 2026-10-05). They sit beside the records above and no earlier case
+reads them, so build them only when the run reaches those cases.
+
+| Record | Values | Used by |
+| --- | --- | --- |
+| Product `QA-CTR` | *Counter Item qa*; PIECE for all four units; GST 18% Local; HSN / SAC `3402`; Purchase `60`; Selling `100` | TC-SELL-036 onward |
+| Stock | 500 of `QA-CTR` into MAIN at 60, by a purchase of its own: D5 | |
+| Product `QA-SVC` | *Installation qa*; **Product type** *SERVICE* (the one product here that is not a STOCK_ITEM); GST 18% Local; HSN / SAC `998739`; Selling `500`; no purchase price and no stock | TC-SELL-046..049 |
+| Customer `QA-C03` | *Registered Buyer qa*; GST number `33AABCR1234F1Z5` (use the state code of QA03's own GSTIN in place of `33` if it differs); Phone `+919800000303`; Credit limit `0`; Default discount blank; no customer group | TC-SELL-036 onward |
+| Customer group `REBATE-GRP` (Settings > Set up > Party lists > **Customer Groups**) | *Rebate Group qa*; default discount blank | TC-SELL-085 |
+| Customer `QA-C05` | *Rebate Buyer qa*; Customer group *Wholesaler*; Credit limit `0`; Default discount blank | TC-SELL-080..084 |
+| Customers `QA-C06`, `QA-C07` | *Group Member One qa*, *Group Member Two qa*; both in Customer group *Rebate Group qa*; Default discount blank | TC-SELL-085 |
+| Transporter `Speedy Carriers` (Settings > Set up > Territories & routes > **Transporters** → New) | Name *Speedy Carriers*; GSTIN `33AAAPL1234C1ZV`; Phone `+919800000777`; Usual mode *Rail*; Active ticked. TC-SELL-055 creates it; TC-SELL-057 deletes it, so create it again for a later case | TC-SELL-055..057 |
+| Transporter `Slow Lines` | Name *Slow Lines*; nothing else; **Active** unticked | TC-SELL-058 |
+| Files to attach | `qa-order.pdf` (any PDF under 10 MB); `qa-photo.jpg` (any photo); `big.pdf` (any PDF over 10 MB); `notes.docx` (any Word file); `fake.pdf` (a text file renamed) | TC-SELL-060..063 |
+| Charge names | *Packing* `100`, tax GST 18% Local, SAC `998540`; *Handling* `50`, (no tax); *Insurance* `40`, (no tax) | TC-SELL-050..054 |
+| Control accounts | Nothing to type: *4050 Other Charges Recovered*, *6960 Cash Short and Over*, *5310 Rebates Allowed* and *2900 Customer Rebates Payable* come with the chart. Check they are listed under Settings > Set up > Account structure > Control Accounts before running the cases that post to them | TC-SELL-050, 069, 070, 081 |
 
 ### C5. QA04: the territory and commission firm
 
@@ -539,6 +564,7 @@ goods receipt accepting everything into MAIN; Complete.
 | Firm | Vendor | Lines on the order (unit price) | On the goods receipt |
 | --- | --- | --- | --- |
 | QA03 | `QA-VS` | `QA-DET` 100 at 60 | Accepted 100 |
+| QA03, a second order, only before TC-SELL-036 | `QA-VS` | `QA-CTR` 500 at 60 | Accepted 500 |
 | QA04 | `QA-VS` | `QA-P` 50 at 60; `QA-Q` 200 at 60 | Accepted 50 and 200 |
 | QA05 | `QA-VS` | `QA-P` 50 at 60 | Accepted 50 |
 | QA06 | `QA-VP` | `QA-AMX` 10 at 60; `QA-AMX` 10 at 60; `QA-AMX` 10 at 60 (three lines); `QA-SHT` 3 at 60 | Line 1 Batch Number `QA-B1`, Expiry Date **today minus 30 days** (2026-08-26); line 2 `QA-B2`, **today plus 20 days** (2026-10-15); line 3 `QA-B3`, **today plus 400 days** (2027-10-30); line 4 accepted 3, no batch |
@@ -817,6 +843,80 @@ where the cases say 5 and 409.50; the table says so row by row.
 | TC-SELL-015 | Against the **invoice for 7**; Line 1; Taken back into MAIN; Quantity `9` (refused: *Only 7.0 went out on this line.*), then `2` (193.28 credited, as the case says) |
 | TC-SELL-016 | The **invoice for 7**; Line 1; Reason Rate difference; Credit, before tax `50` (reads `59.00 (tax 9.00)`); then **`600`** instead of 400, because this line was charged 573.30: refused, naming 573.30 charged and what is already credited |
 | TC-SELL-017 | First build **S-PF**: New Order `QA-C01`, MAIN, `QA-DET` `4` at `84`, Create draft, Approve. Sell > All Sell screens > Documents > Proforma → New → S-PF → Raise → Issue. Then Cancel S-PF, reason *Customer postponed* |
+
+**TC-SELL-036 onward (added 2026-10-05; written from the code, not yet run
+by hand).** Run them after step 10 above, once the credit policy is back to
+**Warn**. Build the masters in C4's second table and the stock-in of 500
+`QA-CTR` (D5) first. Each case makes its own documents, so they can be run in
+any order and any one can be run alone; only the two settings below are
+shared.
+
+- **Stages on** (Settings > Selling > **Sales Stages**: *Sales order* and
+  *Delivery note* ticked): TC-SELL-036..039, 048, 055..063, 073..086.
+- **Counter billing** (both unticked; **New Invoice** then opens the counter
+  bill): TC-SELL-040..047, 049..054, 064..072. Tick both again afterwards.
+- A case that needs "an approved bill of 1,180.00 to `QA-C03`" with the
+  stages on: New Order `QA-C03`, MAIN, `QA-CTR` `10`, unit price `100`,
+  Discount % `0`, Create draft, Approve; delivery note for 10, Save, Approve,
+  Dispatch; bill the note, Create draft, Approve. With counter billing: New
+  Invoice, `QA-C03`, `QA-CTR` `10`, Save, then Approve it from the list.
+- The rebate cases date their bills in **last calendar month**. Type that
+  date as the order, delivery and invoice date, and check under Accounts that
+  last month's period is open.
+
+| Case | Values to type |
+| --- | --- |
+| TC-SELL-036 | One sale as above, approved today; one more bill left as a draft. Report period: the first of this month to today |
+| TC-SELL-037 | Credit note: Line 1, Rate difference, `100`. Debit note: `50` on the line, reason *Price increase*. Return: Quantity `2`, into MAIN |
+| TC-SELL-038 | A bill of `QA-CTR` `10` at `100` and a bill of `QA-DET` `5` at `84`, Discount % `0`, both to `QA-C03` |
+| TC-SELL-039 | `readonly@qa03.test`, then `warehouse@qa03.test` |
+| TC-SELL-040 | Walk-in; Buyer name `Ramesh`; Buyer phone `+919800000555`; `QA-CTR` `10`; Received now as offered (1180), Cash |
+| TC-SELL-041 | Walk-in; `QA-CTR` `10`; Received now `500`, then `0`, then `1180` |
+| TC-SELL-042 | Walk-in; `QA-CTR` `10`; Split payment: Cash `680`, UPI `500`, Reference `UPI-QA-500`. Then Cash `680`, UPI `400` |
+| TC-SELL-043 | `QA-C03`; (HTTP) `"buyer_name": "Ramesh"` |
+| TC-SELL-044 | Credit limit `5000`; GST number `33AABCC9999K1Z1` |
+| TC-SELL-045 | Walk-in `QA-CTR` `10`, paid 1180; then `QA-C01`, `QA-CTR` `10`, Discount % `0`, Received now `1180` |
+| TC-SELL-046 | `QA-C03`; `QA-SVC` `1`; then `5000` |
+| TC-SELL-047 | `QA-C03`; `QA-CTR` `2` and `QA-SVC` `1` |
+| TC-SELL-048 | New Order `QA-C03`, MAIN, `QA-SVC` `3` at `500`, Discount % `0`; cancel reason *Customer postponed* |
+| TC-SELL-049 | A counter bill of `QA-SVC` `1` to `QA-C03`, approved; return Quantity `1` |
+| TC-SELL-050 | `QA-C03`; `QA-CTR` `10`; charge *Packing* `100`, GST 18% Local, SAC `998540` |
+| TC-SELL-051 | `QA-C03`; `QA-CTR` `10`; charge *Handling* `50`, (no tax); Delivery charge `20` |
+| TC-SELL-052 | Charges *Packing* `100` at GST 18% Local and *Insurance* `40` at (no tax); then Packing `200`, Insurance removed, a row with amount `10` and no name |
+| TC-SELL-053 | The bill of TC-SELL-050, made again for this case |
+| TC-SELL-054 | The same bill again; credit note Line 1, Rate difference, `1000` |
+| TC-SELL-055 | *Speedy Carriers* as in C4; then Name `Hill Cargo`, GSTIN `12345`; then Transporter ID (TRANSIN) `33AABCH5678K1Z2` |
+| TC-SELL-056 | Carrier (master) *Speedy Carriers*; Freight *To pay* |
+| TC-SELL-057 | Transporter `Speedy Carriers (Salem depot)`; Moving by *Road*; master's Usual mode *Air* |
+| TC-SELL-058 | *Slow Lines*; (HTTP) `"freight_terms": "COLLECT"` |
+| TC-SELL-059 | `field@qa03.test` |
+| TC-SELL-060 | `qa-order.pdf`, `qa-photo.jpg` |
+| TC-SELL-061 | `big.pdf`, `notes.docx`, `fake.pdf` |
+| TC-SELL-062 | `qa-order.pdf` on each of the five documents of one sale: quotation `QA-C03`, `QA-CTR` `10`, converted, delivered, billed, and a return of `1` |
+| TC-SELL-063 | `readonly@qa03.test`; then the firm admin |
+| TC-SELL-064 | `QA-C03`; `QA-CTR` `3`; note `blue shirt, back in 5 min`; then quantity `4`, Received now `472` |
+| TC-SELL-065 | One held bill (`QA-CTR` `3`) and one plain draft (`QA-CTR` `1`), both `QA-C03` |
+| TC-SELL-066 | (HTTP) `{"note": "x"}` |
+| TC-SELL-067 | Opening float `500`; (HTTP) `{"opening_float": "100"}`; `salesmgr@qa03.test` float `200` |
+| TC-SELL-068 | Float `500`; walk-in `QA-CTR` `10` Cash `1180`; walk-in `QA-CTR` `10` Cash `680` + UPI `500`; `QA-C03` `QA-CTR` `10`, nothing received |
+| TC-SELL-069 | Float `500`; walk-in `QA-CTR` `10` Cash `1180`; Counted cash `1670`; Note `End of day` |
+| TC-SELL-070 | Float `500`, one walk-in bill of 1180 in cash, Counted cash `1685`; then float `500`, no bill, Counted cash `500` |
+| TC-SELL-071 | `salesmgr@qa03.test` opens a shift, float `200`; (HTTP) `{"counted_cash": "200"}` as `field@qa03.test`, then as the firm admin |
+| TC-SELL-072 | Walk-in `QA-CTR` `10`, Cash `1180`, with no shift open; then float `0`, a held bill of `QA-CTR` `1` for `QA-C03`, Counted cash `0` |
+| TC-SELL-073 | Collector *QA03 Counter Sales (qa)* on `QA-C03` |
+| TC-SELL-074 | Promised on today plus 3 days; Amount `1180`; Note `will pay by NEFT` |
+| TC-SELL-075 | Receipts `500` then `680`, Bank, each applied to the bill; reverse reason *Cheque returned unpaid* |
+| TC-SELL-076 | Promised on today; Amount `1180`; the next day a new promise for today plus 2 days |
+| TC-SELL-077 | Amount `2000`; for the paid bill, a second bill of 1,180.00 with a receipt of `1180` applied; for the other customer, an approved bill of `QA-C01` |
+| TC-SELL-078 | Reason `Customer asked for a week more` |
+| TC-SELL-079 | `counter@qa03.test`, `readonly@qa03.test`, `field@qa03.test` |
+| TC-SELL-080 | Customer `QA-C05`; Code `TR-1`; Name `Turnover rebate`; the first to the last day of last month; slabs `1000` / `1` and `5000` / `2`. Bills dated last month: `QA-CTR` `10`, then `QA-CTR` `40`, at `100`, Discount % `0`. If TR-1 is taken by an earlier run, use `TR-1B` and read it wherever the case says TR-1 |
+| TC-SELL-081 | `TR-NOW` for `QA-C06`, the first to the last day of this month, slab `1000` / `1`. Accrual date blank. The late bill: `QA-CTR` `10` dated last month |
+| TC-SELL-082 | Amount to settle `60`; Reason `September turnover rebate`; `60` against the first open bill. Then `50` |
+| TC-SELL-083 | Cancel reason *Settled against the wrong month* |
+| TC-SELL-084 | `TR-2`: last day of last month to the 15th of this month; `TR-G`: Customer group *Wholesaler*, last month; `TR-3`: slabs `1000` / `1` and `1000` / `2`; `TR-4`: from the 20th to the 10th of one month |
+| TC-SELL-085 | Code `TR-GRP`; Customer group *Rebate Group qa*; bills dated last month: `QA-C06` `QA-CTR` `30`, `QA-C07` `QA-CTR` `20`, at `100`, Discount % `0`; settle `70` on `QA-C06`, Reason `Group rebate` |
+| TC-SELL-086 | `readonly@qa03.test`, `salesmgr@qa03.test`, `accounts@qa03.test`. The agreement that reaches no slab: a new customer with one bill of `QA-CTR` `5` (500.00) dated last month, slab `1000` / `1` |
 
 ### 09 Pricing and incentives
 
