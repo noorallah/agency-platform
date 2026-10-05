@@ -35,8 +35,20 @@ Full write-ups: PR #435 and `docs/DATA_TRAIL_BY_OPERATION.md` §9.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
+| D-BUY-44 | High | **Goods rejected at inspection and kept for a return never leave quarantine.** The purchase return takes them out of sellable stock instead: 10 received, 6 passed, 4 returned reads sellable 2 / quarantine 4 where it should read 6 / 0. `record_purchase_return` always moves `current` and never `quarantine`. | Live, reproduced twice: BUYQ-1 in `docs/qa/PURCHASING_API_CHECK_2026-10-05.md` |
+| D-BUY-48 | High | **A supplier refund is missing from the supplier's statement**, so its closing balance and the balance confirmation are wrong by every refund, and Payables by Month narrowed to that supplier says it does not agree with the books. `SUPPLIER_SOURCES` does not list `supplier_credit_refund`. | Live, reproduced twice: BUYQ-5 in `docs/qa/PURCHASING_API_CHECK_2026-10-05.md` |
+| D-BUY-50 | High | **A second Bill of Entry with the same number, port and date posts**, booking the customs duty and the IGST credit twice. The duplicate lookup can return the draft being posted itself, which then passes the `clash.id != row.id` test. | Live, reproduced twice: BUYQ-8 in `docs/qa/PURCHASING_API_CHECK_2026-10-05.md` |
+| D-BUY-45 | Medium | **A purchase return completes for goods already sold and takes stock below zero** on a product that does not allow negative stock. A transfer and a write-off refuse the same. | Live, reproduced twice: BUYQ-2 in `docs/qa/PURCHASING_API_CHECK_2026-10-05.md` |
+| D-BUY-54 | Medium | **A purchase bill, a purchase return and a requisition publish no `ETag` and ignore `If-Match`**, so a save over somebody's newer save is accepted; the requisition list is also unpaged. | Live, reproduced twice: BUYQ-12 in `docs/qa/PURCHASING_API_CHECK_2026-10-05.md` |
+| D-BUY-46 | Low | **Requisitions and purchase returns are both numbered `PR-`**; on TEST01 four numbers belong to one of each, and a journal or an order's reference quotes the number alone. | Live, reproduced twice: BUYQ-3 in `docs/qa/PURCHASING_API_CHECK_2026-10-05.md` |
+| D-BUY-47 | Low | **Journal references double the prefix** (`LCV-LCV-…`, `BOE-BOE-…`), and a supplier refund's reversal is referenced by a bare id where every other reversal is its original plus `-REV`. | Live, reproduced twice: BUYQ-4 in `docs/qa/PURCHASING_API_CHECK_2026-10-05.md` |
+| D-BUY-49 | Low | **A bill line sent without a unit is stored with none** though its receipt line has one, so the HSN summary of purchases shows a blank unit. The desktop sends the unit; an import or another client does not. | Live, reproduced twice: BUYQ-6 in `docs/qa/PURCHASING_API_CHECK_2026-10-05.md` |
+| D-BUY-51 | Low | **A bill typed alone in another currency with no rate is refused in a purchase order's words** (stages off). | Live, reproduced twice: BUYQ-9 in `docs/qa/PURCHASING_API_CHECK_2026-10-05.md` |
+| D-BUY-52 | Low | **A capital-goods bill's journal carries a 0.00 line** on 2300 Goods Received Not Invoiced, and so does its mirror. | Live, reproduced twice: BUYQ-10 in `docs/qa/PURCHASING_API_CHECK_2026-10-05.md` |
+| D-BUY-53 | Low | **Documents that carry nothing are accepted**: an order line of 0 approves at 0.00, a receipt and a return of 0 complete, a rate contract or a quote at rate 0 is accepted and prices order lines at 0. | Live, reproduced twice: BUYQ-11 in `docs/qa/PURCHASING_API_CHECK_2026-10-05.md` |
+| D-BUY-55 | Low | **A requisition line's supplier is not checked against the firm**: an unknown one answers 409 "conflicts with existing data" from the foreign key. | Live, reproduced twice: BUYQ-15 in `docs/qa/PURCHASING_API_CHECK_2026-10-05.md` |
 
-None open (2026-10-05). D-BUY-41, D-CMP-23, D-UI-11, D-UI-12, D-BUY-42 and D-BUY-43 are under Fixed.
+Found driving all 92 buying cases over HTTP on 2026-10-05. D-BUY-41, D-CMP-23, D-UI-11, D-UI-12, D-BUY-42 and D-BUY-43 are under Fixed.
 
 ### Tax -- found reviewing purchases under GST, 2026-10-02
 
@@ -67,8 +79,27 @@ journals and the receivable; a return with no price takes the source line's.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
+| D-SELL-53 | High | **A bill that comes to nothing answers 500 at approval and can never be approved** (100% discount, or quantity 0, which the line schemas accept); a counter bill whose only line is quantity 0 is 500 on save. The goods have left and the note can never be billed. | Live, reproduced twice: SELLQ-16 in `docs/qa/SELLING_API_CHECK_ROUND_2_2026-10-05.md` |
+| D-SELL-54 | High | **Cancelling a draft counter bill leaves its stock reserved for ever.** The note the draft raised is cancelled; the hidden sales order stays APPROVED with its reservation, until every later sale of the product is refused for stock. | Live, reproduced twice: SELLQ-17 in `docs/qa/SELLING_API_CHECK_ROUND_2_2026-10-05.md` |
+| D-SELL-55 | High | **A sales return against a delivery note that was never billed credits the customer the full price and reverses output tax never charged**; the note stays billable in full. The selling twin of D-BUY-26. | Live, reproduced twice: SELLQ-18 in `docs/qa/SELLING_API_CHECK_ROUND_2_2026-10-05.md` |
+| D-SELL-56 | Medium | **Money received earlier the same day keeps a promise recorded afterwards**: it comes back KEPT while the bill still owes, so it never reaches the chase list. | Live, reproduced twice: SELLQ-14 in `docs/qa/SELLING_API_CHECK_ROUND_2_2026-10-05.md` |
+| D-SELL-57 | Medium | ***New outlets need approval* cannot be reached with the seeded jobs**: Field Sales cannot add a customer (403), and every seeded role holding `CUSTOMER_CREATE` also holds `CUSTOMER_APPROVE`. | Live, reproduced twice: SELLQ-1 in `docs/qa/SELLING_API_CHECK_ROUND_2_2026-10-05.md` |
+| D-SELL-58 | Medium | **Approval reserves a batch the customer's minimum shelf life rules out**, so a later order takes the only batch that suits and the first order's dispatch is refused with stock on hand. | Live, reproduced twice: SELLQ-5 in `docs/qa/SELLING_API_CHECK_ROUND_2_2026-10-05.md` |
+| D-SELL-59 | Medium | **A saved or recalled counter bill cannot grow**: a larger quantity or one more product is refused, so a buyer who adds an item needs the bill cancelled and typed again. | Live, reproduced twice: SELLQ-12 in `docs/qa/SELLING_API_CHECK_ROUND_2_2026-10-05.md` |
+| D-SELL-60 | Low | **The back-order report misses a shortfall on a pinned batch and counts expired stock** as stock the order can have. | Live, reproduced twice: SELLQ-6 in `docs/qa/SELLING_API_CHECK_ROUND_2_2026-10-05.md` |
+| D-SELL-61 | Low | **The GST sales register's place of supply is in three shapes**: "Tamil Nadu (33)" on bills, "33" on notes and returns, blank for an unregistered buyer. | Live, reproduced twice: SELLQ-8 in `docs/qa/SELLING_API_CHECK_ROUND_2_2026-10-05.md` |
+| D-SELL-62 | Low | **The server withdraws a promise that was kept**; only the screen holds the button back. | Live, reproduced twice: SELLQ-15 in `docs/qa/SELLING_API_CHECK_ROUND_2_2026-10-05.md` |
+| D-SELL-63 | Low | **The enquiry list has no pages**: `page` and `page_size` are ignored and every row comes back. | Live, reproduced twice: SELLQ-19 in `docs/qa/SELLING_API_CHECK_ROUND_2_2026-10-05.md` |
+| D-SELL-64 | Low | **The covering note of a bill with no due date reads "due on ."** | Live, reproduced twice: SELLQ-3 in `docs/qa/SELLING_API_CHECK_ROUND_2_2026-10-05.md` |
+| D-SELL-65 | Low | **A walk-in bill prints *Cash sale* under SHIPPED TO** while BILLED TO names the buyer typed. | Live, reproduced twice: SELLQ-10 in `docs/qa/SELLING_API_CHECK_ROUND_2_2026-10-05.md` |
+| D-SELL-66 | Low | **A walk-in bill tendered more than it comes to is told "Take the rest"** rather than that change is handed back. | Live, reproduced twice: SELLQ-11 in `docs/qa/SELLING_API_CHECK_ROUND_2_2026-10-05.md` |
+| D-SELL-67 | Low | **The shift report prints local time and calls it UTC.** | Live, reproduced twice: SELLQ-13 in `docs/qa/SELLING_API_CHECK_ROUND_2_2026-10-05.md` |
+| D-SELL-68 | Low | **Two transporters may differ only in case** ("Blue Dart", "blue dart"). | Live, reproduced twice: SELLQ-9 in `docs/qa/SELLING_API_CHECK_ROUND_2_2026-10-05.md` |
+| D-SELL-69 | Low | **A product line on the edit of a saved counter bill is refused in the wrong words** ("Unsupported source document type."). | Live, reproduced twice: SELLQ-4 in `docs/qa/SELLING_API_CHECK_ROUND_2_2026-10-05.md` |
+| D-SELL-70 | Low | **A proforma may lapse before it starts**: `valid_until` before its own date is accepted; a quotation refuses the same. | Live, reproduced twice: SELLQ-20 in `docs/qa/SELLING_API_CHECK_ROUND_2_2026-10-05.md` |
+| D-SELL-71 | Low | **An unknown warehouse on a counter bill line answers 409** from the foreign key instead of 422 naming the warehouse. | Live, reproduced twice: SELLQ-21 in `docs/qa/SELLING_API_CHECK_ROUND_2_2026-10-05.md` |
 
-None open (2026-10-05). D-SELL-47 to D-SELL-50 are under Fixed.
+Found driving all 87 selling cases over HTTP on 2026-10-05. D-SELL-47 to D-SELL-50 are under Fixed.
 
 ### Finance -- found writing the Finance data trail, 2026-09-19
 
@@ -86,8 +117,10 @@ between an invoice's two-decimal total and its receivable row in any store.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
+| D-FIN-26 | Low | **`PUT /finance/tds-sections/settings/{section}` with an explicit `null` rate or threshold answers 500**; the desktop refuses a blank first, so this is the API only. | Live, reproduced twice: BUYQ-7 in `docs/qa/PURCHASING_API_CHECK_2026-10-05.md` |
+| D-FIN-27 | Medium | **On the day payables in another currency are revalued, Payables by Month reads "does not agree with the books"** by exactly the revaluation, which is the period-end day the report is read on. | Live, reproduced twice: BUYQ-13 in `docs/qa/PURCHASING_API_CHECK_2026-10-05.md` |
 
-Nothing open here as of 2026-10-02 (D-FIN-24 fixed, below).
+Found driving the buying cases on 2026-10-05 (D-FIN-24 fixed, below).
 
 ### Compliance -- found writing the Compliance data trail, 2026-09-19
 
@@ -163,8 +196,8 @@ store; retention is opt-in by design and has not run here.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
+| D-IDN-12 | Medium | **`GET /api/v1/roles/{id}/permissions` answers 500 for a role with more than 100 permissions** (FIRM_ADMIN, FIRM_MANAGER): the 100-id cap of the request schema is also applied to the response, and stops a custom role being given more than 100 codes in one save. | Live, reproduced twice: SELLQ-7 in `docs/qa/SELLING_API_CHECK_ROUND_2_2026-10-05.md` |
 
-None open (2026-10-01).
 
 ### Masters -- found writing the Masters data trail, 2026-09-19
 
@@ -265,9 +298,7 @@ or invoiced (D-RPT-11).
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
-
-| Id | Severity | Summary | Evidence |
-| --- | --- | --- | --- |
+| D-RPT-21 | Medium | **After a firm is provisioned from the running server, the server writes no more request or error log until it is restarted.** `alembic/env.py` calls `fileConfig`, whose default disables every existing logger, inside the server's own process. The diagnostics list still records errors. | Live, reproduced twice: BUYQ-14 / SELLQ-2 in both check files |
 
 ### Installer -- found on the first laptop install, 2026-09-24
 
