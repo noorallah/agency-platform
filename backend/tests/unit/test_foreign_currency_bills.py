@@ -262,6 +262,46 @@ def test_revaluation_posts_the_unrealised_difference_and_reverses_it() -> None:
         )
 
 
+def test_payables_agree_with_the_books_on_the_day_they_are_revalued() -> None:
+    """D-FIN-27: the period end read "does not agree" by the revaluation.
+
+    The revaluation is dated the period end and reversed the next day, so
+    the day the payables are read against the books is the one day the
+    account holds it. The bills stay at their booked rate.
+    """
+    firm = _chain_firm()
+    _usd_bill(firm)
+    FxRevaluationService(firm.session).revalue(
+        FxRevaluationRequest(as_of=AS_OF, rates={"USD": Decimal("84.1")}),
+        firm_id=firm.firm.id,
+        actor_id=firm.actor_id,
+    )
+    firm.session.commit()
+    reports = PayablesReportService(firm.session)
+
+    on_the_day = reports.report(firm.firm.id, as_of=AS_OF)
+    assert on_the_day.total.total == Decimal("83000.00")
+    check = on_the_day.books_check
+    # The account really does hold the restated figure, and says why.
+    assert check.ledger_balance == Decimal("84100.00")
+    assert check.difference == Decimal("0.00")
+    assert check.unrealised_revaluation == Decimal("1100.00")
+    assert check.note is not None and "1100.00 of unrealised" in check.note
+
+    for other_day in (AS_OF - timedelta(days=1), AS_OF + timedelta(days=1)):
+        check = reports.report(firm.firm.id, as_of=other_day).books_check
+        assert check.ledger_balance == Decimal("83000.00")
+        assert check.unrealised_revaluation == Decimal("0.00")
+        assert (check.difference, check.note) == (Decimal("0.00"), None)
+
+    # One supplier's check reads its own documents and never held it.
+    one = reports.report(firm.firm.id, as_of=AS_OF, vendor_id=firm.vendor.id)
+    assert one.books_check.ledger_balance == Decimal("83000.00")
+    assert one.books_check.difference == Decimal("0.00")
+    # A real difference is still one: the allowance is the revaluation only.
+    assert reports._unrealised_revaluation(firm.firm.id, AS_OF) == Decimal("1100.00")
+
+
 def test_a_rupee_bill_posts_and_reads_exactly_as_before() -> None:
     firm = _chain_firm()
     data = _bill_data(firm, number="S-INR")

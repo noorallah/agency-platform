@@ -452,8 +452,14 @@ posts and reads exactly as it did.
   nothing on a bill or allocation changes and the payment still realises the
   whole difference against the bill's own rate. Minimal: it reads what each
   bill owes now, refuses a second revaluation of the same day, and refuses
-  the whole thing when no period is open for the reversal's day. Between the
-  two dates the payables report's books check differs by the revaluation.
+  the whole thing when no period is open for the reversal's day. On `as_of`
+  itself the payables account holds the restatement and no bill does, so the
+  payables report's books check **allows for it** (D-FIN-27): `ledger_balance`
+  is still what the account holds, `unrealised_revaluation` is the part that
+  is revaluation (the `fx_revaluation` lines on payables dated by then), the
+  difference compares the bills with the account less that, and the note says
+  so. Narrowed to one supplier the check reads that supplier's own documents
+  and never held it.
 - **Not built yet**: purchase returns and debit notes are still rupee
   documents. The customs side is part B, below.
 

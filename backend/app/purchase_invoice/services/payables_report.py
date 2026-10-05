@@ -99,6 +99,9 @@ CREDITING_RETURN_STATES = ("COMPLETED", "CLOSED")
 #: A posted journal counts, and so does one later reversed: its mirror is
 #: what takes it back, on the day it was reversed.
 COUNTED_JOURNALS = (JournalStatus.POSTED.value, JournalStatus.REVERSED.value)
+#: The ``source_module`` of a period-end exchange revaluation and of its
+#: next-day reversal (``DocumentPostingService.post_fx_revaluation``).
+FX_REVALUATION_SOURCE = "fx_revaluation"
 #: Below this a bill's figure is rounding noise, not a debt.
 NOISE = Decimal("0.004")
 MAX_MONTHS = 24
@@ -127,6 +130,9 @@ class PayablesBooksCheck:
     ledger_balance: Decimal | None
     difference: Decimal | None
     note: str | None = None
+    #: What an exchange revaluation holds on payables at the as-of date, in
+    #: ``ledger_balance`` and on no bill; the difference allows for it.
+    unrealised_revaluation: Decimal = ZERO
 
 
 @dataclass
@@ -212,6 +218,7 @@ class PayablesReportService:
         if not 1 <= months <= MAX_MONTHS:
             raise ValidationError(f"months must be between 1 and {MAX_MONTHS}.")
         starts = month_starts(as_of, months)
+        unrealised = ZERO
         if view == "paid":
             if branch_id is not None:
                 raise ValidationError(
@@ -227,6 +234,10 @@ class PayablesReportService:
                 if branch_id is not None
                 else self._ledger_balance(firm_id, as_of, vendor_id)
             )
+            # One supplier's ledger is read from its own documents, which a
+            # revaluation is not, so only the whole account carries it.
+            if ledger is not None and vendor_id is None:
+                unrealised = self._unrealised_revaluation(firm_id, as_of)
         return self._assemble(
             firm_id,
             figures,
@@ -236,6 +247,7 @@ class PayablesReportService:
             starts=starts,
             ledger=ledger,
             branch_filtered=branch_id is not None,
+            unrealised=unrealised,
         )
 
     # ------------------------------------------------------------------
@@ -848,6 +860,38 @@ class PayablesReportService:
         )
         return _money(total)
 
+    def _unrealised_revaluation(self, firm_id: UUID, as_of: date) -> Decimal:
+        """Return what exchange revaluation holds on payables at ``as_of``.
+
+        A period-end revaluation restates foreign-currency payables on the
+        account and reverses itself the next day (PG-12); the bills stay at
+        their booked rate. Both journals carry the ``fx_revaluation`` source,
+        so this is the restatement on its own day and nothing after it. Read
+        on that day -- the day a period end is read -- the account and the
+        bills differ by exactly this, which is not a difference (D-FIN-27).
+        """
+        account_id = self._payables_account(firm_id)
+        if account_id is None:
+            return ZERO
+        total = self._session.scalar(
+            select(
+                func.coalesce(
+                    func.sum(JournalLine.credit_amount - JournalLine.debit_amount), 0
+                )
+            )
+            .join(JournalEntry, JournalEntry.id == JournalLine.journal_entry_id)
+            .where(
+                JournalLine.ledger_account_id == account_id,
+                JournalLine.is_deleted.is_(False),
+                JournalEntry.firm_id == firm_id,
+                JournalEntry.is_deleted.is_(False),
+                JournalEntry.status.in_(COUNTED_JOURNALS),
+                JournalEntry.source_module == FX_REVALUATION_SOURCE,
+                JournalEntry.journal_date <= as_of,
+            )
+        )
+        return _money(total)
+
     def _ledger_payments(
         self, firm_id: UUID, as_of: date, start: date, vendor_id: UUID | None
     ) -> Decimal | None:
@@ -898,6 +942,7 @@ class PayablesReportService:
         starts: list[date],
         ledger: Decimal | None,
         branch_filtered: bool,
+        unrealised: Decimal = ZERO,
     ) -> PayablesReport:
         """Name the suppliers, add the total row and check it against the books."""
         width = len(starts)
@@ -933,6 +978,12 @@ class PayablesReportService:
             )
         elif ledger is None:
             note = "No payables account is mapped for this firm."
+        elif unrealised != ZERO:
+            note = (
+                f"The account includes {unrealised} of unrealised exchange "
+                "revaluation on this date, reversed the next day; the bills "
+                "are shown at the rate they were booked at."
+            )
         return PayablesReport(
             as_of=as_of,
             basis=basis,
@@ -943,8 +994,11 @@ class PayablesReportService:
             total=total,
             books_check=PayablesBooksCheck(
                 ledger_balance=ledger,
-                difference=None if ledger is None else total.total - ledger,
+                difference=(
+                    None if ledger is None else total.total - (ledger - unrealised)
+                ),
                 note=note,
+                unrealised_revaluation=unrealised,
             ),
         )
 
