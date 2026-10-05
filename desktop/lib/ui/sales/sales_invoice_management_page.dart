@@ -16,6 +16,8 @@ import '../document_framework/document_view_dialog.dart';
 import '../../models/entities.dart';
 import '../../models/messaging.dart' show HandShare;
 import '../workspace/bulk_action.dart';
+import '../../models/document_file.dart';
+import '../purchases/document_attachments_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
 import 'sales_invoice_editor_dialog.dart';
@@ -819,6 +821,23 @@ class _SalesInvoiceManagementPageState
               ? null
               : () => unawaited(_printInvoice(selected)),
         ),
+        ToolbarCommand(
+          id: 'attachments',
+          label: 'Attachments',
+          icon: Icons.attach_file,
+          onPressed: selected == null
+              ? null
+              : () => unawaited(
+                    showDocumentAttachments(
+                      context,
+                      api: widget.api,
+                      kind: AttachableDocument.salesInvoice,
+                      documentId: '${selected['id']}',
+                      subtitle: '${selected['invoice_number'] ?? ''}',
+                      canEdit: _mayEditSome,
+                    ),
+                  ),
+        ),
         // Only an approved bill goes to a customer: a draft is not yet a
         // bill, and a cancelled one is not owed.
         if (widget.permissions.hasPermission('DOCUMENT_SEND'))
@@ -1120,6 +1139,12 @@ class _SalesInvoiceManagementPageState
         column: const GridColumn(key: 'number', label: 'Invoice Number'),
         cell: (item) => '${item['invoice_number'] ?? '-'}',
         required: true,
+      ),
+      // A customer's PO scan or a signed challan kept with it (SG-6).
+      ChoosableColumn(
+        column: const GridColumn(key: 'files', label: 'Files'),
+        cell: (item) => documentFilesCell(item['attached_file_count']),
+        shownByDefault: true,
       ),
       // Whose document it is (owner, 2026-09-27); kept at any width.
       ChoosableColumn(

@@ -27,6 +27,8 @@ import '../document_framework/document_steps.dart';
 import '../document_framework/document_view_dialog.dart';
 import '../trade_licences/licence_check_dialog.dart';
 import '../workspace/bulk_action.dart';
+import '../../models/document_file.dart';
+import '../purchases/document_attachments_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
 import '../workspace/printed_document.dart';
@@ -665,6 +667,23 @@ class _DeliveryNoteManagementPageState
                       : () => unawaited(_printChallan(_selected!)),
                 ),
                 ToolbarCommand(
+                  id: 'attachments',
+                  label: 'Attachments',
+                  icon: Icons.attach_file,
+                  onPressed: _selected == null
+                      ? null
+                      : () => unawaited(
+                            showDocumentAttachments(
+                              context,
+                              api: widget.api,
+                              kind: AttachableDocument.deliveryNote,
+                              documentId: _selected!.id,
+                              subtitle: _selected!.deliveryNoteNumber,
+                              canEdit: widget.permissions.hasPermission('SALES_UPDATE'),
+                            ),
+                          ),
+                ),
+                ToolbarCommand(
                   id: 'proof-of-delivery',
                   label: 'Proof of delivery',
                   icon: Icons.task_alt_outlined,
@@ -1099,6 +1118,12 @@ class _DeliveryNoteManagementPageState
         cell: (item) => item.deliveryNoteNumber,
         required: true,
       ),
+      // A customer's PO scan or a signed challan kept with it (SG-6).
+      ChoosableColumn(
+        column: const GridColumn(key: 'files', label: 'Files'),
+        cell: (item) => documentFilesCell(item.attachedFileCount),
+        shownByDefault: true,
+      ),
       // Whose document it is (owner, 2026-09-27); kept at any width.
       ChoosableColumn(
         column: const GridColumn(key: 'customer', label: 'Customer', priority: 1),
@@ -1363,6 +1388,7 @@ class _DeliveryNoteRecord {
     required this.roundOff,
     required this.grandTotal,
     required this.createdAt,
+    this.attachedFileCount = 0,
     required this.branchId,
     required this.warehouseId,
     required this.remarks,
@@ -1403,6 +1429,9 @@ class _DeliveryNoteRecord {
   final String roundOff;
   final String grandTotal;
   final String createdAt;
+
+  /// How many files are kept with it (SG-6).
+  final int attachedFileCount;
   final String branchId;
   final String warehouseId;
   final String remarks;
@@ -1459,6 +1488,8 @@ class _DeliveryNoteRecord {
       roundOff: stringValue(json['round_off']),
       grandTotal: stringValue(json['grand_total']),
       createdAt: stringValue(json['created_at']),
+      attachedFileCount:
+          int.tryParse(stringValue(json['attached_file_count'])) ?? 0,
       branchId: stringValue(json['branch_id']),
       warehouseId: stringValue(json['warehouse_id']),
       remarks: stringValue(json['remarks']),

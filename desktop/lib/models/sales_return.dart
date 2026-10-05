@@ -133,6 +133,7 @@ class SalesReturn {
     required this.returnNumber,
     required this.returnDate,
     this.createdAt = '',
+    this.attachedFileCount = 0,
     required this.customerReturnNumber,
     required this.returnReason,
     required this.status,
@@ -160,6 +161,9 @@ class SalesReturn {
   final String returnNumber;
   final String returnDate;
   final String createdAt;
+
+  /// How many files are kept with it (SG-6).
+  final int attachedFileCount;
   final String customerReturnNumber;
   final String returnReason;
   final String status;
@@ -204,6 +208,8 @@ class SalesReturn {
         returnNumber: stringValue(json['return_number']),
         returnDate: stringValue(json['return_date']),
         createdAt: stringValue(json['created_at']),
+        attachedFileCount:
+            int.tryParse(stringValue(json['attached_file_count'])) ?? 0,
         customerReturnNumber: stringValue(json['customer_return_number']),
         returnReason: stringValue(json['return_reason']),
         status: stringValue(json['status']),

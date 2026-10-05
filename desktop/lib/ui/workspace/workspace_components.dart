@@ -1265,7 +1265,7 @@ class SelectionActionBar extends StatelessWidget {
       ),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 6, 8, 6),
-        child: Row(children: [
+        child: LayoutBuilder(builder: (context, box) => Row(children: [
           // The name takes the free width, so the actions stand at the
           // right, as the wireframe draws them.
           Expanded(
@@ -1286,10 +1286,11 @@ class SelectionActionBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          // The actions take their width; on a narrow window they scroll
-          // rather than push the name off.
-          Flexible(
-            flex: 0,
+          // The actions take their width, up to three quarters of the bar;
+          // past that they scroll rather than push the name off. (A flex of
+          // zero is not flexible: a long row of actions overflowed.)
+          ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: box.maxWidth * 0.75),
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               reverse: true,
@@ -1321,7 +1322,7 @@ class SelectionActionBar extends StatelessWidget {
             icon: const Icon(Icons.close, size: 18),
             onPressed: selection.onClear,
           ),
-        ]),
+        ])),
       ),
     );
   }

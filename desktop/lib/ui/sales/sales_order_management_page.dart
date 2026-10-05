@@ -11,6 +11,8 @@ import '../document_framework/document_line_labels.dart';
 import '../document_framework/document_view_dialog.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../models/entities.dart';
+import '../../models/document_file.dart';
+import '../purchases/document_attachments_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import '../../models/bulk_action.dart';
 import '../../phase2/indian_format.dart';
@@ -624,6 +626,23 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
               ? null
               : () => unawaited(_printOrder(selected)),
         ),
+        ToolbarCommand(
+          id: 'attachments',
+          label: 'Attachments',
+          icon: Icons.attach_file,
+          onPressed: selected == null
+              ? null
+              : () => unawaited(
+                    showDocumentAttachments(
+                      context,
+                      api: widget.api,
+                      kind: AttachableDocument.salesOrder,
+                      documentId: '${selected['id']}',
+                      subtitle: '${selected['order_number'] ?? ''}',
+                      canEdit: _mayEditSome,
+                    ),
+                  ),
+        ),
         if (widget.permissions.hasPermission('DOCUMENT_SEND'))
           ToolbarCommand(
             id: 'send',
@@ -944,6 +963,12 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         column: const GridColumn(key: 'number', label: 'Order Number'),
         cell: (item) => '${item['order_number'] ?? '-'}',
         required: true,
+      ),
+      // A customer's PO scan or a signed challan kept with it (SG-6).
+      ChoosableColumn(
+        column: const GridColumn(key: 'files', label: 'Files'),
+        cell: (item) => documentFilesCell(item['attached_file_count']),
+        shownByDefault: true,
       ),
       // Whose document it is (owner, 2026-09-27); kept at any width.
       ChoosableColumn(

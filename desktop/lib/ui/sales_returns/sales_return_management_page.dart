@@ -15,6 +15,8 @@ import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../document_framework/document_steps.dart';
 import '../workspace/bulk_action.dart';
+import '../../models/document_file.dart';
+import '../purchases/document_attachments_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
 import '../workspace/printed_document.dart';
@@ -529,6 +531,23 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
                   ? null
                   : () => unawaited(_printCreditNote(selected)),
             ),
+            ToolbarCommand(
+              id: 'attachments',
+              label: 'Attachments',
+              icon: Icons.attach_file,
+              onPressed: selected == null
+                  ? null
+                  : () => unawaited(
+                        showDocumentAttachments(
+                          context,
+                          api: widget.api,
+                          kind: AttachableDocument.salesReturn,
+                          documentId: selected.id,
+                          subtitle: selected.returnNumber,
+                          canEdit: widget.permissions.hasPermission('SALES_UPDATE'),
+                        ),
+                      ),
+            ),
             command('approve'),
             command('complete'),
             command('close'),
@@ -623,6 +642,12 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
         column: const GridColumn(key: 'number', label: 'Return Number'),
         cell: (item) => item.returnNumber,
         required: true,
+      ),
+      // A customer's PO scan or a signed challan kept with it (SG-6).
+      ChoosableColumn(
+        column: const GridColumn(key: 'files', label: 'Files'),
+        cell: (item) => documentFilesCell(item.attachedFileCount),
+        shownByDefault: true,
       ),
       // Whose return it is; kept at any width.
       ChoosableColumn(
