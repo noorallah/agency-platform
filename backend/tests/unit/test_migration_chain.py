@@ -59,3 +59,19 @@ def test_an_in_process_migration_leaves_the_servers_logging_alone() -> None:
 
     assert calls
     assert all(id(call) in inside for call in calls)
+
+
+def test_no_migration_walks_every_schema_in_the_database() -> None:
+    """D-MIG-2: provisioning one firm altered every other firm's tables.
+
+    A store is migrated on its own, so a revision that looks schemas up may
+    only find the one it is running in.
+    """
+    walkers = [
+        path.name
+        for path in sorted((_BACKEND / "alembic" / "versions").glob("*.py"))
+        if "DISTINCT table_schema" in (source := path.read_text(encoding="utf-8"))
+        and "table_schema = current_schema()" not in source
+    ]
+
+    assert walkers == []
