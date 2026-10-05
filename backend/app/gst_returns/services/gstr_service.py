@@ -70,6 +70,7 @@ from app.gst_returns.services.filing_frequency import (
 from app.products.models import Product
 from app.sales_invoice.models import (
     SalesInvoice,
+    SalesInvoiceCharge,
     SalesInvoiceLine,
     SalesInvoiceLineTax,
 )
@@ -1660,6 +1661,7 @@ class GstReturnService:
         by_invoice: dict[UUID, list[Row[Any]]] = defaultdict(list)
         for line in lines:
             by_invoice[line.sales_invoice_id].append(line)
+        charges = self._priced_charges(invoices, among=among)
 
         answer = []
         for invoice in invoices:
@@ -1687,6 +1689,9 @@ class GstReturnService:
                     by_invoice.get(invoice.id, []), key=lambda row: row.line_number
                 )
             ]
+            # The bill's separately taxed charges are supplies beside its
+            # lines (SG-4): after them, and settled with them below.
+            priced.extend(charges.get(invoice.id, []))
             # Declared at paise, adding up to what the journal credited for
             # this invoice -- rounded once, as a sum, not bucket by bucket
             # (D-CMP-4). Every section below folds these, so B2B, B2CS, HSN
@@ -1699,6 +1704,80 @@ class GstReturnService:
                 )
             ]
             answer.append((invoice, customer, priced))
+        return answer
+
+    def _priced_charges(
+        self,
+        invoices: list[SalesInvoice],
+        *,
+        among: Select[tuple[UUID]] | None,
+    ) -> dict[UUID, list[tuple[Decimal, GstBuckets, _Billed | None, Decimal, str]]]:
+        """Return each invoice's separately taxed charges, priced like lines.
+
+        A charge on the bill at a tax rate of its own (SG-4) is a supply the
+        return declares: its amount is taxable value, its tax is read off the
+        heads the bill stored, and it reaches the HSN summary under its own
+        SAC with no quantity. One that carries no tax is exempt where it
+        names a tax profile and outside GST where it names none, as a line
+        is. Read once through ``among`` when a query chose the invoices, else
+        in chunks of their ids -- never once per invoice.
+        """
+        live = SalesInvoiceCharge.is_deleted.is_(False)
+        parts: list[ColumnElement[bool]] = (
+            [SalesInvoiceCharge.sales_invoice_id.in_(among)]
+            if among is not None
+            else [
+                SalesInvoiceCharge.sales_invoice_id.in_(part)
+                for part in chunks([invoice.id for invoice in invoices])
+            ]
+        )
+        answer: dict[
+            UUID, list[tuple[Decimal, GstBuckets, _Billed | None, Decimal, str]]
+        ] = defaultdict(list)
+        for part in parts:
+            for charge in self._session.execute(
+                select(
+                    SalesInvoiceCharge.sales_invoice_id,
+                    SalesInvoiceCharge.name,
+                    SalesInvoiceCharge.hsn_sac,
+                    SalesInvoiceCharge.amount,
+                    SalesInvoiceCharge.tax_profile_id,
+                    SalesInvoiceCharge.tax_rate_percent,
+                    SalesInvoiceCharge.igst_amount,
+                    SalesInvoiceCharge.cgst_amount,
+                    SalesInvoiceCharge.sgst_amount,
+                    SalesInvoiceCharge.cess_amount,
+                )
+                .where(part, live)
+                .order_by(
+                    SalesInvoiceCharge.sales_invoice_id, SalesInvoiceCharge.sequence
+                )
+            ).all():
+                amount = _decimal(charge.amount)
+                if amount == ZERO:
+                    continue
+                buckets = GstBuckets(
+                    cgst=_decimal(charge.cgst_amount),
+                    sgst=_decimal(charge.sgst_amount),
+                    igst=_decimal(charge.igst_amount),
+                    cess=_decimal(charge.cess_amount),
+                    rate=_decimal(charge.tax_rate_percent),
+                )
+                if buckets.total != ZERO or buckets.rate != ZERO:
+                    kind = TAXABLE
+                elif charge.tax_profile_id is not None:
+                    kind = EXEMPTED
+                else:
+                    kind = NON_GST
+                answer[charge.sales_invoice_id].append(
+                    (
+                        quantize_money(amount),
+                        buckets,
+                        _Billed(hsn_sac=charge.hsn_sac, name=charge.name),
+                        ZERO,
+                        kind,
+                    )
+                )
         return answer
 
     def _credit_notes(

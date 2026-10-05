@@ -246,6 +246,44 @@ class SalesInvoiceTenderResponse(SalesInvoiceSchema):
     settlement_id: UUID | None = None
 
 
+class SalesInvoiceChargeWrite(SalesInvoiceSchema):
+    """One charge on the bill taxed at a rate of its own (SG-4)."""
+
+    name: str = Field(min_length=1, max_length=120)
+    #: What is charged, before tax.
+    amount: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
+    #: The profile that taxes it; None is a charge outside GST.
+    tax_profile_id: UUID | None = None
+    #: The SAC it is declared under in the HSN summary.
+    hsn_sac: str | None = Field(default=None, max_length=20)
+
+    @field_validator("name")
+    @classmethod
+    def _named(cls, value: str) -> str:
+        """Refuse a name that is only spaces."""
+        token = value.strip()
+        if not token:
+            raise ValueError("A charge needs a name.")
+        return token
+
+
+class SalesInvoiceChargeResponse(SalesInvoiceSchema):
+    """One charge as billed, with the tax it carried by GST head."""
+
+    id: UUID
+    sequence: int
+    name: str
+    hsn_sac: str | None = None
+    amount: Decimal
+    tax_profile_id: UUID | None = None
+    tax_rate_percent: Decimal
+    tax_amount: Decimal
+    igst_amount: Decimal
+    cgst_amount: Decimal
+    sgst_amount: Decimal
+    cess_amount: Decimal
+
+
 class SalesInvoiceCreate(SalesInvoiceSchema):
     """Create one sales invoice."""
 
@@ -329,6 +367,12 @@ class SalesInvoiceCreate(SalesInvoiceSchema):
     #: default (``sales_workflow_settings.rate_includes_tax``); absent on an
     #: update leaves the bill's own.
     rate_includes_tax: bool | None = None
+    #: Packing, handling, insurance: charges taxed at a rate of their own
+    #: (SG-4), beside ``freight_amount`` (taxed with the goods) and
+    #: ``additional_charges`` (not taxed). Replaced whole when sent; on an
+    #: update, absent leaves the bill's charges alone and an empty list
+    #: clears them.
+    charges: list[SalesInvoiceChargeWrite] | None = Field(default=None, max_length=10)
     lines: list[SalesInvoiceLineWrite] = Field(min_length=1, max_length=1000)
     attachments: list[SalesInvoiceAttachmentWrite] = Field(
         default_factory=list, max_length=500
@@ -569,6 +613,11 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     received_now_reference: str | None = None
     received_now_settlement_id: UUID | None = None
     received_now_tenders: list[SalesInvoiceTenderResponse] = Field(default_factory=list)
+    #: The charges taxed at a rate of their own (SG-4). Their tax is inside
+    #: ``tax_total`` and they are inside ``grand_total``; ``charges_total``
+    #: is what they come to before tax.
+    charges: list[SalesInvoiceChargeResponse] = Field(default_factory=list)
+    charges_total: Decimal = Decimal("0")
     #: Whether the rates typed on this bill include GST (backlog 64 row 4).
     rate_includes_tax: bool = False
     approved_at: datetime | None

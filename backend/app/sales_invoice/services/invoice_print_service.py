@@ -29,12 +29,14 @@ from app.products.models import Product
 from app.promotions.models import Promotion, PromotionRedemption
 from app.sales_invoice.models import (
     SalesInvoice,
+    SalesInvoiceCharge,
     SalesInvoiceLine,
     SalesInvoiceLineTax,
     SalesInvoiceSource,
 )
 from app.sales_invoice.services.invoice_pdf import (
     EInvoiceStamp,
+    InvoiceChargeBlock,
     InvoiceDocument,
     InvoiceLineBlock,
     InvoicePdfRenderer,
@@ -71,6 +73,44 @@ NOT_FINAL: dict[str, str] = {
 #: own note, which is how Tally prints a bill made of many dispatches.
 MAX_LISTED_SOURCES = 3
 SEVERAL = "Several - see lines"
+
+
+def charge_blocks(session: Session, invoice_id: UUID) -> tuple[InvoiceChargeBlock, ...]:
+    """Return a bill's separately taxed charges as they print (SG-4).
+
+    Read off the heads the bill stored, like everything else on the print.
+    Tax charged within a state was charged in two halves, so each half is
+    printed at half the rate, as the lines print theirs.
+    """
+    printed: list[InvoiceChargeBlock] = []
+    for charge in session.scalars(
+        select(SalesInvoiceCharge)
+        .where(
+            SalesInvoiceCharge.sales_invoice_id == invoice_id,
+            SalesInvoiceCharge.is_deleted.is_(False),
+        )
+        .order_by(SalesInvoiceCharge.sequence.asc())
+    ):
+        rate = Decimal(str(charge.tax_rate_percent))
+        heads = (
+            ("CGST", rate / 2, charge.cgst_amount),
+            ("SGST", rate / 2, charge.sgst_amount),
+            ("IGST", rate, charge.igst_amount),
+            ("CESS", ZERO, charge.cess_amount),
+        )
+        printed.append(
+            InvoiceChargeBlock(
+                name=charge.name,
+                hsn=charge.hsn_sac,
+                amount=charge.amount,
+                taxes=tuple(
+                    (code, percent, Decimal(str(amount)))
+                    for code, percent, amount in heads
+                    if Decimal(str(amount)) != ZERO
+                ),
+            )
+        )
+    return tuple(printed)
 
 
 def einvoice_stamp(
@@ -407,6 +447,7 @@ class SalesInvoicePrintService:
             taxable_total=invoice.subtotal,
             tax_total=invoice.tax_total,
             charges=invoice.additional_charges,
+            taxed_charges=charge_blocks(self._session, invoice.id),
             round_off=invoice.round_off,
             grand_total=invoice.grand_total,
             references=(

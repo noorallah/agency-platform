@@ -28,6 +28,7 @@ from app.customers.models import Customer
 from app.products.models import Product
 from app.sales_invoice.models import (
     SalesInvoice,
+    SalesInvoiceCharge,
     SalesInvoiceLine,
     SalesInvoiceLineTax,
 )
@@ -275,6 +276,57 @@ class EInvoicePayloadBuilder:
             # total of the AssAmt the portal adds up.
             totals["taxable"] += quantize_ledger(taxable)
 
+        # A charge on the bill taxed at a rate of its own (SG-4) is an item
+        # of the supply -- a service under its SAC -- or the items would not
+        # add up to the invoice. One outside GST altogether (it names no tax
+        # profile) is an other charge of the document instead.
+        outside_gst = ZERO
+        serial = max((line.line_number for line in lines), default=0)
+        for charge in self._session.scalars(
+            select(SalesInvoiceCharge)
+            .where(
+                SalesInvoiceCharge.sales_invoice_id == invoice.id,
+                SalesInvoiceCharge.is_deleted.is_(False),
+            )
+            .order_by(SalesInvoiceCharge.sequence.asc())
+        ):
+            amount = quantize_money(Decimal(str(charge.amount)))
+            if amount == ZERO:
+                continue
+            if charge.tax_profile_id is None:
+                outside_gst += amount
+                continue
+            code = (charge.hsn_sac or "").strip()
+            if not code:
+                problems.append(f"the charge {charge.name} has no SAC code")
+            serial += 1
+            split = GstBuckets(
+                cgst=Decimal(str(charge.cgst_amount)),
+                sgst=Decimal(str(charge.sgst_amount)),
+                igst=Decimal(str(charge.igst_amount)),
+                cess=Decimal(str(charge.cess_amount)),
+                rate=Decimal(str(charge.tax_rate_percent)),
+            )
+            item_list.append(
+                {
+                    "SlNo": str(serial),
+                    "PrdDesc": charge.name[:300],
+                    "IsServc": "Y",
+                    "HsnCd": code,
+                    "Qty": 1.0,
+                    "FreeQty": 0.0,
+                    "UnitPrice": float(amount.quantize(Decimal("0.001"))),
+                    "TotAmt": _paise(amount),
+                    "Discount": 0.0,
+                    "OthChrg": 0.0,
+                    "AssAmt": _paise(amount),
+                    "GstRt": float(split.rate),
+                }
+            )
+            splits.append(split)
+            taxables.append(amount)
+            totals["taxable"] += quantize_ledger(amount)
+
         # Registered at paise, adding up to what the journal credited: the
         # tax is rounded once as the invoice's sum and the odd paisa put on
         # the last component, rather than each bucket rounded on its own
@@ -359,7 +411,9 @@ class EInvoicePayloadBuilder:
                 # What the bill adds outside the tax, and the rounding that
                 # brings it to a whole figure -- without them the parts did
                 # not add up to TotInvVal (D-CMP-13).
-                "OthChrg": _paise(invoice.additional_charges),
+                "OthChrg": _paise(
+                    Decimal(str(invoice.additional_charges)) + outside_gst
+                ),
                 "RndOffAmt": _paise(invoice.round_off),
                 "TotInvVal": _paise(invoice.grand_total),
             },

@@ -450,6 +450,68 @@ class SalesInvoiceTender(BaseEntity):
     settlement_id: Mapped[UUID | None] = mapped_column(UUIDType())
 
 
+class SalesInvoiceCharge(BaseEntity):
+    """One charge on a bill taxed at a rate of its own (backlog 87 #4, SG-4).
+
+    Packing, handling, insurance: named, priced before tax and taxed by the
+    profile it names, where freight is split across the goods and taxed at
+    their rates and ``additional_charges`` carries no tax at all. The tax is
+    kept by GST head, as charged, so the posting, the print and the returns
+    read what the customer was billed rather than re-deriving it. Replaced
+    whole while the bill is a draft.
+    """
+
+    __tablename__ = "sales_invoice_charges"
+    __table_args__ = (Index("IX_sales_invoice_charges_invoice", "sales_invoice_id"),)
+
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    sales_invoice_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "sales_invoices.id",
+            ondelete="CASCADE",
+            name="FK_sales_invoice_charges_sales_invoice_id",
+        ),
+        nullable=False,
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    #: The SAC the charge is declared under in the HSN summary.
+    hsn_sac: Mapped[str | None] = mapped_column(String(20))
+    #: What is charged, before tax.
+    amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: NULL is a charge outside GST; a profile that charges nothing is exempt.
+    tax_profile_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "tax_profiles.id",
+            ondelete="RESTRICT",
+            name="FK_sales_invoice_charges_tax_profile_id",
+        ),
+    )
+    #: The GST rate charged, cess apart: nine plus nine is eighteen.
+    tax_rate_percent: Mapped[Decimal] = mapped_column(
+        Numeric(9, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    tax_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    igst_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    cgst_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    sgst_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    cess_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+
+
 class SalesInvoiceAttachment(BaseEntity):
     """Store sales invoice attachments."""
 

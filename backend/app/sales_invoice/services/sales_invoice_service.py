@@ -89,6 +89,7 @@ from app.sales_invoice.models import (
     SalesInvoice,
     SalesInvoiceAccountingEvent,
     SalesInvoiceAttachment,
+    SalesInvoiceCharge,
     SalesInvoiceLine,
     SalesInvoiceLineTax,
     SalesInvoiceNote,
@@ -102,6 +103,8 @@ from app.sales_invoice.schemas import (
     SalesInvoiceAccountingEventType,
     SalesInvoiceAttachmentResponse,
     SalesInvoiceAttachmentWrite,
+    SalesInvoiceChargeResponse,
+    SalesInvoiceChargeWrite,
     SalesInvoiceCreate,
     SalesInvoiceCustomerOutstandingRecord,
     SalesInvoiceImportRequest,
@@ -138,6 +141,7 @@ from app.sales_order.services.price_floor import PriceFloorService, invoice_line
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
 from app.settlements.schemas import OutstandingInvoiceRecord
 from app.tax.schemas import TaxRuleSimulationRequest
+from app.tax.services.gst_buckets import TaxComponent, split_components
 from app.tax.services.inclusive_rate import (
     PreTaxLine,
     billed_rate,
@@ -712,11 +716,20 @@ class SalesInvoiceService(TransactionalDocumentService):
         ]
         row.line_discount_total = line_totals["line_discount_total"]
         row.subtotal = line_totals["subtotal"]
-        row.tax_total = line_totals["tax_total"]
+        # Charges taxed at a rate of their own (SG-4): beside the lines, in
+        # the tax and in what the customer owes.
+        charges_total, charges_tax = self._replace_charges(
+            row,
+            data.charges or [],
+            business_profile_id=business_profile_id,
+            actor_id=actor_id,
+        )
+        row.tax_total = self._q(line_totals["tax_total"] + charges_tax)
         row.grand_total = self._q(
             row.subtotal
             + row.tax_total
             + line_totals["line_charges_total"]
+            + charges_total
             + row.additional_charges
             + row.round_off
         )
@@ -933,11 +946,21 @@ class SalesInvoiceService(TransactionalDocumentService):
         ]
         row.line_discount_total = line_totals["line_discount_total"]
         row.subtotal = line_totals["subtotal"]
-        row.tax_total = line_totals["tax_total"]
+        # Absent leaves the bill's charges alone -- re-taxed all the same,
+        # against the buyer and the date as they now stand, exactly as the
+        # lines are; sent, they are replaced, and an empty list clears them.
+        charges_total, charges_tax = self._replace_charges(
+            row,
+            (data.charges or []) if "charges" in data.model_fields_set else None,
+            business_profile_id=data.business_profile_id,
+            actor_id=actor_id,
+        )
+        row.tax_total = self._q(line_totals["tax_total"] + charges_tax)
         row.grand_total = self._q(
             row.subtotal
             + row.tax_total
             + line_totals["line_charges_total"]
+            + charges_total
             + row.additional_charges
             + row.round_off
         )
@@ -1205,6 +1228,116 @@ class SalesInvoiceService(TransactionalDocumentService):
             ).all()
         )
 
+    def _replace_charges(
+        self,
+        row: SalesInvoice,
+        charges: Sequence[SalesInvoiceChargeWrite] | None,
+        *,
+        business_profile_id: UUID | None,
+        actor_id: UUID,
+    ) -> tuple[Decimal, Decimal]:
+        """Write a draft bill's separately taxed charges, taxed afresh (SG-4).
+
+        Each charge is taxed as a line is -- through the rule engine, as the
+        same kind of supply to the same buyer on the bill's own date -- by the
+        profile it names, and one that names none carries no tax. The tax is
+        kept by GST head as charged, which is what the posting, the print and
+        the returns then read.
+
+        Args:
+            row: The draft bill, with its buyer, branch, date and ship-to set.
+            charges: The charges to hold; None keeps the ones the bill has,
+                taxed again like everything else on a draft that is saved.
+            business_profile_id: The profile the bill is taxed under.
+            actor_id: Who is saving the bill.
+
+        Returns:
+            What the charges come to before tax, and their tax.
+
+        """
+        held = self._charges_of(row.id)
+        if charges is None:
+            charges = [
+                SalesInvoiceChargeWrite(
+                    name=item.name,
+                    amount=item.amount,
+                    tax_profile_id=item.tax_profile_id,
+                    hsn_sac=item.hsn_sac,
+                )
+                for item in held
+            ]
+        for existing in held:
+            self._session.delete(existing)
+        if held:
+            self._session.flush()
+        total = tax_total = ZERO
+        for sequence, charge in enumerate(charges, start=1):
+            amount = self._q(charge.amount)
+            taxed = self._resolve_tax(
+                document_id=row.id,
+                shipping_address_id=row.shipping_address_id,
+                invoice_date=row.invoice_date,
+                firm_id=row.firm_id,
+                business_profile_id=business_profile_id,
+                customer_id=row.customer_id,
+                branch_id=row.branch_id,
+                warehouse_id=None,
+                product_id=None,
+                tax_profile_id=charge.tax_profile_id,
+                invoice_value=amount,
+                actor_id=actor_id,
+            )
+            # Only what the customer is billed: tax already inside a price is
+            # not added to the bill, so it is not a head of this charge.
+            heads = split_components(
+                [
+                    TaxComponent(
+                        code=component.code,
+                        percentage=component.percentage,
+                        amount=component.amount,
+                    )
+                    for component in taxed.components
+                    if taxed.total != ZERO and not component.included_in_price
+                ]
+            )
+            self._session.add(
+                SalesInvoiceCharge(
+                    firm_id=row.firm_id,
+                    sales_invoice_id=row.id,
+                    sequence=sequence,
+                    name=charge.name.strip(),
+                    hsn_sac=(charge.hsn_sac or "").strip() or None,
+                    amount=amount,
+                    tax_profile_id=charge.tax_profile_id,
+                    tax_rate_percent=self._q(heads.rate),
+                    tax_amount=taxed.total,
+                    igst_amount=self._q(heads.igst),
+                    cgst_amount=self._q(heads.cgst),
+                    sgst_amount=self._q(heads.sgst),
+                    cess_amount=self._q(heads.cess),
+                    created_by=actor_id,
+                    updated_by=actor_id,
+                )
+            )
+            total += amount
+            tax_total += taxed.total
+        if charges:
+            self._session.flush()
+        return self._q(total), self._q(tax_total)
+
+    def _charges_of(self, invoice_id: UUID) -> list[SalesInvoiceCharge]:
+        """Return a bill's separately taxed charges in the order they were given."""
+        return list(
+            self._session.scalars(
+                select(SalesInvoiceCharge)
+                .where(
+                    SalesInvoiceCharge.sales_invoice_id == invoice_id,
+                    SalesInvoiceCharge.is_deleted.is_(False),
+                )
+                .order_by(SalesInvoiceCharge.sequence.asc())
+            ).all()
+        )
+
     def stage_approval(
         self,
         invoice_id: UUID,
@@ -1373,6 +1506,12 @@ class SalesInvoiceService(TransactionalDocumentService):
             # Owed per GST head (backlog 63.3), off the components the lines
             # recorded -- the figures GSTR-1 and 3B read.
             tax_by_component=invoice_tax_by_component(self._session, row.id),
+            # The charges taxed at a rate of their own are income of their
+            # own (SG-4): credited apart from the sales the goods made.
+            other_charges_amount=sum(
+                (Decimal(str(charge.amount)) for charge in self._charges_of(row.id)),
+                ZERO,
+            ),
         )
         # Credit the customer for the sale, in the approval's own transaction:
         # it posts, because a scheme costs the firm money the moment it
@@ -2142,6 +2281,14 @@ class SalesInvoiceService(TransactionalDocumentService):
             ids,
             SalesInvoiceTender.sequence.asc(),
         )
+        # The separately taxed charges (SG-4), likewise once for the page.
+        charges = children_by_parent(
+            self._session,
+            SalesInvoiceCharge,
+            SalesInvoiceCharge.sales_invoice_id,
+            ids,
+            SalesInvoiceCharge.sequence.asc(),
+        )
         warnings = self._duplicate_warnings(rows)
         # One query for every product on the page rather than one per line.
         # `description` is nullable and the seeded documents leave it null, so
@@ -2173,6 +2320,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 notes=notes[row.id],
                 accounting_events=accounting_events[row.id],
                 tenders=tenders[row.id],
+                charges=charges[row.id],
                 warning=warnings.get(row.id),
                 customer_name=names.get(row.customer_id, ""),
             )
@@ -2200,6 +2348,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         notes: list[SalesInvoiceNote],
         accounting_events: list[SalesInvoiceAccountingEvent],
         tenders: list[SalesInvoiceTender],
+        charges: list[SalesInvoiceCharge],
         warning: str | None,
         customer_name: str,
     ) -> SalesInvoiceResponse:
@@ -2257,6 +2406,12 @@ class SalesInvoiceService(TransactionalDocumentService):
                 )
                 for tender in tenders
             ],
+            charges=[
+                SalesInvoiceChargeResponse.model_validate(charge) for charge in charges
+            ],
+            charges_total=self._q(
+                sum((Decimal(str(charge.amount)) for charge in charges), ZERO)
+            ),
             rate_includes_tax=bool(row.rate_includes_tax),
             approved_at=row.approved_at,
             closed_at=row.closed_at,
@@ -3583,7 +3738,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         customer_id: UUID,
         branch_id: UUID,
         warehouse_id: UUID | None,
-        product_id: UUID,
+        product_id: UUID | None,
         tax_profile_id: UUID | None,
         invoice_value: Decimal,
         document_id: UUID | None = None,
@@ -3591,6 +3746,10 @@ class SalesInvoiceService(TransactionalDocumentService):
         shipping_address_id: UUID | None = None,
     ) -> _LineTax:
         """Work out the line's tax, and keep everything that decided it.
+
+        ``product_id`` is None for a charge on the bill (SG-4), which has no
+        product to take a tax group from: it is taxed by the profile it
+        names, and not at all where it names none.
 
         This used to return one number and discard the rest, which is why an
         invoice line recorded `tax_amount` and a NULL `tax_profile_id` -- the
@@ -3605,7 +3764,11 @@ class SalesInvoiceService(TransactionalDocumentService):
         # force then, or the document would carry a rate that never applied.
         tax_service = TaxFrameworkService(self._session)
         if tax_profile_id is None:
-            product = self._session.get(Product, product_id)
+            product = (
+                self._session.get(Product, product_id)
+                if product_id is not None
+                else None
+            )
             resolved = (
                 tax_service.resolve_profile_for_product(
                     product, invoice_date, firm_scope=firm_id

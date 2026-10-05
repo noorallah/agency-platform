@@ -261,6 +261,16 @@ CHART: tuple[SeedAccount, ...] = (
         ControlAccountPurpose.SALES_REVENUE,
     ),
     SeedAccount(
+        # Packing, handling or insurance charged on a bill at a tax rate of
+        # its own (SG-4). Migration 20261005_0319 gives existing firms the
+        # same account.
+        "4050",
+        "Other Charges Recovered",
+        AccountTypeEnum.INCOME,
+        "REV",
+        ControlAccountPurpose.OTHER_CHARGES_RECOVERED,
+    ),
+    SeedAccount(
         "4100",
         "Sales Returns",
         AccountTypeEnum.INCOME,
