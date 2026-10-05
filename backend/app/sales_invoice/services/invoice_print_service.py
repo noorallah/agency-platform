@@ -558,7 +558,10 @@ class SalesInvoicePrintService:
         )
         # The offers the customer was given (backlog 60 item 12): claimed on
         # the orders this bill continues, so a festival offer is named on the
-        # bill that delivers it, with what the bill took off in all.
+        # bill that delivers it, with what the bill took off in all. A counter
+        # bill's own order waits for the bill's approval to claim
+        # (D-SELL-85), so a draft printed for the buyer names the offer it is
+        # priced with from the pending row; a withdrawn one is neither.
         if orders:
             codes = sorted(
                 set(
@@ -570,7 +573,7 @@ class SalesInvoicePrintService:
                         )
                         .where(
                             PromotionRedemption.document_id.in_([o.id for o in orders]),
-                            PromotionRedemption.status == "CLAIMED",
+                            PromotionRedemption.status.in_(("CLAIMED", "PENDING")),
                             PromotionRedemption.is_deleted.is_(False),
                         )
                     ).all()

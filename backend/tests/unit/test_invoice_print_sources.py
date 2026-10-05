@@ -206,6 +206,49 @@ def test_the_offers_claimed_on_the_order_and_the_saving_are_printed() -> None:
     assert "You saved50.00" in text
 
 
+@pytest.mark.parametrize(("status", "named"), [("PENDING", True), ("REVERSED", False)])
+def test_a_draft_names_the_offer_it_is_priced_with(status: str, named: bool) -> None:
+    """A counter bill's order claims when the bill is approved (D-SELL-85).
+
+    Until then its redemption row is PENDING, and the draft handed to the
+    buyer lost its "Offers" line. A row withdrawn with an edited order is
+    REVERSED and is not an offer the bill carries.
+    """
+    from app.promotions.models import Promotion, PromotionRedemption
+
+    setup = _Billing(_session_factory()())
+    note = _dispatched_note(setup, quantity=Decimal("4"))
+    promotion = Promotion(
+        firm_id=setup.firm.id,
+        code="DIWALI20",
+        name="Diwali 20%",
+        priority=100,
+        status="ACTIVE",
+        allow_stacking=True,
+        version_group_id=uuid4(),
+        version_number=1,
+    )
+    setup.session.add(promotion)
+    setup.session.flush()
+    setup.session.add(
+        PromotionRedemption(
+            firm_id=setup.firm.id,
+            promotion_id=promotion.id,
+            customer_id=setup.customer.id,
+            document_type="SALES_ORDER",
+            document_id=setup.order.id,
+            document_number=setup.order.order_number,
+            redeemed_on=date(2026, 8, 3),
+            benefit_amount=Decimal("50"),
+            status=status,
+        )
+    )
+    invoice = _bill(setup, [note])
+    setup.session.commit()
+
+    assert ("OffersDIWALI20" in _printed(setup, invoice)) is named
+
+
 def test_a_bill_with_no_offer_and_no_discount_says_neither() -> None:
     setup = _Billing(_session_factory()())
     note = _dispatched_note(setup, quantity=Decimal("4"))
