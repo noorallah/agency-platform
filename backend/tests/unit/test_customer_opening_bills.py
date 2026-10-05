@@ -867,3 +867,56 @@ def test_an_opening_balance_stays_while_a_bill_stands_on_the_account() -> None:
     assert "receipt" not in refused.value.message
     books.session.rollback()
     assert books.balance() == Decimal("2000.00")
+
+
+def test_a_cancelled_invoice_does_not_hold_the_opening_balance() -> None:
+    """A bill raised and cancelled is nothing standing, in another spelling.
+
+    Driven 2026-10-06 (round 6): 1,500 typed, one sales invoice approved and
+    cancelled, and the figure was refused naming "invoice SI-... ; credit note
+    SI-...". A cancellation writes a CREDIT_NOTE row against the invoice, not
+    a REVERSAL, so the pair read as trade. A return's credit note names the
+    return and still stands.
+    """
+    books = _Books()
+    _type_opening_balance(books, "1500.00")
+    customers = CustomerService(books.session)
+    invoice_id = uuid4()
+
+    def post(kind: CustomerReceivableTransactionType, **reference: object) -> None:
+        """Write one row the way the invoice service does."""
+        customers.post_receivable_transaction(
+            books.customer.id,
+            CustomerReceivableTransactionCreate(
+                transaction_type=kind,
+                transaction_date=CUTOVER,
+                amount=Decimal("99.12"),
+                **reference,  # type: ignore[arg-type]
+            ),
+            firm_scope=books.firm.id,
+            actor_id=books.actor_id,
+        )
+
+    billed = {
+        "reference_type": "SALES_INVOICE",
+        "reference_id": invoice_id,
+        "reference_number": "SI-5",
+    }
+    post(CustomerReceivableTransactionType.INVOICE, **billed)
+    with pytest.raises(ValidationError, match=r"invoice SI-5 of 99\.12"):
+        _type_opening_balance(books, "400.00")
+    books.session.rollback()
+
+    post(CustomerReceivableTransactionType.CREDIT_NOTE, **billed)
+    _type_opening_balance(books, "400.00")
+    assert books.balance() == Decimal("400.00")
+
+    # Goods back on a return are trade: its credit names the return.
+    post(
+        CustomerReceivableTransactionType.CREDIT_NOTE,
+        reference_type="SALES_RETURN",
+        reference_id=uuid4(),
+        reference_number="SR-1",
+    )
+    with pytest.raises(ValidationError, match="credit note SR-1"):
+        _type_opening_balance(books, "0")

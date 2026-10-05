@@ -269,9 +269,16 @@ class CustomerRepository:
         are (D-MST-15). Matched row for row on the reversal's reference rather
         than by summing: a bill of 500 paid by a receipt of 500 sums to
         nothing and is a customer who has traded.
+
+        A sales invoice that was cancelled is the same nothing in another
+        spelling: its cancellation writes a ``CREDIT_NOTE`` row against the
+        invoice itself, not a ``REVERSAL``, so the pair stood here and an
+        invoice raised by mistake locked the figure for good. Both rows of
+        such a pair are left out; a credit note of its own, or a return,
+        names its own document and still stands.
         """
         reversal = aliased(CustomerReceivableTransaction)
-        return list(
+        rows = list(
             self._session.scalars(
                 select(CustomerReceivableTransaction)
                 .where(
@@ -293,6 +300,22 @@ class CustomerRepository:
                 )
             ).all()
         )
+        cancelled = {
+            row.reference_id
+            for row in rows
+            if row.transaction_type == "CREDIT_NOTE"
+            and row.reference_type == "SALES_INVOICE"
+            and row.reference_id is not None
+        }
+        return [
+            row
+            for row in rows
+            if not (
+                row.reference_type == "SALES_INVOICE"
+                and row.reference_id in cancelled
+                and row.transaction_type in ("INVOICE", "CREDIT_NOTE")
+            )
+        ]
 
     def list_receivable_transactions(
         self,
