@@ -12,7 +12,7 @@ SRC = (ROOT / "docs" / "INDEPENDENT_TEST_CASES.md").read_text(encoding="utf-8")
 TABS = json.loads((SCRATCH / "tabs.json").read_text(encoding="utf-8"))
 MATRIX = json.loads((SCRATCH / "matrix.json").read_text(encoding="utf-8"))
 ROLES = json.loads((SCRATCH / "roles.json").read_text(encoding="utf-8"))["roles"]
-TODAY = "2026-10-04"
+TODAY = "2026-10-05"
 RELEASE = "1.3.0"
 
 # --------------------------------------------------------------------------
@@ -172,13 +172,13 @@ FILES = [
     ("08_SELLING", "Selling: quotation to cash, returns and credit notes",
      ["Selling — quotation to cash"],
      [("Quotations", None), ("Sales Orders", None), ("Delivery Notes", None), ("Sales Invoices", None), ("Sales Returns", None),
-      ("Sales", ["Proforma", "Credit Notes"])]),
+      ("Sales", ["Proforma", "Credit Notes", "Counter Shifts", "Customer Rebates"])]),
     ("09_PRICING_AND_INCENTIVES", "Pricing, promotions, loyalty, commission and targets",
      ["Pricing, promotions and incentives"],
      [("Sales", ["Price Lists", "Promotions", "Commission", "Targets"]), ("Masters", ["Loyalty"])]),
     ("10_TERRITORY", "Territory, routes and beats",
      ["Territory, routes and beats"],
-     [("Sales", ["Geography", "Route Types", "Beat Plans", "Call Lists", "Coverage", "Route Builder"]), ("Masters", ["Places"])]),
+     [("Sales", ["Geography", "Route Types", "Beat Plans", "Call Lists", "Coverage", "Route Builder"]), ("Masters", ["Places", "Transporters"])]),
     ("11_COMPLIANCE", "Compliance: GST returns, e-invoices and TCS",
      ["Compliance — GST returns, e-invoices and TCS"],
      [("Sales", ["E-Invoice", "GST Returns", "TCS"])]),

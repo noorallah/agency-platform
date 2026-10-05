@@ -6082,7 +6082,7 @@ over paid and free units. What the others add is rows 25 and 26 above.
 
 ## 87. Selling against Tally, Zoho, ERPNext and Busy/Marg -- every gap
 
-**Status, 2026-10-05: audited and prioritised with the owner; not built.** The
+**Status, 2026-10-05: audited and prioritised with the owner; the nine *build now* rows (SG-1 to SG-9) were built the same day, the rest are not built.** The
 owner, after the selling check of the same day: "compare sales module with
 market available tool and find gaps, we did this for purchases", then walked
 every gap and chose *build now*, *later* or *skip*. 40 features were checked

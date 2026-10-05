@@ -858,8 +858,8 @@ is held to three months, and has not been timed on the volume firm.
 
 ## A charge on the bill is taxed at its own rate and credited to its own account
 
-Server built 2026-10-05 (`docs/BACKLOG.md` §87 #4, SG-4); the desktop editor
-follows in its own PR. A sales invoice now carries up to ten **charges** --
+Built 2026-10-05 (`docs/BACKLOG.md` §87 #4, SG-4; server #1157, and the bill's
+**Other charges** editor on the desktop in #1159). A sales invoice now carries up to ten **charges** --
 packing, handling, insurance -- each with a name, a pre-tax amount, an optional
 SAC and an optional tax profile, in `sales_invoice_charges` (migration
 `20261005_0319`, firm-owned). The two older fields are untouched:
@@ -906,8 +906,8 @@ rates, and `additional_charges` is still an untaxed addition to the total.
 
 **Not built:** carrying charges from the sales order (they are typed on the
 bill); crediting a charge -- a credit note or a sales return
-against the bill credits lines only and leaves the charge alone; the desktop
-editor. `tests/unit/test_invoice_charges.py` covers the tax by head within
+against the bill credits lines only and leaves the charge alone.
+`tests/unit/test_invoice_charges.py` covers the tax by head within
 and across states, the untaxed charge, the journal, GSTR-1 and 3B, the
 update rule, the credit note, the print and the e-invoice item.
 
@@ -1318,8 +1318,10 @@ bill owes is always what it owes now. **The chase list**
 yet paid plus the broken ones nobody has taken a newer promise on; a bill that
 has since stopped owing drops off it while its promise still reads broken.
 
-Reading takes `RECEIPT_VIEW` and writing `RECEIPT_CREATE`. Not built: the
-desktop screens (a follow-up), the promise on the customer statement and on
+Reading takes `RECEIPT_VIEW` and writing `RECEIPT_CREATE`. The desktop screens
+(#1164) are Sell > All Sell screens > Money > *Collection Sheet* and *Payment
+Promises*, with a **Collector** on the customer. Not built: the promise on the
+customer statement and on
 `GET /api/v1/receipts/outstanding`, reminders raised from a broken promise,
 and a promise against an opening bill (it is made on the account instead).
 

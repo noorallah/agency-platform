@@ -19,6 +19,17 @@ bump #1071. Each item was checked by its own tests; many of the cases were
 written from the code and have not yet been driven by hand, which is what
 this pass is for.
 
+**Added on 2026-10-05, still in 1.3.0** (1.3.0 has not been distributed): the
+**purchasing build** (fourteen features, PG-1 to PG-14, `docs/BACKLOG.md` §86,
+#1116 to #1141) and the **selling build** (nine features, SG-1 to SG-9, §87,
+#1153 to #1168), with three defects fixed on the way (#1163, #1172). An
+installer built before 2026-10-05 does not hold them: test them on a build
+made from `main` at #1172 or later. **None of these features has been through
+a full test suite, a CI run or a hand test.** Each was checked by its own
+tests only, and every row and case about them below was written from the
+code, so read each as *(confirm)*: a failure may be the case's mistake until
+it is settled.
+
 ## How to test it: one pass, in this order
 
 Each row names the screen. Do them on a copy of a firm, or on the demo firm.
@@ -35,7 +46,8 @@ already have. The cases are TC-ME-014 to TC-ME-018 in
 `docs/qa/02_SIGN_IN_AND_ACCOUNTS.md`, and QA-BRD-01 to QA-BRD-24 in
 `docs/QA_TEST_BOOK.md`; the installer rows are also in
 `docs/INSTALLER_QA_CHECKLIST.md` (section F). **After that, the 1.2.0 rows**
-(next section).
+(next section), **and last the purchasing and selling rows of 2026-10-05**,
+which are below the branding table.
 
 ### The agency's branding
 
@@ -54,6 +66,59 @@ already have. The cases are TC-ME-014 to TC-ME-018 in
 | 11 | **The header** | Left of the menu strip; the window's title bar | The agency's logo, name and tagline lead the strip before Home, then the firm's name as plain text (firm switcher unchanged); the title bar reads **<agency> > <firm>**, the agency alone when no firm is chosen; below 820 px only the logo shows, the tagline from 1280 px; clicking it opens Home; no extra height |
 | 12 | **Product on the status line** | Right end of the status line | *Agency Platform 1.3.0 by* its company and a tooltip with the same; clicking does nothing |
 
+### Buying: the purchasing build of 2026-10-05 *(confirm: not yet run by hand)*
+
+Do these **after the 1.2.0 rows**, in the order below. The cases are
+TC-BUY-029 to TC-BUY-085 in `docs/qa/06_PURCHASING.md` (values in
+`docs/qa/14_TEST_DATA.md`); QA-BUY-21 to QA-BUY-34 in `docs/QA_TEST_BOOK.md`
+are the short form. Two warnings on order:
+
+- **The TDS cases (TC-BUY-043 to 048) each need a supplier of their own with no
+  other bill or payment in the financial year.** Use a new supplier each time.
+- **Rows 13 and 14 go last.** The import cases (TC-BUY-070 to 076) and the
+  capital-goods case TC-BUY-077 need Settings > Buying > Purchase Settings >
+  **Buying stages** with **Purchase order** off (which takes **Goods receipt**
+  off with it). That is a firm-wide setting: run them when nobody else is
+  buying in the firm, or in a firm of its own, and switch both back on after.
+
+| # | What | Where | What to look for | Cases |
+| --- | --- | --- | --- | --- |
+| 1 | **GST purchase register, HSN summary of purchases** | Reports > Financial | Approved and closed bills by tax head, with tax that may not be claimed and reverse charge apart; a debit note and a purchase return after billing are minus rows on their own dates; the HSN summary folds the same bills by HSN code and unit | TC-BUY-029 to 032 |
+| 2 | **Payables by Month** | Buy > All Buy screens > Money > Payables by Month | What each supplier is owed by month, with Older, Credits and Outstanding, a total row and a check against the books (account 2100); an Owed / Paid switch and a branch filter | TC-BUY-033 to 035 |
+| 3 | **Cash purchase in one step** | Buy > Purchase Invoices > Approve | The Approve dialog has a **Paid now** tick (method, amount, reference, date) for a user who may record payments; the button reads **Approve and pay**; more than the bill is refused; reversing the payment leaves the bill approved and owing | TC-BUY-036 to 039 |
+| 4 | **Attach the supplier's bill** | The bill and goods receipt windows: **Attachments**; a **Files** column on both lists | PDF, JPG or PNG up to 10 MB; add, open, save, delete; the wrong kind or an over-size file is refused. Reading a bill into a draft (OCR) is not built | TC-BUY-040 to 042 |
+| 5 | **TDS 194C and 194J worked out** | The supplier's **Usual TDS section**; Settings > Tax > TDS on purchases (194Q, 194C, 194J); the bill's Approve dialog | The bill proposes the deduction and posts it at approval, with an override box; a payment ahead of any bill proposes it too, and it is deducted once | TC-BUY-043 to 049 |
+| 6 | **TCS charged by a supplier** | The purchase bill: TCS rate and TCS amount; Reports > Financial > TCS paid to suppliers | A rate alone is worked on the bill total including GST, a typed amount wins; approval posts it to *TCS Receivable* (1430); the bill owes its total plus the TCS | TC-BUY-050 to 053 |
+| 7 | **Send the purchase order by WhatsApp** | Buy > Purchase Orders > Send | WhatsApp beside Email; refused until messaging, the channel and the template for *Purchase order sent to the supplier* are set; the order is then marked sent. The PDF is not attached | TC-BUY-054, 055 |
+| 8 | **Requests for quotation** | Buy > All Buy screens > Documents > Requests for quotation; **Create RFQ** on an approved requisition | Send, **Enter quotes** one supplier at a time, **Compare** with the lowest landed rate marked, a reason for any other choice, **Raise orders**: one draft order per chosen supplier. Emailing the RFQ is not built | TC-BUY-056 to 059 |
+| 9 | **Rate contracts** | Buy > All Buy screens > Documents > Rate contracts | Approve makes it active; a blank price on an order line takes the contract's rate (a mark on the rate); drawn and remaining per line; over-drawing warns in a banner and never refuses; overlap refused at approval; Close, Cancel with a reason, Releases | TC-BUY-060 to 062 |
+| 10 | **Serial numbers at receipt** | A serial-tracked goods receipt or purchase return line: the **Serials** cell | Type, paste or **Fill a range**; one serial per unit before the receipt completes; a serial already in the firm is refused; cancelling the receipt removes the units; a return names the units going back | TC-BUY-063 to 065 |
+| 11 | **Supplier schemes** | Buy > All Buy screens > Documents > Supplier schemes; the purchase order | "Buy 10, get 2" fills a blank **Free** box and the side panel says *Scheme 10+2 applied*; a typed figure is kept and 0 refuses the scheme; a scheme giving another product adds a gift line once | TC-BUY-066 to 069 |
+| 12 | **Batch-wise PTR and PTS** | A batch receipt line, the batch list and picker; **Trade class** on the customer | Only on a firm with the feature (Pharmacy, Food and Wholesale profiles): PTR and PTS beside the MRP, never above it, and a batch number required; a retailer's blank price takes PTR and a stockist's PTS. A firm without the feature is shown none of it | TC-BUY-082 to 085 |
+| 13 | **Imports** (run near the end) | A **Currency** on the supplier; the purchase bill and payment windows; Buy > All Buy screens > Documents > Bills of entry; Accounts > Journal Entries > *Revalue foreign payables* | A bill in the supplier's currency with a rate, posted in rupees; no TCS, TDS or Paid now on it; a payment in the currency at another rate posts the exchange gain or loss; a Bill of Entry lands customs duty on the stock and claims the IGST (GSTR-3B 4(A)(1)) | TC-BUY-070 to 076 |
+| 14 | **Fixed assets** (run last) | A bill line's **Capital goods** tick and asset class; Accounts > All Accounts screens > Fixed assets (Asset register, Asset classes, Depreciation runs, Income-tax block schedule) | The line raises an asset, not stock; a line off a completed receipt is refused; a depreciation run posts one journal, by days; disposal books a gain or a loss; the latest run can be cancelled | TC-BUY-077 to 081 |
+
+### Selling: the selling build of 2026-10-05 *(confirm: not yet run by hand)*
+
+Then these, in order. The cases are TC-SELL-036 to TC-SELL-086 in
+`docs/qa/08_SELLING.md`, which opens with the masters they share; QA-SELL-37
+to QA-SELL-45 in `docs/QA_TEST_BOOK.md` are the short form. The counter cases
+(rows 2 and 7) need Settings > Selling > **Sales Stages** with *Sales order*
+and *Delivery note* both off, so that **New Invoice** opens the counter bill;
+switch both back on afterwards.
+
+| # | What | Where | What to look for | Cases |
+| --- | --- | --- | --- | --- |
+| 1 | **GST sales register, HSN summary of sales** | Reports > Financial | Every declared document of a period by tax head; credit notes and returns in minus, a customer debit note in plus; the HSN summary adds up to the register and both agree with GSTR-1 | TC-SELL-036 to 039 |
+| 2 | **Walk-in cash sale** | The counter bill: **Walk-in** | One *Cash sale* customer per firm, made on first use; the buyer's name and phone typed on the bill and printed; refused at approval unless paid in full; no loyalty points; the customer cannot be deleted, given credit or a GSTIN, or made inactive | TC-SELL-040 to 045 |
+| 3 | **Service invoices** | Any sales document with a product of type *SERVICE* | Billed with its SAC; no reservation, no stock movement, no cost of goods sold, never a back order. No new screen | TC-SELL-046 to 049 |
+| 4 | **Other charges with their own GST** | The sales bill: **Other charges** > **Add charge** | Up to ten charges (packing, handling), each taxed by the tax profile it names, or untaxed with none; in the bill's tax and total, on the print, in the register and in GSTR-1; credited to *Other Charges Recovered* (4050) | TC-SELL-050 to 054 |
+| 5 | **Transporters and freight terms** | Settings > Set up > Territories & routes > Transporters; the delivery note's **Carrier (master)** and **Freight** | Choosing a carrier fills the note's transporter, GSTIN and mode; what is typed on the note wins; an inactive carrier is not offered | TC-SELL-055 to 059 |
+| 6 | **Attachments on sales documents** | Quotation, sales order, delivery note, sales invoice and sales return lists: **Attachments**; a **Files** column | PDF, JPG or PNG up to 10 MB; each document keeps its own files | TC-SELL-060 to 063 |
+| 7 | **Hold and recall; counter shifts** | The counter bill: **Hold (F8)**, **Recall**, the shift strip; Sell > All Sell screens > Documents > Counter Shifts | A held bill is parked with a note and never approved while held; a shift opens with a float, expected cash is the float plus the cash tenders, and closing on a count posts a shortage or excess to *Cash Short and Over* (6960). **Read D-SELL-51 under Known gaps first** | TC-SELL-064 to 072 |
+| 8 | **Collection Sheet and Payment Promises** | Sell > All Sell screens > Money; **Collector** on the customer | The sheet lists open bills by collector with days overdue and the latest promise, with a PDF; a promise posts nothing and reads pending, due today, kept, broken or withdrawn; it is withdrawn, never edited | TC-SELL-073 to 079 |
+| 9 | **Customer Rebates** | Sell > All Sell screens > Documents > Customer Rebates; Reports > Financial > Customer rebate statement | An agreement for a customer or a customer group with slabs; accrued once after the period ends; settled by a party adjustment of kind *Customer rebate*; no GST on a rebate | TC-SELL-080 to 086 |
+
 ## Carried from the 1.2.0 notes
 
 Everything in `docs/RELEASE_NOTES_1.2.0.md` is part of this build, and **no
@@ -70,6 +135,19 @@ installer, which is the last build testers received.
   agency's own name and logo; they have (backlog 71).
 - A fresh install had no way to name the agency; the Branding page and
   Settings > Platform > Agency > Branding give it.
+
+Fixed on 2026-10-05, during the purchasing and selling builds (each fix has
+its own test; none was re-checked by hand):
+
+- **TDS deducted on a purchase bill could not be put on a challan in an
+  upgraded store** (D-FIN-25, #1163). An old database check stayed behind
+  after an upgrade; migration `20261005_0323` removes it.
+- **Regenerating a firm's demo history refused to start** (D-CFG-24, #1172).
+  Seventeen tables that arrived with later features were missing from the
+  reset's list, and three were cleared in the wrong order. Developer and demo
+  data only; an installed firm is not affected.
+- **A supplier rebate accrued, reversed and accrued again was refused**
+  (D-BUY-34, #1172). The second and later accruals are now numbered.
 
 ## Known limits and what is not in it
 
@@ -89,6 +167,49 @@ installer, which is the last build testers received.
   file, live e-invoice and e-way bill, real WhatsApp and SMS sends, payment
   links, rule 43 and licensing are not built; *Rows per page* is not offered.
 
+### Known gaps in the purchasing and selling builds
+
+Not built (from `docs/BACKLOG.md` §86 and §87):
+
+- **Buying:** reading a supplier's bill into a draft (OCR); emailing an RFQ; a
+  Bill of Entry in the GST purchase register and against GSTR-2B's import
+  rows; purchase returns and debit notes in another currency; withholding on a
+  payment abroad (section 195); capitalising goods already in stock; GST on
+  the sale of an asset (raise a sales invoice); recurring purchase bills; job
+  work; drop-ship; consignment; a supplier credit limit; "10+2" printed on the
+  order. The purchase order sent by WhatsApp carries no PDF.
+- **Selling:** charges are not carried from the sales order and cannot be
+  credited by a credit note or a return; the carrier of a delivery note
+  already raised cannot be changed on screen; a promise for the account as a
+  whole (from the screen), the promise on the customer statement and a
+  reminder from a broken promise; a counter refund against a bill, a count by
+  denomination and handing a shift over; a rebate settled by a GST credit
+  note or paid out in money. Van sales, export and SEZ sales, warranty claims,
+  packing slips, bill of supply and the rest of §87 rows 10 to 31 are for
+  later.
+
+Open defects found by reading the code on 2026-10-05, **not yet driven**
+(`docs/DEFECTS.md`):
+
+- **D-SELL-51 (medium): a cashier's shift may take no bills.** A bill is
+  stamped with the open shift of whoever **approves** it, and the counter
+  roles cannot approve, so a cashier's expected cash can stay at the float.
+  Test shifts (TC-SELL-067 to 072) as a user who can approve, and report what
+  a Counter Sales user sees.
+- **D-SELL-52 (low):** Customer Rebates offers *Settle against bills* to a
+  Sales Manager, who is then refused; only a firm administrator can settle
+  from the screen.
+- **D-BUY-35 (medium):** the GST purchase register shows a foreign-currency
+  bill in currency units, not rupees.
+- **D-BUY-39 (medium):** an import billed off an order and a receipt is
+  misvalued; it is right only with the order and receipt stages off, which is
+  how the import cases are written.
+- **D-BUY-36, 37, 38 (low):** the payment dialog's 194C/194J hint ignores the
+  amount being paid; the bill's Approve dialog works the TDS proposal on the
+  subtotal alone; the 194C/194J settings card mislabels its lower rate.
+- **D-BUY-40 (low):** capital goods cannot be bought with the goods receipt
+  stage on (needs a decision).
+
 **On every failure**: a screenshot, the newest file in
 `C:\ProgramData\Agency Platform\logs\server`, and the version on the sign-in
 screen (1.3.0).
@@ -103,6 +224,16 @@ page is shown on an upgrade, so the first platform administrator to sign in is
 asked *Set up your agency* (or skips it, and Home keeps the *Finish setting
 up* card until it is given). Until then the sign-in screen and header show
 Agency Platform's own name.
+
+**Database, with the purchasing and selling builds.** A build from 2026-10-05
+migrates every store on to **`20261005_0325`**, 25 revisions past
+`20261004_0300`: the purchasing tables and columns (`20261005_0306` to
+`20261005_0316`), the selling ones (`20261005_0318` to `20261005_0325`), and
+among them `20261005_0323`, which repairs the TDS challan check in stores
+already upgraded. They add tables, columns and control accounts (for a firm
+whose books are open, only where missing); no existing document is repriced
+or reposted. *(confirm: this upgrade has not been rehearsed on an installed
+copy.)*
 
 The two changes from 1.2.0 apply to anyone coming from an earlier build:
 

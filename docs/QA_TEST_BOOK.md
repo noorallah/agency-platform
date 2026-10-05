@@ -1,6 +1,6 @@
 # QA Test Book -- Agency Platform
 
-Release 1.3.0 -- written 2026-10-04 from the product documentation; cases marked (confirm) need the figure checked on the first run.
+Release 1.3.0 -- written 2026-10-04 from the product documentation; cases marked (confirm) need the figure checked on the first run. The module *Purchasing & selling build of 2026-10-05* was added on 2026-10-05 for features that have not yet been through a full test suite, a CI run or a hand test.
 
 ## How to use this book
 
@@ -636,6 +636,52 @@ Platform**.
 
 ---
 
+## Purchasing & selling build of 2026-10-05
+
+**Before you start:** every module above is finished. These 23 cases reach
+the screens added on 2026-10-05 (purchasing features PG-1 to PG-14 and selling
+features SG-1 to SG-9), which are part of release 1.3.0. **Every row here is
+(confirm):** the features were built with their own tests only and have not
+been through a full test suite, a CI run or a hand test, and these rows were
+written from the code. Each row is the short way in; the full cases, with
+every refusal and journal, are TC-BUY-029 to 085 (`docs/qa/06_PURCHASING.md`)
+and TC-SELL-036 to 086 (`docs/qa/08_SELLING.md`), named in the last column of
+*Verify elsewhere*.
+
+**Run this module last** (only the spare-PC branding cases may come after):
+it buys and sells a little more, so the stock and balance figures the earlier
+modules end on no longer hold once it has run. Sign in as admin@qb01.test.
+The import and capital-goods cases switch a firm-wide buying setting and are
+not run in QB01 (QA-BUY-33, 34).
+
+| ID | Action (with the exact sample values) | Verify on this screen | Verify elsewhere | Result |
+| --- | --- | --- | --- | --- |
+| QA-BUY-21 | Reports > Financial > **GST purchase register**, this month. Then **HSN summary of purchases** | One row per approved bill by tax head: the bill `DF-0055` reads taxable 3,200.00, IGST 160.00; a debit note or a return after billing is a row in minus | The totals agree with GSTR-3B table 4 for the month. TC-BUY-029..032 | |
+| QA-BUY-22 | Buy > All Buy screens > Money > **Payables by Month** | Each supplier's dues by month with Older, Credits and Outstanding and a total row; the check against the books reads as agreeing | Switch to **Paid**: the payments of the Purchasing module. TC-BUY-033..035 | |
+| QA-BUY-23 | Purchase order to QB-V1: QB-FLR x 10 at 40; approve; receive all 10; bill it as `SD-PAID-01`; **Approve** > tick **Paid now**, Method *Cash*, Amount blank > **Approve and pay** | The button reads **Approve and pay** once Paid now is ticked; the bill is Approved and owes nothing | Buy > Payments: a payment of **472.00** to Sunrise against that bill. TC-BUY-036..039 | |
+| QA-BUY-24 | On that bill: **Attachments** > add any PDF under 10 MB; then try a `.txt` file | The PDF is listed and opens; the text file is refused | The Purchase Invoices list shows the bill in the **Files** column. TC-BUY-040..042 | |
+| QA-BUY-25 | Settings > Tax > **TDS on purchases (194Q, 194C, 194J)**. Then Masters > Vendors > QB-V1 > Edit (do not save) | Cards for 194C and 194J below the 194Q settings; the supplier form offers **Usual TDS section** 194C and 194J | The worked deduction needs a supplier with no other bill this year: run TC-BUY-043..049 with a new supplier each | |
+| QA-BUY-26 | Purchase order to QB-V1: QB-FLR x 10 at 40; approve; receive; bill it as `SD-TCS-01` with **TCS amount** `1.00`; approve (no Paid now) | Bill total 472.00 and the bill owes **473.00** | Journal: Dr TCS Receivable 1.00 with the bill's other lines. Reports > Financial > **TCS paid to suppliers**: 1.00 for Sunrise this quarter. TC-BUY-050..053 | |
+| QA-BUY-27 | Buy > Purchase Orders > pick an approved order > **Send** | **WhatsApp** is offered beside Email; with messaging not set up the send is refused, saying what to set | TC-BUY-054, 055 (needs the firm's Messaging set up) | |
+| QA-BUY-28 | Buy > All Buy screens > Documents > **Requests for quotation** > New: QB-DET x 20; suppliers QB-V1 and QB-V2 > **Send** > **Enter quotes**: QB-V1 rate 80, QB-V2 rate 78 > **Compare** > choose QB-V2 > **Save selections** > **Raise orders** | Deccan Foods at 78 is marked lowest; choosing QB-V1 instead asks for a reason; the RFQ reads **Closed** | Buy > Purchase Orders: a **draft** order to Deccan Foods for 20 at 78. Cancel that draft. TC-BUY-056..059 | |
+| QA-BUY-29 | Buy > All Buy screens > Documents > **Rate contracts** > New: QB-V1, QB-DET, rate 75, quantity 100, valid today for 30 days > **Approve**. Then start a purchase order to QB-V1 with QB-DET x 10 and the price blank (do not save) | The contract reads **Active** with drawn 0 and remaining 100; the order line takes **75** with the contract mark | **Close** the contract afterwards. TC-BUY-060..062 | |
+| QA-BUY-30 | Buy > All Buy screens > Documents > **Supplier schemes** > New: Supplier QB-V1, product QB-FLR, Buy quantity 10, Free quantity 2, from today. Then start a purchase order to QB-V1: QB-FLR x 25, **Free** blank (do not save) | The Free box fills with **4** and the side panel reads *Scheme 10+2 applied*; type 0 in Free and it stays 0 | Later QB-V1 orders for QB-FLR get the scheme while it runs: end it after the case. TC-BUY-066..069 | |
+| QA-BUY-31 | Serial numbers at receipt | QB01 has no serial-tracked product | Run TC-BUY-063..065 in a firm on the Electronics profile | |
+| QA-BUY-32 | Start a goods receipt for QB-GHEE with a batch number (do not complete). Then Masters > Customers > QB-C1 > Edit (do not save) | The line offers **PTR** and **PTS** beside the MRP, and a PTR above the MRP (320) is refused; the customer form has **Trade class** | If neither shows, the batch PTR / PTS feature is off for the firm: note it. TC-BUY-082..085 | |
+| QA-BUY-33 | Masters > Vendors > + New (do not save). Then Buy > All Buy screens > Documents > **Bills of entry** | The supplier form has a **Currency** box; the Bills of entry list opens with an empty state | The import cases need the order and receipt stages off for the whole firm: run TC-BUY-070..076 last, in a firm of its own | |
+| QA-BUY-34 | Accounts > All Accounts screens > Fixed assets > **Asset classes**; then **Asset register**, **Depreciation runs** and **Income-tax block schedule** | Five classes to start with (plant, furniture, computers, vehicles, office equipment); the other three screens open | The capital-goods bill line needs the stages off as QA-BUY-33: run TC-BUY-077..081 last, in a firm of its own | |
+| QA-SELL-37 | Reports > Financial > **GST sales register**, this month. Then **HSN summary of sales** | One row per approved bill by tax head; credit notes and the sales return in minus, the debit note in plus | The totals agree with GSTR-1 for the month. TC-SELL-036..039 | |
+| QA-SELL-38 | Sell > Sales Invoices > **+ New by product** > **Walk-in**; Buyer name `Counter Buyer`; QB-FLR x 1; try to approve with no tender, then tender Cash for the full total and approve | The bill is made out to *Cash sale*; total **59.00**; approval is refused until it is paid in full | The print shows the buyer's name; Masters > Customers: *Cash sale* cannot be deleted. TC-SELL-040..045 | |
+| QA-SELL-39 | Masters > Products > + New `QB-SVC` *Installation*: type **Service**, sell 500, GST 18% Local, HSN / SAC `998739`. Bill 1 to QB-C3 on a counter bill, paid in cash | Total **590.00** | Stock Summary shows nothing for QB-SVC; the journal has no cost of goods sold. TC-SELL-046..049 | |
+| QA-SELL-40 | Counter bill to QB-C3: QB-FLR x 2; under **Other charges** > **Add charge**: Name `Packing`, Amount `100`, tax GST 18% Local, SAC `998540`; pay in cash, approve | Total **236.00** (goods 100.00 + 18.00, charge 100.00 + 18.00) | Journal: Cr Other Charges Recovered 100.00, apart from Sales; the charge prints by name. TC-SELL-050..054 | |
+| QA-SELL-41 | Settings > Set up > Territories & routes > **Transporters** > New `QB Roadways`. Then start a delivery note and pick it under **Carrier (master)**, Freight *To pay* | The note's transporter name fills from the master | The challan prints the carrier and *Freight*. TC-SELL-055..059 | |
+| QA-SELL-42 | Sell > Sales Invoices > pick any invoice > **Attachments** > add a PDF | The file is listed and opens | The list's **Files** column shows it; the same action is on quotations, orders, delivery notes and returns. TC-SELL-060..063 | |
+| QA-SELL-43 | Counter bill: on the strip press **Open shift**, float `500`. Add QB-FLR x 1 > **Hold (F8)**, note `back in 5 min` > **Recall** it > pay 59.00 cash > approve. **Close shift** with counted cash `559` | The held bill returns with its line; closing shows no shortage or excess | Sell > All Sell screens > Documents > **Counter Shifts**: the shift, closed, expected 559.00; no journal for an exact count. As a Counter Sales user the shift may take no bills (D-SELL-51): note what you see. TC-SELL-064..072 | |
+| QA-SELL-44 | Sell > All Sell screens > Money > **Collection Sheet**: on a Ravi Traders bill record a promise three days ahead for the amount offered. Then **Payment Promises** > that promise > withdraw it with a reason | The sheet lists open bills with days overdue and the collector; the promise reads **Pending**, then **Withdrawn** | No journal either time; the customer form has **Collector**. TC-SELL-073..079 | |
+| QA-SELL-45 | Sell > All Sell screens > Documents > **Customer Rebates** > New: QB-C1, a period ending last month, one slab from 0 at 2% | The agreement saves and its statement shows the period's turnover | Accrue, settle and the refusals: TC-SELL-080..086. Reports > Financial > **Customer rebate statement** | |
+
+---
+
 ## Defect report template
 
 Copy this block for each failure.
@@ -677,9 +723,12 @@ Copy this block for each failure.
 | Approvals & notifications | 11 | | | | | | |
 | Platform administration | 11 | | | | | | |
 | Agency branding | 24 | | | | | | |
-| **Total** | **281** | | | | | | |
+| Purchasing & selling build of 2026-10-05 | 23 | | | | | | |
+| **Total** | **304** | | | | | | |
 
-**Not covered in this book** (each has detailed cases in `docs/qa/`): landed
+**Not covered in this book** (each has detailed cases in `docs/qa/`): the
+full flows of imports and bills of entry, fixed assets, TDS 194C and 194J and
+serials at receipt (QA-BUY-25, 31, 33 and 34 only open their screens), landed
 costs, payment runs, supplier rebates and ratings, principal claims, quality
 inspection, purchase budgets and bill tolerance, serial numbers, count plans,
 quarterly (QRMP) filing, rule 42, filed-return amendments, branch GSTINs,

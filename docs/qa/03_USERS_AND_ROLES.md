@@ -6,7 +6,7 @@ explains the preparations, the accounts and how to record results. Every menu
 path is the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down on the menu
 bar, `Sell > All Sell screens > Documents > Proforma` is a screen that is not
 daily work, and `Settings > Set up > Pricing > Price Lists` is the gear at the
-right of the bar. Generated on 2026-10-04 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
+right of the bar. Generated on 2026-10-05 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
 

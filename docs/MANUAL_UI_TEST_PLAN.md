@@ -15,6 +15,12 @@ Pointers refreshed on **2026-10-03**: each section now ends with the cases
 added for the backlog items built in Waves 1 to 3 (written from the code, not
 yet driven).
 
+Refreshed again on **2026-10-05** for the purchasing build (backlog 86,
+TC-BUY-029 to 085) and the selling build (backlog 87, TC-SELL-036 to 086):
+sections 7 and 9 end with them. Those features have not been through a full
+test suite, a CI run or a hand test, and their cases were written from the
+code and not yet driven.
+
 Rewritten on **2026-09-05** against the running application. The previous
 version was written on 2026-08-16, before promotions, loyalty, credit notes,
 proformas, TCS, GST returns, e-invoicing, customer groups and price-list
@@ -317,6 +323,34 @@ Settings → Buying, **Payment Runs** with the bank file, **Supplier Rebates**,
 goods reports. TC-BUY-017 and 018 were added to the QA suite by hand on
 2026-10-02 and are now in the case file too.
 
+**Added 2026-10-05** (backlog 86, PG-1 to PG-14; written from the code, not
+yet driven, and not through a full suite or CI): TC-BUY-029 to 085, with no
+old row to map from. Each stands alone and names what it needs.
+
+| Screen or flow to walk | Cases |
+| --- | --- |
+| Reports → Financial: **GST purchase register**, **HSN summary of purchases** | TC-BUY-029 to 032 |
+| Buy → All Buy screens → Money → **Payables by Month** | TC-BUY-033 to 035 |
+| **Paid now** in the bill's Approve dialog | TC-BUY-036 to 039 |
+| **Attachments** on a purchase bill and a goods receipt | TC-BUY-040 to 042 |
+| TDS 194C and 194J: the supplier's section, Settings → Tax → **TDS on purchases (194Q, 194C, 194J)**, the Approve dialog | TC-BUY-043 to 049 |
+| TCS on a purchase bill, and **TCS paid to suppliers** | TC-BUY-050 to 053 |
+| **Send** a purchase order by WhatsApp | TC-BUY-054, 055 |
+| Buy → All Buy screens → Documents → **Requests for quotation** | TC-BUY-056 to 059 |
+| **Rate contracts** | TC-BUY-060 to 062 |
+| The **Serials** cell on a receipt and a return line | TC-BUY-063 to 065 |
+| **Supplier schemes**, and the Free box on the order | TC-BUY-066 to 069 |
+| A supplier's **Currency**, the bill and payment in it, **Bills of entry**, *Revalue foreign payables* | TC-BUY-070 to 076 |
+| **Capital goods** on a bill line; Accounts → All Accounts screens → **Fixed assets** | TC-BUY-077 to 081 |
+| **PTR** and **PTS** on a batch, **Trade class** on a customer | TC-BUY-082 to 085 |
+
+Two things about the order to run them in. **TC-BUY-070 to 077 switch a
+firm-wide setting** (Settings → Buying → Purchase Settings → Buying stages,
+*Purchase order* off): run them last, or in a firm of their own, and switch it
+back. **The TDS cases (TC-BUY-043 to 048) each need a supplier with no other
+bill or payment in the financial year.** Open defects D-BUY-35 to D-BUY-40
+(`docs/DEFECTS.md`) were found by reading this code and are not yet driven.
+
 
 ## 8. Stock
 
@@ -411,6 +445,26 @@ terms and **Raise interest debit note**, **Pending approval** customers,
 **Price Levels**, the UPI QR and **WhatsApp** on an invoice, and **Remind** /
 **Send** for statements, quotations, orders, receipts and purchase orders.
 Approvals by level are TC-FIN-021.
+
+**Added 2026-10-05** (backlog 87, SG-1 to SG-9; written from the code, not yet
+driven, and not through a full suite or CI): TC-SELL-036 to 086, with no old
+row to map from. They share a few masters the section's opening table lists.
+
+| Screen or flow to walk | Cases |
+| --- | --- |
+| Reports → Financial: **GST sales register**, **HSN summary of sales** | TC-SELL-036 to 039 |
+| **Walk-in** on the counter bill, and the *Cash sale* customer | TC-SELL-040 to 045 |
+| A product of type *SERVICE* through the chain | TC-SELL-046 to 049 |
+| **Other charges** on the sales bill | TC-SELL-050 to 054 |
+| Settings → Set up → Territories & routes → **Transporters**; **Carrier (master)** and **Freight** on the delivery note | TC-SELL-055 to 059 |
+| **Attachments** on the five sales documents | TC-SELL-060 to 063 |
+| **Hold (F8)**, **Recall**, the shift strip; Sell → All Sell screens → Documents → **Counter Shifts** | TC-SELL-064 to 072 |
+| Sell → All Sell screens → Money → **Collection Sheet**, **Payment Promises**; **Collector** on the customer | TC-SELL-073 to 079 |
+| Sell → All Sell screens → Documents → **Customer Rebates** | TC-SELL-080 to 086 |
+
+The counter cases need Settings → Selling → Sales Stages with *Sales order*
+and *Delivery note* off; switch both back on afterwards. D-SELL-51 (a
+cashier's shift may take no bills) and D-SELL-52 are open and not yet driven.
 
 
 ## 10. Pricing, promotions and incentives
