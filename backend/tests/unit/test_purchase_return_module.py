@@ -57,6 +57,7 @@ from app.purchase_return.api.router import router as return_router
 from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
 from app.purchase_return.schemas import (
     PurchaseReturnCreate,
+    PurchaseReturnImportRequest,
     PurchaseReturnLineWrite,
     PurchaseReturnSourceType,
     PurchaseReturnStatus,
@@ -1948,3 +1949,66 @@ def test_free_goods_still_go_back_after_the_bought_went_off_the_bill() -> None:
         "still send back 0 bought and 0 free. 10 of these goods have already "
         "gone back against the supplier bill for them."
     )
+
+
+def _imported(goods: _Billed, *records: PurchaseReturnCreate) -> list[PurchaseReturn]:
+    """Import ``records`` as one file, as the import endpoint does."""
+    return goods.service.import_returns(
+        PurchaseReturnImportRequest(records=list(records)),
+        firm_scope=goods.firm_id,
+        actor_id=uuid4(),
+    )
+
+
+def _returns_held(goods: _Billed) -> int:
+    """Return how many purchase returns the store holds."""
+    return int(
+        goods.session.scalar(select(func.count()).select_from(PurchaseReturn)) or 0
+    )
+
+
+def test_a_refused_return_import_leaves_nothing_behind() -> None:
+    """D-BUY-62: the second record is refused, and the first stayed as a draft.
+
+    The import looped over the committing save, so a person told the file was
+    refused imported it again and had the first rows twice. Every record is
+    staged and the file committed once; the refusal names the record.
+    """
+    goods = _Billed()
+    good = goods.document(goods.line("2"))
+    audits = goods.session.scalar(select(func.count()).select_from(AuditLog))
+
+    with pytest.raises(ValidationError) as unknown_batch:
+        _imported(
+            goods, good, goods.document(goods.line("2", batch_number="NO-SUCH-BATCH"))
+        )
+    assert _returns_held(goods) == 0
+    assert str(unknown_batch.value.message) == (
+        "Record 2 of 2: Batch NO-SUCH-BATCH was never received for this "
+        "product, so no stock can be taken out of it. Nothing was imported."
+    )
+
+    # The records of one file are counted against each other: 6 and 6 of 10.
+    with pytest.raises(ValidationError, match="Record 2 of 2: Return quantity") as over:
+        _imported(
+            goods, goods.document(goods.line("6")), goods.document(goods.line("6"))
+        )
+    assert "can still send back 4 bought and 0 free" in str(over.value.message)
+    assert _returns_held(goods) == 0
+    assert goods.session.scalar(select(func.count()).select_from(AuditLog)) == audits
+
+
+def test_a_good_return_import_writes_every_record() -> None:
+    """D-BUY-62: the same file, once nothing in it is refused."""
+    goods = _Billed()
+
+    rows = _imported(
+        goods,
+        goods.document(goods.line("6")),
+        goods.document(goods.line("4", off_the_bill=True)),
+    )
+
+    goods.session.rollback()
+    assert [row.status for row in rows] == ["DRAFT", "DRAFT"]
+    assert len({row.return_number for row in rows}) == 2
+    assert _returns_held(goods) == 2

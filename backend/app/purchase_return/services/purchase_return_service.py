@@ -23,7 +23,11 @@ from app.common.report_names import (
     warehouse_names,
 )
 from app.core.database.batch import children_by_parent
-from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.exceptions import (
+    ApplicationError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger, quantize_money
@@ -1961,11 +1965,40 @@ class PurchaseReturnService(TransactionalDocumentService):
     def import_returns(
         self, data: PurchaseReturnImportRequest, *, firm_scope: UUID, actor_id: UUID
     ) -> list[PurchaseReturn]:
-        """Import a validated batch of purchase returns atomically."""
-        return [
-            self.create_return(record, firm_id=firm_scope, actor_id=actor_id)
-            for record in data.records
-        ]
+        """Import a batch of purchase returns, all of them or none.
+
+        Each record is staged with the checks a single save applies -- a line
+        that returns nothing, the caps, the batch -- and the file is committed
+        once. It used to loop over the committing ``create_return``, so a file
+        refused at its second record left the first behind as a draft, and
+        importing the corrected file wrote it twice (D-BUY-62).
+
+        Raises:
+            ApplicationError: The refusal of the first record that fails, in
+                the words a single save uses, naming the record. Nothing of
+                the file is kept.
+
+        """
+        rows: list[PurchaseReturn] = []
+        for number, record in enumerate(data.records, start=1):
+            try:
+                self._refuse_empty_return_lines(record)
+                row = self.stage_return(record, firm_id=firm_scope, actor_id=actor_id)
+                self._refuse_unresolved_batches(row)
+            except ApplicationError as error:
+                self._session.rollback()
+                error.message = (
+                    f"Record {number} of {len(data.records)}: {error.message} "
+                    "Nothing was imported."
+                )
+                error.args = (error.message,)
+                raise
+            except Exception:
+                self._session.rollback()
+                raise
+            rows.append(row)
+        self._session.commit()
+        return rows
 
     def _replace_sources(
         self,

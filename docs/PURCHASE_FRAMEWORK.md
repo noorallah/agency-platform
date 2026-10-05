@@ -391,6 +391,17 @@ cancelled return gives its quantity back.
 - The quantities are compared as stored, in the source line's unit: a bill
   line and its receipt line share the purchase unit.
 
+**A file of returns is taken whole or not at all** (D-BUY-62).
+`POST /purchase-returns/import` stages every record with the checks a single
+save applies -- a line that returns nothing, the caps above, the batch -- and
+commits once. It used to loop over the committing save, so a file refused at
+its second record left the first behind as a draft, and importing the
+corrected file wrote it twice. The records of one file count against each
+other (6 and 6 off a line of 10 is refused at the second), and the refusal is
+the single save's own, naming the record: "Record 2 of 2: Batch NO-SUCH-BATCH
+was never received for this product, so no stock can be taken out of it.
+Nothing was imported."
+
 ### What the supplier gives back, and a bill already paid (A34, D-BUY-20)
 
 A return records an **outcome**, changeable until it is cancelled because the
