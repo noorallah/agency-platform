@@ -81,6 +81,7 @@ class PromotionReportService:
         pending: dict[UUID, int] = {}
         reversed_: dict[UUID, int] = {}
         benefit: dict[UUID, Decimal] = {}
+        free: dict[UUID, Decimal] = {}
         customers: dict[UUID, set[UUID]] = {}
         for claim in self._redemptions(firm_scope):
             owner = group_of.get(claim.promotion_id)
@@ -91,6 +92,7 @@ class PromotionReportService:
                 benefit[owner] = benefit.get(owner, ZERO) + Decimal(
                     str(claim.benefit_amount)
                 )
+                free[owner] = free.get(owner, ZERO) + Decimal(str(claim.free_quantity))
                 if claim.customer_id is not None:
                     customers.setdefault(owner, set()).add(claim.customer_id)
             elif claim.status == PENDING:
@@ -110,6 +112,23 @@ class PromotionReportService:
                 reversed_count=reversed_.get(group, 0),
                 customer_count=len(customers.get(group, ())),
                 benefit_amount=benefit.get(group, ZERO),
+                free_quantity=free.get(group, ZERO),
+                # The budgets are the latest version's, counted over every
+                # version's claims and floored like the count below.
+                max_benefit_amount=current.max_benefit_amount,
+                remaining_benefit_amount=(
+                    None
+                    if current.max_benefit_amount is None
+                    else max(
+                        current.max_benefit_amount - benefit.get(group, ZERO), ZERO
+                    )
+                ),
+                max_free_quantity=current.max_free_quantity,
+                remaining_free_quantity=(
+                    None
+                    if current.max_free_quantity is None
+                    else max(current.max_free_quantity - free.get(group, ZERO), ZERO)
+                ),
                 max_redemptions=current.max_redemptions,
                 # Null stays null: an uncapped campaign has no remaining
                 # count, which is a different answer from having none left.
@@ -169,6 +188,7 @@ class PromotionReportService:
                 document_number=row.document_number,
                 redeemed_on=row.redeemed_on,
                 benefit_amount=row.benefit_amount,
+                free_quantity=row.free_quantity,
                 status=row.status,
             )
             for row in rows

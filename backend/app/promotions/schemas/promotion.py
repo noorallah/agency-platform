@@ -326,6 +326,17 @@ class PromotionWrite(PromotionSchema):
     #: Null is no limit, which is a different answer from zero.
     max_redemptions: int | None = Field(default=None, ge=1)
     max_redemptions_per_customer: int | None = Field(default=None, ge=1)
+    #: The scheme's budget: the most money it may take off bills, and the
+    #: most free units it may give, over its whole life. Null is no budget.
+    #: On an edit, leaving one out keeps what the offer has and an explicit
+    #: null clears it -- an editor that does not know the field must not
+    #: lift a principal's budget by saving a name.
+    max_benefit_amount: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, decimal_places=4
+    )
+    max_free_quantity: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, decimal_places=4
+    )
     #: The principal funding the scheme, whose share is claimed back (SEL-11).
     principal_id: UUID | None = None
     principal_share_percent: Decimal = Field(
@@ -409,6 +420,16 @@ class PromotionResponse(PromotionSchema):
     requires_coupon: bool
     max_redemptions: int | None
     max_redemptions_per_customer: int | None
+    #: The budget in money, what approved documents have taken of it across
+    #: every revision of the offer, and what is left. `remaining_*` is null
+    #: where there is no budget, and never below zero.
+    max_benefit_amount: Decimal | None = None
+    benefit_amount_claimed: Decimal = Decimal("0")
+    remaining_benefit_amount: Decimal | None = None
+    #: The same three for the budget in free units.
+    max_free_quantity: Decimal | None = None
+    free_quantity_claimed: Decimal = Decimal("0")
+    remaining_free_quantity: Decimal | None = None
     principal_id: UUID | None = None
     principal_share_percent: Decimal = Decimal("100")
     version_group_id: UUID
@@ -430,6 +451,10 @@ class PromotionLineRequest(PromotionSchema):
     #: evaluated for it -- a person deciding beats a rule -- and the trace says
     #: so, rather than reporting a benefit the line never received.
     caller_priced: bool = False
+    #: True when somebody typed the line's free quantity, a zero included.
+    #: The document keeps the typed figure, so an offer's free goods are not
+    #: given on that line -- and are not counted against the offer's budget.
+    free_typed: bool = False
 
 
 class PromotionEvaluationRequest(PromotionSchema):
@@ -493,6 +518,8 @@ class PromotionApplication(PromotionSchema):
     code: str
     coupon_id: UUID | None = None
     benefit_amount: Decimal
+    #: The free units this offer gave: on its lines and as gifts together.
+    free_quantity: Decimal = Decimal("0")
 
 
 class PromotionGift(PromotionSchema):
@@ -626,10 +653,18 @@ class PromotionPerformanceRecord(PromotionSchema):
     #: times by three shops is not one that reached ninety.
     customer_count: int
     benefit_amount: Decimal
+    #: The free units its claims gave, lines and gifts together.
+    free_quantity: Decimal = Decimal("0")
     max_redemptions: int | None
     #: Null when the campaign is uncapped -- which is a different answer from
     #: zero, and the reason this is not an int with a default.
     remaining_redemptions: int | None
+    #: The budget in money and in free units, and what is left of each. Null
+    #: where there is none; floored at zero as the count is.
+    max_benefit_amount: Decimal | None = None
+    remaining_benefit_amount: Decimal | None = None
+    max_free_quantity: Decimal | None = None
+    remaining_free_quantity: Decimal | None = None
 
 
 class PromotionRedemptionRecord(PromotionSchema):
@@ -647,6 +682,7 @@ class PromotionRedemptionRecord(PromotionSchema):
     document_number: str | None
     redeemed_on: date
     benefit_amount: Decimal
+    free_quantity: Decimal = Decimal("0")
     status: str
 
 

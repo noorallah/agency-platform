@@ -108,6 +108,9 @@ class PromotionCopyService:
                 requires_coupon=source.requires_coupon,
                 max_redemptions=source.max_redemptions,
                 max_redemptions_per_customer=source.max_redemptions_per_customer,
+                # The same budget, whole: a new version group has no claims.
+                max_benefit_amount=source.max_benefit_amount,
+                max_free_quantity=source.max_free_quantity,
                 principal_id=source.principal_id,
                 principal_share_percent=source.principal_share_percent,
                 version_group_id=uuid4(),

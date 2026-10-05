@@ -90,6 +90,11 @@ class Promotion(BaseEntity):
     #: hence nullable rather than a default nobody chose.
     max_redemptions: Mapped[int | None] = mapped_column(Integer)
     max_redemptions_per_customer: Mapped[int | None] = mapped_column(Integer)
+    #: The scheme's budget: the most it may give away in money, and the most
+    #: free units, across every claim on every revision. Null is no budget.
+    #: Counted from CLAIMED redemptions at approval, as the count limit is.
+    max_benefit_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    max_free_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     #: The principal that funds this scheme (SEL-11): its cost is claimed
     #: back from them. Null for the firm's own offer.
     principal_id: Mapped[UUID | None] = mapped_column(
@@ -313,6 +318,13 @@ class PromotionRedemption(BaseEntity):
     #: What the claim was worth, so a campaign can be costed without re-pricing
     #: every document it touched.
     benefit_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: The free units the offer gave on this document -- more of a line's own
+    #: product and gifts of another together -- so a budget in free quantity
+    #: can be counted as one in money is. Not in `benefit_amount`: free goods
+    #: are charged nothing, so they take nothing off the bill.
+    free_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
     #: CLAIMED or REVERSED. Only a claim counts against a limit.
