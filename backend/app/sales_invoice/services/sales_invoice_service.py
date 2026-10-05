@@ -1269,13 +1269,19 @@ class SalesInvoiceService(TransactionalDocumentService):
         not at all. More than the bill comes to is refused rather than turned
         into an advance -- change is handed back, not kept on account.
         """
-        amount = Decimal(str(row.received_now_amount or 0))
+        amount = quantize_ledger(row.received_now_amount)
         if amount <= Decimal("0") or row.received_now_settlement_id is not None:
             return
         tenders = self._tenders_of(row.id)
-        if amount > Decimal(str(row.grand_total)):
+        # Against what the customer is asked to pay -- the receivable the
+        # journal debits, at the ledger's two decimals -- never the document's
+        # four. A bill of 97.1376 posts 97.14, and comparing the money with
+        # the unrounded figure refused the one amount that settles it while
+        # the walk-in rule refused every other (D-SELL-83).
+        payable = _receivable_amount(row.grand_total)
+        if amount > payable:
             raise ValidationError(
-                f"{amount} was received against a bill of {row.grand_total}. "
+                f"{amount} was received against a bill of {payable}. "
                 "Enter what the bill is paid with; change is handed back."
             )
         from app.settlements.schemas import (
@@ -1566,7 +1572,9 @@ class SalesInvoiceService(TransactionalDocumentService):
             .execution_options(populate_existing=True)
         )
         walk_in = customer is not None and customer.is_cash_sale
-        received_now = Decimal(str(row.received_now_amount or 0))
+        # Money is two decimals, like the receivable it is set against: both
+        # sides of every comparison below are at the ledger's scale (D-SELL-83).
+        received_now = quantize_ledger(row.received_now_amount)
         if walk_in and received_now > _receivable_amount(row.grand_total):
             # More than the bill comes to is change to hand back, as it is on
             # any counter bill; this said "Take the rest" (D-SELL-66).
@@ -1582,7 +1590,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 f"A walk-in bill is paid in full at the counter: "
                 f"{row.invoice_number} comes to "
                 f"{_receivable_amount(row.grand_total)} and "
-                f"{row.received_now_amount} was received. Take the rest, or "
+                f"{received_now} was received. Take the rest, or "
                 "bill a customer with a record to sell on credit."
             )
         if customer is not None:
@@ -3167,6 +3175,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             additional_charges=row.additional_charges,
             round_off=row.round_off,
             grand_total=row.grand_total,
+            amount_payable=_receivable_amount(row.grand_total),
             buyer_name=row.buyer_name,
             buyer_phone=row.buyer_phone,
             received_now_amount=row.received_now_amount,
