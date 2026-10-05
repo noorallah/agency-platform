@@ -37,6 +37,8 @@ class SalesInvoice(BaseEntity):
         Index("IX_sales_invoices_firm_due_date", "firm_id", "due_date"),
         # Backlog 56 C: the list's default sort, newest first.
         Index("IX_sales_invoices_firm_created", "firm_id", "created_at"),
+        # A shift's summary reads its bills (SG-7).
+        Index("IX_sales_invoices_counter_shift", "counter_shift_id"),
     )
 
     firm_id: Mapped[UUID] = mapped_column(
@@ -179,6 +181,27 @@ class SalesInvoice(BaseEntity):
     #: an order or a delivery note keeps the price it inherited.
     rate_includes_tax: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
+    )
+    #: A counter bill parked while the next customer is served (backlog 87
+    #: #7, SG-7). **A flag, not a status**: the bill is still the draft it
+    #: was, and recalling it puts nothing back. A held bill is never approved.
+    is_held: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    held_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: What the cashier typed to know the bill again: "lady in red, back in
+    #: five minutes".
+    held_note: Mapped[str | None] = mapped_column(String(200))
+    #: The cashier's shift the bill's counter money was taken in (SG-7):
+    #: stamped at approval when whoever approves has a shift open, NULL for a
+    #: firm that opens none.
+    counter_shift_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "counter_shifts.id",
+            ondelete="RESTRICT",
+            name="FK_sales_invoices_counter_shift_id",
+        ),
     )
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

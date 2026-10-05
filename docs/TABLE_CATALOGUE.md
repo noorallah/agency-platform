@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**325 tables**, of which **17** live only in the platform store.
+**326 tables**, of which **17** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -158,6 +158,12 @@ trigger each schema owns its own copy of.
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
 | `contra_vouchers` | firm store ¹ | One movement of money between two of the firm's own accounts. | `ledger_accounts`, `journal_entries` |
+
+### `app/counter_shifts`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `counter_shifts` | firm store ¹ | Store one cashier's shift: the float, and the count it closed on. | `branches`, `ledger_accounts`, `journal_entries` |
 
 ### `app/credit_note`
 
@@ -562,7 +568,7 @@ trigger each schema owns its own copy of.
 | `sales_invoice_notes` | firm store ¹ | Store sales invoice notes. | `sales_invoices`, `firms` |
 | `sales_invoice_sources` | firm store ¹ | Store customer invoice source document references. | `sales_invoices`, `firms`, `customers`, `branches` |
 | `sales_invoice_tenders` | firm store ¹ | One way a counter bill was paid: cash, UPI or card (SEL-12, A90). | `sales_invoices` |
-| `sales_invoices` | firm store ¹ | Store one customer invoice header. | `firms`, `customers`, `users`, `sales_territories`, `territory_route_profiles`, `branches`, `business_profiles` |
+| `sales_invoices` | firm store ¹ | Store one customer invoice header. | `firms`, `customers`, `users`, `sales_territories`, `territory_route_profiles`, `branches`, `business_profiles`, `counter_shifts` |
 
 ### `app/sales_order`
 
