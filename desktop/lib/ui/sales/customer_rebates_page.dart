@@ -62,6 +62,8 @@ class _CustomerRebatesPageState extends State<CustomerRebatesPage> {
 
   bool get _mayView => widget.permissions.hasPermission('SALES_VIEW');
   bool get _mayManage => widget.permissions.hasPermission('SALES_APPROVE');
+  bool get _maySettle =>
+      widget.permissions.hasPermission('PARTY_ADJUSTMENT_MANAGE');
 
   @override
   void initState() {
@@ -269,6 +271,18 @@ class _CustomerRebatesPageState extends State<CustomerRebatesPage> {
           icon: Icons.receipt_long_outlined,
           onPressed: r != null ? () => unawaited(_statement(r)) : null,
         ),
+        // Settling drafts a party adjustment, so it follows that permission
+        // and not the one that agrees the rebate (D-SELL-52): whoever states
+        // the debt need not be the one who clears it.
+        if (_maySettle)
+          ToolbarCommand(
+            id: 'settle-rebate',
+            label: 'Settle against bills',
+            icon: Icons.price_check_outlined,
+            onPressed: r != null && r.isAccrued && r.toSettleAmount > 0
+                ? () => unawaited(_settle(r))
+                : null,
+          ),
         if (_mayManage) ...[
           ToolbarCommand(
             id: 'edit-rebate',
@@ -299,14 +313,6 @@ class _CustomerRebatesPageState extends State<CustomerRebatesPage> {
                         ),
                       ),
                     ))
-                : null,
-          ),
-          ToolbarCommand(
-            id: 'settle-rebate',
-            label: 'Settle against bills',
-            icon: Icons.price_check_outlined,
-            onPressed: r != null && r.isAccrued && r.toSettleAmount > 0
-                ? () => unawaited(_settle(r))
                 : null,
           ),
           ToolbarCommand(

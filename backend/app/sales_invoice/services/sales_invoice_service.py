@@ -1678,22 +1678,31 @@ class SalesInvoiceService(TransactionalDocumentService):
     def _stamp_counter_shift(
         self, row: SalesInvoice, *, firm_scope: UUID, actor_id: UUID
     ) -> None:
-        """Put a bill paid at the counter in its approver's open shift (SG-7).
+        """Put a bill paid at the counter in the shift of the till that took it.
 
-        Only a bill that took money at the counter, and only when whoever
-        approves it has a shift open. **Somebody with none is not refused**:
-        shifts are optional, and a firm that counts no drawer bills exactly
-        as it did. The shift row is locked, so a bill either lands before
-        the drawer is counted or finds the shift closed and is left out.
+        The till is its **maker's**: counter staff raise bills and hold no
+        approve code, so a manager approves them, and stamping the approver's
+        shift left the cashier's drawer at its float (D-SELL-51). The
+        approver's own shift takes the bill only when its maker has none open.
+
+        Only a bill that took money at the counter, and only when one of the
+        two has a shift open. **Somebody with none is not refused**: shifts
+        are optional, and a firm that counts no drawer bills exactly as it
+        did. The shift row is locked, so a bill either lands before the
+        drawer is counted or finds the shift closed and is left out.
         """
         if Decimal(str(row.received_now_amount or 0)) <= Decimal("0"):
             return
         # Imported here: the shift service reads the invoice model.
         from app.counter_shifts.services import open_shift_of
 
-        shift = open_shift_of(self._session, firm_scope, actor_id, lock=True)
-        if shift is not None:
-            row.counter_shift_id = shift.id
+        for cashier_id in dict.fromkeys((row.created_by, actor_id)):
+            if cashier_id is None:
+                continue
+            shift = open_shift_of(self._session, firm_scope, cashier_id, lock=True)
+            if shift is not None:
+                row.counter_shift_id = shift.id
+                return
 
     def _restate_own_serials(
         self,

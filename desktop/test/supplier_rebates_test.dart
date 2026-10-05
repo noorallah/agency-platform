@@ -21,12 +21,14 @@ import 'package:flutter_test/flutter_test.dart';
 String _accessToken(Map<String, dynamic> claims) =>
     'header.${base64Url.encode(utf8.encode(jsonEncode(claims))).replaceAll('=', '')}.sig';
 
-PermissionService _permissions({bool manage = true}) => PermissionService()
+PermissionService _permissions({bool manage = true, bool settle = true}) =>
+    PermissionService()
   ..applyAccessToken(_accessToken({
     'roles': <String>['user'],
     'permissions': <String>[
       'PURCHASE_VIEW',
       if (manage) 'PURCHASE_APPROVE',
+      if (settle) 'PARTY_ADJUSTMENT_MANAGE',
     ],
   }));
 
@@ -161,7 +163,8 @@ DesktopPreferencesService _preferences() => DesktopPreferencesService(
       directory: Directory.systemTemp.createTempSync('supplier-rebates'),
     );
 
-Future<void> _pump(WidgetTester tester, _Api api, {bool manage = true}) async {
+Future<void> _pump(WidgetTester tester, _Api api,
+    {bool manage = true, bool settle = true}) async {
   tester.view.physicalSize = const Size(1366, 768);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -171,7 +174,7 @@ Future<void> _pump(WidgetTester tester, _Api api, {bool manage = true}) async {
       body: SupplierRebatesPage(
         api: api,
         preferences: _preferences(),
-        permissions: _permissions(manage: manage),
+        permissions: _permissions(manage: manage, settle: settle),
         hasActiveFirm: true,
       ),
     ),
@@ -322,6 +325,24 @@ void main() {
       {'side': 'SUPPLIER', 'bill_id': 'b-2', 'amount': '500'},
     ]);
     expect(body.containsKey('customer_id'), isFalse);
+  });
+
+  // D-SELL-52: settling drafts a party adjustment, so it follows that
+  // permission, not the one that agrees the rebate.
+  testWidgets('settle is offered on the party adjustment permission alone',
+      (tester) async {
+    final List<Json> accrued = [_rebate('ACCRUED', toSettle: '3000.00')];
+    await _pump(tester, _Api(rebates: accrued), settle: false);
+    await _select(tester, 'RB-r-1');
+    expect(find.byKey(const ValueKey('selection-settle-rebate')),
+        findsNothing);
+    expect(find.byKey(const ValueKey('selection-reverse')), findsOneWidget);
+
+    await _pump(tester, _Api(rebates: accrued), manage: false);
+    await _select(tester, 'RB-r-1');
+    expect(find.byKey(const ValueKey('selection-settle-rebate')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('selection-reverse')), findsNothing);
   });
 
   testWidgets('settle is off for a rebate that is not accrued',
