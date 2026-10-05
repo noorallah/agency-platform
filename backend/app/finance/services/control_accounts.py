@@ -174,6 +174,13 @@ class ControlAccountPurpose(StrEnum):
     #: packing, handling, insurance (SG-4). Income of its own rather than
     #: sales, so the sales figure stays what the goods sold for.
     OTHER_CHARGES_RECOVERED = "OTHER_CHARGES_RECOVERED"
+    #: A turnover rebate the firm has promised a customer (SG-9), booked when
+    #: the period it rewards is over: a cost of selling, never a discount on
+    #: a bill -- no bill's taxable value moves.
+    REBATES_ALLOWED = "REBATES_ALLOWED"
+    #: That rebate accrued and not yet set against the customer's account: a
+    #: liability until a rebate settlement clears it.
+    CUSTOMER_REBATE_PAYABLE = "CUSTOMER_REBATE_PAYABLE"
     #: What the rupee moved by between a foreign-currency bill and its
     #: payment (PG-12): a loss debited, a gain credited, so the payable
     #: clears at the bill's own rupee value. Also the unrealised difference
@@ -331,6 +338,8 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     ControlAccountPurpose.GST_CASH_LEDGER: frozenset({"ASSET"}),
     ControlAccountPurpose.TCS_RECEIVABLE: frozenset({"ASSET"}),
     ControlAccountPurpose.OTHER_CHARGES_RECOVERED: frozenset({"INCOME"}),
+    ControlAccountPurpose.REBATES_ALLOWED: frozenset({"EXPENSE"}),
+    ControlAccountPurpose.CUSTOMER_REBATE_PAYABLE: frozenset({"LIABILITY"}),
     # A gain is a credit and a loss a debit to the same account, so either
     # classification serves, as with rounding.
     ControlAccountPurpose.EXCHANGE_GAIN_LOSS: frozenset({"INCOME", "EXPENSE"}),
@@ -419,6 +428,8 @@ PURPOSE_LABELS: dict[ControlAccountPurpose, str] = {
     ControlAccountPurpose.GST_CASH_LEDGER: "GST electronic cash ledger",
     ControlAccountPurpose.TCS_RECEIVABLE: "TCS receivable",
     ControlAccountPurpose.OTHER_CHARGES_RECOVERED: "Other charges recovered",
+    ControlAccountPurpose.REBATES_ALLOWED: "Rebates allowed",
+    ControlAccountPurpose.CUSTOMER_REBATE_PAYABLE: "Customer rebates payable",
     ControlAccountPurpose.EXCHANGE_GAIN_LOSS: "Exchange gain/loss",
     ControlAccountPurpose.CUSTOMS_PAYABLE: "Customs duty payable",
     ControlAccountPurpose.CUSTOMS_DUTY: "Customs duty",

@@ -96,6 +96,9 @@ _RECEIVABLE_TYPE = {
         CustomerReceivableTransactionType.WRITE_OFF
     ),
     PartyAdjustmentKind.SET_OFF.value: CustomerReceivableTransactionType.SET_OFF,
+    PartyAdjustmentKind.CUSTOMER_REBATE.value: (
+        CustomerReceivableTransactionType.REBATE
+    ),
 }
 
 _KIND_NAMES = {
@@ -104,6 +107,7 @@ _KIND_NAMES = {
     PartyAdjustmentKind.SET_OFF.value: "set-off",
     PartyAdjustmentKind.SUPPLIER_REBATE.value: "rebate settlement",
     PartyAdjustmentKind.PRINCIPAL_CLAIM.value: "claim settlement",
+    PartyAdjustmentKind.CUSTOMER_REBATE.value: "rebate settlement",
 }
 
 
@@ -118,7 +122,10 @@ def _has_customer(kind: str) -> bool:
 
 def _has_vendor(kind: str) -> bool:
     """Say whether a kind names a supplier."""
-    return kind != PartyAdjustmentKind.CUSTOMER_WRITE_OFF.value
+    return kind not in (
+        PartyAdjustmentKind.CUSTOMER_WRITE_OFF.value,
+        PartyAdjustmentKind.CUSTOMER_REBATE.value,
+    )
 
 
 def _pan_of(pan: str | None, gstin: str | None) -> str | None:
@@ -333,6 +340,7 @@ class PartyAdjustmentService(TransactionalDocumentService):
             allocations=data.allocations,
             rebate_agreement_id=data.rebate_agreement_id,
             principal_claim_id=data.principal_claim_id,
+            customer_rebate_agreement_id=data.customer_rebate_agreement_id,
         )
         number = self._issue_number(
             numbering_rule,
@@ -359,6 +367,7 @@ class PartyAdjustmentService(TransactionalDocumentService):
             status=PartyAdjustmentStatus.DRAFT.value,
             rebate_agreement_id=data.rebate_agreement_id,
             principal_claim_id=data.principal_claim_id,
+            customer_rebate_agreement_id=data.customer_rebate_agreement_id,
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -421,6 +430,11 @@ class PartyAdjustmentService(TransactionalDocumentService):
             vendor_id=vendor_id,
             amount=amount,
             allocations=allocations,
+            # What a settlement settles is fixed at creation, like its kind;
+            # without these an edited draft was told to name what it names.
+            rebate_agreement_id=row.rebate_agreement_id,
+            principal_claim_id=row.principal_claim_id,
+            customer_rebate_agreement_id=row.customer_rebate_agreement_id,
         )
         if values.get("adjustment_date") is not None:
             row.adjustment_date = values["adjustment_date"]
@@ -501,6 +515,7 @@ class PartyAdjustmentService(TransactionalDocumentService):
             allocations=self._as_writes(row),
             rebate_agreement_id=row.rebate_agreement_id,
             principal_claim_id=row.principal_claim_id,
+            customer_rebate_agreement_id=row.customer_rebate_agreement_id,
         )
         before = self._snapshot(row)
         entry = self._posting.post_party_adjustment(
@@ -689,6 +704,7 @@ class PartyAdjustmentService(TransactionalDocumentService):
         allocations: Sequence[PartyAdjustmentAllocationWrite],
         rebate_agreement_id: UUID | None = None,
         principal_claim_id: UUID | None = None,
+        customer_rebate_agreement_id: UUID | None = None,
     ) -> None:
         """Refuse an adjustment that does not fit its parties and bills.
 
@@ -748,6 +764,23 @@ class PartyAdjustmentService(TransactionalDocumentService):
                 raise ValidationError(
                     f"The claim has {owed} still to settle, so {amount} cannot "
                     "be set against the supplier's bills."
+                )
+
+        if kind == PartyAdjustmentKind.CUSTOMER_REBATE.value:
+            # Imported here: the rebate service reads these adjustments.
+            from app.customer_rebates.services import CustomerRebateService
+
+            if customer is None or customer_rebate_agreement_id is None:
+                raise ValidationError("Name the rebate agreement this settles.")
+            unsettled = CustomerRebateService(self._session).to_settle(
+                customer_rebate_agreement_id,
+                firm_id=firm_id,
+                customer_id=customer.id,
+            )
+            if amount > unsettled:
+                raise ValidationError(
+                    f"The rebate has {unsettled} still to settle, so {amount} "
+                    "cannot be set against the customer's account."
                 )
 
         sides: dict[PartyAdjustmentSideEnum, list[PartyAdjustmentAllocationWrite]] = {
@@ -1107,6 +1140,7 @@ class PartyAdjustmentService(TransactionalDocumentService):
                     version=row.version,
                     rebate_agreement_id=row.rebate_agreement_id,
                     principal_claim_id=row.principal_claim_id,
+                    customer_rebate_agreement_id=row.customer_rebate_agreement_id,
                 )
             )
         return answer

@@ -15,6 +15,9 @@ every kind, and two copies would drift.
 * **Supplier rebate** -- a volume rebate the firm accrued (BUY-13), credited
   by the supplier and set against its bills. Dr payable, Cr supplier rebates
   receivable. Names the agreement it settles.
+* **Customer rebate** -- a turnover rebate the firm accrued for a customer
+  (SG-9), set against what the customer owes. Dr customer rebate payable, Cr
+  receivable. Names the agreement it settles.
 
 **None of them touches tax.** Reducing the value of a supply is a credit note
 or a debit note, which reverses the tax charged on it; an adjustment only says
@@ -63,6 +66,8 @@ class PartyAdjustmentKind(StrEnum):
     SUPPLIER_REBATE = "SUPPLIER_REBATE"
     #: A principal's credit note settling a claim (SEL-11).
     PRINCIPAL_CLAIM = "PRINCIPAL_CLAIM"
+    #: An accrued turnover rebate set against a customer's account (SG-9).
+    CUSTOMER_REBATE = "CUSTOMER_REBATE"
 
 
 class PartyAdjustmentStatus(StrEnum):
@@ -96,7 +101,9 @@ class PartyAdjustment(BaseEntity):
             "AND vendor_id IS NOT NULL) OR (kind = 'SUPPLIER_REBATE' "
             "AND vendor_id IS NOT NULL AND customer_id IS NULL) OR "
             "(kind = 'PRINCIPAL_CLAIM' AND vendor_id IS NOT NULL "
-            "AND customer_id IS NULL)",
+            "AND customer_id IS NULL) OR "
+            "(kind = 'CUSTOMER_REBATE' AND customer_id IS NOT NULL "
+            "AND vendor_id IS NULL)",
             name="CK_party_adjustments_parties_match_kind",
         ),
         Index("IX_party_adjustments_firm_date", "firm_id", "adjustment_date"),
@@ -147,6 +154,12 @@ class PartyAdjustment(BaseEntity):
     principal_claim_id: Mapped[UUID | None] = mapped_column(
         UUIDType(),
         ForeignKey("principal_claims.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    #: The turnover rebate a ``CUSTOMER_REBATE`` settles (SG-9).
+    customer_rebate_agreement_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey("customer_rebate_agreements.id", ondelete="RESTRICT"),
         index=True,
     )
     approved_at: Mapped[datetime | None] = mapped_column(UTCDateTime)

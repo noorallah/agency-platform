@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**325 tables**, of which **17** live only in the platform store.
+**327 tables**, of which **17** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -172,6 +172,13 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `customer_debit_note_lines` | firm store ¹ | One invoice line being charged more. | `customer_debit_notes`, `sales_invoice_lines`, `products` |
 | `customer_debit_notes` | firm store ¹ | One charge against one invoice, with the tax it adds. | `customers`, `branches`, `sales_invoices`, `journal_entries` |
+
+### `app/customer_rebates`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `customer_rebate_agreements` | firm store ¹ | One customer's, or one customer group's, rebate over one period. | `customers`, `customer_groups`, `journal_entries` |
+| `customer_rebate_slabs` | firm store ¹ | One step: from this turnover, this rate on all of it. | `customer_rebate_agreements` |
 
 ### `app/customers`
 
@@ -405,7 +412,7 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `party_adjustment_allocations` | firm store ¹ | How much of one adjustment came off one bill. | `party_adjustments`, `sales_invoices`, `purchase_invoices`, `customer_opening_bills`, `vendor_opening_bills` |
 | `party_adjustment_settings` | firm store ¹ | A firm's limits on adjusting balances. A firm with no row has defaults. |  |
-| `party_adjustments` | firm store ¹ | One balance moved without money: write-off, write-back or set-off. | `customers`, `vendors`, `journal_entries`, `supplier_rebate_agreements`, `principal_claims` |
+| `party_adjustments` | firm store ¹ | One balance moved without money: write-off, write-back or set-off. | `customers`, `vendors`, `journal_entries`, `supplier_rebate_agreements`, `principal_claims`, `customer_rebate_agreements` |
 
 ### `app/pricing`
 

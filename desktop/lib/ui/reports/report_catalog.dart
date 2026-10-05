@@ -551,6 +551,36 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'document_total', label: 'Total', numeric: true),
     ],
   ),
+  // What each customer's turnover rebate has earned, what is booked and what
+  // is still to set against their account (87 row 9). An agreement is on the
+  // report when its period touches the dates asked for.
+  ReportDefinition(
+    id: 'customer-rebate-statement',
+    label: 'Customer rebate statement',
+    description: 'Turnover rebates promised to customers and customer '
+        'groups: the turnover counted, the slab reached, what is accrued, '
+        'what is settled against the account and the balance. Withdrawn '
+        'agreements are left out.',
+    path: '/api/v1/customer-rebates/reports/statement',
+    permission: 'SALES_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    columns: [
+      ReportColumn(key: 'code', label: 'Agreement'),
+      ReportColumn(key: 'name', label: 'Name'),
+      ReportColumn(key: 'party_name', label: 'Customer or group'),
+      ReportColumn(key: 'period_from', label: 'From'),
+      ReportColumn(key: 'period_to', label: 'To'),
+      ReportColumn(key: 'status', label: 'Status'),
+      ReportColumn(key: 'agreed_label', label: 'Agreed'),
+      ReportColumn(key: 'turnover', label: 'Turnover', numeric: true),
+      ReportColumn(key: 'rate_percent', label: 'Rate %', numeric: true),
+      ReportColumn(key: 'earned', label: 'Earned', numeric: true),
+      ReportColumn(key: 'accrued', label: 'Accrued', numeric: true),
+      ReportColumn(key: 'settled', label: 'Settled', numeric: true),
+      ReportColumn(key: 'balance', label: 'Balance', numeric: true),
+    ],
+  ),
   // The same supplies folded by HSN code and rate, net of credits: GSTR-1's
   // Table 12 for any period. A product with no HSN shows under a blank code.
   ReportDefinition(

@@ -9445,6 +9445,101 @@ class ApiClient {
         expectedVersion: expectedVersion,
       )));
 
+  // ---- customer turnover rebates (SG-9) ---------------------------------
+  //
+  // Settling one is a party adjustment of kind CUSTOMER_REBATE naming
+  // `customer_rebate_agreement_id` ([createPartyAdjustment]); cancelling
+  // that adjustment is the reversal.
+
+  /// A page of the firm's customer rebate agreements, each with its
+  /// turnover, the slab reached and what is settled.
+  Future<PagedResult<Json>> customerRebates({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String? customerId,
+    String? customerGroupId,
+    String? status,
+  }) async =>
+      parsePagedResponse(
+        await request(
+          'GET',
+          '/api/v1/customer-rebates',
+          query: {
+            'page': '$page',
+            'page_size': '$pageSize',
+            if (search.isNotEmpty) 'search': search,
+            if (customerId != null && customerId.isNotEmpty)
+              'customer_id': customerId,
+            if (customerGroupId != null && customerGroupId.isNotEmpty)
+              'customer_group_id': customerGroupId,
+            if (status != null && status.isNotEmpty) 'status': status,
+          },
+        ),
+        (Json item) => item,
+      );
+
+  Future<Json> customerRebate(String id) async =>
+      _unwrapMap(await request('GET', '/api/v1/customer-rebates/$id'));
+
+  /// What the turnover is made of, by customer and kind of document, the
+  /// settlements, and the note on GST for the firm's CA.
+  Future<Json> customerRebateStatement(String id) async => _unwrapMap(
+        await request('GET', '/api/v1/customer-rebates/$id/statement'),
+      );
+
+  /// Names `customer_id` or `customer_group_id`, never both.
+  Future<Json> createCustomerRebate(Json body) async => _unwrapMap(
+        await request('POST', '/api/v1/customer-rebates', body: body),
+      );
+
+  /// Changes an ACTIVE rebate; send only keys the server declares.
+  Future<Json> updateCustomerRebate(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) async =>
+      _unwrapMap(await request(
+        'PUT',
+        '/api/v1/customer-rebates/$id',
+        body: body,
+        expectedVersion: expectedVersion,
+      ));
+
+  Future<Json> cancelCustomerRebate(
+    String id, {
+    int? expectedVersion,
+  }) async =>
+      _unwrapMap(await request(
+        'POST',
+        '/api/v1/customer-rebates/$id/cancel',
+        expectedVersion: expectedVersion,
+      ));
+
+  /// Books what the period earned; refused until the period has ended.
+  Future<Json> accrueCustomerRebate(
+    String id, {
+    String? accrualDate,
+    int? expectedVersion,
+  }) async =>
+      _unwrapMap(await request(
+        'POST',
+        '/api/v1/customer-rebates/$id/accrue',
+        body: {if (accrualDate != null) 'accrual_date': accrualDate},
+        expectedVersion: expectedVersion,
+      ));
+
+  /// Takes the accrual off again; refused once anything is settled.
+  Future<Json> reverseCustomerRebateAccrual(
+    String id, {
+    int? expectedVersion,
+  }) async =>
+      _unwrapMap(await request(
+        'POST',
+        '/api/v1/customer-rebates/$id/reverse-accrual',
+        expectedVersion: expectedVersion,
+      ));
+
   // ---- enquiries and leads (SEL-10) -------------------------------------
 
   /// The firm's enquiries, newest first; [status] and [salesmanId] narrow it.

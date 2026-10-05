@@ -280,6 +280,9 @@ RESET_ORDER: tuple[str, ...] = (
     # journals, all RESTRICT (backlog 74 row 2).
     "party_adjustment_allocations",
     "party_adjustments",
+    # A customer's rebate agreement names the journal its accrual posted,
+    # RESTRICT, and the settlements above name it (SG-9). Its slabs cascade.
+    "customer_rebate_agreements",
     # Expenses name the journals they posted, RESTRICT, so they go before the
     # journals below -- the next table to arrive with a feature (2026-09-27).
     "expenses",
