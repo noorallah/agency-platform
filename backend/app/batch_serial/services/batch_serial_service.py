@@ -858,6 +858,14 @@ class BatchSerialService:
                 )
             )
         }
+        # Where the line's order holds that stock, batch by batch: dispatch
+        # lets go of its own holds first, so that is what is the line's to
+        # take. Without it the earliest batch read as the line's although
+        # another order held it, and the pre-fill offered 2 of the batch the
+        # line had 8 reserved on (D-SELL-58).
+        own_by_batch = self._own_hold_by_batch(
+            sales_order_line_id, firm_scope=firm_scope, warehouse_id=warehouse_id
+        )
         result: list[BatchAvailability] = []
         hold_left = own_hold
         wanted = Decimal(str(quantity))
@@ -869,6 +877,10 @@ class BatchSerialService:
             # hold; the pre-fill below spends it in the order dispatch would.
             freeable = min(reserved, own_hold)
             freed = min(reserved, hold_left)
+            if own_by_batch:
+                freeable = freed = min(
+                    reserved, own_hold, own_by_batch.get(batch_id, ZERO)
+                )
             hold_left -= freed
             is_expired = batch_id in expired
             short = (
@@ -910,6 +922,39 @@ class BatchSerialService:
                 )
             )
         return result
+
+    def _own_hold_by_batch(
+        self,
+        sales_order_line_id: UUID | None,
+        *,
+        firm_scope: UUID,
+        warehouse_id: UUID,
+    ) -> dict[UUID | None, Decimal]:
+        """Return what an order line's order holds here, batch by batch.
+
+        Read off the stock ledger (``InventoryService.held_by_reference``);
+        empty where the line holds nothing in this warehouse.
+        """
+        if (
+            self._own_hold(
+                sales_order_line_id, firm_scope=firm_scope, warehouse_id=warehouse_id
+            )
+            <= ZERO
+            or sales_order_line_id is None
+        ):
+            return {}
+        line = self._session.get(SalesOrderLine, sales_order_line_id)
+        order = (
+            None if line is None else self._session.get(SalesOrder, line.sales_order_id)
+        )
+        if line is None or order is None:
+            return {}
+        return InventoryService(self._session).held_by_reference(
+            firm_scope=firm_scope,
+            reference_number=order.order_number,
+            product_id=line.product_id,
+            warehouse_id=warehouse_id,
+        )
 
     def _own_hold(
         self,

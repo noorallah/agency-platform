@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -3273,8 +3273,17 @@ class InventoryService:
         product_id: UUID,
         quantity: Decimal,
         prefer: Sequence[UUID] = (),
+        own: Mapping[UUID | None, Decimal] | None = None,
     ) -> list[tuple[UUID | None, Decimal]]:
         """Choose which reservations to let go, earliest expiry first.
+
+        ``own`` is what the order letting go holds on each batch
+        (``held_by_reference``). **Its own holds go first**, each up to what
+        it holds there. A stock row's reserved quantity belongs to every
+        order holding that batch, so releasing by expiry alone let go of
+        another order's hold on the earlier batch and kept this order's on
+        the later one -- and its dispatch was then refused for stock it had
+        itself reserved (D-SELL-58).
 
         ``prefer`` puts those batches first, in the order given: the batches a
         person chose for a delivery line (backlog 79), so the order's own hold
@@ -3307,18 +3316,78 @@ class InventoryService:
             }
             rows.sort(key=lambda row: rank.get(row.batch_id, len(rank)))
         outstanding = Decimal(str(quantity))
-        allocation: list[tuple[UUID | None, Decimal]] = []
+        taken: dict[UUID | None, Decimal] = {}
+        order: list[UUID | None] = []
+
+        def take_from(row: InventoryRecord, limit: Decimal) -> None:
+            """Let go of up to ``limit`` of one row's reservation."""
+            nonlocal outstanding
+            left = Decimal(str(row.reserved_quantity)) - taken.get(row.batch_id, ZERO)
+            take = min(outstanding, left, limit)
+            if take <= ZERO:
+                return
+            if row.batch_id not in taken:
+                order.append(row.batch_id)
+            taken[row.batch_id] = taken.get(row.batch_id, ZERO) + take
+            outstanding -= take
+
+        for row in rows:
+            held = (own or {}).get(row.batch_id, ZERO)
+            if held > ZERO:
+                take_from(row, held)
         for row in rows:
             if outstanding <= ZERO:
                 break
-            take = min(outstanding, Decimal(str(row.reserved_quantity)))
-            if take <= ZERO:
-                continue
-            allocation.append((row.batch_id, take))
-            outstanding -= take
+            take_from(row, outstanding)
+        allocation: list[tuple[UUID | None, Decimal]] = [
+            (batch_id, taken[batch_id]) for batch_id in order
+        ]
         if outstanding > ZERO:
-            allocation.append((None, outstanding))
+            if allocation and allocation[-1][0] is None:
+                allocation[-1] = (None, allocation[-1][1] + outstanding)
+            else:
+                allocation.append((None, outstanding))
         return allocation
+
+    def held_by_reference(
+        self,
+        *,
+        firm_scope: UUID,
+        reference_number: str,
+        product_id: UUID,
+        warehouse_id: UUID,
+    ) -> dict[UUID | None, Decimal]:
+        """Return what one sales order still holds of a product, by batch.
+
+        A stock row's ``reserved_quantity`` is the sum of every order's hold
+        on it and does not say whose. The stock ledger does: every hold and
+        every release an order makes carries its number, so what it has put
+        on a batch less what it has let go is what it still holds there. A
+        batch it holds nothing on is left out; ``None`` is the back order
+        no batch covered.
+        """
+        held: dict[UUID | None, Decimal] = {}
+        for batch_id, total in self._session.execute(
+            select(
+                InventoryTransaction.batch_id,
+                func.coalesce(
+                    func.sum(InventoryTransaction.reserved_quantity_delta), 0
+                ),
+            )
+            .where(
+                InventoryTransaction.firm_id == firm_scope,
+                InventoryTransaction.reference_number == reference_number,
+                InventoryTransaction.product_id == product_id,
+                InventoryTransaction.warehouse_id == warehouse_id,
+                InventoryTransaction.reserved_quantity_delta != 0,
+                InventoryTransaction.is_deleted.is_(False),
+            )
+            .group_by(InventoryTransaction.batch_id)
+        ).all():
+            quantity = Decimal(str(total))
+            if quantity > ZERO:
+                held[batch_id] = quantity
+        return held
 
     def _expiry_ranked_rows(
         self,

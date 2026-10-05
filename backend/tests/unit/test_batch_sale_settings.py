@@ -11,13 +11,14 @@ import pytest
 from sqlalchemy import select
 
 from app.batch_serial.schemas import BatchSaleSettingsWrite
-from app.batch_serial.services import BatchSalePolicyService
+from app.batch_serial.services import BatchSalePolicyService, BatchSerialService
 from app.common.audit.models import AuditLog
 from app.core.exceptions import ValidationError
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
+from app.delivery_note.schemas import DeliveryNoteCreate, DeliveryNoteLineWrite
 from app.document_framework.models import DocumentLifecycleEvent
 from app.inventory.models import InventoryTransaction
-from app.sales_order.models import PriceFloorSettings, SalesOrder
+from app.sales_order.models import PriceFloorSettings, SalesOrder, SalesOrderLine
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
 from app.sales_order.services.price_floor import PricedLine, PriceFloorService
@@ -514,3 +515,70 @@ def test_the_back_order_report_counts_no_expired_stock_and_knows_a_pin() -> None
     # MARCH and JUNE, ten each; STALE's ten have expired and are not counted.
     assert rows[pinned.order_number].available_stock == Decimal("20.0000")
     assert shop.order.order_number not in rows, "eight of MARCH's ten is covered"
+
+
+def test_dispatch_lets_go_of_the_orders_own_hold_not_anothers() -> None:
+    """D-SELL-58: 8 reserved on the later batch, dispatch refused "short by 6".
+
+    Driven 2026-10-05, twice: a customer wanting shelf life had its 8 held on
+    the batch it can take, another order held the earlier batch, and the
+    first order's untouched note was refused for stock it had itself
+    reserved. A stock row's reserved figure is every order's; dispatch let go
+    by expiry, freed the other order's batch and kept its own hold in its
+    own way. On a request's session, which does not flush on a read.
+    """
+    shop = _Shop()
+    shop.session.autoflush = False
+    # The shop's own order already holds eight of MARCH, the earlier batch.
+    assert shop.stock("MARCH").reserved_quantity == Decimal("8.0000")
+    _wants(shop, 200)
+    order = _order(shop, "8")
+    orders = SalesOrderService(shop.session)
+    orders.approve_order(order.id, firm_scope=shop.firm_id, actor_id=shop.actor_id)
+    assert shop.stock("JUNE").reserved_quantity == Decimal("8.0000")
+    line = shop.session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+    )
+    assert line is not None
+
+    picker = {
+        row.batch_number: row
+        for row in BatchSerialService(shop.session).batch_availability(
+            firm_scope=shop.firm_id,
+            product_id=shop.product.id,
+            warehouse_id=shop.warehouse_id,
+            as_of=NOTE_DATE,
+            quantity=Decimal("8"),
+            sales_order_line_id=line.id,
+            keep_until=BatchSalePolicyService(shop.session).keep_until(
+                order.customer_id, on=NOTE_DATE
+            ),
+        )
+    }
+    assert picker["JUNE"].fefo == Decimal("8"), "the picker offers its own eight"
+    assert picker["MARCH"].available_to_line == Decimal("2.0000")
+
+    note = shop.notes.create_note(
+        DeliveryNoteCreate(
+            sales_order_id=order.id,
+            delivery_date=NOTE_DATE,
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("8"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor_id,
+    )
+    shop.dispatch(note)
+
+    assert shop.drawn(note) == {"JUNE": Decimal("8.0000")}
+    shop.session.expire_all()
+    assert shop.stock("JUNE").reserved_quantity == Decimal("0.0000")
+    assert shop.stock("MARCH").reserved_quantity == Decimal(
+        "8.0000"
+    ), "the other order still holds what it reserved"
