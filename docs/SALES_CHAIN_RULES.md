@@ -189,8 +189,8 @@ and a migration in a firm store cannot name the firms in it.
 
 ## A counter bill can be held, and a shift is counted against its tenders
 
-Backlog §87 #7 (SG-7, 2026-10-05; server -- the counter screen's Hold, Recall
-and Shift panel follow). Decided by what Tally's POS register, Marg and Busy's
+Backlog §87 #7 (SG-7, 2026-10-05; server #1165, and the counter screen's Hold,
+Recall and shift strip in #1167). Decided by what Tally's POS register, Marg and Busy's
 shift closing and ERPNext's POS opening and closing entries do.
 
 **A hold is a flag, not a status** -- the same reasoning as a hold on a sales
@@ -263,7 +263,11 @@ float, and at the close a counted amount.
   `REPORT_VIEW` or that same create code, so a cashier can print their own.
   No new permission code.
 
-**Not built:** the desktop screens (the API client calls are in); routing a
+**On the desktop** (#1167): the counter bill has **Hold (F8)**, **Recall** and a
+shift strip with **Open shift** and **Close shift**, and Sell > All Sell
+screens > Documents > *Counter Shifts* lists the shifts and prints the report.
+
+**Not built:** routing a
 shift's cash receipts to a cash account other than the firm's `CASH` control
 account -- a receipt books cash there whatever the shift names, so a shift
 that names another account posts only its difference against it; a counter

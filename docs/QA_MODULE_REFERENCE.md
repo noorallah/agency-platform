@@ -14,6 +14,12 @@ Platform, favourites, My preferences and the whole backlog build (Waves 1 to 3)
 are part of this pass (`docs/RELEASE_NOTES_1.3.0.md`,
 `docs/RELEASE_NOTES_1.2.0.md`).
 
+**Added 2026-10-05: the purchasing and selling builds** (backlog 86 PG-1 to
+PG-14, backlog 87 SG-1 to SG-9), also part of 1.3.0. Sections 5, 7, 11 and 12
+below gained their settings, screens and checks. **These features have not
+been through a full test suite, a CI run or a hand test**, and everything said
+about them here was written from the code: read each such row as (confirm).
+
 Sources: `docs/CONFIGURATION_SETTINGS_GUIDE.md` (settings, defaults, who may
 change them), `docs/APPLICATION_FEATURES_GUIDE.md` (screens),
 `desktop/lib/phase2/menu_layout.dart` (menu paths), `docs/QA_TEST_BOOK.md`
@@ -71,7 +77,8 @@ what you saw.
 | 13 | Approvals & notifications | QA-APR-01..11 | 11 | `12_FINANCE_AND_REPORTS` |
 | 14 | Platform administration | QA-PLT-01..11 | 11 | `04`, `12`, `13_CROSS_CUTTING` |
 | 15 | Agency branding | QA-BRD-01..24 | 24 | `02_SIGN_IN_AND_ACCOUNTS` (TC-ME-014..018) |
-| | **Total** | | **281** | |
+| 16 | Purchasing & selling build of 2026-10-05 (covered in sections 5 and 7 below) | QA-BUY-21..34, QA-SELL-37..45 | 23 | `06_PURCHASING` (TC-BUY-029..085), `08_SELLING` (TC-SELL-036..086) |
+| | **Total** | | **304** | |
 
 ---
 
@@ -352,6 +359,14 @@ return and debit note: the buying chain and what it books.
 | GST Documents: claim input credit; supplier bill without an IRN; rule 37 mode | Settings > Tax > GST Documents | All bills; Warn; Report only | BUY-08, GST-06 |
 | Supplier: status Blocked with reason; GST type; issues e-invoices | On the vendor | Active | BUY-19 |
 | Licence Check, purchases | Settings > Set up > Party lists > Licence Check | **Warn** (Off or Warn only) | Licensed goods |
+| Buying stages: **Purchase order** off (takes **Goods receipt** off) | Settings > Buying > Purchase Settings | Both on | TC-BUY-070..077 only. **Firm-wide: run those last or in a firm of its own, then switch back** |
+| TDS 194C and 194J: threshold and rates | Settings > Tax > TDS on purchases (194Q, 194C, 194J) | As seeded (confirm) | TC-BUY-043..049 |
+| Supplier: **Usual TDS section**, Individual / HUF, Technical services (2%) | On the vendor | None | TC-BUY-043..048: a supplier of its own with no other bill or payment this financial year |
+| Supplier: **Currency** (three letters; blank is rupees) | On the vendor | Blank | TC-BUY-070..076 |
+| Messaging on, WhatsApp channel on, template for *Purchase order sent to the supplier* | Settings > Firm > Messaging | Off | TC-BUY-054, 055 |
+| Batch PTR / PTS feature (Pharmacy, Food, Wholesale profiles); customer **Trade class** | Business profile; on the customer | By profile | TC-BUY-082..085 |
+| A serial-tracked product | Masters > Products | -- | TC-BUY-063..065 |
+| Asset classes (five come with the firm) | Accounts > All Accounts screens > Fixed assets > Asset classes | Seeded | TC-BUY-077..081 |
 
 ### Screens to open
 | Screen | Menu path | What to look at |
@@ -366,6 +381,16 @@ return and debit note: the buying chain and what it books.
 | Approvals, Quality Inspection | Buy > All Buy screens > Documents | Waiting items |
 | Payment Runs, Landed Costs, Supplier Rebates, Principal Claims, Post-dated Cheques, Supplier Gifts | Buy > All Buy screens > Money | Not in the test book; see TC-BUY-023..028 |
 | Purchase Dashboard, Purchase Analysis, Rate Trend | Buy > All Buy screens > Insight | Orders, spend, rates |
+| Requests for quotation | Buy > All Buy screens > Documents > Requests for quotation | Send, Enter quotes, Compare (lowest marked), Save selections, Raise orders; **Create RFQ** on an approved requisition |
+| Rate contracts | Buy > All Buy screens > Documents > Rate contracts | Approve; drawn and remaining per line; Close, Cancel with a reason, Releases; the mark on an order line's rate and the over-draw banner |
+| Supplier schemes | Buy > All Buy screens > Documents > Supplier schemes | Buy and free quantity, free product, dates; on the order the Free box and *Scheme 10+2 applied* |
+| Bills of entry | Buy > All Buy screens > Documents > Bills of entry | Linked bills and receipts, duty rate and amount pairs, Post, Cancel with a reason |
+| Payables by Month | Buy > All Buy screens > Money > Payables by Month | Months, Older, Credits, Outstanding, total row, books check, Owed / Paid, branch |
+| Purchase bill window | Buy > Purchase Invoices | **Attachments**; TCS rate and amount; Currency and rate for a foreign supplier; **Capital goods** tick and asset class on a line; the Approve dialog's TDS proposal and **Paid now** |
+| Goods receipt window | Buy > Goods Receipts | **Attachments**; the **Serials** cell; PTR and PTS on a batch line |
+| Purchase order window | Buy > Purchase Orders | **Send** > WhatsApp |
+| Fixed assets | Accounts > All Accounts screens > Fixed assets | Asset register, Asset classes, Depreciation runs, Income-tax block schedule |
+| GST purchase register, HSN summary of purchases, TCS paid to suppliers | Reports > Financial | By tax head; by HSN and unit; by quarter |
 
 ### What to test
 | Flow / edge case | Cases |
@@ -382,6 +407,21 @@ return and debit note: the buying chain and what it books.
 | Inter-state order (IGST), receive and bill | QA-BUY-17, 18 |
 | Blocked supplier refused | QA-BUY-19 |
 | Warehouse role limits | QA-BUY-20 |
+| **Added 2026-10-05, none run by hand yet (confirm):** | |
+| GST purchase register and HSN summary; debit notes and returns as minus rows | QA-BUY-21; TC-BUY-029..032 |
+| Payables by month agree with the books; Paid view; credits | QA-BUY-22; TC-BUY-033..035 |
+| Approve and pay in one step; part payment; over the bill refused; needs the right to record payments | QA-BUY-23; TC-BUY-036..039 |
+| Attach, open, save, delete; wrong type and over-size refused; who may add | QA-BUY-24; TC-BUY-040..042 |
+| TDS 194C and 194J: single bill and yearly limit, no PAN, individual, deducted once, override, settings | QA-BUY-25; TC-BUY-043..049 |
+| TCS on a bill: rate or amount, paying it, cancelling, the quarterly report | QA-BUY-26; TC-BUY-050..053 |
+| Purchase order by WhatsApp: refused until set up; marked sent | QA-BUY-27; TC-BUY-054, 055 |
+| RFQ: quotes, comparison, a reason off the lowest, orders per supplier, from a requisition, who may raise orders | QA-BUY-28; TC-BUY-056..059 |
+| Rate contract prices the line; drawn and remaining; over-draw warns; overlap, expiry, close, cancel | QA-BUY-29; TC-BUY-060..062 |
+| Serials at receipt: typed, pasted, range; unique in the firm; cancel and return | QA-BUY-31; TC-BUY-063..065 |
+| Supplier scheme fills Free; typed figure and 0; another product as a gift line; overlap | QA-BUY-30; TC-BUY-066..069 |
+| Imports: currency bill, payment at another rate, part payment, refusals, Bill of Entry, revaluation (**run last**) | QA-BUY-33; TC-BUY-070..076 |
+| Fixed assets: capital-goods line, refusal off a completed receipt, depreciation run, disposal, cancelling a run, block schedule (**run last**) | QA-BUY-34; TC-BUY-077..081 |
+| PTR and PTS on the batch; never above MRP; retailer and stockist prices; a firm without the feature | QA-BUY-32; TC-BUY-082..085 |
 | More (not in the book): return outcomes, input credit blocked, composition supplier, 2B, reorder, rates and catalogue, inspection, tolerance, payment runs, ratings, rebates, landed cost, supplier credit on opening bill, free goods | TC-BUY-009..016, TC-BUY-018, TC-BUY-019, TC-BUY-021..028 |
 
 ### Verify elsewhere
@@ -395,15 +435,27 @@ return and debit note: the buying chain and what it books.
 | Approve debit note | **Dr Trade Payables / Cr Purchase Price Variance, Cr Input tax**; no stock moves |
 | TDS on payment | **Cr TDS Payable**; Reports > Financial > TDS deducted (GST-16) |
 | Every step | Audit trail; numbering series (PO-, GRN-, own series each) |
+| Approve a bill with **Paid now** | A payment `PY-` for the amount on Buy > Payments, allocated to the bill; the bill owes the rest (TC-BUY-036, 037) |
+| Approve a bill with TDS proposed | **Cr TDS Payable** for the deduction; the supplier is owed the bill less TDS; Accounts > All Accounts screens > Tax filing > TDS Challans can take the bill (TC-BUY-043) |
+| Approve a bill with TCS | **Dr TCS Receivable** (1430); the bill owes total plus TCS; Reports > Financial > TCS paid to suppliers (TC-BUY-050) |
+| Raise orders from an RFQ | One **draft** order per chosen supplier on Purchase Orders; the RFQ Closed; a source requisition reads Ordered (TC-BUY-057, 058) |
+| Approve an order priced from a rate contract | The contract's drawn goes up and remaining down; cancelling the order gives it back (TC-BUY-061) |
+| Complete a receipt with serials | Stock > All Stock screens > Tracking > Serial Numbers: one unit per serial, in the receipt's warehouse, its trail starting at the receipt (TC-BUY-063) |
+| Approve a foreign-currency bill; pay it | Journal in rupees at the bill's rate; on payment **Exchange Gain/Loss** (4950) for the difference (TC-BUY-070, 071) |
+| Post a Bill of Entry | Duty and surcharge added to the stock value of the linked receipts; **Dr Input IGST / Cr Customs Duty Payable** (2800); GSTR-3B 4(A)(1) (TC-BUY-074) |
+| Approve a bill with a capital-goods line | An asset in the Asset register; **Dr Fixed Assets** (1500), no stock; GST purchase register shows the capital goods tax apart (TC-BUY-077) |
+| Depreciation run; disposal | **Dr Depreciation (6950) / Cr Accumulated Depreciation (1590)**; on disposal the gain or loss on 4960 (TC-BUY-079, 080) |
 
 ### Permissions to check
-**Purchase Manager** approves; **Purchasing** (executive) raises but does not approve; **Warehouse** receives goods but not pays or approves orders (confirm); **Accounts** pays; Cashier records payments only. Payment runs: approval is separate from raising (cashier cannot approve). Over-tolerance and over-budget approval need their own permissions.
+**Purchase Manager** approves; **Purchasing** (executive) raises but does not approve; **Warehouse** receives goods but not pays or approves orders (confirm); **Accounts** pays; Cashier records payments only. Payment runs: approval is separate from raising (cashier cannot approve). Over-tolerance and over-budget approval need their own permissions. **Added 2026-10-05 (confirm):** *Paid now* shows only to a user who may record payments (TC-BUY-039); RFQs, rate contracts, supplier schemes and bills of entry each have a view and a manage permission of their own, held by Purchasing and Purchase Manager (TC-BUY-059, 069); approving a rate contract and posting a Bill of Entry need the right to approve purchases; fixed assets have their own view and manage permissions, held by Accounts, and a run, cancelling one and a disposal also need the right to post journals (TC-BUY-081). `docs/qa/01_ROLES_AND_ACCESS.md` lists which job is offered each screen.
 
 ### Known limits
 - Rule 43, a bank's own payment-run file layout and the 26Q file are not built (the generic NEFT file is).
 - Direct supplier e-invoice portal checks are warnings only; they never refuse a bill.
 - QA-BUY-13 refusal wording and QA-BUY-20 role screens are marked (confirm).
 - Cheque and label alignment needs a real printer.
+- **From the 2026-10-05 build, not built:** reading a bill into a draft (OCR); emailing an RFQ; a PDF on the WhatsApp order; the Bill of Entry in the GST purchase register and against GSTR-2B; returns and debit notes in another currency; tax withheld on a payment abroad (section 195); turning stock into an asset; GST on the sale of an asset.
+- **Open defects from reading that code, not yet driven** (`docs/DEFECTS.md`): D-BUY-35 the GST purchase register shows a foreign bill in currency units; D-BUY-36 the payment dialog's TDS hint ignores the amount; D-BUY-37 the Approve dialog's TDS proposal leaves out additional charges; D-BUY-38 the 194C/194J card mislabels its lower rate; D-BUY-39 an import is right only with the order and receipt stages off; D-BUY-40 capital goods cannot be bought with the receipt stage on.
 
 ---
 
@@ -504,6 +556,11 @@ debit notes, proforma, the counter bill, holds, batches, and customer statements
 | Numbering Series (SO, SI, PF ...) | Settings > Firm > Numbering Series | As set up | Each document |
 | My Preferences: Date format | User menu | dd-MM-yyyy | SELL-35 |
 | Customer record: terms, credit limit, GST registration | Masters > Customers | See MST | Place of supply and tax split |
+| Sales Stages: *Sales order* and *Delivery note* **off**, so New Invoice opens the counter bill | Settings > Selling > Sales Stages | On | TC-SELL-040..045, 064..072. Switch both back on afterwards |
+| The masters the new cases share (`QA-CTR`, `QA-SVC`, `QA-C03`) | Head of the SG block in `docs/qa/08_SELLING.md` | -- | TC-SELL-036..086 |
+| Transporters | Settings > Set up > Territories & routes > Transporters | None | TC-SELL-055..059 |
+| Customer: **Collector** | Masters > Customers | Blank: the account manager collects | TC-SELL-073 |
+| Control accounts *Other Charges Recovered* (4050) and *Cash Short and Over* (6960) | Settings > Set up > Account structure > Control Accounts | Seeded | TC-SELL-050, 069 |
 
 ### Screens to open
 | Screen | Menu path | What to look at |
@@ -519,6 +576,14 @@ debit notes, proforma, the counter bill, holds, batches, and customer statements
 | Proforma, Approvals | Sell > All Sell screens > Documents | PF- series, "Not a tax invoice" |
 | Post-dated Cheques, Refunds | Sell > All Sell screens > Money | See Finance |
 | Sales Analysis | Sell > All Sell screens > Insight | See Reports |
+| Counter bill | Sell > Sales Invoices > New (stages off) or + New by product | **Walk-in** and the buyer's name and phone; **Other charges** > Add charge; **Hold (F8)**, **Recall**; the shift strip (Open shift, Close shift) |
+| Counter Shifts | Sell > All Sell screens > Documents > Counter Shifts | Status and date filters, View, Print report |
+| Customer Rebates | Sell > All Sell screens > Documents > Customer Rebates | Agreement with slabs for a customer or a group; statement; accrue, reverse, cancel, settle against bills |
+| Collection Sheet, Payment Promises | Sell > All Sell screens > Money | Open bills by collector with days overdue and the latest promise; the PDF; a promise's status |
+| Transporters | Settings > Set up > Territories & routes > Transporters | Name, GSTIN or TRANSIN, phone, mode, active |
+| Delivery note window | Sell > Delivery Notes | **Carrier (master)**, **Freight** |
+| Attachments | Quotations, Sales Orders, Delivery Notes, Sales Invoices, Sales Returns lists | The **Attachments** action and the **Files** column |
+| GST sales register, HSN summary of sales, Customer rebate statement | Reports > Financial | By tax head; by HSN and rate |
 
 ### What to test
 | Flow / edge case | Cases |
@@ -540,6 +605,17 @@ debit notes, proforma, the counter bill, holds, batches, and customer statements
 | Proforma posts nothing | QA-SELL-31; TC-SELL-017 |
 | Statement and ageing | QA-SELL-32; TC-CUST-005 |
 | Delete guards; date format; end-of-module stock | QA-SELL-33..36 |
+| **Added 2026-10-05, none run by hand yet (confirm):** | |
+| GST sales register and HSN summary; minus and plus rows; who may open them | QA-SELL-37; TC-SELL-036..039 |
+| Walk-in bill: paid in full or refused; two tenders; buyer's name only on a walk-in; the Cash sale customer's guards; no loyalty, B2C | QA-SELL-38; TC-SELL-040..045 |
+| A service moves no stock and posts no cost; goods and service together; on a typed order and note; returned | QA-SELL-39; TC-SELL-046..049 |
+| A charge taxed at its own rate; with no tax; replaced on a draft; on the print and in the register; what it does not do | QA-SELL-40; TC-SELL-050..054 |
+| Transporter kept once by name; fills the note; the note wins; inactive refused; who keeps them | QA-SELL-41; TC-SELL-055..059 |
+| Files on the five documents; type and size; delete and who may add | QA-SELL-42; TC-SELL-060..063 |
+| Hold and recall; a held bill never approved; only a draft held | QA-SELL-43; TC-SELL-064..066 |
+| Shift: open, one per cashier, expected cash, short, over and exact, who may close, optional | QA-SELL-43; TC-SELL-067..072 |
+| Collection sheet by collector; promise posts nothing; kept, un-kept, due today, broken; refusals; withdrawn; who may | QA-SELL-44; TC-SELL-073..079 |
+| Customer rebate: slab on the whole turnover; accrued once after the period; settle; reverse; overlap; group; who may | QA-SELL-45; TC-SELL-080..086 |
 | More (not in the book): rate includes GST, minimum shelf life, pinning a batch, batch MRP, several notes on one bill, picking list, cash discount and interest, new outlet approval, price levels, UPI QR, reminders | TC-SELL-021..027, TC-SELL-030..035 |
 
 ### Verify elsewhere
@@ -556,6 +632,14 @@ Order of effect (`docs/SALES_CHAIN_RULES.md`, `docs/SALES_TO_RECEIPT_FLOW.md`):
 | Credit note | **Dr Sales Returns, Dr Output tax / Cr Trade Receivables**; no stock (SELL-29) |
 | Debit note | **Dr Trade Receivables / Cr Sales, Cr Output tax**; owed on the same invoice (SELL-17) |
 | Every document | Numbering series (SO-, DN-, SI-, RC-, PF-); audit trail; GSTR-1 sections B2B, B2CS, CDNR (GST module) |
+| Approve a walk-in bill | A receipt for the full amount; no loyalty points; GSTR-1 as B2C (TC-SELL-040, 045) |
+| Approve a bill of a service | **No** stock movement and **no** cost of goods sold journal (TC-SELL-046) |
+| Approve a bill with a charge | **Cr Other Charges Recovered** (4050) for the charge, apart from Sales; its tax with the output tax; the GST sales register and HSN summary carry it under its SAC (TC-SELL-050, 053) |
+| Hold a bill | Nothing: no stock, no journal; the list marks it held (TC-SELL-064) |
+| Close a shift short or over | One journal between cash and **Cash Short and Over** (6960) for the difference; an exact count posts nothing (TC-SELL-069, 070) |
+| Record or withdraw a promise | **No journal**; Payment Promises shows the status; a receipt in the window turns it *kept*, reversing it un-keeps it (TC-SELL-074, 075) |
+| Accrue a customer rebate | **Dr Rebates Allowed (5310) / Cr Customer Rebates Payable (2900)**, dated the period's last day (TC-SELL-081) |
+| Settle a rebate | A party adjustment of kind *Customer rebate* under Accounts > All Accounts screens > Books > Party Adjustments; the customer owes less (TC-SELL-082) |
 
 ### Permissions to check
 **Field Sales** raises quotations, orders and invoices but cannot approve, cancel or change masters; **Counter Sales** bills and takes receipts; **Sales Manager** approves and works the sales desk but may not change Credit Control, Sales Stages or commission payment; **Customer Support** and **Read Only** do not create documents. Price floor override needs `SALES_PRICE_OVERRIDE` (not Sales Manager by default).
@@ -564,6 +648,8 @@ Order of effect (`docs/SALES_CHAIN_RULES.md`, `docs/SALES_TO_RECEIPT_FLOW.md`):
 - The **Quotation stage** switch changes nothing in 1.3.0.
 - Automatic WhatsApp and SMS sends are not built (sharing by hand is); email needs the firm's Messaging switched on, which is off by default.
 - Payment links are not built.
+- **From the 2026-10-05 build, not built:** charges carried from the sales order, and crediting a charge; changing the carrier of a note already raised; a promise for the account as a whole from the screen, the promise on the customer statement, a reminder from a broken promise; a counter refund against a bill, a count by denomination, handing a shift over; a rebate settled by a GST credit note or paid out in money.
+- **Open defects from reading that code, not yet driven** (`docs/DEFECTS.md`): **D-SELL-51** a bill is counted in the shift of whoever approves it, and the counter roles cannot approve, so a cashier's shift may take no bills (run the shift cases as a user who can approve, and note what Counter Sales sees); **D-SELL-52** Customer Rebates offers *Settle against bills* to a Sales Manager, who is then refused.
 - Several book cases carry (confirm): SELL-11 per-head output tax legs, SELL-19 cash leg, SELL-26 whether approval warns, SELL-36 value 31,120.00.
 
 ---

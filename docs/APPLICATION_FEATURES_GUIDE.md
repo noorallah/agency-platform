@@ -26,6 +26,18 @@ and Settings > Platform > Agency > Branding). Release 1.2.0 was never shipped,
 so 1.3.0 is the first release after 1.1.0 and carries everything of both. Every
 path below is written as the 1.3.0 menu shows it.
 
+**Added on 2026-10-05, still release 1.3.0** (which has not been distributed):
+the purchasing build (requests for quotation, rate contracts, supplier
+schemes, imports and bills of entry, fixed assets, TDS 194C and 194J, TCS on a
+purchase, *Paid now*, attachments, serials at receipt, PTR and PTS, the GST
+purchase register and Payables by Month) and the selling build (walk-in cash
+sale, service invoices, other charges, transporters, attachments, hold and
+recall with counter shifts, the collection sheet and payment promises, customer
+rebates, the GST sales register). **These were written here from the code and
+its own tests; none has been through a full test suite, a CI run or a hand
+test.** Where a label or a figure below is about one of them, read it as
+*(confirm)*.
+
 **How paths are written.** *Sell → Sales Invoices* is a screen in Sell's daily
 drop-down. *Sell → All Sell screens → Documents → Enquiries* is a screen
 behind **All Sell screens** at the foot of that drop-down, under its group
@@ -157,10 +169,10 @@ two screens are always shown).
 
 | Area | The daily drop-down shows | Behind *All screens*, by group |
 | --- | --- | --- |
-| **Sell** | Quotations, Sales Orders, Delivery Notes, Sales Invoices, **Returns & notes** (opens Sales Returns, Credit Notes, Customer Debit Notes); under Money: Receipts, Customer Statements | Documents (Enquiries, Proforma, Approvals ...), Money (Post-dated Cheques, Refunds ...), Incentives, Insight, Field sales |
-| **Buy** | Purchase Orders, Goods Receipts, Purchase Invoices, **Returns & notes** (Purchase Returns, Debit Notes); under Money: Payments, Supplier Statements | Documents (Requisitions, Approvals, Quality Inspection ...), Money (Payment Runs, Post-dated Cheques, Supplier Gifts, Supplier Rebates, Principal Claims, Landed Costs), Insight |
+| **Sell** | Quotations, Sales Orders, Delivery Notes, Sales Invoices, **Returns & notes** (opens Sales Returns, Credit Notes, Customer Debit Notes); under Money: Receipts, Customer Statements | Documents (Enquiries, Counter Shifts, Proforma, Approvals, Customer Rebates ...), Money (Collection Sheet, Payment Promises, Post-dated Cheques, Refunds ...), Incentives, Insight, Field sales |
+| **Buy** | Purchase Orders, Goods Receipts, Purchase Invoices, **Returns & notes** (Purchase Returns, Debit Notes); under Money: Payments, Supplier Statements | Documents (Requisitions, Requests for quotation, Rate contracts, Supplier schemes, Bills of entry, Approvals, Quality Inspection ...), Money (Payment Runs, Payables by Month, Post-dated Cheques, Supplier Gifts, Supplier Rebates, Principal Claims, Landed Costs), Insight |
 | **Stock** | Stock Summary, Stock Ledger, Stock Transfers, Physical Count; under Tracking: Batches, Expiry Monitor | Stock (Inventory, Stock Search, Transactions), Movements (Opening Stock, Adjustment Approvals, Repacking), Tracking (Lots, Serial Numbers), Data (Import, Export) |
-| **Accounts** | Books: Journal Entries, Expenses, Ledgers, Bank Reconciliation; Statements: Trial Balance, Profit & Loss, Balance Sheet; Tax: GST Returns | Books (Chart of Accounts, Opening Balances, Party Adjustments, Contra Vouchers, Export to Tally), Statements (Cash Flow), Tax filing |
+| **Accounts** | Books: Journal Entries, Expenses, Ledgers, Bank Reconciliation; Statements: Trial Balance, Profit & Loss, Balance Sheet; Tax: GST Returns | Books (Chart of Accounts, Opening Balances, Party Adjustments, Contra Vouchers, Export to Tally), Fixed assets (Asset register, Asset classes, Depreciation runs, Income-tax block schedule), Statements (Cash Flow), Tax filing |
 | **Masters** | Customers, Vendors, Products; under Organisation: Branches, Warehouses | Parties, Items, Organisation, Compliance (Trade Licences) |
 
 The foot of Sell, Accounts and Masters also carries **SET UP IN SETTINGS**:
@@ -546,10 +558,130 @@ invoice at its total plus the note, and the ageing ages it from the invoice's
 due date. Drafting and approving are separate permissions; GSTR-1 declares it
 as a debit note (type D) and GSTR-3B adds it to outward supplies.
 
+### Added on 2026-10-05 (not yet tested by hand)
+
+**Walk-in cash sale.** A counter sells to people who have no customer record.
+On the counter bill choose **Walk-in**: the bill is made out to the firm's one
+*Cash sale* customer (created the first time anybody asks for it), and the
+buyer's **name** and **phone** can be typed on the bill; they print in place
+of the customer's name. Rules: a walk-in bill must be **paid in full** before
+it can be approved; it earns no loyalty points; it is an unregistered (B2C)
+sale; a buyer's name is refused on a bill to any other customer. The *Cash
+sale* customer cannot be deleted, given a credit limit or a GSTIN, or made
+inactive.
+
+**Service invoices.** A product whose type is *Service* (installation,
+freight, a repair) is put on a quotation, order, delivery note, bill or
+return like any other line and is billed with its SAC. It **moves no stock**:
+nothing is reserved, nothing is dispatched, no cost of goods sold is booked
+and it is never a back order. There is no separate screen; set the product's
+type and its HSN / SAC under *Masters → Products*.
+
+**Other charges on the bill.** Under **Other charges** on a sales bill, *Add
+charge* takes a name (packing, handling, insurance), an amount before tax, a
+tax profile and a SAC; up to ten. Each charge is taxed **at its own rate**,
+by the profile it names, for the same buyer; a charge with no tax profile
+carries no tax. The charges are in the bill's tax and total, print by name on
+the bill, and reach GSTR-1, GSTR-3B, the GST sales register and the
+e-invoice. In the books they are credited to *Other Charges Recovered*
+(4050), not to sales. Freight and the older untaxed *additional charges* box
+work as before. Not built: charges are not carried from the sales order, and
+a credit note or a sales return credits lines only, so a charge cannot be
+credited.
+
+**Transporters and freight terms.** *Settings → Set up → Territories & routes
+→ Transporters* keeps each carrier once: name, GSTIN (or the TRANSIN of an
+unregistered carrier), phone and usual mode. On a delivery note, **Carrier
+(master)** picks one and fills the note's transporter name, GSTIN and mode;
+anything typed on the note wins, and changing the master later never rewrites
+a note already raised. An inactive carrier is not offered. **Freight** on the
+note says who pays the carrier (*Paid*, *To pay* or *To be billed*); it prints
+on the challan and moves no money. The carrier of a note already raised
+cannot be changed on screen.
+
+**Attachments on sales documents.** The Quotations, Sales Orders, Delivery
+Notes, Sales Invoices and Sales Returns lists each have an **Attachments**
+action and a **Files** column. A file is a PDF, JPG or PNG of at most 10 MB
+with an optional caption; each document keeps its own files, and removing one
+is recorded in the audit trail. A person who may only view the document can
+open its files; adding and deleting need the right to edit it.
+
+**Hold and recall at the counter.** On the counter bill, **Hold (F8)** parks
+the draft with an optional note and opens a fresh bill; **Recall** lists the
+held bills and brings the chosen one back. A held bill can be edited and is
+**never approved while held**; only a draft can be held. Holding changes
+nothing in stock. The Sales Invoices list marks held bills.
+
+**Counter Shifts** (*Sell → All Sell screens → Documents → Counter Shifts*,
+and the strip above the scan field on the counter bill). A shift is one
+cashier's till for a sitting:
+
+1. **Open shift** with the opening float. One open shift per cashier.
+2. Bill as usual. Expected cash is the float plus the **cash** tenders of the
+   shift's bills whose receipts still stand; it is worked out each time it is
+   read.
+3. **Close shift** with the cash counted. The screen shows the shortage or
+   excess as you type, warns of bills still on hold, and offers the shift
+   report.
+
+A count that differs from the expected cash posts the difference to *Cash
+Short and Over* (6960); an exact count posts nothing. The cashier whose till
+it is, or somebody who may approve sales, closes it. **Shifts are optional**:
+a firm that opens none bills exactly as before. Known problem, not yet
+checked on a screen (D-SELL-51): a bill is counted in the shift of the person
+who **approves** it, and the counter roles cannot approve, so a cashier's
+shift may show no bills. Not built: a refund at the counter against a bill, a
+count by denomination, and handing a shift to another cashier.
+
+**Customer Rebates** (*Sell → All Sell screens → Documents → Customer
+Rebates*). "2% back on the year's purchases over 10 lakh", promised to **one
+customer or one customer group** for a period, with slabs. The turnover is
+counted from the documents GSTR-1 counts (approved bills before tax, less
+completed returns and approved credit notes, plus approved debit notes) and
+the highest slab reached sets the rate on the whole of it. A group's
+agreement adds up its members. Once the period is over the rebate is
+**accrued** (booked as owed to the customer); an accrual nothing has settled
+can be reversed and accrued again; and it is **settled against the customer's
+bills** by a party adjustment of kind *Customer rebate*. One live agreement
+covers a customer over any dates: a second whose period overlaps is refused,
+its group's included. The statement (also *Reports → Financial → Customer
+rebate statement*) shows the turnover, the slab reached, what is accrued,
+settled and still to settle. **No GST is computed on a rebate.** The agreement
+records whether it was *agreed before the sale*, for the firm's CA. Agreeing
+and accruing need the right to approve sales; settling needs the right to
+manage party adjustments, which a Sales Manager does not hold (D-SELL-52: the
+screen still offers the button). Not built: settling by a GST credit note,
+paying a rebate out in money, and accruing part-way through a period.
+
 ## 5.3 Money
 
-*Receipts* and *Customer Statements* are in the Sell drop-down; Post-dated
-Cheques and Refunds are under *Sell → All Sell screens → Money*.
+*Receipts* and *Customer Statements* are in the Sell drop-down; Collection
+Sheet, Payment Promises, Post-dated Cheques and Refunds are under *Sell → All
+Sell screens → Money*.
+
+**Collection Sheet and Payment Promises** (added 2026-10-05, not yet tested by
+hand). The **Collection Sheet** lists every customer's open bills, opening
+bills included, with days overdue, the latest promise and the **collector**,
+sorted by collector, customer and due date; it can be narrowed to one
+collector or route, or to overdue bills only, and printed as a PDF for the
+round. The collector is set on the customer (**Collector**); where it is blank
+the customer's account manager collects. From a row of the sheet, record a
+**promise**: the day promised for, the amount and a note. **Payment Promises**
+lists them by status:
+
+- *pending* before its day, *due today* on it;
+- *kept* when receipts dated from the day it was taken up to the day promised
+  cover the amount;
+- *broken* past that day without them;
+- *withdrawn* when taken back, with a reason.
+
+The status is worked out from the receipts every time, so reversing a receipt
+un-keeps the promise it had kept. A promise **posts nothing** and is never
+edited: a changed promise is withdrawn and a new one taken. It is refused on a
+draft bill, on a bill that owes nothing and for more than the bill owes.
+Reading needs the right to view receipts, recording the right to create them.
+Not built: a promise for the account as a whole from the screen, the promise
+on the customer statement, and a reminder raised from a broken promise.
 
 **Receipts.** Money received from a customer, by cash, cheque, bank transfer
 or UPI. A receipt is applied to one or more invoices; anything left over is
@@ -744,8 +876,9 @@ value of a point, expiry) is set per firm.
 
 *Purchase Orders, Goods Receipts* and *Purchase Invoices* are in the Buy
 drop-down; **Returns & notes** opens Purchase Returns and Debit Notes;
-Requisitions, Approvals and Quality Inspection are under *Buy → All Buy screens
-→ Documents*.
+Requisitions, Requests for quotation, Rate contracts, Supplier schemes, Bills
+of entry, Approvals and Quality Inspection are under *Buy → All Buy screens →
+Documents*.
 
 **Requisitions** (*Buy → All Buy screens → Documents → Requisitions*). An indent: someone asks
 for goods, a manager approves, and an approved requisition is converted into a
@@ -854,10 +987,133 @@ what the bill still owes -- the bill is already paid -- is not refused: the
 excess becomes a **supplier credit**, set against the next bill or refunded,
 as a return off a paid bill does.
 
+### Added on 2026-10-05 (not yet tested by hand)
+
+**Requests for quotation** (*Buy → All Buy screens → Documents → Requests for
+quotation*). Ask several suppliers for their prices and order from the best.
+
+1. New: the products and quantities, and the suppliers invited. An approved
+   requisition has a **Create RFQ** action that starts one from its lines.
+2. **Send**, then **Enter quotes**, one supplier at a time: a rate, a discount,
+   a lead time per line.
+3. **Compare**: every supplier's rate after discount and before tax, cheapest
+   first, the lowest marked. Choose one quote per line; a choice that is not
+   the lowest needs a reason.
+4. **Raise orders**: one draft purchase order per chosen supplier, at the
+   quoted rates, and the RFQ closes.
+
+A supplier who was not invited cannot quote. Raising orders needs the right to
+create purchase orders as well as to manage RFQs. Emailing the RFQ to the
+suppliers is not built.
+
+**Rate contracts** (*Buy → All Buy screens → Documents → Rate contracts*). A
+rate, a discount and optionally a quantity agreed with one supplier for a
+period. **Approve** makes it active. From then on a purchase order line for
+that supplier with the price left blank takes the contract's rate, ahead of
+the supplier's price list, and shows a mark on its rate. The contract window
+shows what has been **drawn** (ordered on approved orders) and what
+**remains** per line; an order that takes a contract past its quantity shows
+a warning and is **never refused**. An active contract past its last day reads
+*Expired* and prices nothing. Two active contracts with one supplier for the
+same product may not overlap. **Close**, **Cancel** (with a reason) and
+**Releases** (the orders priced from it) are on the same window.
+
+**Supplier schemes** (*Buy → All Buy screens → Documents → Supplier schemes*).
+"Buy 10, get 2", for one supplier or for every supplier of the product, for a
+period. On a purchase order a scheme of the **same product** fills the line's
+**Free** box where it was left blank, and the side panel reads *Scheme 10+2
+applied*; a figure you type is kept, and a typed 0 refuses the scheme. A
+scheme that gives **another product** adds that product as a line of its own
+with nothing charged, once. The receipt and the bill inherit the free goods.
+A supplier's own scheme beats one for every supplier; two schemes of the same
+reach on one product may not overlap in dates.
+
+**Serial numbers at receipt.** On a goods receipt line for a serial-tracked
+product, the **Serials** cell opens a box to type, paste or scan the numbers,
+or **Fill a range** (prefix, start, count, width). A draft may be short; to
+complete the receipt there must be one serial per unit received, free units
+included. A serial already in the firm is refused. Completing creates the
+units in the receipt's warehouse and starts each unit's trail; cancelling the
+receipt removes them unless one has moved. A purchase return names the units
+going back.
+
+**PTR and PTS per batch** (firms on the Pharmacy, Food or Wholesale profile
+with the feature on). A goods receipt line for a batch takes the *price to
+retailer* and *price to stockist* beside the MRP; a batch number is required
+and neither may be above the MRP. The customer carries a **Trade class**
+(Retailer, Stockist, Other). On a sale from that batch a blank price takes
+PTR for a retailer and PTS for a stockist, after a typed price and the price
+list. The price box is never filled in for you. A firm without the feature
+sees none of this.
+
+**Attachments on bills and receipts.** The purchase bill and goods receipt
+windows have an **Attachments** button (add, open, save, delete) and their
+lists a **Files** column: the supplier's bill as a PDF, JPG or PNG of at most
+10 MB. Reading the bill into a draft (OCR) is not built.
+
+**Paid now: a cash purchase in one step.** A person who may record payments
+sees a **Paid now** tick in the bill's Approve dialog: method, amount
+(blank pays the full bill), reference and date. **Approve and pay** approves
+the bill and records an ordinary payment against it together. More than the
+bill owes is refused; reversing the payment later leaves the bill approved
+and owing.
+
+**TDS under 194C and 194J.** The supplier carries its **Usual TDS section**
+(with *Individual / HUF* for 194C and *Technical services (2%)* for 194J), and
+the thresholds and rates are under *Settings → Tax → TDS on purchases (194Q,
+194C, 194J)*. When a bill is approved the dialog shows the deduction worked
+out for it, with a box to override it; approval posts it to *TDS Payable* and
+the supplier is owed the bill less the TDS. Money paid ahead of any bill
+proposes the deduction on the payment instead, and it is deducted once.
+Challans and the TDS registers carry these bills.
+
+**TCS charged by a supplier.** A purchase bill has a **TCS rate** and a **TCS
+amount**: a rate alone is worked on the bill's total including GST, and a
+typed amount wins. It is outside GST. Approval books it to *TCS Receivable*
+(1430), a tax asset to claim, and the supplier is owed the bill plus the TCS.
+*Reports → Financial → TCS paid to suppliers* totals it by quarter.
+
+**Send the order by WhatsApp.** **Send** on a purchase order offers WhatsApp
+beside Email once the firm has switched messaging and the WhatsApp channel on
+and named the template for *Purchase order sent to the supplier* (*Settings →
+Firm → Messaging*). It goes to the supplier's mobile unless a number is typed,
+and the order is marked sent. The message is the template only; the PDF is not
+attached.
+
+**Imports: a supplier in another currency.** Give the supplier a **Currency**
+(three letters; blank is rupees). The bill window then starts in that
+currency and asks for the **rate**; lines and totals are typed in the
+currency and shown with their rupee equivalent, and the books are posted in
+rupees at that rate. Such a bill offers no TCS, TDS or *Paid now*. Pay it
+from *Payments* in its own currency at the day's rate: the difference from
+the bill's rate posts to *Exchange Gain/Loss*. *Revalue foreign payables* on
+*Journal Entries* books the unrealised difference on what is still owed at a
+period end and reverses it the next day. **As built, an import is typed as a
+bill alone**, with the purchase order and goods receipt stages switched off
+(*Settings → Buying → Purchase Settings → Buying stages*): the order window
+has no currency (D-BUY-39).
+
+**Bills of entry** (*Buy → All Buy screens → Documents → Bills of entry*).
+The customs document for an import. Link the bills and receipts it covers;
+per line give the assessable value and the rates or amounts of basic customs
+duty, social welfare surcharge (10% of the duty unless typed), IGST and cess;
+a typed amount beats its rate. **Post** adds the duty and surcharge to the
+cost of the goods received (to *Customs Duty* expense for a line no receipt
+carries), claims the IGST as input credit, and books what is owed to *Customs
+Duty Payable*. The receipts must be completed first. **Cancel** (with a
+reason) reverses it. GSTR-3B shows the IGST in 4(A)(1) *Import of goods*. Not
+built: the Bill of Entry in the GST purchase register and against GSTR-2B.
+
+**Capital goods on a bill.** A bill line has a **Capital goods** tick and,
+with it, a required **asset class**. At approval the line raises a fixed
+asset (8.1) instead of stock, and its GST is claimed in full. A line billing
+a receipt already completed is refused, because those goods are in stock
+(D-BUY-40).
+
 ## 6.3 Money and insight
 
 *Payments* and *Supplier Statements* are in the Buy drop-down; the rest of
-Money (Payment Runs, Post-dated Cheques, Supplier Gifts, Supplier Rebates,
+Money (Payment Runs, Payables by Month, Post-dated Cheques, Supplier Gifts, Supplier Rebates,
 Principal Claims, Landed Costs) and Insight (Purchase Dashboard, Purchase
 Analysis, Rate Trend) are under *Buy → All Buy screens*.
 
@@ -886,26 +1142,14 @@ receivable from the supplier), reverse an accrual that was wrong, and settle it
 with a supplier adjustment of kind *Supplier rebate* rather than a debit note
 (which must name one bill).
 
-**Customer rebates** (server built 2026-10-05, SG-9; the screen follows). The
-same thing the other way round: "2% back on the year's purchases over 10 lakh",
-promised to **one customer or one customer group** for a period, with slabs.
-The turnover is counted from the documents GSTR-1 counts -- approved bills at
-taxable value, less completed sales returns and approved credit notes, plus
-approved debit notes, each on its own date -- and the highest slab reached sets
-the rate on the whole of it. A group's agreement adds up its members. One live
-agreement covers a customer over any dates: a second of its own whose period
-overlaps is refused, and so is one of its own beside its group's. Once the
-period is over the rebate is *accrued* (booked as owed to the customer), an
-accrual nothing has settled can be reversed and accrued again, and it is
-settled with a party adjustment of kind *Customer rebate*, which takes it off
-what the customer owes. The statement shows the turnover by customer, the slab
-reached, the next slab and how much more reaches it, what is accrued, settled
-and still to settle. **No GST is computed on a rebate.** The agreement records
-whether it was *agreed before the sale*: only then (CGST Act s.15(3)(b)) may
-the firm's CA reduce the taxable value with a GST credit note; otherwise the
-rebate is a financial credit and the tax charged stands. Not built: settling
-by linking a GST credit note, paying a rebate out in money where the customer
-owes less than the rebate, and accruing part-way through a period.
+Customer rebates, the same thing the other way round, are under Sell (5.2).
+
+**Payables by Month** (*Buy → All Buy screens → Money → Payables by Month*;
+added 2026-10-05, not yet tested by hand). What each supplier is owed, month
+by month, with *Older*, *Credits* (advances and supplier credit) and
+*Outstanding*, a total row, a chart and a check that the total agrees with the
+payables account in the books. A switch shows what was **paid** instead of
+what is **owed**, and a filter narrows to a branch.
 
 **Principal Claims** (*Buy → All Buy screens → Money → Principal Claims*). What a principal (the
 brand owner) owes the firm: for each principal and period it gathers, once
@@ -1149,6 +1393,34 @@ Tally before relying on it.
 accounts for its bills, one marked *print on documents*: its details print in
 the bank block of every document that has one. Only people who may manage
 accounts or record payments see the full number; others see the last four.
+
+**Fixed assets** (*Accounts → All Accounts screens → Fixed assets*; added
+2026-10-05, not yet tested by hand). Four screens:
+
+- **Asset classes**: how each kind of asset is depreciated. Straight line or
+  written down value, by a rate or a useful life, a residual percentage, and
+  the Income-tax block rate. Five classes come with the firm: plant,
+  furniture, computers, vehicles and office equipment.
+- **Asset register**: each asset with its cost, accumulated depreciation and
+  net book value. An asset arrives from a purchase bill line ticked *Capital
+  goods* (6.2), or is typed by hand for an opening asset (which posts
+  nothing). Each asset has a **schedule** (charged and projected by year) and
+  **Dispose**.
+- **Depreciation runs**: charge a period. A run works each asset pro rata by
+  days and posts one journal (*Depreciation* against *Accumulated
+  Depreciation*). Runs go forward only and may not overlap; the latest can be
+  cancelled with a reason.
+- **Income-tax block schedule**: by financial year, the opening value,
+  additions, depreciation at the block rate (half for an asset used under 180
+  days) and closing value per block. It is a statement only and posts nothing.
+
+Disposing of an asset charges depreciation to the day, takes its cost and
+accumulated depreciation off the books, brings in the cash or bank received
+and books the difference as a gain or a loss. Viewing and managing are two
+permissions of their own; a run, cancelling one and a disposal also need the
+right to post journals. Not built: turning goods already in stock into an
+asset, GST on the sale of an asset (raise a sales invoice for it), and an
+Income-tax book posting.
 
 ## 8.2 Statements
 
@@ -1420,10 +1692,23 @@ reports. Each can be filtered, sorted and exported.
 | Supplier bills and returns | Purchase invoice register, supplier invoices not yet approved, purchase invoice reconciliation, overdue purchase invoices, vendor outstanding, purchase return register and reconciliation, damaged and expired goods returned, returns by product or vendor |
 | Commission and tax | Commission on collections, TCS charged against due, customer and supplier PAN check, TDS 194Q |
 | Supplier and stock | Supplier performance, supplier price trend, free goods given, invoices due (selling and buying) |
+| GST registers and others added 2026-10-05 (Financial) | GST sales register, HSN summary of sales, GST purchase register, HSN summary of purchases, TCS paid to suppliers, customer rebate statement |
 
 The accounting statements (Trial Balance, Profit & Loss, Balance Sheet,
 Ledgers), GST returns, customer statements and ageing are under
 **Accounts**, **Sell** and **Buy**, beside the work they report on.
+
+The **GST sales register** lists every declared document of a period by tax
+head: an approved bill is a row, a credit note, a completed sales return and a
+late cancellation rows in minus on their own dates, a customer debit note a
+row in plus. The **HSN summary of sales** folds the same supplies by HSN code
+and rate. Both read what GSTR-1 reads, so they agree with the return. The
+**GST purchase register** does the same for approved and closed supplier
+bills, with tax that may not be claimed and reverse charge shown apart, and
+debit notes and returns after billing as minus rows; the **HSN summary of
+purchases** folds them by HSN code and unit. (A bill in another currency
+shows in currency units, not rupees: D-BUY-35.) All were added on 2026-10-05
+and have not been tested by hand.
 
 ---
 
@@ -1695,3 +1980,11 @@ Known and planned:
   (the sandbox and the offline upload exist).
 - A kit inside a kit, and kit components priced on the bill.
 - A signed installer (Windows warns when it is run).
+- From the purchasing and selling builds of 2026-10-05: reading a supplier's
+  bill into a draft (OCR); emailing a request for quotation; the Bill of Entry
+  in the GST purchase register and against GSTR-2B; purchase returns and debit
+  notes in another currency; tax withheld on a payment abroad (section 195);
+  recurring bills, job work, drop-ship and consignment; charges carried from
+  the sales order or credited by a credit note; a counter refund against a
+  bill and a count by denomination; a rebate settled by a GST credit note; van
+  sales, export and SEZ sales, packing slips and a bill of supply.
