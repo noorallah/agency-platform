@@ -1,7 +1,16 @@
 import 'entities.dart' show Json, stringValue;
 
-/// Which purchase document a file is attached to (PG-4).
-enum AttachableDocument { purchaseInvoice, goodsReceipt }
+/// Which document a file is attached to: a purchase bill or a goods receipt
+/// (PG-4), or one of the five sales documents (SG-6).
+enum AttachableDocument {
+  purchaseInvoice,
+  goodsReceipt,
+  quotation,
+  salesOrder,
+  deliveryNote,
+  salesInvoice,
+  salesReturn,
+}
 
 /// The biggest file the server accepts for a bill or a receipt.
 const int maxDocumentFileBytes = 10 * 1024 * 1024;
@@ -57,4 +66,10 @@ String documentFileSize(int bytes) {
   }
   if (bytes >= 1024) return '${(bytes / 1024).round()} KB';
   return '$bytes B';
+}
+
+/// The Files column: a clip and the count, blank when nothing is attached.
+String documentFilesCell(Object? count) {
+  final int n = int.tryParse(stringValue(count)) ?? 0;
+  return n > 0 ? '\u{1F4CE} $n' : '';
 }

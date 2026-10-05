@@ -177,16 +177,6 @@ int pagedTotal(Json page, {required int fallback}) {
       fallback;
 }
 
-/// The sales documents a file can be kept with (SG-6). Named here, beside
-/// the calls that take it, until the screens that use them arrive.
-enum SalesAttachableDocument {
-  quotation,
-  salesOrder,
-  deliveryNote,
-  salesInvoice,
-  salesReturn,
-}
-
 class ApiClient {
   ApiClient({
     required this.baseUrl,
@@ -3781,12 +3771,71 @@ class ApiClient {
       );
 
   // The supplier's bill or a photo of it, kept with a bill or a goods
-  // receipt (PG-4).
+  // receipt (PG-4); the customer's PO scan or the signed challan, kept with a
+  // sales document (SG-6). One store, one set of limits, one record: each
+  // path is written out so it can be found by its route.
 
   String _documentFilesPath(AttachableDocument kind, String documentId) =>
-      kind == AttachableDocument.purchaseInvoice
-          ? '/api/v1/purchase-invoices/$documentId/files'
-          : '/api/v1/goods-receipts/$documentId/files';
+      switch (kind) {
+        AttachableDocument.purchaseInvoice =>
+          '/api/v1/purchase-invoices/$documentId/files',
+        AttachableDocument.goodsReceipt =>
+          '/api/v1/goods-receipts/$documentId/files',
+        AttachableDocument.quotation =>
+          '/api/v1/quotations/$documentId/files',
+        AttachableDocument.salesOrder =>
+          '/api/v1/sales-orders/$documentId/files',
+        AttachableDocument.deliveryNote =>
+          '/api/v1/delivery-notes/$documentId/files',
+        AttachableDocument.salesInvoice =>
+          '/api/v1/sales-invoices/$documentId/files',
+        AttachableDocument.salesReturn =>
+          '/api/v1/sales-returns/$documentId/files',
+      };
+
+  String _documentFilePath(
+    AttachableDocument kind,
+    String documentId,
+    String fileId,
+  ) =>
+      switch (kind) {
+        AttachableDocument.purchaseInvoice =>
+          '/api/v1/purchase-invoices/$documentId/files/$fileId',
+        AttachableDocument.goodsReceipt =>
+          '/api/v1/goods-receipts/$documentId/files/$fileId',
+        AttachableDocument.quotation =>
+          '/api/v1/quotations/$documentId/files/$fileId',
+        AttachableDocument.salesOrder =>
+          '/api/v1/sales-orders/$documentId/files/$fileId',
+        AttachableDocument.deliveryNote =>
+          '/api/v1/delivery-notes/$documentId/files/$fileId',
+        AttachableDocument.salesInvoice =>
+          '/api/v1/sales-invoices/$documentId/files/$fileId',
+        AttachableDocument.salesReturn =>
+          '/api/v1/sales-returns/$documentId/files/$fileId',
+      };
+
+  String _documentFileContentPath(
+    AttachableDocument kind,
+    String documentId,
+    String fileId,
+  ) =>
+      switch (kind) {
+        AttachableDocument.purchaseInvoice =>
+          '/api/v1/purchase-invoices/$documentId/files/$fileId/content',
+        AttachableDocument.goodsReceipt =>
+          '/api/v1/goods-receipts/$documentId/files/$fileId/content',
+        AttachableDocument.quotation =>
+          '/api/v1/quotations/$documentId/files/$fileId/content',
+        AttachableDocument.salesOrder =>
+          '/api/v1/sales-orders/$documentId/files/$fileId/content',
+        AttachableDocument.deliveryNote =>
+          '/api/v1/delivery-notes/$documentId/files/$fileId/content',
+        AttachableDocument.salesInvoice =>
+          '/api/v1/sales-invoices/$documentId/files/$fileId/content',
+        AttachableDocument.salesReturn =>
+          '/api/v1/sales-returns/$documentId/files/$fileId/content',
+      };
 
   Future<List<DocumentFileRecord>> listDocumentFiles(
     AttachableDocument kind,
@@ -3825,130 +3874,14 @@ class ApiClient {
     String documentId,
     String fileId,
   ) =>
-      downloadBytes(
-        kind == AttachableDocument.purchaseInvoice
-            ? '/api/v1/purchase-invoices/$documentId/files/$fileId/content'
-            : '/api/v1/goods-receipts/$documentId/files/$fileId/content',
-      );
+      downloadBytes(_documentFileContentPath(kind, documentId, fileId));
 
   Future<void> removeDocumentFile(
     AttachableDocument kind,
     String documentId,
     String fileId,
   ) async {
-    await request(
-      'DELETE',
-      kind == AttachableDocument.purchaseInvoice
-          ? '/api/v1/purchase-invoices/$documentId/files/$fileId'
-          : '/api/v1/goods-receipts/$documentId/files/$fileId',
-    );
-  }
-
-  // The customer's PO scan, the signed challan: a file kept with a sales
-  // document (SG-6). The same store, limits and record as the purchase
-  // calls above; each path is written out so it can be found by its route.
-
-  String _salesDocumentFilesPath(
-    SalesAttachableDocument kind,
-    String documentId,
-  ) =>
-      switch (kind) {
-        SalesAttachableDocument.quotation =>
-          '/api/v1/quotations/$documentId/files',
-        SalesAttachableDocument.salesOrder =>
-          '/api/v1/sales-orders/$documentId/files',
-        SalesAttachableDocument.deliveryNote =>
-          '/api/v1/delivery-notes/$documentId/files',
-        SalesAttachableDocument.salesInvoice =>
-          '/api/v1/sales-invoices/$documentId/files',
-        SalesAttachableDocument.salesReturn =>
-          '/api/v1/sales-returns/$documentId/files',
-      };
-
-  String _salesDocumentFilePath(
-    SalesAttachableDocument kind,
-    String documentId,
-    String fileId,
-  ) =>
-      switch (kind) {
-        SalesAttachableDocument.quotation =>
-          '/api/v1/quotations/$documentId/files/$fileId',
-        SalesAttachableDocument.salesOrder =>
-          '/api/v1/sales-orders/$documentId/files/$fileId',
-        SalesAttachableDocument.deliveryNote =>
-          '/api/v1/delivery-notes/$documentId/files/$fileId',
-        SalesAttachableDocument.salesInvoice =>
-          '/api/v1/sales-invoices/$documentId/files/$fileId',
-        SalesAttachableDocument.salesReturn =>
-          '/api/v1/sales-returns/$documentId/files/$fileId',
-      };
-
-  String _salesDocumentFileContentPath(
-    SalesAttachableDocument kind,
-    String documentId,
-    String fileId,
-  ) =>
-      switch (kind) {
-        SalesAttachableDocument.quotation =>
-          '/api/v1/quotations/$documentId/files/$fileId/content',
-        SalesAttachableDocument.salesOrder =>
-          '/api/v1/sales-orders/$documentId/files/$fileId/content',
-        SalesAttachableDocument.deliveryNote =>
-          '/api/v1/delivery-notes/$documentId/files/$fileId/content',
-        SalesAttachableDocument.salesInvoice =>
-          '/api/v1/sales-invoices/$documentId/files/$fileId/content',
-        SalesAttachableDocument.salesReturn =>
-          '/api/v1/sales-returns/$documentId/files/$fileId/content',
-      };
-
-  Future<List<DocumentFileRecord>> listSalesDocumentFiles(
-    SalesAttachableDocument kind,
-    String documentId,
-  ) async =>
-      _unwrapList(
-        await request('GET', _salesDocumentFilesPath(kind, documentId)),
-        DocumentFileRecord.fromJson,
-      );
-
-  Future<DocumentFileRecord> uploadSalesDocumentFile(
-    SalesAttachableDocument kind,
-    String documentId, {
-    required String fileName,
-    required List<int> bytes,
-    String caption = '',
-  }) async =>
-      DocumentFileRecord.fromJson(
-        _unwrapMap(await multipartRequest(
-          'POST',
-          _salesDocumentFilesPath(kind, documentId),
-          fields: {if (caption.trim().isNotEmpty) 'caption': caption.trim()},
-          fileField: 'file',
-          fileName: fileName,
-          fileBytes: bytes,
-          fileContentType: fileName.toLowerCase().endsWith('.pdf')
-              ? 'application/pdf'
-              : fileName.toLowerCase().endsWith('.png')
-                  ? 'image/png'
-                  : 'image/jpeg',
-        )),
-      );
-
-  Future<List<int>> downloadSalesDocumentFile(
-    SalesAttachableDocument kind,
-    String documentId,
-    String fileId,
-  ) =>
-      downloadBytes(_salesDocumentFileContentPath(kind, documentId, fileId));
-
-  Future<void> removeSalesDocumentFile(
-    SalesAttachableDocument kind,
-    String documentId,
-    String fileId,
-  ) async {
-    await request(
-      'DELETE',
-      _salesDocumentFilePath(kind, documentId, fileId),
-    );
+    await request('DELETE', _documentFilePath(kind, documentId, fileId));
   }
 
   Future<void> removeStockAttachment(String id) async {

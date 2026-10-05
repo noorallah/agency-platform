@@ -316,3 +316,25 @@ class _DocumentAttachmentsDialogState extends State<DocumentAttachmentsDialog> {
     );
   }
 }
+
+/// Opens the attachments panel for one saved document (SG-6): the list
+/// toolbars of the five sales documents call this, so approved and cancelled
+/// documents -- which no editor opens -- can still be given their files.
+Future<void> showDocumentAttachments(
+  BuildContext context, {
+  required ApiClient api,
+  required AttachableDocument kind,
+  required String documentId,
+  required String subtitle,
+  required bool canEdit,
+}) =>
+    showDialog<void>(
+      context: context,
+      builder: (_) => DocumentAttachmentsDialog(
+        api: api,
+        kind: kind,
+        documentId: documentId,
+        subtitle: subtitle,
+        canEdit: canEdit,
+      ),
+    );

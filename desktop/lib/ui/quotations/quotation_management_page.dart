@@ -13,6 +13,8 @@ import '../../models/customer.dart';
 import '../../models/entities.dart';
 import '../../models/product.dart';
 import '../../models/quotation.dart';
+import '../../models/document_file.dart';
+import '../purchases/document_attachments_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/printed_document.dart';
 import '../settings/send_message_dialog.dart';
@@ -451,6 +453,23 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
                   ? null
                   : () => unawaited(_printQuotation(selected)),
             ),
+            ToolbarCommand(
+              id: 'attachments',
+              label: 'Attachments',
+              icon: Icons.attach_file,
+              onPressed: selected == null
+                  ? null
+                  : () => unawaited(
+                        showDocumentAttachments(
+                          context,
+                          api: widget.api,
+                          kind: AttachableDocument.quotation,
+                          documentId: selected.id,
+                          subtitle: selected.quotationNumber,
+                          canEdit: widget.permissions.hasPermission('SALES_UPDATE'),
+                        ),
+                      ),
+            ),
             // Emails the offer to the customer (MSG-4); "Mark as sent" only
             // moves the status.
             if (widget.permissions.hasPermission('DOCUMENT_SEND'))
@@ -596,6 +615,12 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
         column: const GridColumn(key: 'number', label: 'Quotation Number'),
         cell: (item) => item.quotationNumber,
         required: true,
+      ),
+      // A customer's PO scan or a signed challan kept with it (SG-6).
+      ChoosableColumn(
+        column: const GridColumn(key: 'files', label: 'Files'),
+        cell: (item) => documentFilesCell(item.attachedFileCount),
+        shownByDefault: true,
       ),
       // Whose offer it is; kept at any width.
       ChoosableColumn(

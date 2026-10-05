@@ -100,6 +100,7 @@ class Quotation {
     required this.quotationDate,
     required this.validUntil,
     this.createdAt = '',
+    this.attachedFileCount = 0,
     required this.customerReference,
     this.couponCode = '',
     this.rateIncludesTax = false,
@@ -148,6 +149,9 @@ class Quotation {
   /// The last day the quoted prices stand.
   final String validUntil;
   final String createdAt;
+
+  /// How many files are kept with it (SG-6).
+  final int attachedFileCount;
   final String customerReference;
 
   /// The coupon the offer was priced with, empty when none.
@@ -212,6 +216,8 @@ class Quotation {
         quotationDate: stringValue(json['quotation_date']),
         validUntil: stringValue(json['valid_until']),
         createdAt: stringValue(json['created_at']),
+        attachedFileCount:
+            int.tryParse(stringValue(json['attached_file_count'])) ?? 0,
         customerReference: stringValue(json['customer_reference']),
         couponCode: stringValue(json['coupon_code']),
         rateIncludesTax: boolValue(json['rate_includes_tax']),
