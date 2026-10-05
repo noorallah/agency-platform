@@ -8,11 +8,16 @@ office adding a shop is the approval, so theirs starts ACTIVE.
 
 # ruff: noqa: D103
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
+from app.common.scope import ResolvedFirmScope
+from app.core.enums import TokenType
 from app.core.exceptions import AuthorizationError, ValidationError
+from app.core.security.authorization import Principal
+from app.core.security.jwt import TokenClaims
+from app.customers.api.router import create_customer
 from app.customers.schemas.customer import (
     CustomerCreate,
     CustomerStatus,
@@ -24,6 +29,7 @@ from app.customers.services.trading_status import (
     assert_customer_may_be_billed,
     assert_customer_takes_new_documents,
 )
+from app.identity.system_seed import ROLE_PERMISSION_CODES
 from app.sales_invoice.services import SalesInvoiceService
 from app.sales_order.schemas import SalesWorkflowSettingsWrite
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
@@ -109,3 +115,70 @@ def test_with_the_switch_off_every_new_customer_is_active() -> None:
         _new_shop("NEW-3"), firm_id=setup.firm.id, actor_id=uuid4(), may_approve=False
     )
     assert created.status == CustomerStatus.ACTIVE.value
+
+
+def _field_sales(firm_id: UUID) -> ResolvedFirmScope:
+    """Return a request scope holding exactly the Field Sales role's codes."""
+    user_id = uuid4()
+    held = ROLE_PERMISSION_CODES["SALES_EXECUTIVE"]
+    return ResolvedFirmScope(
+        principal=Principal(
+            subject=user_id,
+            roles=frozenset({"SALES_EXECUTIVE"}),
+            permissions=frozenset(held),
+            claims=TokenClaims(
+                sub=str(user_id),
+                type=TokenType.ACCESS,
+                iat=1,
+                exp=4_102_444_800,
+                permissions=sorted(held),
+            ),
+        ),
+        firm_id=firm_id,
+    )
+
+
+def test_field_sales_adds_an_outlet_and_it_waits_for_the_office() -> None:
+    """D-SELL-57: the setting could not be reached with the seeded jobs.
+
+    Driven 2026-10-05: Field Sales was refused ``POST /customers`` (403), and
+    every seeded role holding ``CUSTOMER_CREATE`` also held
+    ``CUSTOMER_APPROVE`` -- so nobody's new customer ever started PENDING.
+    """
+    held = ROLE_PERMISSION_CODES["SALES_EXECUTIVE"]
+    assert "CUSTOMER_CREATE" in held, "the salesman adds the shop on his beat"
+    assert "CUSTOMER_APPROVE" not in held, "and the office approves it"
+    # Adding is all it opens: the other customer writes keep their own codes.
+    assert not held & {
+        "CUSTOMER_UPDATE",
+        "CUSTOMER_DELETE",
+        "CUSTOMER_IMPORT",
+        "CUSTOMER_MANAGE_SETTINGS",
+    }
+    setup = _Firm(_session_factory()())
+    _switch_on(setup)
+    scope = _field_sales(setup.firm.id)
+
+    created = create_customer(_new_shop("BEAT-1"), scope=scope, db=setup.session)
+
+    assert created.data is not None
+    assert created.data.status == CustomerStatus.PENDING
+    with pytest.raises(ValidationError, match="waiting for approval"):
+        assert_customer_may_be_billed(
+            CustomerService(setup.session).get(
+                created.data.id, firm_scope=setup.firm.id
+            )
+        )
+
+
+def test_some_seeded_role_can_add_a_customer_it_cannot_approve() -> None:
+    """The rule needs a maker who is not the checker, among the seeded jobs."""
+    makers = [
+        role
+        for role, codes in ROLE_PERMISSION_CODES.items()
+        if "CUSTOMER_CREATE" in codes and "CUSTOMER_APPROVE" not in codes
+    ]
+    assert makers, (
+        "every role that adds a customer also approves one, so "
+        "new_outlets_need_approval holds nothing back"
+    )

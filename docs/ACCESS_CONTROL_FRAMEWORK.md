@@ -186,7 +186,7 @@ re-run the command under the tree below rather than trusting them.
 | `FIRM_MANAGER` | firm | 180 | Everything `FIRM_ADMIN` operates, **minus** administering the firm's people | `user`, `role`, `permission`, `SETTINGS_*` |
 | `ACCOUNTANT` | firm | 33 | The books: `accounting`, `commission`, `report`, plus `CUSTOMER_MANAGE_SETTINGS` and `VENDOR_VIEW_FINANCIAL_DETAILS` | sales and purchase writes, `VENDOR_MANAGE_BANK_DETAILS` |
 | `SALES_MANAGER` | firm | 45 | Owns the sales desk: customers, the sales chain, territory assignment, credit notes (draft), proforma, loyalty spend; reads products, branches, warehouses, tax profiles and units for its documents | the ten controls in the table below |
-| `SALES_EXECUTIVE` | firm | 10 | Works a beat: view customers and territory; raise quotation, order, invoice; reads products, branches and warehouses | approval, cancellation, every master write |
+| `SALES_EXECUTIVE` | firm | 13 | Works a beat: view customers and territory, and **add a customer** (`CUSTOMER_CREATE`, D-SELL-57); raise quotation, order, invoice; reads products, branches, warehouses, tax profiles and units | approval (`CUSTOMER_APPROVE` included, so the outlet it adds waits where the firm asks), cancellation, every other master write |
 | `PURCHASE_MANAGER` | firm | 31 | The `purchase` codes less settings (receiving included), drafting debit notes, and **the vendor masters** (create, edit, retire, import, categories); reads products, branches, warehouses, tax profiles and units | `PURCHASE_MANAGE_SETTINGS`, `VENDOR_MANAGE_BANK_DETAILS`, `VENDOR_VIEW_FINANCIAL_DETAILS` |
 | `PURCHASE_EXECUTIVE` | firm | 17 | The same purchasing codes minus approval and inspection -- it raises and **completes goods receipts** (`PURCHASE_RECEIVE`); **reads** vendors, products, branches, warehouses, tax profiles and units | approval, every master write |
 | `INVENTORY_MANAGER` | firm | 27 | `inventory` + `batch_serial`, inspection, requisitions, and **receiving goods** (`PURCHASE_RECEIVE`: raise, edit and complete a goods receipt, read the receipts and the orders it receives against); reads products, branches, warehouses, tax profiles and units, vendors (requisition) and customers (a gift write-off names one) | `PURCHASE_CREATE` and `PURCHASE_VIEW` -- ordering, and the bills and returns; everything else |
@@ -1516,3 +1516,15 @@ It sits in the customer group, so the firm administrator and the sales manager
 hold it and the sales executive does not: where the firm switches on
 `new_outlets_need_approval`, a customer added by somebody without it starts
 PENDING and is billed only once somebody with it approves.
+
+**Field Sales adds the outlet (D-SELL-57, 2026-10-05).** That rule needs
+somebody who holds `CUSTOMER_CREATE` and not `CUSTOMER_APPROVE`, and no seeded
+role did: Field Sales was refused `POST /customers` (403) and every role that
+could add a customer could also approve one, so nobody's outlet ever started
+PENDING. `SALES_EXECUTIVE` now holds `CUSTOMER_CREATE` (migration
+`20261005_0332` for existing databases). **Its blast radius is one endpoint**,
+`POST /api/v1/customers` -- import, edit, retire and the settings each have
+their own code. What that one endpoint lets a salesman write is the whole new
+record: the credit limit and an opening balance among it, which on an *edit*
+take `CUSTOMER_MANAGE_SETTINGS` and on a create do not, for any role. A
+standing discount is refused without that code on both.

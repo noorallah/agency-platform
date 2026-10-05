@@ -735,6 +735,14 @@ _SEEDED_ROLE_PERMISSION_CODES = {
     "SALES_EXECUTIVE": frozenset(
         {
             "CUSTOMER_VIEW",
+            # D-SELL-57: the salesman adds the shop he finds on his beat, and
+            # deliberately does **not** hold `CUSTOMER_APPROVE` -- so where the
+            # firm switches on `new_outlets_need_approval` his outlet starts
+            # PENDING and the office approves it (SEL-15). No seeded role
+            # held the one without the other, so the setting could not be
+            # reached with the jobs a firm starts with. The code is enforced
+            # on `POST /customers` alone.
+            "CUSTOMER_CREATE",
             "TERRITORY_VIEW",
             "SALES_QUOTATION_CREATE",
             "SALES_ORDER_CREATE",
