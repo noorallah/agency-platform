@@ -7,6 +7,7 @@ unit suite noticed, because it builds its schema from the models, never from
 the migrations. Every store's next ``migrate-all`` would have failed.
 """
 
+import ast
 from pathlib import Path
 
 from alembic.config import Config
@@ -34,3 +35,27 @@ def test_every_parent_revision_exists_and_there_is_one_head() -> None:
                 "migration has that revision: was a file left uncommitted?"
             )
     assert len(scripts.get_heads()) == 1, scripts.get_heads()
+
+
+def test_an_in_process_migration_leaves_the_servers_logging_alone() -> None:
+    """D-RPT-21: `fileConfig` silenced the server after its first provision."""
+    tree = ast.parse((_BACKEND / "alembic" / "env.py").read_text(encoding="utf-8"))
+    guarded = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.If) and "attributes" in ast.unparse(node.test)
+    ]
+    inside = {
+        id(call)
+        for node in guarded
+        for call in ast.walk(node)
+        if isinstance(call, ast.Call)
+    }
+    calls = [
+        call
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call) and ast.unparse(call.func) == "fileConfig"
+    ]
+
+    assert calls
+    assert all(id(call) in inside for call in calls)
