@@ -1972,6 +1972,13 @@ The stock side is §10.6; this is the whole request.
   (`reference_type` `settlement`) that **stores the split** — whatever the
   customer owed comes off `outstanding_delta`, the excess goes to
   `advance_delta`.
+- **No TCS on a receipt dated from 1 April 2025** (D-CMP-12): the Finance Act
+  2025 omitted section 206C(1H), so `tcs_collections` gets no row, no
+  `TCS-RC-…` journal is posted and the customer owes no tax, whatever the
+  firm's settings say. Re-confirmed on `fx_t1005j1us_s` (2026-10-05):
+  RC-…-000001 241.60 → outstanding **241.61**; RC-…-000002 341.61 with
+  241.61 allocated → **0.00 / advance 100.00**; nine journals, none of
+  them `tcs`. What follows describes a receipt dated before that day.
 - **Then TCS**, when the firm collects it and the receipt is above the
   threshold: `tcs_collections` (`consideration_amount`, `cumulative_before`
   — this year's earlier receipts, summed each time rather than held —
@@ -1990,7 +1997,8 @@ The stock side is §10.6; this is the whole request.
   allocations and redeemed points, derived each time.
 - **Refused, nothing written:** a draft or cancelled bill, another customer's,
   more than it owes, allocations beyond the amount.
-- **Confirmed** on `fx_t0916d751_s` (the `selling-paid` rows): RC-…-000001
+- **Confirmed** on `fx_t0916d751_s` (the `selling-paid` rows, built before
+  D-CMP-12 stopped the collection): RC-…-000001
   241.60, RECEIPT −241.60 / 0 → 241.61, TCS 2.42 at 1% (`without_pan` true,
   `cumulative_before` 0) → **244.03**; RC-…-000002 341.61 with 241.61
   allocated and 100.00 unallocated, RECEIPT **−244.03 / +97.58** → 0.00 /
@@ -2027,6 +2035,10 @@ The stock side is §10.6; this is the whole request.
   2.42**) — the other 2.42 had already gone to RC-…-000001's TCS when the
   receipt split — and left RC-…-000002 allocated 339.19, unallocated 2.42.
   Refused beyond what is left: "RC-… has only 2.42 left unapplied."
+  Without TCS (`fx_t1005j1us_s`, 2026-10-05): applying 95.00 of the 100.00
+  wrote `ADVANCE_APPLY` 95.00 → **581.49 / 5.00**, and 10 more was refused
+  with "has only 5.00 left unapplied"; reversing RC-…-000001 raised the
+  outstanding by the whole 241.60, with no TCS row to undo.
 - **Reverse:** `RC-…-REV` (the mirror, `reversal_of_id`, the original
   REVERSED, **dated the first of the period** — 2026-09-01 — D-BUY-4); a
   receivable row `REVERSAL` (`reference_type` `reversal`, the stored deltas
@@ -2122,6 +2134,17 @@ The stock side is §10.6; this is the whole request.
   left join fx_<suffix>_s.inventory_transactions t on t.id = l.inventory_transaction_id;
   ```
   and the §11.10 journal query (the SR and SR-…-COST entries).
+- **Loyalty comes back with the goods** (D-SELL-47, 2026-10-05): Complete
+  also writes a `loyalty_entries` row `REVERSED` for each bill the return
+  reaches — negative `points` in the proportion the value returned is of
+  the bill, capped at what is left of the batch, `reverses_id` the
+  earning, `source_type` `SALES_RETURN`, `source_id` the return — and a
+  journal `LOY-SR-…` **Dr 2600 Loyalty Payable / Cr 5700 Loyalty
+  Expense**. A line raised on a delivery note is traced to the approved
+  bill that billed it. Cancel writes a second `REVERSED` row with the
+  points positive and mirrors the journal (`…-REV`). Confirmed on
+  `fx_t1005j1us_s`: a full return of SI-…-000002 (676.49) took −13.5299
+  points / 13.53, and its cancellation gave both back.
 
 ### 11.17 Credit note (TC-SELL-016)
 
@@ -2162,6 +2185,10 @@ The stock side is §10.6; this is the whole request.
   join   fx_<suffix>_s.credit_note_lines l  on l.credit_note_id = n.id and l.is_deleted = false
   join   fx_<suffix>_s.sales_invoice_lines il on il.id = l.sales_invoice_line_id;
   ```
+- **Loyalty** (D-SELL-47, 2026-10-05): approval takes points back as a
+  return does (§11.16), `source_type` `CREDIT_NOTE`; cancelling gives
+  them back. Confirmed on `fx_t1005j1us_s`: a note of 118.00 against
+  SI-…-000002 took −2.3600 points.
 
 ### 11.17a Debit note to a customer (TC-SELL-020)
 
@@ -2229,9 +2256,10 @@ The stock side is §10.6; this is the whole request.
 ### 11.19 Loyalty — earn, spend, adjust, expire (TC-INCENT-005)
 
 `loyalty_entries` is the whole scheme: `kind` `EARNED`, `REDEEMED`,
-`EXPIRED`, `ADJUSTED` (and `REVERSED`, which nothing writes), signed
-`points`, `amount`, `sales_invoice_id`, `earned_on`, `expires_on`,
-`reverses_id`, `journal_entry_id`. **The balance is the sum of `points`**; no
+`EXPIRED`, `ADJUSTED` and `REVERSED` (a cancelled bill, D-SELL-2; a sales
+return or a credit note, D-SELL-47, which also fill `source_type` and
+`source_id`), signed `points`, `amount`, `sales_invoice_id`, `earned_on`,
+`expires_on`, `reverses_id`, `journal_entry_id`. **The balance is the sum of `points`**; no
 column holds it. The settings are `loyalty_settings`, audit
 `loyalty.settings_changed`.
 
@@ -2757,7 +2785,10 @@ from, read off WHOLE01's and TEST01's live journals:
   (`inventory`), two `DN-` (`delivery_note`, 300.00 and 420.00),
   `SI-2026-2027-000001` / `-000002` (`sales_invoice`, 483.21 / 676.49),
   `RC-…-000001` / `-000002` (`settlements`, 241.60 / 341.61), `TCS-RC-…`
-  (`tcs`, 2.42 / 3.42) — nine entries, all POSTED, all `GEN`/`JV`.
+  (`tcs`, 2.42 / 3.42) — nine entries, all POSTED, all `GEN`/`JV`. A
+  `selling-paid` firm built after D-CMP-12 has no `TCS-RC-…` entries;
+  `fx_t1005j1us_s` (2026-10-05) holds nine too, the last two being the
+  bills' loyalty accruals `LOY-SI-…`.
 
 ### 12.6 Cost and profit centres, and an account that demands one (TC-FIN-007)
 

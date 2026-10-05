@@ -52,7 +52,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 ### TC-FIN-004 — Journal entries say which module posted them
 
 - **Preconditions:** As *selling-invoiced*, plus the two receipts and the second invoice in the preparation table.
-- **Steps:** Accounts > Journal Entries; search each: `SI-2026-2027-000001`, `DN-`, `RC-2026-2027-000001`, `TCS-RC-2026-2027-000001`; open each with **View**.
+- **Steps:** Accounts > Journal Entries; search each: `SI-2026-2027-000001`, `DN-`, `RC-2026-2027-000001`; open each with **View**.
 - **Expect:** each row's subtitle is the entry's description; the View dialog's first line reads "POSTED · posted by <module> · <description>" — sales_invoice, delivery_note, settlements, tcs. The search matches reference or description; there is no source-module filter (BACKLOG §31.15).
 ### TC-FIN-005 — Every report opens, and an empty one says so
 
