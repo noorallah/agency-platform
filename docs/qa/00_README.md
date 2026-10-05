@@ -16,9 +16,7 @@ one, and the gear at the right of the bar opens **Settings**
 (`Settings > Firm > Numbering Series`, `Settings > Set up > Pricing > Price
 Lists`, `Settings > Platform > People > Users`).
 
-Generated on 2026-10-05 from the product's own sources (`11_COMPLIANCE` is as
-generated on 2026-10-04: it carries a note added by hand on 2026-10-05 that a
-regeneration would drop, so it was left alone). The detailed cases
+Generated on 2026-10-05 from the product's own sources. The detailed cases
 come from `docs/INDEPENDENT_TEST_CASES.md`, whose every expectation was
 driven against a running server. The screen checks and the role matrix come
 from the application's screen catalogue and role seed. The files are
@@ -60,19 +58,23 @@ TC-TERR-006, TC-COMP-009 to 019) are now also in
 
 **Cases added on 2026-10-05** cover the purchasing build (backlog 86, PG-1 to
 PG-14) and the selling build (backlog 87, SG-1 to SG-9), both part of release
-1.3.0: **TC-BUY-029 to TC-BUY-085** (57 cases, `06_PURCHASING`) and
-**TC-SELL-036 to TC-SELL-086** (51 cases, `08_SELLING`). **These features have
+1.3.0: **TC-BUY-029 to TC-BUY-090** (62 cases, `06_PURCHASING`) and
+**TC-SELL-036 to TC-SELL-087** (52 cases, `08_SELLING`). **These features have
 not been through a full test suite, a CI run or a hand test, and none of the
-108 cases has been run**: they were written from the code and its automated
+114 cases has been run**: they were written from the code and its automated
 tests. Say so in the result notes, and treat a failure as possibly the case's
 mistake until it is settled. Each stands alone and reads nothing another case
 left. Three warnings on the order to run them in:
 
-- **The import cases (TC-BUY-070 to 076) and the capital-goods case
-  TC-BUY-077 switch a firm-wide setting**: Settings > Buying > Purchase
-  Settings > **Buying stages** with **Purchase order** off, which takes
-  **Goods receipt** off with it. **Run them last**, when nobody else is buying
-  in the firm, or in a firm of its own, and switch both back on afterwards.
+- **Only TC-BUY-086 and TC-BUY-088 switch a firm-wide setting**: Settings >
+  Buying > Purchase Settings > **Buying stages** with **Purchase order** off,
+  which takes **Goods receipt** off with it. They type an import bill and a
+  capital-goods bill with no order. **Run those two last**, when nobody else
+  is buying in the firm, or in a firm of its own, and switch both back on
+  afterwards. The other import and capital-goods cases (TC-BUY-070 to 078,
+  087, 089, 090) run on the full chain: the purchase order carries the
+  currency and rate, and the order and receipt lines a **Capital goods**
+  tick.
 - **The TDS cases (TC-BUY-043 to 048) each need a supplier of their own with no
   other bill or payment in the financial year.** Use a new supplier each time
   one is run.
@@ -84,9 +86,15 @@ The new screens also have screen checks: Requests for quotation, Rate
 contracts, Supplier schemes and Bills of entry (`06_PURCHASING`), Counter
 Shifts and Customer Rebates (`08_SELLING`), Transporters (`10_TERRITORY`),
 and Collection Sheet, Payment Promises and the four Fixed assets screens
-(`12_FINANCE_AND_REPORTS`). Open defects found while the cases were written,
-none yet driven, are D-SELL-51, D-SELL-52 and D-BUY-35 to D-BUY-40 in
-`docs/DEFECTS.md`; read D-SELL-51 before the shift cases.
+(`12_FINANCE_AND_REPORTS`). The eight defects found while the cases were
+written (D-SELL-51, D-SELL-52 and D-BUY-35 to D-BUY-40) were fixed on
+2026-10-05, and the cases were corrected to what the application does now:
+the shift cases sign in as a Counter Sales user whose bills a manager
+approves (TC-SELL-067, 068, 087), and TC-BUY-086 to 090 were added. Two
+defects found on the way are open and not yet driven, D-BUY-41 and D-CMP-23
+in `docs/DEFECTS.md`: do not raise a debit note or a purchase return against
+a foreign-currency bill, and do not expect GSTR-2B matching, rule 37 or rule
+42 to convert one.
 
 **What 1.2.0 changed (carried into 1.3.0): the menu.** Each drop-down now shows daily work only; every other screen is behind **All <area> screens** at its foot, under the same group name, so a path such as *Sell > Insight > Sales Analysis* is now *Sell > All Sell screens > Insight > Sales Analysis*. **Returns & notes** opens the returns and notes. The **Admin** area has left the bar: Users, Roles, Firms, Audit Logs and Backups are under **Settings > Platform** (People, Firms, Agency, System); the set-up lists (price lists, promotions, territories, customer groups, product categories, units, places) are under **Settings > Set up**. Ctrl+K finds any screen by name. Cases TC-ME-009 to TC-ME-013 (`02_SIGN_IN_AND_ACCOUNTS`) cover the new menu, Settings > Set up, favourites and My preferences, which replaces the *Primary firm* menu entry. For one tester's book across every module, with sample data and what to check after each action, see `docs/QA_TEST_BOOK.md`. For a module-by-module reference (what to configure, which screens to open, what to verify elsewhere, known limits) see `docs/QA_MODULE_REFERENCE.md`.
 
@@ -112,9 +120,9 @@ If it fails, the cases below cannot be trusted until the failure is fixed.
 | `03_USERS_AND_ROLES` | Users, hiring, job templates, roles in two tiers | 52 | 5 |
 | `04_FIRMS_AND_CONFIGURATION` | Creating and finishing a firm, isolation, numbering, profiles, tax, units, custom fields | 45 | 19 |
 | `05_MASTERS` | Customers, vendors, products, branches, warehouses, principals and brands, merging duplicates, codes from a series | 22 | 13 |
-| `06_PURCHASING` | Purchase order to supplier payment, returns, GST on purchases, requisitions, supplier terms, payment runs, landed cost; from 2026-10-05 the GST purchase register, payables by month, Paid now, attachments, TDS 194C and 194J, TCS, RFQ, rate contracts, serials at receipt, supplier schemes, imports and bills of entry, fixed assets, PTR and PTS | 85 | 19 |
+| `06_PURCHASING` | Purchase order to supplier payment, returns, GST on purchases, requisitions, supplier terms, payment runs, landed cost; from 2026-10-05 the GST purchase register, payables by month, Paid now, attachments, TDS 194C and 194J, TCS, RFQ, rate contracts, serials at receipt, supplier schemes, imports and bills of entry, fixed assets, PTR and PTS | 90 | 19 |
 | `07_INVENTORY` | Stock, transfer documents, write-offs, repacking, kits, counts, batches, serials | 20 | 18 |
-| `08_SELLING` | Enquiry and quotation to cash, holds, returns, credit notes, debit notes, proforma, counter billing, price levels; from 2026-10-05 the GST sales register, walk-in cash sale, service invoices, other charges, transporters, attachments, hold and recall, counter shifts, collection follow-up, customer rebates | 86 | 9 |
+| `08_SELLING` | Enquiry and quotation to cash, holds, returns, credit notes, debit notes, proforma, counter billing, price levels; from 2026-10-05 the GST sales register, walk-in cash sale, service invoices, other charges, transporters, attachments, hold and recall, counter shifts, collection follow-up, customer rebates | 87 | 9 |
 | `09_PRICING_AND_INCENTIVES` | Price lists, promotions, coupons, loyalty, commission, targets, principal claims | 12 | 5 |
 | `10_TERRITORY` | Territories, routes, beat plans, call lists, transporters | 6 | 8 |
 | `11_COMPLIANCE` | GSTR-1, GSTR-3B, e-invoice and e-way bill sandbox, TCS, the tax calendar, filing checks, amendments, quarterly filing | 26 | 3 |
@@ -122,7 +130,7 @@ If it fails, the cases below cannot be trusted until the failure is fixed.
 | `13_CROSS_CUTTING` | Permissions enforced by the server, two people editing one record | 17 | |
 | `14_TEST_DATA` | The values to type for every firm, person, master and case (written by hand) | | |
 
-In all: **443 detailed cases, 134 screen checks and 11 role checks** (counted
+In all: **449 detailed cases, 134 screen checks and 11 role checks** (counted
 from the files on 2026-10-05). The
 installation itself is tested separately by `docs/INSTALLER_QA_CHECKLIST.md`,
 and `docs/QA_FUNCTIONAL_WALKTHROUGH.md` is a one-day end-to-end run that
@@ -184,5 +192,6 @@ A few more conventions:
 
 Roles first, because every later file assumes the jobs work. Then
 02, 03 and 04, then the trading areas in the order money flows (05, 06,
-07, 08, 09, 10, 11, 12), then 13 last. Within 06, leave TC-BUY-070 to 081
-(imports and fixed assets) to the very end of the pass, as above.
+07, 08, 09, 10, 11, 12), then 13 last. Within 06, leave TC-BUY-086 and
+TC-BUY-088 (the two that switch the buying stages off) to the very end of
+the pass, as above.

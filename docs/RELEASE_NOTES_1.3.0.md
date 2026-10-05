@@ -69,25 +69,28 @@ which are below the branding table.
 ### Buying: the purchasing build of 2026-10-05 *(confirm: not yet run by hand)*
 
 Do these **after the 1.2.0 rows**, in the order below. The cases are
-TC-BUY-029 to TC-BUY-085 in `docs/qa/06_PURCHASING.md` (values in
+TC-BUY-029 to TC-BUY-090 in `docs/qa/06_PURCHASING.md` (values in
 `docs/qa/14_TEST_DATA.md`); QA-BUY-21 to QA-BUY-34 in `docs/QA_TEST_BOOK.md`
 are the short form. Two warnings on order:
 
 - **The TDS cases (TC-BUY-043 to 048) each need a supplier of their own with no
   other bill or payment in the financial year.** Use a new supplier each time.
-- **Rows 13 and 14 go last.** The import cases (TC-BUY-070 to 076) and the
-  capital-goods case TC-BUY-077 need Settings > Buying > Purchase Settings >
-  **Buying stages** with **Purchase order** off (which takes **Goods receipt**
-  off with it). That is a firm-wide setting: run them when nobody else is
-  buying in the firm, or in a firm of its own, and switch both back on after.
+- **Only TC-BUY-086 and TC-BUY-088 change a firm-wide setting.** Imports and
+  capital goods (rows 13 and 14) now run on the full chain: the purchase order
+  has **Currency** and **Exchange rate**, and the order and receipt lines a
+  **Capital goods** tick. The two cases that type the bill alone need
+  Settings > Buying > Purchase Settings > **Buying stages** with **Purchase
+  order** off (which takes **Goods receipt** off with it): run those two when
+  nobody else is buying in the firm, or in a firm of its own, and switch both
+  back on after.
 
 | # | What | Where | What to look for | Cases |
 | --- | --- | --- | --- | --- |
-| 1 | **GST purchase register, HSN summary of purchases** | Reports > Financial | Approved and closed bills by tax head, with tax that may not be claimed and reverse charge apart; a debit note and a purchase return after billing are minus rows on their own dates; the HSN summary folds the same bills by HSN code and unit | TC-BUY-029 to 032 |
+| 1 | **GST purchase register, HSN summary of purchases** | Reports > Financial | Approved and closed bills by tax head, with tax that may not be claimed and reverse charge apart; a debit note and a purchase return after billing are minus rows on their own dates; the HSN summary folds the same bills by HSN code and unit; a bill in another currency is shown in rupees at the bill's rate | TC-BUY-029 to 032, 089 |
 | 2 | **Payables by Month** | Buy > All Buy screens > Money > Payables by Month | What each supplier is owed by month, with Older, Credits and Outstanding, a total row and a check against the books (account 2100); an Owed / Paid switch and a branch filter | TC-BUY-033 to 035 |
 | 3 | **Cash purchase in one step** | Buy > Purchase Invoices > Approve | The Approve dialog has a **Paid now** tick (method, amount, reference, date) for a user who may record payments; the button reads **Approve and pay**; more than the bill is refused; reversing the payment leaves the bill approved and owing | TC-BUY-036 to 039 |
 | 4 | **Attach the supplier's bill** | The bill and goods receipt windows: **Attachments**; a **Files** column on both lists | PDF, JPG or PNG up to 10 MB; add, open, save, delete; the wrong kind or an over-size file is refused. Reading a bill into a draft (OCR) is not built | TC-BUY-040 to 042 |
-| 5 | **TDS 194C and 194J worked out** | The supplier's **Usual TDS section**; Settings > Tax > TDS on purchases (194Q, 194C, 194J); the bill's Approve dialog | The bill proposes the deduction and posts it at approval, with an override box; a payment ahead of any bill proposes it too, and it is deducted once | TC-BUY-043 to 049 |
+| 5 | **TDS 194C and 194J worked out** | The supplier's **Usual TDS section**; Settings > Tax > TDS on purchases (194Q, 194C, 194J); the bill's Approve dialog | The bill proposes the deduction and posts it at approval, with an override box; the proposal is worked on the lines plus additional charges; a payment ahead of any bill proposes it too, in a hint that follows the amount typed, and it is deducted once; the settings card names each rate (companies and firms, an individual or HUF, professional fees, technical services) and refuses a blank, zero or above-30 rate | TC-BUY-043 to 049 |
 | 6 | **TCS charged by a supplier** | The purchase bill: TCS rate and TCS amount; Reports > Financial > TCS paid to suppliers | A rate alone is worked on the bill total including GST, a typed amount wins; approval posts it to *TCS Receivable* (1430); the bill owes its total plus the TCS | TC-BUY-050 to 053 |
 | 7 | **Send the purchase order by WhatsApp** | Buy > Purchase Orders > Send | WhatsApp beside Email; refused until messaging, the channel and the template for *Purchase order sent to the supplier* are set; the order is then marked sent. The PDF is not attached | TC-BUY-054, 055 |
 | 8 | **Requests for quotation** | Buy > All Buy screens > Documents > Requests for quotation; **Create RFQ** on an approved requisition | Send, **Enter quotes** one supplier at a time, **Compare** with the lowest landed rate marked, a reason for any other choice, **Raise orders**: one draft order per chosen supplier. Emailing the RFQ is not built | TC-BUY-056 to 059 |
@@ -95,12 +98,12 @@ are the short form. Two warnings on order:
 | 10 | **Serial numbers at receipt** | A serial-tracked goods receipt or purchase return line: the **Serials** cell | Type, paste or **Fill a range**; one serial per unit before the receipt completes; a serial already in the firm is refused; cancelling the receipt removes the units; a return names the units going back | TC-BUY-063 to 065 |
 | 11 | **Supplier schemes** | Buy > All Buy screens > Documents > Supplier schemes; the purchase order | "Buy 10, get 2" fills a blank **Free** box and the side panel says *Scheme 10+2 applied*; a typed figure is kept and 0 refuses the scheme; a scheme giving another product adds a gift line once | TC-BUY-066 to 069 |
 | 12 | **Batch-wise PTR and PTS** | A batch receipt line, the batch list and picker; **Trade class** on the customer | Only on a firm with the feature (Pharmacy, Food and Wholesale profiles): PTR and PTS beside the MRP, never above it, and a batch number required; a retailer's blank price takes PTR and a stockist's PTS. A firm without the feature is shown none of it | TC-BUY-082 to 085 |
-| 13 | **Imports** (run near the end) | A **Currency** on the supplier; the purchase bill and payment windows; Buy > All Buy screens > Documents > Bills of entry; Accounts > Journal Entries > *Revalue foreign payables* | A bill in the supplier's currency with a rate, posted in rupees; no TCS, TDS or Paid now on it; a payment in the currency at another rate posts the exchange gain or loss; a Bill of Entry lands customs duty on the stock and claims the IGST (GSTR-3B 4(A)(1)) | TC-BUY-070 to 076 |
-| 14 | **Fixed assets** (run last) | A bill line's **Capital goods** tick and asset class; Accounts > All Accounts screens > Fixed assets (Asset register, Asset classes, Depreciation runs, Income-tax block schedule) | The line raises an asset, not stock; a line off a completed receipt is refused; a depreciation run posts one journal, by days; disposal books a gain or a loss; the latest run can be cancelled | TC-BUY-077 to 081 |
+| 13 | **Imports** | A **Currency** on the supplier; **Currency** and **Exchange rate** on the purchase order; the purchase bill and payment windows; Buy > All Buy screens > Documents > Bills of entry; Accounts > Journal Entries > *Revalue foreign payables* | An order in the supplier's currency with a rate; the receipt values stock in rupees at the order's rate; the bill is in the order's currency (another is refused) and posts rupees at its own rate, with only a rate difference in price variance; no TCS, TDS or Paid now on it; a payment in the currency at another rate posts the exchange gain or loss; a Bill of Entry lands customs duty on the stock and claims the IGST (GSTR-3B 4(A)(1)) | TC-BUY-070 to 076, 086, 087 |
+| 14 | **Fixed assets** | **Capital goods** on the purchase order line and the goods receipt line; the bill line's tick and asset class; Accounts > All Accounts screens > Fixed assets (Asset register, Asset classes, Depreciation runs, Income-tax block schedule) | A line marked on the order or the receipt is received without entering stock, and its bill line raises an asset; a line a receipt already took into stock is refused at the bill; a depreciation run posts one journal, by days; disposal books a gain or a loss; the latest run can be cancelled | TC-BUY-077 to 081, 088, 090 |
 
 ### Selling: the selling build of 2026-10-05 *(confirm: not yet run by hand)*
 
-Then these, in order. The cases are TC-SELL-036 to TC-SELL-086 in
+Then these, in order. The cases are TC-SELL-036 to TC-SELL-087 in
 `docs/qa/08_SELLING.md`, which opens with the masters they share; QA-SELL-37
 to QA-SELL-45 in `docs/QA_TEST_BOOK.md` are the short form. The counter cases
 (rows 2 and 7) need Settings > Selling > **Sales Stages** with *Sales order*
@@ -115,9 +118,9 @@ switch both back on afterwards.
 | 4 | **Other charges with their own GST** | The sales bill: **Other charges** > **Add charge** | Up to ten charges (packing, handling), each taxed by the tax profile it names, or untaxed with none; in the bill's tax and total, on the print, in the register and in GSTR-1; credited to *Other Charges Recovered* (4050) | TC-SELL-050 to 054 |
 | 5 | **Transporters and freight terms** | Settings > Set up > Territories & routes > Transporters; the delivery note's **Carrier (master)** and **Freight** | Choosing a carrier fills the note's transporter, GSTIN and mode; what is typed on the note wins; an inactive carrier is not offered | TC-SELL-055 to 059 |
 | 6 | **Attachments on sales documents** | Quotation, sales order, delivery note, sales invoice and sales return lists: **Attachments**; a **Files** column | PDF, JPG or PNG up to 10 MB; each document keeps its own files | TC-SELL-060 to 063 |
-| 7 | **Hold and recall; counter shifts** | The counter bill: **Hold (F8)**, **Recall**, the shift strip; Sell > All Sell screens > Documents > Counter Shifts | A held bill is parked with a note and never approved while held; a shift opens with a float, expected cash is the float plus the cash tenders, and closing on a count posts a shortage or excess to *Cash Short and Over* (6960). **Read D-SELL-51 under Known gaps first** | TC-SELL-064 to 072 |
+| 7 | **Hold and recall; counter shifts** | The counter bill: **Hold (F8)**, **Recall**, the shift strip; Sell > All Sell screens > Documents > Counter Shifts | A held bill is parked with a note and never approved while held; a shift opens with a float, expected cash is the float plus the cash tenders, and closing on a count posts a shortage or excess to *Cash Short and Over* (6960). A bill a Counter Sales user makes and a manager approves is counted in the **cashier's** shift | TC-SELL-064 to 072, 087 |
 | 8 | **Collection Sheet and Payment Promises** | Sell > All Sell screens > Money; **Collector** on the customer | The sheet lists open bills by collector with days overdue and the latest promise, with a PDF; a promise posts nothing and reads pending, due today, kept, broken or withdrawn; it is withdrawn, never edited | TC-SELL-073 to 079 |
-| 9 | **Customer Rebates** | Sell > All Sell screens > Documents > Customer Rebates; Reports > Financial > Customer rebate statement | An agreement for a customer or a customer group with slabs; accrued once after the period ends; settled by a party adjustment of kind *Customer rebate*; no GST on a rebate | TC-SELL-080 to 086 |
+| 9 | **Customer Rebates** | Sell > All Sell screens > Documents > Customer Rebates; Reports > Financial > Customer rebate statement | An agreement for a customer or a customer group with slabs; accrued once after the period ends; settled by a party adjustment of kind *Customer rebate*; **Settle against bills** is shown only to a user who may manage party adjustments, so not to a Sales Manager; no GST on a rebate | TC-SELL-080 to 086 |
 
 ## Carried from the 1.2.0 notes
 
@@ -148,6 +151,39 @@ its own test; none was re-checked by hand):
   data only; an installed firm is not affected.
 - **A supplier rebate accrued, reversed and accrued again was refused**
   (D-BUY-34, #1172). The second and later accruals are now numbered.
+- **A cashier's shift took no bills** (D-SELL-51, #1174). A bill paid at the
+  counter was counted in the shift of whoever approved it, and the counter
+  roles cannot approve. It is now counted in the open shift of the cashier
+  who **made** it; the approver's own shift takes it only when the maker has
+  none open.
+- **Settle against bills was offered to a user whose save was refused**
+  (D-SELL-52, #1174). Customer Rebates and Supplier Rebates now show it only
+  to a user who may manage party adjustments: a firm administrator or a firm
+  manager, not a Sales Manager. The Accounts job holds that right but cannot
+  open either screen.
+- **The GST purchase register listed a foreign-currency bill in currency
+  units** (D-BUY-35, #1175). The register, the HSN summary of purchases, the
+  purchase invoice register, purchase analysis and GSTR-3B's input side now
+  show it in rupees at the bill's rate.
+- **The payment dialog's 194C/194J hint ignored the amount being paid**
+  (D-BUY-36, #1175). It follows the amount and what is applied to bills.
+- **The bill's Approve dialog worked its TDS proposal on the lines alone**
+  (D-BUY-37, #1175). It now shows the figure the server posts: the lines plus
+  additional charges.
+- **The 194C/194J settings card mislabelled its second rate** (D-BUY-38,
+  #1175). The boxes read *Rate % (companies, firms and others)* and *Rate %
+  for an individual or HUF* (194C), *Rate % for professional fees* and *Rate %
+  for technical services, call centres and royalty on films* (194J); a blank,
+  zero or above-30 rate is refused in the form.
+- **An import could not be typed on a purchase order, and nothing held a
+  bill to its order's currency** (D-BUY-39, #1175). The purchase order has
+  **Currency** and **Exchange rate**; a bill takes its order's currency and
+  rate; a bill in another currency than its order is refused, and so is a
+  foreign-currency order with no rate.
+- **Capital goods could not be bought with the goods receipt stage on**
+  (D-BUY-40, #1175). The order line and the receipt line have a **Capital
+  goods** tick: such a line is received without entering stock and the bill
+  capitalises it. Migration `20261005_0326`.
 
 ## Known limits and what is not in it
 
@@ -189,26 +225,16 @@ Not built (from `docs/BACKLOG.md` §86 and §87):
   later.
 
 Open defects found by reading the code on 2026-10-05, **not yet driven**
-(`docs/DEFECTS.md`):
+(`docs/DEFECTS.md`). The eight found while the cases were written (D-SELL-51,
+D-SELL-52, D-BUY-35 to D-BUY-40) were fixed the same day and are under *Fixed
+since 1.2.0* above; these two were found while fixing them:
 
-- **D-SELL-51 (medium): a cashier's shift may take no bills.** A bill is
-  stamped with the open shift of whoever **approves** it, and the counter
-  roles cannot approve, so a cashier's expected cash can stay at the float.
-  Test shifts (TC-SELL-067 to 072) as a user who can approve, and report what
-  a Counter Sales user sees.
-- **D-SELL-52 (low):** Customer Rebates offers *Settle against bills* to a
-  Sales Manager, who is then refused; only a firm administrator can settle
-  from the screen.
-- **D-BUY-35 (medium):** the GST purchase register shows a foreign-currency
-  bill in currency units, not rupees.
-- **D-BUY-39 (medium):** an import billed off an order and a receipt is
-  misvalued; it is right only with the order and receipt stages off, which is
-  how the import cases are written.
-- **D-BUY-36, 37, 38 (low):** the payment dialog's 194C/194J hint ignores the
-  amount being paid; the bill's Approve dialog works the TDS proposal on the
-  subtotal alone; the 194C/194J settings card mislabels its lower rate.
-- **D-BUY-40 (low):** capital goods cannot be bought with the goods receipt
-  stage on (needs a decision).
+- **D-BUY-41 (medium):** a debit note or a purchase return against a
+  foreign-currency bill is not converted to rupees in the ledger or in
+  GSTR-3B's reversal. Do not raise one against a foreign bill in this build.
+- **D-CMP-23 (low):** GSTR-2B matching, rule 37 and rule 42 read a
+  foreign-currency bill in currency units. A supplier abroad is never in
+  GSTR-2B, so this reaches a foreign bill under reverse charge.
 
 **On every failure**: a screenshot, the newest file in
 `C:\ProgramData\Agency Platform\logs\server`, and the version on the sign-in
@@ -226,11 +252,12 @@ up* card until it is given). Until then the sign-in screen and header show
 Agency Platform's own name.
 
 **Database, with the purchasing and selling builds.** A build from 2026-10-05
-migrates every store on to **`20261005_0325`**, 25 revisions past
+migrates every store on to **`20261005_0326`**, 26 revisions past
 `20261004_0300`: the purchasing tables and columns (`20261005_0306` to
-`20261005_0316`), the selling ones (`20261005_0318` to `20261005_0325`), and
+`20261005_0316`), the selling ones (`20261005_0318` to `20261005_0325`),
 among them `20261005_0323`, which repairs the TDS challan check in stores
-already upgraded. They add tables, columns and control accounts (for a firm
+already upgraded, and `20261005_0326`, the capital-goods mark on purchase
+order lines and goods receipt lines. They add tables, columns and control accounts (for a firm
 whose books are open, only where missing); no existing document is repriced
 or reposted. *(confirm: this upgrade has not been rehearsed on an installed
 copy.)*

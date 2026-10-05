@@ -622,7 +622,7 @@ Fourteen purchasing features were built on 2026-10-05 (`docs/BACKLOG.md` §86,
 `docs/BACKLOG_BUILD_PLAN.md`). RFQ and rate contracts have their own sections
 above. The rest are one row each here: what it is, where it is kept and
 reached, who may use it, and the document that holds its rule. The QA cases
-are TC-BUY-029 to TC-BUY-085 in `docs/qa/06_PURCHASING.md`, written from the
+are TC-BUY-029 to TC-BUY-090 in `docs/qa/06_PURCHASING.md`, written from the
 code and not yet run by hand.
 
 | Feature | What it is | Tables and columns | Routes | Permissions | The rule |

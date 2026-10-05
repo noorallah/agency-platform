@@ -1380,7 +1380,7 @@ in seven.
 Marg and the owner chose nine gaps to build (SG-1 to SG-9). Each is described
 here by what exists; **the rule and its story live in the doc each part
 names**, and `docs/SALES_TO_RECEIPT_FLOW.md` shows the journals. The manual
-cases are TC-SELL-036 to TC-SELL-086 in `docs/qa/08_SELLING.md`.
+cases are TC-SELL-036 to TC-SELL-087 in `docs/qa/08_SELLING.md`.
 
 | | Feature | Server | Screen (1.3.0 menu) | Migration |
 | --- | --- | --- | --- | --- |
@@ -1532,9 +1532,11 @@ float and, at the close, a counted amount.
 | `POST /api/v1/counter-shifts/{id}/close` | closes on `counted_cash` | the cashier whose till it is, or a holder of `SALES_APPROVE` |
 
 One open shift per cashier, held by `UQ_counter_shifts_open_cashier`. A bill
-paid at the counter is stamped with its **approver's** open shift
-(`sales_invoices.counter_shift_id`). Expected cash is derived on every read:
-the float plus the cash tenders whose receipts still stand. The close stores
+paid at the counter is stamped with the open shift of the cashier who **made**
+it (`sales_invoices.counter_shift_id`); the approver's own shift takes it only
+when the maker has none open (D-SELL-51, fixed 2026-10-05). Expected cash is
+derived on every read: the float plus the cash tenders whose receipts still
+stand. The close stores
 expected, counted and the difference, and posts the difference to **6960 Cash
 Short and Over**. Shifts are optional: somebody with none open bills exactly
 as before.
@@ -1597,7 +1599,10 @@ accruing, reversing and cancelling take `SALES_APPROVE`.
   (`app/party_adjustments`), capped at what the accrual has left and at what
   the customer owes. Drafting one takes `PARTY_ADJUSTMENT_MANAGE`, which
   `SALES_MANAGER` does not hold: whoever promises a rebate must not be the one
-  who moves the customer's account.
+  who moves the customer's account. The screen shows **Settle against bills**
+  on that code alone (D-SELL-52, fixed 2026-10-05), so `FIRM_ADMIN` and
+  `FIRM_MANAGER` settle from it; `ACCOUNTANT` holds the code but no view code
+  for the screen.
 - **One live agreement per customer per overlapping period**, a customer's own
   and its group's included.
 - **No leg is tax** and no credit note is raised; `agreed_before_sale` is kept

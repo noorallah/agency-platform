@@ -283,7 +283,7 @@ Twenty-three more items were built in one day: fourteen on the buying side
 **None has been through a full test suite, a CI run or a hand test**: each was
 merged on its own tests, so every statement about them in this guide is from
 the code and is to be confirmed on a screen. The manual cases are TC-BUY-029 to
-085 and TC-SELL-036 to 086 (`docs/qa/`). `PURCHASE_FRAMEWORK.md` and
+090 and TC-SELL-036 to 087 (`docs/qa/`). `PURCHASE_FRAMEWORK.md` and
 `SALES_FRAMEWORK.md` are the references; the rules are in
 `LEDGER_POSTING_RULES.md` and `SALES_CHAIN_RULES.md`.
 
@@ -351,7 +351,9 @@ paid to suppliers* and *Customer rebate statement*. Buy › All Buy screens ›
 Money › *Payables by Month* is a screen of its own.
 
 **Not built**, and open defects not yet driven: see the end of sections 15 and
-16, and D-BUY-35 to D-BUY-40, D-SELL-51 and D-SELL-52 in `DEFECTS.md`.
+16, and D-BUY-41 and D-CMP-23 in `DEFECTS.md`. The eight found while the cases
+were written (D-BUY-35 to D-BUY-40, D-SELL-51, D-SELL-52) were fixed the same
+day.
 
 ## What 1.3.0 changed in the menu
 
@@ -2493,17 +2495,18 @@ assets** under **Accounts › All Accounts screens**.
 | **TDS 194C / 194J** | Set the supplier's **Usual TDS section**; thresholds and rates under **Settings › Tax › TDS on purchases (194Q, 194C, 194J)**. Approve the bill: the dialog shows the proposal and an override box | Posted at approval. A payment ahead of any bill proposes it instead; it is deducted once. What a bill owes is its total plus TCS less TDS |
 | **TCS on a purchase** | Type a **TCS rate** or **TCS amount** on the bill | A rate alone is worked on the total including GST; a typed amount wins. Outside GST. Posts Dr TCS Receivable (1430) at approval |
 | **PO by WhatsApp** | **Send** on the order → WhatsApp | Messaging, the channel and the template for *Purchase order sent to the supplier* must be set. Template only, no PDF. The order is marked sent |
-| **Imports** | Give the supplier a **Currency**; with the order and receipt stages off, type the bill in that currency with its rate; pay it from Payments in the currency | Lines and totals as typed; the journal in rupees at the bill's rate. No TCS, TDS or Paid now. The payment's rate against the bill's posts the exchange gain or loss. Rupees are refused against a foreign bill |
+| **Imports** | Give the supplier a **Currency**; raise the order with **Currency** and **Exchange rate**, receive it, and bill the receipt (or type the bill alone, in that currency with its rate); pay it from Payments in the currency | Lines and totals as typed; stock and the journal in rupees, the receipt at the order's rate and the bill at its own. A bill is in its order's currency: another is refused, and another rate posts only the difference to price variance. An order's currency and rate cannot change after a completed receipt. No TCS, TDS or Paid now. The payment's rate against the bill's posts the exchange gain or loss. Rupees are refused against a foreign bill |
 | **Bill of Entry** | New → link the bills and receipts → per line the assessable value and the duty rates or amounts → **Post** | Basic duty and surcharge (10% of the duty by default) land on the linked receipts' stock; a line no receipt carries is an expense. IGST and cess are input tax. The linked receipts must be completed. Cancel reverses |
-| **Fixed assets** | Tick **Capital goods** and pick an asset class on a bill line; or type an opening asset in the **Asset register**. **Depreciation runs** → run a period. **Dispose** on an asset | The line debits the asset account instead of stock, one asset per line; a line off a completed receipt is refused. A run is pro rata by days, one journal, forward only, the latest cancellable. Disposal books the gain or loss. The Income-tax block schedule posts nothing |
+| **Fixed assets** | Tick **Capital goods** on the order line (or the receipt line), then pick an asset class on the bill line; or tick it on a bill typed alone; or type an opening asset in the **Asset register**. **Depreciation runs** → run a period. **Dispose** on an asset | The line debits the asset account instead of stock, one asset per line. A line marked on the order or the receipt is received without entering stock; a line a receipt already took into stock is refused at the bill. A run is pro rata by days, one journal, forward only, the latest cancellable. Disposal books the gain or loss. The Income-tax block schedule posts nothing |
 | **GST purchase register, Payables by Month** | Reports › Financial; Buy › All Buy screens › Money | Read on every call, nothing stored. Debit notes and returns after billing are minus rows. Payables are checked against control account 2100 |
 
-**Two things that bite.** Capital goods and imports are typed **on the bill
-alone**: the purchase order window has no currency, and a capital-goods line
-off a completed receipt is refused, so both belong to a firm (or a moment)
-with the order and receipt stages off (D-BUY-39, D-BUY-40). And the GST
-purchase register shows a foreign-currency bill in currency units, not rupees
-(D-BUY-35).
+**Two things that bite.** A machine must be marked **Capital goods** on the
+order or the receipt **before** the receipt is completed: once a receipt has
+taken a line into stock the bill refuses to capitalise it. And a debit note
+or a purchase return against a foreign-currency bill is not converted in the
+ledger or in GSTR-3B's reversal (D-BUY-41, open), nor are GSTR-2B matching,
+rule 37 and rule 42 for such a bill (D-CMP-23, open); the registers, purchase
+analysis and GSTR-3B's input side do show it in rupees at the bill's rate.
 
 **Not built:** OCR of a supplier's bill; emailing an RFQ; a Bill of Entry in
 the GST purchase register and against GSTR-2B; returns and debit notes in
@@ -2721,11 +2724,13 @@ and **Payment Promises** under **Money**, and **Transporters** under
 | **Collection follow-up** | Set **Collector** on the customer; open **Collection Sheet**; record a promise from a bill's row; follow them in **Payment Promises** | A promise posts nothing. Pending, due today, kept, broken or withdrawn is derived from the receipts between the day taken and the day promised. Withdrawn, never edited. Refused on a draft, on a bill that owes nothing, for more than it owes |
 | **Customer rebate** | **Customer Rebates** → an agreement for a customer or a group, a period and slabs → after the period, **accrue** → settle against bills | Turnover is derived from the documents GSTR-1 counts. The slab reached rates the whole turnover. Accrued once: Dr Rebates Allowed (5310), Cr Customer Rebates Payable (2900). Settled only by a party adjustment of kind `CUSTOMER_REBATE`. No GST. One live agreement per customer per overlapping period. Agreeing takes `SALES_APPROVE`; settling `PARTY_ADJUSTMENT_MANAGE` |
 
-**Two things that bite.** A bill is stamped with the open shift of whoever
-**approves** it, and `CASHIER` and `BILLING_EXECUTIVE` cannot approve, so a
-cashier's shift may take no bills (D-SELL-51, open, not driven). And the
-Customer Rebates screen offers *Settle against bills* to a `SALES_MANAGER`, who
-is refused (D-SELL-52).
+**Two things to know.** A bill paid at the counter is stamped with the open
+shift of the cashier who **made** it: `CASHIER` and `BILLING_EXECUTIVE` cannot
+approve, so a manager approves their bills, and the bill still lands in the
+cashier's shift. The approver's own shift takes it only when the maker has
+none open. And *Settle against bills* on Customer Rebates is shown on
+`PARTY_ADJUSTMENT_MANAGE` alone, so a `SALES_MANAGER` is not offered it;
+`FIRM_ADMIN` and `FIRM_MANAGER` are.
 
 **Not built:** a counter refund against a bill, a count by denomination and a
 hand-over of a shift; a promise for the account as a whole from the screen,

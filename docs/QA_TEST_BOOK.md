@@ -644,15 +644,16 @@ features SG-1 to SG-9), which are part of release 1.3.0. **Every row here is
 (confirm):** the features were built with their own tests only and have not
 been through a full test suite, a CI run or a hand test, and these rows were
 written from the code. Each row is the short way in; the full cases, with
-every refusal and journal, are TC-BUY-029 to 085 (`docs/qa/06_PURCHASING.md`)
-and TC-SELL-036 to 086 (`docs/qa/08_SELLING.md`), named in the last column of
+every refusal and journal, are TC-BUY-029 to 090 (`docs/qa/06_PURCHASING.md`)
+and TC-SELL-036 to 087 (`docs/qa/08_SELLING.md`), named in the last column of
 *Verify elsewhere*.
 
 **Run this module last** (only the spare-PC branding cases may come after):
 it buys and sells a little more, so the stock and balance figures the earlier
 modules end on no longer hold once it has run. Sign in as admin@qb01.test.
-The import and capital-goods cases switch a firm-wide buying setting and are
-not run in QB01 (QA-BUY-33, 34).
+The import and capital-goods cases need a supplier abroad and a product of
+their own and are not run in QB01 (QA-BUY-33, 34); only TC-BUY-086 and
+TC-BUY-088 switch a firm-wide buying setting.
 
 | ID | Action (with the exact sample values) | Verify on this screen | Verify elsewhere | Result |
 | --- | --- | --- | --- | --- |
@@ -668,15 +669,15 @@ not run in QB01 (QA-BUY-33, 34).
 | QA-BUY-30 | Buy > All Buy screens > Documents > **Supplier schemes** > New: Supplier QB-V1, product QB-FLR, Buy quantity 10, Free quantity 2, from today. Then start a purchase order to QB-V1: QB-FLR x 25, **Free** blank (do not save) | The Free box fills with **4** and the side panel reads *Scheme 10+2 applied*; type 0 in Free and it stays 0 | Later QB-V1 orders for QB-FLR get the scheme while it runs: end it after the case. TC-BUY-066..069 | |
 | QA-BUY-31 | Serial numbers at receipt | QB01 has no serial-tracked product | Run TC-BUY-063..065 in a firm on the Electronics profile | |
 | QA-BUY-32 | Start a goods receipt for QB-GHEE with a batch number (do not complete). Then Masters > Customers > QB-C1 > Edit (do not save) | The line offers **PTR** and **PTS** beside the MRP, and a PTR above the MRP (320) is refused; the customer form has **Trade class** | If neither shows, the batch PTR / PTS feature is off for the firm: note it. TC-BUY-082..085 | |
-| QA-BUY-33 | Masters > Vendors > + New (do not save). Then Buy > All Buy screens > Documents > **Bills of entry** | The supplier form has a **Currency** box; the Bills of entry list opens with an empty state | The import cases need the order and receipt stages off for the whole firm: run TC-BUY-070..076 last, in a firm of its own | |
-| QA-BUY-34 | Accounts > All Accounts screens > Fixed assets > **Asset classes**; then **Asset register**, **Depreciation runs** and **Income-tax block schedule** | Five classes to start with (plant, furniture, computers, vehicles, office equipment); the other three screens open | The capital-goods bill line needs the stages off as QA-BUY-33: run TC-BUY-077..081 last, in a firm of its own | |
+| QA-BUY-33 | Masters > Vendors > + New (do not save). Buy > Purchase Orders > New (do not save). Then Buy > All Buy screens > Documents > **Bills of entry** | The supplier form has a **Currency** box; the purchase order has a **Currency** box too; the Bills of entry list opens with an empty state | The import cases run on the full chain, order to bill, with a supplier abroad: TC-BUY-070..076, 087, 089. Only TC-BUY-086 (a bill typed alone) needs the order and receipt stages off: run it in a firm of its own | |
+| QA-BUY-34 | Accounts > All Accounts screens > Fixed assets > **Asset classes**; then **Asset register**, **Depreciation runs** and **Income-tax block schedule** | Five classes to start with (plant, furniture, computers, vehicles, office equipment); the other three screens open | A purchase order line and a goods receipt line each have a **Capital goods** tick; a line so marked is received without entering stock: TC-BUY-077..081, 090. Only TC-BUY-088 (a bill typed alone) needs the stages off | |
 | QA-SELL-37 | Reports > Financial > **GST sales register**, this month. Then **HSN summary of sales** | One row per approved bill by tax head; credit notes and the sales return in minus, the debit note in plus | The totals agree with GSTR-1 for the month. TC-SELL-036..039 | |
 | QA-SELL-38 | Sell > Sales Invoices > **+ New by product** > **Walk-in**; Buyer name `Counter Buyer`; QB-FLR x 1; try to approve with no tender, then tender Cash for the full total and approve | The bill is made out to *Cash sale*; total **59.00**; approval is refused until it is paid in full | The print shows the buyer's name; Masters > Customers: *Cash sale* cannot be deleted. TC-SELL-040..045 | |
 | QA-SELL-39 | Masters > Products > + New `QB-SVC` *Installation*: type **Service**, sell 500, GST 18% Local, HSN / SAC `998739`. Bill 1 to QB-C3 on a counter bill, paid in cash | Total **590.00** | Stock Summary shows nothing for QB-SVC; the journal has no cost of goods sold. TC-SELL-046..049 | |
 | QA-SELL-40 | Counter bill to QB-C3: QB-FLR x 2; under **Other charges** > **Add charge**: Name `Packing`, Amount `100`, tax GST 18% Local, SAC `998540`; pay in cash, approve | Total **236.00** (goods 100.00 + 18.00, charge 100.00 + 18.00) | Journal: Cr Other Charges Recovered 100.00, apart from Sales; the charge prints by name. TC-SELL-050..054 | |
 | QA-SELL-41 | Settings > Set up > Territories & routes > **Transporters** > New `QB Roadways`. Then start a delivery note and pick it under **Carrier (master)**, Freight *To pay* | The note's transporter name fills from the master | The challan prints the carrier and *Freight*. TC-SELL-055..059 | |
 | QA-SELL-42 | Sell > Sales Invoices > pick any invoice > **Attachments** > add a PDF | The file is listed and opens | The list's **Files** column shows it; the same action is on quotations, orders, delivery notes and returns. TC-SELL-060..063 | |
-| QA-SELL-43 | Counter bill: on the strip press **Open shift**, float `500`. Add QB-FLR x 1 > **Hold (F8)**, note `back in 5 min` > **Recall** it > pay 59.00 cash > approve. **Close shift** with counted cash `559` | The held bill returns with its line; closing shows no shortage or excess | Sell > All Sell screens > Documents > **Counter Shifts**: the shift, closed, expected 559.00; no journal for an exact count. As a Counter Sales user the shift may take no bills (D-SELL-51): note what you see. TC-SELL-064..072 | |
+| QA-SELL-43 | Counter bill: on the strip press **Open shift**, float `500`. Add QB-FLR x 1 > **Hold (F8)**, note `back in 5 min` > **Recall** it > pay 59.00 cash > approve. **Close shift** with counted cash `559` | The held bill returns with its line; closing shows no shortage or excess | Sell > All Sell screens > Documents > **Counter Shifts**: the shift, closed, expected 559.00; no journal for an exact count. A bill a Counter Sales user makes and a manager approves is counted in the Counter Sales user's shift: TC-SELL-068, 087. TC-SELL-064..072 | |
 | QA-SELL-44 | Sell > All Sell screens > Money > **Collection Sheet**: on a Ravi Traders bill record a promise three days ahead for the amount offered. Then **Payment Promises** > that promise > withdraw it with a reason | The sheet lists open bills with days overdue and the collector; the promise reads **Pending**, then **Withdrawn** | No journal either time; the customer form has **Collector**. TC-SELL-073..079 | |
 | QA-SELL-45 | Sell > All Sell screens > Documents > **Customer Rebates** > New: QB-C1, a period ending last month, one slab from 0 at 2% | The agreement saves and its statement shows the period's turnover | Accrue, settle and the refusals: TC-SELL-080..086. Reports > Financial > **Customer rebate statement** | |
 
