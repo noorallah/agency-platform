@@ -1,4 +1,4 @@
-﻿"""What customers owed the firm on day one, bill by bill (backlog 36).
+"""What customers owed the firm on day one, bill by bill (backlog 36).
 
 The receivable mirror of `test_vendor_opening_bills.py`. A customer's day-one
 debt entered bill by bill has to be a bill Record Receipt offers, a receipt
