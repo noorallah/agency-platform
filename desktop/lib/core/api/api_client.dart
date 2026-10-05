@@ -5430,22 +5430,24 @@ class ApiClient {
 
   // ---- purchase requisitions (BUY-7) ------------------------------------
 
-  Future<List<PurchaseRequisition>> listPurchaseRequisitions({
+  /// One page of the firm's requisitions, newest first. The server pages
+  /// this list (D-BUY-54); a screen that shows them all reads every page
+  /// with `fetchAllPages`.
+  Future<PagedResult<PurchaseRequisition>> purchaseRequisitions({
+    int page = 1,
+    int pageSize = 100,
     String? status,
-  }) async {
-    final Json response = await request(
-      'GET',
-      '/api/v1/purchases/requisitions',
-      query: {if (status != null && status.isNotEmpty) 'status': status},
-    );
-    final dynamic data = response['data'];
-    if (data is! List) return const [];
-    return data
-        .whereType<Map>()
-        .map((item) =>
-            PurchaseRequisition.fromJson(Map<String, dynamic>.from(item)))
-        .toList(growable: false);
-  }
+  }) =>
+      _list(
+        '/api/v1/purchases/requisitions',
+        PurchaseRequisition.fromJson,
+        page,
+        '',
+        pageSize: pageSize,
+        additionalQuery: {
+          if (status != null && status.isNotEmpty) 'status': status,
+        },
+      );
 
   Future<PurchaseRequisition> createPurchaseRequisition(Json body) async =>
       PurchaseRequisition.fromJson(_unwrapMap(await request(

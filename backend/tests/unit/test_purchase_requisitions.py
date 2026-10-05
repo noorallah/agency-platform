@@ -11,19 +11,29 @@ reorder screen raises a requisition rather than an order.
 
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
+from fastapi import Response
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.database.base import Base
-from app.core.exceptions import ValidationError
+from app.core.exceptions import ConflictError, ValidationError
 from app.products.models import Product
+from app.purchase.api.router import (
+    create_purchase_requisition,
+    get_purchase_requisition,
+    list_purchase_requisitions,
+    update_purchase_requisition,
+)
+from app.purchase.api.router import router as purchase_router
 from app.purchase.schemas.requisition import PurchaseRequisitionWrite
 from app.purchase.services.requisitions import PurchaseRequisitionService
 from app.vendors.models import Vendor
 from tests.unit.test_purchase_chain_synthesis import _Firm
+from tests.unit.test_purchase_invoice_module import takes_if_match
 
 D = Decimal
 
@@ -147,3 +157,100 @@ def test_the_reorder_screen_raises_a_requisition() -> None:
     (response,) = PurchaseRequisitionService(shop.session).responses([requisition])
     assert response.status == "DRAFT"
     assert response.lines[0].quantity == D("18.0000")
+
+
+def _typed(firm: _Firm, quantity: str) -> PurchaseRequisitionWrite:
+    return PurchaseRequisitionWrite.model_validate(
+        {
+            "branch_id": firm.branch.id,
+            "warehouse_id": firm.warehouse.id,
+            "requisition_date": "2026-08-02",
+            "lines": [{"product_id": firm.product.id, "quantity": quantity}],
+        }
+    )
+
+
+def test_a_requisition_publishes_its_version_and_refuses_a_stale_save(
+    firm: _Firm,
+) -> None:
+    """D-BUY-54: the desktop already sent ``If-Match``; the server read none."""
+    scope = SimpleNamespace(firm_id=firm.firm.id, actor_id=firm.actor_id)
+    made = Response()
+    created = create_purchase_requisition(
+        data=_typed(firm, "2"), scope=scope, response=made, db=firm.session  # type: ignore[arg-type]
+    ).data
+    assert created is not None
+    assert made.headers["ETag"] == f'"{created.version}"'
+    read = Response()
+    opened = get_purchase_requisition(
+        requisition_id=created.id, scope=scope, response=read, db=firm.session  # type: ignore[arg-type]
+    ).data
+    assert opened is not None
+    assert read.headers["ETag"] == f'"{opened.version}"'
+
+    # Somebody else saves first.
+    theirs = Response()
+    saved = update_purchase_requisition(
+        requisition_id=created.id,
+        data=_typed(firm, "3").model_copy(update={"remarks": "Theirs"}),
+        scope=scope,  # type: ignore[arg-type]
+        response=theirs,
+        db=firm.session,
+        expected_version=opened.version,
+    ).data
+    assert saved is not None
+    assert saved.version > opened.version
+    assert theirs.headers["ETag"] == f'"{saved.version}"'
+    with pytest.raises(ConflictError, match="changed since you loaded it"):
+        update_purchase_requisition(
+            requisition_id=created.id,
+            data=_typed(firm, "4"),
+            scope=scope,  # type: ignore[arg-type]
+            response=Response(),
+            db=firm.session,
+            expected_version=opened.version,
+        )
+    # The precondition is opt-in: a client that sends none still saves.
+    update_purchase_requisition(
+        requisition_id=created.id,
+        data=_typed(firm, "4"),
+        scope=scope,  # type: ignore[arg-type]
+        response=Response(),
+        db=firm.session,
+    )
+    assert takes_if_match(purchase_router, "PUT", "/requisitions/{requisition_id}")
+
+
+def test_the_requisition_list_is_paged(firm: _Firm) -> None:
+    """D-BUY-54: the list took no page and returned every row."""
+    scope = SimpleNamespace(firm_id=firm.firm.id, actor_id=firm.actor_id)
+    for quantity in ("1", "2", "3"):
+        _raise(firm, [{"product_id": firm.product.id, "quantity": quantity}])
+    first = list_purchase_requisitions(
+        scope=scope,  # type: ignore[arg-type]
+        page=1,
+        page_size=2,
+        status_filter=None,
+        db=firm.session,
+    )
+    assert len(first.data) == 2
+    assert first.pagination.total_records == 3
+    assert first.pagination.total_pages == 2
+    second = list_purchase_requisitions(
+        scope=scope,  # type: ignore[arg-type]
+        page=2,
+        page_size=2,
+        status_filter=None,
+        db=firm.session,
+    )
+    assert len(second.data) == 1
+    numbers = [row.requisition_number for row in first.data + second.data]
+    assert numbers == sorted(numbers, reverse=True)
+    none = list_purchase_requisitions(
+        scope=scope,  # type: ignore[arg-type]
+        page=1,
+        page_size=2,
+        status_filter="APPROVED",
+        db=firm.session,
+    )
+    assert none.data == [] and none.pagination.total_records == 0

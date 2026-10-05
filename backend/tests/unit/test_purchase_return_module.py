@@ -2,9 +2,11 @@
 
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import Response
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -15,7 +17,7 @@ from app.branches.models import Branch, Warehouse
 from app.business.models import framework as _business_models  # noqa: F401
 from app.common.audit.models import AuditLog
 from app.core.database.base import Base
-from app.core.exceptions import ValidationError
+from app.core.exceptions import ConflictError, ValidationError
 from app.customers.models import customer as _customer_models  # noqa: F401
 from app.document_framework.models import DocumentTypeDefinition
 from app.finance.models import (
@@ -45,6 +47,12 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceSourceType,
 )
 from app.purchase_invoice.services import PurchaseInvoiceService
+from app.purchase_return.api.router import (
+    create_purchase_return,
+    get_purchase_return,
+    update_purchase_return,
+)
+from app.purchase_return.api.router import router as return_router
 from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
 from app.purchase_return.schemas import (
     PurchaseReturnCreate,
@@ -57,6 +65,7 @@ from app.sales.models import territory as _sales_models  # noqa: F401
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
 from app.uom.models import uom as _uom_models  # noqa: F401
 from app.vendors.models import Vendor
+from tests.unit.test_purchase_invoice_module import takes_if_match
 
 # Fixtures here type their document numbers; see conftest (D-CFG-2).
 pytestmark = pytest.mark.typed_document_numbers
@@ -1599,3 +1608,93 @@ def test_the_list_finds_a_return_by_its_supplier_and_names_them() -> None:
     response = service.return_response(row)
     assert response.vendor_name == vendor.display_name
     assert response.vendor_code == vendor.code
+
+
+def test_a_return_publishes_its_version_and_refuses_a_stale_save() -> None:
+    """D-BUY-54: a save over somebody else's newer save was accepted."""
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    vendor = _vendor(session, firm_id=firm.id)
+    order = _purchase_order(
+        session,
+        firm_id=firm.id,
+        vendor_id=vendor.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+    )
+    po_line = session.scalar(
+        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+    )
+    assert po_line is not None
+    receipt, receipt_line = _received(session, po_line)
+    scope = SimpleNamespace(firm_id=firm.id, actor_id=uuid4())
+    source = {
+        "source_document_type": PurchaseReturnSourceType.GOODS_RECEIPT,
+        "source_document_id": receipt.id,
+    }
+
+    def typed(quantity: str) -> PurchaseReturnCreate:
+        """Return the document as the editor sends it, for ``quantity``."""
+        return PurchaseReturnCreate.model_validate(
+            {
+                "return_date": "2026-08-02",
+                "warehouse_id": warehouse.id,
+                "source_documents": [source],
+                "lines": [
+                    {
+                        **source,
+                        "source_document_line_id": receipt_line.id,
+                        "line_number": 1,
+                        "current_return_quantity": quantity,
+                        "unit_price": "100",
+                    }
+                ],
+            }
+        )
+
+    made = Response()
+    created = create_purchase_return(
+        data=typed("2"), scope=scope, response=made, db=session  # type: ignore[arg-type]
+    ).data
+    assert created is not None
+    assert made.headers["ETag"] == f'"{created.version}"'
+    read = Response()
+    opened = get_purchase_return(
+        return_id=created.id, scope=scope, response=read, db=session  # type: ignore[arg-type]
+    ).data
+    assert opened is not None
+    assert read.headers["ETag"] == f'"{opened.version}"'
+
+    # Somebody else saves first.
+    theirs = Response()
+    saved = update_purchase_return(
+        return_id=created.id,
+        data=typed("3"),
+        scope=scope,  # type: ignore[arg-type]
+        response=theirs,
+        db=session,
+        expected_version=opened.version,
+    ).data
+    assert saved is not None
+    assert saved.version > opened.version
+    assert theirs.headers["ETag"] == f'"{saved.version}"'
+    with pytest.raises(ConflictError, match="changed since you loaded it"):
+        update_purchase_return(
+            return_id=created.id,
+            data=typed("4"),
+            scope=scope,  # type: ignore[arg-type]
+            response=Response(),
+            db=session,
+            expected_version=opened.version,
+        )
+    # The precondition is opt-in: a client that sends none still saves.
+    update_purchase_return(
+        return_id=created.id,
+        data=typed("4"),
+        scope=scope,  # type: ignore[arg-type]
+        response=Response(),
+        db=session,
+    )
+    assert takes_if_match(return_router, "PUT", "/{return_id}")

@@ -23,6 +23,7 @@ from app.common.scope import (
     firm_any_permission_scope,
     firm_permission_scope,
 )
+from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
@@ -186,11 +187,13 @@ def purchase_return_summary(
 def create_purchase_return(
     data: PurchaseReturnCreate,
     scope: PurchaseReturnCreateScope,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseReturnResponse]:
     """Create one purchase return."""
     service = PurchaseReturnService(db)
     row = service.create_return(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    set_etag(response, row)
     return ApiResponse(data=service.return_response(row))
 
 
@@ -302,13 +305,24 @@ def update_purchase_return(
     return_id: UUID,
     data: PurchaseReturnCreate,
     scope: PurchaseReturnUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[PurchaseReturnResponse]:
-    """Replace one purchase return."""
+    """Replace one purchase return.
+
+    ``If-Match`` with the version last read refuses a save over somebody
+    else's newer one (D-BUY-54); sending none saves with no precondition.
+    """
     service = PurchaseReturnService(db)
+    assert_version(
+        service.get_return(return_id, firm_scope=scope.firm_id).version,
+        expected_version,
+    )
     row = service.update_return(
         return_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
+    set_etag(response, row)
     return ApiResponse(data=service.return_response(row))
 
 
@@ -397,15 +411,14 @@ def complete_purchase_return(
 def get_purchase_return(
     return_id: UUID,
     scope: PurchaseReturnViewScope,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseReturnResponse]:
     """Return one purchase return."""
     service = PurchaseReturnService(db)
-    return ApiResponse(
-        data=service.return_response(
-            service.get_return(return_id, firm_scope=scope.firm_id)
-        )
-    )
+    row = service.get_return(return_id, firm_scope=scope.firm_id)
+    set_etag(response, row)
+    return ApiResponse(data=service.return_response(row))
 
 
 @router.get(

@@ -1530,6 +1530,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         """Build one return's response from what the page already read."""
         return PurchaseReturnResponse(
             id=row.id,
+            version=row.version,
             firm_id=row.firm_id,
             vendor_id=row.vendor_id,
             vendor_name=vendor[0] if vendor else "",

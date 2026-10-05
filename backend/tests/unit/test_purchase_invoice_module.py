@@ -2,9 +2,12 @@
 
 from datetime import date, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import Response
+from fastapi.routing import APIRoute
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -16,7 +19,7 @@ from app.business.models import BusinessProfile
 from app.business.models import framework as _business_models  # noqa: F401
 from app.common.audit.models import AuditLog
 from app.core.database.base import Base
-from app.core.exceptions import ValidationError
+from app.core.exceptions import ConflictError, ValidationError
 from app.core.pagination import ReportRows, ReportWindow
 from app.customers.models import customer as _customer_models  # noqa: F401
 from app.document_framework.models import DocumentTypeDefinition
@@ -28,6 +31,12 @@ from app.identity.models import identity as _identity_models  # noqa: F401
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
+from app.purchase_invoice.api.router import (
+    create_purchase_invoice,
+    get_purchase_invoice,
+    update_purchase_invoice,
+)
+from app.purchase_invoice.api.router import router as bill_router
 from app.purchase_invoice.models import (
     PurchaseInvoice,
     PurchaseInvoiceLine,
@@ -1424,3 +1433,101 @@ def test_the_list_finds_an_invoice_by_its_supplier_and_names_them() -> None:
     response = service.invoice_response(row)
     assert response.vendor_name == vendor.display_name
     assert response.vendor_code == vendor.code
+
+
+def takes_if_match(router: object, method: str, suffix: str) -> bool:
+    """Say whether the route reads an ``If-Match`` header."""
+    for route in router.routes:  # type: ignore[attr-defined]
+        if (
+            isinstance(route, APIRoute)
+            and method in route.methods
+            and route.path.endswith(suffix)
+        ):
+            return any(
+                param.alias == "If-Match"
+                for dependency in route.dependant.dependencies
+                for param in dependency.header_params
+            )
+    raise AssertionError(f"no {method} route ending {suffix}")
+
+
+def test_a_bill_publishes_its_version_and_refuses_a_stale_save() -> None:
+    """D-BUY-54: a save over somebody else's newer save was accepted.
+
+    The bill carried no ``ETag`` and no ``version``, and its PUT read no
+    ``If-Match``, so there was nothing a client could send and nothing that
+    would have been checked.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    vendor = _vendor(session, firm_id=firm.id)
+    order = _purchase_order(
+        session,
+        firm_id=firm.id,
+        vendor_id=vendor.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+    )
+    po_line = session.scalar(
+        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+    )
+    assert po_line is not None
+    receipt, receipt_line = _received(session, po_line)
+    scope = SimpleNamespace(firm_id=firm.id, actor_id=uuid4())
+
+    def typed(quantity: str) -> PurchaseInvoiceCreate:
+        """Return the bill as the editor sends it, for ``quantity``."""
+        return _bill_of(
+            receipt,
+            receipt_line,
+            number="SUP-ETAG",
+            quantity=quantity,
+            on=date(2026, 8, 2),
+        )
+
+    made = Response()
+    created = create_purchase_invoice(
+        data=typed("2"), scope=scope, response=made, db=session  # type: ignore[arg-type]
+    ).data
+    assert created is not None
+    assert made.headers["ETag"] == f'"{created.version}"'
+    read = Response()
+    opened = get_purchase_invoice(
+        invoice_id=created.id, scope=scope, response=read, db=session  # type: ignore[arg-type]
+    ).data
+    assert opened is not None
+    assert read.headers["ETag"] == f'"{opened.version}"'
+
+    # Somebody else saves first.
+    theirs = Response()
+    saved = update_purchase_invoice(
+        invoice_id=created.id,
+        data=typed("3"),
+        scope=scope,  # type: ignore[arg-type]
+        response=theirs,
+        db=session,
+        expected_version=opened.version,
+    ).data
+    assert saved is not None
+    assert saved.version > opened.version
+    assert theirs.headers["ETag"] == f'"{saved.version}"'
+    with pytest.raises(ConflictError, match="changed since you loaded it"):
+        update_purchase_invoice(
+            invoice_id=created.id,
+            data=typed("4"),
+            scope=scope,  # type: ignore[arg-type]
+            response=Response(),
+            db=session,
+            expected_version=opened.version,
+        )
+    # The precondition is opt-in: a client that sends none still saves.
+    update_purchase_invoice(
+        invoice_id=created.id,
+        data=typed("4"),
+        scope=scope,  # type: ignore[arg-type]
+        response=Response(),
+        db=session,
+    )
+    assert takes_if_match(bill_router, "PUT", "/{invoice_id}")

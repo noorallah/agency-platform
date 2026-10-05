@@ -14,7 +14,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
@@ -253,24 +253,32 @@ class PurchaseRequisitionService(TransactionalDocumentService):
             raise ResourceNotFoundError("Purchase requisition not found.")
         return row
 
-    def list_rows(
-        self, firm_id: UUID, *, status: str | None = None
-    ) -> list[PurchaseRequisition]:
-        """Return the firm's requisitions, newest first."""
+    def page(
+        self,
+        firm_id: UUID,
+        *,
+        status: str | None = None,
+        page: int,
+        page_size: int,
+    ) -> tuple[list[PurchaseRequisition], int]:
+        """Return one page of the firm's requisitions, newest first, and the count."""
         query = select(PurchaseRequisition).where(
             PurchaseRequisition.firm_id == firm_id,
             PurchaseRequisition.is_deleted.is_(False),
         )
         if status:
             query = query.where(PurchaseRequisition.status == status)
-        return list(
-            self._session.scalars(
-                query.order_by(
-                    PurchaseRequisition.requisition_date.desc(),
-                    PurchaseRequisition.requisition_number.desc(),
-                )
-            ).all()
-        )
+        total = self._session.scalar(select(func.count()).select_from(query.subquery()))
+        rows = self._session.scalars(
+            query.order_by(
+                PurchaseRequisition.requisition_date.desc(),
+                PurchaseRequisition.requisition_number.desc(),
+                PurchaseRequisition.id.desc(),
+            )
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        ).all()
+        return list(rows), int(total or 0)
 
     def responses(
         self, rows: list[PurchaseRequisition]

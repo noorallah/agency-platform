@@ -550,17 +550,26 @@ class ReorderDraftsRequest(BaseModel):
 
 # Requisitions (BUY-7), declared above `/{order_id}` like the settings below.
 @router.get(
-    "/requisitions", response_model=ApiResponse[list[PurchaseRequisitionResponse]]
+    "/requisitions", response_model=PaginatedResponse[PurchaseRequisitionResponse]
 )
 def list_purchase_requisitions(
     scope: RequisitionViewScope,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     status_filter: Annotated[str | None, Query(alias="status", max_length=20)] = None,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[PurchaseRequisitionResponse]]:
-    """Return the firm's requisitions, newest first."""
+) -> PaginatedResponse[PurchaseRequisitionResponse]:
+    """Return one page of the firm's requisitions, newest first."""
+    params = PaginationParams(page=page, page_size=page_size)
     service = PurchaseRequisitionService(db)
-    return ApiResponse(
-        data=service.responses(service.list_rows(scope.firm_id, status=status_filter))
+    rows, total = service.page(
+        scope.firm_id,
+        status=status_filter,
+        page=params.page,
+        page_size=params.page_size,
+    )
+    return PaginatedResponse(
+        data=service.responses(rows), pagination=params.metadata(total)
     )
 
 
@@ -572,11 +581,13 @@ def list_purchase_requisitions(
 def create_purchase_requisition(
     data: PurchaseRequisitionWrite,
     scope: RequisitionCreateScope,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseRequisitionResponse]:
     """Raise a draft requisition."""
     service = PurchaseRequisitionService(db)
     row = service.create(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    set_etag(response, row)
     return ApiResponse(data=service.responses([row])[0])
 
 
@@ -618,13 +629,14 @@ def raise_requisitions_from_reorder(
 def get_purchase_requisition(
     requisition_id: UUID,
     scope: RequisitionViewScope,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseRequisitionResponse]:
     """Return one requisition."""
     service = PurchaseRequisitionService(db)
-    return ApiResponse(
-        data=service.responses([service.get(requisition_id, firm_id=scope.firm_id)])[0]
-    )
+    row = service.get(requisition_id, firm_id=scope.firm_id)
+    set_etag(response, row)
+    return ApiResponse(data=service.responses([row])[0])
 
 
 @router.put(
@@ -635,13 +647,23 @@ def update_purchase_requisition(
     requisition_id: UUID,
     data: PurchaseRequisitionWrite,
     scope: RequisitionCreateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[PurchaseRequisitionResponse]:
-    """Change a draft or submitted requisition."""
+    """Change a draft or submitted requisition.
+
+    ``If-Match`` with the version last read refuses a save over somebody
+    else's newer one (D-BUY-54); sending none saves with no precondition.
+    """
     service = PurchaseRequisitionService(db)
+    assert_version(
+        service.get(requisition_id, firm_id=scope.firm_id).version, expected_version
+    )
     row = service.update(
         requisition_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
+    set_etag(response, row)
     return ApiResponse(data=service.responses([row])[0])
 
 
