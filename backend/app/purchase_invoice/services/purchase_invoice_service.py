@@ -370,6 +370,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         self, data: PurchaseInvoiceCreate, *, firm_id: UUID, actor_id: UUID
     ) -> PurchaseInvoice:
         """Create one purchase invoice and commit it."""
+        self._refuse_empty_bill_lines(data)
         row = self.stage_invoice(data, firm_id=firm_id, actor_id=actor_id)
         if data.attributes:
             document_attributes.store(
@@ -401,6 +402,49 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         )
         self._session.commit()
         return row
+
+    def _refuse_empty_bill_lines(self, data: PurchaseInvoiceCreate) -> None:
+        """Refuse a bill line of 0 with nothing free, where it is saved (D-BUY-53).
+
+        It saved, and was refused only at approval in the ledger's words: "A
+        journal entry must carry a non-zero amount." A preview is not asked:
+        the line being typed has no quantity yet.
+
+        The free goods may be the line's own (a bill of products) or its
+        source line's: a receipt line of free goods alone is billed at 0 so
+        the bill shows it and the order reads complete (86 #27).
+        """
+        empty = [
+            line
+            for line in data.lines
+            if line.current_invoice_quantity <= 0 and not (line.free_quantity or 0) > 0
+        ]
+        if not empty:
+            return
+        source_ids = [
+            line.source_document_line_id
+            for line in empty
+            if line.source_document_line_id is not None
+        ]
+        gifted: set[UUID] = set()
+        for model in (GoodsReceiptLine, PurchaseOrderLine):
+            if source_ids:
+                gifted.update(
+                    self._session.scalars(
+                        select(model.id).where(
+                            model.id.in_(source_ids), model.free_quantity > 0
+                        )
+                    ).all()
+                )
+        self._refuse_lines_for_nothing(
+            (
+                (line.line_number, line.current_invoice_quantity, None)
+                for line in empty
+                if line.source_document_line_id not in gifted
+            ),
+            does="bills",
+            document="bill",
+        )
 
     def preview_invoice(
         self, data: PurchaseInvoiceCreate, *, firm_id: UUID, actor_id: UUID
@@ -466,6 +510,10 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         # Before the chain, so an order and receipt it raises carry the
         # bill's currency and rate and the stock lands in rupees (PG-12).
         data = self._with_supplier_currency(data, vendor_id=data.vendor_id)
+        # Asked here, in the bill's words: the order the chain raises next
+        # asks the same of itself and would name a document nobody typed
+        # (D-BUY-51).
+        check_currency(data.currency_code, data.exchange_rate)
         data = chain.ensure_invoice_source(data, firm_id=firm_id, actor_id=actor_id)
         own_receipts = frozenset(receipt.id for receipt in chain.raised_receipts)
         document_type, numbering_rule = self._ensure_document_setup(
@@ -607,6 +655,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status != PurchaseInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft purchase invoices can be updated.")
+        self._refuse_empty_bill_lines(data)
         # Absent keeps the IRN on file: a client that never showed it cannot
         # clear it. Read before the chain may hand back a rebuilt request.
         if "supplier_irn" in data.model_fields_set:
@@ -620,6 +669,8 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         }
         if kept:
             data = data.model_copy(update=kept)
+        # In the bill's words, before an order raised again asks (D-BUY-51).
+        check_currency(data.currency_code, data.exchange_rate)
         self._delete_children(row.id)
         own_receipts = frozenset(receipt.id for receipt in self._raised_receipts(row))
         if any(line.source_document_line_id is None for line in data.lines):
@@ -2564,8 +2615,12 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 tax_amount=tax_amount,
                 net_amount=net_amount,
                 packaging_type_id=spec.get("packaging_type_id"),
-                purchase_uom_id=spec.get("purchase_uom_id"),
-                invoice_uom_id=spec.get("invoice_uom_id"),
+                # A line that names no unit bills in its source line's --
+                # the quantity check above already read it that way, and a
+                # line stored with none shows a blank unit in the HSN
+                # summary (D-BUY-49).
+                purchase_uom_id=spec.get("purchase_uom_id") or source_uom_id,
+                invoice_uom_id=invoice_uom_id or source_uom_id,
                 conversion_factor=conversion_factor,
                 conversion_version=spec.get("conversion_version"),
                 warehouse_id=_optional_uuid(spec.get("warehouse_id")),

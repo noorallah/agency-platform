@@ -280,9 +280,22 @@ class PurchaseReturnService(TransactionalDocumentService):
         self, data: PurchaseReturnCreate, *, firm_id: UUID, actor_id: UUID
     ) -> PurchaseReturn:
         """Create one purchase return and commit it."""
+        self._refuse_empty_return_lines(data)
         row = self.stage_return(data, firm_id=firm_id, actor_id=actor_id)
         self._session.commit()
         return row
+
+    def _refuse_empty_return_lines(self, data: PurchaseReturnCreate) -> None:
+        """Refuse a return line that sends nothing back, where saved (D-BUY-53)."""
+        self._refuse_lines_for_nothing(
+            (
+                (line.line_number, line.current_return_quantity, None)
+                for line in data.lines
+            ),
+            does="returns",
+            document="return",
+            free_goods=False,
+        )
 
     def preview_return(
         self, data: PurchaseReturnCreate, *, firm_id: UUID, actor_id: UUID
@@ -465,6 +478,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         row = self.get_return(return_id, firm_scope=firm_scope)
         if row.status != PurchaseReturnStatus.DRAFT.value:
             raise ValidationError("Only draft purchase returns can be updated.")
+        self._refuse_empty_return_lines(data)
         # The lines are re-inserted below, so the units each named are carried
         # across by line number for a line that says nothing of them (PG-10).
         kept_serials = self._serials.kept(row)

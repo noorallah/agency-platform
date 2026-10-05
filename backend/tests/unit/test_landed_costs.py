@@ -19,6 +19,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database.base import Base
 from app.core.exceptions import ValidationError
+from app.finance.models import JournalEntry
 from app.finance.services.control_accounts import ControlAccountPurpose
 from app.goods_receipt.models import GoodsReceipt
 from app.inventory.schemas.inventory import StockWriteOffCreate
@@ -108,6 +109,11 @@ def test_the_held_share_revalues_stock_and_the_sold_share_goes_to_cost(
     assert firm.balance(ControlAccountPurpose.INVENTORY) - inventory_before == D("120")
     assert firm.balance(ControlAccountPurpose.COST_OF_GOODS_SOLD) == D("80")
     assert firm.balance(ControlAccountPurpose.LANDED_COST_CLEARING) == D("-200")
+    # Referenced by the voucher's own number, once: not LCV-LCV-... (D-BUY-47).
+    posted = firm.session.get(JournalEntry, voucher.journal_entry_id)
+    assert posted is not None
+    assert voucher.voucher_number.startswith("LCV-")
+    assert posted.reference_number == voucher.voucher_number
     (view,) = service.responses([voucher])
     assert view.charges[0].bill_reference == "TR-881"
     assert view.allocations[0].amount == D("200.00")
@@ -119,6 +125,10 @@ def test_the_held_share_revalues_stock_and_the_sold_share_goes_to_cost(
     assert firm.balance(ControlAccountPurpose.INVENTORY) == inventory_before
     assert firm.balance(ControlAccountPurpose.COST_OF_GOODS_SOLD) == D("0")
     assert firm.balance(ControlAccountPurpose.LANDED_COST_CLEARING) == D("0")
+    mirror = firm.session.scalars(
+        select(JournalEntry).where(JournalEntry.reversal_of_id == posted.id)
+    ).one()
+    assert mirror.reference_number == f"{voucher.voucher_number}-REV"
 
 
 def test_a_basis_nothing_measures_is_refused(firm: _Firm) -> None:

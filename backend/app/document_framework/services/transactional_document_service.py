@@ -14,6 +14,7 @@ differs per module — line construction, totals, source matching, reports — s
 in the module.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -369,6 +370,43 @@ class TransactionalDocumentService:
                 other_types_checked=False,
             )
         return document_type, numbering_rule
+
+    # ---- lines that carry nothing -------------------------------------------
+
+    @staticmethod
+    def _refuse_lines_for_nothing(
+        lines: Iterable[tuple[int, Decimal, Decimal | None]],
+        *,
+        does: str,
+        document: str,
+        free_goods: bool = True,
+    ) -> None:
+        """Refuse a line with no quantity and nothing free (D-BUY-53).
+
+        A line of free goods alone is goods and stands. A line of 0 with
+        none is a line for nothing: an order approved at 0.00, a receipt
+        that completed and moved no stock, a bill refused only at approval
+        in the ledger's words. Asked where the document is **saved**, not
+        where it is previewed: a line still being typed has no quantity yet.
+
+        Args:
+            lines: ``(line number, quantity, free quantity)`` per line.
+            does: What the line does -- "orders", "receives", "bills".
+            document: What the line is on, for "leave the line off the ...".
+            free_goods: False where the document has no free goods to name.
+
+        Raises:
+            ValidationError: Naming the first such line.
+
+        """
+        for number, quantity, free in lines:
+            if quantity > 0 or (free or 0) > 0:
+                continue
+            nothing = " and nothing free" if free_goods else ""
+            raise ValidationError(
+                f"Line {number} {does} a quantity of 0{nothing}. Type a "
+                f"quantity, or leave the line off the {document}."
+            )
 
     # ---- document numbers -------------------------------------------------
 

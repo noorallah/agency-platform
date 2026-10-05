@@ -302,6 +302,23 @@ def test_payables_agree_with_the_books_on_the_day_they_are_revalued() -> None:
     assert reports._unrealised_revaluation(firm.firm.id, AS_OF) == Decimal("1100.00")
 
 
+def test_a_bill_typed_alone_with_no_rate_is_refused_as_a_bill() -> None:
+    """D-BUY-51: the refusal named a purchase order nobody had typed.
+
+    This firm types only the bill, which raises its order behind itself; the
+    order asked for the rate first, in its own words.
+    """
+    firm = _chain_firm()
+    data = _bill_data(firm, number="S-NORATE", currency_code="USD")
+    assert isinstance(data, PurchaseInvoiceCreate)
+    with pytest.raises(ValidationError) as refusal:
+        firm.bills().create_invoice(data, firm_id=firm.firm.id, actor_id=firm.actor_id)
+    assert str(refusal.value.message) == (
+        "A bill in USD needs its exchange rate: the rupees one USD was worth "
+        "on the bill's date."
+    )
+
+
 def test_a_rupee_bill_posts_and_reads_exactly_as_before() -> None:
     firm = _chain_firm()
     data = _bill_data(firm, number="S-INR")

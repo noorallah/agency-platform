@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class RateContractSchema(BaseModel):
@@ -18,6 +18,22 @@ class RateContractLineWrite(RateContractSchema):
 
     product_id: UUID
     rate: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
+
+    @field_validator("rate")
+    @classmethod
+    def _a_rate_above_nothing(cls, value: Decimal) -> Decimal:
+        """Refuse a rate of 0 in plain words (D-BUY-53).
+
+        A contract at 0 approved, and an order line with no price then took
+        0.0000 from it.
+        """
+        if value <= 0:
+            raise ValueError(
+                "A rate contract line needs a rate above 0: the price agreed "
+                "for one unit."
+            )
+        return value
+
     discount_percent: Decimal = Field(
         default=Decimal("0"), ge=0, le=100, max_digits=9, decimal_places=4
     )

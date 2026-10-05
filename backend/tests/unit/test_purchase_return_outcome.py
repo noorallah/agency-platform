@@ -227,10 +227,16 @@ def test_a_refund_and_its_reversal_are_on_the_supplier_statement() -> None:
     }
     assert books_difference() == unbooked
 
-    reverse_supplier_refund(
+    reversed_refund = reverse_supplier_refund(
         session, firm_id=firm.id, refund_id=refund.id, reason="x", actor_id=uuid4()
     )
     session.commit()
+    # Referenced as its original with -REV, not by a bare id (D-BUY-47).
+    posted = session.get(JournalEntry, refund.journal_entry_id)
+    mirror = session.get(JournalEntry, reversed_refund.reversal_journal_entry_id)
+    assert posted is not None and mirror is not None
+    assert posted.reference_number == f"{row.return_number}-RF1"
+    assert mirror.reference_number == f"{row.return_number}-RF1-REV"
     statement = statements.statement(row.vendor_id, firm_scope=firm.id, **period)
     assert [
         (line.debit, line.credit)

@@ -184,6 +184,21 @@ purchase UOM and inventory UOM, warehouse and storage node, batch and expiry
 requirements, remarks. Header carries vendor, branch, warehouse, buyer,
 purchase type, currency, expected delivery and the document number.
 
+**A line carries something** (D-BUY-53). An order line, a typed receipt line
+and a bill line need a quantity above 0 or free goods above 0; a return line
+needs a quantity above 0. "Line 2 orders a quantity of 0 and nothing free.
+Type a quantity, or leave the line off the order." The refusal is raised where
+the document is **saved** -- create, edit, amend -- and not by a preview, where
+the line being typed has no quantity yet. A bill line of 0 stands when its
+receipt or order line is free goods alone, which is how such a line is billed.
+A rate contract line and a supplier's quoted line need a rate above 0.
+
+**A bill line that names no unit takes its source line's** (D-BUY-49).
+
+**A purchase requisition is numbered `PRQ-`**, not the purchase return's `PR-`
+(D-BUY-46, migration `20261005_0327` for stores that had already raised one;
+numbers already issued stay as issued).
+
 ---
 
 ## 2. Goods Receipt

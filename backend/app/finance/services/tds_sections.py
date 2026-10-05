@@ -103,6 +103,16 @@ _FIELDS = (
     "rate_without_pan_percent",
 )
 
+#: What a refusal calls each setting.
+_LABELS = {
+    "is_enabled": "the switch",
+    "single_threshold_amount": "the single-bill limit",
+    "annual_threshold_amount": "the yearly limit",
+    "rate_percent": "the rate",
+    "lower_rate_percent": "the lower rate",
+    "rate_without_pan_percent": "the rate without a PAN",
+}
+
 
 @dataclass(frozen=True)
 class TdsProposal:
@@ -180,14 +190,28 @@ class TdsSectionService:
         what is saved, or the default where nothing is.
 
         Raises:
-            ValidationError: If a threshold is negative or a rate is not more
-                than 0 and at most 30 percent.
+            ValidationError: If a threshold is negative, a rate is not more
+                than 0 and at most 30 percent, or a setting that cannot be
+                cleared was sent as null.
 
         """
         current = self.settings(firm_id, section)
         unknown = set(changes) - set(_FIELDS)
         if unknown:
             raise ValidationError(f"Unknown setting(s): {', '.join(sorted(unknown))}.")
+        # An explicit null is not "leave it alone" -- that is leaving the
+        # field out -- and only the single-bill limit can be cleared. The
+        # comparisons below met ``None`` and answered 500 (D-FIN-26).
+        blank = sorted(
+            _LABELS[name]
+            for name, value in changes.items()
+            if value is None and name != "single_threshold_amount"
+        )
+        if blank:
+            label = blank[0][0].upper() + blank[0][1:]
+            raise ValidationError(
+                f"{label} cannot be blank: leave it out to keep what is saved."
+            )
         merged = replace(current, **changes)  # type: ignore[arg-type]
         if section == "194J" and merged.single_threshold_amount is not None:
             raise ValidationError(

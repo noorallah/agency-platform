@@ -18,6 +18,7 @@ from uuid import UUID
 
 import pytest
 from fastapi.routing import APIRoute
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -301,6 +302,21 @@ def test_a_typed_rate_still_wins_and_an_echo_keeps_the_contract(
     echoed = _line(firm, _order(firm, unit_price="70.0000"))
     assert echoed.rate_source == "RATE_CONTRACT"
     assert echoed.rate_contract_line_id is not None
+
+
+def test_a_contract_line_needs_a_rate_above_nothing(firm: _Firm) -> None:
+    """D-BUY-53: a contract at 0 approved and priced order lines at 0.0000."""
+    body = {
+        "vendor_id": str(firm.vendor.id),
+        "valid_from": START.isoformat(),
+        "valid_to": END.isoformat(),
+        "lines": [{"product_id": str(firm.product.id), "rate": "0"}],
+    }
+    with pytest.raises(PydanticValidationError) as refusal:
+        RateContractCreate.model_validate(body)
+    assert "A rate contract line needs a rate above 0" in str(refusal.value)
+    body["lines"] = [{"product_id": str(firm.product.id), "rate": "0.01"}]
+    assert RateContractCreate.model_validate(body).lines[0].rate == D("0.01")
 
 
 def test_the_supplier_ranking_lives_in_the_pricing_module() -> None:

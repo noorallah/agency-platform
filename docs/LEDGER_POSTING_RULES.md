@@ -493,13 +493,17 @@ of Entry, typed as a `DRAFT` and posted (`PURCHASE_APPROVE`).
   to *1300 Input Tax*.
 - **The credit** is *Customs Duty Payable* (`CUSTOMS_PAYABLE`, seeded as
   *2800*, liability) for the sum of the debits, each leg rounded on its own.
-  Source module `bill_of_entry`, reference `BOE-<our number>`. A Bill of Entry
-  with no duty at all posts no journal.
+  Source module `bill_of_entry`, referenced by our number, which starts
+  `BOE-` by default; the prefix is added only for a firm that numbers it some
+  other way, never twice (D-BUY-47 -- postings before 2026-10-05 read
+  `BOE-BOE-...` and keep that reference; a landed cost voucher's `LCV-` works
+  the same way). A Bill of Entry with no duty at all posts no journal.
 - **Paying customs** is not a new payment kind: a journal (`POST
   /finance/journal-entries`) Dr *2800 Customs Duty Payable* / Cr *Bank*. The
   payments module settles parties' bills and the expenses module books only
   to expense accounts, so neither reaches a liability control account.
-- **Cancelling** a posted Bill of Entry reverses its journal (`BOE-<number>-REV`)
+- **Cancelling** a posted Bill of Entry reverses its journal (the original's
+  own reference with `-REV`, as every reversal is -- a supplier refund's too)
   and takes the on-hand share back off the stock at today's quantity: what
   was sold since keeps the cost it was sold at, as a cancelled landed cost
   voucher does.

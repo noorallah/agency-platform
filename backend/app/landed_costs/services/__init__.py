@@ -38,7 +38,11 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
-from app.finance.services.document_posting import DocumentPostingService
+from app.finance.models import JournalEntry
+from app.finance.services.document_posting import (
+    DocumentPostingService,
+    prefixed_reference,
+)
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.inventory.services.inventory_service import InventoryService
@@ -321,10 +325,18 @@ class LandedCostService(TransactionalDocumentService):
             actor_id=actor_id,
         )
         if row.journal_entry_id is not None:
+            # The original's own reference, whichever shape it was posted
+            # under (D-BUY-47).
+            posted = self._session.get(JournalEntry, row.journal_entry_id)
+            reference = (
+                posted.reference_number
+                if posted is not None
+                else prefixed_reference("LCV", row.voucher_number)
+            )
             JournalEntryEngine(self._session).reverse_entry(
                 row.journal_entry_id,
                 firm_id=firm_id,
-                reference_number=f"LCV-{row.voucher_number}-REV",
+                reference_number=f"{reference}-REV",
                 actor_id=actor_id,
             )
         row.status = "CANCELLED"

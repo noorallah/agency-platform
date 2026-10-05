@@ -12,6 +12,7 @@ reorder screen raises a requisition rather than an order.
 from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 from fastapi import Response
@@ -105,7 +106,8 @@ def test_an_approved_requisition_becomes_one_order_per_supplier(firm: _Firm) -> 
         ],
     )
     service = PurchaseRequisitionService(firm.session)
-    assert requisition.requisition_number.startswith("PR")  # type: ignore[attr-defined]
+    # Its own prefix, not the purchase return's PR (D-BUY-46).
+    assert requisition.requisition_number.startswith("PRQ-")  # type: ignore[attr-defined]
     with pytest.raises(ValidationError, match="Only an approved"):
         service.convert_to_orders(
             requisition.id,  # type: ignore[attr-defined]
@@ -254,3 +256,30 @@ def test_the_requisition_list_is_paged(firm: _Firm) -> None:
         db=firm.session,
     )
     assert none.data == [] and none.pagination.total_records == 0
+
+
+def test_a_line_names_only_a_supplier_of_this_firm(firm: _Firm) -> None:
+    """D-BUY-55: a stranger answered 409 off the foreign key, unexplained."""
+    stranger = uuid4()
+    with pytest.raises(ValidationError) as refusal:
+        _raise(
+            firm,
+            [{"product_id": firm.product.id, "quantity": "1", "vendor_id": stranger}],
+        )
+    assert str(refusal.value.message) == f"Unknown supplier(s): {stranger}."
+    firm.session.rollback()
+    # Another firm's supplier in the same store is a stranger too.
+    theirs = _second_supplier(firm)
+    theirs.firm_id = uuid4()
+    firm.session.commit()
+    with pytest.raises(ValidationError, match="Unknown supplier"):
+        _raise(
+            firm,
+            [{"product_id": firm.product.id, "quantity": "1", "vendor_id": theirs.id}],
+        )
+    firm.session.rollback()
+    kept = _raise(
+        firm,
+        [{"product_id": firm.product.id, "quantity": "1", "vendor_id": firm.vendor.id}],
+    )
+    assert kept.status == "DRAFT"  # type: ignore[attr-defined]

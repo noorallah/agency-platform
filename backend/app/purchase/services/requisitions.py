@@ -37,6 +37,7 @@ from app.purchase.schemas.requisition import (
     PurchaseRequisitionResponse,
     PurchaseRequisitionWrite,
 )
+from app.vendors.models import Vendor
 
 ZERO = Decimal("0")
 
@@ -50,7 +51,10 @@ class PurchaseRequisitionService(TransactionalDocumentService):
         description="A request for goods, before any order.",
         category="PURCHASE",
         module="purchase",
-        prefix="PR",
+        # Its own, not the purchase return's ``PR``: the two were numbered
+        # alike, and a journal or an order's reference quoting
+        # "PR-2026-2027-000017" could mean either (D-BUY-46).
+        prefix="PRQ",
         rule_code="PURCHASE_REQUISITION_DEFAULT",
         rule_name="Purchase Requisition Default Numbering",
         states=(
@@ -359,6 +363,26 @@ class PurchaseRequisitionService(TransactionalDocumentService):
         ]
         if missing:
             raise ValidationError("Unknown product(s): " + ", ".join(missing) + ".")
+        # The supplier is checked like the product: the foreign key alone
+        # answered 409 for a stranger, and in the shared store would have
+        # taken another firm's supplier (D-BUY-55).
+        named = {line.vendor_id for line in data.lines if line.vendor_id is not None}
+        known = (
+            set(
+                self._session.scalars(
+                    select(Vendor.id).where(
+                        Vendor.id.in_(named),
+                        Vendor.firm_id == row.firm_id,
+                        Vendor.is_deleted.is_(False),
+                    )
+                ).all()
+            )
+            if named
+            else set()
+        )
+        strangers = sorted(str(vendor_id) for vendor_id in named - known)
+        if strangers:
+            raise ValidationError("Unknown supplier(s): " + ", ".join(strangers) + ".")
         existing = {line.line_number: line for line in self._lines(row.id)}
         seen: set[int] = set()
         for number, line in enumerate(data.lines, start=1):
