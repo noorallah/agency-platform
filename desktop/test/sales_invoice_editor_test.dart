@@ -894,4 +894,177 @@ void main() {
     expect(find.textContaining('on account'), findsOneWidget);
     expect(find.byKey(const ValueKey('received-now-amount')), findsNothing);
   });
+
+  // D-SELL-59: a saved (or recalled) counter bill takes another product.
+  Json savedCounterBill({
+    bool counter = true,
+    String discount = '10',
+  }) =>
+      <String, dynamic>{
+        'id': 'inv-1',
+        'invoice_number': 'SI-1',
+        'invoice_date': '2026-08-10',
+        'customer_id': 'cust-1',
+        'branch_id': 'branch-1',
+        'status': 'DRAFT',
+        'version': 7,
+        'bill_discount_percent': '0',
+        'allow_direct_sales_order': counter,
+        'lines': <Json>[
+          <String, dynamic>{
+            'source_document_type': 'DELIVERY_NOTE',
+            'source_document_id': 'dn-1',
+            'source_document_number': 'DN-2026-2027-000004',
+            'source_document_line_id': 'dnl-1',
+            'line_number': 1,
+            'product_id': 'p-1',
+            'description': 'Shampoo Bottle 180ml',
+            'current_invoice_quantity': '2',
+            'unit_price': '100',
+            'discount_percent': discount,
+          },
+        ],
+      };
+
+  _InvoiceApi counterApi({bool counter = true}) => _InvoiceApi(
+        billable: <Json>[_billable(remaining: '2', alreadyInvoiced: '2')],
+      )
+        ..salesOrderStage = false
+        ..deliveryNoteStage = false
+        ..existing = savedCounterBill(counter: counter);
+
+  Future<void> addWidget(WidgetTester tester, {String? discount}) async {
+    await tester.tap(find.byKey(const ValueKey('document-add-line')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+        find.byKey(const ValueKey<String>('sales-invoice-direct-product-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Widget').last);
+    await tester.pumpAndSettle();
+    final Finder cells = find.descendant(
+      of: find.byKey(const ValueKey<String>('sales-invoice-direct-0')),
+      matching: find.byType(EditableText),
+    );
+    await tester.enterText(cells.at(1), '3');
+    await tester.enterText(cells.at(2), '150');
+    if (discount != null) await tester.enterText(cells.at(3), discount);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('a saved counter bill takes another product and sends all',
+      (tester) async {
+    final _InvoiceApi api = counterApi();
+    await pumpPhase2(tester, api, invoiceId: 'inv-1');
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('sales-invoice-added-products')),
+        findsOneWidget);
+
+    await addWidget(tester);
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+
+    expect(api.sentVersion, 7);
+    final List<dynamic> lines = api.updated!['lines'] as List<dynamic>;
+    expect(lines, hasLength(2));
+    // The saved line goes back by its source, so the server keeps the terms
+    // it was struck on; the new one is a product line.
+    final Map<String, dynamic> saved =
+        Map<String, dynamic>.from(lines[0] as Map);
+    expect(saved['source_document_line_id'], 'dnl-1');
+    expect(saved['current_invoice_quantity'], '2.0');
+    expect(saved.containsKey('product_id'), isFalse);
+    final Map<String, dynamic> added =
+        Map<String, dynamic>.from(lines[1] as Map);
+    expect(added['product_id'], 'prod-1');
+    expect(added['line_number'], 2);
+    expect(added['current_invoice_quantity'], '3');
+    expect(added['unit_price'], '150');
+    expect(added.containsKey('source_document_id'), isFalse);
+  });
+
+  testWidgets('an inherited discount is never shown or sent as typed',
+      (tester) async {
+    final _InvoiceApi api = counterApi();
+    await pumpPhase2(tester, api, invoiceId: 'inv-1');
+    await addWidget(tester);
+
+    // The bill's saved 10% is read-only text on the saved line, and the
+    // added line's box is blank.
+    final Finder box = find.descendant(
+      of: find.byKey(const ValueKey<String>('sales-invoice-direct-0')),
+      matching: find.byType(EditableText),
+    );
+    expect(tester.widget<EditableText>(box.at(3)).controller.text, isEmpty);
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+
+    final List<dynamic> lines = api.updated!['lines'] as List<dynamic>;
+    expect((lines[0] as Map).containsKey('discount_percent'), isFalse);
+    expect((lines[1] as Map).containsKey('discount_percent'), isFalse);
+  });
+
+  testWidgets('a discount typed on the added product is sent',
+      (tester) async {
+    final _InvoiceApi api = counterApi();
+    await pumpPhase2(tester, api, invoiceId: 'inv-1');
+    await addWidget(tester, discount: '5');
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+
+    final List<dynamic> lines = api.updated!['lines'] as List<dynamic>;
+    expect((lines[1] as Map)['discount_percent'], '5');
+    expect((lines[0] as Map).containsKey('discount_percent'), isFalse);
+  });
+
+  testWidgets("a bill of a person's delivery note takes no product",
+      (tester) async {
+    final _InvoiceApi api = counterApi(counter: false);
+    await pumpPhase2(tester, api, invoiceId: 'inv-1');
+
+    expect(find.byKey(const ValueKey('sales-invoice-added-products')),
+        findsNothing);
+    expect(find.byKey(const ValueKey('document-add-line')), findsNothing);
+    expect(find.byKey(const ValueKey('counter-scan-field')), findsNothing);
+  });
+
+  testWidgets('a refused save of an added product keeps what was typed',
+      (tester) async {
+    final _InvoiceApi api = counterApi()
+      ..refuseWith = 'This invoice was changed by somebody else.';
+    await pumpPhase2(tester, api, invoiceId: 'inv-1');
+    await addWidget(tester);
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+
+    expect(api.updated, isNull);
+    expect(find.textContaining('Somebody else saved this invoice'),
+        findsOneWidget);
+    // Still open, the added line still there with its quantity.
+    final Finder cells = find.descendant(
+      of: find.byKey(const ValueKey<String>('sales-invoice-direct-0')),
+      matching: find.byType(EditableText),
+    );
+    expect(tester.widget<EditableText>(cells.at(1)).controller.text, '3');
+  });
+
+  testWidgets('pricing an edited counter bill only previews, as products',
+      (tester) async {
+    final _InvoiceApi api = counterApi();
+    await pumpPhase2(tester, api, invoiceId: 'inv-1');
+    api.previews.clear();
+    await addWidget(tester);
+
+    expect(api.previews, isNotEmpty);
+    // The preview refuses a mixture, so it carries every line as a product;
+    // nothing is created.
+    final List<dynamic> lines = api.previews.last['lines'] as List<dynamic>;
+    expect(lines, hasLength(2));
+    for (final dynamic line in lines) {
+      expect((line as Map).containsKey('product_id'), isTrue);
+      expect(line.containsKey('source_document_line_id'), isFalse);
+    }
+    expect(api.created, isNull);
+    expect(api.updated, isNull);
+  });
 }

@@ -130,8 +130,11 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
           if (_counterMode && !_saving) unawaited(_holdBill());
         },
         const SingleActivator(LogicalKeyboardKey.enter, control: true): () {
-          if (!_direct) return;
-          _setState(() => _directLines.add(_DirectLine()));
+          if (!_direct && !_addsProducts) return;
+          _setState(() {
+            _directLines.add(_DirectLine());
+            if (_addsProducts) _addedFocus = true;
+          });
           _current = _directLines.length - 1;
         },
       },
@@ -149,7 +152,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                   if (number.isNotEmpty && !_editing) '$number (new)',
                   'Draft',
                 ],
-                hint: _direct
+                hint: _direct || _addsProducts
                     ? 'F9 save & print  ·  F8 hold  ·  Ctrl+Enter new line  ·  Ctrl+S save'
                     : 'F9 save & print  ·  Enter next field  ·  Ctrl+S save',
                 actions: [
@@ -222,35 +225,38 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                           children: [
                             _invoiceHeader(context),
                             if (_counterMode) _shiftStrip(),
-                            if (_direct) _scanBar(context),
-                            Expanded(
-                              child: _direct
-                                  ? DocumentLineTable(
-                                      columns: _directColumns,
-                                      rows: [
-                                        for (int i = 0;
-                                            i < _directLines.length;
-                                            i++)
-                                          _directRow(context, i),
-                                      ],
-                                      addLabel: '${_directLines.length + 1}'
-                                          '     + add a product (Ctrl+Enter)',
-                                      onAdd: () {
-                                        _setState(() =>
-                                            _directLines.add(_DirectLine()));
-                                        _current = _directLines.length - 1;
-                                      },
-                                    )
-                                  : DocumentLineTable(
-                                      columns: _documentColumns,
-                                      rows: [
-                                        for (int i = 0;
-                                            i < _lineEntries.length;
-                                            i++)
-                                          _documentRow(context, i),
-                                      ],
-                                    ),
-                            ),
+                            if (_direct || _addsProducts) _scanBar(context),
+                            if (_addsProducts)
+                              ..._savedAndAddedTables(context)
+                            else
+                              Expanded(
+                                child: _direct
+                                    ? DocumentLineTable(
+                                        columns: _directColumns,
+                                        rows: [
+                                          for (int i = 0;
+                                              i < _directLines.length;
+                                              i++)
+                                            _directRow(context, i),
+                                        ],
+                                        addLabel: '${_directLines.length + 1}'
+                                            '     + add a product (Ctrl+Enter)',
+                                        onAdd: () {
+                                          _setState(() => _directLines
+                                              .add(_DirectLine()));
+                                          _current = _directLines.length - 1;
+                                        },
+                                      )
+                                    : DocumentLineTable(
+                                        columns: _documentColumns,
+                                        rows: [
+                                          for (int i = 0;
+                                              i < _lineEntries.length;
+                                              i++)
+                                            _documentRow(context, i),
+                                        ],
+                                      ),
+                              ),
                             AdditionalDetailsSection(
                               controller: _customFields,
                               noun: 'sales invoices',
@@ -724,7 +730,8 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
   /// Where a direct line stands in what is sent: the payload skips lines
   /// with nothing to bill, so its number is its place among the rest.
   int? _sentNumber(int index) {
-    int number = 0;
+    // On a saved counter bill the saved lines are sent first.
+    int number = _addsProducts ? _billedLineCount() : 0;
     for (int i = 0; i <= index && i < _directLines.length; i++) {
       final _DirectLine line = _directLines[i];
       final bool sent = (line.productId ?? '').isNotEmpty &&
@@ -783,8 +790,16 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     final ThemeData theme = Theme.of(context);
     final (BillableDocument document, BillableLine line) = _lineEntries[index];
     final TextStyle? text = theme.textTheme.bodyMedium?.copyWith(fontSize: 13);
+    // A saved counter bill that gained products is priced with every line
+    // as a product, so its saved lines are found by their place.
     final Map<String, dynamic>? priced =
-        _pricedBySource(line.sourceDocumentLineId);
+        _pricedBySource(line.sourceDocumentLineId) ??
+            (_addsProducts && _hasAddedProducts
+                ? _pricedByNumber(
+                    _documentPlace(line.sourceDocumentLineId) ?? 0,
+                    line.productId,
+                  )
+                : null);
     final double estimate = _quantityOf(line) *
         (double.tryParse(line.unitPrice) ?? 0) *
         (1 - (double.tryParse(line.discountPercent) ?? 0) / 100);
@@ -796,8 +811,11 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     return DocumentLineRow(
       key: ValueKey<String>('sales-invoice-line-$index'),
       columns: _documentColumns,
-      current: index == _current,
-      onTap: () => _setState(() => _current = index),
+      current: index == _current && !_addedFocus,
+      onTap: () => _setState(() {
+        _current = index;
+        _addedFocus = false;
+      }),
       cells: [
         Text('${line.lineNumber}', style: text),
         Column(
@@ -910,8 +928,11 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     return DocumentLineRow(
       key: ValueKey<String>('sales-invoice-direct-$index'),
       columns: _directColumns,
-      current: index == _current,
-      onTap: () => _setState(() => _current = index),
+      current: index == _current && (!_addsProducts || _addedFocus),
+      onTap: () => _setState(() {
+        _current = index;
+        if (_addsProducts) _addedFocus = true;
+      }),
       cells: [
         Text('${index + 1}', style: text),
         Column(
@@ -980,13 +1001,14 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
           tooltip: 'Remove line',
           iconSize: 16,
           visualDensity: VisualDensity.compact,
-          onPressed: _directLines.length == 1
+          onPressed: _directLines.length == 1 && !_addsProducts
               ? null
               : () {
                   _setState(() {
                     _directLines.removeAt(index);
                     if (_current >= _directLines.length) {
-                      _current = _directLines.length - 1;
+                      _current =
+                          _directLines.isEmpty ? 0 : _directLines.length - 1;
                     }
                   });
                   _schedulePreview();
@@ -996,6 +1018,42 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
       ],
     );
   }
+
+  /// A saved counter bill: its lines, and below them the products added to
+  /// it (D-SELL-59). The saved lines are changed by their quantity -- a
+  /// zero takes one off the bill -- and the added ones by their own row.
+  List<Widget> _savedAndAddedTables(BuildContext context) => [
+        Expanded(
+          flex: 3,
+          child: DocumentLineTable(
+            columns: _documentColumns,
+            rows: [
+              for (int i = 0; i < _lineEntries.length; i++)
+                _documentRow(context, i),
+            ],
+          ),
+        ),
+        Expanded(
+          flex: 2,
+          child: DocumentLineTable(
+            key: const ValueKey('sales-invoice-added-products'),
+            columns: _directColumns,
+            rows: [
+              for (int i = 0; i < _directLines.length; i++)
+                _directRow(context, i),
+            ],
+            addLabel: '${_billedLineCount() + _directLines.length + 1}'
+                '     + add a product (Ctrl+Enter)',
+            onAdd: () {
+              _setState(() {
+                _directLines.add(_DirectLine());
+                _addedFocus = true;
+              });
+              _current = _directLines.length - 1;
+            },
+          ),
+        ),
+      ];
 
   Widget _invoiceTerms(BuildContext context) => DocumentTerms(children: [
         DocumentField(
@@ -1570,7 +1628,8 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
   Widget _invoiceSidePanel(BuildContext context) {
     final Customer? customer = _customer;
     final List<Widget> line = <Widget>[];
-    if (_direct && _directLines.isNotEmpty) {
+    if ((_direct || (_addsProducts && _addedFocus)) &&
+        _directLines.isNotEmpty) {
       final int index = _current.clamp(0, _directLines.length - 1);
       final _DirectLine draft = _directLines[index];
       final Product? product = _product(draft.productId);
