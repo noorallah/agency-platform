@@ -94,10 +94,13 @@ Revising one, or deleting the customer, mirrors the entry.
 receivable activity, and the only moment the opening figure is the whole truth
 about it is before any of that activity exists. `update` therefore touches the
 balances **only when `opening_balance` itself changed** — which the guard below
-restricts to customers with no receivable transactions.
+restricts to customers with nothing else standing on the account.
 
 That guard is what makes the rule safe, and the rule is what the guard is for:
-`update` refuses a changed `opening_balance` once receivable activity exists.
+`update` refuses a changed `opening_balance` while any other receivable entry
+stands, and names it. A movement undone by its own reversal row does not
+stand (D-MST-15, 2026-10-06): a receipt taken and reversed used to lock the
+figure for good. `docs/LEDGER_POSTING_RULES.md` has the rule.
 Until 2026-08-15 the balances were recomputed on every call regardless, so
 editing a phone number reset `current_outstanding` to the opening balance and
 put the receivable control account out by everything the customer had traded.

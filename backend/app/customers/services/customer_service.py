@@ -27,6 +27,7 @@ from app.core.exceptions import (
     ValidationError,
 )
 from app.core.utils.dates import utc_now
+from app.core.utils.money import quantize_ledger
 from app.core.validation import settle_pan
 from app.customers.gst_registration import assert_consistent
 from app.customers.models import (
@@ -388,13 +389,8 @@ class CustomerService:
         )
         if opening_balance != 0 and customer.opening_balance != opening_balance:
             self._assert_no_opening_bills(customer)
-        if (
-            customer.opening_balance != opening_balance
-            and self._repository.has_receivable_transactions(customer.id)
-        ):
-            raise ValidationError(
-                "Opening balance cannot be changed after receivable activity exists."
-            )
+        if customer.opening_balance != opening_balance:
+            self._assert_nothing_stands_on_the_account(customer)
         before = self._audit_snapshot(customer)
         # Read before the field loop below overwrites it: whether the opening
         # balance moved is what decides if any of the balance work runs at all.
@@ -420,9 +416,13 @@ class CustomerService:
         if "gst_registration_type" in values or "gst_number" in values:
             assert_consistent(customer.gst_registration_type, customer.gst_number)
         if balance_changed:
-            # Only reachable when the customer has no receivable activity --
-            # the guard above refuses it otherwise -- so recomputing the
-            # balances from the opening figure is the whole truth about them.
+            # Only reachable when nothing stands on the account beside the
+            # opening balance -- the guard above refuses it otherwise -- so
+            # recomputing the balances from the opening figure is the whole
+            # truth about them. "Nothing stands" is no movement at all, or
+            # only movements each undone by its own reversal row, whose stored
+            # deltas cancel exactly (D-MST-15): a receipt taken against the
+            # figure and reversed used to lock it for good.
             #
             # It used to run on every update, which silently discarded
             # everything the customer had traded: an edit to a phone number
@@ -1350,6 +1350,58 @@ class CustomerService:
         outstanding = opening_balance if opening_balance > 0 else zero
         advance = -opening_balance if opening_balance < 0 else zero
         return outstanding, advance
+
+    def _assert_nothing_stands_on_the_account(self, customer: Customer) -> None:
+        """Refuse to move an opening balance other entries are standing on.
+
+        The figure is rewritten whole when it is revised -- its journal
+        mirrored, its row replaced, the balances recomputed from it -- which
+        is only the truth while the opening balance is all the account holds.
+        It was refused once the account had *any* other row, reversed or not
+        (D-MST-15): a receipt taken against a figure typed wrongly, and then
+        reversed to correct it, left the figure fixed for ever, and cancelling
+        its bill sent the person back here. What counts now is what still
+        stands, and the refusal names it so the next step is not a guess.
+        """
+        # Imported here: the opening-bill service imports this one.
+        from app.customers.services.opening_bill_service import (
+            opening_bill_receipts,
+            standing_opening_bills,
+        )
+
+        standing = self._repository.standing_receivable_transactions(customer.id)
+        if standing:
+            named = "; ".join(
+                f"{row.transaction_type.replace('_', ' ').lower()}"
+                f"{f' {row.reference_number}' if row.reference_number else ''}"
+                f" of {quantize_ledger(row.amount)}"
+                for row in standing[:5]
+            )
+            more = len(standing) - 5
+            raise ValidationError(
+                f"Opening balance cannot be changed while other entries stand "
+                f"on {customer.code}'s account: {named}"
+                f"{f' and {more} more' if more > 0 else ''}. Reverse or cancel "
+                "them first. Where the customer has really traded, leave the "
+                "opening balance and correct what is owed with a credit note "
+                "or an adjustment."
+            )
+        # Belt and braces: money or a write-off still applied to the bill
+        # that stands for the figure, by a route that wrote no row above.
+        for bill in standing_opening_bills(
+            self._session, firm_id=customer.firm_id, customer_id=customer.id
+        ):
+            if not bill.covers_master_balance:
+                continue
+            received = opening_bill_receipts(
+                self._session, firm_id=customer.firm_id, bill_ids=[bill.id]
+            ).get(bill.id, Decimal("0"))
+            if received > 0:
+                raise ValidationError(
+                    f"Opening balance cannot be changed while {received} is "
+                    f"received against it ({bill.bill_number}). Reverse those "
+                    "receipts first."
+                )
 
     def _assert_no_opening_bills(self, customer: Customer) -> None:
         """Refuse a single-figure opening balance beside bill-wise ones.
