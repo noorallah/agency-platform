@@ -77,6 +77,7 @@ def firm_store_session(request: Request, firm_id: UUID) -> Generator[Session]:
 
 
 def _is_platform_path(path: str) -> bool:
+    """Say whether a request path is served from the platform store."""
     prefixes = (
         "/health",
         "/api/v1/auth",
@@ -102,4 +103,8 @@ def _is_platform_path(path: str) -> bool:
         # any firm is chosen.
         "/api/v1/branding",
     )
-    return path.startswith(prefixes)
+    # Matched on a whole path segment. A bare `startswith` read
+    # `/api/v1/messaging` as `/api/v1/me` and sent every messaging request to
+    # the platform store, which has none of its tables: the whole module
+    # answered 503 on PostgreSQL from the day it was built (D-MSG-1).
+    return any(path == prefix or path.startswith(f"{prefix}/") for prefix in prefixes)
