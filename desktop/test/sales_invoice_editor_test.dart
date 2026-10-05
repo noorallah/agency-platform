@@ -443,6 +443,32 @@ void main() {
       expect(api.updated, isNull);
     });
 
+    testWidgets('a saved counter bill may grow past what it first shipped',
+        (tester) async {
+      // D-SELL-59: the server raises a counter bill's own order and note
+      // again on an edit, so the ceiling of a bill of documents is not its.
+      final _InvoiceApi api = _InvoiceApi(
+        billable: <Json>[_billable(remaining: '2', alreadyInvoiced: '2')],
+      )
+        ..salesOrderStage = false
+        ..deliveryNoteStage = false
+        ..existing = <String, dynamic>{
+          ...draft(),
+          'allow_direct_sales_order': true,
+        };
+      await _pump(tester, api, invoiceId: 'inv-1');
+
+      await tester.enterText(find.widgetWithText(TextFormField, 'Bill'), '9');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('left to bill'), findsNothing);
+      final Map<String, dynamic> line = Map<String, dynamic>.from(
+          (api.updated!['lines'] as List).single as Map);
+      expect(line['current_invoice_quantity'], '9');
+      expect(line['source_document_line_id'], 'dnl-1');
+    });
+
     testWidgets('a stale version shows the concurrency refusal',
         (tester) async {
       final _InvoiceApi api = _InvoiceApi(

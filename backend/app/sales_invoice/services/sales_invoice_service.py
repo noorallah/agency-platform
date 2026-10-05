@@ -55,7 +55,11 @@ from app.customers.services import CreditControlService
 from app.customers.services.customer_service import CustomerService
 from app.customers.services.ship_to import resolve_ship_to, ship_to_is_valid
 from app.customers.services.trading_status import assert_customer_may_be_billed
-from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
+from app.delivery_note.models import (
+    DeliveryNote,
+    DeliveryNoteLine,
+    DeliveryNoteLineBatch,
+)
 from app.delivery_note.rules import goods_have_left_clause, require_dispatched_note
 from app.delivery_note.schemas import DeliveryNoteBatchPick, DeliveryNoteStatus
 from app.delivery_note.services.delivery_note_service import DeliveryNoteService
@@ -135,6 +139,7 @@ from app.sales_invoice.services.sales_chain_service import (
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import SalesOrderStatus
 from app.sales_order.services.discount_limit import (
+    TYPED_SOURCES,
     DiscountLimitService,
     invoice_discounts,
 )
@@ -785,46 +790,57 @@ class SalesInvoiceService(TransactionalDocumentService):
         row = self.get_invoice(invoice_id, firm_scope=firm_id)
         if row.status != SalesInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft sales invoices can be updated.")
-        if any(line.product_id is not None for line in data.lines):
-            # Said by name, where it used to surface three layers down as
-            # "Unsupported source document type." or as a sentence about a
-            # note "already dispatched" that had not been (D-SELL-69). The
-            # rule itself -- a saved bill cannot grow -- is D-SELL-59's.
-            raise ValidationError(
-                f"{row.invoice_number} is already saved, so it is changed "
-                "through the lines it has: send each line back with its "
-                "source_document_type, source_document_id and "
-                "source_document_line_id, as the bill returns them, and no "
-                "product_id. A product cannot be added to a saved bill, nor a "
-                "line raised above the quantity it was saved for; cancel this "
-                "draft and raise the bill again."
-            )
-        # An edit bills the documents the first save raised, at their prices.
-        refuse_coupon_on_documents(data)
-        own_notes = self._notes_raised_by(row)
-        data = self._restate_own_serials(
-            data, row=row, own_notes=own_notes, firm_id=firm_id, actor_id=actor_id
-        )
-        data = self._restate_own_batches(data, own_notes=own_notes, actor_id=actor_id)
-        # An edit bills the lines the first save priced, so a rate typed with
-        # GST in it is kept for each line still billed at the rate it derived
-        # to (backlog 64 row 4). Absent leaves the bill's switch as it is.
+        # Absent leaves the bill's switch as it is (backlog 64 row 4).
         if data.rate_includes_tax is not None:
             row.rate_includes_tax = data.rate_includes_tax
-        entered_rates = (
-            {
-                line.source_document_line_id: (line.entered_rate, line.unit_price)
-                for line in self._session.scalars(
-                    select(SalesInvoiceLine).where(
-                        SalesInvoiceLine.sales_invoice_id == row.id,
-                        SalesInvoiceLine.entered_rate.is_not(None),
-                    )
-                ).all()
-                if line.entered_rate is not None
-            }
-            if row.rate_includes_tax
-            else {}
+        # A draft counter bill whose edit changes what it ships has its
+        # hidden order and note raised again, so all four always agree
+        # (D-SELL-72, D-SELL-59).
+        raised_again = self._raise_counter_chain_again(
+            row, data, firm_id=firm_id, actor_id=actor_id
         )
+        entered_rates: dict[UUID, tuple[Decimal, Decimal]]
+        if raised_again is not None:
+            data, own_notes, entered_rates = raised_again
+        else:
+            if any(line.product_id is not None for line in data.lines):
+                # Said by name, where it used to surface three layers down as
+                # "Unsupported source document type." (D-SELL-69). Only a
+                # counter bill -- one that raised its own order and note --
+                # takes product lines on an edit.
+                raise ValidationError(
+                    f"{row.invoice_number} bills documents already raised, so "
+                    "it is changed through the lines it has: send each line "
+                    "back with its source_document_type, source_document_id "
+                    "and source_document_line_id, as the bill returns them, "
+                    "and no product_id."
+                )
+            # An edit bills the documents the first save raised, at their
+            # prices.
+            refuse_coupon_on_documents(data)
+            own_notes = self._notes_raised_by(row)
+            data = self._restate_own_serials(
+                data, row=row, own_notes=own_notes, firm_id=firm_id, actor_id=actor_id
+            )
+            data = self._restate_own_batches(
+                data, own_notes=own_notes, actor_id=actor_id
+            )
+            # A rate typed with GST in it is kept for each line still billed
+            # at the rate it derived to (backlog 64 row 4).
+            entered_rates = (
+                {
+                    line.source_document_line_id: (line.entered_rate, line.unit_price)
+                    for line in self._session.scalars(
+                        select(SalesInvoiceLine).where(
+                            SalesInvoiceLine.sales_invoice_id == row.id,
+                            SalesInvoiceLine.entered_rate.is_not(None),
+                        )
+                    ).all()
+                    if line.entered_rate is not None
+                }
+                if row.rate_includes_tax
+                else {}
+            )
         self._delete_children(row.id)
         header, source_rows, line_specs = self._prepare_invoice_sources(
             data, firm_id, own_notes=own_notes
@@ -1899,6 +1915,335 @@ class SalesInvoiceService(TransactionalDocumentService):
                     f"above the MRP of {ceiling} printed on the batch it ships."
                 )
 
+    # ---- a draft counter bill is raised again when its edit changes it -----
+
+    def _raise_counter_chain_again(
+        self,
+        row: SalesInvoice,
+        data: SalesInvoiceCreate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> (
+        tuple[SalesInvoiceCreate, frozenset[UUID], dict[UUID, tuple[Decimal, Decimal]]]
+        | None
+    ):
+        """Raise a draft counter bill's order and note again from its edit.
+
+        A counter bill is one that raised its own sales order and delivery
+        note (both carry its stamp). Its edit used to change the bill alone:
+        a bill cut from 3 to 2 charged for 2 while its note still shipped 3,
+        and one could not grow at all (D-SELL-72, D-SELL-59). An edit that
+        changes what the bill ships -- a quantity, the lines, free goods, the
+        batches or the units -- now withdraws the note and the order, which
+        gives the reservation back, and raises them again from the bill's
+        lines through the chain, all in the caller's transaction. The numbers
+        of the withdrawn pair are spent; that is accepted.
+
+        The lines may be sent either way: as products, the way a new counter
+        bill is, or back by the source fields the bill returns, which are
+        read as the same products at the same terms.
+
+        Returns:
+            The payload rebound to the new note, that note's id, and the
+            GST-inclusive rates typed -- or None where the bill is not a
+            counter bill or the edit ships exactly what the note already
+            does, and the bill is edited as any other is.
+
+        """
+        notes = list(
+            self._session.scalars(
+                select(DeliveryNote).where(
+                    DeliveryNote.raised_by_sales_invoice_id == row.id,
+                    DeliveryNote.status == DeliveryNoteStatus.APPROVED.value,
+                    DeliveryNote.is_deleted.is_(False),
+                )
+            ).all()
+        )
+        orders = list(
+            self._session.scalars(
+                select(SalesOrder).where(
+                    SalesOrder.raised_by_sales_invoice_id == row.id,
+                    SalesOrder.status.not_in(("CANCELLED", "CLOSED")),
+                    SalesOrder.is_deleted.is_(False),
+                )
+            ).all()
+        )
+        if not notes or not orders:
+            return None
+        note_lines = {
+            line.id: line
+            for line in self._session.scalars(
+                select(DeliveryNoteLine).where(
+                    DeliveryNoteLine.delivery_note_id.in_([note.id for note in notes]),
+                    DeliveryNoteLine.is_deleted.is_(False),
+                )
+            ).all()
+        }
+        for line in data.lines:
+            if (
+                line.source_document_line_id is not None
+                and line.source_document_line_id not in note_lines
+            ):
+                raise ValidationError(
+                    f"Line {line.line_number} names a document that is not "
+                    f"{row.invoice_number}'s own. A counter bill is changed "
+                    "through its own lines, or by sending product lines."
+                )
+        picked = self._own_picks(note_lines)
+        if self._ships_as_raised(data, note_lines, picked):
+            return None
+        bare = self._as_product_lines(row, data, note_lines, picked)
+        coupon = data.coupon_code or next(
+            (order.coupon_code for order in orders if order.coupon_code), None
+        )
+        restated = data.model_copy(
+            update={
+                "customer_id": data.customer_id or row.customer_id,
+                "branch_id": data.branch_id or row.branch_id,
+                "coupon_code": coupon,
+                "source_documents": [],
+                "lines": bare,
+            }
+        )
+        self._withdraw_unshipped_notes(
+            row,
+            firm_scope=firm_id,
+            actor_id=actor_id,
+            reason=f"Bill {row.invoice_number} was changed before approval.",
+        )
+        self._session.flush()
+        chain = SalesChainService(self._session)
+        typed: dict[int, PreTaxLine] = {}
+
+        def before_tax(
+            bill: SalesInvoiceCreate, branch_id: UUID, warehouse_id: UUID
+        ) -> SalesInvoiceCreate:
+            """Read the bill's typed GST-inclusive rates back to pre-tax."""
+            return self._typed_rates_before_tax(
+                bill,
+                branch_id=branch_id,
+                warehouse_id=warehouse_id,
+                firm_id=firm_id,
+                actor_id=actor_id,
+                typed=typed,
+            )
+
+        rebound = chain.ensure_invoice_source(
+            restated,
+            firm_id=firm_id,
+            actor_id=actor_id,
+            inclusive=before_tax if row.rate_includes_tax else None,
+        )
+        for note in chain.raised_notes:
+            note.raised_by_sales_invoice_id = row.id
+        for order in chain.raised_orders:
+            order.raised_by_sales_invoice_id = row.id
+        self._session.flush()
+        entered_rates = {
+            line.source_document_line_id: (
+                typed[line.line_number].entered_rate,
+                typed[line.line_number].unit_price,
+            )
+            for line in rebound.lines
+            if line.line_number in typed and line.source_document_line_id is not None
+        }
+        return (
+            rebound,
+            frozenset(note.id for note in chain.raised_notes),
+            entered_rates,
+        )
+
+    def _own_picks(
+        self, note_lines: Mapping[UUID, DeliveryNoteLine]
+    ) -> dict[UUID, tuple[dict[UUID, Decimal], list[UUID]]]:
+        """Return the batches and units each of a bill's own note lines names."""
+        batches: dict[UUID, dict[UUID, Decimal]] = defaultdict(dict)
+        if note_lines:
+            for pick in self._session.scalars(
+                select(DeliveryNoteLineBatch).where(
+                    DeliveryNoteLineBatch.delivery_note_line_id.in_(list(note_lines)),
+                    DeliveryNoteLineBatch.is_deleted.is_(False),
+                )
+            ).all():
+                batches[pick.delivery_note_line_id][pick.batch_id] = self._q(
+                    pick.quantity
+                )
+        serials = SerialTrailService(self._session).picks(list(note_lines))
+        return {
+            line_id: (
+                batches.get(line_id, {}),
+                [serial.id for _, serial in serials.get(line_id, [])],
+            )
+            for line_id in note_lines
+        }
+
+    def _ships_as_raised(
+        self,
+        data: SalesInvoiceCreate,
+        note_lines: Mapping[UUID, DeliveryNoteLine],
+        picked: Mapping[UUID, tuple[dict[UUID, Decimal], list[UUID]]],
+    ) -> bool:
+        """Say whether an edit ships exactly what the bill's note already does.
+
+        Every line of the note, once, at its quantity and free goods, with
+        the batches and units it already names. Anything else -- a product
+        line, a line left off, a quantity moved either way, another pick --
+        is a change to what leaves.
+        """
+        named: set[UUID] = set()
+        for line in data.lines:
+            source_id = line.source_document_line_id
+            if source_id is None or source_id in named:
+                return False
+            named.add(source_id)
+            note_line = note_lines[source_id]
+            if self._q(line.current_invoice_quantity) != self._q(
+                note_line.current_delivery_quantity
+            ):
+                return False
+            if line.free_quantity is not None and self._q(
+                line.free_quantity
+            ) != self._q(note_line.free_quantity):
+                return False
+            batches, serials = picked[source_id]
+            if (
+                line.batches is not None
+                and {pick.batch_id: self._q(pick.quantity) for pick in line.batches}
+                != batches
+            ):
+                return False
+            if line.serial_ids is not None and set(line.serial_ids) != set(serials):
+                return False
+        return named == set(note_lines)
+
+    def _as_product_lines(
+        self,
+        row: SalesInvoice,
+        data: SalesInvoiceCreate,
+        note_lines: Mapping[UUID, DeliveryNoteLine],
+        picked: Mapping[UUID, tuple[dict[UUID, Decimal], list[UUID]]],
+    ) -> list[SalesInvoiceLineWrite]:
+        """Restate a counter bill's edit as the product lines it stands for.
+
+        A line sent as a product is taken as typed. One sent back by its
+        source fields is read off the note line it names, at the terms the
+        first save struck: the price and discount somebody typed are kept, a
+        price or discount that was the customer's own arrangement is left
+        blank so it is resolved again, and a gift an offer added is dropped
+        so the offer is judged afresh on the new quantities. Batches and
+        units are kept where the quantity is the same and nothing new was
+        said.
+        """
+        order_lines = {
+            line.id: line
+            for line in self._session.scalars(
+                select(SalesOrderLine).where(
+                    SalesOrderLine.id.in_(
+                        {line.sales_order_line_id for line in note_lines.values()}
+                    )
+                )
+            ).all()
+        }
+        billed = {
+            line.source_document_line_id: line
+            for line in self._session.scalars(
+                select(SalesInvoiceLine).where(
+                    SalesInvoiceLine.sales_invoice_id == row.id,
+                    SalesInvoiceLine.is_deleted.is_(False),
+                )
+            ).all()
+        }
+        lines: list[SalesInvoiceLineWrite] = []
+        for line in data.lines:
+            number = len(lines) + 1
+            if line.source_document_line_id is None:
+                lines.append(line.model_copy(update={"line_number": number}))
+                continue
+            note_line = note_lines[line.source_document_line_id]
+            order_line = order_lines.get(note_line.sales_order_line_id)
+            was = billed.get(note_line.id)
+            if (
+                order_line is not None
+                and order_line.quantity <= ZERO
+                and (order_line.description or "").startswith("Free with ")
+            ):
+                continue
+            same_quantity = self._q(line.current_invoice_quantity) == self._q(
+                note_line.current_delivery_quantity
+            )
+            unit_price = line.unit_price
+            if unit_price is None or (
+                was is not None and self._q(unit_price) == self._q(was.unit_price)
+            ):
+                # Unchanged: what was typed GST-inclusive is typed so again;
+                # a price nobody typed stays the customer's own.
+                if row.rate_includes_tax:
+                    unit_price = None if was is None else was.entered_rate
+                else:
+                    unit_price = self._q(note_line.unit_price)
+            discount_percent = line.discount_percent
+            discount_amount = line.discount_amount
+            if (
+                discount_percent is None
+                and discount_amount is None
+                and order_line is not None
+                and (
+                    order_line.discount_source in TYPED_SOURCES
+                    or (
+                        order_line.discount_source is None
+                        and order_line.discount_amount > ZERO
+                    )
+                )
+            ):
+                if order_line.discount_percent > ZERO:
+                    discount_percent = self._q(order_line.discount_percent)
+                elif order_line.quantity > ZERO:
+                    discount_amount = self._q(
+                        order_line.discount_amount
+                        * line.current_invoice_quantity
+                        / order_line.quantity
+                    )
+            batches, serials = picked[note_line.id]
+            free_quantity = line.free_quantity
+            if free_quantity is None and same_quantity and note_line.free_quantity:
+                free_quantity = self._q(note_line.free_quantity)
+            kept_batches = (
+                [
+                    DeliveryNoteBatchPick(batch_id=batch_id, quantity=quantity)
+                    for batch_id, quantity in batches.items()
+                ]
+                if batches and same_quantity
+                else None
+            )
+            lines.append(
+                SalesInvoiceLineWrite(
+                    product_id=note_line.product_id,
+                    line_number=number,
+                    current_invoice_quantity=line.current_invoice_quantity,
+                    unit_price=unit_price,
+                    free_quantity=free_quantity,
+                    discount_percent=discount_percent,
+                    discount_amount=discount_amount,
+                    tax_profile_id=line.tax_profile_id or note_line.tax_profile_id,
+                    packaging_type_id=line.packaging_type_id
+                    or note_line.packaging_type_id,
+                    invoice_uom_id=line.invoice_uom_id or note_line.sales_uom_id,
+                    warehouse_id=line.warehouse_id or note_line.warehouse_id,
+                    storage_node_id=line.storage_node_id or note_line.storage_node_id,
+                    remarks=line.remarks,
+                    serial_ids=(
+                        line.serial_ids
+                        if line.serial_ids is not None
+                        else (serials or None)
+                    ),
+                    batches=line.batches if line.batches is not None else kept_batches,
+                )
+            )
+        if not lines:
+            raise ValidationError("A bill must keep at least one line.")
+        return lines
+
     def _notes_raised_by(self, row: SalesInvoice) -> frozenset[UUID]:
         """Return the ids of the delivery notes this bill raised for itself."""
         return frozenset(
@@ -2030,7 +2375,12 @@ class SalesInvoiceService(TransactionalDocumentService):
             )
 
     def _withdraw_unshipped_notes(
-        self, row: SalesInvoice, *, firm_scope: UUID, actor_id: UUID
+        self,
+        row: SalesInvoice,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        reason: str | None = None,
     ) -> None:
         """Cancel the notes a cancelled draft raised for itself.
 
@@ -2063,7 +2413,9 @@ class SalesInvoiceService(TransactionalDocumentService):
             )
             if others:
                 continue
-            reason = f"Bill {row.invoice_number} was cancelled before approval."
+            reason = reason or (
+                f"Bill {row.invoice_number} was cancelled before approval."
+            )
             service.stage_cancel(
                 note.id, firm_scope=firm_scope, actor_id=actor_id, reason=reason
             )

@@ -71,6 +71,38 @@ the dispatch, a tax leg that is not zero still posts, and the note reads
 billed. Cancelling such a bill takes nothing off the account. It used to
 answer 500 at approval with the goods already gone.
 
+## A draft counter bill's edit raises its order and note again
+
+**After any edit of a draft counter bill, the bill, its note, its order and
+the reservation agree** (D-SELL-72, D-SELL-59; `_raise_counter_chain_again`
+in `app/sales_invoice/services/sales_invoice_service.py`). A counter bill is
+one that raised its own sales order and delivery note; both carry its stamp.
+Its edit used to change the bill alone, so a draft cut from 3 to 2 billed 2
+and shipped 3, and one could not grow at all.
+
+- **An edit that changes what the bill ships is raised again**: a quantity
+  up or down, a line added or left off, free goods, the batches or the
+  units. The note and the order are withdrawn -- which gives the reservation
+  back, exactly as cancelling the draft does -- and raised again from the
+  bill's lines through `SalesChainService`, in the edit's own transaction. A
+  refused edit therefore leaves all four as they were.
+- **The withdrawn pair's numbers are spent**, and they stay as CANCELLED
+  documents saying which bill changed. That was decided, not overlooked:
+  amending an approved order and note in place would need both services to
+  edit approved documents.
+- **An edit that ships the same raises nothing**: a reference, a charge, the
+  money received, a price. The bill is re-priced as any draft is.
+- **Lines may be sent either way.** As products, the way a new counter bill
+  is; or back by the source fields the bill returns, which are read as the
+  same products at the terms the first save struck -- a price or discount
+  somebody typed is kept, one that was the customer's own arrangement is
+  resolved again, and a gift an offer added is judged afresh on the new
+  quantities. Batches and units are kept on a line whose quantity did not
+  move and that names none anew.
+- **Only a draft counter bill.** A bill of documents somebody raised is
+  still changed through its own lines and refuses a product line by name
+  (D-SELL-69); an approved bill is not edited at all.
+
 ## Goods back before billing credit nothing
 
 **A sales return against a delivery note nobody was billed for moves stock

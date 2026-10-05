@@ -256,6 +256,14 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
 
   String? get _invoiceId => _draftId ?? widget.invoiceId;
 
+  /// Whether the draft being edited raised its own order and delivery note:
+  /// a counter bill. The server raises both again when such a bill's edit
+  /// changes what it ships, so its quantity is not capped at what the first
+  /// save shipped (D-SELL-59, D-SELL-72).
+  bool _raisedItsOwnChain = false;
+  bool get _editsCounterBill =>
+      _editing && _raisedItsOwnChain && _stages.billsDirectly;
+
   bool get _editing => _invoiceId != null;
 
   /// Which stages this firm types. A firm that types neither the order nor the
@@ -459,6 +467,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   /// contributes how much *more* of each source line is available, so a
   /// correction can go up as well as down.
   void _adoptExisting(Json invoice) {
+    _raisedItsOwnChain = invoice['allow_direct_sales_order'] == true;
     _customFields.seed(attributeValuesFrom(invoice['attributes']));
     for (final _ChargeRow row in _charges) {
       row.dispose();
@@ -1903,6 +1912,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     final double? parsed = double.tryParse(text);
     if (parsed == null) return 'Enter a quantity.';
     if (parsed < 0) return 'Cannot be negative.';
+    // A counter bill's own note is raised again for whatever it now bills.
+    if (_editsCounterBill) return null;
     final double remaining = double.tryParse(line.remainingQuantity) ?? 0;
     // The goods left on somebody else's document; billing more than went out
     // is a bill the warehouse cannot reconcile.
