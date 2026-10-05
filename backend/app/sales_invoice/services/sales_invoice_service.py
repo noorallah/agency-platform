@@ -1578,21 +1578,28 @@ class SalesInvoiceService(TransactionalDocumentService):
         row.status = SalesInvoiceStatus.APPROVED.value
         row.approved_at = utc_now()
         row.updated_by = actor_id
-        CustomerService(self._session).post_receivable_transaction(
-            row.customer_id,
-            CustomerReceivableTransactionCreate(
-                transaction_type=CustomerReceivableTransactionType.INVOICE,
-                transaction_date=row.invoice_date,
-                amount=_receivable_amount(row.grand_total),
-                reference_type="SALES_INVOICE",
-                reference_id=row.id,
-                reference_number=row.invoice_number,
-                remarks=f"Invoice {row.invoice_number} approved.",
-            ),
-            firm_scope=firm_scope,
-            actor_id=actor_id,
-            commit=False,
-        )
+        # A bill that comes to nothing -- every line at a 100% discount, or
+        # goods given free -- owes nothing, so it puts no row on the
+        # customer's account; one for 0.00 was refused by the receivable's own
+        # schema and the approval answered 500, with the goods already gone
+        # and the note never billable (D-SELL-53). The stock and its cost
+        # still moved with the dispatch above.
+        if _receivable_amount(row.grand_total) > ZERO:
+            CustomerService(self._session).post_receivable_transaction(
+                row.customer_id,
+                CustomerReceivableTransactionCreate(
+                    transaction_type=CustomerReceivableTransactionType.INVOICE,
+                    transaction_date=row.invoice_date,
+                    amount=_receivable_amount(row.grand_total),
+                    reference_type="SALES_INVOICE",
+                    reference_id=row.id,
+                    reference_number=row.invoice_number,
+                    remarks=f"Invoice {row.invoice_number} approved.",
+                ),
+                firm_scope=firm_scope,
+                actor_id=actor_id,
+                commit=False,
+            )
         # Posting runs before the commit and is allowed to fail the approval. An
         # approved invoice with no journal is the gap this closes, so a missing
         # control account or a closed period refuses the approval outright.
@@ -2288,26 +2295,30 @@ class SalesInvoiceService(TransactionalDocumentService):
             LoyaltyService(self._session).stage_reversal(
                 row, firm_id=firm_scope, actor_id=actor_id
             )
-            CustomerService(self._session).post_receivable_transaction(
-                row.customer_id,
-                CustomerReceivableTransactionCreate(
-                    transaction_type=CustomerReceivableTransactionType.CREDIT_NOTE,
-                    # The reversal's own date, so the statement and 1100 agree;
-                    # and never before the bill (D-FIN-5), which a UTC "today"
-                    # was until 05:30 in India.
-                    transaction_date=reversed_on
-                    or max(utc_now().date(), row.invoice_date),
-                    amount=_receivable_amount(row.grand_total),
-                    reference_type="SALES_INVOICE",
-                    reference_id=row.id,
-                    reference_number=row.invoice_number,
-                    remarks=reason
-                    or f"Auto reversal for cancelled invoice {row.invoice_number}.",
-                ),
-                firm_scope=firm_scope,
-                actor_id=actor_id,
-                commit=False,
-            )
+            # A bill that came to nothing put nothing on the account, so
+            # there is nothing to take off it (D-SELL-53).
+            if _receivable_amount(row.grand_total) > ZERO:
+                CustomerService(self._session).post_receivable_transaction(
+                    row.customer_id,
+                    CustomerReceivableTransactionCreate(
+                        transaction_type=CustomerReceivableTransactionType.CREDIT_NOTE,
+                        # The reversal's own date, so the statement and 1100
+                        # agree; and never before the bill (D-FIN-5), which a
+                        # UTC "today" was until 05:30 in India.
+                        transaction_date=reversed_on
+                        or max(utc_now().date(), row.invoice_date),
+                        amount=_receivable_amount(row.grand_total),
+                        reference_type="SALES_INVOICE",
+                        reference_id=row.id,
+                        reference_number=row.invoice_number,
+                        remarks=reason
+                        or f"Auto reversal for cancelled invoice "
+                        f"{row.invoice_number}.",
+                    ),
+                    firm_scope=firm_scope,
+                    actor_id=actor_id,
+                    commit=False,
+                )
         self._record_event(
             firm_id=firm_scope,
             document_type=self._document_type(firm_scope),
@@ -3229,6 +3240,15 @@ class SalesInvoiceService(TransactionalDocumentService):
                 invoice_quantity=invoice_quantity,
                 source_quantity=source_quantity,
             )
+            if invoice_quantity <= ZERO and free_quantity <= ZERO:
+                # Judged here rather than on the request, because only the
+                # source line says whether a line of nothing charged is a gift
+                # (D-SELL-53: a bill of quantity 0 was stored, and could never
+                # be approved).
+                raise ValidationError(
+                    f"Line {index} bills a quantity of 0 and supplies nothing "
+                    "free. Type a quantity, or leave the line off the bill."
+                )
             priced.append(
                 _PricedInvoiceLine(
                     index=index,

@@ -6,7 +6,13 @@ from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from app.batch_serial.schemas import PickedSerial
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
@@ -111,6 +117,25 @@ class DeliveryNoteLineWrite(DeliveryNoteSchema):
     manufacturing_date: date | None = None
     expiry_date: date | None = None
     remarks: str | None = None
+
+    @model_validator(mode="after")
+    def _ships_something(self) -> "DeliveryNoteLineWrite":
+        """Refuse a line that delivers nothing at all (D-SELL-53).
+
+        A quantity of 0 stands where the line carries free goods, or records
+        goods that arrived damaged. With neither it ships nothing, and a bill
+        of it could never be approved.
+        """
+        if (
+            self.current_delivery_quantity <= 0
+            and self.free_quantity <= 0
+            and self.damaged_quantity <= 0
+        ):
+            raise ValueError(
+                f"Line {self.line_number} delivers a quantity of 0 and supplies "
+                "nothing free. Type a quantity, or leave the line off the note."
+            )
+        return self
 
 
 class DeliveryNoteCreate(DeliveryNoteSchema):

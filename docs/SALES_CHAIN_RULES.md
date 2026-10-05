@@ -53,6 +53,24 @@ driving a nil-charge line through the chain by hand, which is also the only
 way to see it -- every fixture in the suite billed a line that charged for
 something.
 
+## A line of nothing is refused; a bill that comes to nothing approves
+
+**A line of quantity 0 with nothing free is refused with 422** on a sales
+order, a delivery note, a bill and a counter bill (D-SELL-53). The order and
+note schemas judge it on the request; a note line may also stand on damaged
+goods alone. A bill line that names a document is judged in the service,
+because only its source says whether it inherits a gift. A gift line --
+quantity 0, goods free -- stands on all of them, and a counter bill of free
+goods alone raises its order and note like any other.
+
+**A bill whose total is 0 approves** -- every line at a 100% discount, or
+goods given free. It puts **no row on the customer's account** and
+`post_sales_invoice` writes **no zero journal lines** (a bill whose every leg
+is nothing posts no journal at all); the stock and its cost still move with
+the dispatch, a tax leg that is not zero still posts, and the note reads
+billed. Cancelling such a bill takes nothing off the account. It used to
+answer 500 at approval with the goods already gone.
+
 ## A firm chooses which stages of a sale its people type
 
 **A firm chooses which stages of a sale its people type**, per stage, in
@@ -218,7 +236,10 @@ raised the bill, or a holder of `SALES_UPDATE`.
   stock; a held bill keeps exactly that reservation, as any saved draft
   counter bill does, and ships nothing until it is approved. The reservation
   is the order's and is released the way it always was. Holding neither adds
-  to it nor releases it.
+  to it nor releases it. **Cancelling the draft releases it**: the order
+  carries `raised_by_sales_invoice_id`, as the note does, and the bill's
+  cancel withdraws the note and the order it stamped in one transaction
+  (D-SELL-54). An order a person raised is left approved.
 
 **A shift is a cashier's till** (`counter_shifts`, `app/counter_shifts`,
 `/api/v1/counter-shifts`): a branch, a cashier, a cash account, an opening
