@@ -417,7 +417,9 @@ def test_a_reverse_charge_bill_owes_the_tax_itself_and_claims_it_back(
     session.commit()
     bill = service.get_invoice(bill_id, firm_scope=firm_id)
     assert bill.self_invoice_number is not None
-    assert bill.self_invoice_number.startswith("SI")
+    # Its own series and prefix, never the sales invoice's SI (D-BUY-58).
+    assert bill.self_invoice_number.startswith("RSI-")
+    assert len(bill.self_invoice_number) <= 16, "rule 46(b)"
     assert bill.self_invoice_number != bill.invoice_number
     assert service.invoice_response(bill).self_invoice_number == (
         bill.self_invoice_number

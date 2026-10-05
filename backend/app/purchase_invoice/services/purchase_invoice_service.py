@@ -193,7 +193,13 @@ class SelfInvoiceNumbering(TransactionalDocumentService):
         description="Self-invoice for an inward supply under reverse charge",
         category="FINANCE",
         module="purchase_invoice",
-        prefix="SI",
+        # Its own, not the sales invoice's ``SI``. A number is issued by
+        # stepping over numbers of the same document type and over journal
+        # references, and a self-invoice posts no journal under its number:
+        # the next sales invoice walked onto SI-26-27-000002, two GST
+        # documents under one serial number (D-BUY-58). ``RSI-26-27-000001``
+        # is the 16 characters rule 46(b) allows.
+        prefix="RSI",
         states=(DocumentStateSpec("ISSUED", "Issued", 1, is_terminal=True),),
     )
 
