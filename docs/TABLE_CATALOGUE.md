@@ -433,7 +433,7 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `principal_claim_lines` | firm store ¹ | One thing claimed: a redemption, a write-off or a returned line. | `principal_claims`, `products` |
+| `principal_claim_lines` | firm store ¹ | One thing claimed: a redemption, free goods, a write-off or a return line. | `principal_claims`, `products` |
 | `principal_claim_receipts` | firm store ¹ | Money the principal paid against a claim. | `principal_claims`, `ledger_accounts`, `journal_entries` |
 | `principal_claims` | firm store ¹ | What one principal owes the firm for one period (decision A128). | `firms`, `principals`, `vendors`, `journal_entries` |
 

@@ -2079,13 +2079,16 @@ class DocumentPostingService:
         scheme_amount: Decimal,
         stock_amount: Decimal,
         actor_id: UUID,
+        free_goods_amount: Decimal = ZERO,
     ) -> JournalEntry:
         """Book what a principal owes on a claim (SEL-11).
 
         Dr claims receivable for the whole claim. The other side gives back
-        the cost where the firm carried it: a scheme's share to promotional
-        expense, expired and broken stock to the inventory adjustment account
-        their write-off and return were charged to.
+        the cost where the firm carried it: a scheme's share of a discount to
+        promotional expense, expired and broken stock to the inventory
+        adjustment account their write-off and return were charged to, and
+        goods given free on a sale to cost of goods sold, where the dispatch
+        that shipped them put what they cost.
 
         Raises:
             ValidationError: If accounts or an open period are missing.
@@ -2094,25 +2097,29 @@ class DocumentPostingService:
         receivable = ControlAccountPurpose.PRINCIPAL_CLAIM_RECEIVABLE
         promotion = ControlAccountPurpose.PROMOTIONAL_EXPENSE
         stock = ControlAccountPurpose.INVENTORY_ADJUSTMENT
+        sold = ControlAccountPurpose.COST_OF_GOODS_SOLD
         scheme = quantize_ledger(quantize_money(scheme_amount))
         loss = quantize_ledger(quantize_money(stock_amount))
+        given = quantize_ledger(quantize_money(free_goods_amount))
         wanted = [receivable]
         if scheme > ZERO:
             wanted.append(promotion)
         if loss > ZERO:
             wanted.append(stock)
+        if given > ZERO:
+            wanted.append(sold)
         accounts = self._require_mapping(firm_id, tuple(wanted))
         context = self.context_for(firm_id, claim_date)
         describe = f"Claim {claim_number} on the principal"
         lines = [
             JournalLineData(
                 ledger_account_id=accounts[receivable],
-                debit_amount=scheme + loss,
+                debit_amount=scheme + loss + given,
                 credit_amount=ZERO,
                 description=describe,
             )
         ]
-        for purpose, value in ((promotion, scheme), (stock, loss)):
+        for purpose, value in ((promotion, scheme), (stock, loss), (sold, given)):
             if value > ZERO:
                 lines.append(
                     JournalLineData(

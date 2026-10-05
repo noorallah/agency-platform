@@ -229,6 +229,13 @@ class SalesOrderLine(BaseEntity):
     free_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: The offer that gave `free_quantity`, where one did. Null where a
+    #: person typed it -- and on every line written before this column, where
+    #: nothing says. A claim on a principal reads it to tell free goods under
+    #: its scheme from free goods the firm gave of its own accord. A bare id
+    #: with no foreign key, as a redemption's document is: a promotion is
+    #: retired by soft delete and this must go on naming it.
+    free_promotion_id: Mapped[UUID | None] = mapped_column(UUIDType())
     base_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )

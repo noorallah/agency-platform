@@ -56,6 +56,12 @@ class PrincipalClaim(BaseEntity):
     breakage_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 2), nullable=False, default=0, server_default="0"
     )
+    #: Free goods somebody typed on a bill line of the principal's products,
+    #: at what the dispatch cost. An offer's free goods are in
+    #: ``scheme_amount``, with the rest of what its schemes gave.
+    free_goods_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0, server_default="0"
+    )
     total_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 2), nullable=False, default=0, server_default="0"
     )
@@ -69,7 +75,7 @@ class PrincipalClaim(BaseEntity):
 
 
 class PrincipalClaimLine(BaseEntity):
-    """One thing claimed: a redemption, a write-off or a returned line.
+    """One thing claimed: a redemption, free goods, a write-off or a return line.
 
     A source is claimed once: a live line holds it, and cancelling the claim
     soft-deletes its lines so the source can be claimed again.
@@ -95,10 +101,12 @@ class PrincipalClaimLine(BaseEntity):
     )
     firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
     line_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    #: ``SCHEME``, ``EXPIRY`` or ``BREAKAGE``.
+    #: ``SCHEME``, ``FREE_GOODS``, ``EXPIRY`` or ``BREAKAGE``.
     kind: Mapped[str] = mapped_column(String(20), nullable=False)
-    #: The redemption, stock movement or sales return line claimed. No
-    #: foreign key: three tables, named by ``kind``.
+    #: The redemption, delivery note line, stock movement or sales return
+    #: line claimed. No foreign key: four tables, named by ``kind`` -- a
+    #: scheme's line is a redemption for its money and a delivery note line
+    #: for its free goods.
     source_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
     source_number: Mapped[str] = mapped_column(String(80), nullable=False)
     source_date: Mapped[date] = mapped_column(Date, nullable=False)
