@@ -1939,6 +1939,10 @@ class PurchaseReturnService(TransactionalDocumentService):
             # them and are counted, as the by-product report counts them. A
             # free-only return read as nothing returned (D-BUY-63).
             returning = self._q(row.current_return_quantity + row.free_quantity)
+            # ``already_returned_quantity`` is what had gone back when the
+            # line was saved, by the receipt or by a bill for it -- the count
+            # the save's own cap used (D-BUY-66) -- so pending is what could
+            # still go back once this return had.
             pending = self._q(
                 row.received_quantity - row.already_returned_quantity - returning
             )
@@ -2172,6 +2176,12 @@ class PurchaseReturnService(TransactionalDocumentService):
             if came_in is not None:
                 by_another_route = max(self._q(goods_back - already_returned), ZERO)
                 charged_left = min(charged_left, self._q(came_in - goods_back))
+            # What the line records as gone back before it is what the cap
+            # counted, by either document, so the line and the reconciliation
+            # read "pending" as what can still go back (D-BUY-66). Counting
+            # only the returns naming this source line left 10 pending on a
+            # receipt line whose 10 had gone back off its bill.
+            already_bought = self._q(source_quantity - charged_left)
             # No request can lift this cap: a body flag the caller set was all
             # it took to send back more than was received (D-SELL-29).
             return_quantity, free_quantity = self._split_free_goods(
@@ -2241,9 +2251,10 @@ class PurchaseReturnService(TransactionalDocumentService):
                 description=self._source_description(source_line),
                 # Everything the source line brought in and everything that
                 # has gone back, free goods included, like the quantity this
-                # line reads beside them (D-BUY-63).
+                # line reads beside them (D-BUY-63) -- and by whichever
+                # document it went (D-BUY-66).
                 received_quantity=self._q(source_quantity + source_free),
-                already_returned_quantity=self._q(already_returned + already_free),
+                already_returned_quantity=self._q(already_bought + already_free),
                 current_return_quantity=return_quantity,
                 free_quantity=free_quantity,
                 rejected_quantity=self._q(
@@ -2282,7 +2293,7 @@ class PurchaseReturnService(TransactionalDocumentService):
             )
             self._session.add(line)
             totals["total_source_quantity"] += source_quantity + source_free
-            totals["total_already_returned_quantity"] += already_returned + already_free
+            totals["total_already_returned_quantity"] += already_bought + already_free
             totals["total_current_return_quantity"] += return_quantity + free_quantity
             totals["line_discount_total"] += discount_amount
             # subtotal is the taxable base: gross less discount, before tax and

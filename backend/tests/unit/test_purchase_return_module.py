@@ -2089,3 +2089,63 @@ def test_a_return_sends_back_only_the_batch_its_receipt_brought(
         goods.line("2", off_the_bill=off_the_bill, batch_number=" B-RCPT ")
     )
     assert goods.saved_line(typed).batch_number == "B-RCPT"
+
+
+def _reconciled(goods: _Billed, row: PurchaseReturn) -> tuple[Decimal, ...]:
+    """Return received, already returned, returning and pending for a return."""
+    (record,) = [
+        record
+        for record in goods.service.reconciliation_report(firm_scope=goods.firm_id)
+        if record.return_id == row.id
+    ]
+    return (
+        record.received_quantity,
+        record.already_returned_quantity,
+        record.current_return_quantity,
+        record.pending_quantity,
+    )
+
+
+def test_the_reconciliation_counts_what_went_back_off_the_other_document() -> None:
+    """D-BUY-66: 10 + 2 free; the 10 off the bill, the 2 free off the receipt.
+
+    Driven 2026-10-06 on two firms: the receipt-line row read already
+    returned 0 and pending 10, while a return of 1 off it was refused with 0
+    left. The cap counted both documents since D-BUY-61; the figures the line
+    stores, and the report reads, counted only the returns naming the line.
+    """
+    goods = _Billed(free="2")
+    goods.send_back(goods.line("10", off_the_bill=True))
+
+    free = goods.send_back(goods.line("2"))
+
+    assert _reconciled(goods, free) == (
+        Decimal("12.0000"),
+        Decimal("10.0000"),
+        Decimal("2.0000"),
+        Decimal("0.0000"),
+    )
+    # Pending is what the cap leaves: nothing more goes back off this line.
+    assert "can still send back 0 bought and 0 free" in goods.refused(goods.line("1"))
+    (line,) = goods.service.return_response(free).lines
+    assert (line.received_quantity, line.already_returned_quantity) == (
+        Decimal("12.0000"),
+        Decimal("10.0000"),
+    )
+    assert free.total_already_returned_quantity == Decimal("10.0000")
+
+
+def test_a_bill_line_reads_what_went_back_off_its_receipt() -> None:
+    """D-BUY-66, the other way round: 4 off the receipt, then 3 off the bill."""
+    goods = _Billed()
+    goods.send_back(goods.line("4"))
+
+    billed = goods.send_back(goods.line("3", off_the_bill=True))
+
+    assert _reconciled(goods, billed) == (
+        Decimal("10.0000"),
+        Decimal("4.0000"),
+        Decimal("3.0000"),
+        Decimal("3.0000"),
+    )
+    assert "can still send back 3;" in goods.refused(goods.line("4", off_the_bill=True))
