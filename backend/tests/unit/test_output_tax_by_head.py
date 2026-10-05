@@ -495,3 +495,54 @@ def test_cancelling_a_reverse_charge_bill_reverses_all_of_it() -> None:
     assert (
         service.get_invoice(bill_id, firm_scope=firm_id).self_invoice_number == number
     ), "a cancelled self-invoice keeps its number, as a cancelled voucher does"
+
+
+def test_the_odd_paisa_sits_on_the_head_the_returns_put_it_on() -> None:
+    """36.855 + 36.855 is booked as the return files it, not the other way round.
+
+    The residual used to go on the largest head, which on two equal halves is
+    the first: the ledger read CGST 36.85 / SGST 36.86 while GSTR-1 and 3B
+    filed CGST 36.86 / SGST 36.85 (D-SELL-48, 2026-10-05).
+    """
+    from app.finance.services.document_posting import _split_by_purpose
+    from app.tax.services.gst_buckets import GstBuckets, settle_to_ledger
+
+    halves = {"CGST": D("36.8550"), "SGST": D("36.8550")}
+
+    booked = _split_by_purpose(
+        D("73.71"),
+        halves,
+        purpose_of=output_tax_purpose,
+        fallback=ControlAccountPurpose.OUTPUT_TAX,
+    )
+
+    filed = settle_to_ledger(
+        [
+            GstBuckets(
+                cgst=halves["CGST"],
+                sgst=halves["SGST"],
+                igst=D("0"),
+                cess=D("0"),
+                rate=D("18"),
+            )
+        ]
+    )[0]
+    assert booked == {
+        ControlAccountPurpose.OUTPUT_TAX_CGST: D("36.86"),
+        ControlAccountPurpose.OUTPUT_TAX_SGST: D("36.85"),
+    }
+    assert (filed.cgst, filed.sgst) == (D("36.86"), D("36.85"))
+    assert sum(booked.values()) == D("73.71")
+
+
+def test_a_split_naming_no_gst_head_keeps_the_residual_on_the_largest() -> None:
+    """Cess alone, or a firm's own component, has no head to prefer."""
+    from app.finance.services.document_posting import _split_by_purpose
+
+    booked = _split_by_purpose(
+        D("10.01"),
+        {"CESS": D("10.0000")},
+        purpose_of=output_tax_purpose,
+        fallback=ControlAccountPurpose.OUTPUT_TAX,
+    )
+    assert booked == {ControlAccountPurpose.OUTPUT_TAX: D("10.01")}
