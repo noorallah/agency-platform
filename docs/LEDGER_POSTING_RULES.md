@@ -788,9 +788,12 @@ to 2200.
   components; **a credit note**, which stores one tax figure, the way the
   invoice it credits was taxed -- all IGST, or CGST and SGST halves
   (`credited_tax_by_component`, the rule GSTR-1's credit-note rows use).
-- Each head is quantized to the ledger and the residual goes on the largest,
-  so the legs sum to exactly the document's tax leg (`_tax_legs`, shared with
-  input tax). With no component map the whole posts to 2200, as before.
+- Each head is quantized to the ledger and the residual goes on the head the
+  returns put it on -- IGST, else SGST, else CGST, as `settle_to_ledger` does
+  -- so the legs sum to exactly the document's tax leg and the books agree
+  with the return head by head (`_tax_legs`, shared with input tax; it went
+  on the largest until D-SELL-48, 2026-10-05, which booked the odd paisa on
+  CGST while the return filed it on SGST). With no component map the whole posts to 2200, as before.
 - **History is left as posted**: no balance moves out of 2200. The GST
   payment clears both (above; `docs/OWNER_DECISIONS.md` A28).
 - An unmapped head is named in the same refusal as every other gap.
@@ -899,7 +902,7 @@ be derived from the books (D-CMP-20). Four things changed, in four PRs:
 - **The posting splits** (#609): `post_purchase_invoice` and
   `post_purchase_return` take `tax_by_component` and post one leg per head
   through `_input_tax_legs`, each head quantized to the ledger and the
-  rounding residual on the largest, so the legs sum to the document's tax
+  rounding residual on IGST, else SGST, else CGST (D-SELL-48), so the legs sum to the document's tax
   leg exactly. The bill sums its own rows; a return raised off a bill splits
   its tax in the bill line's proportions (`return_tax_by_component`, shared
   with 3B); a return off a **receipt** splits it in the proportions of the

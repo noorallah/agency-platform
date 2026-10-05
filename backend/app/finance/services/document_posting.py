@@ -190,6 +190,11 @@ GOODS_RECEIPT_PURPOSES = (
 )
 
 
+#: Which head carries the paisa that rounding leaves, first one charged wins:
+#: the order the GST returns settle a document in (`app/tax/services/gst_buckets`).
+_RESIDUAL_HEADS = ("IGST", "SGST", "UTGST", "CGST")
+
+
 def _split_by_purpose(
     ledger_tax: Decimal,
     tax_by_component: dict[str, Decimal] | None,
@@ -200,7 +205,13 @@ def _split_by_purpose(
     """Split a ledger tax figure across the purposes its components name.
 
     Each head is quantized to the ledger's two decimals and the residual
-    against ``ledger_tax`` goes on the largest, so the parts sum exactly.
+    against ``ledger_tax`` goes on **the head the returns put it on**, so the
+    parts sum exactly and the books agree with the return head by head:
+    IGST where it was charged, else SGST, else CGST -- the order
+    `settle_to_ledger` and `intra_state_halves` use. It used to go on the
+    largest, which on two equal halves is the first, CGST: a bill taxed
+    36.855 + 36.855 was filed as CGST 36.86 / SGST 36.85 and booked the other
+    way round (D-SELL-48). A split naming none of the three keeps the largest.
     Nothing named -- no map, or only zeros -- puts the whole on ``fallback``.
     """
     if ledger_tax == ZERO:
@@ -216,8 +227,20 @@ def _split_by_purpose(
         return {fallback: ledger_tax}
     residual = ledger_tax - sum(by_purpose.values(), ZERO)
     if residual != ZERO:
-        largest = max(by_purpose, key=lambda p: by_purpose[p])
-        by_purpose[largest] += residual
+        charged = {
+            code.upper()
+            for code, amount in (tax_by_component or {}).items()
+            if amount != ZERO
+        }
+        carrier = next(
+            (
+                purpose_of(head)
+                for head in _RESIDUAL_HEADS
+                if head in charged and purpose_of(head) in by_purpose
+            ),
+            max(by_purpose, key=lambda p: by_purpose[p]),
+        )
+        by_purpose[carrier] += residual
     return by_purpose
 
 
