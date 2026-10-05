@@ -280,6 +280,22 @@ the line and the chain hands them to the note it raises. A bill naming none is
 refused by name in `SalesChainService._refuse_serialised` before anything is
 staged. `docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md` has the rest.
 
+## A note and a bill continue the order; they do not re-decide it
+
+**Silence on a downstream document means "as the line I continue".** The
+price, the line discount, the line's share of freight, its share of a
+discount on the whole order and its free goods all come down from the order
+line to the note line and from there to the bill line: a rate as itself, an
+amount by the quantity continued, free goods in whole units. The last two
+were missing until D-PRC-1 and D-PRC-4 (2026-10-06) -- a customer was billed
+236.00 more than the order they agreed, and an order with a free unit never
+completed -- and the stories are in `PRICING_AND_PROMOTIONS.md`. What a
+document types replaces what it would have inherited, zero included; it never
+adds to it. A counter bill follows the same path through the order and note
+it raises for itself, so the bill, its note and its hidden order read the
+same total, and an edit that changes nothing leaves an offer's discount the
+offer's (the order is priced again whenever the edit raises it again).
+
 ## A chain of committing services is not a transaction
 
 **A chain of committing services is not a transaction, and `begin_nested` does

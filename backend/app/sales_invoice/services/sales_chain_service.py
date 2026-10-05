@@ -447,11 +447,11 @@ class SalesChainService:
         request, so the two documents cannot disagree about what was agreed.
         """
         shipping = self._shipping(line, quantities)
-        free = line.free_quantity
-        if quantities is not None and line.quantity > ZERO and free > ZERO:
-            # Ship the share of the gift that goes with the share being taken,
-            # in the same scale the quantity columns use.
-            free = (free * shipping / line.quantity).quantize(Decimal("0.0001"))
+        # A bill of the whole order ships its free goods whole. A part bill
+        # says nothing, so the note ships the share that goes with the share
+        # taken, in whole units, the last part taking what is left (D-PRC-4);
+        # pro-rated here it shipped 0.5 of a gift.
+        free = line.free_quantity if quantities is None else None
         return DeliveryNoteLineWrite(
             sales_order_line_id=line.id,
             line_number=line.line_number,
