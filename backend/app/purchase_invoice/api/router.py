@@ -784,9 +784,10 @@ def purchase_invoice_register(
 
 
 class GstPurchaseRegisterRecord(BaseModel):
-    """One claimed supplier bill, or debit note against one, by tax head.
+    """One claimed supplier bill, debit note or purchase return, by tax head.
 
-    Backlog §86 #17. A debit note's row is negative and names its bill.
+    Backlog §86 #17. A debit note's or a return's row is negative and names
+    its bill.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -810,19 +811,20 @@ class GstPurchaseRegisterRecord(BaseModel):
     invoice_total: Decimal
     #: Tax on capital-goods lines (PG-13), part of ``total_tax``.
     capital_goods_tax: Decimal = Decimal("0")
-    #: ``BILL`` or ``DEBIT_NOTE``.
+    #: ``BILL``, ``DEBIT_NOTE`` or ``PURCHASE_RETURN``.
     document_type: str = "BILL"
     #: What the desktop's grid shows for ``document_type``.
     document_type_label: str = "Bill"
-    #: The bill a debit note claims against; empty on a bill's own row.
+    #: The bill a debit note or a return takes back from; empty on a bill.
     against_invoice_number: str = ""
 
     @model_validator(mode="after")
     def _label_the_type(self) -> "GstPurchaseRegisterRecord":
         """Say the document type in words."""
-        self.document_type_label = (
-            "Debit note" if self.document_type == "DEBIT_NOTE" else "Bill"
-        )
+        self.document_type_label = {
+            "DEBIT_NOTE": "Debit note",
+            "PURCHASE_RETURN": "Purchase return",
+        }.get(self.document_type, "Bill")
         return self
 
 
@@ -838,7 +840,7 @@ def gst_purchase_register(
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[GstPurchaseRegisterRecord]:
-    """Return a period's approved bills and debit notes by tax head (§86 #17)."""
+    """Return a period's bills, debit notes and returns by tax head (§86 #17)."""
     window = ReportWindow(from_date, to_date, page, page_size)
     rows = GstPurchaseRegisterService(db).register(scope.firm_id, window)
     return window.respond(

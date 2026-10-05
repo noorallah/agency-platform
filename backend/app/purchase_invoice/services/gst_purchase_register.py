@@ -22,9 +22,16 @@ split `debit_note_tax_by_component` posts to the ledger and GSTR-3B reverses.
 A note against a bill written before the component rows existed therefore
 shows its taxable value and no heads.
 
+Completed purchase returns are netted in the same way, on the return's own
+date: the part of each line that went back **after** billing, split across the
+heads of the bill line it was raised off or of the bill lines that billed its
+receipt line -- `return_tax_by_component`'s reading, through the same
+`_billed_lines`. What went back before any bill took no credit and is left
+out, and a return made only of such lines is not listed.
+
 Both reports read a constant number of statements whatever the window holds
-(`docs/PERFORMANCE_AT_VOLUME.md`): the page of documents, the bills and the
-notes on it, their lines and taxes, then the supplier names.
+(`docs/PERFORMANCE_AT_VOLUME.md`): the page of documents, the bills, notes
+and returns on it, their lines and taxes, then the supplier names.
 """
 
 from __future__ import annotations
@@ -35,7 +42,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, literal, select, union_all
+from sqlalchemy import exists, func, literal, select, union_all
 from sqlalchemy.orm import Session
 
 from app.core.pagination.reports import (
@@ -51,6 +58,7 @@ from app.purchase_invoice.models import (
     PurchaseInvoiceLine,
     PurchaseInvoiceLineTax,
 )
+from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
 
 ZERO = Decimal("0")
 
@@ -60,17 +68,23 @@ CLAIMED_STATES = ("APPROVED", "CLOSED")
 #: The heads a return files tax under.
 HEADS = ("igst", "cgst", "sgst", "cess")
 
-#: What a register row is: a supplier bill, or a debit note against one.
+#: What a register row is: a supplier bill, a debit note against one, or
+#: goods sent back after billing.
 BILL = "BILL"
 DEBIT_NOTE = "DEBIT_NOTE"
+PURCHASE_RETURN = "PURCHASE_RETURN"
+
+#: A return whose goods have gone: the states GSTR-3B reverses its credit in.
+RETURNED_STATES = ("COMPLETED", "CLOSED")
 
 
 @dataclass
 class GstPurchaseRegisterRow:
-    """One supplier bill, or one debit note against a bill, by tax head.
+    """One supplier bill, debit note or purchase return, by tax head.
 
-    A debit note's row carries its own number and date in the invoice fields,
-    the supplier's credit note in the supplier fields, and negative figures.
+    A debit note's or a return's row carries its own number and date in the
+    invoice fields, the supplier's credit note in the supplier fields, and
+    negative figures.
     """
 
     invoice_id: UUID
@@ -96,23 +110,21 @@ class GstPurchaseRegisterRow:
     #: rest, shown apart because GSTR-9 and an audit ask for it apart.
     capital_goods_tax: Decimal = ZERO
     document_type: str = BILL
-    #: The bill a debit note claims against; empty on a bill's own row.
+    #: The bill a debit note or a return takes back from; empty on a bill.
     against_invoice_number: str = ""
 
 
 @dataclass
-class _NoteLineTax:
-    """What one debit note line takes back, by head, as its bill line charged."""
+class _TakenBack:
+    """What one debit note or return line takes back, as its bill charged it."""
 
     heads: dict[str, Decimal]
     reverse_charge: Decimal = ZERO
-    claimable: bool = True
-    capital: bool = False
-
-    @property
-    def total(self) -> Decimal:
-        """Return the tax across every head."""
-        return sum(self.heads.values(), ZERO)
+    #: The part of the tax that sat on a blocked or ineligible bill line.
+    not_claimable: Decimal = ZERO
+    #: The part of the tax that sat on a capital-goods bill line.
+    capital: Decimal = ZERO
+    bills: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -161,40 +173,60 @@ def _heads_by_line(
     return heads
 
 
-def _note_line_taxes(
-    session: Session, lines: list[tuple[UUID, UUID, Decimal, Decimal]]
-) -> dict[UUID, _NoteLineTax]:
-    """Split each debit note line's tax across the heads of its bill line.
+#: One line that takes tax back: its id, the bill lines it reverses with each
+#: one's weight, its taxable value and its tax.
+_Taking = tuple[UUID, list[tuple[UUID, Decimal]], Decimal, Decimal]
+
+
+def _taken_back(session: Session, lines: list[_Taking]) -> dict[UUID, _TakenBack]:
+    """Split each line's tax across the heads of the bill lines it reverses.
 
     Args:
         session: The firm's store.
-        lines: Each note line as (its id, the bill line it is against, its
-            taxable value, its tax).
+        lines: Each debit note or return line as (its id, the bill lines it
+            reverses with each one's weight, its taxable value, its tax).
 
     Returns:
-        By note line id, positive figures. The tax is shared over what the
-        supplier charged on the bill line, as `debit_note_tax_by_component`
-        shares it; reverse charge is the share the line's taxable value is of
-        the bill line's, as `reverse_charge_share` takes it, and sits in the
-        heads as a bill's own reverse charge does.
+        By line id, positive figures. The tax is shared over what the supplier
+        charged on the bill lines, as `debit_note_tax_by_component` and
+        `return_tax_by_component` share it; reverse charge is the share the
+        line's taxable value is of the bill line's, as `reverse_charge_share`
+        takes it, and sits in the heads as a bill's own reverse charge does.
+        A line naming no bill line takes back no head.
 
     """
     from app.gst_returns.services.gstr_service import _bucket
 
-    found: dict[UUID, _NoteLineTax] = {}
-    bill_line_ids = list({bill_line_id for _, bill_line_id, _, _ in lines})
+    found = {
+        line_id: _TakenBack(heads=dict.fromkeys(HEADS, ZERO))
+        for line_id, _, _, _ in lines
+    }
+    bill_line_ids = list(
+        {bill_line_id for _, named, _, _ in lines for bill_line_id, _ in named}
+    )
     if not bill_line_ids:
         return found
     bill_lines = {
-        line_id: (eligibility, bool(capital), Decimal(str(net)) - Decimal(str(tax)))
-        for line_id, eligibility, capital, net, tax in session.execute(
+        line_id: (
+            (eligibility or "ELIGIBLE") == "ELIGIBLE",
+            bool(capital),
+            Decimal(str(net)) - Decimal(str(tax)),
+            number,
+        )
+        for line_id, eligibility, capital, net, tax, number in session.execute(
             select(
                 PurchaseInvoiceLine.id,
                 PurchaseInvoiceLine.itc_eligibility,
                 PurchaseInvoiceLine.is_capital_goods,
                 PurchaseInvoiceLine.net_amount,
                 PurchaseInvoiceLine.tax_amount,
-            ).where(PurchaseInvoiceLine.id.in_(bill_line_ids))
+                PurchaseInvoice.invoice_number,
+            )
+            .join(
+                PurchaseInvoice,
+                PurchaseInvoice.id == PurchaseInvoiceLine.purchase_invoice_id,
+            )
+            .where(PurchaseInvoiceLine.id.in_(bill_line_ids))
         ).all()
     }
     charged: dict[UUID, list[tuple[str, Decimal, bool]]] = defaultdict(list)
@@ -211,30 +243,42 @@ def _note_line_taxes(
         )
     ).all():
         charged[line_id].append((code, Decimal(str(amount)), bool(reverse)))
-    for note_line_id, bill_line_id, taxable, tax in lines:
-        eligibility, capital, bill_value = bill_lines.get(
-            bill_line_id, (None, False, ZERO)
+    for line_id, named, taxable, tax in lines:
+        taken = found[line_id]
+        supplier_tax = sum(
+            (
+                amount * weight
+                for bill_line_id, weight in named
+                for _, amount, reverse in charged.get(bill_line_id, [])
+                if not reverse
+            ),
+            ZERO,
         )
-        taken = _NoteLineTax(
-            heads=dict.fromkeys(HEADS, ZERO),
-            claimable=(eligibility or "ELIGIBLE") == "ELIGIBLE",
-            capital=capital,
-        )
-        parts = charged.get(bill_line_id, [])
-        supplier_tax = sum((amount for _, amount, rc in parts if not rc), ZERO)
-        ratio = min(taxable / bill_value, Decimal("1")) if bill_value > ZERO else ZERO
-        for code, amount, reverse in parts:
-            if reverse:
-                share = amount * ratio
-                taken.reverse_charge += share
-            elif supplier_tax > ZERO:
-                share = tax * amount / supplier_tax
-            else:
+        for bill_line_id, weight in named:
+            if bill_line_id not in bill_lines:
                 continue
-            bucket = _bucket(code, share)
-            for head in HEADS:
-                taken.heads[head] += getattr(bucket, head)
-        found[note_line_id] = taken
+            claimable, capital, bill_value, number = bill_lines[bill_line_id]
+            taken.bills.add(number)
+            ratio = (
+                min(taxable * weight / bill_value, Decimal("1"))
+                if bill_value > ZERO
+                else ZERO
+            )
+            for code, amount, reverse in charged.get(bill_line_id, []):
+                if reverse:
+                    share = amount * ratio
+                    taken.reverse_charge += share
+                elif supplier_tax > ZERO:
+                    share = tax * amount * weight / supplier_tax
+                else:
+                    continue
+                bucket = _bucket(code, share)
+                for head in HEADS:
+                    taken.heads[head] += getattr(bucket, head)
+                if not claimable:
+                    taken.not_claimable += share
+                if capital:
+                    taken.capital += share
     return found
 
 
@@ -252,6 +296,18 @@ def _vendors(session: Session, ids: set[UUID]) -> dict[UUID, tuple[str, str | No
     }
 
 
+def _return_part(
+    line: PurchaseReturnLine, share: Decimal
+) -> tuple[Decimal, Decimal, Decimal]:
+    """Return the billed part of a return line: quantity, taxable value, tax."""
+    tax = Decimal(str(line.tax_amount))
+    return (
+        Decimal(str(line.current_return_quantity)) * share,
+        (Decimal(str(line.net_amount)) - tax) * share,
+        tax * share,
+    )
+
+
 class GstPurchaseRegisterService:
     """Read supplier bills by tax head, and inward supplies by HSN."""
 
@@ -266,13 +322,19 @@ class GstPurchaseRegisterService:
         documents = self._documents(firm_id, window)
         bills = self._bills([key for key, kind in documents if kind == BILL])
         notes = self._notes([key for key, kind in documents if kind == DEBIT_NOTE])
+        returns = self._returns(
+            [key for key, kind in documents if kind == PURCHASE_RETURN]
+        )
         vendors = _vendors(
             self._session,
-            {bill.vendor_id for bill in bills} | {note.vendor_id for note in notes},
+            {bill.vendor_id for bill in bills}
+            | {note.vendor_id for note in notes}
+            | {row.vendor_id for row in returns},
         )
         rows = {
             **self._bill_rows(bills, vendors),
             **self._note_rows(notes, vendors),
+            **self._return_rows(returns, vendors),
         }
         return mapped_like(documents, [rows[key] for key, _ in documents])
 
@@ -304,6 +366,24 @@ class GstPurchaseRegisterService:
                 DebitNote.is_deleted.is_(False),
                 DebitNote.status == DebitNoteStatus.APPROVED.value,
                 *window.dated(DebitNote.debit_note_date),
+            ),
+            select(
+                PurchaseReturn.id,
+                literal(PURCHASE_RETURN),
+                PurchaseReturn.return_date,
+                PurchaseReturn.created_at,
+            ).where(
+                PurchaseReturn.firm_id == firm_id,
+                PurchaseReturn.is_deleted.is_(False),
+                PurchaseReturn.status.in_(RETURNED_STATES),
+                *window.dated(PurchaseReturn.return_date),
+                # Goods that went back before any bill took no credit.
+                exists().where(
+                    PurchaseReturnLine.purchase_return_id == PurchaseReturn.id,
+                    PurchaseReturnLine.is_deleted.is_(False),
+                    PurchaseReturnLine.current_return_quantity
+                    > PurchaseReturnLine.unbilled_quantity,
+                ),
             ),
         ).subquery()
         statement = select(keys.c.id, keys.c.kind).order_by(
@@ -405,6 +485,16 @@ class GstPurchaseRegisterService:
             )
         return rows
 
+    def _returns(self, ids: list[UUID]) -> list[PurchaseReturn]:
+        """Return the purchase returns named, in one read."""
+        if not ids:
+            return []
+        return list(
+            self._session.scalars(
+                select(PurchaseReturn).where(PurchaseReturn.id.in_(ids))
+            ).all()
+        )
+
     def _note_rows(
         self,
         notes: list[DebitNote],
@@ -413,7 +503,6 @@ class GstPurchaseRegisterService:
         """Return a register row per debit note, by note id, figures negative."""
         if not notes:
             return {}
-        ids = [note.id for note in notes]
         lines = self._session.execute(
             select(
                 DebitNoteLine.id,
@@ -422,69 +511,159 @@ class GstPurchaseRegisterService:
                 DebitNoteLine.taxable_amount,
                 DebitNoteLine.tax_amount,
             ).where(
-                DebitNoteLine.debit_note_id.in_(ids),
+                DebitNoteLine.debit_note_id.in_([note.id for note in notes]),
                 DebitNoteLine.is_deleted.is_(False),
             )
         ).all()
-        taxes = _note_line_taxes(
+        taken = _taken_back(
             self._session,
             [
-                (line_id, bill_line_id, Decimal(str(taxable)), Decimal(str(tax)))
+                (
+                    line_id,
+                    [(bill_line_id, Decimal("1"))],
+                    Decimal(str(taxable)),
+                    Decimal(str(tax)),
+                )
                 for line_id, _, bill_line_id, taxable, tax in lines
             ],
         )
-        per_note: dict[UUID, dict[str, Decimal]] = defaultdict(
-            lambda: dict.fromkeys(
-                (*HEADS, "not_claimable", "capital", "reverse_charge"), ZERO
-            )
-        )
-        for line_id, note_id, _, _, _ in lines:
-            taken = taxes[line_id]
-            for head in HEADS:
-                per_note[note_id][head] += taken.heads[head]
-            per_note[note_id]["reverse_charge"] += taken.reverse_charge
-            if not taken.claimable:
-                per_note[note_id]["not_claimable"] += taken.total
-            if taken.capital:
-                per_note[note_id]["capital"] += taken.total
-        bill_numbers = {
-            bill_id: number
-            for bill_id, number in self._session.execute(
-                select(PurchaseInvoice.id, PurchaseInvoice.invoice_number).where(
-                    PurchaseInvoice.id.in_({note.purchase_invoice_id for note in notes})
-                )
-            ).all()
-        }
-        rows = {}
-        for note in notes:
-            heads = per_note[note.id]
-            tax = sum((heads[head] for head in HEADS), ZERO)
-            name, gstin = vendors.get(note.vendor_id, (str(note.vendor_id), None))
-            rows[note.id] = GstPurchaseRegisterRow(
-                invoice_id=note.id,
-                invoice_date=note.debit_note_date,
-                invoice_number=note.debit_note_number,
-                supplier_invoice_number=note.supplier_credit_note_number or "",
-                supplier_invoice_date=(
-                    note.supplier_credit_note_date or note.debit_note_date
-                ),
+        owners = {line_id: note_id for line_id, note_id, _, _, _ in lines}
+        return {
+            note.id: self._minus_row(
+                DEBIT_NOTE,
+                document_id=note.id,
+                on=note.debit_note_date,
+                number=note.debit_note_number,
+                supplier_number=note.supplier_credit_note_number,
+                supplier_date=note.supplier_credit_note_date,
                 vendor_id=note.vendor_id,
-                vendor_name=name,
-                vendor_gstin=gstin,
-                taxable_value=-quantize_money(Decimal(str(note.taxable_amount))),
-                igst=-quantize_money(heads["igst"]),
-                cgst=-quantize_money(heads["cgst"]),
-                sgst=-quantize_money(heads["sgst"]),
-                cess=-quantize_money(heads["cess"]),
-                total_tax=-quantize_money(tax),
-                itc_not_claimable=-quantize_money(heads["not_claimable"]),
-                reverse_charge_tax=-quantize_money(heads["reverse_charge"]),
-                invoice_total=-quantize_money(Decimal(str(note.total_amount))),
-                capital_goods_tax=-quantize_money(heads["capital"]),
-                document_type=DEBIT_NOTE,
-                against_invoice_number=bill_numbers.get(note.purchase_invoice_id, ""),
+                vendors=vendors,
+                taxable=Decimal(str(note.taxable_amount)),
+                total=Decimal(str(note.total_amount)),
+                taken=[
+                    taken[line_id]
+                    for line_id, owner in owners.items()
+                    if owner == note.id
+                ],
+            )
+            for note in notes
+        }
+
+    def _return_rows(
+        self,
+        returns: list[PurchaseReturn],
+        vendors: dict[UUID, tuple[str, str | None]],
+    ) -> dict[UUID, GstPurchaseRegisterRow]:
+        """Return a register row per purchase return, by id, figures negative.
+
+        Only the billed part of each line counts: its value, its tax and its
+        heads. A line that names no bill line shows its value and no heads.
+        """
+        from app.purchase_return.services.purchase_return_service import (
+            _billed_lines,
+            _billed_share,
+        )
+
+        if not returns:
+            return {}
+        lines = self._session.scalars(
+            select(PurchaseReturnLine).where(
+                PurchaseReturnLine.purchase_return_id.in_([row.id for row in returns]),
+                PurchaseReturnLine.is_deleted.is_(False),
+            )
+        ).all()
+        named = _billed_lines(self._session, lines)
+        parts = {line.id: _return_part(line, _billed_share(line)) for line in lines}
+        taken = _taken_back(
+            self._session,
+            [(line.id, named.get(line.id, []), *parts[line.id][1:]) for line in lines],
+        )
+        rows = {}
+        for document in returns:
+            own = [line for line in lines if line.purchase_return_id == document.id]
+            taxable = sum((parts[line.id][1] for line in own), ZERO)
+            tax = sum((parts[line.id][2] for line in own), ZERO)
+            rows[document.id] = self._minus_row(
+                PURCHASE_RETURN,
+                document_id=document.id,
+                on=document.return_date,
+                number=document.return_number,
+                supplier_number=document.supplier_return_number,
+                supplier_date=document.supplier_return_date,
+                vendor_id=document.vendor_id,
+                vendors=vendors,
+                taxable=taxable,
+                total=taxable + tax,
+                taken=[taken[line.id] for line in own],
+                against=document.reference_invoice_number or "",
             )
         return rows
+
+    @staticmethod
+    def _minus_row(
+        kind: str,
+        *,
+        document_id: UUID,
+        on: date,
+        number: str,
+        supplier_number: str | None,
+        supplier_date: date | None,
+        vendor_id: UUID,
+        vendors: dict[UUID, tuple[str, str | None]],
+        taxable: Decimal,
+        total: Decimal,
+        taken: list[_TakenBack],
+        against: str = "",
+    ) -> GstPurchaseRegisterRow:
+        """Build the negative row of a debit note or a purchase return."""
+        heads = {
+            head: sum((part.heads[head] for part in taken), ZERO) for head in HEADS
+        }
+        bills = sorted({bill for part in taken for bill in part.bills})
+        name, gstin = vendors.get(vendor_id, (str(vendor_id), None))
+        return GstPurchaseRegisterRow(
+            invoice_id=document_id,
+            invoice_date=on,
+            invoice_number=number,
+            supplier_invoice_number=supplier_number or "",
+            supplier_invoice_date=supplier_date or on,
+            vendor_id=vendor_id,
+            vendor_name=name,
+            vendor_gstin=gstin,
+            taxable_value=-quantize_money(taxable),
+            igst=-quantize_money(heads["igst"]),
+            cgst=-quantize_money(heads["cgst"]),
+            sgst=-quantize_money(heads["sgst"]),
+            cess=-quantize_money(heads["cess"]),
+            total_tax=-quantize_money(sum(heads.values(), ZERO)),
+            itc_not_claimable=-quantize_money(
+                sum((part.not_claimable for part in taken), ZERO)
+            ),
+            reverse_charge_tax=-quantize_money(
+                sum((part.reverse_charge for part in taken), ZERO)
+            ),
+            invoice_total=-quantize_money(total),
+            capital_goods_tax=-quantize_money(
+                sum((part.capital for part in taken), ZERO)
+            ),
+            document_type=kind,
+            against_invoice_number=", ".join(bills) or against,
+        )
+
+    def _billed_units(self, bill_line_ids: set[UUID]) -> dict[UUID, str]:
+        """Return the unit code each bill line named was billed in."""
+        from app.uom.models import Uom
+
+        if not bill_line_ids:
+            return {}
+        return {
+            line_id: code
+            for line_id, code in self._session.execute(
+                select(PurchaseInvoiceLine.id, Uom.code)
+                .join(Uom, Uom.id == PurchaseInvoiceLine.invoice_uom_id)
+                .where(PurchaseInvoiceLine.id.in_(bill_line_ids))
+            ).all()
+        }
 
     def hsn_summary(
         self, firm_id: UUID, window: ReportWindow = WHOLE_HISTORY
@@ -494,9 +673,15 @@ class GstPurchaseRegisterService:
         A line with no HSN on its product is grouped under an empty code, so
         the gap is visible rather than dropped. An approved debit note dated
         in the window comes off the code and unit of the bill line it names:
-        its quantity, its taxable value and its tax by head.
+        its quantity, its taxable value and its tax by head. A completed
+        purchase return comes off its own product and unit the same way, for
+        the part that went back after billing.
         """
         from app.products.models import Product
+        from app.purchase_return.services.purchase_return_service import (
+            _billed_lines,
+            _billed_share,
+        )
         from app.uom.models import Uom
 
         lines = self._session.execute(
@@ -570,14 +755,85 @@ class GstPurchaseRegisterService:
                 *window.dated(DebitNote.debit_note_date),
             )
         ).all()
-        taken = _note_line_taxes(
+        taken = _taken_back(
             self._session,
             [
-                (line_id, bill_line_id, Decimal(str(taxable)), Decimal(str(tax)))
+                (
+                    line_id,
+                    [(bill_line_id, Decimal("1"))],
+                    Decimal(str(taxable)),
+                    Decimal(str(tax)),
+                )
                 for line_id, bill_line_id, _, _, _, _, taxable, tax in note_lines
             ],
         )
-        for line_id, _, hsn, name, unit, quantity, taxable, _ in note_lines:
+        minus = [
+            (hsn, name, unit, Decimal(str(quantity)), Decimal(str(taxable)), line_id)
+            for line_id, _, hsn, name, unit, quantity, taxable, _ in note_lines
+        ]
+        returned = self._session.execute(
+            select(
+                PurchaseReturnLine,
+                func.coalesce(Product.hsn_sac, ""),
+                Product.name,
+                func.coalesce(Uom.code, ""),
+            )
+            .join(
+                PurchaseReturn,
+                PurchaseReturn.id == PurchaseReturnLine.purchase_return_id,
+            )
+            .join(Product, Product.id == PurchaseReturnLine.product_id)
+            .outerjoin(Uom, Uom.id == PurchaseReturnLine.return_uom_id)
+            .where(
+                PurchaseReturn.firm_id == firm_id,
+                PurchaseReturn.is_deleted.is_(False),
+                PurchaseReturn.status.in_(RETURNED_STATES),
+                PurchaseReturnLine.is_deleted.is_(False),
+                PurchaseReturnLine.current_return_quantity
+                > PurchaseReturnLine.unbilled_quantity,
+                *window.dated(PurchaseReturn.return_date),
+            )
+        ).all()
+        return_lines = [line for line, _, _, _ in returned]
+        named = _billed_lines(self._session, return_lines)
+        parts = {
+            line.id: _return_part(line, _billed_share(line)) for line in return_lines
+        }
+        taken.update(
+            _taken_back(
+                self._session,
+                [
+                    (line.id, named.get(line.id, []), *parts[line.id][1:])
+                    for line in return_lines
+                ],
+            )
+        )
+        # A return line often names no unit of its own; it is then counted
+        # in the unit its bill line was billed in, or it would open a row of
+        # its own beside the purchases it reverses.
+        billed_in = self._billed_units(
+            {bill_line_id for lines_ in named.values() for bill_line_id, _ in lines_}
+        )
+        minus += [
+            (
+                hsn,
+                name,
+                unit
+                or next(
+                    (
+                        billed_in[bill_line_id]
+                        for bill_line_id, _ in named.get(line.id, [])
+                        if billed_in.get(bill_line_id)
+                    ),
+                    "",
+                ),
+                parts[line.id][0],
+                parts[line.id][1],
+                line.id,
+            )
+            for line, hsn, name, unit in returned
+        ]
+        for hsn, name, unit, quantity, taxable, line_id in minus:
             row = groups.get((hsn, unit))
             if row is None:
                 row = groups[(hsn, unit)] = HsnPurchaseRow(
@@ -587,8 +843,8 @@ class GstPurchaseRegisterService:
                     quantity=ZERO,
                     taxable_value=ZERO,
                 )
-            row.quantity -= Decimal(str(quantity))
-            row.taxable_value -= Decimal(str(taxable))
+            row.quantity -= quantity
+            row.taxable_value -= taxable
             for head in HEADS:
                 setattr(row, head, getattr(row, head) - taken[line_id].heads[head])
         rows = []

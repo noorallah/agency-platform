@@ -170,3 +170,56 @@ def test_a_blocked_bill_has_its_tax_taken_back_off_the_cost_not_input_tax() -> N
     assert "1330" not in legs
     assert _balanced(legs)
     assert _net(session, firm_id, "5450") == D("36.00")
+
+
+def test_the_gst_purchase_register_takes_the_return_off_by_head() -> None:
+    """2 of 4 back after billing: a minus row on the heads the ledger reversed."""
+    from app.purchase_invoice.models import PurchaseInvoice
+    from app.purchase_invoice.services.gst_purchase_register import (
+        GstPurchaseRegisterService,
+    )
+    from app.purchase_return.models import PurchaseReturnLine
+
+    session, firm_id, _, actor_id, bill_line = _bill()
+    bill = session.get(PurchaseInvoice, bill_line.purchase_invoice_id)
+    assert bill is not None
+    return_id = _return_off_the_receipt(session, firm_id, actor_id, bill_line)
+    service = GstPurchaseRegisterService(session)
+
+    rows = {row.document_type: row for row in service.register(firm_id)}
+
+    sent_back = rows["PURCHASE_RETURN"]
+    assert sent_back.invoice_id == return_id
+    assert sent_back.against_invoice_number == bill.invoice_number
+    assert sent_back.taxable_value == D("-200.00")
+    assert (sent_back.cgst, sent_back.sgst, sent_back.igst) == (
+        D("-18.00"),
+        D("-18.00"),
+        D("0.00"),
+    )
+    assert sent_back.total_tax == D("-36.00")
+    assert sent_back.invoice_total == D("-236.00")
+    split = return_tax_by_component(session, return_id)
+    assert -sent_back.cgst == split["CGST"], "the register and GSTR-3B agree"
+    hsn = service.hsn_summary(firm_id)
+    assert len(hsn) == 1, "the return comes off the row its bill line is in"
+    assert hsn[0].quantity == D("2"), "4 billed, 2 back"
+    assert sum(row.total_tax for row in hsn) == rows["BILL"].total_tax - D("36.00")
+
+    # Half of it went back before any bill: only the billed half counts.
+    line = session.scalars(
+        select(PurchaseReturnLine).where(
+            PurchaseReturnLine.purchase_return_id == return_id
+        )
+    ).one()
+    line.unbilled_quantity = D("1")
+    session.commit()
+    half = {row.document_type: row for row in service.register(firm_id)}
+    assert half["PURCHASE_RETURN"].taxable_value == D("-100.00")
+    assert half["PURCHASE_RETURN"].total_tax == D("-18.00")
+
+    # All of it went back before any bill: no credit was taken, so no row.
+    line.unbilled_quantity = D("2")
+    session.commit()
+    assert [row.document_type for row in service.register(firm_id)] == ["BILL"]
+    assert sum(row.quantity for row in service.hsn_summary(firm_id)) == D("4")
