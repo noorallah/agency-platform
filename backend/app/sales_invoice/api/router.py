@@ -179,6 +179,7 @@ def list_sales_invoices(
     invoice_to: Annotated[date | None, Query()] = None,
     due_from: Annotated[date | None, Query()] = None,
     due_to: Annotated[date | None, Query()] = None,
+    is_held: Annotated[bool | None, Query()] = None,
     search: Annotated[str | None, Query(max_length=100)] = None,
     sort_by: Annotated[str, Query(max_length=30)] = "created_at",
     descending: Annotated[bool, Query()] = True,
@@ -197,6 +198,7 @@ def list_sales_invoices(
             invoice_to=invoice_to,
             due_from=due_from,
             due_to=due_to,
+            is_held=is_held,
         ),
         page=pagination.page,
         page_size=pagination.page_size,
@@ -414,6 +416,74 @@ def approve_sales_invoice(
         licence_override_reason=authorised_override(scope, licence_override_reason),
         price_override_reason=authorised_price_override(scope, price_override_reason),
     )
+    return ApiResponse(data=service.invoice_response(row))
+
+
+class HoldRequest(BaseModel):
+    """Park a bill, with what the cashier typed to know it again (SG-7)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    note: str | None = Field(default=None, max_length=200)
+
+
+@router.post(
+    "/{invoice_id}/hold",
+    response_model=ApiResponse[SalesInvoiceResponse],
+    status_code=status.HTTP_200_OK,
+)
+def hold_sales_invoice(
+    scope: SalesInvoiceUpdateScope,
+    db: Annotated[Session, Depends(get_db)],
+    invoice_id: UUID,
+    data: HoldRequest,
+    response: Response,
+) -> ApiResponse[SalesInvoiceResponse]:
+    """Park a draft bill while the next customer is served (SG-7).
+
+    Under the scope that edits a draft: whoever raised the bill may hold it,
+    and anyone else's needs `SALES_UPDATE`. A held bill can still be edited;
+    it cannot be approved until it is recalled.
+    """
+    service = SalesInvoiceService(db)
+    current = service.get_invoice(invoice_id, firm_scope=scope.firm_id)
+    assert_may_edit_draft(
+        scope,
+        created_by=current.created_by,
+        edit_code="SALES_UPDATE",
+        document="sales invoice",
+    )
+    row = service.hold_invoice(
+        invoice_id, firm_scope=scope.firm_id, actor_id=scope.actor_id, note=data.note
+    )
+    set_etag(response, row)
+    return ApiResponse(data=service.invoice_response(row))
+
+
+@router.post(
+    "/{invoice_id}/recall",
+    response_model=ApiResponse[SalesInvoiceResponse],
+    status_code=status.HTTP_200_OK,
+)
+def recall_sales_invoice(
+    scope: SalesInvoiceUpdateScope,
+    db: Annotated[Session, Depends(get_db)],
+    invoice_id: UUID,
+    response: Response,
+) -> ApiResponse[SalesInvoiceResponse]:
+    """Take a held bill back to the counter (SG-7)."""
+    service = SalesInvoiceService(db)
+    current = service.get_invoice(invoice_id, firm_scope=scope.firm_id)
+    assert_may_edit_draft(
+        scope,
+        created_by=current.created_by,
+        edit_code="SALES_UPDATE",
+        document="sales invoice",
+    )
+    row = service.recall_invoice(
+        invoice_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    set_etag(response, row)
     return ApiResponse(data=service.invoice_response(row))
 
 

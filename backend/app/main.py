@@ -40,6 +40,7 @@ from app.core.tenancy import (
     MultiTenantDatabaseProvider,
     TenantStorageLifecycleService,
 )
+from app.counter_shifts.api import router as counter_shifts_router
 from app.credit_note.api.router import router as credit_notes_router
 from app.customer_debit_note.api.router import router as customer_debit_notes_router
 from app.customer_rebates.api import router as customer_rebates_router
@@ -242,6 +243,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(receipts_router)
     application.include_router(payments_router)
     application.include_router(collections_router)
+    application.include_router(counter_shifts_router)
     application.include_router(received_cheques_router)
     application.include_router(issued_cheques_router)
     application.include_router(payment_runs_router)

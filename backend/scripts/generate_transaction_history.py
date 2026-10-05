@@ -311,6 +311,10 @@ RESET_ORDER: tuple[str, ...] = (
     "sales_invoice_notes",
     "sales_invoice_lines",
     "sales_invoices",
+    # A bill names the cashier's shift it was paid in, RESTRICT, and a shift
+    # names the journal its cash difference posted, RESTRICT (SG-7): after
+    # the bills, before the journals.
+    "counter_shifts",
     "delivery_note_attachments",
     "delivery_note_notes",
     "delivery_note_lines",

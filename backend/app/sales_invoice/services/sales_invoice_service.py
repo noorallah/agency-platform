@@ -357,6 +357,10 @@ class SalesInvoiceService(TransactionalDocumentService):
         if filters.due_to is not None:
             statement = statement.where(SalesInvoice.due_date <= filters.due_to)
             count = count.where(SalesInvoice.due_date <= filters.due_to)
+        if filters.is_held is not None:
+            # The counter's parked bills, or everything but them (SG-7).
+            statement = statement.where(SalesInvoice.is_held.is_(filters.is_held))
+            count = count.where(SalesInvoice.is_held.is_(filters.is_held))
         if search:
             token = f"%{search.strip()}%"
             condition = or_(
@@ -1019,6 +1023,98 @@ class SalesInvoiceService(TransactionalDocumentService):
         self._session.commit()
         return row
 
+    def hold_invoice(
+        self,
+        invoice_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        note: str | None = None,
+    ) -> SalesInvoice:
+        """Park a draft bill while the next customer is served (SG-7).
+
+        **A flag, not a status**: the bill stays the draft it was, so nothing
+        about how far it had got is lost and recalling it puts nothing back.
+        It can still be edited while held; what it cannot be is approved.
+        Holding a bill already held replaces the note and keeps when it was
+        first parked.
+
+        Raises:
+            ValidationError: If the bill is not a draft.
+
+        """
+        row = self.get_invoice(invoice_id, firm_scope=firm_scope)
+        if row.status != SalesInvoiceStatus.DRAFT.value:
+            raise ValidationError(
+                f"Only a draft bill can be held; {row.invoice_number} is "
+                f"{row.status.lower()}."
+            )
+        text = (note or "").strip() or None
+        if not row.is_held:
+            row.is_held = True
+            row.held_at = utc_now()
+        row.held_note = text
+        row.updated_by = actor_id
+        self._record_event(
+            firm_id=firm_scope,
+            document_type=self._document_type(firm_scope),
+            invoice=row,
+            action="HELD",
+            from_state=row.status,
+            to_state=row.status,
+            actor_id=actor_id,
+            remarks=text,
+        )
+        record_audit(
+            self._session,
+            action="sales_invoice.held",
+            entity_type="sales_invoice",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            after_data={"note": text},
+        )
+        self._session.commit()
+        return row
+
+    def recall_invoice(
+        self, invoice_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> SalesInvoice:
+        """Take a held bill back to the counter (SG-7).
+
+        Raises:
+            ValidationError: If the bill is not held.
+
+        """
+        row = self.get_invoice(invoice_id, firm_scope=firm_scope)
+        if not row.is_held:
+            raise ValidationError(f"{row.invoice_number} is not held.")
+        note = row.held_note
+        row.is_held = False
+        row.held_at = None
+        row.held_note = None
+        row.updated_by = actor_id
+        self._record_event(
+            firm_id=firm_scope,
+            document_type=self._document_type(firm_scope),
+            invoice=row,
+            action="RECALLED",
+            from_state=row.status,
+            to_state=row.status,
+            actor_id=actor_id,
+        )
+        record_audit(
+            self._session,
+            action="sales_invoice.recalled",
+            entity_type="sales_invoice",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            before_data={"note": note},
+        )
+        self._session.commit()
+        return row
+
     def dispatch_and_invoice(
         self,
         note_id: UUID,
@@ -1357,6 +1453,14 @@ class SalesInvoiceService(TransactionalDocumentService):
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status != SalesInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft sales invoices can be approved.")
+        if row.is_held:
+            # A held bill never posts (SG-7): it was parked on purpose, and
+            # approving it from a list would bill a customer who has not
+            # come back. Here rather than in the route, so bulk approve and
+            # anything composing approval refuse it too.
+            raise ValidationError(
+                f"{row.invoice_number} is held. Recall it first, then approve it."
+            )
         # Levels of sign-off the firm's rules call for (PLT-1).
         from app.approvals.services import ApprovalChainService
 
@@ -1568,7 +1672,28 @@ class SalesInvoiceService(TransactionalDocumentService):
         # approval then settles the counter payment too, which is the trap
         # loyalty earning fell into (D-SELL-1).
         self._stage_received_now(row, firm_scope=firm_scope, actor_id=actor_id)
+        self._stamp_counter_shift(row, firm_scope=firm_scope, actor_id=actor_id)
         return row
+
+    def _stamp_counter_shift(
+        self, row: SalesInvoice, *, firm_scope: UUID, actor_id: UUID
+    ) -> None:
+        """Put a bill paid at the counter in its approver's open shift (SG-7).
+
+        Only a bill that took money at the counter, and only when whoever
+        approves it has a shift open. **Somebody with none is not refused**:
+        shifts are optional, and a firm that counts no drawer bills exactly
+        as it did. The shift row is locked, so a bill either lands before
+        the drawer is counted or finds the shift closed and is left out.
+        """
+        if Decimal(str(row.received_now_amount or 0)) <= Decimal("0"):
+            return
+        # Imported here: the shift service reads the invoice model.
+        from app.counter_shifts.services import open_shift_of
+
+        shift = open_shift_of(self._session, firm_scope, actor_id, lock=True)
+        if shift is not None:
+            row.counter_shift_id = shift.id
 
     def _restate_own_serials(
         self,
@@ -2089,6 +2214,10 @@ class SalesInvoiceService(TransactionalDocumentService):
         row.cancel_reason = reason
         row.cancelled_at = utc_now()
         row.updated_by = actor_id
+        if row.is_held:
+            # A cancelled bill is not waiting for anybody (SG-7): it leaves
+            # the counter's list of parked bills with its note kept.
+            row.is_held = False
         if before == SalesInvoiceStatus.DRAFT.value and row.allow_direct_sales_order:
             self._withdraw_unshipped_notes(
                 row, firm_scope=firm_scope, actor_id=actor_id
@@ -2419,6 +2548,10 @@ class SalesInvoiceService(TransactionalDocumentService):
                 sum((Decimal(str(charge.amount)) for charge in charges), ZERO)
             ),
             rate_includes_tax=bool(row.rate_includes_tax),
+            is_held=bool(row.is_held),
+            held_at=row.held_at,
+            held_note=row.held_note,
+            counter_shift_id=row.counter_shift_id,
             approved_at=row.approved_at,
             closed_at=row.closed_at,
             cancel_reason=row.cancel_reason,

@@ -7821,6 +7821,117 @@ class ApiClient {
         ),
       );
 
+  // ---- Hold and recall; counter shifts (backlog 87 #7, SG-7) -------------
+
+  /// Park a draft bill while the next customer is served. [note] is what
+  /// the cashier typed to know it again. Returns the bill.
+  Future<Json> holdSalesInvoice(String id, {String? note}) async => _unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/sales-invoices/$id/hold',
+          body: <String, dynamic>{
+            if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+          },
+        ),
+      );
+
+  /// Take a held bill back to the counter. Returns the bill.
+  Future<Json> recallSalesInvoice(String id) async => _unwrapMap(
+        await request('POST', '/api/v1/sales-invoices/$id/recall'),
+      );
+
+  /// One page of the bills parked at the counter, newest first. Returns the
+  /// whole response: `data` is the rows and `pagination` the page.
+  Future<Json> heldSalesInvoices({int page = 1, int pageSize = 25}) => request(
+        'GET',
+        '/api/v1/sales-invoices',
+        query: <String, String>{
+          'page': '$page',
+          'page_size': '$pageSize',
+          'is_held': 'true',
+          'status': 'DRAFT',
+        },
+      );
+
+  /// Open the caller's till with its float. A blank [branchId] takes the
+  /// firm's default branch and a blank [cashAccountId] its cash account.
+  /// Refused with a 409 when the caller already has a shift open.
+  Future<Json> openCounterShift({
+    required String openingFloat,
+    String? branchId,
+    String? cashAccountId,
+  }) async =>
+      _unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/counter-shifts/open',
+          body: <String, dynamic>{
+            'opening_float': openingFloat,
+            if (branchId != null) 'branch_id': branchId,
+            if (cashAccountId != null) 'cash_account_id': cashAccountId,
+          },
+        ),
+      );
+
+  /// The caller's open shift with what it has taken, or null when their
+  /// till is shut.
+  Future<Json?> currentCounterShift() async {
+    final Json response =
+        await request('GET', '/api/v1/counter-shifts/current');
+    final dynamic data = response['data'];
+    return data is Map<String, dynamic> ? data : null;
+  }
+
+  /// One page of the firm's shifts, the latest opened first. Returns the
+  /// whole response. Dates are `yyyy-MM-dd`; [status] is OPEN or CLOSED.
+  Future<Json> counterShifts({
+    int page = 1,
+    int pageSize = 25,
+    String? status,
+    String? cashierId,
+    String? fromDate,
+    String? toDate,
+  }) =>
+      request(
+        'GET',
+        '/api/v1/counter-shifts',
+        query: <String, String>{
+          'page': '$page',
+          'page_size': '$pageSize',
+          if (status != null) 'status': status,
+          if (cashierId != null) 'cashier_id': cashierId,
+          if (fromDate != null) 'from_date': fromDate,
+          if (toDate != null) 'to_date': toDate,
+        },
+      );
+
+  /// One shift with its summary: bills, tenders by mode and the cash.
+  Future<Json> counterShift(String id) async =>
+      _unwrapMap(await request('GET', '/api/v1/counter-shifts/$id'));
+
+  /// Close a till on what was counted in it. A difference from the cash
+  /// expected posts one journal; `summary.held_bills` warns of bills still
+  /// parked.
+  Future<Json> closeCounterShift(
+    String id, {
+    required String countedCash,
+    String? note,
+  }) async =>
+      _unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/counter-shifts/$id/close',
+          body: <String, dynamic>{
+            'counted_cash': countedCash,
+            if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+          },
+        ),
+      );
+
+  /// The shift report as a PDF: takings by mode, the count, the difference.
+  Future<List<int>> counterShiftReportPdf(String id) =>
+      downloadBytes('/api/v1/counter-shifts/$id/report');
+
   /// What the customer's overdue bills have accrued in interest as of a date
   /// (SEL-14).
   Future<List<Json>> customerOverdueInterest(

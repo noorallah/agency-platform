@@ -1322,3 +1322,44 @@ Reading takes `RECEIPT_VIEW` and writing `RECEIPT_CREATE`. Not built: the
 desktop screens (a follow-up), the promise on the customer statement and on
 `GET /api/v1/receipts/outstanding`, reminders raised from a broken promise,
 and a promise against an opening bill (it is made on the account instead).
+
+## A till's shortage or excess posts to Cash short and over (SG-7, 2026-10-05)
+
+A cashier's shift (`counter_shifts`, `docs/SALES_CHAIN_RULES.md`) moves no
+money by being opened or by taking a bill: the receipts the bill's tenders
+become are what post, exactly as before. **Closing is the only thing a shift
+posts, and only when the drawer disagrees with the books.**
+
+`DocumentPostingService.post_cash_short_and_over` posts one journal for the
+difference between what was counted and what was expected --
+`quantize_ledger(abs(difference))`:
+
+| The drawer is | Debit | Credit |
+| --- | --- | --- |
+| **short** (counted less than expected) | *Cash short and over* | the shift's cash account |
+| **over** (counted more than expected) | the shift's cash account | *Cash short and over* |
+
+so the cash account reads what is actually in the drawer. An exact count posts
+nothing. The journal is dated the UTC day of the close, carries
+`source_module = "counter_shift"` and the shift's id, and takes the shift's
+number (`SHIFT-000123`) as its reference -- a shift closes once, so the
+reference is its own.
+
+`ControlAccountPurpose.CASH_SHORT_AND_OVER` is **one account for both
+directions**, as Tally keeps it: *6960 Cash Short and Over*, an indirect
+expense, on which a credit balance is a gain. It is seeded with the chart and
+by `20261005_0324` for firms whose books are open (only where missing, never
+overwriting; a firm that already used 6960 for something else is left to map
+the purpose itself). It may be mapped to an income or an expense account. **It
+is required only when a difference is posted**: a close with one and no
+account mapped is refused naming the purpose, and nothing closes.
+
+Expected cash is the float plus the cash tenders whose receipts still stand,
+derived on every read; the figure stored on the shift at the close is the
+snapshot the count was judged against. A receipt reversed after the close
+moves cash through its own mirror journal and does not reopen the shift.
+
+The shift's cash account defaults to the firm's `CASH` control account, and
+that is where every cash receipt is booked. A shift that names another asset
+account posts only its difference against that account -- routing the
+receipts themselves per till is not built.
