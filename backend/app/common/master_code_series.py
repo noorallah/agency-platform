@@ -14,7 +14,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
-from app.core.utils.dates import utc_now
+from app.common.firm_metadata import firm_today
 from app.document_framework.services.transactional_document_service import (
     DocumentStateSpec,
     DocumentTypeSpec,
@@ -78,7 +78,7 @@ class MasterCodeNumbering(TransactionalDocumentService):
             typed=None,
             number_column=code_column,
             firm_id=firm_id,
-            document_date=utc_now().date(),
+            document_date=firm_today(self._session, firm_id),
             actor_id=actor_id,
             company_code=self._company_code(firm_id),
         )

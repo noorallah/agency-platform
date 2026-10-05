@@ -34,6 +34,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_ledger
@@ -312,7 +313,7 @@ class TaxCalendarService:
                 f"A return for {return_period} is filed after the month ends, "
                 f"not on {filed_on.isoformat()}."
             )
-        if filed_on > utc_now().date():
+        if filed_on > firm_today(self._session, firm_id):
             raise ValidationError("A return cannot have been filed in the future.")
         existing = self._session.scalar(
             select(GstReturnFiling).where(

@@ -10,7 +10,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit, record_change, row_state
-from app.common.firm_metadata import FirmMetadataReader
+from app.common.firm_metadata import FirmMetadataReader, firm_today
 from app.core.exceptions import (
     ConflictError,
     ResourceNotFoundError,
@@ -604,9 +604,10 @@ class DocumentFrameworkService:
             firm_id=firm_id,
         )
 
-    # Document dates default to utc_now().date(), not date.today(): the
-    # server's local date decides which day -- and which financial year --
-    # a document number belongs to, and everything else here is UTC.
+    # A document with no date is numbered on the firm's own day
+    # (`firm_today`, D-CFG-25): the day decides which financial year the
+    # number belongs to, and on the night of 31 March the UTC day is still
+    # in the old year until 05:30 in India.
     def preview_number(
         self,
         rule_id: UUID,
@@ -627,7 +628,7 @@ class DocumentFrameworkService:
         must not do.
         """
         rule = self.get_numbering_rule(firm_id, rule_id)
-        on = document_date or utc_now().date()
+        on = document_date or firm_today(self._session, firm_id)
         return self._build_document_number(
             rule,
             financial_year_label=self._year_label(firm_id, on, financial_year_label),
@@ -685,7 +686,7 @@ class DocumentFrameworkService:
                 f"The document type {document_type.code} is switched off. "
                 "Switch it on before raising the document."
             )
-        on = document_date or utc_now().date()
+        on = document_date or firm_today(self._session, firm_id)
         # The same derivation `preview_number` uses, so the two cannot answer
         # differently for the same rule and date.
         label = self._year_label(firm_id, on, financial_year_label)

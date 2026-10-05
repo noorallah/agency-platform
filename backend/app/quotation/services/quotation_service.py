@@ -770,7 +770,7 @@ class QuotationService(TransactionalDocumentService):
                 branch_id=row.branch_id,
                 warehouse_id=row.warehouse_id,
                 business_profile_id=row.business_profile_id,
-                order_date=order_date or utc_now().date(),
+                order_date=order_date or firm_today(self._session, firm_scope),
                 delivery_date=delivery_date,
                 customer_reference=row.customer_reference,
                 # The terms quoted are the terms ordered (backlog 67 row 4);

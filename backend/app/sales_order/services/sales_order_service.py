@@ -20,7 +20,7 @@ from app.business.gating import assert_feature_fields
 from app.business.models.framework import AttributeEntityType
 from app.business.services import document_attributes
 from app.common.audit.services import record_audit
-from app.common.firm_metadata import FirmMetadataReader, platform_reader
+from app.common.firm_metadata import FirmMetadataReader, firm_today, platform_reader
 from app.common.report_names import (
     branch_names,
     customer_labels,
@@ -2882,7 +2882,9 @@ class SalesOrderService(TransactionalDocumentService):
                     # undoes: an order dated ahead of today's UTC date showed
                     # its release in the ledger a day before its reservation
                     # (D-STK-7).
-                    transaction_date=max(row.order_date, utc_now().date()),
+                    transaction_date=max(
+                        row.order_date, firm_today(self._session, row.firm_id)
+                    ),
                     release_quantity=released,
                     entered_quantity=self._share(
                         entered_total, released, line.reserved_quantity, allocation

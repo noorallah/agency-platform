@@ -18,6 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.document_framework.services.transactional_document_service import (
@@ -222,7 +223,7 @@ class PurchaseRequisitionService(TransactionalDocumentService):
                         "branch_id": row.branch_id,
                         "warehouse_id": row.warehouse_id,
                         "vendor_id": supplier,
-                        "purchase_date": utc_now().date(),
+                        "purchase_date": firm_today(self._session, firm_id),
                         "expected_delivery_date": row.needed_by,
                         "reference_number": row.requisition_number,
                         "remarks": f"From requisition {row.requisition_number}",

@@ -17,6 +17,7 @@ from sqlalchemy.sql import Select
 
 from app.business.gating import resolve_profile_id
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.concurrency import assert_version
 from app.core.database.entity import BaseEntity
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
@@ -979,7 +980,9 @@ class TaxRuleService:
     ) -> dict[str, Any]:
         context = data.model_dump(exclude_none=True)
         context["transaction_type"] = data.transaction_type.strip().upper()
-        context["transaction_date"] = data.transaction_date or utc_now().date()
+        context["transaction_date"] = data.transaction_date or firm_today(
+            self._session, firm_scope
+        )
         if data.product_id is not None:
             product = self._session.scalar(
                 select(Product).where(

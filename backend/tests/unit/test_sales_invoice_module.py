@@ -819,16 +819,16 @@ def test_a_bill_cancelled_before_utc_catches_up_is_not_undone_the_day_before(
     """
     from datetime import UTC, datetime
 
+    from app.core.utils import dates
     from app.customers.models import CustomerReceivableTransaction
-    from app.finance.services import journal_engine
-    from app.sales_invoice.services import sales_invoice_service
 
     def _utc_evening_before() -> datetime:
         """Return 20:34 UTC on the 4th -- already the 5th in India."""
         return datetime(2026, 8, 4, 20, 34, tzinfo=UTC)
 
-    monkeypatch.setattr(journal_engine, "utc_now", _utc_evening_before)
-    monkeypatch.setattr(sales_invoice_service, "utc_now", _utc_evening_before)
+    # The clock the business day is read from (D-CFG-25): the reversal is
+    # dated the firm's own today, which for this firm is already the 5th.
+    monkeypatch.setattr(dates, "utc_now", _utc_evening_before)
     session = _session_factory()()
     firm = _firm(session)
     service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)

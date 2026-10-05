@@ -21,6 +21,7 @@ from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.business.gating import resolve_profile_id
 from app.business.models import BusinessProfile
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.concurrency import assert_version
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.chunks import chunks
@@ -2664,7 +2665,9 @@ class InventoryService:
                 # the original's date showed stock leaving the day it arrived
                 # and ran `last_transaction_at` backwards (D-STK-9). Never
                 # before the original, which may itself be dated ahead.
-                transaction_date=max(original.transaction_date, utc_now().date()),
+                transaction_date=max(
+                    original.transaction_date, firm_today(self._session, firm_scope)
+                ),
                 quantity=-original.quantity,
                 current_delta=-original.current_quantity_delta,
                 reserved_delta=-original.reserved_quantity_delta,

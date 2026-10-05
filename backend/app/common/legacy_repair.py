@@ -55,9 +55,9 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, aliased
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.common.open_documents import find_stock_holdings
 from app.core.exceptions import ApplicationError
-from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO
 from app.customers.models import Customer, CustomerGroup
 from app.finance.models import JournalEntry
@@ -398,7 +398,7 @@ def _true_up_goodwill(
             firm_id=firm.id,
             entry_id=firm.id,
             reference=post_as,
-            on=utc_now().date(),
+            on=firm_today(session, firm.id),
             amount=amount,
             earning=True,
             description="Goodwill points never accrued (D-SELL-19 true-up)",

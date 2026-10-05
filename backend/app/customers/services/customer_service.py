@@ -1844,7 +1844,9 @@ class CustomerService:
             )
             if mirrored is not None:
                 return mirrored
-        return max(utc_now().date(), original.transaction_date)
+        return max(
+            firm_today(self._session, original.firm_id), original.transaction_date
+        )
 
     def _record_receivable_transaction(
         self,

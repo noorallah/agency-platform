@@ -1629,7 +1629,7 @@ def draw_count_plan_sheet(
     """Open the sheet a count plan covers (STK-6)."""
     sheet = CountPlanService(db).draw_sheet(
         plan_id,
-        count_date=count_date or utc_now().date(),
+        count_date=count_date or firm_today(db, scope.firm_id),
         firm_id=scope.firm_id,
         actor_id=scope.actor_id,
     )
