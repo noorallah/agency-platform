@@ -14,6 +14,11 @@ A customer's opening position is one or the other, never both:
 non-zero opening balance, and `CustomerService` refuses a non-zero opening
 balance while live bills stand. Both at once would count the same debt twice.
 
+A single figure that is owed still has to be collectable, so it is given one
+row here that stands for it (`covers_master_balance`, D-MST-13). That row is
+the figure seen as a bill, not a second debt: it posts no journal and writes
+no receivable transaction.
+
 Each row posts Dr accounts receivable / Cr opening balance equity on the
 cutover date and writes an `OPENING_BILL` receivable transaction, so the
 customer's balance, statement, credit control and delete guard all see it. It
@@ -28,6 +33,7 @@ from enum import StrEnum
 from uuid import UUID
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     ForeignKey,
@@ -36,6 +42,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -94,6 +101,17 @@ class CustomerOpeningBill(BaseEntity):
     )
     reversal_journal_entry_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("journal_entries.id", ondelete="RESTRICT")
+    )
+    #: True for the one bill that stands for `Customer.opening_balance`
+    #: (D-MST-13). A single figure on the master posted its journal and raised
+    #: the balance, and was then on no list a receipt or a collector works
+    #: from, because every one of those lists is a list of bills. This row is
+    #: that figure as a bill: it posts nothing and moves no balance of its own
+    #: -- `journal_entry_id` is the master's own entry -- and it is made,
+    #: revised and withdrawn with the figure, never from the opening-bills
+    #: screen.
+    covers_master_balance: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
     )
     cancelled_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     cancelled_by: Mapped[UUID | None] = mapped_column(UUIDType())

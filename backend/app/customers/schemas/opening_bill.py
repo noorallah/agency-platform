@@ -72,6 +72,9 @@ class CustomerOpeningBillResponse(CustomerSchema):
     narration: str | None
     status: str
     journal_entry_id: UUID
+    #: True for the bill that stands for the opening balance typed on the
+    #: customer: it is changed there, and cannot be cancelled here.
+    covers_master_balance: bool = False
     cancelled_at: datetime | None
     cancellation_reason: str | None
     version: int

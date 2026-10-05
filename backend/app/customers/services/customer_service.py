@@ -1364,6 +1364,9 @@ class CustomerService:
                 CustomerOpeningBill.customer_id == customer.id,
                 CustomerOpeningBill.status == CustomerOpeningBillStatus.POSTED.value,
                 CustomerOpeningBill.is_deleted.is_(False),
+                # The bill standing for the figure itself is not a second
+                # way of entering it (D-MST-13).
+                CustomerOpeningBill.covers_master_balance.is_(False),
             )
         )
         if live:
@@ -1610,6 +1613,21 @@ class CustomerService:
             actor_id=actor_id,
             journal_entry_id=None if entry is None else entry.id,
         )
+        if amount > 0 and entry is not None:
+            # Money owed has to be on the lists it is collected from, and
+            # every one of them is a list of bills (D-MST-13). An advance --
+            # a negative figure -- is not a bill and gets none.
+            from app.customers.services.opening_bill_service import (
+                CustomerOpeningBillService,
+            )
+
+            CustomerOpeningBillService(self._session).stage_for_master_balance(
+                customer,
+                amount=amount,
+                posting_date=entry.journal_date,
+                journal_entry_id=entry.id,
+                actor_id=actor_id,
+            )
 
     def record_opening_bill(
         self,
@@ -1825,6 +1843,15 @@ class CustomerService:
         # points at it. Deleting the transaction alone would leave the journal
         # asserting a figure the customer no longer carries.
         self._reverse_opening_balance_postings(customer, actor_id=actor_id)
+        # And the bill that stood for the old figure, before the new figure
+        # is given its own (D-MST-13).
+        from app.customers.services.opening_bill_service import (
+            CustomerOpeningBillService,
+        )
+
+        CustomerOpeningBillService(self._session).withdraw_master_balance(
+            customer, actor_id=actor_id
+        )
         # Deleted through the ORM, one row at a time, and not with a bulk
         # ``query().delete(synchronize_session=False)``. The reversal above
         # sets ``journal_entry_id = None`` on these very rows, so a bulk delete

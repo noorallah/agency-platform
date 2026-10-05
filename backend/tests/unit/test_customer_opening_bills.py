@@ -1,4 +1,4 @@
-"""What customers owed the firm on day one, bill by bill (backlog 36).
+﻿"""What customers owed the firm on day one, bill by bill (backlog 36).
 
 The receivable mirror of `test_vendor_opening_bills.py`. A customer's day-one
 debt entered bill by bill has to be a bill Record Receipt offers, a receipt
@@ -8,7 +8,7 @@ sales invoice, which the GST returns and sales registers would read as trading.
 And it is one figure on the master or bills, never both.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -511,3 +511,98 @@ def test_an_opening_bill_dated_after_cutover_is_refused() -> None:
             posting_date=CUTOVER,
             amount=Decimal("1"),
         )
+
+
+def _type_opening_balance(books: _Books, amount: str) -> None:
+    """Save the first customer with an opening balance typed on its form."""
+    CustomerService(books.session).update(
+        books.customer.id,
+        CustomerUpdate(
+            code="C1",
+            customer_type="BUSINESS",
+            name="Kumar Stores",
+            currency_code="INR",
+            payment_terms_days=30,
+            opening_balance=Decimal(amount),
+        ),
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+        may_change_credit_limit=True,
+        may_change_standing_discount=True,
+    )
+
+
+def _standing(books: _Books) -> list[CustomerOpeningBill]:
+    """Return the first customer's opening bills that still stand."""
+    return list(
+        books.session.scalars(
+            select(CustomerOpeningBill).where(
+                CustomerOpeningBill.customer_id == books.customer.id,
+                CustomerOpeningBill.status == "POSTED",
+            )
+        ).all()
+    )
+
+
+def test_an_opening_balance_typed_on_the_customer_can_be_collected() -> None:
+    """D-MST-13: the figure posted and was then on no list of what is owed.
+
+    Driven 2026-10-05 on two firms: Dr 1100 / Cr 3000 and an OPENING_BALANCE
+    receivable row, and nothing on `receipts/outstanding`, the collection
+    sheet or the ageing, because each is a list of bills. The figure is now
+    given one bill that stands for it -- with no second journal and no second
+    movement of the balance.
+    """
+    books = _Books()
+    _type_opening_balance(books, "1500.00")
+
+    [bill] = _standing(books)
+    assert bill.covers_master_balance is True
+    assert bill.amount == Decimal("1500.00")
+    assert bill.due_date == bill.bill_date + timedelta(days=30)
+    assert books.owed() == [("Opening balance", Decimal("1500.00"), True)]
+    # One journal and one receivable row: the master's own, which the bill
+    # points at rather than repeating.
+    assert books.balance() == Decimal("1500.00")
+    assert books.session.scalar(select(func.count(JournalEntry.id))) == 1
+    [written] = books.session.scalars(select(CustomerReceivableTransaction)).all()
+    assert written.transaction_type == "OPENING_BALANCE"
+    assert written.journal_entry_id == bill.journal_entry_id
+
+    books.receive("600.00", [(bill.id, "600.00")], on=bill.bill_date)
+
+    assert books.owed() == [("Opening balance", Decimal("900.00"), True)]
+    assert books.balance() == Decimal("900.00")
+    # It is the customer's figure, so it is taken back there and not here.
+    with pytest.raises(ValidationError, match="opening balance entered on the"):
+        books.bills.cancel(
+            bill.id, reason="mistake", firm_id=books.firm.id, actor_id=books.actor_id
+        )
+
+
+def test_revising_the_opening_balance_revises_its_bill() -> None:
+    """The bill follows the figure: revised with it, and gone when it is nil."""
+    books = _Books()
+    _type_opening_balance(books, "1500.00")
+    _type_opening_balance(books, "400.00")
+
+    [bill] = _standing(books)
+    assert bill.amount == Decimal("400.00")
+    assert books.owed() == [("Opening balance", Decimal("400.00"), True)]
+    assert books.balance() == Decimal("400.00")
+
+    _type_opening_balance(books, "0")
+
+    assert _standing(books) == []
+    assert books.owed() == []
+    # And with the figure back at nil, bill by bill is open again.
+    assert books.opening_bill("250.00").covers_master_balance is False
+
+
+def test_an_opening_advance_is_not_a_bill() -> None:
+    """A customer who starts in credit owes nothing to collect."""
+    books = _Books()
+    _type_opening_balance(books, "-300.00")
+
+    assert _standing(books) == []
+    assert books.owed() == []
