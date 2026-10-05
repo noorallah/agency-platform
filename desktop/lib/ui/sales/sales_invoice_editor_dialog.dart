@@ -25,8 +25,10 @@ import '../workspace/batch_picker_panel.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/printed_document.dart';
+import 'counter_shift_widgets.dart';
 import 'ship_to_field.dart';
 
+part 'sales_invoice_editor_counter.dart';
 part 'sales_invoice_editor_phase2.dart';
 
 /// Billing a delivery note.
@@ -191,6 +193,15 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   Timer? _previewTimer;
   int _previewSerial = 0;
   bool _phase2 = false;
+
+  /// The counter's shift and held bills (backlog 87 #7): the caller's open
+  /// shift, whether it has been read yet, how many bills are held, and
+  /// whether this screen carries on at the counter after a recalled bill
+  /// (a draft being edited) is finished.
+  Json? _shift;
+  bool _shiftKnown = false;
+  int _heldCount = 0;
+  bool _stayAtCounter = false;
 
   /// Set while building a payload only to price it: the form is not asked to
   /// show its errors for a bill still being typed.
@@ -426,6 +437,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       });
       // After the invoice, so a correction opens with its stored values.
       unawaited(_customFields.start());
+      unawaited(_readCounterState());
       _schedulePreview();
     } on ApiException catch (error) {
       if (!mounted) return;
@@ -1250,7 +1262,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       _saving = true;
       _error = null;
     });
-    final bool freshCounterBill = _direct && _invoiceId == null;
+    final bool freshCounterBill =
+        (_direct && _invoiceId == null) || _stayAtCounter;
     String? savedId = _invoiceId;
     try {
       final Json response;
@@ -1294,7 +1307,9 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       }
       if (!mounted) return;
       if (freshCounterBill) {
-        _newCounterBill();
+        // A bill was approved: what the shift has taken moved.
+        unawaited(_refreshShift());
+        await _startAnotherBill();
       } else {
         Navigator.of(context).pop(true);
       }

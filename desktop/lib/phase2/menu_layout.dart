@@ -285,6 +285,7 @@ abstract final class MenuLayout {
         MenuItemSpec(
             AppModule.salesInvoices, 'sales-invoices', 'Sales Invoices'),
         MenuItemSpec.module(AppModule.salesReturns, 'Sales Returns'),
+        MenuItemSpec(AppModule.sales, 'counter-shifts', 'Counter Shifts'),
         MenuItemSpec(AppModule.sales, 'proforma-invoices', 'Proforma'),
         MenuItemSpec(AppModule.sales, 'approvals', 'Approvals'),
         MenuItemSpec(AppModule.sales, 'credit-notes', 'Credit Notes'),
