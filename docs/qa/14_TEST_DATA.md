@@ -868,7 +868,7 @@ after them.
 | TC-FIN-001 | QAR1 | Group REV, code `9999`, name *Manual test account*, type EXPENSE; then group EXP · Direct Expenses |
 | TC-FIN-002 | QA03 | Period September 2026 (P06) on all three |
 | TC-FIN-003 | QAR1 | Period June 2026; date `2026-06-15`; reference `MT-CLOSE-1`; `5000 Purchases` Dr `100`; `1000 Cash` Cr `100`; any journal and voucher type |
-| TC-FIN-004 | QA03 | Search `SI-2026-2027-000001`, `DN-`, `RC-2026-2027-000001`, `TCS-RC-2026-2027-000001` |
+| TC-FIN-004 | QA03 | Search `SI-2026-2027-000001`, `DN-`, `RC-2026-2027-000001` |
 | TC-FIN-005 | QA03 | Nothing. The purchase reports are **not** empty here: they hold the stock-in order of D5 |
 | TC-FIN-006 | QA01 | Search `QA-PM` |
 | TC-FIN-007 | QAR1 | Cost centre `SALES` *Sales* (twice); profit centre `NORTH` *North*; journal line on `5000` with cost centre SALES, `5000 Purchases` Dr `250`, `1000 Cash` Cr `250`, reference `MT-CC-1`, today |

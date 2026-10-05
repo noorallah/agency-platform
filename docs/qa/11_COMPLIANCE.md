@@ -23,7 +23,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 | Preparation | Starts you with |
 | --- | --- |
 | `compliance-firm` | a firm with GSTIN `33…` (Tamil Nadu); **`QA-B2B`** Registered Buyer with a GSTIN; **`QA-B2C`** Walk-in Buyer with none; `QA-P` at HSN **340220**, GST 18 local. This month: **Invoice A** — B2B, 10 × 100 (1,180.00), **collected and e-registered**; **Invoice B** — B2B, 5 × 100 (590.00), unpaid, **e-registered, no e-way bill**; **Invoice C** — B2C, 3 × 100 (354.00), unpaid, not registered |
-| `selling-paid` | (see *Selling*) two receipts from Vijaya, who has no PAN, each charged TCS at 1% |
+| `selling-paid` | (see *Selling*) two receipts from Vijaya, who has no PAN, dated after 1 April 2025 and so charged no TCS |
 
 ### TC-COMP-001 — GSTR-1 for the month
 
@@ -65,14 +65,14 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
   - Step 1: blank vehicle refused before sending: "Goods moving by road need a vehicle number on the bill."; then "E-way bill raised." and the cell fills with `SBX…`.
   - Step 2: "E-way bill withdrawn."
   - Step 3: **422**, "Register the invoice before raising its e-way bill: the bill quotes the IRN, and one without it cannot be matched to a supply." The screen does not offer it.
-### TC-COMP-007 — TCS: the register, the settings, and a journal of its own
+### TC-COMP-007 — TCS: the settings stay, and nothing is collected from 1 April 2025
 
 - **Preconditions:** As *selling-invoiced*, plus the two receipts and the second invoice in the preparation table.
-- **Steps:** as the prepared **Firm admin**, Accounts > All Accounts screens > Tax filing > **TCS**; open **Settings** (close without saving). Accounts > Journal Entries → search `TCS-RC` → View one.
+- **Steps:** as the prepared **Firm admin**, Accounts > All Accounts screens > Tax filing > **TCS**; open **Settings** (close without saving). Accounts > Journal Entries → search `TCS-RC`.
 - **Expect**
-  - The banner reads "Collecting under section 206C(1H) • (the threshold, 0) per buyer per year, then 0.100% (1.000% without a PAN)"; the register lists the two receipts from Vijaya — **2.42** and **3.42**, rate **1.000%** (no PAN), **COLLECTED**.
-  - Settings: **Collect under section 206C(1H)** on; preceding year turnover 150,000,000; threshold 0; rate 0.1; without a PAN 1.0.
-  - Journal: `TCS-RC-…` entries separate from the receipts' own; View reads **Dr 1100 Trade Receivables / Cr 2500 TCS Payable** — 2500, not Output Tax.
+  - The register is **empty**: both receipts are dated after 1 April 2025, when the Finance Act 2025 omitted section 206C(1H), so neither was charged. *(Checked on 2026-10-05: `tcs_collections` holds no row for the two receipts and the ledger has no 2500 TCS Payable line.)*
+  - Settings still read as the firm keyed them: **Collect under section 206C(1H)** on; preceding year turnover 150,000,000; threshold 0; rate 0.1; without a PAN 1.0. Switching it on does not bring the tax back.
+  - Journal Entries: no `TCS-RC-…` entry. A receipt dated **before** 1 April 2025 would raise one of its own, **Dr 1100 Trade Receivables / Cr 2500 TCS Payable**; a firm whose books open in 2026-27 cannot date one there, so that half is covered by the unit suite (`tests/unit/test_tcs.py`) rather than by hand.
 ---
 
 ### TC-COMP-008 — The tax calendar on Home, and marking a return filed

@@ -18,7 +18,7 @@ for a tester with a REST client such as Postman; skip them otherwise.
 
 | Preparation | Starts you with |
 | --- | --- |
-| `selling-firm` | customers **`QA-C01` Vijaya** (7.5% standing discount, Retailer segment, **no PAN**) and **`QA-C02` Anand** (Wholesaler, PAN, its own `NEGOTIATED` list at 9.25%); **`QA-DET`** at 84, GST 18 local, 100 in MAIN; the firm-wide **`STANDING`** list on DET with breaks 0 → 2%, 15 → 4.25%, 18 → 6.75%; promotions **BULK5** (7.5% on a line of 25+), **BIGORDER** (200 off a bill of 4,500+, ends the stack), **CLEARANCE** (1% on a line of 40+), **WELCOME** (2.5%, coupon only: `WELCOME10`, `WELCOME10B`); **TCS on** with a threshold of 0 (0.1%, 1% without a PAN); loyalty 2 points per 100 |
+| `selling-firm` | customers **`QA-C01` Vijaya** (7.5% standing discount, Retailer segment, **no PAN**) and **`QA-C02` Anand** (Wholesaler, PAN, its own `NEGOTIATED` list at 9.25%); **`QA-DET`** at 84, GST 18 local, 100 in MAIN; the firm-wide **`STANDING`** list on DET with breaks 0 → 2%, 15 → 4.25%, 18 → 6.75%; promotions **BULK5** (7.5% on a line of 25+), **BIGORDER** (200 off a bill of 4,500+, ends the stack), **CLEARANCE** (1% on a line of 40+), **WELCOME** (2.5%, coupon only: `WELCOME10`, `WELCOME10B`); **TCS on** with a threshold of 0 (0.1%, 1% without a PAN) -- which collects nothing on a receipt dated from 1 April 2025, when section 206C(1H) was omitted; loyalty 2 points per 100 |
 | `selling-ordered` | … and Vijaya's order for **12** with coupon `WELCOME10`, approved |
 | `selling-delivered` | … and notes for **5** and **7**, both dispatched |
 | `selling-invoiced` | … and the note for 5 **billed and approved: 483.21** |
@@ -117,24 +117,25 @@ promotion, or the customer's standing rate).
 - **Preconditions:** As *selling-delivered*, plus the first note billed and approved, as in the preparation table.
 - **Steps:** select the invoice → **Print settings** icon → How many copies **2**, Copy 1 label / Copy 2 label (they prefill ORIGINAL FOR RECIPIENT / DUPLICATE FOR TRANSPORTER) → save → **Print**.
 - **Expect:** the PDF carries the CGST/SGST split, an HSN column, the HSN-wise summary, "AMOUNT CHARGEABLE, IN WORDS", and two labelled copies. Saving print settings needs `SETTINGS_UPDATE`, which the firm admin holds. *(Whichever of the firm's GSTIN, the customer's GSTIN and the product's HSN are blank on your firm print empty on the copy; check the ones that are blank on yours rather than assuming all three are. The prepared product carries no HSN, so that column is always empty here; Vijaya carries no GSTIN either way.)*
-### TC-SELL-013 — Receipts charge TCS; an excess with nothing else owed becomes an advance
+### TC-SELL-013 — A receipt collects no TCS from 1 April 2025; an excess with nothing else owed becomes an advance
 
 - **Preconditions:** As *selling-delivered*, plus the first note billed and approved, as in the preparation table.
 - **Steps**
   1. Sell > Receipts → **Record Receipt**: `QA-C01`, Amount **241.60**, Bank; under **Apply to invoices** type 241.60 into the invoice's **Apply** box → Record receipt. Masters > Customers → C01.
   2. Record Receipt again: Amount **341.61**, type **241.61** into Apply → Record receipt. Masters > Customers → C01.
 - **Expect**
-  - Step 1: the TCS notice (small text under **Against order (optional)**) charges **1%** — Vijaya has no PAN — **2.42** on 241.60. "RC-… recorded and posted to the ledger."; the row reads "Cleared SI-…". Outstanding **244.03** (483.21 − 241.60 + 2.42).
-  - Step 2: TCS **3.42**; the running line says 100.00 left over before saving. The invoice drops out of the outstanding list. Customers: Outstanding **3.42** (this receipt's TCS) and Advance **97.58** — the excess over everything owed. *(WHOLE01's Vijaya owed on older bills, so there the excess came off the account instead; this firm has none.)*
+  - Step 1: no TCS is added, although the firm has TCS switched on; the server's reason is "Section 206C(1H) was omitted by the Finance Act 2025 from 1 April 2025, so nothing is collected under it on a receipt from that date." "RC-… recorded and posted to the ledger."; the row reads "Cleared SI-…". Outstanding **241.61** (483.21 − 241.60).
+  - Step 2: the running line says 100.00 left over before saving. The invoice drops out of the outstanding list. Customers: Outstanding **0.00** and Advance **100.00** — the excess over everything owed. *(WHOLE01's Vijaya owed on older bills, so there the excess came off the account instead; this firm has none.)*
+  - Accounts > Journal Entries: one entry per receipt, **Dr 1010 Bank / Cr 1100 Trade Receivables**, and no `TCS-RC-…` entry.
 ### TC-SELL-014 — Applying an advance posts nothing; reversing a receipt puts everything back
 
-- **Preconditions:** As *selling-invoiced*, plus the two receipts and the second invoice in the preparation table. (the second receipt has 100.00 unallocated; Vijaya: Outstanding 679.91, Advance 97.58.)
+- **Preconditions:** As *selling-invoiced*, plus the two receipts and the second invoice in the preparation table. (the second receipt has 100.00 unallocated; Vijaya: Outstanding 676.49, Advance 100.00.)
 - **Steps**
-  1. Sell > Receipts → on the **341.61** receipt, **Apply to an invoice** → the invoice for 7 → Amount **97.58** → Apply. Then try to apply **5** more.
+  1. Sell > Receipts → on the **341.61** receipt, **Apply to an invoice** → the invoice for 7 → Amount **95** → Apply. Then try to apply **10** more.
   2. On the **241.60** receipt → **Reverse**, give a reason → Reverse. Then Reverse it again.
 - **Expect**
-  - Step 1: "RC-… applied to SI-…"; the dialog says "Nothing moves in the ledger. The money arrived when the receipt was recorded." — Journal Entries has **no** new entry. Customers: Outstanding **584.75**, Advance **2.42** (the net owed is unchanged). Applying 5 more is refused: "RC-… has only 2.42 left unapplied."
-  - Step 2: "RC-… reversed."; badge **Reversed**; Journal Entries shows `RC-…-REV` and the receipt's TCS reversed. Outstanding rises by **239.18** — the 241.60 less the 2.42 TCS that is also undone. Reversing again: "RC-… has already been reversed."
+  - Step 1: "RC-… applied to SI-…"; the dialog says "Nothing moves in the ledger. The money arrived when the receipt was recorded." — Journal Entries has **no** new entry. Customers: Outstanding **581.49**, Advance **5.00** (the net owed is unchanged). Applying 10 more is refused: "RC-… has only 5.00 left unapplied."
+  - Step 2: "RC-… reversed."; badge **Reversed**; Journal Entries shows `RC-…-REV`. Outstanding rises by **241.60** to **823.09**; Advance stays 5.00. Reversing again: "RC-… has already been reversed."
 ### TC-SELL-015 — A sales return is capped at what was dispatched
 
 - **Preconditions:** As *selling-delivered*, plus the first note billed and approved, as in the preparation table.
@@ -314,6 +315,28 @@ One standard check for every screen in this area. Run it once per screen as the 
 | 08-S05 | **Sell > Returns & notes > Sales Returns** | Offered to any role holding `SALES_VIEW` or `SALES_RETURN` or `SALES_UPDATE` or `SALES_APPROVE` or `SALES_CANCEL`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
 | 08-S06 | **Sell > All Sell screens > Documents > Proforma** | Offered to any role holding `PROFORMA_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
 | 08-S07 | **Sell > Returns & notes > Credit Notes** | Offered to any role holding `CREDIT_NOTE_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+
+## Checked through the API, 2026-10-05
+
+After the purchasing build (PG-1..14) the chain was driven through the real
+API on a firm of its own (`selling-paid`, schema `fx_t1005j1us_s`) and its
+books read back from the database. This covers the server; the screens are
+still to be walked by hand.
+
+| Case | What was driven | Result |
+| --- | --- | --- |
+| TC-SELL-007, 009, 010 | Order for 12 with `WELCOME10`, approved; notes for 5 and 7 dispatched | Pass: stock 100 to 88, cost of goods sold 720.00 |
+| TC-SELL-011 | Both notes billed and approved (483.21 and 676.49) | Pass: sales 982.80, output tax 176.90, receivable 1,159.70 |
+| TC-SELL-013 | Receipts of 241.60 and 341.61 | Pass on the corrected figures: no TCS, advance 100.00 |
+| TC-SELL-014 | Advance of 95 applied, 10 more refused; receipt reversed twice | Pass: no journal for the apply, one `-REV` for the reversal |
+| TC-SELL-015 | Return of 9 refused, 2 completed | Pass: 193.28 credited, stock back to 90, inventory 5,400.00 |
+| TC-SELL-016 | Credit note of 50 approved, 400 refused | Pass: 59.00 (tax 9.00) credited |
+| Books | Every journal balanced; bank 341.61; receivable 565.81 against the customer's 570.81 owed less 5.00 advance | Pass |
+
+Found: D-SELL-47 (loyalty points not taken back on a return or credit note)
+and D-SELL-48 (ledger CGST and SGST a paisa apart), both in
+`docs/DEFECTS.md`. Not driven here: pricing ladders and offers (001 to 006),
+holds (008), printing (012), proformas (017) and cases 018 to 035.
 
 ## Results summary
 
