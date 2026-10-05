@@ -1048,6 +1048,56 @@ void main() {
     expect(tester.widget<EditableText>(cells.at(1)).controller.text, '3');
   });
 
+  testWidgets('a box emptied on a saved bill is sent as cleared',
+      (tester) async {
+    // D-SELL-79: the server keeps whatever a save of a stored bill does not
+    // mention, so a reference or a bill discount taken off has to say so.
+    final _InvoiceApi api = counterApi();
+    api.existing = <String, dynamic>{
+      ...savedCounterBill(),
+      'reference_number': 'PO-9',
+      'bill_discount_percent': '10',
+    };
+    await pumpPhase2(tester, api, invoiceId: 'inv-1');
+    Finder holding(String text) => find.byWidgetPredicate(
+          (Widget widget) =>
+              widget is EditableText && widget.controller.text == text,
+        );
+    expect(holding('PO-9'), findsOneWidget);
+
+    await tester.enterText(holding('PO-9'), '');
+    await tester.enterText(holding('10'), '');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+
+    expect(api.updated, isNotNull);
+    expect(api.updated!.containsKey('reference_number'), isTrue);
+    expect(api.updated!['reference_number'], isNull);
+    expect(api.updated!.containsKey('bill_discount_percent'), isTrue);
+    expect(api.updated!['bill_discount_percent'], isNull);
+    // Nothing is filled from the bill into the freight box, so it says
+    // nothing and the bill keeps what it has.
+    expect(api.updated!.containsKey('freight_amount'), isFalse);
+  });
+
+  testWidgets('a saved bill left as it is sends its reference and discount',
+      (tester) async {
+    final _InvoiceApi api = counterApi();
+    api.existing = <String, dynamic>{
+      ...savedCounterBill(),
+      'reference_number': 'PO-9',
+      'bill_discount_percent': '10',
+    };
+    await pumpPhase2(tester, api, invoiceId: 'inv-1');
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+
+    expect(api.updated!['reference_number'], 'PO-9');
+    expect(api.updated!['bill_discount_percent'], '10');
+  });
+
   testWidgets('pricing an edited counter bill only previews, as products',
       (tester) async {
     final _InvoiceApi api = counterApi();

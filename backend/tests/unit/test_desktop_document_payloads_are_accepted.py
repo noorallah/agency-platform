@@ -276,6 +276,12 @@ def test_both_kinds_of_bill_carry_only_invoice_fields() -> None:
         _assert_known(head, SalesInvoiceCreate)
     received = _keys_in(_BILL, "_receivedFields()", "{", "}\n")
     _assert_known(received, SalesInvoiceCreate)
+    # A product added to a saved counter bill is built on its own (D-SELL-59),
+    # and so is a saved line restated as a product for the preview.
+    for function in ("Json? _productLine(", "Json _asProductLine("):
+        line = _keys_in(_BILL, function, "return <String", "};")
+        assert "product_id" in line, function
+        _assert_known(line, SalesInvoiceLineWrite)
 
 
 def test_credit_and_debit_notes_carry_only_their_fields() -> None:

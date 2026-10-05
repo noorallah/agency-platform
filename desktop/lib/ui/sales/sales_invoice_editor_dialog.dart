@@ -956,12 +956,22 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       'invoice_date': _iso(widget.today),
       // Null is "as delivered"; the key is sent in phase 2, which has the box.
       if (_phase2) 'shipping_address_id': _shipToId,
+      // On a saved bill an emptied box is sent as null: there the server
+      // keeps whatever a save does not mention (D-SELL-79), so saying
+      // nothing would leave a reference or a bill discount nobody could
+      // take off. Both boxes are filled from the bill when it opens.
       if (_reference.text.trim().isNotEmpty)
-        'reference_number': _reference.text.trim(),
-      // Omitted when blank: absent is what tells the server there is no
-      // discount on the bill, and an empty string is a schema error.
+        'reference_number': _reference.text.trim()
+      else if (_editing && !_drafting)
+        'reference_number': null,
+      // Omitted when blank on a new bill: absent is what tells the server
+      // there is no discount on it, and an empty string is a schema error.
       if (_billDiscount.text.trim().isNotEmpty)
-        'bill_discount_percent': _billDiscount.text.trim(),
+        'bill_discount_percent': _billDiscount.text.trim()
+      else if (_editing && !_drafting)
+        'bill_discount_percent': null,
+      // Freight is not filled from a saved bill, so a blank box there says
+      // nothing and the bill keeps what it has.
       if (_freight.text.trim().isNotEmpty)
         'freight_amount': _freight.text.trim(),
       ..._receivedFields(),
