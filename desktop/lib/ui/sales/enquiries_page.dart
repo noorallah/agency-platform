@@ -94,7 +94,9 @@ class _EnquiriesPageState extends State<EnquiriesPage> {
     try {
       final List<Enquiry> rows = _dueOnly
           ? await widget.api.followUpsDue()
-          : await widget.api.enquiries(status: _status);
+          : await fetchAllPages<Enquiry>(
+              (int page) => widget.api.enquiries(page: page, status: _status),
+            );
       if (!mounted) return;
       setState(() {
         _rows = rows;

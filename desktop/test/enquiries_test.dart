@@ -92,6 +92,9 @@ class _Api extends ApiClient {
   final List<String> requested = <String>[];
   final Map<String, Json?> bodies = <String, Json?>{};
 
+  /// What each read of the enquiry list asked for.
+  final List<Map<String, String>> listQueries = <Map<String, String>>[];
+
   Json _paged(List<Json> items) => <String, dynamic>{
         'data': items,
         'pagination': <String, dynamic>{'total_records': items.length},
@@ -164,7 +167,17 @@ class _Api extends ApiClient {
         'data': rows.firstWhere((row) => row['id'] == id),
       };
     }
-    if (path == '/api/v1/enquiries') return <String, dynamic>{'data': rows};
+    if (path == '/api/v1/enquiries') {
+      // Paged as the server pages it (D-SELL-63): the slice asked for, and
+      // how many there are in all.
+      listQueries.add(query ?? const <String, String>{});
+      final int size = int.parse(query?['page_size'] ?? '100');
+      final int page = int.parse(query?['page'] ?? '1');
+      return <String, dynamic>{
+        'data': rows.skip((page - 1) * size).take(size).toList(),
+        'pagination': <String, dynamic>{'total_records': rows.length},
+      };
+    }
     return <String, dynamic>{'data': const <Json>[]};
   }
 }
@@ -334,6 +347,22 @@ void main() {
     expect(body['warehouse_id'], 'w1');
     expect(body['customer_type'], 'BUSINESS');
     expect(body['customer_code'], isNull);
+  });
+
+  testWidgets('the list is read page by page until it has every enquiry',
+      (tester) async {
+    // D-SELL-63: the server pages the list now, so one read is one page.
+    final _Api api = _Api(rows: [
+      for (int index = 1; index <= 150; index++) _enquiry(id: 'e-$index'),
+    ]);
+    await _pump(tester, api);
+    expect(
+      [
+        for (final Map<String, String> query in api.listQueries)
+          '${query['page']}/${query['page_size']}',
+      ],
+      ['1/100', '2/100'],
+    );
   });
 
   testWidgets('the follow-ups due toggle reads the due list', (tester) async {

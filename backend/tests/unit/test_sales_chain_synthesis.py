@@ -1261,3 +1261,54 @@ def test_more_than_the_bill_is_refused_and_nothing_is_approved() -> None:
     assert refused is not None
     assert refused.status == "DRAFT"
     assert _dispatches(session) == 0
+
+
+def test_a_product_line_on_a_saved_counter_bill_is_refused_by_name() -> None:
+    """D-SELL-69: it surfaced as "Unsupported source document type.".
+
+    A saved counter bill is changed through the lines it already has. One
+    sent a product line was refused three layers down, in words an API
+    client could not act on.
+    """
+    session = _request_session()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    service = SalesInvoiceService(session)
+    actor = uuid4()
+    invoice = service.create_invoice(
+        setup.bare_bill(), firm_id=setup.firm.id, actor_id=actor
+    )
+
+    with pytest.raises(ValidationError) as refused:
+        service.update_invoice(
+            invoice.id,
+            setup.bare_bill(Decimal("5")),
+            firm_id=setup.firm.id,
+            actor_id=actor,
+        )
+
+    message = str(refused.value)
+    assert invoice.invoice_number in message
+    assert "source_document_line_id" in message and "no product_id" in message
+    assert "Unsupported" not in message
+
+
+def test_a_line_naming_a_warehouse_nobody_has_is_refused_by_name() -> None:
+    """D-SELL-71: a counter bill line with an unknown warehouse answered 409.
+
+    The chain put the line on the order it raised unchecked, and the foreign
+    key failed: "The request conflicts with existing data. Please retry."
+    """
+    session = _request_session()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    bill = setup.bare_bill()
+    nobody = uuid4()
+    bill.lines[0].warehouse_id = nobody
+
+    with pytest.raises(ValidationError, match=f"warehouse {nobody} was not found"):
+        SalesInvoiceService(session).create_invoice(
+            bill, firm_id=setup.firm.id, actor_id=uuid4()
+        )
+    session.rollback()
+    assert session.scalar(select(SalesOrder)) is None

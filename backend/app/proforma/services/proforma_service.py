@@ -327,6 +327,13 @@ class ProformaService(TransactionalDocumentService):
         before = self._audit_snapshot(row)
         for field, value in data.model_dump(exclude_unset=True).items():
             setattr(row, field, value)
+        # Judged on the row once both dates are settled: an amendment may
+        # send either alone, and the other is the one it already has
+        # (D-SELL-70).
+        if row.valid_until is not None and row.valid_until < row.proforma_date:
+            raise ValidationError(
+                "valid_until cannot be earlier than the proforma date."
+            )
         row.updated_by = actor_id
         self._session.flush()
         record_audit(

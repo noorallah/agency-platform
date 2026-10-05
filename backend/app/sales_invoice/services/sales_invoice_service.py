@@ -785,6 +785,20 @@ class SalesInvoiceService(TransactionalDocumentService):
         row = self.get_invoice(invoice_id, firm_scope=firm_id)
         if row.status != SalesInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft sales invoices can be updated.")
+        if any(line.product_id is not None for line in data.lines):
+            # Said by name, where it used to surface three layers down as
+            # "Unsupported source document type." or as a sentence about a
+            # note "already dispatched" that had not been (D-SELL-69). The
+            # rule itself -- a saved bill cannot grow -- is D-SELL-59's.
+            raise ValidationError(
+                f"{row.invoice_number} is already saved, so it is changed "
+                "through the lines it has: send each line back with its "
+                "source_document_type, source_document_id and "
+                "source_document_line_id, as the bill returns them, and no "
+                "product_id. A product cannot be added to a saved bill, nor a "
+                "line raised above the quantity it was saved for; cancel this "
+                "draft and raise the bill again."
+            )
         # An edit bills the documents the first save raised, at their prices.
         refuse_coupon_on_documents(data)
         own_notes = self._notes_raised_by(row)
@@ -1505,9 +1519,16 @@ class SalesInvoiceService(TransactionalDocumentService):
             .execution_options(populate_existing=True)
         )
         walk_in = customer is not None and customer.is_cash_sale
-        if walk_in and Decimal(str(row.received_now_amount or 0)) != (
-            _receivable_amount(row.grand_total)
-        ):
+        received_now = Decimal(str(row.received_now_amount or 0))
+        if walk_in and received_now > _receivable_amount(row.grand_total):
+            # More than the bill comes to is change to hand back, as it is on
+            # any counter bill; this said "Take the rest" (D-SELL-66).
+            raise ValidationError(
+                f"{received_now} was received against a bill of "
+                f"{_receivable_amount(row.grand_total)}. "
+                "Enter what the bill is paid with; change is handed back."
+            )
+        if walk_in and received_now != _receivable_amount(row.grand_total):
             # The cash customer is nobody in particular, so nothing can be
             # left owing on its account (backlog 87 #2).
             raise ValidationError(

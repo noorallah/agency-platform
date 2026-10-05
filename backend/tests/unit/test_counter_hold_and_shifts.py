@@ -16,7 +16,7 @@ Shifts are optional: somebody with none open bills exactly as before.
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -37,6 +37,7 @@ from app.core.exceptions import (
 from app.counter_shifts.models import CounterShift, CounterShiftStatus
 from app.counter_shifts.schemas import CounterShiftClose, CounterShiftOpen
 from app.counter_shifts.services import CounterShiftService
+from app.counter_shifts.services.shifts import utc_stamp
 from app.document_framework.schemas.bulk_actions import BulkApproveRequest, BulkRow
 from app.finance.models import FirmControlAccount, JournalEntry, JournalLine
 from app.finance.services.control_accounts import (
@@ -783,3 +784,18 @@ def test_a_bill_goes_to_the_shift_of_the_cashier_who_made_it() -> None:
         counter.draft(tender).id, firm_scope=counter.firm_id, actor_id=manager
     )
     assert fallen.counter_shift_id == own.id
+
+
+def test_the_shift_report_prints_the_utc_time_it_names() -> None:
+    """D-SELL-67: a shift opened 13:42 UTC printed "19:12 UTC".
+
+    PostgreSQL hands the stored moment back in the session's zone; its clock
+    face was printed under the UTC label. SQLite's naive value is UTC.
+    """
+    india = timezone(timedelta(hours=5, minutes=30))
+
+    assert utc_stamp(datetime(2026, 10, 5, 19, 12, 43, tzinfo=india)) == (
+        "05-10-2026 13:42 UTC"
+    )
+    assert utc_stamp(datetime(2026, 10, 5, 13, 42, 43)) == "05-10-2026 13:42 UTC"
+    assert utc_stamp(None) == ""

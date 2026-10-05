@@ -18,6 +18,8 @@ from pydantic import ValidationError as SchemaError
 from app.core.exceptions import ValidationError
 from app.core.utils.dates import utc_now
 from app.customers.models import Customer
+from app.enquiry.api.router import list_enquiries
+from app.enquiry.api.router import router as enquiry_router
 from app.enquiry.services import (
     EnquiryConvertWrite,
     EnquiryFollowUpWrite,
@@ -26,6 +28,7 @@ from app.enquiry.services import (
     EnquiryWrite,
 )
 from app.quotation.models import SalesQuotation
+from tests.unit.report_windows import assert_page_size_is_bounded, report_scope
 from tests.unit.test_quotation_module import _session_factory, _Setup
 
 TODAY = utc_now().date()
@@ -168,3 +171,31 @@ def test_someone_has_to_have_asked() -> None:
                 "branch_id": "00000000-0000-0000-0000-000000000001",
             }
         )
+
+
+def test_the_enquiry_list_is_paged() -> None:
+    """D-SELL-63: ``page`` and ``page_size`` were ignored; every row came back."""
+    setup = _Setup(_session_factory()())
+    service = EnquiryService(setup.session)
+    made = [
+        service.create(
+            _enquiry(setup, prospect_name=f"Prospect {index}"),
+            firm_id=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
+        for index in range(3)
+    ]
+    scope = report_scope(setup.firm.id)
+
+    first = list_enquiries(scope=scope, db=setup.session, page=1, page_size=2)
+    second = list_enquiries(scope=scope, db=setup.session, page=2, page_size=2)
+
+    assert first.pagination.total_records == 3
+    assert first.pagination.total_pages == 2
+    assert len(first.data) == 2 and len(second.data) == 1
+    assert {row.id for row in first.data} | {row.id for row in second.data} == {
+        row.id for row in made
+    }
+    past = list_enquiries(scope=scope, db=setup.session, page=99, page_size=2)
+    assert past.data == [] and past.pagination.total_records == 3
+    assert_page_size_is_bounded(enquiry_router, "/api/v1/enquiries")

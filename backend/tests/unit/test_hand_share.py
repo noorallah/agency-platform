@@ -14,6 +14,7 @@ import pytest
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.document_framework.models import DocumentPrintTemplate
 from app.messaging.api.router import prepare_hand_share, record_hand_share
+from app.messaging.events import render
 from app.messaging.schemas import HandShareRecord
 from app.messaging.services.hand_share import HandShareService, whatsapp_number
 from app.sales_invoice.services import SalesInvoiceService
@@ -130,3 +131,40 @@ def test_another_firms_bill_is_not_found(shop: _Shop) -> None:
 
     with pytest.raises(ResourceNotFoundError):
         HandShareService(shop.session).prepare(bill.id, firm_id=uuid4())
+
+
+def test_a_bill_with_no_due_date_says_nothing_about_one(shop: _Shop) -> None:
+    """D-SELL-64: the covering note read "...for 118.00, due on ."."""
+    bill = shop.approved_bill()
+    bill.due_date = None
+    shop.session.commit()
+
+    share = prepare_hand_share(
+        bill.id, _scope(shop.firm.id, shop.actor_id), shop.session
+    ).data
+
+    assert share is not None
+    assert "due on" not in share.text
+    assert f"for {bill.grand_total:,.2f}." in share.text
+
+
+def test_the_due_clause_stays_when_there_is_a_date_and_goes_when_not() -> None:
+    body = "Invoice {document_number} for {amount}, due on {due_date}. Thanks."
+    values = {"document_number": "SI-1", "amount": "118.00"}
+
+    assert render(body, values | {"due_date": "04-Aug-2026"}) == (
+        "Invoice SI-1 for 118.00, due on 04-Aug-2026. Thanks."
+    )
+    assert render(body, values | {"due_date": ""}) == (
+        "Invoice SI-1 for 118.00. Thanks."
+    )
+    assert render("Invoice {document_number} is due on {due_date}", values) == (
+        "Invoice SI-1 is due on {due_date}"
+    ), "an unknown placeholder is left for the firm to see"
+    assert (
+        render(
+            "Reminder: invoice {document_number} is due on {due_date}",
+            values | {"due_date": ""},
+        )
+        == "Reminder: invoice SI-1"
+    )

@@ -13,11 +13,12 @@ The cases that decide whether a proforma is safe to send a customer:
   it would put a number in the return that was never a supply.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError as SchemaError
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -585,7 +586,7 @@ def test_an_expired_proforma_is_reported_rather_than_dropped() -> None:
     """
     books = _Books(_session_factory()())
     service = ProformaService(books.session)
-    row = books.raise_proforma(valid_until=date(2026, 1, 1))
+    row = books.raise_proforma(valid_until=WHEN)
     service.issue_proforma(row.id, firm_scope=books.firm.id, actor_id=books.actor_id)
 
     outstanding = service.outstanding_report(firm_scope=books.firm.id)
@@ -735,3 +736,28 @@ def test_the_register_takes_a_window_and_a_page() -> None:
     assert [row.proforma_date for row in page.data] == [days[2]]
 
     assert_page_size_is_bounded(router, "/api/v1/proforma-invoices/reports/register")
+
+
+def test_a_proforma_cannot_lapse_before_it_starts() -> None:
+    """D-SELL-70: ``valid_until`` five days before its own date was accepted."""
+    books = _Books(_session_factory()())
+    with pytest.raises(SchemaError, match="earlier than the proforma date"):
+        books.raise_proforma(valid_until=WHEN - timedelta(days=5))
+
+    row = books.raise_proforma(valid_until=WHEN)
+    with pytest.raises(ValidationError, match="earlier than the proforma date"):
+        ProformaService(books.session).update_proforma(
+            row.id,
+            ProformaUpdate(valid_until=WHEN - timedelta(days=1)),
+            firm_scope=books.firm.id,
+            actor_id=books.actor_id,
+        )
+    books.session.rollback()
+    # Moving the date past the validity it already has is the same mistake.
+    with pytest.raises(ValidationError, match="earlier than the proforma date"):
+        ProformaService(books.session).update_proforma(
+            row.id,
+            ProformaUpdate(proforma_date=WHEN + timedelta(days=1)),
+            firm_scope=books.firm.id,
+            actor_id=books.actor_id,
+        )

@@ -5,7 +5,7 @@ from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ProformaSchema(BaseModel):
@@ -41,6 +41,17 @@ class ProformaCreate(ProformaSchema):
     remarks: str | None = None
     #: The proforma this one replaces, where it is a revision.
     supersedes_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def _validity_outlasts_the_statement(self) -> "ProformaCreate":
+        """Refuse a proforma that has lapsed before it starts (D-SELL-70).
+
+        A quotation refuses the same; a proforma dated the 10th and good
+        until the 5th was accepted.
+        """
+        if self.valid_until is not None and self.valid_until < self.proforma_date:
+            raise ValueError("valid_until cannot be earlier than the proforma date.")
+        return self
 
 
 class ProformaUpdate(ProformaSchema):

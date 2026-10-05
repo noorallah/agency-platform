@@ -26,6 +26,7 @@ from app.sales_invoice.schemas import SalesInvoiceCreate, SalesInvoiceLineWrite
 from app.sales_invoice.services import SalesInvoiceService
 from app.sales_invoice.services.invoice_pdf import PartyBlock
 from app.sales_invoice.services.invoice_print_service import (
+    SalesInvoicePrintService,
     _as_typed_at_the_counter,
 )
 from tests.unit.test_sales_chain_synthesis import _Firm, _session_factory
@@ -235,3 +236,35 @@ def test_the_print_names_the_buyer_typed_at_the_counter() -> None:
 
     assert (typed.name, typed.contact) == ("Ravi", "98765")
     assert untyped is block
+
+
+def test_the_print_ships_to_the_buyer_typed_at_the_counter() -> None:
+    """D-SELL-65: SHIPPED TO read "Cash sale" beside a BILLED TO naming Ravi."""
+    session, setup, cash = _counter()
+    bill = _draft(session, setup, _walk_in_bill(setup, cash, buyer_phone="98765"))
+
+    document = SalesInvoicePrintService(session)._document(
+        bill, firm_scope=setup.firm.id
+    )
+
+    assert document.buyer.name == "Ravi"
+    assert document.ship_to is not None
+    assert (document.ship_to.name, document.ship_to.contact) == ("Ravi", "98765")
+
+
+def test_more_than_a_walk_in_bill_comes_to_is_change_not_a_shortfall() -> None:
+    """D-SELL-66: 200 tendered on a bill of 118 was told to "Take the rest"."""
+    session, setup, cash = _counter()
+    bill = _draft(session, setup, _walk_in_bill(setup, cash))
+    total = Decimal(str(bill.grand_total)).quantize(Decimal("0.01"))
+    bill.received_now_amount = total + 82
+    bill.received_now_method = "CASH"
+    session.commit()
+
+    with pytest.raises(ValidationError) as refused:
+        SalesInvoiceService(session).approve_invoice(
+            bill.id, firm_scope=setup.firm.id, actor_id=uuid4()
+        )
+
+    assert "change is handed back" in str(refused.value)
+    assert "Take the rest" not in str(refused.value)

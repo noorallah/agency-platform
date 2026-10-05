@@ -510,6 +510,40 @@ class EnquiryService(TransactionalDocumentService):
             )
         return list(self._session.scalars(query.limit(1000)).all())
 
+    def list_page(
+        self,
+        firm_id: UUID,
+        *,
+        page: int,
+        page_size: int,
+        status: str | None = None,
+        salesman_id: UUID | None = None,
+    ) -> tuple[list[Enquiry], int]:
+        """Return one page of the firm's enquiries, newest first, and the count."""
+        conditions = [Enquiry.firm_id == firm_id, Enquiry.is_deleted.is_(False)]
+        if status:
+            conditions.append(Enquiry.status == status.upper())
+        if salesman_id is not None:
+            conditions.append(Enquiry.salesman_id == salesman_id)
+        total = int(
+            self._session.scalar(
+                select(func.count()).select_from(Enquiry).where(*conditions)
+            )
+            or 0
+        )
+        rows = self._session.scalars(
+            select(Enquiry)
+            .where(*conditions)
+            .order_by(
+                Enquiry.enquiry_date.desc(),
+                Enquiry.enquiry_number.desc(),
+                Enquiry.id.desc(),
+            )
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        ).all()
+        return list(rows), total
+
     def lost_reasons(
         self, firm_id: UUID, *, from_date: date, to_date: date
     ) -> list[LostReasonRow]:
