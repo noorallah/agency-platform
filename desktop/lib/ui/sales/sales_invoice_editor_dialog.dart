@@ -266,6 +266,24 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
 
   bool get _editing => _invoiceId != null;
 
+  /// Whether a saved bill may take another product: a draft counter bill,
+  /// on the phase 2 screen. A bill of somebody's own delivery note keeps
+  /// the lines it bills and is refused a product line by the server.
+  bool get _addsProducts =>
+      _phase2 &&
+      _editsCounterBill &&
+      '${_existing?['status'] ?? 'DRAFT'}' == 'DRAFT';
+
+  /// Set when the person last touched a product added to a saved bill, so
+  /// the side panel follows that line rather than a saved one.
+  bool _addedFocus = false;
+
+  /// Whether a product has been added to the saved bill with something to
+  /// bill.
+  bool get _hasAddedProducts => _directLines.any((_DirectLine line) =>
+      (line.productId ?? '').isNotEmpty &&
+      (double.tryParse(line.quantity.text.trim()) ?? 0) > 0);
+
   /// Which stages this firm types. A firm that types neither the order nor the
   /// delivery note has nothing to pick from, so it names products instead and
   /// the server raises the documents behind the bill.
@@ -468,6 +486,11 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   /// correction can go up as well as down.
   void _adoptExisting(Json invoice) {
     _raisedItsOwnChain = invoice['allow_direct_sales_order'] == true;
+    // A saved counter bill starts with no product added beside its lines.
+    if (_raisedItsOwnChain && _stages.billsDirectly) {
+      _directLines.clear();
+      _addedFocus = false;
+    }
     _customFields.seed(attributeValuesFrom(invoice['attributes']));
     for (final _ChargeRow row in _charges) {
       row.dispose();
@@ -907,9 +930,28 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         });
       }
     }
+    // A saved counter bill that gained products (D-SELL-59): its saved lines
+    // go back by their source fields, which the server reads at the terms
+    // they were struck on -- a discount somebody typed is kept, one the
+    // customer's arrangement gave is resolved again -- and each new product
+    // goes as a product line. The preview refuses that mixture, so it prices
+    // every line as a product instead.
+    final bool adds = _addsProducts && _hasAddedProducts;
+    if (adds) {
+      if (_drafting) {
+        for (int i = 0; i < lines.length; i++) {
+          lines[i] = _asProductLine(lines[i]);
+        }
+      }
+      for (final _DirectLine line in _directLines) {
+        final Json? sent = _productLine(line, lines.length + 1);
+        if (sent != null) lines.add(sent);
+      }
+    }
     if (lines.isEmpty) return null;
     return <String, dynamic>{
       'customer_id': document.customerId,
+      if (adds && _drafting) 'rate_includes_tax': _rateIncludesTax,
       if (document.branchId.isNotEmpty) 'branch_id': document.branchId,
       'invoice_date': _iso(widget.today),
       // Null is "as delivered"; the key is sent in phase 2, which has the box.
@@ -929,6 +971,89 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       'lines': lines,
     };
   }
+
+  /// One product added to a saved counter bill, as the server takes it, or
+  /// null for a line with no product or nothing to bill. The same line
+  /// [_directPayload] builds for a new bill; keep the two in step.
+  Json? _productLine(_DirectLine line, int number) {
+    final String product = line.productId ?? '';
+    final String quantity = line.quantity.text.trim();
+    if (product.isEmpty) return null;
+    // A line billed at nothing is left off rather than sent as a zero, the
+    // same rule the document path follows.
+    if (quantity.isEmpty || (double.tryParse(quantity) ?? 0) <= 0) return null;
+    final String price = line.price.text.trim();
+    return <String, dynamic>{
+      'product_id': product,
+      'line_number': number,
+      'current_invoice_quantity': quantity,
+      // With GST included, blank is the product's own price -- before tax,
+      // as the server resolves it -- rather than a typed shelf price.
+      if (!(_rateIncludesTax && price.isEmpty))
+        'unit_price': price.isEmpty ? '0' : price,
+      // Omitted when blank on purpose. Saying nothing takes whatever
+      // arrangement the customer already has; sending a zero refuses it.
+      if (line.discount.text.trim().isNotEmpty)
+        'discount_percent': line.discount.text.trim(),
+      if (_isSerialised(product)) 'serial_ids': [...line.serialIds],
+      // Only when the person chose or reset: absent leaves the note's own
+      // earliest-expiry-first choice (backlog 79 row 2).
+      if (!_drafting && _isBatched(product) && line.batchPicks != null)
+        'batches': _batchesPayload(line.batchPicks!),
+    };
+  }
+
+  /// A saved line restated as a product line, to price it beside the new
+  /// ones. Its discount is what the bill shows now: this only draws figures
+  /// and saves nothing, and the save sends the line back by its source so
+  /// the server keeps its own terms.
+  Json _asProductLine(Json line) {
+    final String sourceLine = '${line['source_document_line_id']}';
+    final double discount = _discountOf(sourceLine);
+    return <String, dynamic>{
+      'product_id': _productOfLine(sourceLine),
+      'line_number': line['line_number'],
+      'current_invoice_quantity': line['current_invoice_quantity'],
+      'unit_price': _enteredRates[sourceLine] ?? line['unit_price'],
+      if (discount > 0) 'discount_percent': '$discount',
+      if (line['serial_ids'] != null) 'serial_ids': line['serial_ids'],
+    };
+  }
+
+  /// A saved line's number among the lines the bill sends, or null where its
+  /// quantity is nothing and it is left off.
+  int? _documentPlace(String sourceLineId) {
+    int number = 0;
+    for (final BillableDocument document in _documents) {
+      for (final BillableLine line in document.lines) {
+        final bool sent = (double.tryParse(
+                    _quantities[line.sourceDocumentLineId]?.text.trim() ??
+                        '') ??
+                0) >
+            0;
+        if (sent) number++;
+        if (line.sourceDocumentLineId == sourceLineId) {
+          return sent ? number : null;
+        }
+      }
+    }
+    return null;
+  }
+
+  BillableLine? _savedLine(String sourceLineId) {
+    for (final BillableDocument document in _documents) {
+      for (final BillableLine line in document.lines) {
+        if (line.sourceDocumentLineId == sourceLineId) return line;
+      }
+    }
+    return null;
+  }
+
+  String _productOfLine(String sourceLineId) =>
+      _savedLine(sourceLineId)?.productId ?? '';
+
+  double _discountOf(String sourceLineId) =>
+      double.tryParse(_savedLine(sourceLineId)?.discountPercent ?? '') ?? 0;
 
   /// A bill that names products rather than the paperwork behind them.
   ///
@@ -1137,6 +1262,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         }
       }
       _current = index;
+      if (_addsProducts) _addedFocus = true;
     });
     if (value != null && _isSerialised(value)) {
       _loadSerials(value, _directWarehouse);
@@ -1184,6 +1310,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         line.quantity.text =
             next == next.roundToDouble() ? next.toStringAsFixed(0) : '$next';
         _current = index;
+        if (_addsProducts) _addedFocus = true;
         _scanMessage = null;
       });
       _schedulePreview();
@@ -1447,18 +1574,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
 
   /// Say which line is short of serials, before the round trip.
   String? _serialShortfall() {
-    if (_direct) {
-      for (int index = 0; index < _directLines.length; index++) {
-        final _DirectLine line = _directLines[index];
-        if (!_isSerialised(line.productId ?? '')) continue;
-        final int? needed = _units(line.quantity.text);
-        if (needed != null && needed > 0 && line.serialIds.length != needed) {
-          return 'Line ${index + 1}: pick one serial number per unit going '
-              'out -- $needed needed, ${line.serialIds.length} picked.';
-        }
-      }
-      return null;
-    }
+    if (_direct) return _addedShortfall(0);
     for (final BillableDocument document in _documents) {
       for (final BillableLine line in document.lines) {
         if (!_picksSerials(document, line)) continue;
@@ -1470,6 +1586,38 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
           return '${line.label}: pick one serial number per unit going out '
               '-- $needed needed, $picked picked.';
         }
+      }
+    }
+    return _addsProducts ? _addedShortfall(_billedLineCount()) : null;
+  }
+
+  /// How many saved lines the bill still sends, for numbering the products
+  /// added after them.
+  int _billedLineCount() {
+    int count = 0;
+    for (final BillableDocument document in _documents) {
+      for (final BillableLine line in document.lines) {
+        if ((double.tryParse(
+                    _quantities[line.sourceDocumentLineId]?.text.trim() ??
+                        '') ??
+                0) >
+            0) {
+          count++;
+        }
+      }
+    }
+    return count;
+  }
+
+  /// Say which product line is short of serials, before the round trip.
+  String? _addedShortfall(int before) {
+    for (int index = 0; index < _directLines.length; index++) {
+      final _DirectLine line = _directLines[index];
+      if (!_isSerialised(line.productId ?? '')) continue;
+      final int? needed = _units(line.quantity.text);
+      if (needed != null && needed > 0 && line.serialIds.length != needed) {
+        return 'Line ${before + index + 1}: pick one serial number per unit '
+            'going out -- $needed needed, ${line.serialIds.length} picked.';
       }
     }
     return null;

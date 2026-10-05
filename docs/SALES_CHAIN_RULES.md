@@ -117,6 +117,18 @@ and shipped 3, and one could not grow at all.
 - **Only a draft counter bill.** A bill of documents somebody raised is
   still changed through its own lines and refuses a product line by name
   (D-SELL-69); an approved bill is not edited at all.
+- **The desktop adds a product beside the saved lines, never in place of
+  them** (D-SELL-59; `sales_invoice_editor_phase2.dart`). A saved or recalled
+  counter bill is opened as a bill of its lines, and a second table takes the
+  products added. The save sends each saved line back by its source fields,
+  so the server keeps the terms struck at the first save, and each new
+  product as a product line. The saved bill's response does not say whether a
+  line's discount was typed or inherited (`discount_source` is stored but not
+  returned), so the desktop never rebuilds a saved line as a product line to
+  save it: that would turn an inherited discount into a typed one. The live
+  preview refuses a mixture of the two shapes, so it alone restates every
+  line as a product, through `POST /sales-invoices/preview`, which stages
+  and rolls back.
 
 ## Goods back before billing credit nothing
 
