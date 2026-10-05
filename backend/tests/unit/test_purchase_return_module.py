@@ -1771,3 +1771,180 @@ def test_a_return_publishes_its_version_and_refuses_a_stale_save() -> None:
         db=session,
     )
     assert takes_if_match(return_router, "PUT", "/{return_id}")
+
+
+class _Billed:
+    """Ten received and billed in full, on a session shaped like a request's.
+
+    A request session does not autoflush, so a line written a moment ago is
+    invisible to the next read unless the service flushes: the cases built on
+    this are the ones a fixture that autoflushes would pass by accident.
+    """
+
+    def __init__(self, *, free: str = "0", batch_number: str | None = None) -> None:
+        """Seed the firm, one receipt line and the bill for all of it."""
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(engine)
+        self.session = sessionmaker(
+            bind=engine, expire_on_commit=False, autoflush=False
+        )()
+        self.firm_id = _firm(self.session).id
+        branch = _branch(self.session, firm_id=self.firm_id)
+        self.warehouse = _warehouse(
+            self.session, firm_id=self.firm_id, branch_id=branch.id
+        )
+        order = _purchase_order(
+            self.session,
+            firm_id=self.firm_id,
+            vendor_id=_vendor(self.session, firm_id=self.firm_id).id,
+            branch_id=branch.id,
+            warehouse_id=self.warehouse.id,
+        )
+        po_line = self.session.scalar(
+            select(PurchaseOrderLine).where(
+                PurchaseOrderLine.purchase_order_id == order.id
+            )
+        )
+        assert po_line is not None
+        self.receipt, self.receipt_line = _received(self.session, po_line)
+        self.receipt_line.free_quantity = Decimal(free)
+        self.receipt_line.batch_number = batch_number
+        _billed_in_full(self.session, self.receipt, self.receipt_line)
+        bill_line = self.session.scalar(select(PurchaseInvoiceLine))
+        assert bill_line is not None
+        self.bill_line = bill_line
+        self.service = PurchaseReturnService(self.session)
+
+    def line(
+        self,
+        quantity: str,
+        *,
+        off_the_bill: bool = False,
+        number: int = 1,
+        free_quantity: str | None = None,
+        batch_number: str | None = None,
+    ) -> PurchaseReturnLineWrite:
+        """Return one line sending ``quantity`` back off the receipt or the bill."""
+        return PurchaseReturnLineWrite(
+            source_document_type=(
+                PurchaseReturnSourceType.PURCHASE_INVOICE
+                if off_the_bill
+                else PurchaseReturnSourceType.GOODS_RECEIPT
+            ),
+            source_document_id=(
+                self.bill_line.purchase_invoice_id if off_the_bill else self.receipt.id
+            ),
+            source_document_line_id=(
+                self.bill_line.id if off_the_bill else self.receipt_line.id
+            ),
+            line_number=number,
+            current_return_quantity=Decimal(quantity),
+            free_quantity=None if free_quantity is None else Decimal(free_quantity),
+            warehouse_id=self.warehouse.id,
+            batch_number=batch_number,
+        )
+
+    def document(self, *lines: PurchaseReturnLineWrite) -> PurchaseReturnCreate:
+        """Return a purchase return made of ``lines``."""
+        return PurchaseReturnCreate(
+            return_date=date(2026, 8, 2),
+            warehouse_id=self.warehouse.id,
+            lines=list(lines),
+        )
+
+    def send_back(self, *lines: PurchaseReturnLineWrite) -> PurchaseReturn:
+        """Save a return of ``lines``, as the create endpoint does."""
+        return self.service.create_return(
+            self.document(*lines), firm_id=self.firm_id, actor_id=uuid4()
+        )
+
+    def refused(self, *lines: PurchaseReturnLineWrite) -> str:
+        """Return the words a return of ``lines`` is refused in."""
+        with pytest.raises(ValidationError) as refusal:
+            self.send_back(*lines)
+        self.session.rollback()
+        return str(refusal.value.message)
+
+    def saved_line(self, row: PurchaseReturn) -> PurchaseReturnLine:
+        """Return the only line of a saved return."""
+        line = self.session.scalar(
+            select(PurchaseReturnLine).where(
+                PurchaseReturnLine.purchase_return_id == row.id
+            )
+        )
+        assert line is not None
+        return line
+
+
+def test_the_same_goods_go_back_once_whichever_document_is_named() -> None:
+    """D-BUY-61: 6 off the bill line, then 6 more off the receipt line it billed.
+
+    Each line counted only the returns naming it, so ten received and billed
+    could go back twice and the supplier be debited twice. What may still go
+    back is what came in on the receipt line less every live return of those
+    goods, by either document, and cancelling a return gives its goods back.
+    """
+    goods = _Billed()
+    first = goods.send_back(goods.line("6", off_the_bill=True))
+
+    assert goods.refused(goods.line("5")) == (
+        "Return quantity exceeds the available source quantity: line 1 can "
+        "still send back 4 bought and 0 free. 6 of these goods have already "
+        "gone back against the supplier bill for them."
+    )
+    goods.send_back(goods.line("4"))
+    # The bill line has 4 of its own left, and the goods behind it none.
+    assert goods.refused(goods.line("1", off_the_bill=True)) == (
+        "Return quantity exceeds the available source quantity: line 1 can "
+        "still send back 0; free goods go back off the goods receipt that "
+        "brought them in. 4 of these goods have already gone back against the "
+        "goods receipt that brought them in, or another bill for it."
+    )
+
+    goods.service.cancel_return(
+        first.id, firm_scope=goods.firm_id, actor_id=uuid4(), reason="Kept"
+    )
+    assert goods.send_back(goods.line("6")).status == "DRAFT"
+    assert "0 bought and 0 free" in goods.refused(goods.line("1"))
+
+
+def test_one_return_cannot_send_the_same_goods_back_on_two_lines() -> None:
+    """D-BUY-61: the bill line and its receipt line, in one document."""
+    goods = _Billed()
+
+    assert "can still send back 4 bought and 0 free" in goods.refused(
+        goods.line("6", off_the_bill=True), goods.line("6", number=2)
+    )
+    assert goods.session.scalar(select(func.count()).select_from(PurchaseReturn)) == 0
+    both = goods.send_back(
+        goods.line("6", off_the_bill=True), goods.line("4", number=2)
+    )
+    assert both.total_current_return_quantity == Decimal("10.0000")
+
+
+def test_free_goods_still_go_back_after_the_bought_went_off_the_bill() -> None:
+    """D-BUY-61: 10 + 2 free; the 10 off the bill, then "the 2 free".
+
+    With the free quantity left blank the bought units are taken first, and
+    none are left: the two are free and credited nothing, where they used to
+    be priced as bought and the supplier debited 200 for goods that were free.
+    """
+    goods = _Billed(free="2")
+    goods.send_back(goods.line("10", off_the_bill=True))
+
+    free = goods.saved_line(goods.send_back(goods.line("2")))
+
+    assert (free.current_return_quantity, free.free_quantity) == (
+        Decimal("0.0000"),
+        Decimal("2.0000"),
+    )
+    assert (free.gross_amount, free.net_amount) == (Decimal("0"), Decimal("0"))
+    assert goods.refused(goods.line("1")) == (
+        "Return quantity exceeds the available source quantity: line 1 can "
+        "still send back 0 bought and 0 free. 10 of these goods have already "
+        "gone back against the supplier bill for them."
+    )

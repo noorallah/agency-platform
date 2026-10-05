@@ -363,6 +363,34 @@ many of those are free:
   refusal says how much is left: "... line 1 can still send back 10 bought and
   2 free."
 
+**The same goods go back once, whichever document the return names**
+(D-BUY-61, the buying twin of D-SELL-7). A bill line and the receipt line it
+billed are the same goods, and each used to count only the returns naming
+itself: 6 received and billed went back as 6 off the bill and 6 more off the
+receipt, the supplier debited twice and the input tax reversed twice. What may
+still go back on a line is what came in on the goods-receipt line behind it,
+less every live return of those goods -- off the receipt line or off any bill
+line billing it, drafts included and two lines of one return included. A line
+off a bill is held to that *and* to what the bill line itself billed. A
+cancelled return gives its quantity back.
+
+- The refusal says what is left and where the rest went: "... line 1 can
+  still send back 4 bought and 0 free. 6 of these goods have already gone back
+  against the supplier bill for them." Off the bill: "... can still send back
+  0; free goods go back off the goods receipt that brought them in. 4 of these
+  goods have already gone back against the goods receipt that brought them in,
+  or another bill for it."
+- **Free goods are counted apart.** After the 10 bought have gone back off the
+  bill line, the 2 free still go back off the receipt line; with
+  `free_quantity` left blank they are free, since "bought first" finds no
+  bought units left, and are credited nothing.
+- A bill raised straight off an order line (not possible since D-BUY-14, but
+  such bills exist) has every completed receipt line of that order line behind
+  it, counted together; once such a bill has been returned against, those
+  receipt lines are held to the same total.
+- The quantities are compared as stored, in the source line's unit: a bill
+  line and its receipt line share the purchase unit.
+
 ### What the supplier gives back, and a bill already paid (A34, D-BUY-20)
 
 A return records an **outcome**, changeable until it is cancelled because the

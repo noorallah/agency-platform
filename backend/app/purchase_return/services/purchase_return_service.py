@@ -10,7 +10,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.batch_serial.services import BatchSerialService
@@ -54,7 +54,11 @@ from app.goods_receipt.billing import (
     receipt_line_costs,
 )
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
-from app.goods_receipt.rules import posted_receipt_line, require_posted_receipt
+from app.goods_receipt.rules import (
+    POSTED_STATES,
+    posted_receipt_line,
+    require_posted_receipt,
+)
 from app.inventory.models import InventoryTransaction, StockLedgerEntry
 from app.inventory.services import InventoryService
 from app.products.models import Product
@@ -1053,17 +1057,8 @@ class PurchaseReturnService(TransactionalDocumentService):
         typed = str(spec.get("batch_number") or "").strip()
         if typed:
             return typed
-        receipt_line: object = source_line
-        if (
-            isinstance(source_line, PurchaseInvoiceLine)
-            and source_line.source_document_type
-            == PurchaseReturnSourceType.GOODS_RECEIPT.value
-            and source_line.source_document_line_id is not None
-        ):
-            receipt_line = self._session.get(
-                GoodsReceiptLine, source_line.source_document_line_id
-            )
-        if not isinstance(receipt_line, GoodsReceiptLine):
+        receipt_line = self._receipt_line_behind(source_line)
+        if receipt_line is None:
             return None
         return (receipt_line.batch_number or "").strip() or None
 
@@ -2082,23 +2077,38 @@ class PurchaseReturnService(TransactionalDocumentService):
                 )
                 return_quantity = self._q(conversion.converted_quantity)
                 conversion_factor = self._q(conversion.conversion_factor)
+            # Request sessions do not autoflush, and an earlier line of this
+            # same return may be sending back the same goods.
+            self._session.flush()
             already_returned, already_free = self._already_returned(
                 firm_id=firm_id,
                 source_document_line_id=source_line.id,
             )
+            charged_left = self._q(source_quantity - already_returned)
+            # A bill line and the receipt line it billed are the same goods:
+            # what went back by either route counts against what came in
+            # (D-BUY-61).
+            came_in, goods_back = self._goods_position(
+                firm_id=firm_id, source_line=source_line
+            )
+            by_another_route = ZERO
+            if came_in is not None:
+                by_another_route = max(self._q(goods_back - already_returned), ZERO)
+                charged_left = min(charged_left, self._q(came_in - goods_back))
             # No request can lift this cap: a body flag the caller set was all
             # it took to send back more than was received (D-SELL-29).
             return_quantity, free_quantity = self._split_free_goods(
                 index,
                 total=return_quantity,
                 typed_free=self._typed_free(spec, requested_quantity, return_quantity),
-                charged_left=self._q(source_quantity - already_returned),
+                charged_left=charged_left,
                 free_left=self._q(
                     self._source_free_quantity(source_type, source_line) - already_free
                 ),
                 off_a_receipt=(
                     source_type == PurchaseReturnSourceType.GOODS_RECEIPT.value
                 ),
+                by_another_route=by_another_route,
             )
             unit_price = self._unit_price(spec, source_line)
             charges_amount = self._q(Decimal(str(spec.get("charges_amount", ZERO))))
@@ -2613,6 +2623,173 @@ class PurchaseReturnService(TransactionalDocumentService):
         ).one()
         return self._q(charged or ZERO), self._q(free or ZERO)
 
+    def _receipt_line_behind(self, source_line: SourceLine) -> GoodsReceiptLine | None:
+        """Return the receipt line whose goods a return line sends back.
+
+        The receipt line itself, or the one a bill line billed. A bill line
+        raised straight off an order (no longer possible, D-BUY-14) and an
+        order line have no single receipt line behind them.
+        """
+        if isinstance(source_line, GoodsReceiptLine):
+            return source_line
+        if (
+            isinstance(source_line, PurchaseInvoiceLine)
+            and source_line.source_document_type
+            == PurchaseReturnSourceType.GOODS_RECEIPT.value
+            and source_line.source_document_line_id is not None
+        ):
+            return self._session.get(
+                GoodsReceiptLine, source_line.source_document_line_id
+            )
+        return None
+
+    def _goods_position(
+        self, *, firm_id: UUID, source_line: SourceLine
+    ) -> tuple[Decimal | None, Decimal]:
+        """Return what came in of a line's goods and what has gone back.
+
+        A bill line and the receipt line it billed are the same goods, and
+        `_already_returned` counts one source line, so 6 received and billed
+        went back as 6 off the bill and 6 more off the receipt, the supplier
+        debited twice (D-BUY-61, the buying twin of D-SELL-7). The goods are
+        the receipt line's: what came in on it, less every live return that
+        names it or a bill line billing it, drafts included. A cancelled
+        return stops counting.
+
+        A bill raised straight off an order line -- a path closed since
+        D-BUY-14, but such bills exist -- has every posted receipt line of
+        that order line behind it, and they are counted together. Where such
+        a bill has been returned against, the receipt lines of its order line
+        are held to the same total.
+
+        Returns:
+            The bought units that came in, or None where nothing received
+            stands behind the line, and the bought units already sent back.
+
+        """
+        receipt_line = self._receipt_line_behind(source_line)
+        order_line_id: UUID | None = None
+        if receipt_line is not None:
+            order_line_id = receipt_line.purchase_order_line_id
+        elif (
+            isinstance(source_line, PurchaseInvoiceLine)
+            and source_line.source_document_type
+            == PurchaseReturnSourceType.PURCHASE_ORDER.value
+        ):
+            order_line_id = source_line.source_document_line_id
+        if order_line_id is None:
+            return None, ZERO
+        came_in: Decimal | None = None
+        back = ZERO
+        if receipt_line is not None:
+            came_in = self._q(receipt_line.accepted_quantity)
+            back = self._goods_returned(
+                firm_id=firm_id, receipt_line_ids=[receipt_line.id]
+            )
+        via_order = self._goods_returned(
+            firm_id=firm_id, receipt_line_ids=[], order_line_id=order_line_id
+        )
+        if came_in is not None and via_order <= ZERO:
+            return came_in, back
+        received = self._session.execute(
+            select(GoodsReceiptLine.id, GoodsReceiptLine.accepted_quantity)
+            .join(GoodsReceipt, GoodsReceipt.id == GoodsReceiptLine.goods_receipt_id)
+            .where(
+                GoodsReceiptLine.firm_id == firm_id,
+                GoodsReceiptLine.purchase_order_line_id == order_line_id,
+                GoodsReceiptLine.is_deleted.is_(False),
+                GoodsReceipt.is_deleted.is_(False),
+                GoodsReceipt.status.in_(POSTED_STATES),
+            )
+        ).all()
+        order_in = self._q(sum((Decimal(str(row[1])) for row in received), ZERO))
+        order_back = self._q(
+            via_order
+            + self._goods_returned(
+                firm_id=firm_id, receipt_line_ids=[row[0] for row in received]
+            )
+        )
+        if came_in is None:
+            return order_in, order_back
+        # Whichever of the two leaves less: the receipt line's own goods, or
+        # the order line's once a bill straight off it has been returned.
+        if order_in - order_back < came_in - back:
+            return order_in, order_back
+        return came_in, back
+
+    def _goods_returned(
+        self,
+        *,
+        firm_id: UUID,
+        receipt_line_ids: Sequence[UUID],
+        order_line_id: UUID | None = None,
+    ) -> Decimal:
+        """Sum the bought units live returns took of some receipt lines' goods.
+
+        Counted whichever document the return names: the receipt line, or a
+        bill line billing it. With ``order_line_id``, the returns naming a
+        bill line raised straight off that order line instead.
+        """
+        bill_lines = select(PurchaseInvoiceLine.id).where(
+            PurchaseInvoiceLine.firm_id == firm_id
+        )
+        off_a_bill = (
+            PurchaseReturnLine.source_document_type
+            == PurchaseReturnSourceType.PURCHASE_INVOICE.value
+        )
+        if order_line_id is not None:
+            routes = and_(
+                off_a_bill,
+                PurchaseReturnLine.source_document_line_id.in_(
+                    bill_lines.where(
+                        PurchaseInvoiceLine.source_document_type
+                        == PurchaseReturnSourceType.PURCHASE_ORDER.value,
+                        PurchaseInvoiceLine.source_document_line_id == order_line_id,
+                    )
+                ),
+            )
+        elif not receipt_line_ids:
+            return ZERO
+        else:
+            routes = or_(
+                and_(
+                    PurchaseReturnLine.source_document_type
+                    == PurchaseReturnSourceType.GOODS_RECEIPT.value,
+                    PurchaseReturnLine.source_document_line_id.in_(receipt_line_ids),
+                ),
+                and_(
+                    off_a_bill,
+                    PurchaseReturnLine.source_document_line_id.in_(
+                        bill_lines.where(
+                            PurchaseInvoiceLine.source_document_type
+                            == PurchaseReturnSourceType.GOODS_RECEIPT.value,
+                            PurchaseInvoiceLine.source_document_line_id.in_(
+                                receipt_line_ids
+                            ),
+                        )
+                    ),
+                ),
+            )
+        returned = self._session.scalar(
+            select(
+                func.coalesce(
+                    func.sum(PurchaseReturnLine.current_return_quantity), ZERO
+                )
+            )
+            .join(
+                PurchaseReturn,
+                PurchaseReturn.id == PurchaseReturnLine.purchase_return_id,
+            )
+            .where(
+                PurchaseReturn.firm_id == firm_id,
+                PurchaseReturn.is_deleted.is_(False),
+                PurchaseReturn.status != PurchaseReturnStatus.CANCELLED.value,
+                PurchaseReturnLine.is_deleted.is_(False),
+                routes,
+            )
+        )
+        return self._q(Decimal(str(returned or ZERO)))
+
     def _source_free_quantity(
         self, source_type: str, source_line: SourceLine
     ) -> Decimal:
@@ -2649,6 +2826,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         charged_left: Decimal,
         free_left: Decimal,
         off_a_receipt: bool,
+        by_another_route: Decimal = ZERO,
     ) -> tuple[Decimal, Decimal]:
         """Split what a line sends back into charged units and free ones.
 
@@ -2657,6 +2835,10 @@ class PurchaseReturnService(TransactionalDocumentService):
         free, unless the line says how many are free -- a damaged free carton
         returned on its own. The charged part is what is priced and credited;
         the free part is credited nothing.
+
+        ``by_another_route`` is what has already gone back of the same goods
+        against the other document -- the bill for a receipt line, the receipt
+        for a bill line -- and is only said in the refusal (D-BUY-61).
 
         Returns:
             The charged quantity and the free quantity.
@@ -2687,9 +2869,21 @@ class PurchaseReturnService(TransactionalDocumentService):
                 else f"{charged_left.normalize():f}; free goods go back off the "
                 "goods receipt that brought them in"
             )
+            elsewhere = ""
+            if by_another_route > ZERO:
+                against = (
+                    "the supplier bill for them"
+                    if off_a_receipt
+                    else "the goods receipt that brought them in, or another "
+                    "bill for it"
+                )
+                elsewhere = (
+                    f" {by_another_route.normalize():f} of these goods have "
+                    f"already gone back against {against}."
+                )
             raise ValidationError(
                 "Return quantity exceeds the available source quantity: "
-                f"line {line_number} can still send back {left}."
+                f"line {line_number} can still send back {left}.{elsewhere}"
             )
         return charged, free
 
