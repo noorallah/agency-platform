@@ -1375,7 +1375,7 @@ promotion, or the customer's standing rate).
 - **Fixture:** `selling-firm`
 - **Steps:** a quotation for `<SUFFIX>-C02`, DET 12 → Create draft → **Mark as sent** → **Customer accepted** (give a reason) → **Convert to order**. Then look for Convert again.
 - **Expect:** toasts "QT-… marked as sent…", "QT-… accepted. Converting it is what creates the order.", "QT-… became SO-…. The order reserves the stock when it is approved." Afterwards **no Convert to order**. **(HTTP)** `POST /api/v1/quotations/{id}/convert` with `{"order_date": "<today>"}` → **422**, "Quotation QT-… already became SO-….".
-- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.2 and §11.3 — lifecycle CREATED, SENT, ACCEPTED, CONVERTED on the quotation; the order arrives DRAFT with `reference_number` = the QT number, its lines reading `discount_source` `amount` and no promotion claim staged (D-SELL-9). The refused second convert writes nothing.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.2 and §11.3 — lifecycle CREATED, SENT, ACCEPTED, CONVERTED on the quotation; the order arrives DRAFT with `reference_number` = the QT number, its lines carrying the tier the quotation's line was priced at (`discount_source` `price_list`, 9.25, driven 2026-10-05) and no promotion claim staged (D-SELL-9). The refused second convert writes nothing.
 - **Leaves:** a converted quotation and a draft order.
 
 ### TC-SELL-006 — A coupon reaches its offer; a code nobody recognises gives nothing and refuses nothing
@@ -1538,7 +1538,7 @@ promotion, or the customer's standing rate).
 
 ### TC-SELL-019 — Choosing batches on a delivery note
 
-*Added 2026-10-02 from the code and the QA suite; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-02 from the code. **Server side driven 2026-10-05** on `fx_t1005j1us_s` (the split, the print and the refusals; not the expiry parts (the fixture firm has no expiry tracking)); results in `docs/qa/SELLING_API_CHECK_2026-10-05.md`. **The screens are not yet driven.***
 
 - **Covers:** backlog 79, A38
 - **Fixture:** `pharma-firm`
@@ -1549,18 +1549,18 @@ promotion, or the customer's standing rate).
 
 ### TC-SELL-020 — Charging a customer more after the invoice
 
-*Added 2026-10-02 from the code and the QA suite; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-02 from the code. **Server side driven 2026-10-05** on `fx_t1005j1us_s` (all but the GST returns (the fixture firm has no GST number) and the sales manager's own sign-in); results in `docs/qa/SELLING_API_CHECK_2026-10-05.md`. **The screens are not yet driven.***
 
 - **Covers:** backlog 77 row 5, A40
 - **Fixture:** `selling-invoiced`
 - **Also needs:** an approved invoice to a **registered** customer for 10 at 100 + 18% GST (1,180.00), nothing received on it.
 - **Steps:** as a **Sales manager** (hire one if the fixture has none): Sell > Returns & notes > **Debit Notes** → **New** → pick the invoice → reason *Price increase* → 100 on its line → watch the tax → **Save**. Try **Approve**. As the **Firm admin**: approve it. Then Sell > Receipts → New for the customer. Then GST Returns → GSTR-1 and GSTR-3B for the month. Then try to cancel the **invoice**. Then record a receipt of 1,250.00 against the invoice and try to cancel the **debit note**.
-- **Expect:** the preview shows tax **18.00**, total **118.00** (the invoice line's rate). The sales manager can raise but is not offered **Approve**. After approval the customer's balance is **118.00** higher, and Record Receipt lists the invoice at **1,298.00** owing, one row not two. GSTR-1 CDNR shows the note as type **D** against the invoice, taxable 100, CGST 9 + SGST 9; GSTR-3B 3.1(a) is 100 higher. Cancelling the invoice is refused naming the debit note. With 1,250.00 received, cancelling the debit note is refused ("Reverse that receipt first"); after reversing the receipt it cancels and the balance drops back. There is no print of a debit note yet.
+- **Expect:** the preview shows tax **18.00**, total **118.00** (the invoice line's rate). The sales manager can raise but is not offered **Approve**. After approval the customer's balance is **118.00** higher, and Record Receipt lists the invoice at **1,298.00** owing, one row not two. GSTR-1 CDNR shows the note as type **D** against the invoice, taxable 100, CGST 9 + SGST 9; GSTR-3B 3.1(a) is 100 higher. Cancelling the invoice is refused naming the debit note. With 1,250.00 received, cancelling the debit note is refused ("Money received on invoice SI-… has already met 70.00 of this debit note. Reverse that receipt first, then cancel the note."); after reversing the receipt it cancels and the balance drops back. A customer debit note prints (A4, its own **Print**).
 - **Leaves:** what the steps made.
 
 ### TC-SELL-021 — Rate includes GST on an order and a quotation
 
-*Added 2026-10-02 from the code and the QA suite; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-02 from the code. **Server side driven 2026-10-05** on `fx_t1005j1us_s` (the quotation and its conversion; the firm setting only prefills on the desktop); results in `docs/qa/SELLING_API_CHECK_2026-10-05.md`. **The screens are not yet driven.***
 
 - **Covers:** backlog 64 row 4, A32
 - **Fixture:** `selling-firm`
@@ -1574,7 +1574,7 @@ promotion, or the customer's standing rate).
 
 - **Preconditions:** the shop from TC-SELL-019 (a batch expiring within 30 days and a later one, 10 each). The product's **minimum selling price** 150. Settings > Selling > **Price Floor**: *Block*.
 - **Steps:** Settings > Stock > **Batch Rules**: note the defaults, then set *A near-expiry batch leaving* to **Need a reason** → Save. (a) A sales order for 2 at **100** → Approve. (b) A sales order for 15 at 100 → Approve. (c) A delivery note off order (a), batches untouched → Save → Approve → **Dispatch**; cancel the reason prompt; Dispatch again and give *Short-dated stock cleared*. (d) Set *FEFO skip* to **Need a reason**; a note choosing the *later* batch → Dispatch. (e) Untick *may be sold below the price floor* → repeat (a).
-- **Expect:** the defaults read 30 days, Warn, Record, ticked. (a) approves although 100 is below 150; its timeline names the near-expiry batch. (b) is refused below the minimum price -- 15 takes the later batch too, which is fresh stock. (c) the prompt names the line and the near-expiry batch; cancelling dispatches nothing; with the reason it dispatches and Settings > Platform > System > Audit Logs shows **delivery_note.near_expiry_dispatched** with the reason. (d) asks for a reason before dispatching; **delivery_note.fefo_skipped** keeps it. (e) is refused like (b).
+- **Expect:** the defaults read 30 days, Warn, Record, ticked. (a) approves although 100 is below 150; its timeline names the near-expiry batch. (b) is refused below the minimum price when the order is **approved**, not when it is saved, and the message quotes the rate after any standing discount -- 15 takes the later batch too, which is fresh stock. (c) the prompt names the line and the near-expiry batch; cancelling dispatches nothing; with the reason it dispatches and Settings > Platform > System > Audit Logs shows **delivery_note.near_expiry_dispatched** with the reason. (d) asks for a reason before dispatching; **delivery_note.fefo_skipped** keeps it. (e) is refused like (b).
 
 ### TC-SELL-023 — Choosing batches on a counter bill
 
@@ -1606,23 +1606,23 @@ promotion, or the customer's standing rate).
 
 - **Preconditions:** a batch-tracked product; the delivery note stage off (counter bills).
 - **Steps:** Goods Receipt for the product: batch `B1`, **MRP** 120, **Selling price** 95; a second line batch `B2`, MRP 100. Complete it. Settings > Stock > Batch Rules: tick *Take a line's rate from its batch's selling price*. Counter bill: the product, 4, choose `B1` → look at the rate → Save → Approve → **Print**. Then a counter bill of 4 from `B2` at rate **110** (no tax) → Approve.
-- **Expect:** the batch screen shows B1 at MRP 120 / 95 and B2 at 100. The picker lists each batch's MRP. Choosing B1 fills the rate **95**. The printed bill has an **MRP** column, 120 on the B1 row. The B2 bill at 110 is refused: "charges 110.00 a unit with tax, above the MRP of 100.00 printed on the batch it ships".
+- **Expect:** the batch screen shows B1 at MRP 120 / 95 and B2 at 100. The picker lists each batch's MRP. Choosing B1 fills the rate **95**. The printed bill has an **MRP** column, 120 on the B1 row. The B2 bill at 110 is refused, quoting the rate **with tax**: on a product taxed at 18%, "charges 129.80 a unit with tax, above the MRP of 100.00 printed on the batch it ships" (110.00 only where the product carries no tax).
 ---
 
 ### TC-SELL-027 — Several delivery notes on one bill: customer first
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code. **Server side driven 2026-10-05** on `fx_t1005j1us_s` (the customer's notes billed together and the branch clash; not the supplier half); results in `docs/qa/SELLING_API_CHECK_2026-10-05.md`. **The screens are not yet driven.***
 
 - **Covers:** backlog SEL-1, A54 (D-SELL-44)
 - **Fixture:** `selling-delivered`
 - **Also needs:** a second customer with one dispatched, unbilled delivery note; for the clash, a third dispatched note for Vijaya that names a **different salesman** from the notes of 5 and 7 (set the salesman on the order it came from). For the supplier half, `po-received` (receipts of 4 and 6).
 - **Steps:** as the fixture's **Firm admin**: Sell > **Sales Invoices** → New → bill from delivery notes. (a) Look at the first question asked. Pick Vijaya. (b) Tick the notes of 5 and 7 → create the draft. (c) Start again and also try to tick the third note. (d) Start again and pick the second customer. Then Buy > **Purchase Invoices** → New → from receipts: pick the supplier and tick the receipts of 4 and 6.
-- **Expect:** (a) the editor asks for the **customer** first and lists only customers that have notes left to bill. Vijaya opens a tick list: number, date, order and the amount left to bill before tax. (b) the two notes can be ticked together and make one draft bill. (c) the third note cannot be ticked beside notes of another salesman, and says which field (salesman) and which note it clashes with; the same holds for branch, territory or route. (d) a customer with a single note has it ticked already, without being asked. The supplier bill asks for the **supplier** first and lists that supplier's receipts; the only field a receipt can clash on is the branch.
+- **Expect:** (a) the editor asks for the **customer** first and lists only customers that have notes left to bill. Vijaya opens a tick list: number, date, order and the amount left to bill before tax. (b) the two notes can be ticked together and make one draft bill. (c) the third note cannot be ticked beside notes of another salesman, and says which field it clashes on (the server names the field -- "All source documents must belong to the same salesman." -- and not the note; a note that names nobody never clashes); the same holds for branch, territory or route. (d) a customer with a single note has it ticked already, without being asked. The supplier bill asks for the **supplier** first and lists that supplier's receipts; the only field a receipt can clash on is the branch.
 - **Leaves:** a draft bill.
 
 ### TC-SELL-028 — An enquiry becomes a customer and a quotation
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code. **Server side driven 2026-10-05** on `fx_t1005j1us_s` (all of it); results in `docs/qa/SELLING_API_CHECK_2026-10-05.md`. **The screens are not yet driven.***
 
 - **Covers:** backlog SEL-10, A133
 - **Fixture:** `selling-firm`
@@ -1633,18 +1633,18 @@ promotion, or the customer's standing rate).
 
 ### TC-SELL-029 — Counter billing with a barcode scanner and a split of tenders
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code. **Server side driven 2026-10-05** on `fx_t1005j1us_s` (the barcode search, the split of tenders and its receipts; not the scan field or F9); results in `docs/qa/SELLING_API_CHECK_2026-10-05.md`. **The screens are not yet driven.***
 
 - **Covers:** backlog SEL-12, A90
 - **Fixture:** `selling-firm`
 - **Also needs:** `<SUFFIX>-DET` given a barcode (Masters > Products → the product → barcode); a USB scanner in keyboard mode, or type the barcode and press Enter; a thermal printer or the PDF preview.
 - **Steps:** as the fixture's **Firm admin**: Sell > **Sales Invoices** → New by product for Vijaya. Click the **scan field**, scan `<SUFFIX>-DET`, scan it again. Add a split of tenders: part **Cash**, the rest **UPI**; then give more cash than the balance. Press **Save & print (F9)**. Then try a tender total above the bill by editing it and saving.
-- **Expect:** the first scan adds a line, the second raises its quantity by 1. The tender panel shows the balance and, for cash over the balance, the change to give back. F9 saves, approves, prints the thermal bill and opens the next blank bill. The bill shows as paid: one receipt per tender is recorded, cash into the cash book, UPI through the bank with mode UPI, each allocated to the bill. A tender total above the bill is refused. Receipts appear under Sell > **Receipts**.
+- **Expect:** the first scan adds a line, the second raises its quantity by 1. The tender panel shows the balance and, for cash over the balance, the change to give back. F9 saves, approves, prints the thermal bill and opens the next blank bill. The bill shows as paid: one receipt per tender is recorded, cash into the cash book, UPI through the bank with mode UPI, each allocated to the bill. A tender total above the bill saves as a draft and is refused when the bill is **approved**: "600.00 was received against a bill of 472.0000. Enter what the bill is paid with; change is handed back." Receipts appear under Sell > **Receipts**.
 - **Leaves:** an approved, paid bill and its receipts.
 
 ### TC-SELL-030 — Picking list and loading sheet
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code. **Server side driven 2026-10-05** on `fx_t1005j1us_s` (both prints); results in `docs/qa/SELLING_API_CHECK_2026-10-05.md`. **The screens are not yet driven.***
 
 - **Covers:** backlog SEL-13, A92
 - **Fixture:** `selling-delivered`
@@ -1654,7 +1654,7 @@ promotion, or the customer's standing rate).
 
 ### TC-SELL-031 — Cash discount for early payment, and interest on overdue bills
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code. **Server side driven 2026-10-05** on `fx_t1005j1us_s` (the discount, the receipt, the firm's terms and the interest on the statement); results in `docs/qa/SELLING_API_CHECK_2026-10-05.md`. **The screens are not yet driven.***
 
 - **Covers:** backlog SEL-14, A91
 - **Fixture:** `selling-invoiced`
@@ -1665,18 +1665,18 @@ promotion, or the customer's standing rate).
 
 ### TC-SELL-032 — A new outlet waits for office approval
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code. **Server side driven 2026-10-05** on `fx_t1005j1us_s` (the pending customer, the refusal at billing, single and bulk approval; not the field user's own sign-in); results in `docs/qa/SELLING_API_CHECK_2026-10-05.md`. **The screens are not yet driven.***
 
 - **Covers:** backlog SEL-15, A93
 - **Fixture:** `selling-firm`
 - **Also needs:** a **Field Sales** user (SALES_EXECUTIVE) beside the firm administrator.
 - **Steps:** as the **Firm admin**: Settings > Selling > **Sales Stages** → switch on *New outlets need approval* → Save. As the **Field Sales** user: Masters > **Customers** → New, save. Try to raise a quotation, an order, and a bill for it; try to change its status. Sign in as the **Firm admin**: filter the list by **Pending approval**, tick the new customer → **Approve**; also tick two more pending ones → **Approve** (bulk). Switch the setting off and create another customer as the field user.
-- **Expect:** the field user's new customer is saved with status **Pending approval** (badge in the list; a filter finds it) and bills for it are refused when created or approved, naming the reason; the field user cannot move it on. The administrator's Approve (single and bulk) activates it, after which it can be billed. With the setting off a non-approver's new customer starts active. Approving needs CUSTOMER_APPROVE.
+- **Expect:** the field user's new customer is saved with status **Pending approval** (badge in the list; a filter finds it) and a bill for it is refused when it is raised, naming the reason ("… is a new outlet waiting for approval, so it cannot be billed yet. Its orders are kept; approve the customer to bill them."); quotations and orders for it are still accepted and kept; the field user cannot move it on. The administrator's Approve (single and bulk) activates it, after which it can be billed. With the setting off a non-approver's new customer starts active. Approving needs CUSTOMER_APPROVE.
 - **Leaves:** customers and a changed sales setting.
 
 ### TC-SELL-033 — Named price levels, and a customer's own level
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code. **Server side driven 2026-10-05** on `fx_t1005j1us_s` (all of it); results in `docs/qa/SELLING_API_CHECK_2026-10-05.md`. **The screens are not yet driven.***
 
 - **Covers:** backlog SEL-9, A89
 - **Fixture:** `selling-firm`
@@ -1686,7 +1686,7 @@ promotion, or the customer's standing rate).
 
 ### TC-SELL-034 — A UPI QR on the invoice, and sharing it on WhatsApp by hand
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code. **Server side driven 2026-10-05** on `fx_t1005j1us_s` (the UPI ID, the A4 and thermal prints; not the QR's content or sharing by hand); results in `docs/qa/SELLING_API_CHECK_2026-10-05.md`. **The screens are not yet driven.***
 
 - **Covers:** backlog MSG-2 (A55), MSG-1 (A56)
 - **Fixture:** `selling-invoiced`
@@ -1697,7 +1697,7 @@ promotion, or the customer's standing rate).
 
 ### TC-SELL-035 — Payment reminders and other documents sent by hand
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code. **Server side driven 2026-10-05** on `fx_t1005j1us_s` (the statement and the prints; reminders and sending were blocked by D-MSG-1 and are still to drive); results in `docs/qa/SELLING_API_CHECK_2026-10-05.md`. **The screens are not yet driven.***
 
 - **Covers:** backlog MSG-3 (A57), MSG-4 (A95)
 - **Fixture:** `selling-invoiced`
