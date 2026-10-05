@@ -460,6 +460,9 @@ class LoyaltyService:
                 LoyaltyEntry.firm_id == firm_id,
                 LoyaltyEntry.reverses_id == earned.id,
                 LoyaltyEntry.kind == LoyaltyEntryKind.REVERSED.value,
+                # A return's or a credit note's share (D-SELL-47) is not the
+                # cancellation; what is left after it still comes back.
+                LoyaltyEntry.source_type.is_(None),
                 LoyaltyEntry.is_deleted.is_(False),
             )
         )
@@ -543,6 +546,202 @@ class LoyaltyService:
             after_data=self._entry_snapshot(entry),
         )
         return entry
+
+    def stage_take_back(
+        self,
+        *,
+        invoice_id: UUID,
+        credited: Decimal,
+        source_type: str,
+        source_id: UUID,
+        source_number: str,
+        on: date,
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> LoyaltyEntry | None:
+        """Take back the points a bill earned on value since returned or credited.
+
+        A sales return and a credit note took the receivable, the sale and the
+        tax down and left the points where they were, so a customer who sent
+        everything back kept the points and could spend them (D-SELL-47,
+        2026-10-05). Decided by industry standard (ERPNext, Zoho): the points
+        come back in the proportion the value credited is of the bill.
+
+        As with a cancelled bill, only **what is left of the batch** comes
+        back: a share already spent settled a bill and stands, and a share
+        that lapsed had its cost reversed by the sweep. The cost is released
+        as a lapse is, `Dr Loyalty Payable / Cr Loyalty Expense`.
+
+        Args:
+            invoice_id: The bill whose earning is reduced.
+            credited: The value, tax included, taken off that bill.
+            source_type: ``SALES_RETURN`` or ``CREDIT_NOTE``.
+            source_id: The return or the credit note.
+            source_number: Its number, for the entry's remark.
+            on: The date of the return or the note.
+            firm_id: The owning firm.
+            actor_id: The user completing or approving it.
+
+        Returns:
+            The entry written, or None where the bill earned nothing, nothing
+            of it is left, or the share rounds to no points.
+
+        """
+        earned = self._earned_for(invoice_id, firm_id=firm_id)
+        if earned is None or credited <= ZERO:
+            return None
+        invoice = self._invoice(invoice_id, firm_scope=firm_id)
+        billed = Decimal(str(invoice.grand_total))
+        if billed <= ZERO:
+            return None
+        self._hold_customer(earned.customer_id, firm_scope=firm_id)
+        left = next(
+            (
+                remaining
+                for batch, remaining in self.unspent_batches(
+                    earned.customer_id, firm_scope=firm_id
+                )
+                if batch.id == earned.id
+            ),
+            ZERO,
+        )
+        whole = Decimal(str(earned.points))
+        share = min(credited / billed, ONE)
+        points = min(quantize_money(whole * share), quantize_money(left))
+        if points <= ZERO:
+            return None
+        worth = quantize_ledger(Decimal(str(earned.amount)) * points / whole)
+        entry = LoyaltyEntry(
+            firm_id=firm_id,
+            customer_id=earned.customer_id,
+            kind=LoyaltyEntryKind.REVERSED.value,
+            points=-points,
+            amount=worth,
+            sales_invoice_id=invoice_id,
+            earned_on=on,
+            reverses_id=earned.id,
+            source_type=source_type,
+            source_id=source_id,
+            remarks=f"{source_number} against {invoice.invoice_number}.",
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+        self._session.add(entry)
+        self._session.flush()
+        posted = self._posting.post_loyalty(
+            firm_id=firm_id,
+            entry_id=entry.id,
+            reference=f"LOY-{source_number}-{entry.id.hex[:8]}",
+            on=on,
+            amount=worth,
+            earning=False,
+            expiring=True,
+            actor_id=actor_id,
+            description=f"Loyalty points taken back: {source_number}",
+        )
+        entry.journal_entry_id = None if posted is None else posted.id
+        self._session.flush()
+        record_audit(
+            self._session,
+            action="loyalty.reversed",
+            entity_type="loyalty_entry",
+            entity_id=entry.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            after_data=self._entry_snapshot(entry),
+        )
+        return entry
+
+    def stage_give_back(
+        self,
+        *,
+        source_type: str,
+        source_id: UUID,
+        source_number: str,
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> list[LoyaltyEntry]:
+        """Give back what a return or credit note took, when it is cancelled.
+
+        Each take-back the document wrote gets a positive entry naming the
+        same batch, and its journal is mirrored. Run twice it writes nothing
+        the second time: a take-back already answered is skipped.
+
+        Args:
+            source_type: ``SALES_RETURN`` or ``CREDIT_NOTE``.
+            source_id: The return or the credit note being cancelled.
+            source_number: Its number, for the entry's remark.
+            firm_id: The owning firm.
+            actor_id: The user cancelling it.
+
+        Returns:
+            The entries written; empty where the document took nothing.
+
+        """
+        rows = list(
+            self._session.scalars(
+                select(LoyaltyEntry)
+                .where(
+                    LoyaltyEntry.firm_id == firm_id,
+                    LoyaltyEntry.source_type == source_type,
+                    LoyaltyEntry.source_id == source_id,
+                    LoyaltyEntry.kind == LoyaltyEntryKind.REVERSED.value,
+                    LoyaltyEntry.is_deleted.is_(False),
+                )
+                .order_by(LoyaltyEntry.created_at, LoyaltyEntry.id)
+            ).all()
+        )
+        net = sum((Decimal(str(row.points)) for row in rows), ZERO)
+        if net >= ZERO:
+            return []
+        written = []
+        today = utc_now().date()
+        for taken in rows:
+            if Decimal(str(taken.points)) >= ZERO:
+                continue
+            self._hold_customer(taken.customer_id, firm_scope=firm_id)
+            entry = LoyaltyEntry(
+                firm_id=firm_id,
+                customer_id=taken.customer_id,
+                kind=LoyaltyEntryKind.REVERSED.value,
+                points=-Decimal(str(taken.points)),
+                amount=taken.amount,
+                sales_invoice_id=taken.sales_invoice_id,
+                earned_on=today,
+                reverses_id=taken.reverses_id,
+                source_type=source_type,
+                source_id=source_id,
+                remarks=f"{source_number} cancelled.",
+                created_by=actor_id,
+                updated_by=actor_id,
+            )
+            self._session.add(entry)
+            self._session.flush()
+            journal = (
+                None
+                if taken.journal_entry_id is None
+                else self._session.get(JournalEntry, taken.journal_entry_id)
+            )
+            if journal is not None and journal.status == JournalStatus.POSTED.value:
+                mirror = JournalEntryEngine(self._session).reverse_entry(
+                    journal.id,
+                    firm_id=firm_id,
+                    reference_number=f"{journal.reference_number}-REV",
+                    actor_id=actor_id,
+                )
+                entry.journal_entry_id = mirror.id
+            self._session.flush()
+            record_audit(
+                self._session,
+                action="loyalty.restored",
+                entity_type="loyalty_entry",
+                entity_id=entry.id,
+                actor_id=actor_id,
+                firm_id=firm_id,
+                after_data=self._entry_snapshot(entry),
+            )
+            written.append(entry)
+        return written
 
     # ---- spending ------------------------------------------------------
 
@@ -912,8 +1111,10 @@ class LoyaltyService:
         taken: dict[UUID, Decimal] = {}
         for row in entries:
             if row.kind in attributed and row.reverses_id:
-                taken[row.reverses_id] = taken.get(row.reverses_id, ZERO) + abs(
-                    Decimal(str(row.points))
+                # Signed: a return's take-back that was itself undone
+                # (D-SELL-47) is a positive row naming the same batch.
+                taken[row.reverses_id] = taken.get(row.reverses_id, ZERO) - Decimal(
+                    str(row.points)
                 )
         # Everything else that took points off: redemptions, and adjustments
         # that reduced the balance. Allocated oldest batch first.

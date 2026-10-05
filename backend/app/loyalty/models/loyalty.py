@@ -130,6 +130,7 @@ class LoyaltyEntry(BaseEntity):
         Index("IX_loyalty_entries_firm_customer", "firm_id", "customer_id"),
         Index("IX_loyalty_entries_firm_expiry", "firm_id", "expires_on"),
         Index("IX_loyalty_entries_firm_invoice", "firm_id", "sales_invoice_id"),
+        Index("IX_loyalty_entries_firm_source", "firm_id", "source_type", "source_id"),
     )
 
     firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
@@ -163,3 +164,8 @@ class LoyaltyEntry(BaseEntity):
         UUIDType(), ForeignKey("journal_entries.id", ondelete="RESTRICT")
     )
     remarks: Mapped[str | None] = mapped_column(Text)
+    #: The sales return or credit note that took these points back off a
+    #: bill's earning (D-SELL-47), so cancelling it can give them back. Null
+    #: on every other entry. No foreign key: it names one of two tables.
+    source_type: Mapped[str | None] = mapped_column(String(30))
+    source_id: Mapped[UUID | None] = mapped_column(UUIDType())
