@@ -55,7 +55,7 @@ from app.goods_receipt.billing import (
 )
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.goods_receipt.rules import posted_receipt_line, require_posted_receipt
-from app.inventory.models import StockLedgerEntry
+from app.inventory.models import InventoryTransaction, StockLedgerEntry
 from app.inventory.services import InventoryService
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
@@ -658,6 +658,7 @@ class PurchaseReturnService(TransactionalDocumentService):
                 conversion_version=line.conversion_version,
                 remarks=line.remarks or row.remarks,
                 batch_id=batch_id,
+                rejects_held=self._rejects_awaiting_return(line),
             )
             line.inventory_transaction_id = transaction.id
             line.updated_by = actor_id
@@ -983,6 +984,42 @@ class PurchaseReturnService(TransactionalDocumentService):
         others = sum((Decimal(str(line.grni_amount)) for line in mine[:-1]), ZERO)
         if residual - others >= ZERO:
             mine[-1].grni_amount = residual - others
+
+    def _rejects_awaiting_return(self, line: PurchaseReturnLine) -> Decimal:
+        """Return what this line's receipt line still holds rejected for a return.
+
+        An inspection that rejects goods "for a return" leaves them in
+        quarantine until a purchase return sends them back (BUY-9). This is
+        that quantity, in the stock unit, less what completed returns off the
+        same receipt line have already taken from quarantine. A cancelled
+        return drops its movement from its line, so it stops counting.
+        """
+        if line.source_document_type != PurchaseReturnSourceType.GOODS_RECEIPT.value:
+            return ZERO
+        receipt_line = self._session.get(GoodsReceiptLine, line.source_document_line_id)
+        if receipt_line is None or receipt_line.inspection_rejected_action != "RETURN":
+            return ZERO
+        # Request sessions do not autoflush: an earlier line of this same
+        # return has just been given its movement.
+        self._session.flush()
+        taken = self._session.scalar(
+            select(
+                func.coalesce(
+                    func.sum(InventoryTransaction.quarantine_quantity_delta), 0
+                )
+            )
+            .join(
+                PurchaseReturnLine,
+                PurchaseReturnLine.inventory_transaction_id == InventoryTransaction.id,
+            )
+            .where(
+                PurchaseReturnLine.source_document_line_id == receipt_line.id,
+                PurchaseReturnLine.is_deleted.is_(False),
+                PurchaseReturnLine.id != line.id,
+            )
+        )
+        rejected = Decimal(str(receipt_line.inspection_rejected_quantity or ZERO))
+        return max(ZERO, rejected + Decimal(str(taken or 0)))
 
     def _resolve_return_batch(self, line: PurchaseReturnLine) -> UUID | None:
         """Return the batch this line is sending back, if it names one.
