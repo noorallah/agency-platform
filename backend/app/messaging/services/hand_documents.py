@@ -23,9 +23,8 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.common.firm_metadata import FirmMetadataReader
+from app.common.firm_metadata import FirmMetadataReader, firm_today
 from app.core.exceptions import ResourceNotFoundError, ValidationError
-from app.core.utils.dates import utc_now
 from app.customers.models import Customer
 from app.messaging.services.common import MessagingDocument
 
@@ -100,7 +99,7 @@ def load_hand_document(
         customer = session.get(Customer, document_id)
         if customer is None or customer.firm_id != firm_id or customer.is_deleted:
             raise ResourceNotFoundError("Customer not found.")
-        today = utc_now().date()
+        today = firm_today(session, firm_id)
         return HandDocument(
             document=MessagingDocument(
                 document_type=document_type,

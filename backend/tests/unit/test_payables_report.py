@@ -232,6 +232,10 @@ def _counting(books: _Books) -> Iterator[list[str]]:
 def test_the_statement_count_does_not_grow_with_the_bills() -> None:
     books = _books()
     _trade(books)
+    # The report draws its day boundary in the firm's zone (D-CFG-25), and
+    # the firm's country is read once per session, not once per report: read
+    # it here so the two counts compare reports and not that first lookup.
+    _report(books)
     with _counting(books) as few:
         _report(books)
     for number in range(10):

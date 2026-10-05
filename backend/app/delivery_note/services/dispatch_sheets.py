@@ -33,9 +33,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.batch_serial.models.batch_serial import BatchRecord
-from app.common.firm_metadata import FirmMetadataReader
+from app.common.firm_metadata import FirmMetadataReader, firm_today
 from app.core.exceptions import ResourceNotFoundError, ValidationError
-from app.core.utils.dates import utc_now
 from app.customers.models import Customer
 from app.delivery_note.models import (
     DeliveryNote,
@@ -267,7 +266,7 @@ class DispatchSheetService:
             Paragraph(firm.name or "", self._styles["Title"]),
             Paragraph(
                 f"{title} -- {subtitle} -- printed "
-                f"{utc_now().date().strftime('%d-%m-%Y')}",
+                f"{firm_today(self._session, firm_id).strftime('%d-%m-%Y')}",
                 self._styles["Normal"],
             ),
             Spacer(1, 4 * mm),

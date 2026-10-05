@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.branches.services.registration import BranchRegistration
+from app.common.firm_metadata import firm_today
 from app.common.scope import (
     ResolvedFirmScope,
     firm_any_permission_scope,
@@ -23,7 +24,6 @@ from app.common.scope import (
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.responses.models import ApiResponse
-from app.core.utils.dates import utc_now
 from app.gst_returns.models import (
     HEADS,
     GstCashDeposit,
@@ -574,7 +574,7 @@ def rule37_list(
     to what is unpaid, and claimed back as it is paid. Empty when the firm has
     turned the check off.
     """
-    on = as_of or utc_now().date()
+    on = as_of or firm_today(db, scope.firm_id)
     service = Rule37Service(db)
     mode = service.mode(scope.firm_id)
     rows = [] if mode == "OFF" else service.rows(firm_id=scope.firm_id, as_of=on)

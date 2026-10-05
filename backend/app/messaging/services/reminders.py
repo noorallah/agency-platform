@@ -16,9 +16,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
-from app.common.firm_metadata import FirmMetadataReader
+from app.common.firm_metadata import FirmMetadataReader, firm_today
 from app.core.exceptions import ResourceNotFoundError, ValidationError
-from app.core.utils.dates import utc_now
 from app.customers.models import Customer
 from app.customers.services.statement_service import CustomerStatementService
 from app.document_framework.services.print_support import load_template
@@ -79,7 +78,7 @@ class ReminderService:
             if recipient is None:
                 raise ValidationError(f"Cannot send: {why_not}. Enter an address.")
         firm = FirmMetadataReader(self._session).get(firm_id)
-        today = utc_now().date()
+        today = firm_today(self._session, firm_id)
         row = MessagingOutbox(
             firm_id=firm_id,
             event_code=MANUAL_REMINDER,
@@ -138,7 +137,7 @@ class ReminderService:
         phone, _ = recipient_for(
             self._session, customer, "WHATSAPP", require_opt_in=False
         )
-        today = utc_now().date()
+        today = firm_today(self._session, firm_id)
         safe = "".join(
             ch if ch.isalnum() or ch in "-_" else "-" for ch in customer.code
         )
@@ -204,9 +203,10 @@ class ReminderService:
         ]
         firm = FirmMetadataReader(self._session).get(firm_id)
         name = customer.display_name or customer.name
+        today = firm_today(self._session, firm_id)
         text = (
             f"Dear {name},\n\nA reminder from {firm.name or 'us'}: your balance "
-            f"with us is {money(balance)} as of {day(utc_now().date())}."
+            f"with us is {money(balance)} as of {day(today)}."
         )
         if overdue:
             past_due = sum((bill.outstanding for bill in overdue), Decimal("0"))

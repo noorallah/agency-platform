@@ -40,7 +40,7 @@ from app.common.audit.services import record_audit
 from app.core.database.entity import BaseEntity
 from app.core.exceptions import BusinessRuleError
 from app.core.tenancy import DeploymentMode
-from app.core.utils.dates import utc_now
+from app.core.utils.dates import business_today
 from app.customers.models import Customer, CustomerOpeningBill
 from app.finance.models import (
     AccountingPeriod,
@@ -524,7 +524,7 @@ class FirmReadinessService:
             )
         ]
         if store is not None and provisioned:
-            steps.extend(store_steps(store, firm.id, utc_now().date()))
+            steps.extend(store_steps(store, firm.id, business_today(firm.country)))
             opening = opening_steps(store, firm.id)
         else:
             steps.extend(
@@ -613,7 +613,7 @@ class FirmReadinessService:
                 "Provision the firm's storage before opening its books."
             )
         starts_on = year_starts_on or current_year_start(
-            firm.financial_year_start, utc_now().date()
+            firm.financial_year_start, business_today(firm.country)
         )
         created = seed_finance_setup(
             store, firm_id=firm.id, year_starts_on=starts_on, actor_id=actor_id

@@ -16,14 +16,14 @@ existed on any day.
 """
 
 from collections import defaultdict
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, lazyload
 
-from app.common.firm_metadata import firm_today
+from app.common.firm_metadata import firm_day_after, firm_today
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.money import ZERO, quantize_ledger
 from app.customers.models import Customer, CustomerReceivableTransaction
@@ -238,7 +238,7 @@ class CustomerStatementService:
             # D-FIN-21: a bill approved and cancelled after that day was owed
             # on it. Its cancellation is only a status, so it needs the
             # moment it happened; a draft cancelled was never owed at all.
-            day_after = datetime.combine(as_of + timedelta(days=1), time(), UTC)
+            day_after = firm_day_after(self._session, firm_scope, as_of)
             query = query.where(
                 or_(
                     SalesInvoice.status.in_(_LIVE_INVOICE_STATUSES),

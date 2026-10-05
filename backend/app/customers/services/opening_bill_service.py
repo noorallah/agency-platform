@@ -11,7 +11,7 @@ transaction beside its journal and cancelling one reverses both.
 """
 
 from collections.abc import Sequence
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -20,7 +20,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
-from app.common.firm_metadata import firm_today
+from app.common.firm_metadata import firm_day_after, firm_today
 from app.core.exceptions import (
     AuthorizationError,
     ResourceNotFoundError,
@@ -74,7 +74,7 @@ def opening_bill_receipts(
         standing = Settlement.status == SettlementStatus.POSTED.value
         dated: tuple[Any, ...] = ()
     else:
-        day_after = datetime.combine(as_of + timedelta(days=1), time.min, tzinfo=UTC)
+        day_after = firm_day_after(session, firm_id, as_of)
         standing = or_(
             Settlement.status == SettlementStatus.POSTED.value,
             and_(
@@ -154,7 +154,7 @@ def opening_bills_owed_on(
     Posted by then, and not cancelled by then: a bill cancelled after the day
     was owed on it (the rule D-FIN-21 set for a sales invoice).
     """
-    day_after = datetime.combine(as_of + timedelta(days=1), time.min, tzinfo=UTC)
+    day_after = firm_day_after(session, firm_id, as_of)
     return list(
         session.scalars(
             select(CustomerOpeningBill).where(

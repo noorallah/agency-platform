@@ -106,7 +106,8 @@ def test_a_batch_expiring_today_has_no_days_left() -> None:
 
     assert rows is not None
     by_name = {row.batch_number: row for row in rows}
-    assert by_name["MARCH"].days_to_expiry == 0
+    # Expired ON its date is the picker's standing rule (seen live, kept).
+    assert (by_name["MARCH"].days_to_expiry, by_name["MARCH"].expired) == (0, True)
     assert (by_name["JUNE"].days_to_expiry, by_name["JUNE"].expired) == (1, False)
 
 

@@ -18,7 +18,7 @@ taken off.
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from io import BytesIO
 from uuid import UUID
@@ -34,7 +34,13 @@ from sqlalchemy.orm import Session
 
 from app.branches.models import Branch
 from app.common.audit.services import record_audit
-from app.common.firm_metadata import FirmMetadataReader, firm_date_of
+from app.common.firm_metadata import (
+    FirmMetadataReader,
+    firm_date_of,
+    firm_day_after,
+    firm_day_start,
+    firm_today,
+)
 from app.core.exceptions import (
     AuthorizationError,
     ConflictError,
@@ -170,7 +176,8 @@ class CounterShiftService:
     ) -> tuple[list[CounterShift], int]:
         """List the firm's shifts, the latest opened first.
 
-        The dates are inclusive UTC calendar days of when a shift was opened.
+        The dates are inclusive days of the firm's own calendar (D-CFG-25):
+        a shift opened at 01:00 on the 6th in India belongs to the 6th.
         """
         conditions = [
             CounterShift.firm_id == firm_id,
@@ -183,12 +190,11 @@ class CounterShiftService:
         if from_date is not None:
             conditions.append(
                 CounterShift.opened_at
-                >= datetime.combine(from_date, time.min, tzinfo=UTC)
+                >= firm_day_start(self._session, firm_id, from_date)
             )
         if to_date is not None:
             conditions.append(
-                CounterShift.opened_at
-                <= datetime.combine(to_date, time.max, tzinfo=UTC)
+                CounterShift.opened_at < firm_day_after(self._session, firm_id, to_date)
             )
         rows = list(
             self._session.scalars(
@@ -609,7 +615,7 @@ class CounterShiftService:
             Paragraph(firm.name or "", self._styles["Title"]),
             Paragraph(
                 f"Shift report -- {view.shift_number} -- printed "
-                f"{utc_now().date().strftime('%d-%m-%Y')}",
+                f"{firm_today(self._session, firm_id).strftime('%d-%m-%Y')}",
                 self._styles["Normal"],
             ),
             Spacer(1, 4 * mm),

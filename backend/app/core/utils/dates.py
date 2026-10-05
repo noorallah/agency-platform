@@ -1,6 +1,6 @@
 """Stateless date and time helpers."""
 
-from datetime import UTC, date, datetime, timedelta, timezone, tzinfo
+from datetime import UTC, date, datetime, time, timedelta, timezone, tzinfo
 from functools import lru_cache
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -81,6 +81,26 @@ def business_today(country_code: str | None) -> date:
     `utc_now()`.
     """
     return business_date(utc_now(), country_code)
+
+
+def business_day_start(day: date, country_code: str | None) -> datetime:
+    """Return the UTC instant a firm's calendar ``day`` begins at.
+
+    For drawing a day's boundary round a **timestamp** -- "was it cancelled
+    after the 5th", "shifts opened on the 6th". The 6th begins in India at
+    18:30 UTC on the 5th, so a boundary drawn at UTC midnight puts everything
+    done between 00:00 and 05:30 on the day before: a bill cancelled at 01:00
+    on the 6th read as cancelled on the 5th, and an ageing as on the 5th left
+    it out although it was still owed that day (D-CFG-25).
+
+    The first instant *after* a day is the start of the next one:
+    ``business_day_start(day + timedelta(days=1), country)``; compare a
+    timestamp with ``>=`` or ``<`` against it rather than building a
+    23:59:59.999999, which leaves a microsecond out.
+    """
+    return datetime.combine(
+        day, time.min, tzinfo=business_zone(country_code)
+    ).astimezone(UTC)
 
 
 def parse_iso_date(value: str) -> date:
