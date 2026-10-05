@@ -90,15 +90,30 @@ and shipped 3, and one could not grow at all.
   documents saying which bill changed. That was decided, not overlooked:
   amending an approved order and note in place would need both services to
   edit approved documents.
-- **An edit that ships the same raises nothing**: a reference, a charge, the
-  money received, a price. The bill is re-priced as any draft is.
+- **An edit that changes what a line charges is raised again too**
+  (D-SELL-77, `_charges_as_raised`): a price that is not the note's, or a
+  discount stated that is not one the order has typed. It used to change the
+  bill alone, and the order and the note kept the old terms -- so the next
+  quantity edit, which reads the terms back to raise them again, undid it:
+  3 at 5% saved again at 0%, then grown to 4, billed 4 at 5%; 3 at 100 saved
+  at 90, then 4 sent with the bill's own 90, billed 4 at 100. The order is
+  where a counter bill is priced, so a price belongs there or nowhere.
+- **An edit that ships and charges the same raises nothing**: a reference, a
+  charge, the money received, the price sent back as the bill returned it.
+  The bill is re-priced as any draft is.
 - **Lines may be sent either way.** As products, the way a new counter bill
   is; or back by the source fields the bill returns, which are read as the
-  same products at the terms the first save struck -- a price or discount
-  somebody typed is kept, one that was the customer's own arrangement is
-  resolved again, and a gift an offer added is judged afresh on the new
-  quantities. Batches and units are kept on a line whose quantity did not
-  move and that names none anew.
+  same products at the terms **the bill's own line holds**. A price left
+  out, or sent back unchanged, is the bill's. A discount stated is typed. A
+  discount left out is the bill's where the bill typed it -- a typed zero is
+  still a refusal -- then the order's where the order's was typed, and one
+  that was the customer's own arrangement is resolved again. A gift an offer
+  added is judged afresh on the new quantities. Batches and units are kept
+  on a line whose quantity did not move and that names none anew.
+- **A draft already out of step is put right by its next edit.** What the
+  request leaves out is compared from the bill's line, so a bill saved
+  before D-SELL-77 at terms its order does not hold raises the pair again
+  whatever the edit says.
 - **Only a draft counter bill.** A bill of documents somebody raised is
   still changed through its own lines and refuses a product line by name
   (D-SELL-69); an approved bill is not edited at all.

@@ -1991,9 +1991,39 @@ class SalesInvoiceService(TransactionalDocumentService):
                     "through its own lines, or by sending product lines."
                 )
         picked = self._own_picks(note_lines)
-        if self._ships_as_raised(data, note_lines, picked):
+        order_lines = {
+            line.id: line
+            for line in self._session.scalars(
+                select(SalesOrderLine).where(
+                    SalesOrderLine.id.in_(
+                        {line.sales_order_line_id for line in note_lines.values()}
+                    )
+                )
+            ).all()
+        }
+        billed = {
+            line.source_document_line_id: line
+            for line in self._session.scalars(
+                select(SalesInvoiceLine).where(
+                    SalesInvoiceLine.sales_invoice_id == row.id,
+                    SalesInvoiceLine.is_deleted.is_(False),
+                )
+            ).all()
+        }
+        if self._ships_as_raised(data, note_lines, picked) and all(
+            self._charges_as_raised(
+                line,
+                note_line=note_lines[line.source_document_line_id],
+                order_lines=order_lines,
+                was=billed.get(line.source_document_line_id),
+            )
+            for line in data.lines
+            if line.source_document_line_id is not None
+        ):
             return None
-        bare = self._as_product_lines(row, data, note_lines, picked)
+        bare = self._as_product_lines(
+            row, data, note_lines, picked, order_lines=order_lines, billed=billed
+        )
         coupon = data.coupon_code or next(
             (order.coupon_code for order in orders if order.coupon_code), None
         )
@@ -2117,43 +2147,84 @@ class SalesInvoiceService(TransactionalDocumentService):
                 return False
         return named == set(note_lines)
 
+    @staticmethod
+    def _typed_on_order(order_line: SalesOrderLine | None) -> bool:
+        """Say whether somebody typed the discount an order line carries."""
+        return order_line is not None and (
+            order_line.discount_source in TYPED_SOURCES
+            or (
+                order_line.discount_source is None and order_line.discount_amount > ZERO
+            )
+        )
+
+    def _charges_as_raised(
+        self,
+        line: SalesInvoiceLineWrite,
+        *,
+        note_line: DeliveryNoteLine,
+        order_lines: Mapping[UUID, SalesOrderLine],
+        was: SalesInvoiceLine | None,
+    ) -> bool:
+        """Say whether a line sent back charges what its order and note hold.
+
+        A price or a discount changed on the bill alone left the order and
+        the note at the old terms, and the next edit that raised them again
+        read the terms back from there: a discount refused came back, a price
+        cut went back up (D-SELL-77). So a line whose price or discount is
+        not the one its order holds is a change, and the pair is raised again
+        at the bill's terms.
+
+        What the request leaves out is read off the bill's own line, so a
+        draft whose bill already disagrees with its order -- one saved before
+        this rule -- is put right by its next edit, whatever that edit says.
+        A discount sent counts as the order's own only where the order's was
+        typed too: sent, it is a decision, and an arrangement the order
+        resolved for itself is not one.
+        """
+        order_line = order_lines.get(note_line.sales_order_line_id)
+        price = line.unit_price
+        if price is None and was is not None:
+            price = was.unit_price
+        if price is not None and self._q(price) != self._q(note_line.unit_price):
+            return False
+        if order_line is None:
+            return True
+        typed = self._typed_on_order(order_line)
+        held = self._q(order_line.discount_amount)
+        if line.discount_amount is not None:
+            return typed and self._q(line.discount_amount) == held
+        if line.discount_percent is not None:
+            gross = self._q(
+                line.current_invoice_quantity * self._q(note_line.unit_price)
+            )
+            return typed and self._q(gross * line.discount_percent / 100) == held
+        if was is not None and was.discount_source in TYPED_SOURCES:
+            return typed and self._q(was.discount_amount) == held
+        return True
+
     def _as_product_lines(
         self,
         row: SalesInvoice,
         data: SalesInvoiceCreate,
         note_lines: Mapping[UUID, DeliveryNoteLine],
         picked: Mapping[UUID, tuple[dict[UUID, Decimal], list[UUID]]],
+        *,
+        order_lines: Mapping[UUID, SalesOrderLine],
+        billed: Mapping[UUID, SalesInvoiceLine],
     ) -> list[SalesInvoiceLineWrite]:
         """Restate a counter bill's edit as the product lines it stands for.
 
         A line sent as a product is taken as typed. One sent back by its
-        source fields is read off the note line it names, at the terms the
-        first save struck: the price and discount somebody typed are kept, a
-        price or discount that was the customer's own arrangement is left
-        blank so it is resolved again, and a gift an offer added is dropped
-        so the offer is judged afresh on the new quantities. Batches and
-        units are kept where the quantity is the same and nothing new was
-        said.
+        source fields is read as the same product at the terms **the bill's
+        own line** holds (D-SELL-77): a price left out, or sent back as the
+        bill returned it, is the bill's; a discount the request states is
+        typed; one left out is the bill's where the bill typed it -- a zero
+        typed there still refuses every arrangement -- then the order's where
+        the order's was typed, and otherwise left blank so the customer's
+        arrangement is resolved again. A gift an offer added is dropped so
+        the offer is judged afresh on the new quantities. Batches and units
+        are kept where the quantity is the same and nothing new was said.
         """
-        order_lines = {
-            line.id: line
-            for line in self._session.scalars(
-                select(SalesOrderLine).where(
-                    SalesOrderLine.id.in_(
-                        {line.sales_order_line_id for line in note_lines.values()}
-                    )
-                )
-            ).all()
-        }
-        billed = {
-            line.source_document_line_id: line
-            for line in self._session.scalars(
-                select(SalesInvoiceLine).where(
-                    SalesInvoiceLine.sales_invoice_id == row.id,
-                    SalesInvoiceLine.is_deleted.is_(False),
-                )
-            ).all()
-        }
         lines: list[SalesInvoiceLineWrite] = []
         for line in data.lines:
             number = len(lines) + 1
@@ -2181,20 +2252,30 @@ class SalesInvoiceService(TransactionalDocumentService):
                 if row.rate_includes_tax:
                     unit_price = None if was is None else was.entered_rate
                 else:
-                    unit_price = self._q(note_line.unit_price)
+                    unit_price = self._q(
+                        note_line.unit_price if was is None else was.unit_price
+                    )
             discount_percent = line.discount_percent
             discount_amount = line.discount_amount
-            if (
-                discount_percent is None
-                and discount_amount is None
-                and order_line is not None
-                and (
-                    order_line.discount_source in TYPED_SOURCES
-                    or (
-                        order_line.discount_source is None
-                        and order_line.discount_amount > ZERO
+            stated = discount_percent is not None or discount_amount is not None
+            if not stated and was is not None and was.discount_source == "percent":
+                # Typed on the bill itself: a rate goes with any quantity, and
+                # a zero stays the refusal it was.
+                discount_percent = self._q(was.discount_percent)
+            elif not stated and was is not None and was.discount_source == "amount":
+                discount_amount = (
+                    self._q(
+                        was.discount_amount
+                        * line.current_invoice_quantity
+                        / was.current_invoice_quantity
                     )
+                    if was.current_invoice_quantity > ZERO
+                    else self._q(was.discount_amount)
                 )
+            elif (
+                not stated
+                and order_line is not None
+                and self._typed_on_order(order_line)
             ):
                 if order_line.discount_percent > ZERO:
                     discount_percent = self._q(order_line.discount_percent)
