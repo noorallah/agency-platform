@@ -17,7 +17,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _CounterApi extends ApiClient {
-  _CounterApi({this.grandTotal = '500', this.approveRefusal})
+  _CounterApi({
+    this.grandTotal = '500',
+    this.approveRefusal,
+    this.walkInRefusal,
+  })
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -27,6 +31,7 @@ class _CounterApi extends ApiClient {
 
   final String grandTotal;
   final String? approveRefusal;
+  final String? walkInRefusal;
 
   /// What the server was asked, in order: create, approve, pdf.
   final List<String> calls = <String>[];
@@ -139,6 +144,20 @@ class _CounterApi extends ApiClient {
             'lines': const <Json>[],
           },
           'lines': const <Json>[],
+        },
+      };
+    }
+    if (method == 'POST' &&
+        path == '/api/v1/sales-invoices/walk-in-customer') {
+      calls.add('walk-in');
+      if (walkInRefusal != null) {
+        throw ApiException(walkInRefusal!, statusCode: 422);
+      }
+      return <String, dynamic>{
+        'data': <String, dynamic>{
+          'id': 'cust-cash',
+          'code': 'CASH',
+          'name': 'Cash sale',
         },
       };
     }
@@ -377,6 +396,92 @@ void main() {
     expect(body.containsKey('received_now_tenders'), isFalse);
     expect(body['received_now_amount'], '100');
     expect(body['received_now_method'], 'CASH');
+  });
+
+  testWidgets('Walk-in selects the cash customer, asks for the buyer, and '
+      'defaults the amount received to the bill', (tester) async {
+    final _CounterApi api = _CounterApi(grandTotal: '500');
+    await _pump(tester, api);
+    expect(find.byKey(const ValueKey('sales-invoice-buyer-name')),
+        findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-walk-in')));
+    await tester.pumpAndSettle();
+    expect(api.calls, <String>['walk-in']);
+    expect(find.textContaining('Cash sale'), findsWidgets);
+    expect(find.byKey(const ValueKey('sales-invoice-buyer-name')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('sales-invoice-buyer-phone')),
+        findsOneWidget);
+
+    await _scan(tester, '8901234567890');
+    expect(find.text('A walk-in bill is paid in full at the counter.'),
+        findsOneWidget);
+    expect(
+        tester
+            .widget<EditableText>(find.descendant(
+                of: find.byKey(const ValueKey('received-now-amount')),
+                matching: find.byType(EditableText)))
+            .controller
+            .text,
+        '500');
+
+    await _enter(tester, 'sales-invoice-buyer-name', 'Asha');
+    await _enter(tester, 'sales-invoice-buyer-phone', '9876543210');
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+
+    final Json body = api.created.single;
+    expect(body['customer_id'], 'cust-cash');
+    expect(body['buyer_name'], 'Asha');
+    expect(body['buyer_phone'], '9876543210');
+    expect(body['received_now_amount'], '500');
+  });
+
+  testWidgets('a typed amount is not overwritten and an emptied buyer is null',
+      (tester) async {
+    final _CounterApi api = _CounterApi(grandTotal: '500');
+    await _pump(tester, api);
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-walk-in')));
+    await tester.pumpAndSettle();
+    await _enter(tester, 'received-now-amount', '200');
+    await _scan(tester, '8901234567890');
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+
+    final Json body = api.created.single;
+    expect(body['received_now_amount'], '200');
+    expect(body.containsKey('buyer_name'), isTrue);
+    expect(body['buyer_name'], isNull);
+    expect(body['buyer_phone'], isNull);
+  });
+
+  testWidgets('an ordinary customer has no buyer boxes and no buyer keys',
+      (tester) async {
+    final _CounterApi api = _CounterApi();
+    await _pump(tester, api);
+    await _chooseCustomer(tester);
+    await _scan(tester, '8901234567890');
+    expect(find.byKey(const ValueKey('sales-invoice-buyer-name')),
+        findsNothing);
+    expect(find.byKey(const ValueKey('sales-invoice-buyer-phone')),
+        findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+    final Json body = api.created.single;
+    expect(body.containsKey('buyer_name'), isFalse);
+    expect(body.containsKey('buyer_phone'), isFalse);
+  });
+
+  testWidgets('a refused walk-in shows the server message', (tester) async {
+    final _CounterApi api = _CounterApi(walkInRefusal: 'No cash customer.');
+    await _pump(tester, api);
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-walk-in')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('No cash customer.'), findsWidgets);
+    expect(find.byKey(const ValueKey('sales-invoice-buyer-name')),
+        findsNothing);
   });
 
   testWidgets('F9 saves, approves, prints, then opens a fresh bill',

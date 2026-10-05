@@ -177,6 +177,7 @@ class Customer {
     this.linkedVendorId = '',
     this.priceLevelId,
     this.tradeClass,
+    this.isCashSale = false,
   });
 
   final String id;
@@ -271,6 +272,9 @@ class Customer {
   /// (PTR or PTS) a blank sales price takes.
   final String? tradeClass;
 
+  /// The firm's one built-in *Cash sale* customer, who a walk-in bill names.
+  final bool isCashSale;
+
   String get city {
     final Iterable<CustomerAddress> defaults =
         addresses.where((address) => address.isDefaultBilling);
@@ -341,6 +345,7 @@ class Customer {
         linkedVendorId: stringValue(json['linked_vendor_id']),
         priceLevelId: json['price_level_id'] as String?,
         tradeClass: json['trade_class'] as String?,
+        isCashSale: boolValue(json['is_cash_sale']),
       );
 }
 
