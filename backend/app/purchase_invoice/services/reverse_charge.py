@@ -21,7 +21,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.utils.money import quantize_money
-from app.purchase_invoice.models import PurchaseInvoiceLine, PurchaseInvoiceLineTax
+from app.finance.currency import rupee_rate
+from app.purchase_invoice.models import (
+    PurchaseInvoice,
+    PurchaseInvoiceLine,
+    PurchaseInvoiceLineTax,
+)
 
 ZERO = Decimal("0")
 
@@ -78,25 +83,36 @@ def reverse_charge_share(
         return share
     # The supplier charged no tax on such a line, so its net is its value --
     # the same reading GSTR-3B's 3.1(d) takes of the bill.
-    bill_value = {
-        line_id: Decimal(str(net)) - Decimal(str(tax))
-        for line_id, net, tax in session.execute(
-            select(
-                PurchaseInvoiceLine.id,
-                PurchaseInvoiceLine.net_amount,
-                PurchaseInvoiceLine.tax_amount,
-            ).where(PurchaseInvoiceLine.id.in_(list(rows)))
-        ).all()
-    }
+    bill_value: dict[UUID, Decimal] = {}
+    # A bill in another currency charged in it; what comes off is in rupees
+    # at the bill's own rate, as its journal posted it (D-BUY-41).
+    rupees: dict[UUID, Decimal] = {}
+    for line_id, net, tax, currency, rate in session.execute(
+        select(
+            PurchaseInvoiceLine.id,
+            PurchaseInvoiceLine.net_amount,
+            PurchaseInvoiceLine.tax_amount,
+            PurchaseInvoice.currency_code,
+            PurchaseInvoice.exchange_rate,
+        )
+        .join(
+            PurchaseInvoice,
+            PurchaseInvoice.id == PurchaseInvoiceLine.purchase_invoice_id,
+        )
+        .where(PurchaseInvoiceLine.id.in_(list(rows)))
+    ).all():
+        bill_value[line_id] = Decimal(str(net)) - Decimal(str(tax))
+        rupees[line_id] = rupee_rate(currency, rate)
     for line_id, value in taken:
         components = rows.get(line_id)
         whole = bill_value.get(line_id, ZERO)
         if not components or whole <= ZERO or value <= ZERO:
             continue
         ratio = min(value / whole, Decimal("1"))
-        share.taxable += quantize_money(value)
+        in_rupees = rupees.get(line_id, Decimal("1"))
+        share.taxable += quantize_money(value * in_rupees)
         for code, amount, recoverable in components:
-            part = quantize_money(amount * ratio)
+            part = quantize_money(amount * ratio * in_rupees)
             share.owed[code] = share.owed.get(code, ZERO) + part
             if recoverable:
                 share.credit[code] = share.credit.get(code, ZERO) + part

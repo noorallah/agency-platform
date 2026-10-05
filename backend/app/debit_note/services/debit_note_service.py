@@ -44,6 +44,7 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
+from app.finance.currency import rupee_rate
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.purchase_invoice.models import (
@@ -55,6 +56,7 @@ from app.purchase_invoice.services.reverse_charge import (
     ReverseChargeShare,
     reverse_charge_share,
 )
+from app.purchase_invoice.services.rupees import bill_line_rupee_rates
 
 HUNDRED = Decimal("100")
 
@@ -427,13 +429,17 @@ class DebitNoteService(TransactionalDocumentService):
         invoice = self._claimable_invoice(row.purchase_invoice_id, firm_id=firm_scope)
         self._refuse_more_than_billed(row, invoice)
         before = self._snapshot(row)
+        # A note against a bill in another currency is typed in it and posts
+        # rupees at the bill's own rate, each leg converted on its own -- what
+        # the bill's journal credited the supplier with (D-BUY-41).
+        rate = rupee_rate(invoice.currency_code, invoice.exchange_rate)
         entry = self._posting.post_debit_note_document(
             firm_id=firm_scope,
             debit_note_id=row.id,
             debit_note_number=row.debit_note_number,
             note_date=row.debit_note_date,
-            taxable_amount=Decimal(str(row.taxable_amount)),
-            tax_amount=Decimal(str(row.tax_amount)),
+            taxable_amount=Decimal(str(row.taxable_amount)) * rate,
+            tax_amount=Decimal(str(row.tax_amount)) * rate,
             tax_by_component=debit_note_tax_by_component(self._session, row.id),
             blocked_tax_amount=sum(
                 debit_note_tax_by_component(
@@ -677,7 +683,9 @@ class DebitNoteService(TransactionalDocumentService):
         )
         taken = (
             PaymentService(self._session)
-            ._returned_against(firm_id=row.firm_id, invoice_ids=[invoice.id])
+            ._returned_against(
+                firm_id=row.firm_id, invoice_ids=[invoice.id], in_currency=True
+            )
             .get(invoice.id, ZERO)
         )
         room = max(quantize_ledger(invoice.grand_total) - quantize_ledger(taken), ZERO)
@@ -1086,6 +1094,11 @@ def debit_note_tax_by_component(
     ).all()
     if not lines:
         return {}
+    # The note is in its bill's currency; each head goes back in rupees at
+    # the bill's own rate, as the bill's journal claimed it (D-BUY-41).
+    rupees = bill_line_rupee_rates(
+        session, [line.purchase_invoice_line_id for line in lines]
+    )
     shares: dict[UUID, list[tuple[str, Decimal, bool]]] = {}
     for line_id, code, amount, recoverable in session.execute(
         select(
@@ -1118,7 +1131,10 @@ def debit_note_tax_by_component(
             if recoverable is not claimable:
                 continue
             totals[code] = totals.get(code, ZERO) + quantize_money(
-                Decimal(str(line.tax_amount)) * amount / charged
+                Decimal(str(line.tax_amount))
+                * rupees.get(line.purchase_invoice_line_id, Decimal("1"))
+                * amount
+                / charged
             )
     return totals
 

@@ -138,3 +138,31 @@ def test_posting_reverses_to_the_books_and_3b_then_payment_reclaims() -> None:
         select(ItcReversal.movement).order_by(ItcReversal.movement_date)
     ).all()
     assert movements == ["REVERSAL", "RECLAIM"]
+
+
+def _in_usd(session: Session, bill_id: UUID, rate: str = "83") -> PurchaseInvoice:
+    """Restate the fixture's bill as one in USD, stamped as saving one stamps it."""
+    from app.finance.currency import to_base
+
+    bill = session.get(PurchaseInvoice, bill_id)
+    assert bill is not None
+    bill.currency_code = "USD"
+    bill.exchange_rate = D(rate)
+    bill.base_tax_total = to_base(bill.tax_total, D(rate))
+    bill.base_grand_total = bill.base_tax_total + to_base(
+        bill.grand_total - bill.tax_total, D(rate)
+    )
+    session.commit()
+    return bill
+
+
+def test_a_foreign_bill_reverses_its_credit_in_rupees() -> None:
+    """D-CMP-23: 36 USD of CGST at 83 is 2,988.00 of credit, never 36.00."""
+    session, firm_id, bill_id, _, _ = _bill()
+    bill = _in_usd(session, bill_id)
+
+    (row,) = Rule37Service(session).rows(firm_id=firm_id, as_of=LATER)
+
+    assert (row.move["cgst"], row.move["sgst"]) == (D("2988.00"), D("2988.00"))
+    assert row.bill_total == bill.base_grand_total == D("39176.00")
+    assert row.outstanding == D("39176.00")

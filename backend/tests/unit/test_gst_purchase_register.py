@@ -681,3 +681,28 @@ def test_gstr_3b_claims_a_foreign_bill_in_rupees_as_the_register_lists_it() -> N
     eligible = summary["eligible_itc"]
     assert isinstance(eligible, dict)
     assert Decimal(str(eligible["integrated_tax"])) == row.igst == Decimal("14985.00")
+
+
+def test_gstr_3b_reverses_a_note_against_a_foreign_bill_in_rupees() -> None:
+    """D-BUY-41: 18 USD of tax claimed back at 83.25 reverses 1,498.50."""
+    from app.gst_returns.services.gstr_service import GstReturnService
+
+    session = _session()
+    world = _World(session)
+    world.firm.gst_number = "29AAAAA0000A1Z5"
+    session.commit()
+    bill = world.bill(
+        world.interstate, [_usd_line(world)], currency="USD", rate="83.25"
+    )
+    _note(world, bill, taxable="100", tax="18", quantity="1")
+
+    summary = GstReturnService(session).gstr3b(
+        firm_scope=world.firm.id, from_date=date(2026, 8, 1), to_date=date(2026, 8, 31)
+    )
+    rows = _by_number(GstPurchaseRegisterService(session).register(world.firm.id))
+
+    reversed_ = summary["itc_reversed"]
+    assert isinstance(reversed_, dict)
+    assert Decimal(str(reversed_["integrated_tax"])) == Decimal("1498.50")
+    assert Decimal(str(reversed_["integrated_tax"])) == -rows["DN-001"].igst
+    assert Decimal(str(reversed_["unplaced_reversals"])) == 0

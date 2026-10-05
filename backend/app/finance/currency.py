@@ -37,8 +37,13 @@ def is_foreign(code: str | None) -> bool:
     return normalized is not None and normalized != BASE_CURRENCY
 
 
-def check_currency(code: str | None, rate: Decimal | None) -> None:
+def check_currency(
+    code: str | None, rate: Decimal | None, *, document: str = "bill"
+) -> None:
     """Refuse a foreign currency without a rate, or a code that is not ISO.
+
+    ``document`` names what is being checked, so an order or a payment is
+    not refused in a bill's words.
 
     Raises:
         ValidationError: If the code is not three letters, or a currency other
@@ -56,8 +61,8 @@ def check_currency(code: str | None, rate: Decimal | None) -> None:
         )
     if normalized != BASE_CURRENCY and (rate is None or rate <= 0):
         raise ValidationError(
-            f"A bill in {normalized} needs its exchange rate: the rupees one "
-            f"{normalized} was worth on the bill's date.",
+            f"A {document} in {normalized} needs its exchange rate: the rupees "
+            f"one {normalized} was worth on the {document}'s date.",
             details={"field": "exchange_rate"},
         )
 

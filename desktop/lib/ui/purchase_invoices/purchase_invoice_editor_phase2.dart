@@ -649,14 +649,15 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
         ),
       ),
       // PG-12: the currency the supplier billed in. Untouched, it is the
-      // supplier's; blank or INR is rupees.
+      // order's, or the supplier's where the bill names no order (D-BUY-42);
+      // blank or INR is rupees.
       DocumentField(
         label: 'Currency',
         width: 110,
         child: TextFormField(
           key: ValueKey<String>(
             'purchase-invoice-currency-${_billSupplierId ?? ''}-'
-            '$_supplierCurrency',
+            '$_startingCurrency',
           ),
           initialValue: _billCurrency,
           readOnly: _saving,
@@ -678,17 +679,28 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
         DocumentField(
           label: 'Exchange rate (₹ per $_billCurrency)',
           width: 190,
-          child: TextFormField(
+          // Rebuilt when the order behind the bill changes, so the box
+          // shows that order's rate until somebody types another.
+          child: KeyedSubtree(
             key: ValueKey<String>(
-                'purchase-invoice-exchange-rate-$_billCurrency'),
-            initialValue: _exchangeRate,
-            readOnly: _saving,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: documentBoxDecoration(context, hint: 'e.g. 84.10'),
-            onChanged: (value) {
-              _setState(() => _exchangeRate = value);
-              _schedulePreview();
-            },
+              'purchase-invoice-rate-of-${_receipt?.id ?? _order?.id ?? ''}',
+            ),
+            child: TextFormField(
+              key: ValueKey<String>(
+                  'purchase-invoice-exchange-rate-$_billCurrency'),
+              initialValue: _billRate,
+              readOnly: _saving,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: documentBoxDecoration(context, hint: 'e.g. 84.10'),
+              onChanged: (value) {
+                _setState(() {
+                  _exchangeRate = value;
+                  _rateTouched = true;
+                });
+                _schedulePreview();
+              },
+            ),
           ),
         ),
       if (_foreign)

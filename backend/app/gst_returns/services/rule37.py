@@ -36,6 +36,7 @@ from sqlalchemy.orm import Session
 from app.common.audit.services import record_audit
 from app.core.exceptions import ValidationError
 from app.core.utils.money import ZERO, quantize_ledger
+from app.finance.currency import rupee_rate_sql
 from app.finance.services.control_accounts import ControlAccountPurpose
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine, JournalLineData
@@ -147,7 +148,15 @@ class Rule37Service:
             bill, vendor_name = bills[bill_id]
             on = bill.supplier_invoice_date or bill.invoice_date
             days = (as_of - on).days
-            total = Decimal(str(bill.grand_total))
+            # In rupees, as what it still owes is: a bill in another
+            # currency at its own rate (D-CMP-23).
+            total = Decimal(
+                str(
+                    bill.base_grand_total
+                    if bill.base_grand_total is not None
+                    else bill.grand_total
+                )
+            )
             outstanding = max(owed.get(bill_id, ZERO), ZERO)
             past = days > DAYS
             share = (outstanding / total if past and total > ZERO else ZERO).min(
@@ -331,7 +340,12 @@ class Rule37Service:
             select(
                 PurchaseInvoice.id,
                 PurchaseInvoiceLineTax.component_code,
-                PurchaseInvoiceLineTax.amount,
+                # In rupees at the bill's own rate, as 3B claimed it and as
+                # the bill's journal debited it (D-CMP-23).
+                PurchaseInvoiceLineTax.amount
+                * rupee_rate_sql(
+                    PurchaseInvoice.currency_code, PurchaseInvoice.exchange_rate
+                ),
             )
             .join(
                 PurchaseInvoiceLine,

@@ -644,7 +644,7 @@ features SG-1 to SG-9), which are part of release 1.3.0. **Every row here is
 (confirm):** the features were built with their own tests only and have not
 been through a full test suite, a CI run or a hand test, and these rows were
 written from the code. Each row is the short way in; the full cases, with
-every refusal and journal, are TC-BUY-029 to 090 (`docs/qa/06_PURCHASING.md`)
+every refusal and journal, are TC-BUY-029 to 092 (`docs/qa/06_PURCHASING.md`)
 and TC-SELL-036 to 087 (`docs/qa/08_SELLING.md`), named in the last column of
 *Verify elsewhere*.
 

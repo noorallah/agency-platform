@@ -6,7 +6,8 @@ Two things a counter does all day that the firm had no record of:
   and it never posts -- not from its own screen and not from a ticked list --
   until it is recalled.
 * **A shift** is a cashier's till. A bill paid at the counter is stamped with
-  the shift its approver has open, and what the drawer should hold is summed
+  the shift its maker has open -- its approver's only where the maker has
+  none (D-SELL-51) -- and what the drawer should hold is summed
   from those bills' cash tenders on every read. Closing snapshots that figure
   and posts the difference from the count to *Cash short and over*.
 

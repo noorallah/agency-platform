@@ -404,8 +404,19 @@ posts and reads exactly as it did.
   register, the HSN summary, the purchase invoice register, purchase analysis
   and GSTR-3B's input credit and reverse charge read `base_grand_total`,
   `base_tax_total` and each component at the bill's rate (`rupee_rate` /
-  `rupee_rate_sql` in `app/finance/currency.py`). GSTR-2B matching, rule 37
-  and rule 42 do not yet (D-CMP-23).
+  `rupee_rate_sql` in `app/finance/currency.py`). GSTR-2B matching and rule
+  37 read the same rate, and rule 42 reads GSTR-3B's summary (D-CMP-23).
+- **A debit note or a purchase return against such a bill posts at the
+  bill's rate** (D-BUY-41), each leg converted on its own, never at the
+  day's: an exchange difference belongs to a payment. A claim of 100 USD on
+  a bill at 83 is Dr Payables 8,300; two of ten units at 100 USD sent back
+  is Dr Payables 16,600 / Cr Inventory at what the movement cost, any gap to
+  price variance. The bill owes that much less in rupees **and** in its own
+  currency. A return carries the currency and rate of what it sends back
+  (`purchase_returns.currency_code` / `exchange_rate`, stamped by the
+  server): its bill's, or its order's until a bill reaches the goods. A
+  debit note stores neither and reads its bill's
+  (`app/purchase_invoice/services/rupees.py`).
 - **Owed** is derived in both currencies from `settlement_allocations`: rupees
   as `base_grand_total` less each allocation's `base_amount`, the bill's
   currency as `grand_total` less each `currency_amount`. The outstanding

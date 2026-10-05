@@ -62,7 +62,7 @@ from app.customers.gst_registration import (
 )
 from app.customers.models import Customer, CustomerReceivableTransaction
 from app.debit_note.models import DebitNote, DebitNoteStatus
-from app.finance.currency import rupee_rate_sql
+from app.finance.currency import rupee_rate, rupee_rate_sql
 from app.gst_returns.services.filing_frequency import (
     FilingFrequencyService,
     FilingPlan,
@@ -996,7 +996,7 @@ class GstReturnService:
         # exactly as a return off the bill does, head by head, in the period
         # it was approved for (backlog 65 row 6). Counted with the returns
         # rather than in a table of its own: 3B has one reversal row.
-        for note in self._session.scalars(
+        notes = self._session.scalars(
             select(DebitNote).where(
                 DebitNote.firm_id == firm_scope,
                 self._gstin_scope.applies(DebitNote.branch_id),
@@ -1005,7 +1005,29 @@ class GstReturnService:
                 DebitNote.debit_note_date >= from_date,
                 DebitNote.debit_note_date <= to_date,
             )
-        ).all():
+        ).all()
+        note_rupees = {
+            note_id: rupee_rate(currency, rate)
+            for note_id, currency, rate in self._session.execute(
+                select(
+                    DebitNote.id,
+                    PurchaseInvoice.currency_code,
+                    PurchaseInvoice.exchange_rate,
+                )
+                .join(
+                    PurchaseInvoice,
+                    PurchaseInvoice.id == DebitNote.purchase_invoice_id,
+                )
+                .where(
+                    DebitNote.firm_id == firm_scope,
+                    DebitNote.debit_note_date >= from_date,
+                    DebitNote.debit_note_date <= to_date,
+                    func.upper(func.coalesce(PurchaseInvoice.currency_code, "INR"))
+                    != "INR",
+                )
+            ).all()
+        }
+        for note in notes:
             split = debit_note_tax_by_component(self._session, note.id)
             placed = sum(
                 debit_note_tax_by_component(
@@ -1016,7 +1038,12 @@ class GstReturnService:
             for code, amount in split.items():
                 reversed_ = reversed_.plus(_bucket(code, amount))
                 placed += amount
-            rest = quantize_money(Decimal(str(note.tax_amount)) - placed)
+            # The note is in its bill's currency; its tax in rupees at the
+            # bill's rate, as each head above already is (D-BUY-41).
+            rest = quantize_money(
+                Decimal(str(note.tax_amount)) * note_rupees.get(note.id, Decimal("1"))
+                - placed
+            )
             if rest > ZERO:
                 unplaced += rest
                 unplaced_count += 1

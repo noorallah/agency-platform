@@ -725,35 +725,40 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8),
-        child: Row(children: [
-          for (int i = 0; i < _sections.length; i++)
-            InkWell(
-              key: ValueKey<String>('purchase-order-section-$i'),
-              onTap: () => _setState(() => _phase2Section = i),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(
-                      width: 2,
+        // Scrolls rather than overflowing a narrow window (D-UI-11), as the
+        // customer, supplier and product editors' strips do.
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(children: [
+            for (int i = 0; i < _sections.length; i++)
+              InkWell(
+                key: ValueKey<String>('purchase-order-section-$i'),
+                onTap: () => _setState(() => _phase2Section = i),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(
+                        width: 2,
+                        color: i == _phase2Section
+                            ? scheme.primary
+                            : Colors.transparent,
+                      ),
+                    ),
+                  ),
+                  child: Text(
+                    i == 0 ? 'Lines (${_draft.lines.length})' : _sections[i],
+                    style: theme.textTheme.labelLarge?.copyWith(
                       color: i == _phase2Section
-                          ? scheme.primary
-                          : Colors.transparent,
+                          ? scheme.onSurface
+                          : scheme.onSurfaceVariant,
                     ),
                   ),
                 ),
-                child: Text(
-                  i == 0 ? 'Lines (${_draft.lines.length})' : _sections[i],
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: i == _phase2Section
-                        ? scheme.onSurface
-                        : scheme.onSurfaceVariant,
-                  ),
-                ),
               ),
-            ),
-        ]),
+          ]),
+        ),
       ),
     );
   }

@@ -204,3 +204,22 @@ def test_a_firm_that_claims_only_matched_credit_waits_for_2b() -> None:
     assert _table4(session, firm_id)["4A5"] == 0.0
     _import(session, firm_id, _file(_invoice()))
     assert _table4(session, firm_id)["4A5"] == 36.0
+
+
+def test_a_bill_in_another_currency_is_matched_in_rupees() -> None:
+    """D-CMP-23: 400 USD + 72 USD of tax at 83 is what the supplier filed."""
+    from tests.unit.test_rule37 import _in_usd
+
+    session, firm_id, bill_id = _bill_from_supplier()
+    _in_usd(session, bill_id)
+
+    filed = _invoice(val=39176, txval=33200, cgst=2988, sgst=2988)
+    found = _import(session, firm_id, _file(filed))
+
+    assert _statuses(found) == [("car/1", "MATCHED")]
+
+    # Left out of 2B, its credit at risk is listed in rupees too.
+    found = _import(session, firm_id, _file(_invoice("X-9")))
+    missing = found["in_books_only"]
+    assert isinstance(missing, list)
+    assert [row["tax_total"] for row in missing] == [5976.0]

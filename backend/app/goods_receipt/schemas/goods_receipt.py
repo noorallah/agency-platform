@@ -297,6 +297,11 @@ class GoodsReceiptResponse(GoodsReceiptSchema):
     firm_id: UUID
     purchase_order_id: UUID
     purchase_order_number: str
+    #: The currency its order priced the goods in and the rate they were
+    #: valued at (PG-12) -- what a bill for them is in, whatever the
+    #: supplier's own currency (D-BUY-39). Both None for an order in rupees.
+    currency_code: str | None = None
+    exchange_rate: Decimal | None = None
     vendor_id: UUID
     #: Whose document it is, so the list can say so (owner, 2026-09-27).
     #: Empty for a supplier since removed.

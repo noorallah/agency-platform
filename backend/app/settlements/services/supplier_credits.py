@@ -44,6 +44,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import ColumnElement, func, or_, select
@@ -54,6 +55,7 @@ from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.chunks import over_chunks
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_money
+from app.finance.currency import rupee_rate_sql
 from app.finance.services.journal_engine import quantize_money as quantize_ledger
 from app.purchase_invoice.models import PurchaseInvoice
 from app.settlements.models import (
@@ -215,12 +217,20 @@ def _all_credits(
     if not returns and not notes:
         return []
     ids = [row.id for row in returns] + [row.id for row in notes]
+    # In rupees at the bill's own rate, as the return's journal posted and
+    # as the bill counts what came off it (D-BUY-41).
     billed = {
         return_id: Decimal(str(total))
         for return_id, total in session.execute(
             select(
                 PurchaseReturnLine.purchase_return_id,
-                func.coalesce(func.sum(PurchaseReturnLine.net_amount), 0),
+                func.coalesce(
+                    func.sum(PurchaseReturnLine.net_amount * _bill_rupees()), 0
+                ),
+            )
+            .join(
+                PurchaseInvoice,
+                PurchaseInvoice.id == PurchaseReturnLine.source_document_id,
             )
             .where(
                 PurchaseReturnLine.purchase_return_id.in_([row.id for row in returns]),
@@ -322,6 +332,15 @@ def _all_credits(
     return credits
 
 
+def _bill_rupees() -> "ColumnElement[Any]":
+    """Return the rupees one unit of the joined bill's currency is worth.
+
+    A return or a debit note is typed in its bill's currency and is worth
+    that at the bill's own rate (D-BUY-41); one for a bill in rupees.
+    """
+    return rupee_rate_sql(PurchaseInvoice.currency_code, PurchaseInvoice.exchange_rate)
+
+
 def _bill_parts(
     session: Session,
     *,
@@ -342,12 +361,16 @@ def _bill_parts(
         select(
             PurchaseReturnLine.purchase_return_id,
             PurchaseReturnLine.source_document_id,
-            func.coalesce(func.sum(PurchaseReturnLine.net_amount), 0),
+            func.coalesce(func.sum(PurchaseReturnLine.net_amount * _bill_rupees()), 0),
             PurchaseReturn.return_date,
             PurchaseReturn.return_number,
         )
         .join(
             PurchaseReturn, PurchaseReturn.id == PurchaseReturnLine.purchase_return_id
+        )
+        .join(
+            PurchaseInvoice,
+            PurchaseInvoice.id == PurchaseReturnLine.source_document_id,
         )
         .where(
             PurchaseReturn.firm_id == firm_id,
@@ -363,17 +386,21 @@ def _bill_parts(
             PurchaseReturn.return_number,
         )
     )
-    notes = select(
-        DebitNote.id,
-        DebitNote.purchase_invoice_id,
-        DebitNote.taxable_amount,
-        DebitNote.tax_amount,
-        DebitNote.debit_note_date,
-        DebitNote.debit_note_number,
-    ).where(
-        DebitNote.firm_id == firm_id,
-        DebitNote.is_deleted.is_(False),
-        DebitNote.status.in_(CREDITING_DEBIT_NOTE_STATES),
+    notes = (
+        select(
+            DebitNote.id,
+            DebitNote.purchase_invoice_id,
+            DebitNote.taxable_amount * _bill_rupees(),
+            DebitNote.tax_amount * _bill_rupees(),
+            DebitNote.debit_note_date,
+            DebitNote.debit_note_number,
+        )
+        .join(PurchaseInvoice, PurchaseInvoice.id == DebitNote.purchase_invoice_id)
+        .where(
+            DebitNote.firm_id == firm_id,
+            DebitNote.is_deleted.is_(False),
+            DebitNote.status.in_(CREDITING_DEBIT_NOTE_STATES),
+        )
     )
     if source_ids is not None:
         statement = statement.where(

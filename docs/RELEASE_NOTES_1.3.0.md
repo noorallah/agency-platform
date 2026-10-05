@@ -224,17 +224,26 @@ Not built (from `docs/BACKLOG.md` §86 and §87):
   packing slips, bill of supply and the rest of §87 rows 10 to 31 are for
   later.
 
-Open defects found by reading the code on 2026-10-05, **not yet driven**
-(`docs/DEFECTS.md`). The eight found while the cases were written (D-SELL-51,
-D-SELL-52, D-BUY-35 to D-BUY-40) were fixed the same day and are under *Fixed
-since 1.2.0* above; these two were found while fixing them:
+Five more defects were found by reading the code on 2026-10-05 while the
+eight above were being fixed, and were **fixed the same day** (#1177), each
+with a test that failed first; none has been driven by hand:
 
 - **D-BUY-41 (medium):** a debit note or a purchase return against a
-  foreign-currency bill is not converted to rupees in the ledger or in
-  GSTR-3B's reversal. Do not raise one against a foreign bill in this build.
-- **D-CMP-23 (low):** GSTR-2B matching, rule 37 and rule 42 read a
-  foreign-currency bill in currency units. A supplier abroad is never in
-  GSTR-2B, so this reaches a foreign bill under reverse charge.
+  foreign-currency bill posted its currency figure as rupees. Both now post
+  at the bill's own rate, and the bill owes that much less in both
+  currencies. Capital goods are refused as a purchase return.
+- **D-CMP-23 (low):** GSTR-2B matching and rule 37 read a foreign-currency
+  bill in currency units; they read rupees, as rule 42 now does through
+  GSTR-3B.
+- **D-BUY-42 (medium):** the bill editor showed its supplier's currency
+  rather than its order's. It starts in the order's currency and rate.
+- **D-BUY-43 (low):** a supplier rebate counted a foreign bill in currency
+  units.
+- **D-UI-11 (low):** the purchase order editor ran past the right edge of a
+  window 800 wide.
+
+Open: **D-UI-12 (low)**, the purchase order editor in a window 600 high;
+fine at 1366x768, the smallest screen supported.
 
 **On every failure**: a screenshot, the newest file in
 `C:\ProgramData\Agency Platform\logs\server`, and the version on the sign-in

@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Select, and_, func, or_, select
+from sqlalchemy import Select, and_, func, literal, or_, select
 from sqlalchemy import null as sa_null
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
@@ -59,6 +59,8 @@ from app.finance.currency import (
     check_currency,
     is_foreign,
     normalize_currency,
+    rupee_rate,
+    rupee_rate_sql,
     to_base,
 )
 from app.finance.models import LedgerAccount
@@ -573,6 +575,16 @@ class SettlementService(TransactionalDocumentService):
                 invoice_ids=[row.id for row in rows],
                 firm_wide=party_id is None,
             )
+        # What returns and debit notes took off a bill in another currency,
+        # in that currency: it owes that much less of it too (D-BUY-41).
+        foreign_ids = [row.id for row in rows if is_foreign(row.currency_code)]
+        currency_taken = (
+            self._returned_against(
+                firm_id=firm_id, invoice_ids=foreign_ids, in_currency=True
+            )
+            if foreign_ids
+            else {}
+        )
         records: list[OutstandingInvoiceRecord] = []
         for row in rows:
             allocated_amount = row[-1]
@@ -604,7 +616,12 @@ class SettlementService(TransactionalDocumentService):
                     exchange_rate=row.exchange_rate if foreign else None,
                     currency_total=currency_total if foreign else None,
                     currency_outstanding=(
-                        currency_total - quantize_ledger(Decimal(row.currency_paid))
+                        max(
+                            currency_total
+                            - quantize_ledger(Decimal(row.currency_paid))
+                            - currency_taken.get(row.id, ZERO),
+                            ZERO,
+                        )
                         if foreign
                         else None
                     ),
@@ -839,7 +856,7 @@ class SettlementService(TransactionalDocumentService):
         }
 
     def _returned_against(
-        self, *, firm_id: UUID, invoice_ids: list[UUID]
+        self, *, firm_id: UUID, invoice_ids: list[UUID], in_currency: bool = False
     ) -> dict[UUID, Decimal]:
         """Sum what returns and debit notes took off each bill.
 
@@ -848,17 +865,26 @@ class SettlementService(TransactionalDocumentService):
         Dr payable, so both are what the bill no longer owes. A debit note is
         counted as its journal debited the payable -- each part rounded to the
         ledger, then summed -- so the bill and the books agree to the paisa.
+
+        In rupees: both documents are typed in their bill's currency and come
+        off at the bill's own rate, as their journals posted (D-BUY-41).
+        ``in_currency`` True answers in the bill's currency instead, which is
+        what a bill in another currency still owes in it.
         """
         # Imported here: the return module imports settlement-adjacent models.
         from app.debit_note.models import DebitNote, DebitNoteStatus
 
         taken: dict[UUID, Decimal] = {}
-        for invoice_id, taxable, tax in self._session.execute(
+        for invoice_id, taxable, tax, currency, rate in self._session.execute(
             select(
                 DebitNote.purchase_invoice_id,
                 DebitNote.taxable_amount,
                 DebitNote.tax_amount,
-            ).where(
+                PurchaseInvoice.currency_code,
+                PurchaseInvoice.exchange_rate,
+            )
+            .join(PurchaseInvoice, PurchaseInvoice.id == DebitNote.purchase_invoice_id)
+            .where(
                 DebitNote.firm_id == firm_id,
                 DebitNote.purchase_invoice_id.in_(invoice_ids),
                 # Approval is what posts; a draft has not, a cancelled one is
@@ -867,33 +893,48 @@ class SettlementService(TransactionalDocumentService):
                 DebitNote.is_deleted.is_(False),
             )
         ).all():
+            rupees = Decimal("1") if in_currency else rupee_rate(currency, rate)
             taken[invoice_id] = (
                 taken.get(invoice_id, ZERO)
-                + quantize_ledger(Decimal(str(taxable)))
-                + quantize_ledger(Decimal(str(tax)))
+                + quantize_ledger(Decimal(str(taxable)) * rupees)
+                + quantize_ledger(Decimal(str(tax)) * rupees)
             )
         for invoice_id, total in self._returned_by_goods(
-            firm_id=firm_id, invoice_ids=invoice_ids
+            firm_id=firm_id, invoice_ids=invoice_ids, in_currency=in_currency
         ).items():
             taken[invoice_id] = taken.get(invoice_id, ZERO) + total
         return taken
 
     def _returned_by_goods(
-        self, *, firm_id: UUID, invoice_ids: list[UUID]
+        self, *, firm_id: UUID, invoice_ids: list[UUID], in_currency: bool = False
     ) -> dict[UUID, Decimal]:
-        """Sum what completed purchase returns sent back off each bill's lines."""
+        """Sum what completed purchase returns sent back off each bill's lines.
+
+        In rupees at the bill's own rate, or in the bill's currency.
+        """
         from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
 
+        rupees: Any = (
+            literal(1)
+            if in_currency
+            else rupee_rate_sql(
+                PurchaseInvoice.currency_code, PurchaseInvoice.exchange_rate
+            )
+        )
         return {
             invoice_id: Decimal(str(total))
             for invoice_id, total in self._session.execute(
                 select(
                     PurchaseReturnLine.source_document_id,
-                    func.coalesce(func.sum(PurchaseReturnLine.net_amount), 0),
+                    func.coalesce(func.sum(PurchaseReturnLine.net_amount * rupees), 0),
                 )
                 .join(
                     PurchaseReturn,
                     PurchaseReturn.id == PurchaseReturnLine.purchase_return_id,
+                )
+                .join(
+                    PurchaseInvoice,
+                    PurchaseInvoice.id == PurchaseReturnLine.source_document_id,
                 )
                 .where(
                     PurchaseReturnLine.firm_id == firm_id,
@@ -1991,7 +2032,7 @@ class SettlementService(TransactionalDocumentService):
             raise ValidationError(
                 "Only a payment to a supplier is recorded in another currency."
             )
-        check_currency(currency, data.exchange_rate)
+        check_currency(currency, data.exchange_rate, document="payment")
         rate = data.exchange_rate
         if rate is None:  # pragma: no cover - check_currency refused it
             raise ValidationError("A payment in another currency needs its rate.")
