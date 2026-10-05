@@ -198,8 +198,9 @@ class _Books:
         )
         self.session.commit()
 
-    def settle(self, payout_id: UUID, *, paid_on: date = date(2026, 5, 5)) -> None:
-        """Approve and pay one payout."""
+    def settle(self, payout_id: UUID, *, paid_on: date | None = None) -> None:
+        """Approve and pay one payout, today unless a day is named."""
+        paid_on = paid_on or firm_today(self.session, self.firm.id)
         service = CommissionPayoutService(self.session)
         service.approve(payout_id, firm_id=self.firm.id, actor_id=self.approver_id)
         self.session.commit()
@@ -344,7 +345,9 @@ def test_paying_clears_the_debt_and_does_not_book_the_cost_again() -> None:
 
     paid = service.pay(
         payout.id,
-        CommissionPayoutPay(paid_on=date(2026, 5, 5), money_account_id=cash),
+        CommissionPayoutPay(
+            paid_on=firm_today(books.session, books.firm.id), money_account_id=cash
+        ),
         firm_id=books.firm.id,
         actor_id=books.payer_id,
     )
@@ -421,7 +424,7 @@ def test_a_paid_payout_cannot_be_cancelled() -> None:
     service.pay(
         payout.id,
         CommissionPayoutPay(
-            paid_on=date(2026, 5, 5),
+            paid_on=firm_today(books.session, books.firm.id),
             money_account_id=books.account(ControlAccountPurpose.CASH),
         ),
         firm_id=books.firm.id,
@@ -442,7 +445,7 @@ def test_a_payout_cannot_be_paid_before_it_is_approved() -> None:
         CommissionPayoutService(books.session).pay(
             payout.id,
             CommissionPayoutPay(
-                paid_on=date(2026, 5, 5),
+                paid_on=firm_today(books.session, books.firm.id),
                 money_account_id=books.account(ControlAccountPurpose.CASH),
             ),
             firm_id=books.firm.id,
@@ -623,7 +626,10 @@ def test_a_money_account_from_another_firm_is_refused() -> None:
     with pytest.raises(ValidationError):
         service.pay(
             payout.id,
-            CommissionPayoutPay(paid_on=date(2026, 5, 5), money_account_id=intruder),
+            CommissionPayoutPay(
+                paid_on=firm_today(books.session, books.firm.id),
+                money_account_id=intruder,
+            ),
             firm_id=books.firm.id,
             actor_id=books.payer_id,
         )
@@ -677,7 +683,10 @@ def test_a_payout_is_paid_from_cash_or_bank_and_nothing_else() -> None:
     with pytest.raises(ValidationError, match="cash or bank"):
         service.pay(
             payout.id,
-            CommissionPayoutPay(paid_on=date(2026, 5, 5), money_account_id=payable),
+            CommissionPayoutPay(
+                paid_on=firm_today(books.session, books.firm.id),
+                money_account_id=payable,
+            ),
             firm_id=books.firm.id,
             actor_id=books.payer_id,
         )
@@ -685,7 +694,8 @@ def test_a_payout_is_paid_from_cash_or_bank_and_nothing_else() -> None:
     paid = service.pay(
         payout.id,
         CommissionPayoutPay(
-            paid_on=date(2026, 5, 5), method=CommissionPaymentMethodEnum.BANK
+            paid_on=firm_today(books.session, books.firm.id),
+            method=CommissionPaymentMethodEnum.BANK,
         ),
         firm_id=books.firm.id,
         actor_id=books.payer_id,
@@ -759,7 +769,7 @@ def test_a_credit_after_payment_is_clawed_back_on_the_next_accrual() -> None:
     assert reread.payable_amount == Decimal("500.00")
     assert reread.status == CommissionPayoutStatus.PAID.value
 
-    books.settle(may.id, paid_on=date(2026, 6, 5))
+    books.settle(may.id)
     books.collect("SI-3", "1000.00", when=date(2026, 6, 20))
     [june] = books.accrue(JUNE)
     assert june.clawback_amount == Decimal("0.00")
@@ -784,7 +794,7 @@ def test_what_one_period_cannot_recover_waits_for_the_next() -> None:
     assert may.payable_amount == Decimal("0.00")
     # Nothing owed and nothing posted, but approving and paying it is what
     # makes the recovery final.
-    books.settle(may.id, paid_on=date(2026, 6, 5))
+    books.settle(may.id)
     settled = CommissionPayoutService(books.session).get_payout(
         may.id, firm_id=books.firm.id
     )
@@ -891,7 +901,7 @@ def test_a_period_paid_on_net_sales_is_re_read_on_net_sales() -> None:
 def _cash_payment(books: _Books) -> CommissionPayoutPay:
     """Pay from the firm's cash account on 5 May."""
     return CommissionPayoutPay(
-        paid_on=date(2026, 5, 5),
+        paid_on=firm_today(books.session, books.firm.id),
         money_account_id=books.account(ControlAccountPurpose.CASH),
     )
 
@@ -1189,3 +1199,88 @@ def test_an_adjustment_cannot_exceed_what_the_period_earned() -> None:
         actor_id=books.approver_id,
     )
     assert Decimal(str(capped.payable_amount)) == (earned * 2).quantize(Decimal("0.01"))
+
+
+def _approved(books: _Books) -> CommissionPayout:
+    """Accrue April and have the second person approve it, just now."""
+    [payout] = books.accrue()
+    CommissionPayoutService(books.session).approve(
+        payout.id, firm_id=books.firm.id, actor_id=books.approver_id
+    )
+    books.session.commit()
+    return payout
+
+
+def _pay_on(books: _Books, payout: CommissionPayout, paid_on: date) -> CommissionPayout:
+    """Record the payment of one approved payout on a given day."""
+    return CommissionPayoutService(books.session).pay(
+        payout.id,
+        CommissionPayoutPay(paid_on=paid_on, method=CommissionPaymentMethodEnum.CASH),
+        firm_id=books.firm.id,
+        actor_id=books.payer_id,
+    )
+
+
+def test_a_payout_cannot_be_paid_on_a_day_that_has_not_come() -> None:
+    """D-PRC-9: `paid_on` three days ahead read PAID with a journal dated then.
+
+    Driven 2026-10-06: an APPROVED payout of 240.00 paid with `paid_on`
+    2026-10-09 answered 200, and `COMM-...-PAY` was POSTED on the 9th -- cash
+    the books said had left while it was still in the till.
+    """
+    books = _ready()
+    payout = _approved(books)
+    today = firm_today(books.session, books.firm.id)
+
+    with pytest.raises(ValidationError) as refused:
+        _pay_on(books, payout, today + timedelta(days=3))
+    books.session.rollback()
+
+    assert refused.value.message == (
+        "A payout cannot be paid on a day that has not happened yet."
+    )
+    reread = CommissionPayoutService(books.session).get_payout(
+        payout.id, firm_id=books.firm.id
+    )
+    assert reread.status == CommissionPayoutStatus.APPROVED.value
+    assert reread.payment_journal_entry_id is None
+
+
+def test_a_payout_cannot_be_paid_before_the_day_it_was_approved() -> None:
+    """Approval raises the debt; money dated before it paid one nobody agreed."""
+    books = _ready()
+    payout = _approved(books)
+    today = firm_today(books.session, books.firm.id)
+    assert payout.accrued_on < today - timedelta(days=1)
+
+    with pytest.raises(ValidationError) as refused:
+        _pay_on(books, payout, today - timedelta(days=1))
+    books.session.rollback()
+
+    assert refused.value.message == (
+        f"A payout cannot be paid before it was approved (approved on {today})."
+    )
+
+
+def test_a_payout_is_paid_on_the_day_it_was_approved_or_after() -> None:
+    """Both ends hold: the approval's own day is allowed, and so is a later one."""
+    books = _ready()
+    payout = _approved(books)
+    today = firm_today(books.session, books.firm.id)
+    # Approved two days ago, as a stored row would read.
+    row = books.session.get(CommissionPayout, payout.id)
+    assert row is not None and row.approved_at is not None
+    row.approved_at = row.approved_at - timedelta(days=2)
+    books.session.commit()
+
+    with pytest.raises(ValidationError, match="before it was approved"):
+        _pay_on(books, payout, today - timedelta(days=3))
+    books.session.rollback()
+
+    paid = _pay_on(books, payout, today - timedelta(days=2))
+    books.session.commit()
+
+    assert paid.status == CommissionPayoutStatus.PAID.value
+    assert paid.paid_on == today - timedelta(days=2)
+    journal = books.session.get(JournalEntry, paid.payment_journal_entry_id)
+    assert journal is not None and journal.journal_date == today - timedelta(days=2)
