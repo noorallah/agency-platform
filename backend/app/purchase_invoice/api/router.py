@@ -16,7 +16,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.orm import Session
 
 from app.common.scope import (
@@ -784,7 +784,10 @@ def purchase_invoice_register(
 
 
 class GstPurchaseRegisterRecord(BaseModel):
-    """One claimed supplier bill by tax head (backlog §86 #17)."""
+    """One claimed supplier bill, or debit note against one, by tax head.
+
+    Backlog §86 #17. A debit note's row is negative and names its bill.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -807,6 +810,20 @@ class GstPurchaseRegisterRecord(BaseModel):
     invoice_total: Decimal
     #: Tax on capital-goods lines (PG-13), part of ``total_tax``.
     capital_goods_tax: Decimal = Decimal("0")
+    #: ``BILL`` or ``DEBIT_NOTE``.
+    document_type: str = "BILL"
+    #: What the desktop's grid shows for ``document_type``.
+    document_type_label: str = "Bill"
+    #: The bill a debit note claims against; empty on a bill's own row.
+    against_invoice_number: str = ""
+
+    @model_validator(mode="after")
+    def _label_the_type(self) -> "GstPurchaseRegisterRecord":
+        """Say the document type in words."""
+        self.document_type_label = (
+            "Debit note" if self.document_type == "DEBIT_NOTE" else "Bill"
+        )
+        return self
 
 
 @router.get(
@@ -821,7 +838,7 @@ def gst_purchase_register(
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[GstPurchaseRegisterRecord]:
-    """Return the approved supplier bills of a period by tax head (§86 #17)."""
+    """Return a period's approved bills and debit notes by tax head (§86 #17)."""
     window = ReportWindow(from_date, to_date, page, page_size)
     rows = GstPurchaseRegisterService(db).register(scope.firm_id, window)
     return window.respond(

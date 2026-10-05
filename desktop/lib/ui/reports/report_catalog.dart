@@ -1124,14 +1124,17 @@ const List<ReportDefinition> reportCatalog = [
     label: 'GST purchase register',
     description: 'Approved supplier bills by tax head: GSTIN, taxable value, '
         'IGST, CGST, SGST, cess, tax not claimable and reverse charge. '
-        'Supplier credit notes (debit notes) are not netted here yet.',
+        'Approved debit notes are rows of their own, in minus, on their own '
+        'date.',
     path: '/api/v1/purchase-invoices/reports/gst-register',
     permission: 'PURCHASE_VIEW',
     area: ReportArea.financial,
     needsPeriod: true,
     columns: [
       ReportColumn(key: 'invoice_date', label: 'Date'),
-      ReportColumn(key: 'invoice_number', label: 'Bill'),
+      ReportColumn(key: 'document_type_label', label: 'Type'),
+      ReportColumn(key: 'invoice_number', label: 'Number'),
+      ReportColumn(key: 'against_invoice_number', label: 'Against bill'),
       ReportColumn(key: 'supplier_invoice_number', label: 'Supplier bill'),
       ReportColumn(key: 'supplier_invoice_date', label: 'Supplier bill date'),
       ReportColumn(key: 'vendor_name', label: 'Supplier'),
