@@ -4,6 +4,7 @@ from app.sales_invoice.models.sales_invoice import (
     SalesInvoice,
     SalesInvoiceAccountingEvent,
     SalesInvoiceAttachment,
+    SalesInvoiceCharge,
     SalesInvoiceLine,
     SalesInvoiceLineTax,
     SalesInvoiceNote,
@@ -18,6 +19,7 @@ __all__ = [
     "SalesInvoiceLineTax",
     "SalesInvoiceAttachment",
     "SalesInvoiceTender",
+    "SalesInvoiceCharge",
     "SalesInvoiceNote",
     "SalesInvoiceAccountingEvent",
 ]

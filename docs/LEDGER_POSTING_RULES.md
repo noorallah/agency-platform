@@ -853,6 +853,61 @@ at once; a firm with more than one compares it with the sum of its returns.
 The HSN summary takes any period (a year, for GSTR-9) where the return itself
 is held to three months, and has not been timed on the volume firm.
 
+## A charge on the bill is taxed at its own rate and credited to its own account
+
+Server built 2026-10-05 (`docs/BACKLOG.md` §87 #4, SG-4); the desktop editor
+follows in its own PR. A sales invoice now carries up to ten **charges** --
+packing, handling, insurance -- each with a name, a pre-tax amount, an optional
+SAC and an optional tax profile, in `sales_invoice_charges` (migration
+`20261005_0319`, firm-owned). The two older fields are untouched:
+`freight_amount` is still split across the lines and taxed at the goods' own
+rates, and `additional_charges` is still an untaxed addition to the total.
+
+- **Taxed like a line, by the profile it names.** `_replace_charges`
+  (`app/sales_invoice/services/sales_invoice_service.py`) sends each charge
+  through `TaxRuleService.simulate` as the same kind of supply to the same
+  buyer on the bill's date, so a buyer in another state is charged IGST on the
+  packing exactly as on the goods. A charge naming no profile carries no tax.
+  The tax is stored **by GST head** on the row (`igst_amount`, `cgst_amount`,
+  `sgst_amount`, `cess_amount`, with `tax_rate_percent`), never as JSON and
+  never re-derived; tax already inside a price is not a head.
+- **In the totals.** `tax_total` includes the charges' tax and `grand_total`
+  their amount and tax; `subtotal` stays the goods. The response adds
+  `charges` and `charges_total` (before tax).
+- **Re-taxed on every draft save, replaced only when sent.** An update that
+  omits `charges` keeps the stored ones (taxed again, against the buyer and
+  date as they now stand); an empty list clears them.
+- **Posting.** `ControlAccountPurpose.OTHER_CHARGES_RECOVERED` (*4050 Other
+  Charges Recovered*, income; seeded with the chart and by `20261005_0319` for
+  firms whose books are open, only where missing). `post_sales_invoice` takes
+  `other_charges_amount`, credits that account with its ledger figure and
+  takes the same figure off the `SALES_REVENUE` credit, so the receivable and
+  the tax legs are what they were and the entry balances. The account is
+  required only of a bill that carries a charge. Output tax by head adds the
+  charges' heads under the plain codes `IGST` / `CGST` / `SGST` / `CESS`
+  (`invoice_tax_by_component`). Cancelling reverses the one journal, so the
+  charge comes off with it.
+- **Returns.** `GstReturnService._priced` appends one priced row per charge
+  (read once for the call, through the same `among` query or id chunks as the
+  lines) and settles it with the lines, so B2B / B2CL / B2CS, the HSN table
+  (under the charge's SAC, quantity 0), GSTR-3B and the GST sales register all
+  carry it. A charge with no tax is *exempt* where it names a profile and
+  *non-GST* where it names none, as a line is.
+- **E-invoice.** A charge that names a profile is an item of the payload
+  (`IsServc` Y, its SAC, which registration requires); one that names none is
+  added to the document's `OthChrg`. Without this the items would not add up
+  to `TotInvVal`.
+- **Print.** The A4 and thermal bills list each charge by name between the
+  taxable value and the tax rows; its tax joins the lines' per head and the
+  HSN summary gains a row for its SAC.
+
+**Not built:** carrying charges from the sales order (they are typed on the
+bill); crediting a charge -- a credit note or a sales return
+against the bill credits lines only and leaves the charge alone; the desktop
+editor. `tests/unit/test_invoice_charges.py` covers the tax by head within
+and across states, the untaxed charge, the journal, GSTR-1 and 3B, the
+update rule, the credit note, the print and the e-invoice item.
+
 ## A return before billing reverses the accrual, not the payable
 
 **A return off a goods receipt line is taken first off what that line still

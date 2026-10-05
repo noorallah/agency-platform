@@ -506,6 +506,7 @@ class DocumentPostingService:
         total_amount: Decimal,
         actor_id: UUID,
         tax_by_component: dict[str, Decimal] | None = None,
+        other_charges_amount: Decimal = ZERO,
     ) -> JournalEntry:
         """Post revenue, output tax and the receivable for an approved invoice.
 
@@ -525,6 +526,9 @@ class DocumentPostingService:
             tax_by_component: The tax per component code as the invoice's
                 lines recorded it, so each GST head is owed through its own
                 account (backlog 63.3). None posts the total to `OUTPUT_TAX`.
+            other_charges_amount: The part of ``taxable_amount`` that is the
+                bill's separately taxed charges, before tax (SG-4). Credited
+                to `OTHER_CHARGES_RECOVERED` and taken off the revenue leg.
 
         Returns:
             The posted journal entry.
@@ -534,9 +538,19 @@ class DocumentPostingService:
                 amounts do not balance.
 
         """
+        # Rounded once, as the ledger holds it, and the same figure comes off
+        # revenue, so the entry balances whatever the fourth decimal was.
+        ledger_charges = quantize_ledger(quantize_money(other_charges_amount))
         accounts = self._require_mapping(
             firm_id,
-            SALES_INVOICE_PURPOSES + output_tax_purposes(tax_amount, tax_by_component),
+            SALES_INVOICE_PURPOSES + output_tax_purposes(tax_amount, tax_by_component)
+            # Asked for only by a bill that carries a charge, so a firm that
+            # never uses them is never refused for the want of the account.
+            + (
+                (ControlAccountPurpose.OTHER_CHARGES_RECOVERED,)
+                if ledger_charges != ZERO
+                else ()
+            ),
         )
         context = self.context_for(firm_id, invoice_date)
 
@@ -566,10 +580,20 @@ class DocumentPostingService:
             ),
             JournalLineData(
                 ledger_account_id=accounts[ControlAccountPurpose.SALES_REVENUE],
-                credit_amount=ledger_taxable,
+                credit_amount=ledger_taxable - ledger_charges,
                 description=f"Invoice {invoice_number}",
             ),
         ]
+        if ledger_charges != ZERO:
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=accounts[
+                        ControlAccountPurpose.OTHER_CHARGES_RECOVERED
+                    ],
+                    credit_amount=ledger_charges,
+                    description=f"Charges on invoice {invoice_number}",
+                )
+            )
         lines.extend(
             self._output_tax_legs(
                 firm_id=firm_id,

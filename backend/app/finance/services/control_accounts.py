@@ -170,6 +170,10 @@ class ControlAccountPurpose(StrEnum):
     #: Beside TDS receivable rather than inside it -- a different section,
     #: a different line of 26AS.
     TCS_RECEIVABLE = "TCS_RECEIVABLE"
+    #: What a bill charges beside the goods at a tax rate of its own --
+    #: packing, handling, insurance (SG-4). Income of its own rather than
+    #: sales, so the sales figure stays what the goods sold for.
+    OTHER_CHARGES_RECOVERED = "OTHER_CHARGES_RECOVERED"
     #: What the rupee moved by between a foreign-currency bill and its
     #: payment (PG-12): a loss debited, a gain credited, so the payable
     #: clears at the bill's own rupee value. Also the unrealised difference
@@ -326,6 +330,7 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     ControlAccountPurpose.CHEQUE_RETURN_CHARGES: frozenset({"INCOME"}),
     ControlAccountPurpose.GST_CASH_LEDGER: frozenset({"ASSET"}),
     ControlAccountPurpose.TCS_RECEIVABLE: frozenset({"ASSET"}),
+    ControlAccountPurpose.OTHER_CHARGES_RECOVERED: frozenset({"INCOME"}),
     # A gain is a credit and a loss a debit to the same account, so either
     # classification serves, as with rounding.
     ControlAccountPurpose.EXCHANGE_GAIN_LOSS: frozenset({"INCOME", "EXPENSE"}),
@@ -413,6 +418,7 @@ PURPOSE_LABELS: dict[ControlAccountPurpose, str] = {
     ControlAccountPurpose.CHEQUE_RETURN_CHARGES: "Cheque return charges",
     ControlAccountPurpose.GST_CASH_LEDGER: "GST electronic cash ledger",
     ControlAccountPurpose.TCS_RECEIVABLE: "TCS receivable",
+    ControlAccountPurpose.OTHER_CHARGES_RECOVERED: "Other charges recovered",
     ControlAccountPurpose.EXCHANGE_GAIN_LOSS: "Exchange gain/loss",
     ControlAccountPurpose.CUSTOMS_PAYABLE: "Customs duty payable",
     ControlAccountPurpose.CUSTOMS_DUTY: "Customs duty",

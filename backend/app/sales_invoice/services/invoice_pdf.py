@@ -176,6 +176,18 @@ class InvoiceLineBlock:
 
 
 @dataclass(frozen=True, slots=True)
+class InvoiceChargeBlock:
+    """One charge on the bill taxed at a rate of its own (SG-4)."""
+
+    name: str
+    hsn: str | None
+    #: What was charged, before tax.
+    amount: Decimal
+    #: (code, percentage, amount) per GST head it was charged.
+    taxes: tuple[tuple[str, Decimal, Decimal], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class EInvoiceStamp:
     """What the portal returned, as the printed document must carry it.
 
@@ -218,6 +230,10 @@ class InvoiceDocument:
     #: What the lines came to before that deduction. Printed only where there
     #: is a deduction to explain.
     gross_before_bill_discount: Decimal = ZERO
+    #: Packing, handling, insurance: charged beside the lines and taxed at a
+    #: rate of their own (SG-4). Each prints by name under the taxable value,
+    #: and its tax joins the lines' in the totals and the HSN summary.
+    taxed_charges: tuple[InvoiceChargeBlock, ...] = ()
     references: tuple[tuple[str, str], ...] = ()
     #: What the two address blocks are called. A bill is billed to and shipped
     #: to; an order is placed with a supplier and delivered to a warehouse.
@@ -701,6 +717,10 @@ class InvoicePdfRenderer:
         for line in document.lines:
             for code, _, amount in line.taxes:
                 totals_by_code[code] = totals_by_code.get(code, ZERO) + amount
+        for charge in document.taxed_charges:
+            rows.append([charge.name[:28], _money(charge.amount)])
+            for code, _, amount in charge.taxes:
+                totals_by_code[code] = totals_by_code.get(code, ZERO) + amount
         for code, amount in totals_by_code.items():
             rows.append([code, _money(amount)])
         if not totals_by_code and document.tax_total:
@@ -745,6 +765,14 @@ class InvoicePdfRenderer:
             bucket = grouped.setdefault(line.hsn or "-", {"taxable": ZERO})
             bucket["taxable"] += line.taxable
             for code, _, amount in line.taxes:
+                bucket[code] = bucket.get(code, ZERO) + amount
+                if code not in codes:
+                    codes.append(code)
+        # A charge taxed at its own rate is a supply under its own SAC.
+        for charge in document.taxed_charges:
+            bucket = grouped.setdefault(charge.hsn or "-", {"taxable": ZERO})
+            bucket["taxable"] += charge.amount
+            for code, _, amount in charge.taxes:
                 bucket[code] = bucket.get(code, ZERO) + amount
                 if code not in codes:
                     codes.append(code)

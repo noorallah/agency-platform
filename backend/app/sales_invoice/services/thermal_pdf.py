@@ -251,6 +251,11 @@ class ThermalReceiptRenderer:
                 self._pair(width, "Bill discount", f"-{_money(document.bill_discount)}")
             )
         story.append(self._pair(width, "Taxable value", _money(document.taxable_total)))
+        # Charges taxed at a rate of their own (SG-4), each by name.
+        for charge in document.taxed_charges:
+            story.append(self._pair(width, charge.name[:24], _money(charge.amount)))
+            for component, rate, amount in charge.taxes:
+                taxes[(component, rate)] += amount
         for (component, rate), amount in sorted(taxes.items()):
             story.append(
                 self._pair(width, f"{component} {_rate(rate)}%", _money(amount))
