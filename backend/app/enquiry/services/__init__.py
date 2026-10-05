@@ -518,27 +518,43 @@ class EnquiryService(TransactionalDocumentService):
         page_size: int,
         status: str | None = None,
         salesman_id: UUID | None = None,
+        due_on: date | None = None,
     ) -> tuple[list[Enquiry], int]:
-        """Return one page of the firm's enquiries, newest first, and the count."""
+        """Return one page of the firm's enquiries, newest first, and the count.
+
+        ``due_on`` pages the follow-ups due instead: the live enquiries whose
+        next follow-up falls on or before that day, soonest first.
+        """
         conditions = [Enquiry.firm_id == firm_id, Enquiry.is_deleted.is_(False)]
         if status:
             conditions.append(Enquiry.status == status.upper())
         if salesman_id is not None:
             conditions.append(Enquiry.salesman_id == salesman_id)
+        if due_on is not None:
+            conditions += [
+                Enquiry.status.in_(_LIVE),
+                Enquiry.next_follow_up_on.is_not(None),
+                Enquiry.next_follow_up_on <= due_on,
+            ]
         total = int(
             self._session.scalar(
                 select(func.count()).select_from(Enquiry).where(*conditions)
             )
             or 0
         )
-        rows = self._session.scalars(
-            select(Enquiry)
-            .where(*conditions)
-            .order_by(
+        ordering = (
+            (Enquiry.next_follow_up_on, Enquiry.enquiry_number, Enquiry.id)
+            if due_on is not None
+            else (
                 Enquiry.enquiry_date.desc(),
                 Enquiry.enquiry_number.desc(),
                 Enquiry.id.desc(),
             )
+        )
+        rows = self._session.scalars(
+            select(Enquiry)
+            .where(*conditions)
+            .order_by(*ordering)
             .offset((page - 1) * page_size)
             .limit(page_size)
         ).all()

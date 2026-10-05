@@ -77,23 +77,31 @@ def list_enquiries(
     )
 
 
-@router.get("/follow-ups-due", response_model=ApiResponse[list[EnquiryResponse]])
+@router.get("/follow-ups-due", response_model=PaginatedResponse[EnquiryResponse])
 def follow_ups_due(
     scope: EnquiryViewScope,
     db: Session = Depends(get_db),
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
     on: Annotated[date | None, Query()] = None,
     salesman_id: Annotated[UUID | None, Query()] = None,
-) -> ApiResponse[list[EnquiryResponse]]:
-    """Return the live enquiries to follow up by a day (today by default)."""
+) -> PaginatedResponse[EnquiryResponse]:
+    """Return a page of the live enquiries to follow up by a day.
+
+    Today by default, soonest first. Paged with the standard bounds, as the
+    enquiry list is (D-SELL-63): it answered every row whatever was asked.
+    """
     service = EnquiryService(db)
-    return ApiResponse(
-        data=service.responses(
-            service.list_rows(
-                scope.firm_id,
-                salesman_id=salesman_id,
-                due_on=on or utc_now().date(),
-            )
-        )
+    rows, total = service.list_page(
+        scope.firm_id,
+        page=page,
+        page_size=page_size,
+        salesman_id=salesman_id,
+        due_on=on or utc_now().date(),
+    )
+    return PaginatedResponse(
+        data=service.responses(rows),
+        pagination=PaginationParams(page=page, page_size=page_size).metadata(total),
     )
 
 

@@ -9688,12 +9688,21 @@ class ApiClient {
 
   /// The live enquiries whose next follow-up is on or before [on] (default
   /// today), soonest first.
-  Future<List<Enquiry>> followUpsDue({String? on, String? salesmanId}) async =>
-      _unwrapList(
+  ///
+  /// One page: the server pages this list too (D-SELL-63).
+  Future<PagedResult<Enquiry>> followUpsDue({
+    int page = 1,
+    int pageSize = 100,
+    String? on,
+    String? salesmanId,
+  }) async =>
+      parsePagedResponse(
         await request(
           'GET',
           '/api/v1/enquiries/follow-ups-due',
           query: {
+            'page': '$page',
+            'page_size': '$pageSize',
             if (on != null && on.isNotEmpty) 'on': on,
             if (salesmanId != null && salesmanId.isNotEmpty)
               'salesman_id': salesmanId,

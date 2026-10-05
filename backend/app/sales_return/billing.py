@@ -112,6 +112,58 @@ def unbilled_taxable() -> ScalarSelect[Any]:
     )
 
 
+def unbilled_value() -> ScalarSelect[Any]:
+    """Return, per return in the outer query, the value never credited.
+
+    A correlated subquery over ``SalesReturn``: what its lines are worth, tax
+    in, for the part that came back before billing. A return's total less
+    this is what it credited.
+    """
+    quantity = SalesReturnLine.current_return_quantity
+    return (
+        select(
+            func.coalesce(
+                func.sum(
+                    SalesReturnLine.net_amount
+                    * SalesReturnLine.unbilled_quantity
+                    / quantity
+                ),
+                0,
+            )
+        )
+        .where(
+            SalesReturnLine.sales_return_id == SalesReturn.id,
+            SalesReturnLine.is_deleted.is_(False),
+            quantity > 0,
+        )
+        .correlate(SalesReturn)
+        .scalar_subquery()
+    )
+
+
+def unbilled_quantities(
+    session: Session, return_ids: Iterable[UUID]
+) -> dict[UUID, Decimal]:
+    """Return how much of each return came back before billing, in all."""
+    ids = list(set(return_ids))
+    if not ids:
+        return {}
+    return {
+        return_id: Decimal(str(quantity))
+        for return_id, quantity in session.execute(
+            select(
+                SalesReturnLine.sales_return_id,
+                func.coalesce(func.sum(SalesReturnLine.unbilled_quantity), 0),
+            )
+            .where(
+                SalesReturnLine.sales_return_id.in_(ids),
+                SalesReturnLine.is_deleted.is_(False),
+            )
+            .group_by(SalesReturnLine.sales_return_id)
+        ).all()
+    }
+
+
 def return_billed_amounts(
     session: Session, rows: Sequence[SalesReturn]
 ) -> dict[UUID, tuple[Decimal, Decimal]]:

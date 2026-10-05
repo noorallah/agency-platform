@@ -88,6 +88,8 @@ from app.sales_return.billing import (
     billed_tax_by_component,
     note_line_billing,
     return_billed_amounts,
+    unbilled_quantities,
+    unbilled_value,
 )
 from app.sales_return.models import (
     SalesReturn,
@@ -330,7 +332,11 @@ class SalesReturnService(TransactionalDocumentService):
                 select(
                     SalesReturn.status,
                     func.count(),
-                    func.coalesce(func.sum(SalesReturn.grand_total), 0),
+                    # What the return credits: goods back before billing are
+                    # worth nothing to the customer's account (D-SELL-74).
+                    func.coalesce(
+                        func.sum(SalesReturn.grand_total - unbilled_value()), 0
+                    ),
                     func.coalesce(func.sum(SalesReturn.total_restock_quantity), 0),
                 )
                 .where(
@@ -2513,6 +2519,11 @@ class SalesReturnService(TransactionalDocumentService):
         customers = customer_names(self._session, (row.customer_id for row in rows))
         branches = branch_names(self._session, (row.branch_id for row in rows))
         warehouses = warehouse_names(self._session, (row.warehouse_id for row in rows))
+        # What each credited, beside what it states: a return before billing
+        # read 590.00 with no column saying nothing was credited (D-SELL-74).
+        completed = [row for row in rows if row.status in _RETURNED_STATUSES]
+        credited = return_billed_amounts(self._session, completed)
+        unbilled = unbilled_quantities(self._session, (row.id for row in completed))
         records = [
             SalesReturnRegisterRecord(
                 return_id=row.id,
@@ -2526,6 +2537,8 @@ class SalesReturnService(TransactionalDocumentService):
                 warehouse_name=warehouses.get(row.warehouse_id, str(row.warehouse_id)),
                 return_date=row.return_date,
                 grand_total=row.grand_total,
+                credited_amount=self._q(credited.get(row.id, (ZERO, ZERO))[0]),
+                unbilled_quantity=self._q(unbilled.get(row.id, ZERO)),
                 status=SalesReturnStatus(row.status),
             )
             for row in rows
@@ -2546,10 +2559,16 @@ class SalesReturnService(TransactionalDocumentService):
                 )
             ).all()
         )
+        # Valued at what was credited, not at the documents' totals: five
+        # returns read 1,770.00 for a customer credited 472.00 (D-SELL-74).
+        credited = return_billed_amounts(self._session, rows)
+        unbilled = unbilled_quantities(self._session, (row.id for row in rows))
         totals: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
+        before_billing: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
         counts: dict[UUID, int] = defaultdict(int)
         for row in rows:
-            totals[row.customer_id] += row.grand_total
+            totals[row.customer_id] += credited.get(row.id, (ZERO, ZERO))[0]
+            before_billing[row.customer_id] += unbilled.get(row.id, ZERO)
             counts[row.customer_id] += 1
         names = {
             customer.id: customer.display_name
@@ -2562,6 +2581,7 @@ class SalesReturnService(TransactionalDocumentService):
                 customer_id=customer_id,
                 customer_name=names.get(customer_id, str(customer_id)),
                 return_amount=self._q(amount),
+                unbilled_quantity=self._q(before_billing[customer_id]),
                 return_count=counts[customer_id],
             )
             for customer_id, amount in totals.items()
@@ -2575,11 +2595,19 @@ class SalesReturnService(TransactionalDocumentService):
         quantities: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
         restocked: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
         amounts: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
+        before_billing: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
         counts: dict[UUID, int] = defaultdict(int)
         for line, _ in lines:
             quantities[line.product_id] += line.current_return_quantity
             restocked[line.product_id] += line.restock_quantity
-            amounts[line.product_id] += line.net_amount
+            # The billed part is what was credited (D-SELL-74); the rest came
+            # back as quantity alone.
+            amounts[line.product_id] += Decimal(str(line.net_amount)) * billed_share(
+                line
+            )
+            before_billing[line.product_id] += Decimal(
+                str(line.unbilled_quantity or ZERO)
+            )
             counts[line.product_id] += 1
         products = {
             product.id: product
@@ -2603,6 +2631,7 @@ class SalesReturnService(TransactionalDocumentService):
                 return_quantity=self._q(quantity),
                 restock_quantity=self._q(restocked[product_id]),
                 return_amount=self._q(amounts[product_id]),
+                unbilled_quantity=self._q(before_billing[product_id]),
                 return_count=counts[product_id],
             )
             for product_id, quantity in quantities.items()

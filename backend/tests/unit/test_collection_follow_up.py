@@ -179,6 +179,23 @@ def _promise(
     )
 
 
+def _recorded_before(
+    setup: _Firm, receipt: Settlement, promise: PaymentPromiseResponse
+) -> None:
+    """Say the receipt was keyed in before the promise was taken.
+
+    The unit suite's clock has one-second steps, so two rows written in one
+    test share a timestamp; a promise counts money recorded after it, and
+    PostgreSQL tells the two apart by itself.
+    """
+    taken_at = setup.session.scalar(
+        select(PaymentPromise.created_at).where(PaymentPromise.id == promise.id)
+    )
+    assert taken_at is not None
+    receipt.created_at = taken_at - timedelta(hours=3)
+    setup.session.commit()
+
+
 def _actor(setup: _Firm) -> UUID:
     """Return the one member who writes the promises down, made once."""
     found = setup.session.scalar(
@@ -258,11 +275,12 @@ def test_part_of_the_money_does_not_keep_a_promise() -> None:
 
 
 def test_money_that_arrives_late_or_came_before_does_not_keep_it() -> None:
-    """Only receipts dated inside the promise's own window count."""
+    """Money recorded before the promise, or dated after its day, is not it."""
     setup = _world()
     bill = _bill(setup)
-    _pay(setup, bill, Decimal("50.00"), date(2026, 8, 9))
+    before = _pay(setup, bill, Decimal("50.00"), date(2026, 8, 9))
     promise = _promise(setup, bill, Decimal("200.00"))
+    _recorded_before(setup, before, promise)
 
     _pay(setup, bill, Decimal("200.00"), AFTER)
 
@@ -529,8 +547,9 @@ def test_the_sheet_is_by_collector_falling_back_to_the_account_manager() -> None
     first = _bill(setup, due=date(2026, 8, 5))
     second = _bill(setup, collected, due=date(2026, 8, 20))
     third = _bill(setup, nobody, due=None)
-    _pay(setup, first, Decimal("150.00"), date(2026, 8, 9))
+    earlier = _pay(setup, first, Decimal("150.00"), date(2026, 8, 9))
     promise = _promise(setup, first, Decimal("100.00"))
+    _recorded_before(setup, earlier, promise)
     sheet = CollectionSheetService(setup.session)
 
     rows = sheet.rows(setup.firm.id, as_of=AFTER)
@@ -760,3 +779,22 @@ def test_a_kept_promise_cannot_be_withdrawn() -> None:
         )
 
     assert _status(setup, promise.id, AFTER).status is PromiseStatus.KEPT
+
+
+def test_a_receipt_keyed_in_after_the_promise_counts_whatever_its_date() -> None:
+    """D-SELL-73: yesterday's cash, entered today, left the promise pending.
+
+    Driven 2026-10-05: a promise of 118 on a bill, then a receipt entered
+    afterwards and dated the day before -- the bill owed nothing and the
+    promise read 0.00 received, to turn Broken on its day. Recorded after is
+    the test; the receipt's own date is not a lower bound.
+    """
+    setup = _world()
+    bill = _bill(setup)
+    promise = _promise(setup, bill, Decimal("100.00"))
+
+    _pay(setup, bill, Decimal("100.00"), TAKEN - timedelta(days=1))
+
+    kept = _status(setup, promise.id, AFTER)
+    assert kept.received_amount == Decimal("100.00")
+    assert kept.status is PromiseStatus.KEPT

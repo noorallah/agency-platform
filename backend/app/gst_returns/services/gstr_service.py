@@ -2223,12 +2223,25 @@ class GstReturnService:
         by_return: dict[UUID, list[SalesReturnLine]] = defaultdict(list)
         for line in lines:
             by_return[line.sales_return_id].append(line)
-        billed = self._invoice_numbers(
+        # A return raised on a delivery note credits the bill that charged
+        # the note's line, and names it: such a row read "against" nothing
+        # in the register and in CDNR though it credited a bill (D-SELL-75).
+        charged_by = self._bills_that_charged(
             [
-                line.source_document_id
+                line.source_document_line_id
                 for line in lines
-                if line.source_document_type == "SALES_INVOICE"
+                if line.source_document_type == "DELIVERY_NOTE"
             ]
+        )
+
+        def credited(line: SalesReturnLine) -> tuple[UUID, UUID] | None:
+            """Return the bill, and its line, that one return line credits."""
+            if line.source_document_type == "SALES_INVOICE":
+                return line.source_document_id, line.source_document_line_id
+            return charged_by.get(line.source_document_line_id)
+
+        billed = self._invoice_numbers(
+            [found[0] for line in lines if (found := credited(line)) is not None]
         )
 
         answer: list[_Credit] = []
@@ -2270,25 +2283,21 @@ class GstReturnService:
                 rates.setdefault(buckets.rate, _RateRow(rate=buckets.rate)).add(
                     taxable, buckets
                 )
+                bill = credited(line)
+                if bill is not None and bill[0] not in billed:
+                    bill = None
                 items.append(
                     (
                         line.product_id,
                         # The invoice line it returns, when it returns a bill.
-                        (
-                            line.source_document_line_id
-                            if line.source_document_id in billed
-                            else None
-                        ),
+                        None if bill is None else bill[1],
                         Decimal(str(line.current_return_quantity)) * share,
                         taxable,
                         buckets,
                     )
                 )
-                if (
-                    line.source_document_id in billed
-                    and line.source_document_id not in against
-                ):
-                    against.append(line.source_document_id)
+                if bill is not None and bill[0] not in against:
+                    against.append(bill[0])
             answer.append(
                 _Credit(
                     number=sales_return.return_number,
@@ -2306,6 +2315,38 @@ class GstReturnService:
                 )
             )
         return answer
+
+    @over_chunks("note_line_ids")
+    def _bills_that_charged(
+        self, note_line_ids: list[UUID]
+    ) -> dict[UUID, tuple[UUID, UUID]]:
+        """Return, per delivery note line, the bill and bill line that charged it.
+
+        The earliest bill that stands, where a line was billed in parts -- the
+        one a return's tax is reversed from (``_charged_line`` in the sales
+        return service).
+        """
+        if not note_line_ids:
+            return {}
+        found: dict[UUID, tuple[UUID, UUID]] = {}
+        for note_line_id, invoice_id, line_id in self._session.execute(
+            select(
+                SalesInvoiceLine.source_document_line_id,
+                SalesInvoiceLine.sales_invoice_id,
+                SalesInvoiceLine.id,
+            )
+            .join(SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id)
+            .where(
+                SalesInvoiceLine.source_document_type == "DELIVERY_NOTE",
+                SalesInvoiceLine.source_document_line_id.in_(set(note_line_ids)),
+                SalesInvoiceLine.is_deleted.is_(False),
+                SalesInvoice.status.in_(("APPROVED", "CLOSED")),
+                SalesInvoice.is_deleted.is_(False),
+            )
+            .order_by(SalesInvoice.invoice_date.asc(), SalesInvoice.invoice_number)
+        ).all():
+            found.setdefault(note_line_id, (invoice_id, line_id))
+        return found
 
     @over_chunks("invoice_ids")
     def _invoice_numbers(self, invoice_ids: list[UUID]) -> dict[UUID, str]:

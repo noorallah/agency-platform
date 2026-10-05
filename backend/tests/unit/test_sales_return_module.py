@@ -36,6 +36,7 @@ from app.finance.models import (
 from app.finance.services.control_accounts import ControlAccountPurpose
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
+from app.gst_returns.services.gstr_service import GstReturnService
 from app.identity.models import identity as _identity_models  # noqa: F401
 from app.inventory.models import (
     InventoryRecord,
@@ -1605,3 +1606,84 @@ def test_cancelling_a_return_before_billing_puts_the_goods_back_to_bill() -> Non
     assert _credits(session) == []
     session.refresh(setup.customer)
     assert Decimal(str(setup.customer.current_outstanding)) == Decimal("0")
+
+
+def test_the_return_reports_value_a_return_at_what_was_credited() -> None:
+    """D-SELL-74: five returns read 1,770.00 for a customer credited 472.00.
+
+    The reports summed the documents' totals. Four delivered, three billed,
+    two back: one unit was credited and one came back as stock alone, so the
+    figures are 100.00 credited and a quantity of 1 with no value.
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session, billed=Decimal("3"))
+    service, row = setup.completed(quantity=Decimal("2"))
+    assert row.grand_total == Decimal("200.0000")
+
+    [listed] = service.register_report(firm_scope=setup.firm.id)
+    assert (listed.grand_total, listed.credited_amount, listed.unbilled_quantity) == (
+        Decimal("200.0000"),
+        Decimal("100.0000"),
+        Decimal("1.0000"),
+    )
+    [customer] = service.by_customer_report(firm_scope=setup.firm.id)
+    assert (customer.return_amount, customer.unbilled_quantity) == (
+        Decimal("100.0000"),
+        Decimal("1.0000"),
+    )
+    [product] = service.by_product_report(firm_scope=setup.firm.id)
+    assert (
+        product.return_quantity,
+        product.return_amount,
+        product.unbilled_quantity,
+    ) == (Decimal("2.0000"), Decimal("100.0000"), Decimal("1.0000"))
+    assert service.summary(firm_scope=setup.firm.id).total_return_value == Decimal(
+        "100.0000"
+    )
+
+
+def test_a_return_before_billing_is_reported_as_quantity_with_no_value() -> None:
+    """Wholly before billing: nothing credited anywhere, the quantity shown."""
+    session = _session_factory()()
+    setup = _Dispatch(session, billed=Decimal("0"))
+    service, _row = setup.completed(quantity=Decimal("3"))
+
+    [listed] = service.register_report(firm_scope=setup.firm.id)
+    assert (listed.credited_amount, listed.unbilled_quantity) == (
+        Decimal("0.0000"),
+        Decimal("3.0000"),
+    )
+    [customer] = service.by_customer_report(firm_scope=setup.firm.id)
+    assert customer.return_amount == Decimal("0.0000")
+    [product] = service.by_product_report(firm_scope=setup.firm.id)
+    assert (product.return_quantity, product.return_amount) == (
+        Decimal("3.0000"),
+        Decimal("0.0000"),
+    )
+    assert service.summary(firm_scope=setup.firm.id).total_return_value == Decimal(
+        "0.0000"
+    )
+
+
+def test_a_return_on_a_note_names_the_bill_it_credits() -> None:
+    """D-SELL-75: "against invoice" was blank though the return credited one.
+
+    A return raised against a delivery note reverses the bill that charged
+    the note's line; the GST sales register and GSTR-1's CDNR both read the
+    bill off this credit, and showed none.
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    _service, row = setup.completed(quantity=Decimal("2"))
+    bill_line = session.scalar(
+        select(SalesInvoiceLine).where(
+            SalesInvoiceLine.sales_invoice_id == setup.invoice.id
+        )
+    )
+    assert bill_line is not None
+
+    [credit] = GstReturnService(session)._returns_as_credits([row])
+
+    assert credit.against_invoice_ids == [setup.invoice.id]
+    assert credit.against_invoice_number == setup.invoice.invoice_number
+    assert [item[1] for item in credit.items] == [bill_line.id]

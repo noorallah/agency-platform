@@ -134,7 +134,16 @@ for goods never billed -- and left the note billable in full.
   and 3B and the GST sales register leave out a return wholly before billing
   (`credits_a_bill`) and scale a part-billed line; the sales analysis and the
   rebate turnover net off only the billed part; loyalty takes back only what
-  a bill earned.
+  a bill earned. The sales-return reports do too (D-SELL-74): the register
+  states `credited_amount` beside the document's total, by-customer and
+  by-product value a return at what was credited, the summary's
+  `total_return_value` is what the live returns credit, and each carries
+  `unbilled_quantity` -- the goods back before billing, as a quantity with
+  no value.
+- **A return on a note names the bill it credits** (D-SELL-75). Where a bill
+  charged the note's line, the GST sales register and GSTR-1's CDNR read
+  that bill as the return's "against invoice" -- the earliest that stands,
+  the one its tax is reversed from.
 
 ## A firm chooses which stages of a sale its people type
 

@@ -399,6 +399,8 @@ class SalesReturnSummary(SalesReturnSchema):
     approved_returns: int
     completed_returns: int
     cancelled_returns: int
+    #: What the firm's live returns credit: a return's total, less the value
+    #: of goods that came back before any bill charged for them (D-SELL-74).
     total_return_value: Decimal
     total_restock_quantity: Decimal
 
@@ -419,7 +421,13 @@ class SalesReturnRegisterRecord(SalesReturnSchema):
     warehouse_id: UUID
     warehouse_name: str
     return_date: date
+    #: The document's own total, at the prices the goods went out at.
     grand_total: Decimal
+    #: What the customer was credited: nothing until the return completes,
+    #: and nothing for goods that came back before billing (D-SELL-74).
+    credited_amount: Decimal = Decimal("0")
+    #: The quantity that came back before billing: stock and cost only.
+    unbilled_quantity: Decimal = Decimal("0")
     status: SalesReturnStatus
 
 
@@ -428,7 +436,10 @@ class SalesReturnByCustomerRecord(SalesReturnSchema):
 
     customer_id: UUID
     customer_name: str
+    #: What the customer was credited (D-SELL-74), not the documents' totals.
     return_amount: Decimal
+    #: The quantity that came back before billing, which credited nothing.
+    unbilled_quantity: Decimal = Decimal("0")
     return_count: int
 
 
@@ -440,7 +451,10 @@ class SalesReturnByProductRecord(SalesReturnSchema):
     product_name: str
     return_quantity: Decimal
     restock_quantity: Decimal
+    #: What was credited for the product (D-SELL-74): the billed part only.
     return_amount: Decimal
+    #: The part of ``return_quantity`` that came back before billing.
+    unbilled_quantity: Decimal = Decimal("0")
     return_count: int
 
 
