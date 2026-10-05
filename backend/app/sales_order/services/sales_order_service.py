@@ -184,6 +184,18 @@ class PromotionBenefits:
         item = self._lines.get(index + 1)
         return item.free_quantity if item is not None else ZERO
 
+    def free_promotion(self, index: int) -> UUID | None:
+        """Return the offer that gave line `index` its free units, if one did."""
+        item = self._lines.get(index + 1)
+        return item.free_promotion_id if item is not None else None
+
+    def gift_promotion(self, product_id: UUID) -> UUID | None:
+        """Return the offer that gave this product away as a gift."""
+        for gift in self._gifts:
+            if gift.product_id == product_id:
+                return gift.promotion_id
+        return None
+
     def bill_discount(self) -> Decimal | None:
         """Return what the whole document earned, or None if nothing did."""
         return self._bill if self._bill > ZERO else None
@@ -2398,6 +2410,7 @@ class SalesOrderService(TransactionalDocumentService):
         # engine has answered and before anything is priced, so the gift line
         # flows through conversion, tax and totals exactly as a typed one
         # does -- there is no second path for it to drift down.
+        asked = len(lines)
         lines = list(lines) + self._gift_lines(benefits, lines=lines)
         grosses += [ZERO] * (len(lines) - len(grosses))
 
@@ -2462,6 +2475,15 @@ class SalesOrderService(TransactionalDocumentService):
                 if item.free_quantity is None
                 else self._q(item.free_quantity)
             )
+            # Whose free goods these are: the offer's where the engine gave
+            # them -- on the line, or as a gift line it added -- and nobody's
+            # where a person typed the figure. A claim on a principal asks.
+            if index >= asked:
+                free_promotion_id = benefits.gift_promotion(item.product_id)
+            elif item.free_quantity is None and free_quantity > ZERO:
+                free_promotion_id = benefits.free_promotion(index)
+            else:
+                free_promotion_id = None
             conversion = self._conversion(
                 quantity=self._q(quantity + free_quantity),
                 sales_uom_id=item.sales_uom_id,
@@ -2511,6 +2533,7 @@ class SalesOrderService(TransactionalDocumentService):
             line.description = item.description
             line.quantity = quantity
             line.free_quantity = free_quantity
+            line.free_promotion_id = free_promotion_id
             line.base_quantity = self._q(conversion["converted"])
             line.reservable_quantity = self._q(conversion["converted"])
             line.available_stock = available_stock

@@ -95,6 +95,8 @@ class _LineState:
     free_quantity: Decimal = ZERO
     #: Somebody typed this line's free quantity, so no offer adds to it.
     free_typed: bool = False
+    #: The offer that gave this line's free units: the last, if two did.
+    free_promotion_id: UUID | None = None
     codes: list[str] = field(default_factory=list)
 
     @property
@@ -228,6 +230,10 @@ class PromotionService:
                 delta = state.discount - before_each[index]
                 if delta > ZERO:
                     slices[index].append((len(applications) - 1, delta))
+                if state.free_quantity > before_free[index]:
+                    # Named on the line, so the document can say whose free
+                    # goods these are when a principal is asked to pay.
+                    state.free_promotion_id = promotion.id
             for state in matched_lines:
                 state.codes.append(promotion.code)
             decisions.append(self._decision(promotion, True, "Applied."))
@@ -333,6 +339,7 @@ class PromotionService:
                     line_number=state.line_number,
                     discount_amount=quantize_money(state.discount),
                     free_quantity=state.free_quantity,
+                    free_promotion_id=state.free_promotion_id,
                     applied_promotion_codes=state.codes,
                 )
                 for state in states
@@ -975,6 +982,7 @@ class PromotionService:
                         product_id=UUID(str(gift_id)),
                         quantity=free,
                         promotion_code=promotion.code,
+                        promotion_id=promotion.id,
                     )
                 )
             elif allow_bill and kind in {

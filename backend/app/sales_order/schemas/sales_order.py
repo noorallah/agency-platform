@@ -249,6 +249,10 @@ class SalesOrderLineResponse(SalesOrderSchema):
     description: str | None
     quantity: Decimal
     free_quantity: Decimal
+    #: The offer that gave the free quantity; null where somebody typed it.
+    #: An editor reopening the line sends the free quantity back only where
+    #: this is null, or an offer's goods become typed ones on the next save.
+    free_promotion_id: UUID | None = None
     base_quantity: Decimal
     reservable_quantity: Decimal
     reserved_quantity: Decimal

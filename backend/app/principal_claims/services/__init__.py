@@ -6,15 +6,28 @@ arrive broken -- and the principal owes it for all three. A claim gathers
 them for one principal and one period:
 
 * **Scheme** -- each redemption of a promotion the principal funds, at the
-  principal's share of the benefit the customer was given.
+  principal's share of the benefit the customer was given; and the free
+  goods such a promotion put on a dispatched line, at the same share of what
+  they cost. A redemption's benefit is money only, so the goods are a line
+  of their own.
+* **Free goods** -- free quantity somebody *typed* on a line of the
+  principal's products (the "10 + 1" a salesman gives), at what the dispatch
+  that shipped it cost. Its own kind, so the principal sees what the firm
+  gave of its own accord apart from what its schemes gave.
 * **Expiry** -- each stock write-off for expiry of the principal's products,
   at the value the books took off.
 * **Breakage** -- each damaged or scrapped line of a completed sales return of
   the principal's products, at the taxable rate the customer was credited.
 
+Free goods are valued from the stock ledger's dispatch, never from a price:
+a line whose dispatch has no cost contributes nothing rather than zero, and
+goods on a note not yet shipped are not claimed. A sales return takes back
+what was charged and never the free units, so no return reduces them.
+
 A source is claimed once. Raising posts Dr claims receivable, Cr the
-expense the cost sat in -- promotional expense for schemes, inventory
-adjustment for stock -- so the firm's costs fall by what it expects back.
+expense the cost sat in -- promotional expense for a scheme's discount, cost
+of goods sold for goods given free, inventory adjustment for stock -- so the
+firm's costs fall by what it expects back.
 The principal settles by credit note (a party adjustment of kind
 ``PRINCIPAL_CLAIM`` set against its bills) or by paying; how far a claim is
 settled is derived from both, never stored. A claim with nothing settled
@@ -29,7 +42,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.selectable import ScalarSelect
 
@@ -37,6 +50,7 @@ from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_ledger
+from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.document_framework.services.transactional_document_service import (
     DocumentStateSpec,
     DocumentTypeSpec,
@@ -53,10 +67,16 @@ from app.principal_claims.models import (
 from app.products.models import Product
 from app.products.models.brand import Brand, Principal
 from app.promotions.models import Promotion, PromotionRedemption
+from app.sales_order.models import SalesOrderLine
 from app.sales_return.models import SalesReturn, SalesReturnLine
 
-KINDS = ("SCHEME", "EXPIRY", "BREAKAGE")
+KINDS = ("SCHEME", "FREE_GOODS", "EXPIRY", "BREAKAGE")
 _DONE_RETURNS = ("COMPLETED", "CLOSED")
+#: A note whose goods have left. A draft or approved note has shipped
+#: nothing, and a cancelled one gave its goods back.
+_SHIPPED_NOTES = ("DISPATCHED", "COMPLETED", "CLOSED")
+#: Where a claimed amount's cost sat, and so which account gets it back.
+_PROMOTION, _STOCK, _SOLD = "PROMOTION", "STOCK", "SOLD"
 CENT = Decimal("0.01")
 
 
@@ -69,7 +89,7 @@ class PrincipalClaimWrite(BaseModel):
     period_from: date
     period_to: date
     claim_date: date
-    #: Which of the three to claim; all of them when omitted.
+    #: Which of the four to claim; all of them when omitted.
     kinds: list[str] = Field(default_factory=lambda: list(KINDS), min_length=1)
     remarks: str | None = Field(default=None, max_length=1000)
 
@@ -149,6 +169,8 @@ class PrincipalClaimResponse(BaseModel):
     period_from: date
     period_to: date
     scheme_amount: Decimal
+    #: Free goods typed on bill lines of the principal's products, at cost.
+    free_goods_amount: Decimal
     expiry_amount: Decimal
     breakage_amount: Decimal
     total_amount: Decimal
@@ -173,6 +195,7 @@ class PrincipalClaimPreview(BaseModel):
     period_from: date
     period_to: date
     scheme_amount: Decimal
+    free_goods_amount: Decimal
     expiry_amount: Decimal
     breakage_amount: Decimal
     total_amount: Decimal
@@ -191,6 +214,8 @@ class _Candidate:
     quantity: Decimal | None
     description: str
     amount: Decimal
+    #: Which expense the cost sat in: the journal credits it back there.
+    credit: str = _PROMOTION
 
 
 class PrincipalClaimService(TransactionalDocumentService):
@@ -226,8 +251,16 @@ class PrincipalClaimService(TransactionalDocumentService):
         self._principal(principal_id, firm_id=firm_id)
         wanted = set(kinds or KINDS)
         found: list[_Candidate] = []
+        goods = (
+            self._free_goods(firm_id, principal_id, period_from, period_to)
+            if wanted & {"SCHEME", "FREE_GOODS"}
+            else []
+        )
         if "SCHEME" in wanted:
             found += self._schemes(firm_id, principal_id, period_from, period_to)
+            found += [c for c in goods if c.kind == "SCHEME"]
+        if "FREE_GOODS" in wanted:
+            found += [c for c in goods if c.kind == "FREE_GOODS"]
         if "EXPIRY" in wanted:
             found += self._expiries(firm_id, principal_id, period_from, period_to)
         if "BREAKAGE" in wanted:
@@ -255,6 +288,7 @@ class PrincipalClaimService(TransactionalDocumentService):
             period_from=data.period_from,
             period_to=data.period_to,
             scheme_amount=totals["SCHEME"],
+            free_goods_amount=totals["FREE_GOODS"],
             expiry_amount=totals["EXPIRY"],
             breakage_amount=totals["BREAKAGE"],
             total_amount=sum(totals.values(), ZERO),
@@ -307,6 +341,7 @@ class PrincipalClaimService(TransactionalDocumentService):
             period_from=data.period_from,
             period_to=data.period_to,
             scheme_amount=totals["SCHEME"],
+            free_goods_amount=totals["FREE_GOODS"],
             expiry_amount=totals["EXPIRY"],
             breakage_amount=totals["BREAKAGE"],
             total_amount=sum(totals.values(), ZERO),
@@ -341,13 +376,19 @@ class PrincipalClaimService(TransactionalDocumentService):
             "Part of this period was claimed a moment ago; open the claims "
             "and raise it again."
         )
+        # By where the cost sat, not by kind: a scheme's discount went to
+        # promotional expense and its free goods to cost of goods sold.
+        back = dict.fromkeys((_PROMOTION, _STOCK, _SOLD), ZERO)
+        for candidate in found:
+            back[candidate.credit] += candidate.amount
         entry = DocumentPostingService(self._session).post_principal_claim(
             firm_id=firm_id,
             claim_id=row.id,
             claim_number=number,
             claim_date=data.claim_date,
-            scheme_amount=totals["SCHEME"],
-            stock_amount=totals["EXPIRY"] + totals["BREAKAGE"],
+            scheme_amount=back[_PROMOTION],
+            stock_amount=back[_STOCK],
+            free_goods_amount=back[_SOLD],
             actor_id=actor_id,
         )
         row.journal_entry_id = entry.id
@@ -640,6 +681,7 @@ class PrincipalClaimService(TransactionalDocumentService):
                     period_from=row.period_from,
                     period_to=row.period_to,
                     scheme_amount=row.scheme_amount,
+                    free_goods_amount=row.free_goods_amount,
                     expiry_amount=row.expiry_amount,
                     breakage_amount=row.breakage_amount,
                     total_amount=row.total_amount,
@@ -708,6 +750,7 @@ class PrincipalClaimService(TransactionalDocumentService):
         view = self.responses([row])[0]
         headings = {
             "SCHEME": "Schemes passed on",
+            "FREE_GOODS": "Free goods given on bills",
             "EXPIRY": "Expired stock",
             "BREAKAGE": "Breakage returned by customers",
         }
@@ -743,6 +786,7 @@ class PrincipalClaimService(TransactionalDocumentService):
                 f"{row.period_from:%d-%m-%Y} to {row.period_to:%d-%m-%Y}",
             ),
             ("Schemes", f"{Decimal(str(row.scheme_amount)):,.2f}"),
+            ("Free goods", f"{Decimal(str(row.free_goods_amount)):,.2f}"),
             ("Expiry", f"{Decimal(str(row.expiry_amount)):,.2f}"),
             ("Breakage", f"{Decimal(str(row.breakage_amount)):,.2f}"),
             ("Total claimed", f"{Decimal(str(row.total_amount)):,.2f}"),
@@ -818,6 +862,156 @@ class PrincipalClaimService(TransactionalDocumentService):
             for redemption, promotion in rows
         ]
 
+    def _free_goods(
+        self, firm_id: UUID, principal_id: UUID, start: date, end: date
+    ) -> list[_Candidate]:
+        """Free goods shipped in the period, at what their dispatch cost.
+
+        Two kinds from one read of the period's shipped note lines. Free
+        quantity an offer gave (the order line names the offer) is the
+        scheme's, claimed where the principal funds that offer and at its
+        share. Free quantity a person typed is claimed in full where the
+        product is the principal's. An offer the firm funds itself is claimed
+        from nobody.
+
+        The cost is the stock ledger's for the note and product, split over
+        the note's lines by what each shipped and then by the free part of
+        the line. No cost on the ledger is no claim: NULL is not zero.
+        """
+        shipped = (
+            DeliveryNote.firm_id == firm_id,
+            DeliveryNote.is_deleted.is_(False),
+            DeliveryNote.status.in_(_SHIPPED_NOTES),
+            DeliveryNote.delivery_date >= start,
+            DeliveryNote.delivery_date <= end,
+        )
+        funded = {
+            promotion_id: (name, Decimal(str(share)))
+            for promotion_id, name, share in self._session.execute(
+                select(
+                    Promotion.id, Promotion.name, Promotion.principal_share_percent
+                ).where(
+                    Promotion.firm_id == firm_id,
+                    Promotion.principal_id == principal_id,
+                )
+            ).all()
+        }
+        rows = self._session.execute(
+            select(DeliveryNoteLine, DeliveryNote, SalesOrderLine.free_promotion_id)
+            .join(DeliveryNote, DeliveryNote.id == DeliveryNoteLine.delivery_note_id)
+            .outerjoin(
+                SalesOrderLine,
+                SalesOrderLine.id == DeliveryNoteLine.sales_order_line_id,
+            )
+            .where(
+                *shipped,
+                DeliveryNoteLine.is_deleted.is_(False),
+                DeliveryNoteLine.free_quantity > 0,
+                or_(
+                    and_(
+                        SalesOrderLine.free_promotion_id.is_(None),
+                        DeliveryNoteLine.product_id.in_(
+                            self._principal_products(firm_id, principal_id)
+                        ),
+                    ),
+                    SalesOrderLine.free_promotion_id.in_(
+                        select(Promotion.id).where(
+                            Promotion.firm_id == firm_id,
+                            Promotion.principal_id == principal_id,
+                        )
+                    ),
+                ),
+            )
+            .order_by(DeliveryNote.delivery_date, DeliveryNoteLine.id)
+        ).all()
+        if not rows:
+            return []
+        # Grouped in SQL over the period's notes, never by a list of ids.
+        costs = {
+            (note_id, product_id): Decimal(str(total))
+            for note_id, product_id, total in self._session.execute(
+                select(
+                    DeliveryNote.id,
+                    StockLedgerEntry.product_id,
+                    func.sum(StockLedgerEntry.total_cost),
+                )
+                .join(
+                    DeliveryNote,
+                    and_(
+                        DeliveryNote.delivery_note_number
+                        == StockLedgerEntry.reference_number,
+                        DeliveryNote.firm_id == StockLedgerEntry.firm_id,
+                    ),
+                )
+                .where(
+                    *shipped,
+                    StockLedgerEntry.reference_type == "DELIVERY_NOTE",
+                    StockLedgerEntry.transaction_type == "DISPATCH",
+                    StockLedgerEntry.total_cost.is_not(None),
+                    StockLedgerEntry.is_deleted.is_(False),
+                )
+                .group_by(DeliveryNote.id, StockLedgerEntry.product_id)
+            ).all()
+            if total is not None
+        }
+        moved = {
+            (note_id, product_id): Decimal(str(total or 0))
+            for note_id, product_id, total in self._session.execute(
+                select(
+                    DeliveryNoteLine.delivery_note_id,
+                    DeliveryNoteLine.product_id,
+                    func.sum(DeliveryNoteLine.delivered_quantity),
+                )
+                .join(
+                    DeliveryNote, DeliveryNote.id == DeliveryNoteLine.delivery_note_id
+                )
+                .where(*shipped, DeliveryNoteLine.is_deleted.is_(False))
+                .group_by(
+                    DeliveryNoteLine.delivery_note_id, DeliveryNoteLine.product_id
+                )
+            ).all()
+        }
+        found: list[_Candidate] = []
+        for line, note, promotion_id in rows:
+            key = (note.id, line.product_id)
+            cost = costs.get(key)
+            whole = moved.get(key, ZERO)
+            free = Decimal(str(line.free_quantity or 0))
+            sent = Decimal(str(line.current_delivery_quantity or 0)) + free
+            if cost is None or whole <= 0 or sent <= 0:
+                continue
+            # The line's part of the movement, then the free part of the line.
+            given = (
+                abs(cost)
+                * Decimal(str(line.delivered_quantity or 0))
+                / whole
+                * free
+                / sent
+            )
+            if promotion_id is None:
+                kind, description, share = (
+                    "FREE_GOODS",
+                    "Free goods given on the bill",
+                    Decimal("100"),
+                )
+            else:
+                name, share = funded[promotion_id]
+                kind, description = "SCHEME", f"Free goods under {name}"
+            found.append(
+                _Candidate(
+                    kind=kind,
+                    source_id=line.id,
+                    source_number=note.delivery_note_number,
+                    source_date=note.delivery_date,
+                    product_id=line.product_id,
+                    quantity=free,
+                    description=description,
+                    amount=(given * share / Decimal("100")).quantize(CENT),
+                    credit=_SOLD,
+                )
+            )
+        return found
+
     def _expiries(
         self, firm_id: UUID, principal_id: UUID, start: date, end: date
     ) -> list[_Candidate]:
@@ -855,6 +1049,7 @@ class PrincipalClaimService(TransactionalDocumentService):
                 quantity=Decimal(str(movement.quantity)),
                 description="Expired stock written off",
                 amount=abs(Decimal(str(cost or 0))).quantize(CENT),
+                credit=_STOCK,
             )
             for movement, cost in rows
         ]
@@ -905,6 +1100,7 @@ class PrincipalClaimService(TransactionalDocumentService):
                     quantity=broken,
                     description="Returned broken by the customer",
                     amount=(taxable * broken / returned).quantize(CENT),
+                    credit=_STOCK,
                 )
             )
         return found

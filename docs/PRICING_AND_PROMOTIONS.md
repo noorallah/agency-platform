@@ -337,6 +337,37 @@ nobody dispatched is one the warehouse cannot reconcile. The desktop's
 quotation editor is the only screen that can give a line away; there was no
 field for it anywhere before, so the column was unreachable without the API.
 
+**Goods given free are claimed from the principal at what they cost**
+(2026-10-06). A claim (`app/principal_claims`) counted a scheme's redemptions
+at `benefit_amount`, and free goods are no part of that figure -- they take
+nothing off a bill -- so a principal's "2 + 1" offer claimed nothing, and the
+"10 + 1" a salesman types was no source at all. Both now are, from one read of
+the period's **shipped** delivery note lines (`_free_goods`), valued from the
+stock ledger's DISPATCH for the note and product, split over the note's lines
+by what each shipped and then by the free part of the line. **NULL cost is not
+zero cost**: a dispatch with no cost on the ledger contributes nothing. The
+journal gives the cost back where the dispatch put it -- Dr claims receivable,
+Cr **cost of goods sold** -- not to promotional expense, which is where a
+scheme's discount goes.
+
+**Whose free goods they are is written on the order line.**
+`sales_order_lines.free_promotion_id` names the offer that gave the line its
+free quantity -- on the line, or as the gift line the engine added -- and is
+null where a person typed the figure. An offer's free goods are claimed under
+**SCHEME**, from the principal that funds that offer and at its
+`principal_share_percent`, whatever the product; typed free goods are their
+own kind, **FREE_GOODS** (`principal_claims.free_goods_amount`), claimed in
+full where the product's brand is the principal's. Free goods under an offer
+the firm funds itself are claimed from nobody. Three limits. A line written
+before `20261006_0335` has no marker and reads as typed. An editor that sends
+an offer's free quantity back as a figure makes it a typed one on that save --
+the gap the quotation section above records -- which also takes it out of the
+offer's free-unit budget; `SalesOrderLineResponse.free_promotion_id` is there
+so an editor can leave the box blank instead. And a sales return takes back
+what was charged, never the free units, so no return reduces a claim: the
+goods stayed given. `tests/unit/test_principal_claim_free_goods.py` is the
+guard.
+
 ## What may be billed is what was charged, not what left the warehouse
 
 **What may be billed is what was charged, not what left the warehouse.** A

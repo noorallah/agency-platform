@@ -494,6 +494,9 @@ class PromotionLineOutcome(PromotionSchema):
     line_number: int
     discount_amount: Decimal
     free_quantity: Decimal
+    #: The offer that gave `free_quantity`, so the document can keep whose
+    #: free goods these are. Null where no offer gave any.
+    free_promotion_id: UUID | None = None
     applied_promotion_codes: list[str]
 
 
@@ -533,6 +536,8 @@ class PromotionGift(PromotionSchema):
     product_id: UUID
     quantity: Decimal
     promotion_code: str
+    #: The row behind the code: a code is only unique among live offers.
+    promotion_id: UUID | None = None
 
 
 class PromotionEvaluationResponse(PromotionSchema):
