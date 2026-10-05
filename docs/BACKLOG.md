@@ -6078,3 +6078,64 @@ nothing and the paid line keeps its cost. Same-product free goods match
 Tally's actual-versus-billed quantities, and here the paid amount is spread
 over paid and free units. What the others add is rows 25 and 26 above.
 
+---
+
+## 87. Selling against Tally, Zoho, ERPNext and Busy/Marg -- every gap
+
+**Status, 2026-10-05: audited and prioritised with the owner; not built.** The
+owner, after the selling check of the same day: "compare sales module with
+market available tool and find gaps, we did this for purchases", then walked
+every gap and chose *build now*, *later* or *skip*. 40 features were checked
+against the routers, the phase 2 menu, `report_catalog.dart` and the docs:
+**9 built, 14 partial, 17 missing**. "Built" means the code and a menu entry
+exist; nothing was run for this audit, and the verdicts are from reading the
+code (service invoices and the walk-in sale were re-checked by hand).
+
+Built and needing nothing: free-goods schemes on sales (`app/promotions`),
+kits and bundles (`products/services/kits.py`), the outward e-way bill
+(offline and sandbox), TDS deducted by the customer on a receipt, approval by
+value and level (`app/approvals`), bill-to and ship-to with place of supply,
+the last price to the customer while billing, sales analysis with margin and
+last-year comparison, and the e-invoice withdrawal and credit-note time
+limits. Every gap is below; where an older section already holds it, that
+section stays the place it is built from and this row points to it.
+
+| # | Gap | Today | What to build | Owner's decision | Older § |
+| --- | --- | --- | --- | --- | --- |
+| 1 | **GST sales register and HSN summary of sales** | Partial: the tables exist only inside the GSTR-1 screen | Both as reports of their own under Reports, with export, as purchasing has (§86 row 17) | **Build now** (SG-1) | none |
+| 2 | **Walk-in cash sale** | Missing: every bill needs a customer record; no built-in cash customer | A built-in *Cash* customer, and the buyer's name and phone typed on the bill | **Build now** (SG-2) | none |
+| 3 | **Service invoices** | Missing: `ProductType.SERVICE` and `hsn_sac` exist, but nothing in the sales chain reads the type, so a service is reserved and dispatched like goods | A service line that reserves and moves no stock, billed with its SAC | **Build now** (SG-3) | none |
+| 4 | **Charges on the bill with their own GST** | Partial: freight is taxed at the goods' rate; other charges are untaxed | Packing, handling and other charges, each with a rate of its own | **Build now** (SG-4) | §64 row 4 |
+| 5 | **Transporter master and freight terms** | Partial: transporter, GSTIN, LR, vehicle and proof of delivery are on the note; the transporter is typed text | A transporter master chosen on the note; freight paid or to-pay | **Build now** (SG-5) | §67 rows 5-6 |
+| 6 | **Attach files to sales documents** | Partial: the tables take a file name and path; no upload, download or button | Upload, list, download and delete on the order, quotation, note, invoice and return, with an Attachments button, as purchase bills have (§86 row 16) | **Build now** (SG-6) | none |
+| 7 | **Hold and recall a counter bill; shift closing** | Missing: a saved draft is the only stand-in | Park a bill and recall it; a cashier shift with opening cash, a cash count at closing and a shift summary | **Build now**, both parts (SG-7) | §55 M10 |
+| 8 | **Collection follow-up** | Partial: outstanding, overdue and collection reports, reminders, call lists | A promise-to-pay date on a bill, a collector for a customer, a route-wise collection sheet | **Build now** (SG-8) | §55 G9, §39 |
+| 9 | **Turnover rebate to a customer** | Missing: `app/supplier_rebates` is purchase-only | Slab rebate agreements per customer, accrual, settlement by credit note | **Build now** (SG-9) | §70 row 8 |
+| 10 | **Van sales** | Partial: the route-sale challan reason and the loading sheet | A van as a stock location, billing off it, end-of-day van settlement | Later | §55 G7 |
+| 11 | **Export and SEZ sales** | Partial: customer types, zero-rating, GSTR-1 export table and e-invoice types exist; currency columns sit unused | LUT register, shipping bill and port code, a foreign-currency receivable with exchange gain or loss on receipt | Later | §55 N2 |
+| 12 | **Warranty by serial** | Partial: a serial stores warranty start and end | Warranty from the sale date, expiry alerts, claims and replacements, a report | Later | none |
+| 13 | **Expiry and breakage claims from customers** | Partial: a sales return records condition; the claim to the principal is built | A take-back rate, a breakage allowance, a return window enforced | Later | §55 G10 |
+| 14 | **Import orders or invoices from a file** | Partial: a JSON import route with no caller; file imports cover masters only | Excel/CSV import of orders and invoices through the mapping screen | Later | §46 |
+| 15 | **Print formats** | Partial: one template per document type, copy marks, thermal roll | Several templates to choose from; a second or regional language | Later | §55 G13 |
+| 16 | **Packing slip** | Missing | Box-wise contents, weights and number of packages | Later | none |
+| 17 | **Stock promise and substitutes** | Partial: free stock on the line; a back-order report | A promise date from open purchase orders; a suggested substitute | Later | §67 |
+| 18 | **Bulk price revision with approval** | Partial: price lists carry effective dates and are edited one by one | Revise many prices by a percentage or a file, dated and approved | Later | §64 row 1 |
+| 19 | **Customer's own item codes** | Missing | A customer-wise code and name printed on their documents | Later | none |
+| 20 | **Consignment with a customer** | Missing: only the *on approval* challan reason | Stock lying with the customer, billed when sold, returned otherwise | Later | §86 row 13 (supplier side) |
+| 21 | **CRM activities** | Missing: enquiry follow-ups and call lists only | Visit log, call notes, tasks and complaint tickets on a customer | Later | §42.6 |
+| 22 | **Brokers and outside agents** | Missing: commission pays the firm's own salesmen | An agent on the invoice, brokerage accrued, paid with TDS 194H | Later | none |
+| 23 | **Cost centre or project on sales** | Partial: the masters exist for journals | A tag on sales documents and a report by it | Skip for now | §74 |
+| 24 | **Gift vouchers, store credit, wallet** | Missing | Stored value apart from loyalty points and advances | Skip for now | none |
+| 25 | **Recurring invoices and AMC** | Missing | A template raising a bill each period | Later (already parked) | §55 N7, §42.15 |
+| 26 | **Drop-ship** | Missing | As §86 row 12 | Later (already logged) | §86 row 12 |
+| 27 | **Field-sales phone app** | Missing | Order taking, collections, visit check-in | Parked by the owner | §42.6, §48, §39 |
+| 28 | **Returnable crates and empties** | Missing | Per-customer balance of returnables and deposits | Later (already logged) | §55 G12 |
+| 29 | **Customer portal; payment links** | Missing: a static UPI QR only | Portal and a payment gateway link | Parked by the owner | §42.14, §51 B4 |
+| 30 | **Marketplace order import** | Missing | Amazon, Flipkart, Shopify, WooCommerce | Skip (outside the distributor profile) | §42.15 |
+| 31 | **Bill of Supply** | Missing | A composition or exempt dealer's document and series | Parked until a firm needs it | §77 row 14, §55 G11 |
+
+**Build order** (smallest and most widely needed first): SG-1 GST sales
+register and HSN summary, SG-2 walk-in cash sale, SG-3 service invoices, SG-4
+charges with their own GST, SG-5 transporter master, SG-6 attachments, SG-7
+counter hold and shift closing, SG-8 collection follow-up, SG-9 customer
+turnover rebate. Detail in `docs/BACKLOG_BUILD_PLAN.md` §8.

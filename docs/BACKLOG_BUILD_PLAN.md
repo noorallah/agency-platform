@@ -1091,3 +1091,81 @@ test pass come after. A QA round on QA01 follows every three or four items
 - **Decided:** fields on the batch (receipt line already stores MRP and selling price); the sales pricing resolver prefers the batch's PTR/PTS by customer type (retailer or stockist) when the batch is chosen; gated on the pharma/FMCG business features.
 - **What gets built:** batch fields + migration, receipt capture, resolver hook, desktop columns.
 - **Tests:** rate by customer type, missing batch rate falls back. **Effort:** M.
+
+---
+
+## 8. Selling gaps against other tools (`docs/BACKLOG.md` §87) -- owner 2026-10-05
+
+**Scope, chosen by the owner row by row:** the nine rows of §87 marked *Build
+now*, in the order below, **one PR each (server, then desktop where a screen
+changes), merged on targeted tests** (CI once a day). The *Later* rows stay in
+§87 for a later phase; the parked rows stay parked. Decisions are taken by
+market standard (Tally, Zoho, ERPNext, Busy, Marg) unless marked *owner*.
+Each item ends with its §87 row marked built and the PR named. **Start each
+item in a fresh session**, reading this section first. The phase 2 UI only.
+
+| Order | Id | §87 row | Item | Effort | Depends on |
+| --- | --- | --- | --- | --- | --- |
+| 1 | SG-1 | #1 | GST sales register and HSN summary of sales | S-M | -- |
+| 2 | SG-2 | #2 | Walk-in cash sale | S | -- |
+| 3 | SG-3 | #3 | Service invoices | M | -- |
+| 4 | SG-4 | #4 | Charges on the bill with their own GST | S-M | -- |
+| 5 | SG-5 | #5 | Transporter master and freight terms | S | -- |
+| 6 | SG-6 | #6 | Attach files to sales documents | M | -- (reuses `app/document_files`, PG-4) |
+| 7 | SG-7 | #7 | Hold and recall a counter bill; shift closing | M | SG-2 |
+| 8 | SG-8 | #8 | Collection follow-up | M | -- |
+| 9 | SG-9 | #9 | Turnover rebate to a customer | M | -- (mirrors `app/supplier_rebates`, BUY-13) |
+
+### SG-1. GST sales register and HSN summary of sales (§87 #1)
+- **What it is:** approved bills, credit notes, customer debit notes and sales returns of a period by tax head, and the same outward supplies folded by HSN -- outside the GSTR-1 screen, for the firm's CA.
+- **Decided:** the sales twin of `gst_purchase_register.py` (PG-1, #1143, #1144): one row per document, credit notes and returns in minus on their own date, heads read off the stored components through `settle_to_ledger` so the report agrees with GSTR-1 and the ledger to the paisa (D-SELL-48).
+- **What gets built:** a service beside the sales invoice reports, two routes under `/sales-invoices/reports/`, two entries in `report_catalog.dart`. No migration.
+- **Tests:** heads by document, a credit note and a return in minus, paged together, statement count constant, totals equal GSTR-1's for the same period. **Effort:** S-M.
+
+### SG-2. Walk-in cash sale (§87 #2)
+- **What it is:** a counter bill for a buyer with no customer record.
+- **Decided:** one built-in customer per firm, *Cash sale*, created with the firm and for existing firms by migration, never deletable; the bill carries `buyer_name` and `buyer_phone` typed at the counter and prints them; a walk-in bill is unregistered (B2C), takes no credit (it must be paid in full at approval) and earns no loyalty.
+- **What gets built:** the customer flag and seed, two columns on the sales invoice (migration, idempotent, firm-owned), the approval rule, the counter editor's *Walk-in* choice, the print.
+- **Tests:** paid-in-full enforced, B2C in GSTR-1, name on the print, the cash customer cannot be deleted or given credit. **Effort:** S.
+
+### SG-3. Service invoices (§87 #3)
+- **What it is:** freight, repair, installation or any service billed with its SAC and no stock.
+- **Decided:** a product of type `SERVICE` is never reserved, picked, dispatched or returned to stock; on an order it needs no delivery note (it is billed straight from the order line, or on a counter bill); it posts revenue and tax only, with no cost of goods sold. Purchasing already treats service purchases this way.
+- **What gets built:** the type read once in a shared helper and honoured by `sales_order` (reservation), `delivery_note` (a service line is refused there), `sales_invoice` (bill from the order line) and `sales_return` (no stock back); GSTR-1 HSN table shows the SAC. Migration only if the order line needs a billed-quantity column.
+- **Tests:** no movement and no reservation, the journal has no COGS leg, a mixed order ships its goods and bills its service, a return credits without stock. **Effort:** M.
+
+### SG-4. Charges on the bill with their own GST (§87 #4)
+- **What it is:** packing, handling, insurance or another charge at a tax rate of its own.
+- **Decided:** a small `sales_invoice_charges` child (name, amount, tax profile) rather than more header columns; a charge is taxed at its own rate, sits in the taxable value and reaches GSTR-1; freight and the untaxed *additional charges* stay as they are. Carried from the order where typed there.
+- **What gets built:** the table and migration, tax through `TaxRuleService.simulate`, posting to a *Other charges recovered* control purpose, the editor's charges rows, the print.
+- **Tests:** tax by head, journal balances, GSTR-1 includes it, a credit note against the bill leaves the charge alone. **Effort:** S-M.
+
+### SG-5. Transporter master and freight terms (§87 #5)
+- **What it is:** choose the transporter instead of typing it on every note.
+- **Decided:** a `transporters` master (name, GSTIN, transporter id for the e-way bill, phone, default mode); the delivery note keeps its text columns and gains `transporter_id` that fills them; `freight_terms` PAID / TO_PAY / TO_BE_BILLED on the note, printed on the challan.
+- **What gets built:** the master with CRUD and a list screen, the note's picker, the e-way bill reads the transporter id. Migration, firm-owned.
+- **Tests:** the note inherits the master and a later edit of the master leaves old notes alone; the e-way bill payload. **Effort:** S.
+
+### SG-6. Attach files to sales documents (§87 #6)
+- **What it is:** the customer's PO scan on the order, the signed challan on the note.
+- **Decided:** the store, limits and audit of PG-4 (`app/document_files`: PDF/JPG/PNG, 10 MB, bytes in the firm's store, removal audited), reused for the quotation, order, delivery note, invoice and return; `attached_file_count` on list rows; the old `*_attachments` name-and-path tables are left alone.
+- **What gets built:** five route groups over the shared service, the Attachments button and the Files column in the phase 2 screens.
+- **Tests:** upload, list, download, delete with the right permission per document. **Effort:** M.
+
+### SG-7. Hold and recall a counter bill; shift closing (§87 #7)
+- **What it is:** park a half-made bill while the next customer is served; close the till at the end of a shift.
+- **Decided:** a held bill is a draft counter bill flagged `is_held`, listed on the counter screen and recalled with one key; a **shift** belongs to a cashier and a cash account: opened with an opening float, closed with a counted amount, the difference posted to *Cash short and over*; the summary shows bills, tenders by mode and the cash expected.
+- **What gets built:** the hold flag, `counter_shifts` (migration), open and close routes, the counter screen's Hold, Recall and Shift panel, a shift report.
+- **Tests:** one open shift per cashier, expected cash from the tenders, the difference journal, a held bill never posts. **Effort:** M. **Depends on:** SG-2.
+
+### SG-8. Collection follow-up (§87 #8)
+- **What it is:** who is chasing which bill, and what the customer promised.
+- **Decided:** a promise (date, amount, note) recorded against a bill, kept as history, shown on the outstanding list and the statement; a collector on the customer (a firm member, defaulting to the salesman); a collection sheet by route or collector listing bills due with the promises.
+- **What gets built:** `payment_promises` (migration), the customer's collector, routes, the Receipts screen's *Promise*, a *Collection sheet* report and PDF, a *Promises due today* list.
+- **Tests:** a promise broken when its date passes unpaid, kept when paid, the sheet by collector. **Effort:** M.
+
+### SG-9. Turnover rebate to a customer (§87 #9)
+- **What it is:** "2% back on the year's purchases over 10 lakh", promised to a customer.
+- **Decided:** the mirror of BUY-13: an agreement (customer or group, period, slabs), turnover counted from approved bills net of returns and credit notes, an accrual Dr *Rebates allowed* / Cr *Customer rebate payable*, settled by a party adjustment or a credit note; GST on a post-sale discount follows s.15(3), so a rebate not agreed before the sale is a financial credit note with no tax.
+- **What gets built:** `app/customer_rebates`, two control purposes backfilled, the Sell screen, a statement of accrued and settled.
+- **Tests:** slab arithmetic, returns reduce the base, accrual and reversal balance, one live agreement per customer per period. **Effort:** M.
