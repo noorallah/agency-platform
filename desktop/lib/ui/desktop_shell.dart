@@ -57,6 +57,7 @@ import 'purchase_invoices/purchase_invoice_management_page.dart';
 import 'purchase_returns/purchase_return_management_page.dart';
 import 'sales/beat_plan_management_page.dart';
 import 'sales/call_list_page.dart';
+import 'sales/counter_shifts_page.dart';
 import 'sales/enquiries_page.dart';
 import 'sales/geography_master_page.dart';
 import 'sales/route_builder_page.dart';
@@ -3310,6 +3311,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),
+      'counter-shifts' => CounterShiftsPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+        ),
       'proforma-invoices' => ProformaPage(
           api: widget.api,
           preferences: widget.preferences,
@@ -3493,6 +3499,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           'Tax Collected at Source',
           'Charged on the money a buyer pays, not on what they were billed, '
               'and only on the part above the year’s threshold.',
+        ),
+      'counter-shifts' => (
+          'Counter Shifts',
+          'Each cashier’s till from opening to closing: what it took by mode, '
+              'what was counted, and the difference from the cash expected.',
         ),
       'proforma-invoices' => (
           'Proforma Invoices',

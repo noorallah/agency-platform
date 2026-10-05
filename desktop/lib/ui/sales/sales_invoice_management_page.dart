@@ -1181,7 +1181,10 @@ class _SalesInvoiceManagementPageState
       ),
       ChoosableColumn(
         column: const GridColumn(key: 'status', label: 'Status'),
-        cell: (item) => '${item['status'] ?? ''}',
+        // A bill put aside at the counter never looks live (SG-7), the way
+        // the order list marks a hold.
+        cell: (item) => '${item['status'] ?? ''}'
+            '${item['is_held'] == true ? ' (held)' : ''}',
         shownByDefault: true,
       ),
       ChoosableColumn(

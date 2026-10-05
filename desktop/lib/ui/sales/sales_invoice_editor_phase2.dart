@@ -126,6 +126,9 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
         const SingleActivator(LogicalKeyboardKey.f9): () {
           if (!_saving) unawaited(_saveApprovePrint());
         },
+        const SingleActivator(LogicalKeyboardKey.f8): () {
+          if (_counterMode && !_saving) unawaited(_holdBill());
+        },
         const SingleActivator(LogicalKeyboardKey.enter, control: true): () {
           if (!_direct) return;
           _setState(() => _directLines.add(_DirectLine()));
@@ -147,7 +150,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                   'Draft',
                 ],
                 hint: _direct
-                    ? 'F9 save & print  ·  Ctrl+Enter new line  ·  Ctrl+S save'
+                    ? 'F9 save & print  ·  F8 hold  ·  Ctrl+Enter new line  ·  Ctrl+S save'
                     : 'F9 save & print  ·  Enter next field  ·  Ctrl+S save',
                 actions: [
                   TextButton(
@@ -167,6 +170,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                     onRefused: (message) =>
                         _setState(() => _error = message),
                   ),
+                  ..._holdActions(),
                   // A draft prints marked "not a tax invoice" until it is
                   // approved; the list prints the final copy.
                   if (!_direct)
@@ -217,6 +221,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             _invoiceHeader(context),
+                            if (_counterMode) _shiftStrip(),
                             if (_direct) _scanBar(context),
                             Expanded(
                               child: _direct
