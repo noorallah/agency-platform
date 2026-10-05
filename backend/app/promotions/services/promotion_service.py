@@ -54,6 +54,7 @@ from app.promotions.schemas import (
     PromotionLineOutcome,
     PromotionStatus,
 )
+from app.promotions.services.references import live_row_ids
 
 ZERO = Decimal("0")
 HUNDRED = Decimal("100")
@@ -111,6 +112,10 @@ class PromotionService:
     def __init__(self, session: Session) -> None:
         """Bind the service to the request unit of work."""
         self._session = session
+        #: Each product an offer gives away, and whether the firm holds it.
+        self._gift_products: dict[str, UUID | None] = {}
+        #: The offers whose gift was passed over, for the trace.
+        self._gifts_passed_over: dict[UUID, Promotion] = {}
 
     def evaluate(
         self, data: PromotionEvaluationRequest, *, firm_scope: UUID
@@ -332,6 +337,16 @@ class PromotionService:
                 applied_promotions=applied_promotions,
                 decisions=decisions,
             )
+        for passed_over in self._gifts_passed_over.values():
+            decisions.append(
+                self._decision(
+                    passed_over,
+                    False,
+                    "The product this offer gives away is not one of this "
+                    "firm's products any more, so nothing was given.",
+                )
+            )
+        self._gifts_passed_over = {}
 
         response = PromotionEvaluationResponse(
             lines=[
@@ -963,10 +978,14 @@ class PromotionService:
                     state.discount += share
             elif kind == PromotionActionType.FREE_PRODUCT.value:
                 gift_id = params.get("free_product_id")
-                free = Decimal(str(params.get("free_quantity", 0) or 0))
+                free = _number(params, "free_quantity")
                 if gifts is None or gift_id in (None, "None") or free <= ZERO:
                     continue
-                threshold = Decimal(str(params.get("buy_quantity", 0) or 0))
+                gift_product = self._gift_product(gift_id, promotion)
+                if gift_product is None:
+                    continue
+                # No threshold is stored as the text "None": give it once.
+                threshold = _number(params, "buy_quantity")
                 if threshold > ZERO:
                     # Counted across the lines the offer matched, not per line:
                     # "buy ten of these, get one of those" is a statement about
@@ -979,7 +998,7 @@ class PromotionService:
                     free = free * times
                 gifts.append(
                     PromotionGift(
-                        product_id=UUID(str(gift_id)),
+                        product_id=gift_product,
                         quantity=free,
                         promotion_code=promotion.code,
                         promotion_id=promotion.id,
@@ -1008,6 +1027,27 @@ class PromotionService:
                 # than the offer's.
                 waives_freight = True
         return added_bill, waives_freight
+
+    def _gift_product(self, gift_id: object, promotion: Promotion) -> UUID | None:
+        """Return the product an offer gives away, if the firm still has it.
+
+        An offer is checked when it is written (`assert_offer_references`),
+        but a product can be retired afterwards and a row can reach the store
+        some other way. A gift of a product the firm does not hold used to be
+        handed to the document, which then failed with a 500 on every
+        matching order (D-PRC-5); it is passed over instead, and the trace
+        says so. Asked once per product for the evaluation.
+        """
+        key = str(gift_id)
+        if key not in self._gift_products:
+            found = live_row_ids(
+                self._session, Product, [key], firm_id=promotion.firm_id
+            )
+            self._gift_products[key] = next(iter(found), None)
+        product_id = self._gift_products[key]
+        if product_id is None:
+            self._gifts_passed_over[promotion.id] = promotion
+        return product_id
 
     @staticmethod
     def _decision(
@@ -1239,6 +1279,20 @@ def _combo_saving(
         (state, min(share, state.remaining))
         for state, share in zip(targets, shares, strict=True)
     ]
+
+
+def _number(params: dict[str, object], key: str) -> Decimal:
+    """Read one stored parameter as a number, nothing where it holds none.
+
+    `PromotionCrudService._parameters` writes an absent figure as the text
+    "None", so a `FREE_PRODUCT` offer with no buy quantity -- "spend ten
+    thousand, get one" -- stores exactly that, and reading it as a number
+    raised on every document the offer matched (D-PRC-5).
+    """
+    try:
+        return Decimal(str(params.get(key) or 0))
+    except ArithmeticError:
+        return ZERO
 
 
 def _cap(params: dict[str, object]) -> Decimal | None:

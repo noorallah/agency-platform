@@ -23,6 +23,7 @@ from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.promotions.models import Promotion, PromotionAction, PromotionCondition
 from app.promotions.schemas import PromotionStatus
+from app.promotions.services.references import assert_offer_references
 
 
 class PromotionCopyService:
@@ -48,6 +49,9 @@ class PromotionCopyService:
             ValidationError: If the window is backwards, the suffix is empty or
                 not letters and digits, or an id is listed twice.
             ResourceNotFoundError: If an offer is not the firm's.
+            ValidationError: Also if an offer names a product, customer or
+                other master that is no longer the firm's (D-PRC-5): the copy
+                would be an offer nobody could publish.
             ConflictError: If a new code is already taken.
 
         """
@@ -91,6 +95,19 @@ class PromotionCopyService:
             raise ConflictError(
                 f"An offer coded {', '.join(taken)} already exists; choose "
                 "another suffix."
+            )
+
+        for source in ordered:
+            assert_offer_references(
+                self._session,
+                firm_id=firm_id,
+                conditions=[c for c in source.conditions if not c.is_deleted],
+                actions=[
+                    (action.sequence, action.action_type, action.parameters or {})
+                    for action in source.actions
+                    if not action.is_deleted
+                ],
+                offer=source.code,
             )
 
         copies: list[Promotion] = []
