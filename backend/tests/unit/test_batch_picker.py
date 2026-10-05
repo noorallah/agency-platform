@@ -316,6 +316,41 @@ def test_batches_that_do_not_add_up_are_refused_at_dispatch() -> None:
         shop.dispatch(note)
 
 
+def test_a_chosen_batch_cannot_ship_more_than_it_holds() -> None:
+    """JUNE holds five; eight chosen from it is refused and nothing moves.
+
+    A line whose batches a person chose never reaches the allocator that
+    refuses short stock, and the movement does not refuse either, so a batch
+    holding 2 shipped 3 and stood at -1 (D-SELL-50, 2026-10-05).
+    """
+    shop = _Shop()
+    june = shop.stock("JUNE")
+    june.current_quantity = Decimal("5")
+    june.available_quantity = Decimal("5")
+    shop.session.commit()
+    note = shop.note(shop.picks(JUNE="8"))
+
+    with pytest.raises(
+        ValidationError, match=r"holds 5\.0000 available here, and 8\.0000 is chosen"
+    ):
+        shop.dispatch(note)
+
+    shop.session.rollback()
+    assert shop.stock("JUNE").current_quantity == Decimal("5.0000")
+    assert shop.drawn(note) == {}
+
+
+def test_stock_the_order_held_for_the_line_counts_as_its_own() -> None:
+    """MARCH has eight of its ten held by this order; all eight may be chosen."""
+    shop = _Shop()
+    assert shop.stock("MARCH").available_quantity == Decimal("2.0000")
+    note = shop.note(shop.picks(MARCH="8"))
+
+    shop.dispatch(note)
+
+    assert shop.drawn(note) == {"MARCH": Decimal("8.0000")}
+
+
 def test_a_batch_expired_on_the_notes_own_date_is_refused() -> None:
     """MARCH expires on the 31st; a note dated the 31st cannot ship it."""
     shop = _Shop()

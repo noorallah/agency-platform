@@ -2212,8 +2212,9 @@ class DeliveryNoteService(TransactionalDocumentService):
         """Return the batches a person chose for a line, checked; None if none.
 
         They must add up to what the line delivers and each be in date on the
-        note's own date. Whether each batch has the stock is the dispatch
-        movement's to refuse, after this line's own hold is let go.
+        note's own date. Whether each batch has the stock is refused at
+        dispatch by `_assert_chosen_in_stock`, after this line's own hold is
+        let go.
 
         Raises:
             ValidationError: When the quantities disagree or a batch expired.
@@ -2942,6 +2943,9 @@ class DeliveryNoteService(TransactionalDocumentService):
                 # A person chose the batches (backlog 79): those, and only
                 # those, leave.
                 allocation = chosen
+                self._assert_chosen_in_stock(
+                    line, chosen, row=row, branch_id=goods_branch_id
+                )
                 fefo_skipped = self._record_fefo_skip(
                     row,
                     line,
@@ -3053,6 +3057,53 @@ class DeliveryNoteService(TransactionalDocumentService):
             actor_id=actor_id,
         )
         return batch_notes
+
+    def _assert_chosen_in_stock(
+        self,
+        line: DeliveryNoteLine,
+        chosen: Sequence[tuple[UUID | None, Decimal]],
+        *,
+        row: DeliveryNote,
+        branch_id: UUID,
+    ) -> None:
+        """Refuse a line whose chosen batches do not each hold what is asked.
+
+        ``allocate_for_dispatch`` refuses a line it cannot cover; a line whose
+        batches a person chose never reaches it, and the movement itself does
+        not refuse, so a batch holding 2 shipped 3 and stood at -1 (D-SELL-50,
+        2026-10-05). Judged after the line's own hold is let go, so stock the
+        order reserved for this line counts as its own.
+        """
+        if line.warehouse_id is None:
+            return
+        asked: dict[UUID | None, Decimal] = {}
+        for batch_id, quantity in chosen:
+            asked[batch_id] = asked.get(batch_id, ZERO) + Decimal(str(quantity))
+        for batch_id, quantity in asked.items():
+            available = self._inventory.available_at(
+                firm_scope=row.firm_id,
+                branch_id=branch_id,
+                warehouse_id=line.warehouse_id,
+                storage_node_id=line.storage_node_id,
+                product_id=line.product_id,
+                batch_id=batch_id,
+            )
+            if quantity <= available:
+                continue
+            batch = (
+                None if batch_id is None else self._session.get(BatchRecord, batch_id)
+            )
+            name = (
+                "Stock with no batch"
+                if batch is None
+                else f"Batch {batch.batch_number}"
+            )
+            held = self._q(max(available, ZERO))
+            raise ValidationError(
+                f"Line {line.line_number}: {name} holds {held} available here, "
+                f"and {self._q(quantity)} is chosen from it. Choose less from "
+                "it, or another batch."
+            )
 
     def _issue_cost(self, transaction_id: UUID) -> Decimal:
         """Return what the stock ledger released for one movement.
