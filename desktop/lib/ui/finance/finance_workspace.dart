@@ -13,6 +13,7 @@ import 'bank_reconciliation_page.dart';
 import 'control_accounts_page.dart';
 import 'contra_voucher_page.dart';
 import 'bank_details_page.dart';
+import 'collection_follow_up_pages.dart';
 import 'payment_runs_page.dart';
 import 'post_dated_cheque_page.dart';
 import 'tally_export_page.dart';
@@ -377,6 +378,18 @@ class _FinanceWorkspaceState extends State<FinanceWorkspace> {
               permissions: widget.permissions,
               hasActiveFirm: widget.hasActiveFirm,
               direction: SettlementDirection.receipt,
+            ),
+          'collection-sheet' => CollectionSheetPage(
+              api: widget.api,
+              preferences: widget.preferences,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
+            ),
+          'payment-promises' => PaymentPromisesPage(
+              api: widget.api,
+              preferences: widget.preferences,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
             ),
           'payments' => SettlementsPage(
               api: widget.api,

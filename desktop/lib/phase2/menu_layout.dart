@@ -293,6 +293,10 @@ abstract final class MenuLayout {
       MenuGroupSpec('Money', [
         MenuItemSpec(AppModule.accounting, 'receipts', 'Receipts'),
         MenuItemSpec(
+            AppModule.accounting, 'collection-sheet', 'Collection Sheet'),
+        MenuItemSpec(
+            AppModule.accounting, 'payment-promises', 'Payment Promises'),
+        MenuItemSpec(
             AppModule.accounting, 'pdc-received', 'Post-dated Cheques'),
         MenuItemSpec(AppModule.accounting, 'refunds', 'Refunds'),
         MenuItemSpec(

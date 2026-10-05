@@ -1285,6 +1285,10 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   // Empty string is "nobody", sent as null.
   late String _salesmanId = widget.customer?.salesmanId ?? '';
   List<FirmMember> _members = const [];
+  // Empty string is "nobody", sent as null -- and only once the member list
+  // arrived (`_collectorsLoaded`): absent leaves the collector alone.
+  late String _collectorId = widget.customer?.collectorId ?? '';
+  bool _collectorsLoaded = false;
   // Empty string is "not a supplier", sent as null. Sent only once the
   // supplier list arrived (`_vendorsLoaded`): absent leaves the link alone.
   late String _linkedVendorId = widget.customer?.linkedVendorId ?? '';
@@ -1394,10 +1398,21 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     if (widget.loadMembers == null) return;
     try {
       final List<FirmMember> members = await widget.loadMembers!();
-      if (mounted) setState(() => _members = members);
+      if (mounted) {
+        setState(() {
+          _members = members;
+          _collectorsLoaded = true;
+        });
+      }
     } on Object {
-      // Unreadable leaves the picker with just the stored manager.
-      if (mounted) setState(() => _members = const []);
+      // Unreadable leaves the picker with just the stored manager, and the
+      // collector picker is not offered.
+      if (mounted) {
+        setState(() {
+          _members = const [];
+          _collectorsLoaded = false;
+        });
+      }
     }
   }
 
@@ -1567,6 +1582,41 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
           ? null
           : (value) => setState(() {
                 _salesmanId = value ?? '';
+                _dirty = true;
+              }),
+    );
+  }
+
+  /// The Collector picker (backlog 87 #8). Values are user ids; '' is
+  /// nobody. A stored collector who has since left the firm stays selectable
+  /// as its own item, so a save does not silently clear them.
+  Widget _collectorDropdown() {
+    final List<DropdownMenuItem<String>> items = [
+      const DropdownMenuItem(value: '', child: Text('Nobody in particular')),
+      for (final FirmMember member in _members)
+        DropdownMenuItem(value: member.userId, child: Text(member.label)),
+    ];
+    if (_collectorId.isNotEmpty &&
+        !_members.any((member) => member.userId == _collectorId)) {
+      items.add(DropdownMenuItem(
+        value: _collectorId,
+        child: const Text('Current collector (no longer a member)'),
+      ));
+    }
+    return DropdownButtonFormField<String>(
+      key: const ValueKey('customer-collector'),
+      isExpanded: true,
+      initialValue: _collectorId,
+      decoration: const InputDecoration(
+        labelText: 'Collector',
+        helperText: 'Who chases the dues of this customer; the collection '
+            'sheet groups by them',
+      ),
+      items: items,
+      onChanged: _readOnly
+          ? null
+          : (value) => setState(() {
+                _collectorId = value ?? '';
                 _dirty = true;
               }),
     );
@@ -1750,6 +1800,10 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         // Empty means "no group", sent as null so it clears any prior one.
         'customer_group_id': _customerGroupId.isEmpty ? null : _customerGroupId,
         'salesman_id': _salesmanId.isEmpty ? null : _salesmanId,
+        // Only once the members arrived: absent means "leave the collector
+        // alone" and null clears it.
+        if (widget.loadMembers != null && _collectorsLoaded)
+          'collector_id': _collectorId.isEmpty ? null : _collectorId,
         // Only once the supplier list arrived: absent means "leave the link
         // alone" and null clears it.
         if (widget.loadVendors != null && _vendorsLoaded)
@@ -1908,6 +1962,8 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
               }),
             ),
             if (widget.loadMembers != null) _managerDropdown(),
+            if (widget.loadMembers != null && _collectorsLoaded)
+              _collectorDropdown(),
             if (widget.loadVendors != null && _vendorsLoaded)
               _linkedVendorDropdown(),
             _text('gst_number', 'GST number'),
