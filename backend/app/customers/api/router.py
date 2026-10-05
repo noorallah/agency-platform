@@ -18,6 +18,7 @@ from app.common.file_import import (
     file_format_of,
     report_response,
 )
+from app.common.firm_metadata import firm_today
 from app.common.pan_report import PanReportRow, customer_pan_report
 from app.common.party_merge import (
     DuplicateCandidate,
@@ -37,7 +38,6 @@ from app.core.exceptions import AuthorizationError, ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
-from app.core.utils.dates import utc_now
 from app.customers.models import Customer
 from app.customers.schemas import (
     CreditControlSettingsResponse,
@@ -534,7 +534,7 @@ async def import_customer_opening_bill_file(
         except ValueError as error:
             raise ValidationError("posting_date must be a date, yyyy-mm-dd.") from error
     else:
-        on = utc_now().date()
+        on = firm_today(db, firm_id)
     report = CustomerOpeningBillFileImporter(db).run(
         content,
         file_format=file_format,
@@ -764,9 +764,9 @@ def customer_balance_confirmations(
     """Draw a balance confirmation letter for every customer with a balance.
 
     One PDF per customer, zipped, because each goes to its own address.
-    `as_of` defaults to today in UTC.
+    `as_of` defaults to the firm's own today.
     """
-    day = as_of or utc_now().date()
+    day = as_of or firm_today(db, scope.firm_id)
     archive, filename, _ = BalanceConfirmationService(db).letters_for_everyone(
         PartySide.CUSTOMER, firm_id=scope.firm_id, as_of=day
     )
@@ -1360,7 +1360,7 @@ def customer_statement_pdf(
     """Draw one customer's statement of account with their unpaid bills.
 
     What a payment reminder attaches (MSG-3). The period defaults to the
-    oldest unpaid bill's date up to today (UTC); the figures are the
+    oldest unpaid bill's date up to the firm's today; the figures are the
     statement's and the ageing's own.
     """
     from app.customers.services.statement_pdf import CustomerStatementPdfService
@@ -1387,13 +1387,13 @@ def customer_balance_confirmation(
     The balance is the statement's own arithmetic -- receivable movements
     dated on or before the day, less what is held on account -- so the letter
     and the statement printed for the same day agree. `as_of` defaults to
-    today in UTC.
+    the firm's own today.
     """
     pdf, filename = BalanceConfirmationService(db).letter(
         PartySide.CUSTOMER,
         customer_id,
         firm_id=scope.firm_id,
-        as_of=as_of or utc_now().date(),
+        as_of=as_of or firm_today(db, scope.firm_id),
     )
     return StreamingResponse(
         iter([pdf]),

@@ -15,7 +15,7 @@ has to go to the platform connection.
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID
 
 from sqlalchemy import Row, func, or_, select
@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config.settings import Settings
 from app.core.database.engine import DatabaseManager
+from app.core.utils.dates import business_date, business_today
 from app.firms.models import Firm
 from app.identity.models import PlatformAdmin, Role, User, UserFirm, UserRole
 
@@ -78,6 +79,10 @@ class FirmMetadata:
     #: (backlog 53.1).
     pan_number: str | None = None
     tan_number: str | None = None
+    #: The firm's country (ISO 3166 alpha-2). It decides the time zone the
+    #: firm's calendar day is read in (D-CFG-25); the firm carries no zone of
+    #: its own.
+    country: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +137,7 @@ class FirmMetadataReader:
             Firm.currency_code,
             Firm.pan_number,
             Firm.tan_number,
+            Firm.country,
         ).where(Firm.id == firm_id)
         bind = self._session.get_bind()
         if bind.dialect.name != "postgresql":
@@ -141,7 +147,10 @@ class FirmMetadataReader:
 
     @staticmethod
     def _materialise(
-        row: Row[tuple[str, date, str, str | None, str, str | None, str | None]] | None,
+        row: (
+            Row[tuple[str, date, str, str | None, str, str | None, str | None, str]]
+            | None
+        ),
     ) -> FirmMetadata:
         """Turn a result row into metadata, tolerating an unknown firm."""
         if row is None:
@@ -154,7 +163,12 @@ class FirmMetadataReader:
             currency_code=row[4],
             pan_number=row[5],
             tan_number=row[6],
+            country=row[7],
         )
+
+    def today(self, firm_id: UUID) -> date:
+        """Return today's date on the firm's own calendar (D-CFG-25)."""
+        return business_today(self.get(firm_id).country)
 
     def exists(self, firm_id: UUID) -> bool:
         """Return whether the firm is present and not soft-deleted."""
@@ -272,3 +286,52 @@ class FirmMetadataReader:
         manager = _platform_manager()
         with manager.sessions(schema=manager.config.default_schema).session() as reader:
             return int(reader.scalar(statement) or 0)
+
+
+#: Where one session remembers the countries it has looked up.
+_COUNTRIES_KEY = "firm_countries"
+
+
+def _firm_country(session: Session, firm_id: UUID | None) -> str | None:
+    """Return the firm's country, read once per session; None when unknown.
+
+    ``firms`` is a platform table, so on PostgreSQL each lookup opens the
+    platform store, and a list that asks "is this row overdue today" row by
+    row would pay that per row. Remembered on ``session.info`` -- a request's
+    session lives for one request -- rather than process-wide, so a firm's
+    country changing is seen by the next request and nothing leaks between
+    stores that happen to share a firm id.
+    """
+    if firm_id is None:
+        return None
+    known: dict[UUID, str | None] = session.info.setdefault(_COUNTRIES_KEY, {})
+    if firm_id not in known:
+        known[firm_id] = FirmMetadataReader(session).get(firm_id).country
+    return known[firm_id]
+
+
+def firm_today(session: Session, firm_id: UUID | None) -> date:
+    """Return today's date as the firm's own calendar has it (D-CFG-25).
+
+    **This is "today" for every business date** -- the cap on a date somebody
+    typed, a report's default as-of day, the date the server puts on a
+    document. `utc_now().date()` is the UTC day, and for a firm in India that
+    is yesterday from midnight to 05:30: a refund dated today was refused as
+    future-dated, an opening bill could not be dated today, and the stock
+    valuation left out everything entered since midnight. The clock is still
+    `utc_now()`; only the day it is read as belongs to the firm.
+
+    The zone comes from the firm's country (``business_zone``), and a firm
+    with none known -- or no firm at all -- reads the UTC day.
+    """
+    return business_today(_firm_country(session, firm_id))
+
+
+def firm_date_of(session: Session, firm_id: UUID | None, instant: datetime) -> date:
+    """Return the day a stored instant falls on in the firm's calendar.
+
+    For setting a timestamp beside a business date: goods received at 01:00
+    on the 6th in India were stamped 19:30 UTC on the 5th, and read by its
+    UTC date that is the day *before* a delivery note dated the 6th.
+    """
+    return business_date(instant, _firm_country(session, firm_id))

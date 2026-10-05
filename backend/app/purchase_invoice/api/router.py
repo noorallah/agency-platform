@@ -19,6 +19,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.orm import Session
 
+from app.common.firm_metadata import firm_today
 from app.common.scope import (
     ResolvedFirmScope,
     firm_any_permission_scope,
@@ -32,7 +33,6 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams, ReportWindow
 from app.core.pagination.reports import ReportRows
 from app.core.responses.models import ApiResponse, PaginatedResponse
-from app.core.utils.dates import utc_now
 from app.document_files.api import download_response, read_upload
 from app.document_files.schemas import DocumentFileResponse
 from app.document_files.services import DocumentFileService, FileParent
@@ -312,7 +312,7 @@ def purchase_rate_trend(
 
     The period defaults to the last twelve months.
     """
-    today = utc_now().date()
+    today = firm_today(db, scope.firm_id)
     points = PurchaseAnalysisService(db).rate_trend(
         scope.firm_id,
         product_id=product_id,
@@ -350,7 +350,7 @@ def purchase_analysis(
     or ``ordered`` (purchase orders placed); ``compare_previous_year`` adds
     the same analysis a year earlier under ``previous`` (RPT-2).
     """
-    today = utc_now().date()
+    today = firm_today(db, scope.firm_id)
     first = from_date or today.replace(day=1)
     last = to_date or today
     service = PurchaseAnalysisService(db)
@@ -1076,7 +1076,7 @@ def payables_report(
     """
     report = PayablesReportService(db).report(
         scope.firm_id,
-        as_of=as_of or utc_now().date(),
+        as_of=as_of or firm_today(db, scope.firm_id),
         basis=basis,
         months=months,
         vendor_id=vendor_id,

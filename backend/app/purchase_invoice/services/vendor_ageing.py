@@ -25,8 +25,8 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.firm_metadata import firm_today
 from app.core.utils.chunks import over_chunks
-from app.core.utils.dates import utc_now
 from app.vendors.models import Vendor
 
 ZERO = Decimal("0.00")
@@ -72,7 +72,7 @@ class VendorAgeingService:
         from app.settlements.services.settlement_service import PaymentService
 
         bounds = bucket_bounds(self._session, firm_id)
-        today = utc_now().date()
+        today = firm_today(self._session, firm_id)
         owing = PaymentService(self._session).outstanding_invoices(
             firm_id=firm_id, party_id=None
         )

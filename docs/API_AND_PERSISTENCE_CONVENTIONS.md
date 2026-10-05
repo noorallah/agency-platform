@@ -107,7 +107,68 @@ mean zero, which the balance-reset guard then acted on.
 
 ## Never read the server's local clock
 
-**Never read the server's local clock.** Everything persisted here is UTC, so `date.today()` compares against a date the data does not use — on a non-UTC deployment it is already tomorrow, or still yesterday, for part of every day. It shipped three times (a UOM rule that was not yet effective, expiry buckets a day out, then the overdue reports and document numbering until 2026-08-10). Call `utc_now().date()`; `tests/unit/test_time_conventions.py` fails the build on any new occurrence. `func.now()` is fine — that is SQL the database evaluates.
+**Never read the server's local clock.** Everything persisted here is UTC, so `date.today()` compares against a date the data does not use — on a non-UTC deployment it is already tomorrow, or still yesterday, for part of every day. It shipped three times (a UOM rule that was not yet effective, expiry buckets a day out, then the overdue reports and document numbering until 2026-08-10). Call `utc_now()`; `tests/unit/test_time_conventions.py` fails the build on any new occurrence. `func.now()` is fine — that is SQL the database evaluates. **`utc_now().date()` is the UTC day, which is not "today" for a business date — see the next section.**
+
+## A business date is the firm's own day
+
+**"Today" for a business date is `firm_today(session, firm_id)`
+(`app/common/firm_metadata.py`), never `utc_now().date()` (D-CFG-25,
+2026-10-06).** The rule above settled the *clock*; it left every "today" as
+the UTC day, and for a firm in India that is yesterday from midnight to
+05:30. Driven at 00:30 IST: a supplier refund dated today was refused "A
+refund cannot be received on a future date." and one dated yesterday "A
+refund is received on or after the return", so the return could not be
+refunded at all until 05:30; an opening bill could not be dated today; and
+the stock valuation read 0.00 for stock on hand, because the route capped
+its day at the UTC one. Tally, Zoho Books and ERPNext all judge a document
+date in the company's time zone, and so does this now.
+
+- **Timestamps are UTC and stay UTC, and `utc_now()` stays the one clock.**
+  `firm_today` is `utc_now()` read in the firm's zone, nothing else. An
+  instant -- a token's expiry, an audit timestamp, a retention cutoff, the
+  five-minute tolerance on "received in the future" -- is not a business
+  date and does not use it.
+- **The zone comes from the firm's country**, through
+  `business_zone` in `app/core/utils/dates.py`: `IN` is `Asia/Kolkata`. A
+  firm carries no time zone of its own and no migration added one. A country
+  not in that table, an unknown firm and no firm at all read the UTC day,
+  which is what every firm read before. Only a country with **one zone and
+  no daylight saving** belongs in the table, because each entry also names a
+  fixed offset used where the machine has no zone database (`tzdata` is
+  present in this venv only as somebody else's Windows dependency, and a
+  compiled build or a slim container may not carry it).
+- **`firms` is a platform table**, so the country is read through
+  `FirmMetadataReader` and remembered on `Session.info` for the life of the
+  request: a list that asks "is this row overdue today" per row pays one
+  lookup, not one per row.
+- **`firm_date_of(session, firm_id, instant)`** is the same reading of a
+  stored timestamp, for setting one beside a business date. Proof of
+  delivery compared the UTC date of `delivered_at` with the note's date, so
+  goods handed over at 01:00 on the note's own day were "received before the
+  note".
+- **Where it is applied** (2026-10-06): the "not in the future" and "today or
+  later" checks on a typed date, and every report or list that defaults its
+  day to today, in customers, vendors, settlements, collections, inventory's
+  router, purchase orders, purchase invoices, purchase returns, quotations,
+  sales invoices, proforma and the territory call lists; and the date the
+  server puts on a customer's opening balance. **Where it is not, yet:**
+  dates the server stamps on a document it raises for somebody (an order off
+  a requisition, an RFQ or the reorder list; an invoice raised off a
+  delivery note), validity checks against a stored date outside those
+  modules' reports (a batch's expiry, a rate contract's or a supplier
+  price's period, a reservation's lapse), reversal rows dated
+  `max(today, original)` -- which follow the mirror journal's date, the
+  finance module's -- and the "printed on" line of two PDFs. They still
+  read `utc_now().date()`; `grep -rn "utc_now().date()" app` lists them, and
+  each is the same five and a half hours out. The boundary a report draws
+  round an as-of day on a *timestamp* (`reversed_at`, `cancelled_at`) is
+  UTC midnight as well.
+- **A test freezes `app.core.utils.dates.utc_now`** at 19:30 UTC, which is
+  01:00 the next day in India (`tests/unit/test_business_date.py`). A fixture
+  firm with `country="IN"` sees India's day, so a test that builds "today"
+  from `utc_now().date()` and expects a business rule to agree is wrong for
+  five and a half hours of every day: take the day from `firm_today`, or pass
+  the day in.
 
 ## Never let NULL ordering pick a row
 

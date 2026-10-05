@@ -15,7 +15,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.core.utils.dates import utc_now
+from app.common.firm_metadata import firm_today
 from app.core.utils.money import ZERO
 from app.customers.schemas import CustomerAgeing
 from app.customers.services.statement_service import CustomerStatementService
@@ -86,7 +86,7 @@ class CustomerStatementPdfService:
             ValidationError: If the period runs backwards.
 
         """
-        today = to_date or utc_now().date()
+        today = to_date or firm_today(self._session, firm_id)
         statements = CustomerStatementService(self._session)
         open_bills = next(
             iter(statements.ageing(firm_scope=firm_id, customer_id=customer_id)),

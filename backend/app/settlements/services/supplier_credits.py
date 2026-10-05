@@ -51,6 +51,7 @@ from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.chunks import over_chunks
 from app.core.utils.dates import utc_now
@@ -847,7 +848,10 @@ def refund_supplier_credit(
     asked = quantize_ledger(amount)
     if asked <= ZERO:
         raise ValidationError("A refund must be for more than nothing.")
-    if refunded_on > utc_now().date():
+    # The firm's own today (D-CFG-25): judged on the UTC day, a refund
+    # dated today was "future" from midnight to 05:30 in India, and one
+    # dated yesterday fell before the return it refunds.
+    if refunded_on > firm_today(session, firm_id):
         raise ValidationError("A refund cannot be received on a future date.")
     source = _locked_source(session, firm_id=firm_id, source_id=source_id)
     if source.kind == PURCHASE_RETURN and source.outcome != "REFUND":

@@ -13,7 +13,7 @@ from app.business.gating import assert_feature_fields
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit
-from app.common.firm_metadata import FirmMetadataReader
+from app.common.firm_metadata import FirmMetadataReader, firm_today
 from app.common.master_code_series import MasterCodeNumbering
 from app.common.master_references import (
     MasterReferences,
@@ -1542,7 +1542,7 @@ class CustomerService:
                 firm_id=customer.firm_id,
                 customer_id=customer.id,
                 reference_number=self._opening_balance_reference(customer),
-                posting_date=utc_now().date(),
+                posting_date=firm_today(self._session, customer.firm_id),
                 amount=row.outstanding_delta - row.advance_delta,
                 actor_id=actor_id,
             )
@@ -1634,7 +1634,7 @@ class CustomerService:
                 firm_id=customer.firm_id,
                 customer_id=customer.id,
                 reference_number=self._opening_balance_reference(customer),
-                posting_date=utc_now().date(),
+                posting_date=firm_today(self._session, customer.firm_id),
                 amount=amount,
                 actor_id=actor_id,
             )
@@ -1657,7 +1657,7 @@ class CustomerService:
             amount=abs(amount),
             outstanding_delta=outstanding_delta,
             advance_delta=advance_delta,
-            transaction_date=utc_now().date(),
+            transaction_date=firm_today(self._session, customer.firm_id),
             reference_type="CUSTOMER_MASTER",
             reference_id=customer.id,
             reference_number=customer.code,

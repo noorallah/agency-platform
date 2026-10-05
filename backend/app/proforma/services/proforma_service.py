@@ -20,6 +20,7 @@ from uuid import UUID
 from sqlalchemy import Select, func, or_, select
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.common.report_names import customers_matching
 from app.core.concurrency import assert_version
 from app.core.exceptions import ResourceNotFoundError, ValidationError
@@ -787,9 +788,9 @@ class ProformaService(TransactionalDocumentService):
         ]
         names = self._customer_names({row.customer_id for row in rows})
         orders = self._orders({row.sales_order_id for row in rows})
-        # Today in UTC: everything stored here is UTC, and the server's own
-        # date is already tomorrow, or still yesterday, for part of every day.
-        today = utc_now().date()
+        # The firm's own today (D-CFG-25): the clock is UTC, and neither
+        # the UTC day nor the server's local one is the day the firm is on.
+        today = firm_today(self._session, firm_scope)
         records: list[ProformaOutstandingRecord] = []
         for row in rows:
             order = orders.get(row.sales_order_id)

@@ -20,6 +20,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import (
     AuthorizationError,
     ResourceNotFoundError,
@@ -560,7 +561,7 @@ class CustomerOpeningBillService:
                 "balance either as one figure on the customer or bill by bill, "
                 "not both -- set the customer's opening balance to 0 first."
             )
-        posting_date = data.posting_date or utc_now().date()
+        posting_date = data.posting_date or firm_today(self._session, firm_id)
         if data.bill_date > posting_date:
             raise ValidationError(
                 "An opening bill is one raised before the books here start, so "

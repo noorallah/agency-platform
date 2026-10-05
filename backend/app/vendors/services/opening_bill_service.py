@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger
@@ -371,7 +372,7 @@ class VendorOpeningBillService:
 
         from app.finance.services.document_posting import DocumentPostingService
 
-        posting_date = data.posting_date or utc_now().date()
+        posting_date = data.posting_date or firm_today(self._session, firm_id)
         if data.bill_date > posting_date:
             raise ValidationError(
                 "An opening bill is one raised before the books here start, so "

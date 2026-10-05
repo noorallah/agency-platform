@@ -23,8 +23,8 @@ from uuid import UUID
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, lazyload
 
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ResourceNotFoundError, ValidationError
-from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_ledger
 from app.customers.models import Customer, CustomerReceivableTransaction
 from app.customers.schemas.statement import (
@@ -196,9 +196,9 @@ class CustomerStatementService:
 
         Age is counted from the invoice's own due date where it has one, and
         from its date otherwise -- a bill with no terms is due when it is
-        raised. `as_of` defaults to today **in UTC**, because everything
-        stored here is UTC and the server's local date is already tomorrow, or
-        still yesterday, for part of every day.
+        raised. `as_of` defaults to today **on the firm's own calendar**
+        (`firm_today`, D-CFG-25): the clock is UTC, and for a firm in India
+        the UTC day is still yesterday until 05:30.
 
         Args:
             firm_scope: The owning firm.
@@ -211,7 +211,7 @@ class CustomerStatementService:
             One row per customer with anything outstanding, buckets and all.
 
         """
-        today = as_of or utc_now().date()
+        today = as_of or firm_today(self._session, firm_scope)
         # Imported here: the settlement module imports the customer services.
         from app.finance.services.ageing_settings import bucket_bounds
         from app.settlements.services.settlement_service import settled_against

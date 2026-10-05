@@ -466,11 +466,13 @@ def test_ageing_boundaries_must_rise_and_stay_in_range() -> None:
 
 def test_falling_due_lists_today_and_the_week_ahead() -> None:
     """ACC-6: what falls due from today, never what is already overdue."""
-    from app.core.utils.dates import utc_now
+    from app.common.firm_metadata import firm_today
     from app.sales_invoice.services.sales_invoice_service import SalesInvoiceService
 
     books = _Books(_session_factory()())
-    today = utc_now().date()
+    # The firm's own today, which is what the report judges by (D-CFG-25):
+    # the UTC day is a day behind it for part of every day.
+    today = firm_today(books.session, books.firm.id)
     books.invoice("SI-1", "100", on=today - timedelta(days=30), due=today)
     books.invoice("SI-2", "200", on=today, due=today + timedelta(days=6))
     books.invoice("SI-3", "400", on=today, due=today + timedelta(days=20))

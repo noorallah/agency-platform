@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.firm_metadata import firm_today
 from app.common.scope import (
     ResolvedFirmScope,
     assert_may_edit_draft,
@@ -33,7 +34,6 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams, ReportWindow
 from app.core.pagination.reports import mapped_like
 from app.core.responses.models import ApiResponse, PaginatedResponse
-from app.core.utils.dates import utc_now
 from app.customers.services.cash_customer import stage_cash_customer
 from app.document_files.api import download_response, read_upload
 from app.document_files.schemas import DocumentFileResponse
@@ -760,7 +760,7 @@ def sales_analysis(
     ``previous``. Billed figures carry cost and margin for a caller who may
     see cost (RPT-1).
     """
-    today = utc_now().date()
+    today = firm_today(db, scope.firm_id)
     first = from_date or today.replace(day=1)
     last = to_date or today
     service = SalesAnalysisService(db)

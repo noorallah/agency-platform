@@ -19,6 +19,7 @@ from app.business.gating import assert_feature_fields
 from app.business.models.framework import AttributeEntityType
 from app.business.services import document_attributes
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.common.report_names import (
     branch_names,
     product_names,
@@ -355,7 +356,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         # report's rows: bills past due that still owe something (D-RPT-2).
         # Counted off the owing bills themselves: building the report's rows
         # to count them read every one back (backlog 56 C, step 4).
-        today = utc_now().date()
+        today = firm_today(self._session, firm_scope)
         overdue = sum(
             1
             for record in self._owing(firm_scope=firm_scope)
@@ -2032,7 +2033,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         leaves the list the day it is paid; only bills stamped with a legal
         date (``msme_pay_by``) are listed (backlog 68 row 2).
         """
-        today = as_of or utc_now().date()
+        today = as_of or firm_today(self._session, firm_scope)
         owing = {
             record.invoice_id: record
             for record in self._owing(firm_scope=firm_scope)
@@ -2100,7 +2101,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         without a due date is never overdue -- nothing derives one from the
         payment terms.
         """
-        today = utc_now().date()
+        today = firm_today(self._session, firm_scope)
         # ``due_within`` turns the list round to what falls due from today
         # to that many days ahead (ACC-6): 0 is today, 7 the week ahead.
         last = None if due_within is None else today + timedelta(days=due_within)

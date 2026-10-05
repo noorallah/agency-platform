@@ -44,8 +44,7 @@ from app.collections.services.promises import (
     member_names,
     status_of,
 )
-from app.common.firm_metadata import FirmMetadataReader
-from app.core.utils.dates import utc_now
+from app.common.firm_metadata import FirmMetadataReader, firm_today
 from app.customers.models import Customer
 from app.sales.models.territory import (
     TerritoryCustomerAssignment,
@@ -99,11 +98,11 @@ class CollectionSheetService:
             collector_id: Only customers this person collects from -- as
                 their collector, or as account manager where they name none.
             route_id: Only customers on this route's round.
-            as_of: The day the sheet is for; today (UTC) when omitted.
+            as_of: The day the sheet is for; the firm's today when omitted.
             overdue_only: Only bills past their due date on that day.
 
         """
-        on = as_of or utc_now().date()
+        on = as_of or firm_today(self._session, firm_id)
         parties = self._parties(firm_id, collector_id=collector_id, route_id=route_id)
         if not parties:
             return []
@@ -227,7 +226,7 @@ class CollectionSheetService:
         The last column is left empty: it is where the collector writes what
         was handed over.
         """
-        on = as_of or utc_now().date()
+        on = as_of or firm_today(self._session, firm_id)
         rows = self.rows(
             firm_id,
             collector_id=collector_id,

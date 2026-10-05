@@ -8,7 +8,7 @@ records how the goods travel, for the challan and the e-way bill. Row 6: a
 note is delivered only with a proof.
 """
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -693,3 +693,34 @@ def test_the_list_finds_notes_dispatched_but_not_yet_proven_delivered() -> None:
     )
     assert awaiting() == []
     assert service.summary(firm_scope=setup.firm.id).awaiting_delivery_proof == 0
+
+
+def test_goods_received_after_midnight_are_received_on_the_notes_day() -> None:
+    """D-CFG-25: 01:00 on the note's date in India is the day before in UTC.
+
+    The proof's instant was read by its UTC date, so goods handed over in the
+    small hours of the day the note is dated were refused as received before
+    the note.
+    """
+    session = _session_factory()()
+    setup = _Firm(session)
+    note = _dispatched(setup)
+    service = DeliveryNoteService(session)
+    early = datetime.combine(
+        note.delivery_date - timedelta(days=1), time(19, 30), tzinfo=UTC
+    )
+
+    row = service.record_delivery_proof(
+        note.id, _proof(delivered_at=early), firm_scope=setup.firm.id, actor_id=uuid4()
+    )
+
+    assert row.delivered_at is not None
+    assert as_utc(row.delivered_at) == early
+    # An hour and a half earlier it is still the day before, there as here.
+    with pytest.raises(ValidationError, match="before the note"):
+        service.record_delivery_proof(
+            note.id,
+            _proof(delivered_at=early - timedelta(hours=2)),
+            firm_scope=setup.firm.id,
+            actor_id=uuid4(),
+        )

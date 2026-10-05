@@ -38,7 +38,11 @@ from app.business.gating import assert_feature_fields
 from app.business.models.framework import AttributeEntityType
 from app.business.services import document_attributes
 from app.common.audit.services import record_audit
-from app.common.firm_metadata import FirmMetadataReader, platform_reader
+from app.common.firm_metadata import (
+    FirmMetadataReader,
+    firm_date_of,
+    platform_reader,
+)
 from app.common.report_names import (
     branch_names,
     customer_labels,
@@ -1080,7 +1084,10 @@ class DeliveryNoteService(TransactionalDocumentService):
         now = utc_now()
         if delivered_at > now + timedelta(minutes=5):
             raise ValidationError("The goods cannot have been received in the future.")
-        if delivered_at.date() < row.delivery_date:
+        # The day it fell on for the firm, not in UTC (D-CFG-25): goods handed
+        # over at 01:00 on the note's own date in India are 19:30 UTC the day
+        # before, and were refused as received before the note.
+        if firm_date_of(self._session, firm_scope, delivered_at) < row.delivery_date:
             raise ValidationError(
                 "The goods cannot have been received before the note's own date."
             )

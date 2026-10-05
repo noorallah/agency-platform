@@ -21,7 +21,7 @@ from app.business.gating import assert_feature_fields
 from app.business.models.framework import AttributeEntityType
 from app.business.services import document_attributes
 from app.common.audit.services import record_audit
-from app.common.firm_metadata import platform_reader
+from app.common.firm_metadata import firm_today, platform_reader
 from app.common.report_names import vendors_matching
 from app.core.database.batch import children_by_parent
 from app.core.exceptions import (
@@ -291,7 +291,8 @@ class PurchaseService(TransactionalDocumentService):
                     PurchaseOrder.firm_id == firm_scope,
                     PurchaseOrder.is_deleted.is_(False),
                     PurchaseOrder.expected_delivery_date.is_not(None),
-                    PurchaseOrder.expected_delivery_date < utc_now().date(),
+                    PurchaseOrder.expected_delivery_date
+                    < firm_today(self._session, firm_scope),
                     PurchaseOrder.status.not_in(not_overdue),
                 )
             )
@@ -2994,9 +2995,9 @@ class PurchaseService(TransactionalDocumentService):
             One record per late order, worst first.
 
         """
-        # Today in UTC. Everything stored here is UTC, so the server's own
-        # date is already tomorrow, or still yesterday, for part of every day.
-        today = utc_now().date()
+        # The firm's own today (D-CFG-25): the clock is UTC, and neither
+        # the UTC day nor the server's local one is the day the firm is on.
+        today = firm_today(self._session, firm_scope)
         rows = [
             row
             for row in self._report_orders(firm_scope)

@@ -17,6 +17,7 @@ from app.batch_serial.models import batch_serial as _batch_models  # noqa: F401
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.business.models import BusinessFeature, BusinessProfile, ProfileFeature
 from app.common.audit.models import AuditLog
+from app.common.firm_metadata import firm_today
 from app.common.scope import (
     ResolvedFirmScope,
     optional_firm_scope,
@@ -32,7 +33,6 @@ from app.core.exceptions import (
 )
 from app.core.security.authorization import Principal, require_permission
 from app.core.security.jwt import TokenClaims
-from app.core.utils.dates import utc_now
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentNumberingRule,
@@ -1865,7 +1865,7 @@ def _reportable_orders(
     # not overdue, and that case is asserted separately below.
     stored = session.get(PurchaseOrder, order.id)
     assert stored is not None
-    stored.expected_delivery_date = utc_now().date() - timedelta(days=9)
+    stored.expected_delivery_date = firm_today(session, firm_id) - timedelta(days=9)
     stored.buyer_id = None
     session.flush()
 
@@ -1896,7 +1896,9 @@ def _reportable_orders(
     service.approve_order(second.id, firm_scope=firm_id, actor_id=actor_id)
     stored_second = session.get(PurchaseOrder, second.id)
     assert stored_second is not None
-    stored_second.expected_delivery_date = utc_now().date() + timedelta(days=1)
+    stored_second.expected_delivery_date = firm_today(session, firm_id) + timedelta(
+        days=1
+    )
     session.flush()
 
     third = service.create_order(

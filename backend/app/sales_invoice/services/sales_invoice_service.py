@@ -23,7 +23,7 @@ from app.business.gating import assert_feature_fields
 from app.business.models.framework import AttributeEntityType
 from app.business.services import document_attributes
 from app.common.audit.services import record_audit
-from app.common.firm_metadata import FirmMetadataReader
+from app.common.firm_metadata import FirmMetadataReader, firm_today
 from app.common.report_names import (
     branch_names,
     customer_labels,
@@ -427,7 +427,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         # report's rows: invoices past due that still owe something (D-RPT-3).
         # Counted off the owing bills themselves: building the report's rows
         # to count them read every one of them back (backlog 56 C, step 4).
-        today = utc_now().date()
+        today = firm_today(self._session, firm_scope)
         overdue = sum(
             1
             for record in self._owing(firm_scope=firm_scope)
@@ -3268,7 +3268,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         due date was listed although it never posted (D-RPT-3; 5 of WHOLE01's
         23 were paid in full).
         """
-        today = utc_now().date()
+        today = firm_today(self._session, firm_scope)
         # ``due_within`` turns the list round to what falls due from today
         # to that many days ahead (ACC-6): 0 is today, 7 the week ahead.
         last = None if due_within is None else today + timedelta(days=due_within)

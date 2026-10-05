@@ -1,6 +1,19 @@
 """Stateless date and time helpers."""
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta, timezone, tzinfo
+from functools import lru_cache
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+#: Where a firm keeps its calendar, by the country on the firm: the zone's
+#: name, and the fixed offset to fall back on where the machine carries no
+#: zone database (a Windows build without ``tzdata``, a slim container). Only
+#: countries with one zone and no daylight saving belong here -- the fallback
+#: is a constant, so it would be wrong for half the year anywhere else. A
+#: country not listed keeps its books on the UTC day, as every firm did
+#: before D-CFG-25.
+_BUSINESS_ZONES: dict[str, tuple[str, timedelta]] = {
+    "IN": ("Asia/Kolkata", timedelta(hours=5, minutes=30)),
+}
 
 
 def utc_now() -> datetime:
@@ -30,6 +43,44 @@ def as_utc(value: datetime) -> datetime:
 
     """
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
+@lru_cache(maxsize=32)
+def business_zone(country_code: str | None) -> tzinfo:
+    """Return the time zone a firm in ``country_code`` dates its documents in."""
+    known = _BUSINESS_ZONES.get((country_code or "").strip().upper())
+    if known is None:
+        return UTC
+    name, offset = known
+    try:
+        return ZoneInfo(name)
+    except ZoneInfoNotFoundError:
+        return timezone(offset, name)
+
+
+def business_date(instant: datetime, country_code: str | None) -> date:
+    """Return the calendar day an instant falls on for a firm in a country.
+
+    The business date, as opposed to the timestamp. Timestamps are UTC and
+    stay UTC; but 01:00 on the 6th in India is 19:30 on the 5th in UTC, and
+    a person dating a document "today" means the 6th (D-CFG-25).
+    """
+    return as_utc(instant).astimezone(business_zone(country_code)).date()
+
+
+def business_today(country_code: str | None) -> date:
+    """Return today's date for a firm in ``country_code``.
+
+    Still `utc_now()` -- the one clock -- read in the firm's own zone. Use it
+    wherever "today" is a **business date**: a "not in the future" check on a
+    date somebody typed, a report's default as-of day, the date the server
+    puts on a document. Firm-owned code reaches it through
+    ``firm_today(session, firm_id)`` in ``app/common/firm_metadata.py``, which
+    knows the firm's country. An instant -- a token's expiry, an audit
+    timestamp, a retention cutoff -- is not a business date and stays on
+    `utc_now()`.
+    """
+    return business_date(utc_now(), country_code)
 
 
 def parse_iso_date(value: str) -> date:

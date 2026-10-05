@@ -20,6 +20,7 @@ from app.common.file_import import (
     report_response,
     template_csv,
 )
+from app.common.firm_metadata import firm_today
 from app.common.pan_report import PanReportRow, vendor_pan_report
 from app.common.party_merge import (
     DuplicateCandidate,
@@ -39,7 +40,6 @@ from app.core.exceptions import AuthorizationError, ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
-from app.core.utils.dates import utc_now
 from app.imports.services import columns_for_kind, mapped_content, parse_mapping
 from app.vendors.models import Vendor
 from app.vendors.schemas import (
@@ -485,7 +485,7 @@ async def import_vendor_opening_bill_file(
         except ValueError as error:
             raise ValidationError("posting_date must be a date, yyyy-mm-dd.") from error
     else:
-        on = utc_now().date()
+        on = firm_today(db, firm_id)
     report = VendorOpeningBillFileImporter(db).run(
         content,
         file_format=file_format,
@@ -592,7 +592,7 @@ def supplier_gifts_194r_summary(
     """Total each supplier's gifts in the April-March year against 194R (BUY-2)."""
     return ApiResponse(
         data=SupplierGiftService(db).summary_194r(
-            scope.firm_id, on=on or utc_now().date()
+            scope.firm_id, on=on or firm_today(db, scope.firm_id)
         )
     )
 
@@ -705,9 +705,9 @@ def vendor_balance_confirmations(
     """Draw a balance confirmation letter for every supplier with a balance.
 
     One PDF per supplier, zipped, because each goes to its own address.
-    `as_of` defaults to today in UTC.
+    `as_of` defaults to the firm's own today.
     """
-    day = as_of or utc_now().date()
+    day = as_of or firm_today(db, scope.firm_id)
     archive, filename, _ = BalanceConfirmationService(db).letters_for_everyone(
         PartySide.SUPPLIER, firm_id=scope.firm_id, as_of=day
     )
@@ -1130,13 +1130,13 @@ def vendor_balance_confirmation(
     """Draw one supplier's balance confirmation letter as of a day.
 
     The balance is the supplier statement's closing balance for that day.
-    `as_of` defaults to today in UTC.
+    `as_of` defaults to the firm's own today.
     """
     pdf, filename = BalanceConfirmationService(db).letter(
         PartySide.SUPPLIER,
         vendor_id,
         firm_id=scope.firm_id,
-        as_of=as_of or utc_now().date(),
+        as_of=as_of or firm_today(db, scope.firm_id),
     )
     return StreamingResponse(
         iter([pdf]),

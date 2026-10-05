@@ -27,6 +27,7 @@ from app.business.gating import assert_feature_fields
 from app.business.models.framework import AttributeEntityType
 from app.business.services import document_attributes
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.common.report_names import customer_names, customers_matching
 from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
@@ -270,7 +271,7 @@ class QuotationService(TransactionalDocumentService):
                 select(func.count()).where(
                     SalesQuotation.firm_id == firm_scope,
                     SalesQuotation.is_deleted.is_(False),
-                    SalesQuotation.valid_until < utc_now().date(),
+                    SalesQuotation.valid_until < firm_today(self._session, firm_scope),
                     SalesQuotation.status.not_in(_SETTLED),
                 )
             )
@@ -943,11 +944,11 @@ class QuotationService(TransactionalDocumentService):
     def is_expired(self, row: SalesQuotation) -> bool:
         """Whether the quoted prices have lapsed.
 
-        ``utc_now().date()``, never the server's local date: everything here is
-        stored in UTC, and on a non-UTC deployment the local date is already
-        tomorrow for part of every day -- which would expire a quotation early.
+        Judged on the firm's own day (D-CFG-25), never the server's local
+        date nor the UTC one: an offer good until the 5th has lapsed at 00:30
+        on the 6th in India, though UTC still reads the 5th.
         """
-        return row.valid_until < utc_now().date()
+        return row.valid_until < firm_today(self._session, row.firm_id)
 
     def can_convert(self, row: SalesQuotation) -> bool:
         """Whether this quotation could become an order right now."""
@@ -1950,7 +1951,7 @@ class QuotationService(TransactionalDocumentService):
         expired_count: dict[UUID, int] = defaultdict(int)
         # Expiry is a date, not a status (see `summary`): a sent offer past
         # its date has lapsed, and the catalogue promises to say how many.
-        today = utc_now().date()
+        today = firm_today(self._session, firm_scope)
         for row in rows:
             quoted_count[row.customer_id] += 1
             quoted_value[row.customer_id] += row.grand_total
