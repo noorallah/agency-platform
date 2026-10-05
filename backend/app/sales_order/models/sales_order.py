@@ -168,6 +168,14 @@ class SalesOrder(BaseEntity):
     rate_includes_tax: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    #: The bill that raised this order for itself, when the firm types neither
+    #: an order nor a delivery note and bills straight away. Cancelling that
+    #: bill as a draft withdraws the order and gives its reservation back; an
+    #: order a person raised is theirs to cancel (D-SELL-54). A bare id, like
+    #: the note's: the invoice module depends on this one, not the reverse.
+    raised_by_sales_invoice_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), nullable=True, index=True
+    )
     cancel_reason: Mapped[str | None] = mapped_column(Text)
     #: A hold is a **flag, not a status**, and that is the whole design. An
     #: order that is PARTIALLY_DELIVERED can be held, and releasing it has to

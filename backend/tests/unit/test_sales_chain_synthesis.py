@@ -35,7 +35,11 @@ from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.identity.models import identity as _identity_models  # noqa: F401
-from app.inventory.models import InventoryTransaction, ProductValuation
+from app.inventory.models import (
+    InventoryRecord,
+    InventoryTransaction,
+    ProductValuation,
+)
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.inventory.schemas import InventoryAdjustmentCreate
 from app.inventory.services import InventoryService
@@ -415,6 +419,162 @@ def test_cancelling_a_draft_bill_withdraws_the_note_it_raised() -> None:
     assert note is not None
     assert note.status == "CANCELLED"
     assert _dispatches(session) == 0
+
+
+def _reserved(session: Session) -> Decimal:
+    """Sum what every stock row of the firm holds reserved."""
+    session.expire_all()
+    return sum(
+        (
+            record.reserved_quantity
+            for record in session.scalars(select(InventoryRecord)).all()
+        ),
+        Decimal("0"),
+    )
+
+
+def _request_session() -> Session:
+    """Open a session as a request does: one that does not flush on a read."""
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    return sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)()
+
+
+def test_cancelling_a_draft_bill_withdraws_its_order_and_frees_the_stock() -> None:
+    """D-SELL-54: the hidden order stayed APPROVED with the quantity reserved.
+
+    Driven 2026-10-05 on a firm with both stages off: a draft counter bill of
+    7 reserved 7; cancelling it cancelled the note it raised and left
+    SO-2026-2027-000027 APPROVED holding the 7, with no UNRESERVE in the
+    ledger -- until every later sale of the product was refused for stock.
+    """
+    session = _request_session()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    service = SalesInvoiceService(session)
+    actor = uuid4()
+    invoice = service.create_invoice(
+        setup.bare_bill(Decimal("7")), firm_id=setup.firm.id, actor_id=actor
+    )
+    order = session.scalar(select(SalesOrder))
+    assert order is not None
+    assert order.raised_by_sales_invoice_id == invoice.id, "the bill stamps its order"
+    assert _reserved(session) == Decimal("7.0000")
+
+    service.cancel_invoice(
+        invoice.id, firm_scope=setup.firm.id, actor_id=actor, reason="walked out"
+    )
+
+    session.refresh(order)
+    assert order.status == "CANCELLED", "the order was this bill's and goes with it"
+    assert _reserved(session) == Decimal("0.0000"), "and gives the stock back"
+    released = session.scalars(
+        select(InventoryTransaction).where(
+            InventoryTransaction.transaction_type == "UNRESERVE"
+        )
+    ).all()
+    assert len(released) == 1, "with the release on the stock ledger"
+    # The same seven can be sold again straight away.
+    again = service.create_invoice(
+        setup.bare_bill(Decimal("100")), firm_id=setup.firm.id, actor_id=actor
+    )
+    service.approve_invoice(again.id, firm_scope=setup.firm.id, actor_id=actor)
+
+
+def test_cancelling_a_draft_bill_leaves_an_order_a_person_raised() -> None:
+    """A bill that only dispatched somebody's order does not cancel that order.
+
+    With the order stage on and the note stage off, the order is a document a
+    person typed and approved; the bill raises the note alone, and cancelling
+    the draft takes back only that.
+    """
+    session = _request_session()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=True, delivery_note=False)
+    actor = uuid4()
+    orders = SalesOrderService(session)
+    order = orders.stage_order(
+        SalesOrderCreate(
+            customer_id=setup.customer.id,
+            branch_id=setup.branch.id,
+            warehouse_id=setup.warehouse.id,
+            order_date=date(2026, 8, 3),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=setup.product.id,
+                    quantity=Decimal("4"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+    orders.stage_approval(order.id, firm_scope=setup.firm.id, actor_id=actor)
+    session.commit()
+    order_line = session.scalar(select(SalesOrderLine))
+    assert order_line is not None
+    service = SalesInvoiceService(session)
+    invoice = service.create_invoice(
+        SalesInvoiceCreate(
+            customer_id=setup.customer.id,
+            invoice_date=date(2026, 8, 4),
+            lines=[
+                SalesInvoiceLineWrite(
+                    source_document_type="SALES_ORDER",
+                    source_document_id=order.id,
+                    source_document_line_id=order_line.id,
+                    line_number=1,
+                    current_invoice_quantity=Decimal("4"),
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+
+    service.cancel_invoice(
+        invoice.id, firm_scope=setup.firm.id, actor_id=actor, reason="walked out"
+    )
+
+    note = session.scalar(select(DeliveryNote))
+    assert note is not None
+    assert note.status == "CANCELLED"
+    session.refresh(order)
+    assert order.raised_by_sales_invoice_id is None
+    assert order.status == "APPROVED", "a person's order is theirs to cancel"
+    assert _reserved(session) == Decimal("4.0000"), "and still holds its goods"
+
+
+def test_cancelling_an_approved_counter_bill_leaves_no_stock_reserved() -> None:
+    """The goods left at approval, so the order stays and holds nothing."""
+    session = _request_session()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    service = SalesInvoiceService(session)
+    actor = uuid4()
+    invoice = service.create_invoice(
+        setup.bare_bill(), firm_id=setup.firm.id, actor_id=actor
+    )
+    service.approve_invoice(invoice.id, firm_scope=setup.firm.id, actor_id=actor)
+    assert _reserved(session) == Decimal("0.0000")
+
+    service.cancel_invoice(
+        invoice.id, firm_scope=setup.firm.id, actor_id=actor, reason="keyed twice"
+    )
+
+    order = session.scalar(select(SalesOrder))
+    note = session.scalar(select(DeliveryNote))
+    assert order is not None and note is not None
+    assert note.status == "DISPATCHED", "the goods left; a return brings them back"
+    assert order.status == "DELIVERED"
+    assert _reserved(session) == Decimal("0.0000")
+    assert _dispatches(session) == 1
 
 
 def _persons_note(setup: _Firm) -> DeliveryNote:

@@ -139,6 +139,7 @@ from app.sales_order.services.discount_limit import (
     invoice_discounts,
 )
 from app.sales_order.services.price_floor import PriceFloorService, invoice_lines
+from app.sales_order.services.sales_order_service import SalesOrderService
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
 from app.settlements.schemas import OutstandingInvoiceRecord
 from app.tax.schemas import TaxRuleSimulationRequest
@@ -696,6 +697,8 @@ class SalesInvoiceService(TransactionalDocumentService):
         self._session.flush()
         for note in chain.raised_notes:
             note.raised_by_sales_invoice_id = row.id
+        for order in chain.raised_orders:
+            order.raised_by_sales_invoice_id = row.id
         if data.received_now_tenders:
             self._replace_tenders(row, data, actor_id=actor_id)
         self._replace_sources(row, source_rows, firm_id=firm_id, actor_id=actor_id)
@@ -2031,12 +2034,50 @@ class SalesInvoiceService(TransactionalDocumentService):
             )
             if others:
                 continue
+            reason = f"Bill {row.invoice_number} was cancelled before approval."
             service.stage_cancel(
-                note.id,
+                note.id, firm_scope=firm_scope, actor_id=actor_id, reason=reason
+            )
+            # A request's session does not flush on a read, and the order's
+            # own cancel asks which of its notes still stand.
+            self._session.flush()
+            self._withdraw_own_order(
+                row,
+                note.sales_order_id,
                 firm_scope=firm_scope,
                 actor_id=actor_id,
-                reason=f"Bill {row.invoice_number} was cancelled before approval.",
+                reason=reason,
             )
+
+    def _withdraw_own_order(
+        self,
+        row: SalesInvoice,
+        order_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        reason: str,
+    ) -> None:
+        """Cancel the sales order a cancelled draft raised for itself.
+
+        A bill typed straight in raises an order as well as a note, and the
+        order's approval is what reserves the stock. Cancelling the note alone
+        left the order APPROVED and the quantity held for a sale that was off,
+        with no screen showing why, until every later sale of the product was
+        refused for stock (D-SELL-54, driven 2026-10-05). Only the order this
+        bill stamped goes: one a person raised, which a bill merely dispatched
+        for a firm that types no notes, is theirs and stays approved.
+        """
+        order = self._session.get(SalesOrder, order_id)
+        if (
+            order is None
+            or order.raised_by_sales_invoice_id != row.id
+            or order.status in {"CANCELLED", "CLOSED"}
+        ):
+            return
+        SalesOrderService(self._session).stage_cancel(
+            order.id, firm_scope=firm_scope, actor_id=actor_id, reason=reason
+        )
 
     def _assert_nothing_rests_on(self, row: SalesInvoice) -> None:
         """Refuse to cancel a bill that money, a correction or a filing rests on.

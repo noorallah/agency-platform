@@ -80,6 +80,11 @@ class SalesChainService:
         #: firm's stage being off says nothing about who raised a note
         #: (D-CFG-16).
         self.raised_notes: list[DeliveryNote] = []
+        #: The sales orders this call raised for the bill: only a bill of
+        #: bare lines raises one. The bill stamps itself on them as it does on
+        #: its notes, so cancelling the draft can withdraw the order and give
+        #: back what it reserved (D-SELL-54).
+        self.raised_orders: list[SalesOrder] = []
 
     def ensure_invoice_source(
         self,
@@ -205,6 +210,7 @@ class SalesChainService:
                 if line.batches and len({pick.batch_id for pick in line.batches}) == 1
             },
         )
+        self.raised_orders.append(order)
         # Checked for licences at the bill's approval, not here (backlog 54).
         SalesOrderService(self._session).stage_approval(
             order.id, firm_scope=firm_id, actor_id=actor_id, check_licences=False
