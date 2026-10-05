@@ -230,10 +230,14 @@ float, and at the close a counted amount.
   `SHIFT-000001` per firm, counted from the firm's shifts rather than issued
   by the document framework -- a shift has no lifecycle configuration, and
   `UQ_counter_shifts_number` settles two opened at once.
-- **A bill paid at the counter is stamped with its approver's open shift**
-  (`sales_invoices.counter_shift_id`, set in `stage_approval`, in the
-  approval's own transaction) when `received_now_amount` is more than zero --
-  which its tenders make it. The shift row is locked while it is stamped and
+- **A bill paid at the counter is stamped with the open shift of the cashier
+  who made it** (`sales_invoices.counter_shift_id`, set in `stage_approval`,
+  in the approval's own transaction) when `received_now_amount` is more than
+  zero -- which its tenders make it. The till that took the money is the
+  maker's: the counter roles raise bills and hold no approve code, so a
+  manager approves them, and stamping the approver's shift left the cashier's
+  drawer at its float (D-SELL-51). The approver's own shift takes the bill
+  only when its maker has none open. The shift row is locked while it is stamped and
   while it is closed, so no bill lands in a shift after its drawer was counted.
 - **Shifts are optional.** Somebody with no open shift is not refused: the
   bill posts as it always did and is stamped with none. A one-person firm that
