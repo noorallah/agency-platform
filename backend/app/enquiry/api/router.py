@@ -13,9 +13,11 @@ from app.common.scope import (
     firm_permission_scope,
 )
 from app.core.concurrency import ExpectedVersion, set_etag
+from app.core.constants.core import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
-from app.core.responses.models import ApiResponse
+from app.core.pagination import PaginationParams
+from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.core.utils.dates import utc_now
 from app.enquiry.services import (
     EnquiryConvertWrite,
@@ -47,21 +49,31 @@ EnquiryCreateScope = Annotated[
 EnquiryUpdateScope = Annotated[ResolvedFirmScope, firm_permission_scope("SALES_UPDATE")]
 
 
-@router.get("", response_model=ApiResponse[list[EnquiryResponse]])
+@router.get("", response_model=PaginatedResponse[EnquiryResponse])
 def list_enquiries(
     scope: EnquiryViewScope,
     db: Session = Depends(get_db),
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
     status_filter: Annotated[str | None, Query(alias="status", max_length=20)] = None,
     salesman_id: Annotated[UUID | None, Query()] = None,
-) -> ApiResponse[list[EnquiryResponse]]:
-    """Return the firm's enquiries, newest first."""
+) -> PaginatedResponse[EnquiryResponse]:
+    """Return one page of the firm's enquiries, newest first.
+
+    Paged like every other document list (D-SELL-63): ``page`` and
+    ``page_size`` were ignored and every enquiry came back.
+    """
     service = EnquiryService(db)
-    return ApiResponse(
-        data=service.responses(
-            service.list_rows(
-                scope.firm_id, status=status_filter, salesman_id=salesman_id
-            )
-        )
+    rows, total = service.list_page(
+        scope.firm_id,
+        page=page,
+        page_size=page_size,
+        status=status_filter,
+        salesman_id=salesman_id,
+    )
+    return PaginatedResponse(
+        data=service.responses(rows),
+        pagination=PaginationParams(page=page, page_size=page_size).metadata(total),
     )
 
 

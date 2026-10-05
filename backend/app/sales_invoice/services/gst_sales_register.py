@@ -69,6 +69,7 @@ from app.sales_invoice.models import SalesInvoice
 from app.sales_return.billing import credits_a_bill
 from app.sales_return.models import SalesReturn
 from app.tax.services.gst_buckets import GstBuckets
+from app.tax.services.place_of_supply import gst_state_code, place_of_supply_label
 
 #: What a register row is.
 INVOICE = "INVOICE"
@@ -130,6 +131,30 @@ def _gstin(customer: Customer | None) -> str:
     return (getattr(customer, "gst_number", None) or "").strip().upper()
 
 
+def _placed(place: str, gstin: str, buckets: GstBuckets, seller_state: str) -> str:
+    """Return a row's place of supply in the one form a bill prints it.
+
+    ``Tamil Nadu (33)``, for every kind of row (D-SELL-61). The register
+    showed three shapes: the bill's own printed place, a bare ``33`` on its
+    credit note, debit note and return, and nothing for an unregistered
+    buyer though GSTR-1 placed the same bill. What the document says wins;
+    failing that the buyer's GSTIN; failing that the tax it charged, which is
+    how GSTR-1 places a supply to a buyer with no GSTIN -- CGST and SGST are
+    only chargeable in the seller's own state.
+
+    Blank only where GSTR-1 itself calls the supply unplaced: IGST charged to
+    a buyer with no GSTIN on a document that names no place.
+    """
+    stated = place.strip()
+    if stated.endswith(")") and "(" in stated:
+        return stated
+    code = gst_state_code(stated) or gstin[:2]
+    if not code:
+        charged_across = buckets.igst != ZERO
+        code = "" if charged_across else seller_state
+    return place_of_supply_label(code) if code else stated
+
+
 def _row(
     kind: str,
     *,
@@ -143,6 +168,7 @@ def _row(
     buckets: GstBuckets,
     total: Decimal,
     against: str = "",
+    seller_state: str = "",
 ) -> GstSalesRegisterRow:
     """Build one register row at the scale a return is filed in."""
     gstin = _gstin(customer)
@@ -155,7 +181,7 @@ def _row(
         customer_id=customer_id,
         customer_name=getattr(customer, "name", None) or str(customer_id),
         customer_gstin=gstin or None,
-        place_of_supply=place or gstin[:2],
+        place_of_supply=_placed(place, gstin, buckets, seller_state),
         taxable_value=quantize_ledger(taxable),
         igst=heads[0],
         cgst=heads[1],
@@ -189,10 +215,19 @@ class GstSalesRegisterService:
         def of(kind: str) -> list[UUID]:
             return [key for key, found in documents if found == kind]
 
+        # The firm's own state: where a supply taxed CGST + SGST was made
+        # when neither the document nor a GSTIN says (D-SELL-61).
+        seller_state = self._returns._seller_state(firm_id)
         rows: dict[_Key, GstSalesRegisterRow] = {}
-        rows.update(self._invoice_rows(of(INVOICE), of(CANCELLED_INVOICE), reversed_on))
         rows.update(
-            self._credit_rows(of(CREDIT_NOTE), of(DEBIT_NOTE), of(SALES_RETURN))
+            self._invoice_rows(
+                of(INVOICE), of(CANCELLED_INVOICE), reversed_on, seller_state
+            )
+        )
+        rows.update(
+            self._credit_rows(
+                of(CREDIT_NOTE), of(DEBIT_NOTE), of(SALES_RETURN), seller_state
+            )
         )
         return mapped_like(documents, [rows[key] for key in documents if key in rows])
 
@@ -344,6 +379,7 @@ class GstSalesRegisterService:
         billed: list[UUID],
         cancelled: list[UUID],
         reversed_on: dict[UUID, date],
+        seller_state: str = "",
     ) -> dict[_Key, GstSalesRegisterRow]:
         """Return a row per bill, and a row in minus per late cancellation."""
         ids = list({*billed, *cancelled})
@@ -379,6 +415,7 @@ class GstSalesRegisterService:
                     taxable=taxable,
                     buckets=buckets,
                     total=total,
+                    seller_state=seller_state,
                 )
             if invoice.id in undone:
                 rows[(invoice.id, CANCELLED_INVOICE)] = _row(
@@ -393,6 +430,7 @@ class GstSalesRegisterService:
                     buckets=buckets.negated(),
                     total=-total,
                     against=invoice.invoice_number,
+                    seller_state=seller_state,
                 )
         return rows
 
@@ -401,6 +439,7 @@ class GstSalesRegisterService:
         credit_notes: list[UUID],
         debit_notes: list[UUID],
         returns: list[UUID],
+        seller_state: str = "",
     ) -> dict[_Key, GstSalesRegisterRow]:
         """Return a row per note and per return, as GSTR-1 reads each one.
 
@@ -434,6 +473,25 @@ class GstSalesRegisterService:
         if not found:
             return {}
         customers = reader._customers(list({credit.customer_id for _, credit in found}))
+        # A note or a return is placed where the bill it corrects was, so
+        # the two rows of one supply read alike.
+        against = {
+            invoice_id
+            for _, credit in found
+            for invoice_id in credit.against_invoice_ids[:1]
+        }
+        placed: dict[UUID, str] = (
+            {
+                invoice_id: (place or "").strip()
+                for invoice_id, place in self._session.execute(
+                    select(SalesInvoice.id, SalesInvoice.place_of_supply).where(
+                        SalesInvoice.id.in_(against)
+                    )
+                ).all()
+            }
+            if against
+            else {}
+        )
         rows = {}
         for key, credit in found:
             buckets = credit.buckets.negated()
@@ -446,11 +504,14 @@ class GstSalesRegisterService:
                 number=credit.number,
                 customer_id=credit.customer_id,
                 customer=customers.get(credit.customer_id),
-                place="",
+                place=next(
+                    (placed.get(i, "") for i in credit.against_invoice_ids[:1]), ""
+                ),
                 taxable=taxable,
                 buckets=buckets,
                 total=taxable + tax,
                 against=credit.against_invoice_number,
+                seller_state=seller_state,
             )
         return rows
 

@@ -2230,6 +2230,37 @@ class SalesOrderService(TransactionalDocumentService):
         return apportion(resolved.amount, taxables)
 
     @stamps_tax_rules(SalesOrderLine, "sales_order_id")
+    def _assert_line_warehouses(
+        self, row: SalesOrder, lines: Sequence[SalesOrderLineWrite]
+    ) -> None:
+        """Refuse a line that names a warehouse the order's branch has not got.
+
+        Only the header's warehouse was checked, so a line naming one nobody
+        has reached the insert and failed on the foreign key: 409, "The
+        request conflicts with existing data. Please retry." -- on an order,
+        and on a counter bill, whose lines become this order's (D-SELL-71).
+        """
+        named = {line.warehouse_id for line in lines if line.warehouse_id is not None}
+        named.discard(row.warehouse_id)
+        if not named:
+            return
+        known = set(
+            self._session.scalars(
+                select(Warehouse.id).where(
+                    Warehouse.id.in_(named),
+                    Warehouse.branch_id == row.branch_id,
+                    Warehouse.firm_id == row.firm_id,
+                    Warehouse.is_deleted.is_(False),
+                )
+            ).all()
+        )
+        for line in lines:
+            if line.warehouse_id in named - known:
+                raise ValidationError(
+                    f"Line {line.line_number}: warehouse {line.warehouse_id} "
+                    "was not found in this branch."
+                )
+
     def _replace_lines(
         self,
         row: SalesOrder,
@@ -2248,6 +2279,7 @@ class SalesOrderService(TransactionalDocumentService):
             row.firm_id,
             [(line.product_id, line.unit_price) for line in lines],
         )
+        self._assert_line_warehouses(row, lines)
         # ``entered`` is what was typed GST-inclusive on each line, by line
         # number, kept beside the pre-tax figures (backlog 64 row 4).
         #

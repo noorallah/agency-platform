@@ -277,3 +277,22 @@ def test_only_the_three_freight_terms_are_taken() -> None:
     """Paid, to pay or to be billed."""
     with pytest.raises(SchemaError):
         _payload(uuid4(), uuid4(), freight_terms="FREE")
+
+
+def test_a_transporter_is_kept_once_whatever_its_capitals() -> None:
+    """D-SELL-68: "Blue Dart" and "blue dart" were two carriers."""
+    setup = _Firm(_session_factory()())
+    first = _carrier(setup, name="Blue Dart", gstin=None)
+
+    for again in ("blue dart", "BLUE DART", "  Blue Dart  "):
+        with pytest.raises(ConflictError, match="already a transporter Blue Dart"):
+            _carrier(setup, name=again, gstin=None)
+        setup.session.rollback()
+
+    # Changing its own capitals is not a clash with itself.
+    TransporterService(setup.session).save(
+        TransporterWrite.model_validate({"name": "BLUE DART"}),
+        firm_id=setup.firm.id,
+        actor_id=uuid4(),
+        transporter_id=first,
+    )

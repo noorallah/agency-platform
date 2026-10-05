@@ -11,7 +11,7 @@ from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
@@ -122,15 +122,22 @@ class TransporterService:
             ConflictError: If another live transporter has the name.
 
         """
-        clash = self._session.scalar(
-            select(Transporter.id).where(
+        # Kept once by name whatever its capitals or the spaces around it:
+        # "Blue Dart" and "blue dart" were two carriers (D-SELL-68).
+        clash = self._session.execute(
+            select(Transporter.id, Transporter.name).where(
                 Transporter.firm_id == firm_id,
-                Transporter.name == data.name,
+                func.lower(func.trim(Transporter.name)) == data.name.strip().lower(),
                 Transporter.is_deleted.is_(False),
+                *(
+                    ()
+                    if transporter_id is None
+                    else (Transporter.id != transporter_id,)
+                ),
             )
-        )
-        if clash is not None and clash != transporter_id:
-            raise ConflictError(f"There is already a transporter {data.name}.")
+        ).first()
+        if clash is not None:
+            raise ConflictError(f"There is already a transporter {clash.name}.")
         if transporter_id is None:
             row = Transporter(firm_id=firm_id, created_by=actor_id, **data.model_dump())
             self._session.add(row)

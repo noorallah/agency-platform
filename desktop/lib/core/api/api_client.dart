@@ -9662,13 +9662,22 @@ class ApiClient {
 
   // ---- enquiries and leads (SEL-10) -------------------------------------
 
-  /// The firm's enquiries, newest first; [status] and [salesmanId] narrow it.
-  Future<List<Enquiry>> enquiries({String? status, String? salesmanId}) async =>
-      _unwrapList(
+  /// One page of the firm's enquiries, newest first; [status] and
+  /// [salesmanId] narrow it. The list is paged like every other document's
+  /// (D-SELL-63), so a screen that wants them all reads it page by page.
+  Future<PagedResult<Enquiry>> enquiries({
+    int page = 1,
+    int pageSize = 100,
+    String? status,
+    String? salesmanId,
+  }) async =>
+      parsePagedResponse(
         await request(
           'GET',
           '/api/v1/enquiries',
           query: {
+            'page': '$page',
+            'page_size': '$pageSize',
             if (status != null && status.isNotEmpty) 'status': status,
             if (salesmanId != null && salesmanId.isNotEmpty)
               'salesman_id': salesmanId,

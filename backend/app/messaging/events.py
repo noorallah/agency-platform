@@ -7,6 +7,7 @@ contract with every template a firm has had approved, and must only ever be
 appended to.
 """
 
+import re
 from dataclasses import dataclass
 
 
@@ -168,9 +169,24 @@ class _Blank(dict[str, str]):
         return "{" + key + "}"
 
 
+#: A "due on" clause left with no date after it: ", due on" before the full
+#: stop, or "is due on" at the end of a subject.
+_DUE_ON_NOTHING = re.compile(
+    r",?\s+(?:(?:is|falls|fell)\s+)?due on\s*(?=[.,;:!?\n]|$)", re.IGNORECASE
+)
+
+
 def render(template: str, values: dict[str, str]) -> str:
-    """Fill ``{name}`` placeholders; a stray brace never fails a send."""
+    """Fill ``{name}`` placeholders; a stray brace never fails a send.
+
+    A document with no due date drops the clause that would have stated it:
+    the covering note of such a bill read "...for 118.00, due on ."
+    (D-SELL-64).
+    """
     try:
-        return template.format_map(_Blank(values))
+        text = template.format_map(_Blank(values))
     except (ValueError, IndexError):
         return template
+    if "{due_date}" in template and not values.get("due_date", "").strip():
+        text = _DUE_ON_NOTHING.sub("", text)
+    return text

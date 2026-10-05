@@ -180,6 +180,15 @@ def _as_typed_at_the_counter(buyer: PartyBlock, invoice: SalesInvoice) -> PartyB
     )
 
 
+def _shipped_as_typed(
+    ship_to: PartyBlock | None, invoice: SalesInvoice
+) -> PartyBlock | None:
+    """Name the buyer typed at the counter where the goods went, too."""
+    if ship_to is None:
+        return None
+    return _as_typed_at_the_counter(ship_to, invoice)
+
+
 class SalesInvoicePrintService:
     """Render one invoice, with the firm's template around it."""
 
@@ -434,12 +443,17 @@ class SalesInvoicePrintService:
                     )
                 ),
             ),
-            # The address the bill names (backlog 67 row 3).
-            ship_to=customer_party(
-                self._session,
-                invoice.customer_id,
-                "SHIPPING",
-                address_id=invoice.shipping_address_id,
+            # The address the bill names (backlog 67 row 3) -- and, on a
+            # walk-in bill, the buyer typed at the counter: SHIPPED TO read
+            # "Cash sale" beside a BILLED TO naming the buyer (D-SELL-65).
+            ship_to=_shipped_as_typed(
+                customer_party(
+                    self._session,
+                    invoice.customer_id,
+                    "SHIPPING",
+                    address_id=invoice.shipping_address_id,
+                ),
+                invoice,
             ),
             lines=tuple(printed),
             bill_discount=invoice.bill_discount_amount,

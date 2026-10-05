@@ -93,6 +93,19 @@ def _money(value: Decimal | None) -> Decimal:
     return quantize_ledger(Decimal(str(value or 0)))
 
 
+def utc_stamp(value: datetime | None) -> str:
+    """Write a moment as its UTC day and minute, labelled as such.
+
+    PostgreSQL hands a stored timestamp back in the session's zone, so
+    printing its clock face under "UTC" said 19:12 UTC for a shift opened at
+    13:42 UTC (D-SELL-67). Converted first; SQLite's naive value is UTC that
+    lost its label (``as_utc``).
+    """
+    if value is None:
+        return ""
+    return as_utc(value).astimezone(UTC).strftime("%d-%m-%Y %H:%M UTC")
+
+
 def open_shift_of(
     session: Session, firm_id: UUID, cashier_id: UUID, *, lock: bool = False
 ) -> CounterShift | None:
@@ -562,9 +575,7 @@ class CounterShiftService:
             """Write an amount the way the report prints it."""
             return "" if value is None else f"{value:,.2f}"
 
-        def stamp(value: datetime | None) -> str:
-            """Write a moment as its UTC day and minute."""
-            return "" if value is None else value.strftime("%d-%m-%Y %H:%M UTC")
+        stamp = utc_stamp
 
         details = [
             ["Shift", view.shift_number],

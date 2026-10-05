@@ -106,7 +106,7 @@ def test_a_bill_is_read_by_tax_head() -> None:
 
     assert (within.document_number, within.document_type) == ("SI-1", "INVOICE")
     assert within.customer_gstin == REGISTERED_BUYER
-    assert within.place_of_supply == REGISTERED_BUYER[:2]
+    assert within.place_of_supply == "Karnataka (29)"
     assert (within.taxable_value, within.cgst, within.sgst, within.igst) == (
         Decimal("1000.00"),
         Decimal("90.00"),
@@ -384,3 +384,32 @@ def _statements(bills: int) -> tuple[int, int]:
 def test_the_statements_do_not_grow_with_the_documents() -> None:
     """Two bills with their notes and twelve cost the same statements."""
     assert _statements(2) == _statements(12)
+
+
+def test_the_place_of_supply_reads_one_way_on_every_row() -> None:
+    """D-SELL-61: "Tamil Nadu (33)" on the bill, "33" on its notes, blank.
+
+    Driven 2026-10-05: the bill's row named the state with its code, the
+    credit note, debit note and return of the same bill a bare code, and an
+    unregistered buyer's bill nothing -- though GSTR-1 placed it in the
+    seller's state by the CGST and SGST it charged. One form, on every row.
+    """
+    books = _books()
+    invoice = books.invoice("SI-1", gross="1000", tax="180", on=date(2026, 4, 10))
+    books.credit("CN-1", invoice, taxable="100", tax="18", on=date(2026, 4, 20))
+    books.returned("SR-1", invoice, taxable="200", tax="36", on=date(2026, 4, 22))
+    _debit(books, "DN-1", invoice, taxable="50", tax="9", on=date(2026, 4, 25))
+    # A buyer with no GSTIN, taxed CGST + SGST: the seller's own state.
+    books.invoice(
+        "SI-2", customer=books.walk_in, gross="500", tax="90", on=date(2026, 4, 26)
+    )
+
+    rows = {row.document_number: row for row in _register(books)}
+
+    assert {number: row.place_of_supply for number, row in rows.items()} == {
+        "SI-1": "Karnataka (29)",
+        "CN-1": "Karnataka (29)",
+        "SR-1": "Karnataka (29)",
+        "DN-1": "Karnataka (29)",
+        "SI-2": "Karnataka (29)",
+    }
