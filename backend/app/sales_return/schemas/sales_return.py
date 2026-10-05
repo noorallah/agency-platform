@@ -399,9 +399,14 @@ class SalesReturnSummary(SalesReturnSchema):
     approved_returns: int
     completed_returns: int
     cancelled_returns: int
-    #: What the firm's live returns credit: a return's total, less the value
-    #: of goods that came back before any bill charged for them (D-SELL-74).
+    #: What the firm's **completed** returns credited: a return's total, less
+    #: the value of goods that came back before any bill charged for them
+    #: (D-SELL-74). The register's ``credited_amount`` summed over the same
+    #: returns; a draft or approved return adds nothing here (D-SELL-84).
     total_return_value: Decimal
+    #: The stated totals of the returns still on their way -- draft or
+    #: approved -- which have credited nobody yet (D-SELL-84).
+    pending_return_value: Decimal = Decimal("0")
     total_restock_quantity: Decimal
 
 

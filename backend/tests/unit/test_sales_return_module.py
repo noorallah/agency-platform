@@ -1727,7 +1727,8 @@ def test_the_summary_agrees_with_the_register_on_a_part_billed_return() -> None:
 
     Four delivered, three billed, two back with 20.00 of charges: one unit
     is credited and the charge goes with it. Beside it a draft, which has
-    credited nothing yet and is counted at what it states, as it always was.
+    credited nothing yet: it is stated apart, as pending, and leaves the
+    credited figure where the register has it (D-SELL-84).
     """
     session = _request_session()
     setup = _Dispatch(session, billed=Decimal("3"))
@@ -1749,9 +1750,85 @@ def test_the_summary_agrees_with_the_register_on_a_part_billed_return() -> None:
         firm_id=setup.firm.id,
         actor_id=setup.actor_id,
     )
-    assert service.summary(firm_scope=setup.firm.id).total_return_value == (
-        listed.credited_amount + draft.grand_total
+    summary = service.summary(firm_scope=setup.firm.id)
+    assert summary.total_return_value == listed.credited_amount
+    assert summary.pending_return_value == draft.grand_total
+
+
+def _credited_in_register(service: SalesReturnService, firm_id: UUID) -> Decimal:
+    """Add up what the register says the firm's returns credited."""
+    return sum(
+        (row.credited_amount for row in service.register_report(firm_scope=firm_id)),
+        Decimal("0"),
     )
+
+
+def test_the_summary_values_a_return_the_same_at_every_step_of_its_life() -> None:
+    """D-SELL-84: a never-billed return read 640.00 as a draft, then nothing.
+
+    Driven 2026-10-06: five delivered, never billed, five back with 50.00 of
+    charges. The summary added 640.00 while the return was a draft and while
+    it was approved, and took it off again at completion, because the split
+    between billed and unbilled goods is stamped on the lines only then. The
+    register read 0.00 throughout. Now the value is what completed returns
+    credited -- the register's own total -- and what is still on its way is
+    stated beside it.
+    """
+    session = _request_session()
+    setup = _Dispatch(session, billed=Decimal("0"))
+    service = SalesReturnService(session)
+    firm = setup.firm.id
+    row = service.create_return(
+        setup.payload(quantity=Decimal("3")).model_copy(
+            update={"additional_charges": Decimal("50")}
+        ),
+        firm_id=firm,
+        actor_id=setup.actor_id,
+    )
+    stated = Decimal(str(row.grand_total))
+    assert stated == Decimal("350.0000")
+
+    for step in ("draft", "approved"):
+        if step == "approved":
+            service.approve_return(row.id, firm_scope=firm, actor_id=setup.actor_id)
+        summary = service.summary(firm_scope=firm)
+        assert summary.total_return_value == Decimal("0.0000"), step
+        assert summary.total_return_value == _credited_in_register(service, firm)
+        assert summary.pending_return_value == stated, step
+
+    service.complete_return(row.id, firm_scope=firm, actor_id=setup.actor_id)
+    summary = service.summary(firm_scope=firm)
+    assert summary.total_return_value == Decimal("0.0000")
+    assert summary.total_return_value == _credited_in_register(service, firm)
+    assert summary.pending_return_value == Decimal("0.0000")
+
+
+def test_a_billed_return_adds_its_value_only_when_it_completes() -> None:
+    """A draft against a bill is pending; completing it moves it to credited."""
+    session = _request_session()
+    setup = _Dispatch(session)
+    service = SalesReturnService(session)
+    firm = setup.firm.id
+    row = service.create_return(
+        setup.payload(quantity=Decimal("2")), firm_id=firm, actor_id=setup.actor_id
+    )
+    stated = Decimal(str(row.grand_total))
+
+    summary = service.summary(firm_scope=firm)
+    assert (summary.total_return_value, summary.pending_return_value) == (
+        Decimal("0.0000"),
+        stated,
+    )
+    assert _credited_in_register(service, firm) == Decimal("0")
+
+    service.approve_return(row.id, firm_scope=firm, actor_id=setup.actor_id)
+    service.complete_return(row.id, firm_scope=firm, actor_id=setup.actor_id)
+    summary = service.summary(firm_scope=firm)
+    assert (summary.total_return_value, summary.pending_return_value) == (
+        stated,
+        Decimal("0.0000"),
+    )
+    assert summary.total_return_value == _credited_in_register(service, firm)
 
 
 def test_a_return_on_a_note_names_the_bill_it_credits() -> None:

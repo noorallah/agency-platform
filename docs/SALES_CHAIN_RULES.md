@@ -205,7 +205,7 @@ for goods never billed -- and left the note billable in full.
   a bill earned. The sales-return reports do too (D-SELL-74): the register
   states `credited_amount` beside the document's total, by-customer and
   by-product value a return at what was credited, the summary's
-  `total_return_value` is what the live returns credit, and each carries
+  `total_return_value` is what the completed returns credited, and each carries
   `unbilled_quantity` -- the goods back before billing, as a quantity with
   no value.
 - **The summary reads `return_billed_amounts` too, not arithmetic of its
@@ -214,9 +214,21 @@ for goods never billed -- and left the note billable in full.
   credited nothing still counted its 50.00 of additional charges and its
   0.40 of rounding, while the register beside it said 0. Returns with no
   goods back before billing are still summed in SQL; only the few that have
-  some are valued one by one, by the function the journal reads. A draft or
-  approved return has credited nothing yet and is counted at what it
-  states, as it always was.
+  some are valued one by one, by the function the journal reads.
+- **The summary's value is what completed returns credited, and nothing
+  else** (D-SELL-84, 2026-10-06). A draft or approved return used to be
+  counted at what it states, so a never-billed return of 640.00 added 640.00
+  while it was a draft, the same once approved, and dropped to nothing at
+  completion -- the split between billed and unbilled goods is stamped on
+  its lines only then, so what a draft *will* credit cannot be known. The
+  register and by-customer read 0.00 throughout. `total_return_value` now
+  sums the COMPLETED and CLOSED returns alone, and for the same returns
+  equals the register's `credited_amount` added up; what is still on its
+  way is stated beside it as **`pending_return_value`**, the stated totals
+  of the DRAFT and APPROVED returns. The other document summaries sum every
+  status because a document total is all they mean; this one means a
+  credit, so the two figures are kept apart rather than added. The status
+  counts and `total_restock_quantity` are unchanged.
 - **A return on a note names the bill it credits** (D-SELL-75). Where a bill
   charged the note's line, the GST sales register and GSTR-1's CDNR read
   that bill as the return's "against invoice" -- the earliest that stands,

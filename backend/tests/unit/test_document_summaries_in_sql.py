@@ -196,13 +196,20 @@ def test_purchase_return_summary() -> None:
 
 
 def test_sales_return_summary_leaves_cancelled_out_of_value_and_restock() -> None:
-    """A cancelled return is counted but returned and restocked nothing."""
+    """A cancelled return is counted but returned and restocked nothing.
+
+    The value is what completed (and closed) returns credited; a draft or an
+    approved return has credited nobody, and its stated total is the pending
+    figure beside it (D-SELL-84). The sibling summaries sum every status,
+    because a document total is all they mean; this one means a credit.
+    """
     session = _session()
     firm = uuid.uuid4()
     for status, total, restock, deleted in [
         ("DRAFT", "10", "1", False),
         ("APPROVED", "20", "2", False),
         ("COMPLETED", "30", "3", False),
+        ("CLOSED", "7", "0", False),
         ("CANCELLED", "400", "40", False),
         ("COMPLETED", "5000", "500", True),
     ]:
@@ -217,10 +224,11 @@ def test_sales_return_summary_leaves_cancelled_out_of_value_and_restock() -> Non
         )
     session.commit()
     got = SalesReturnService(session).summary(firm_scope=firm)
-    assert got.total_returns == 4
+    assert got.total_returns == 5
     assert (got.draft_returns, got.approved_returns) == (1, 1)
     assert (got.completed_returns, got.cancelled_returns) == (1, 1)
-    assert got.total_return_value == Decimal("60")
+    assert got.total_return_value == Decimal("37")
+    assert got.pending_return_value == Decimal("30")
     assert got.total_restock_quantity == Decimal("6")
 
 
