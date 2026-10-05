@@ -671,8 +671,8 @@ the customer's account manager collects. From a row of the sheet, record a
 lists them by status:
 
 - *pending* before its day, *due today* on it;
-- *kept* when receipts dated from the day it was taken up to the day promised
-  cover the amount;
+- *kept* when receipts recorded after it was taken, up to the day promised,
+  cover the amount (money received earlier the same day does not count);
 - *broken* past that day without them;
 - *withdrawn* when taken back, with a reason.
 
