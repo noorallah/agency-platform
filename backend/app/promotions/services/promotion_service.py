@@ -23,7 +23,7 @@ document is being built, on the caller's session; committing here would
 publish a half-written order.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -93,6 +93,8 @@ class _LineState:
     #: What the line sells, for an offer about a set of products (SEL-3).
     product_id: UUID | None = None
     free_quantity: Decimal = ZERO
+    #: Somebody typed this line's free quantity, so no offer adds to it.
+    free_typed: bool = False
     codes: list[str] = field(default_factory=list)
 
     @property
@@ -122,6 +124,7 @@ class PromotionService:
                 gross=quantize_money(line.gross),
                 quantity=Decimal(str(line.quantity)),
                 product_id=getattr(line, "product_id", None),
+                free_typed=line.free_typed,
             )
             for line in data.lines
         ]
@@ -145,11 +148,22 @@ class PromotionService:
         # combined cap can take back the last slice first (backlog 59 item 3).
         slices: list[list[tuple[int, Decimal]]] = [[] for _ in states]
         applied_promotions: list[Promotion] = []
+        # What each budgeted offer still has to give, read once per offer.
+        room: dict[UUID, BudgetRoom] = {}
 
-        def apply_one(promotion: Promotion, matched_lines: list[_LineState]) -> bool:
-            """Apply one offer to the document; True when evaluation must stop."""
+        def apply_one(
+            promotion: Promotion, matched_lines: list[_LineState]
+        ) -> bool | None:
+            """Apply one offer to the document; True when evaluation must stop.
+
+            None when the offer was not applied after all: what it would give
+            this document is more than its budget has left. Everything it
+            did is undone, so the document is priced as if it had not matched.
+            """
             nonlocal bill_discount, freight_waived
             before_each = [state.discount for state in states]
+            before_free = [state.free_quantity for state in states]
+            before_gifts = len(gifts)
             before_lines = sum(before_each, ZERO)
             added_bill, waives_freight = self._apply(
                 promotion,
@@ -159,6 +173,30 @@ class PromotionService:
                 allow_bill=not data.caller_priced_bill,
                 gifts=gifts,
             )
+            worth = quantize_money(
+                sum((state.discount for state in states), ZERO)
+                - before_lines
+                + added_bill
+                + (quantize_money(data.freight_amount) if waives_freight else ZERO)
+            )
+            free_given = sum((state.free_quantity for state in states), ZERO) - sum(
+                before_free, ZERO
+            )
+            free_given += sum((gift.quantity for gift in gifts[before_gifts:]), ZERO)
+            overrun = room[promotion.id].overrun(worth, free_given)
+            if overrun is not None:
+                # Whole or not at all, as approval refuses it: part of a
+                # scheme is a price nobody published.
+                for state, discount, free in zip(
+                    states, before_each, before_free, strict=True
+                ):
+                    state.discount = discount
+                    state.free_quantity = free
+                del gifts[before_gifts:]
+                decisions.append(
+                    self._decision(promotion, False, f"This offer {overrun}")
+                )
+                return None
             bill_discount += added_bill
             if waives_freight:
                 freight_waived = quantize_money(data.freight_amount)
@@ -181,16 +219,8 @@ class PromotionService:
                     # The waived delivery counts: a campaign that gave away
                     # shipping cost the firm exactly that, and a cost report
                     # that left it out would understate it.
-                    benefit_amount=quantize_money(
-                        sum((state.discount for state in states), ZERO)
-                        - before_lines
-                        + added_bill
-                        + (
-                            quantize_money(data.freight_amount)
-                            if waives_freight
-                            else ZERO
-                        )
-                    ),
+                    benefit_amount=worth,
+                    free_quantity=free_given,
                 )
             )
             applied_promotions.append(promotion)
@@ -233,6 +263,16 @@ class PromotionService:
             )
             if refusal is not None:
                 decisions.append(self._decision(promotion, False, refusal))
+                continue
+            # A budget is counted like the number of claims, from the ledger:
+            # one that is spent is not quoted, and one that cannot cover this
+            # document is found out when the offer is applied below.
+            room[promotion.id] = budget_room(
+                self._session, promotion, firm_id=firm_scope
+            )
+            spent = room[promotion.id].spent()
+            if spent is not None:
+                decisions.append(self._decision(promotion, False, spent))
                 continue
             matched_lines = [
                 state
@@ -682,23 +722,30 @@ class PromotionService:
         states: list[_LineState],
         data: PromotionEvaluationRequest,
         decisions: list[PromotionDecision],
-        apply_one: Callable[[Promotion, list[_LineState]], bool],
+        apply_one: Callable[[Promotion, list[_LineState]], bool | None],
     ) -> None:
         """Give only the single offer worth most (backlog 59).
 
         Each candidate is valued on its own; the most valuable is applied,
         a tie going to the one earlier in "Applies at" order, and every other
-        candidate is recorded with what it was worth against the winner.
+        candidate is recorded with what it was worth against the winner. An
+        offer whose budget cannot cover this document is passed over, and the
+        next most valuable is then the best there is.
         """
         worth = [
             (promotion, matched, self._worth_alone(promotion, matched, states, data))
             for promotion, matched in candidates
         ]
-        top = max(value for _, _, value in worth)
-        winner = next(item for item in worth if item[2] == top)
-        for promotion, matched, value in worth:
+        while True:
+            top = max(value for _, _, value in worth)
+            winner = next(item for item in worth if item[2] == top)
+            if apply_one(winner[0], winner[1]) is not None:
+                break
+            worth.remove(winner)
+            if not worth:
+                return
+        for promotion, _matched, value in worth:
             if promotion is winner[0]:
-                apply_one(promotion, matched)
                 continue
             decisions.append(
                 self._decision(
@@ -874,7 +921,7 @@ class PromotionService:
                         # Whole multiples only: buying nineteen on a "ten get
                         # one" earns one free unit, not one and nine tenths.
                         times = int(state.quantity // buy)
-                        if times > 0:
+                        if times > 0 and not state.free_typed:
                             state.free_quantity += free * times
             elif kind == PromotionActionType.BUY_X_GET_Y_DISCOUNT.value:
                 buy = Decimal(str(params.get("buy_quantity", 0) or 0))
@@ -995,6 +1042,133 @@ class PromotionService:
             )
         )
         self._session.flush()
+
+
+@dataclass(frozen=True, slots=True)
+class BudgetRoom:
+    """What is left of an offer's budget in money and in free units.
+
+    One answer for pricing and for approval, so the two cannot disagree about
+    whether a document fits. Counted from CLAIMED redemptions across the
+    offer's version group, as the number of claims is: a draft has taken
+    nothing, a cancelled document gave its part back, and an edit does not
+    refill a budget.
+    """
+
+    max_amount: Decimal | None
+    amount_claimed: Decimal
+    max_free: Decimal | None
+    free_claimed: Decimal
+
+    @property
+    def amount_left(self) -> Decimal | None:
+        """What the money budget still has, never below zero; None if none."""
+        if self.max_amount is None:
+            return None
+        return max(self.max_amount - self.amount_claimed, ZERO)
+
+    @property
+    def free_left(self) -> Decimal | None:
+        """How many free units are still to give; None if there is no budget."""
+        if self.max_free is None:
+            return None
+        return max(self.max_free - self.free_claimed, ZERO)
+
+    def spent(self) -> str | None:
+        """Say which budget has nothing left, or nothing if both have room."""
+        if self.max_amount is not None and self.amount_left == ZERO:
+            return (
+                f"This offer's budget of {quantize_ledger(self.max_amount)} has "
+                "all been given."
+            )
+        if self.max_free is not None and self.free_left == ZERO:
+            return (
+                f"This offer's budget of {_units(self.max_free)} free units has "
+                "all been given."
+            )
+        return None
+
+    def overrun(self, amount: Decimal, free: Decimal) -> str | None:
+        """Say which budget this much would overrun, or nothing if it fits.
+
+        The answer is the rest of a sentence about the offer: "has 20.00 left
+        of its budget of 50.00, and this document would take 40.00." A claim
+        fits whole or not at all -- giving only the part that is left would
+        price the document at a discount no offer states.
+        """
+        left = self.amount_left
+        if left is not None and (left == ZERO or amount > left):
+            return (
+                f"has {quantize_ledger(left)} left of its budget of "
+                f"{quantize_ledger(self.max_amount)}, and this document would "
+                f"take {quantize_ledger(amount)}."
+            )
+        free_left = self.free_left
+        if free_left is not None and (free_left == ZERO or free > free_left):
+            return (
+                f"has {_units(free_left)} left of its budget of "
+                f"{_units(self.max_free)} free units, and this document would "
+                f"take {_units(free)}."
+            )
+        return None
+
+
+def _units(quantity: Decimal | None) -> str:
+    """Spell a quantity without trailing zeroes: 500, not 500.0000."""
+    value = Decimal(str(quantity or 0)).normalize()
+    return f"{value:f}"
+
+
+def budget_rooms(
+    session: Session, promotions: Sequence[Promotion], *, firm_id: UUID
+) -> dict[UUID, BudgetRoom]:
+    """Return what each offer's budget has left, keyed by promotion id.
+
+    One statement for the whole list, never one per offer: a page of offers
+    asks once. What was claimed is counted whether or not there is a budget,
+    because "how much has this offer given" is worth showing either way.
+    """
+    budgeted = {row.version_group_id for row in promotions}
+    claimed: dict[UUID, tuple[Decimal, Decimal]] = {}
+    if budgeted:
+        for group, amount, free in session.execute(
+            select(
+                Promotion.version_group_id,
+                func.coalesce(func.sum(PromotionRedemption.benefit_amount), 0),
+                func.coalesce(func.sum(PromotionRedemption.free_quantity), 0),
+            )
+            .join(Promotion, Promotion.id == PromotionRedemption.promotion_id)
+            .where(
+                PromotionRedemption.firm_id == firm_id,
+                Promotion.firm_id == firm_id,
+                Promotion.version_group_id.in_(budgeted),
+                PromotionRedemption.status == "CLAIMED",
+                PromotionRedemption.is_deleted.is_(False),
+            )
+            .group_by(Promotion.version_group_id)
+        ):
+            claimed[group] = (Decimal(str(amount)), Decimal(str(free)))
+    rooms: dict[UUID, BudgetRoom] = {}
+    for row in promotions:
+        amount, free = claimed.get(row.version_group_id, (ZERO, ZERO))
+        rooms[row.id] = BudgetRoom(
+            max_amount=row.max_benefit_amount,
+            amount_claimed=amount,
+            max_free=row.max_free_quantity,
+            free_claimed=free,
+        )
+    return rooms
+
+
+def budget_room(session: Session, promotion: Promotion, *, firm_id: UUID) -> BudgetRoom:
+    """Return what one offer's budget has left.
+
+    An offer with no budget is answered without a read: this runs for every
+    offer on every document priced, and most offers have none.
+    """
+    if promotion.max_benefit_amount is None and promotion.max_free_quantity is None:
+        return BudgetRoom(None, ZERO, None, ZERO)
+    return budget_rooms(session, [promotion], firm_id=firm_id)[promotion.id]
 
 
 def _combo_saving(

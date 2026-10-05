@@ -38,6 +38,7 @@ from app.promotions.schemas import (
     PromotionStatus,
     PromotionWrite,
 )
+from app.promotions.services.promotion_service import BudgetRoom, budget_rooms
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 
 #: The condition fields whose `value_text` holds the id of a master row.
@@ -139,6 +140,8 @@ class PromotionCrudService:
             requires_coupon=data.requires_coupon,
             max_redemptions=data.max_redemptions,
             max_redemptions_per_customer=data.max_redemptions_per_customer,
+            max_benefit_amount=data.max_benefit_amount,
+            max_free_quantity=data.max_free_quantity,
             principal_id=data.principal_id,
             principal_share_percent=data.principal_share_percent,
             version_group_id=uuid4(),
@@ -176,6 +179,21 @@ class PromotionCrudService:
         """
         self._check_principal(data, firm_scope)
         row = self.get_promotion(promotion_id, firm_scope=firm_scope)
+        # A budget left out of the request is left alone; an explicit null
+        # clears it. The rest of this body replaces the offer whole, but an
+        # editor that has never heard of a budget must not lift one by
+        # saving a name -- on a draft or on the revision that supersedes.
+        sent = data.model_fields_set
+        max_benefit_amount = (
+            data.max_benefit_amount
+            if "max_benefit_amount" in sent
+            else row.max_benefit_amount
+        )
+        max_free_quantity = (
+            data.max_free_quantity
+            if "max_free_quantity" in sent
+            else row.max_free_quantity
+        )
         if row.status == PromotionStatus.DRAFT.value:
             row.name = data.name
             row.description = data.description
@@ -187,6 +205,8 @@ class PromotionCrudService:
             row.requires_coupon = data.requires_coupon
             row.max_redemptions = data.max_redemptions
             row.max_redemptions_per_customer = data.max_redemptions_per_customer
+            row.max_benefit_amount = max_benefit_amount
+            row.max_free_quantity = max_free_quantity
             row.principal_id = data.principal_id
             row.principal_share_percent = data.principal_share_percent
             row.updated_by = actor_id
@@ -216,6 +236,8 @@ class PromotionCrudService:
             requires_coupon=data.requires_coupon,
             max_redemptions=data.max_redemptions,
             max_redemptions_per_customer=data.max_redemptions_per_customer,
+            max_benefit_amount=max_benefit_amount,
+            max_free_quantity=max_free_quantity,
             principal_id=data.principal_id,
             principal_share_percent=data.principal_share_percent,
             version_group_id=row.version_group_id,
@@ -438,12 +460,22 @@ class PromotionCrudService:
         """Build the API responses for a page, naming every id a condition holds.
 
         The ids are collected across the whole page and resolved with one read
-        per table, never one per condition.
+        per table, never one per condition; what each offer's budget has
+        given is one grouped read for the page.
         """
         labels = self._condition_labels(
             condition for row in rows for condition in row.conditions
         )
-        return [self._response(row, labels) for row in rows]
+        rooms: dict[UUID, BudgetRoom] = {}
+        for firm_id in {row.firm_id for row in rows}:
+            rooms.update(
+                budget_rooms(
+                    self._session,
+                    [row for row in rows if row.firm_id == firm_id],
+                    firm_id=firm_id,
+                )
+            )
+        return [self._response(row, labels, rooms[row.id]) for row in rows]
 
     def _condition_labels(
         self, conditions: Iterable[PromotionCondition]
@@ -529,9 +561,12 @@ class PromotionCrudService:
         return labels.get((condition.field_key, key))
 
     def _response(
-        self, row: Promotion, labels: dict[tuple[str, str], str]
+        self,
+        row: Promotion,
+        labels: dict[tuple[str, str], str],
+        room: BudgetRoom,
     ) -> PromotionResponse:
-        """Build one promotion's response from labels already resolved."""
+        """Build one promotion's response from what was already read."""
         return PromotionResponse(
             id=row.id,
             firm_id=row.firm_id,
@@ -546,6 +581,12 @@ class PromotionCrudService:
             requires_coupon=row.requires_coupon,
             max_redemptions=row.max_redemptions,
             max_redemptions_per_customer=row.max_redemptions_per_customer,
+            max_benefit_amount=row.max_benefit_amount,
+            benefit_amount_claimed=room.amount_claimed,
+            remaining_benefit_amount=room.amount_left,
+            max_free_quantity=row.max_free_quantity,
+            free_quantity_claimed=room.free_claimed,
+            remaining_free_quantity=room.free_left,
             principal_id=row.principal_id,
             principal_share_percent=row.principal_share_percent,
             version_group_id=row.version_group_id,

@@ -2179,6 +2179,10 @@ class SalesOrderService(TransactionalDocumentService):
                             item.discount_percent is not None
                             or item.discount_amount is not None
                         ),
+                        # A typed free quantity stands, a zero included
+                        # (D-SELL-41), so the offer's is not given on this
+                        # line and must not be counted as given.
+                        free_typed=item.free_quantity is not None,
                     )
                     for index, item in enumerate(lines)
                 ],

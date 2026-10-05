@@ -7,6 +7,13 @@ engine knows which offers applied and what each was worth. It counts against no
 limit: a draft somebody edits five times and never approves has claimed
 nothing.
 
+A budget is a limit too. An offer may cap what it gives in money
+(`max_benefit_amount`) and in free units (`max_free_quantity`), and both are
+counted here exactly as the number of claims is: from CLAIMED rows across the
+version group, under the same lock. A claim that would take the offer past
+either is refused **whole** -- giving the part that was left would approve a
+document at a price nobody saw.
+
 "Approved" means the document a person approves. A counter bill raises a
 sales order nobody typed and approves it at every save, so that order's claims
 stay PENDING until the **bill** is approved (D-SELL-85); the rows are still
@@ -28,6 +35,7 @@ draft nobody ever approved.
 """
 
 from datetime import date
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -41,6 +49,7 @@ from app.promotions.models import (
     PromotionRedemption,
 )
 from app.promotions.schemas import PromotionApplication
+from app.promotions.services.promotion_service import budget_room
 
 PENDING = "PENDING"
 CLAIMED = "CLAIMED"
@@ -100,6 +109,7 @@ class RedemptionService:
                     document_number=document_number,
                     redeemed_on=on,
                     benefit_amount=application.benefit_amount,
+                    free_quantity=application.free_quantity,
                     status=PENDING,
                     created_by=actor_id,
                     updated_by=actor_id,
@@ -225,6 +235,16 @@ class RedemptionService:
                     f"This customer has claimed promotion {promotion.code} as "
                     "often as they may. Re-save the document to price it without."
                 )
+        # The budget, in money and in free units. The same sum pricing
+        # reads, taken again here because the lock is what makes it true.
+        overrun = budget_room(self._session, promotion, firm_id=firm_id).overrun(
+            Decimal(str(row.benefit_amount)), Decimal(str(row.free_quantity))
+        )
+        if overrun is not None:
+            raise ValidationError(
+                f"Promotion {promotion.code} {overrun} Re-save the document to "
+                "price it without."
+            )
         if row.coupon_id is None:
             return
         wanted = select(PromotionCoupon).where(PromotionCoupon.id == row.coupon_id)

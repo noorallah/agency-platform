@@ -182,6 +182,48 @@ again and priced without it -- otherwise the bill would keep a price it can
 never be approved at. Sending `coupon_code: null` does the same by hand.
 `tests/unit/test_counter_bill_claims_at_approval.py` is the guard.
 
+**A scheme has a budget, and it is counted the way the number of claims is**
+(2026-10-06). A principal funds a scheme with "up to 50,000 of discount" or
+"up to 500 free units", and an offer could be capped only by how many times
+it was claimed. `promotions.max_benefit_amount` and `max_free_quantity` are
+the two budgets, null for none, and `promotion_redemptions.free_quantity`
+records the free units a claim gave -- more of a line's own product and gifts
+of another together -- beside the `benefit_amount` it always carried. Both are
+summed from **CLAIMED** rows across the version group by one function,
+`budget_rooms` in `promotion_service.py`, which pricing, approval, the list
+and the report all read, so they cannot disagree. Nothing is stored on the
+offer: a draft has taken nothing, a cancelled order gives its part back, and
+an edit carries the budget to the new revision without refilling it.
+
+**A claim fits whole or not at all.** Approval refuses the document under the
+same lock, in the same function as the count (`RedemptionService._assert_room`):
+"Promotion SCHEME has 10.00 left of its budget of 50.00, and this document
+would take 40.00. Re-save the document to price it without." -- or "has 1 left
+of its budget of 3 free units, and this document would take 2." Giving the
+ten that was left would approve a document at a discount no offer states,
+which is the silent repricing the count limit already refuses to do. Pricing
+follows the same rule, or "re-save" would be a lie: a budget with nothing left
+is not quoted, and one with too little left for *this* document is applied,
+measured and taken back off, with the figures in the trace ("This offer has
+10.00 left of its budget of 50.00, and this document would take 40.00."). A
+smaller document that fits is still quoted it. Under best-offer-only, an offer
+passed over this way hands the document to the next most valuable rather than
+leaving it with none.
+
+Three things to know. The money budget counts what `benefit_amount` counts --
+line and bill discount and waived delivery, not the value of free goods, which
+are charged nothing; the free budget counts units in the unit each line is
+sold in, added across products. A free quantity **typed** on a line stands
+(D-SELL-41) and is not the offer's, so `PromotionLineRequest.free_typed` keeps
+the engine from counting it; a gift whose product somebody already typed as a
+line is still counted, since the engine cannot tell that line from a sale.
+And claims made before `20261006_0334` carry a free quantity of zero, so a
+free-unit budget put on an offer already running counts from that day. On an
+edit the two budgets are the one part of `PUT /promotions/{id}` that is not
+replaced whole: left out they keep what the offer has, `null` clears them --
+an editor that has never heard of a budget must not lift a principal's by
+saving a name. `tests/unit/test_promotion_budgets.py` is the guard.
+
 **Bonus points are an offer settled at approval, not at pricing** (SEL-4,
 A73): `LOYALTY_MULTIPLIER` is the only benefit on its offer, the pricing
 engine passes over it, and `LoyaltyService.bonus_for` applies the largest
