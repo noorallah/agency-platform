@@ -208,6 +208,15 @@ for goods never billed -- and left the note billable in full.
   `total_return_value` is what the live returns credit, and each carries
   `unbilled_quantity` -- the goods back before billing, as a quantity with
   no value.
+- **The summary reads `return_billed_amounts` too, not arithmetic of its
+  own** (D-SELL-80). It took the unbilled share of the **lines** off the
+  document total, so what sits on the header stayed in: a return that
+  credited nothing still counted its 50.00 of additional charges and its
+  0.40 of rounding, while the register beside it said 0. Returns with no
+  goods back before billing are still summed in SQL; only the few that have
+  some are valued one by one, by the function the journal reads. A draft or
+  approved return has credited nothing yet and is counted at what it
+  states, as it always was.
 - **A return on a note names the bill it credits** (D-SELL-75). Where a bill
   charged the note's line, the GST sales register and GSTR-1's CDNR read
   that bill as the return's "against invoice" -- the earliest that stands,

@@ -1665,6 +1665,95 @@ def test_a_return_before_billing_is_reported_as_quantity_with_no_value() -> None
     )
 
 
+def _request_session() -> Session:
+    """Open a session as a request does: one that does not flush on a read."""
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    return sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)()
+
+
+def _completed_with_header(
+    setup: _Dispatch, *, quantity: str, charges: str, round_off: str
+) -> tuple[SalesReturnService, SalesReturn]:
+    """Complete a return that carries charges and rounding on its header."""
+    service = SalesReturnService(setup.session)
+    row = service.create_return(
+        setup.payload(quantity=Decimal(quantity)).model_copy(
+            update={
+                "additional_charges": Decimal(charges),
+                "round_off": Decimal(round_off),
+            }
+        ),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+    service.approve_return(row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id)
+    return service, service.complete_return(
+        row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+    )
+
+
+def test_the_summary_counts_no_header_charge_of_a_return_that_credited_nothing() -> (
+    None
+):
+    """D-SELL-80: 50.00 of charges and 0.40 of rounding read as returned value.
+
+    Driven 2026-10-05: goods back before billing, with additional charges on
+    the return. Nothing was credited and the register said so, but the
+    summary took the unbilled share of the lines off the document total and
+    kept what sat on the header.
+    """
+    session = _request_session()
+    setup = _Dispatch(session, billed=Decimal("0"))
+    service, row = _completed_with_header(
+        setup, quantity="3", charges="50", round_off="0.40"
+    )
+    assert row.grand_total == Decimal("350.4000"), "the document still states it"
+    assert _credits(session) == []
+
+    [listed] = service.register_report(firm_scope=setup.firm.id)
+    assert listed.credited_amount == Decimal("0.0000")
+    assert service.summary(firm_scope=setup.firm.id).total_return_value == Decimal(
+        "0.0000"
+    )
+
+
+def test_the_summary_agrees_with_the_register_on_a_part_billed_return() -> None:
+    """The summary reads the figure the register and the account read.
+
+    Four delivered, three billed, two back with 20.00 of charges: one unit
+    is credited and the charge goes with it. Beside it a draft, which has
+    credited nothing yet and is counted at what it states, as it always was.
+    """
+    session = _request_session()
+    setup = _Dispatch(session, billed=Decimal("3"))
+    service, _row = _completed_with_header(
+        setup, quantity="2", charges="20", round_off="-0.25"
+    )
+    [credit] = _credits(session)
+
+    [listed] = service.register_report(firm_scope=setup.firm.id)
+    assert listed.credited_amount == Decimal("119.7500")
+    assert credit.amount == Decimal("119.75")
+    assert (
+        service.summary(firm_scope=setup.firm.id).total_return_value
+        == listed.credited_amount
+    )
+
+    draft = service.create_return(
+        setup.payload(quantity=Decimal("1")),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+    assert service.summary(firm_scope=setup.firm.id).total_return_value == (
+        listed.credited_amount + draft.grand_total
+    )
+
+
 def test_a_return_on_a_note_names_the_bill_it_credits() -> None:
     """D-SELL-75: "against invoice" was blank though the return credited one.
 

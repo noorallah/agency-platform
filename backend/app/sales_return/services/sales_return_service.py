@@ -22,7 +22,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.batch_serial.models import SerialNumber
@@ -47,6 +47,7 @@ from app.common.report_names import (
 from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
+from app.core.utils.chunks import CHUNK_SIZE
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger
 from app.core.utils.pricing import LineDiscount, resolve_line_discount
@@ -89,7 +90,6 @@ from app.sales_return.billing import (
     note_line_billing,
     return_billed_amounts,
     unbilled_quantities,
-    unbilled_value,
 )
 from app.sales_return.models import (
     SalesReturn,
@@ -324,18 +324,32 @@ class SalesReturnService(TransactionalDocumentService):
         """Return aggregate sales return values for the visible firm scope.
 
         Counted and summed in SQL, one row per status, rather than loading every
-        return the firm ever raised (backlog 56 C).
+        return the firm ever raised (backlog 56 C). The value is what the
+        returns credit (D-SELL-74), and the few that brought goods back
+        before billing are valued by `return_billed_amounts` -- the function
+        the journal, the customer's account and the register read -- rather
+        than by arithmetic of this report's own. Taking the unbilled share of
+        the **lines** off the document total left whatever sits on the header
+        in: a return that credited nothing still counted its additional
+        charges and its rounding (D-SELL-80).
         """
+        before_billing = SalesReturn.id.in_(
+            select(SalesReturnLine.sales_return_id).where(
+                SalesReturnLine.is_deleted.is_(False),
+                SalesReturnLine.unbilled_quantity > 0,
+            )
+        )
         by_status: dict[str, tuple[int, Decimal, Decimal]] = {
             status: (int(count), Decimal(str(value)), Decimal(str(restock)))
             for status, count, value, restock in self._session.execute(
                 select(
                     SalesReturn.status,
                     func.count(),
-                    # What the return credits: goods back before billing are
-                    # worth nothing to the customer's account (D-SELL-74).
                     func.coalesce(
-                        func.sum(SalesReturn.grand_total - unbilled_value()), 0
+                        func.sum(
+                            case((before_billing, 0), else_=SalesReturn.grand_total)
+                        ),
+                        0,
                     ),
                     func.coalesce(func.sum(SalesReturn.total_restock_quantity), 0),
                 )
@@ -346,6 +360,27 @@ class SalesReturnService(TransactionalDocumentService):
                 .group_by(SalesReturn.status)
             ).all()
         }
+        part_credited = list(
+            self._session.scalars(
+                select(SalesReturn).where(
+                    SalesReturn.firm_id == firm_scope,
+                    SalesReturn.is_deleted.is_(False),
+                    before_billing,
+                )
+            ).all()
+        )
+        # In chunks: the function asks for the lines by return id, and an id
+        # list that grows with the firm is not sent in one statement.
+        for start in range(0, len(part_credited), CHUNK_SIZE):
+            chunk = part_credited[start : start + CHUNK_SIZE]
+            credited = return_billed_amounts(self._session, chunk)
+            for row in chunk:
+                returns, value, restock = by_status[row.status]
+                by_status[row.status] = (
+                    returns,
+                    value + credited.get(row.id, (ZERO, ZERO))[0],
+                    restock,
+                )
 
         def count(status: SalesReturnStatus) -> int:
             """Return how many returns are in one status."""
