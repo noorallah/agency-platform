@@ -1315,6 +1315,10 @@ def raise_interest_debit_note(
         as_of=data.as_of,
         actor_id=scope.actor_id,
     )
+    # The service stages, as the debit note's own create does; without this
+    # the request answered with a number for a note that was never written
+    # (D-SELL-49).
+    db.commit()
     return ApiResponse(
         data={
             "id": str(note.id),

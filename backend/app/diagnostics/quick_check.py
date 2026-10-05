@@ -147,6 +147,7 @@ MODULES: tuple[tuple[str, frozenset[str]], ...] = (
                 "audit-logs",
                 "search",
                 "notifications",
+                "messaging",
                 "report-layouts",
                 "approvals",
             }

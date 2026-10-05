@@ -15,7 +15,7 @@ from decimal import Decimal
 import pytest
 
 from app.core.exceptions import ValidationError
-from app.customer_debit_note.models import CustomerDebitNoteLine
+from app.customer_debit_note.models import CustomerDebitNote, CustomerDebitNoteLine
 from app.customers.schemas.customer import (
     CreditControlSettingsWrite,
     CreditEnforcement,
@@ -109,3 +109,37 @@ def test_an_overdue_bill_runs_up_interest_shown_and_charged_on_request() -> None
             as_of=date(2026, 5, 1),
             actor_id=books.actor_id,
         )
+
+
+def test_the_route_keeps_the_interest_note_it_says_it_raised() -> None:
+    """The request owns the commit: what it answers with must still be there.
+
+    The route answered "raised as a draft" with a number and never committed,
+    so the note was gone when the request ended (D-SELL-49, 2026-10-05). The
+    service test above commits for itself, which is why it could not see it.
+    """
+    from types import SimpleNamespace
+
+    from app.customers.api.router import raise_interest_debit_note
+    from app.customers.schemas.statement import InterestDebitNoteCreate
+
+    books = _Books(_session_factory()())
+    _terms(books)
+    books.session.commit()
+
+    answer = raise_interest_debit_note(
+        customer_id=books.customer.id,
+        data=InterestDebitNoteCreate(
+            invoice_id=books.invoice.id, as_of=date(2026, 6, 19)
+        ),
+        scope=SimpleNamespace(firm_id=books.firm.id, actor_id=books.actor_id),  # type: ignore[arg-type]
+        db=books.session,
+    )
+    # A request that ends discards whatever it did not commit.
+    books.session.rollback()
+
+    assert answer.data is not None
+    kept = books.session.query(CustomerDebitNote).filter_by(
+        debit_note_number=answer.data["debit_note_number"]
+    )
+    assert kept.count() == 1
