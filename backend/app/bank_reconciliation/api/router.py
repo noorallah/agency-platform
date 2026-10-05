@@ -41,13 +41,13 @@ from app.common.file_import import (
     file_format_of,
     report_response,
 )
+from app.common.firm_metadata import firm_today
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
-from app.core.utils.dates import utc_now
 from app.imports.services import columns_for_kind, mapped_content, parse_mapping
 
 router = APIRouter(
@@ -280,6 +280,6 @@ def bank_reconciliation_statement(
         data=BankReconciliationService(db).reconciliation_statement(
             firm_id=scope.firm_id,
             ledger_account_id=ledger_account_id,
-            as_on=as_on or utc_now().date(),
+            as_on=as_on or firm_today(db, scope.firm_id),
         )
     )

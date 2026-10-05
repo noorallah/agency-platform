@@ -32,6 +32,7 @@ from uuid import UUID
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.common.firm_metadata import firm_date_of
 from app.core.security.secret_box import SecretBoxError
 from app.core.utils.dates import as_utc, utc_now
 from app.customers.models import Customer
@@ -122,7 +123,7 @@ def process_firm(
         # Off means off: what was queued waits until the firm switches it back
         # on, and a firm that never did costs this one query a pass.
         return report
-    _scan_reminders(session, settings, now.date(), report)
+    _scan_reminders(session, settings, firm_date_of(session, firm_id, now), report)
     _recover_interrupted(session, firm_id, now)
     # Rows waiting -- a retry backing off, an email held for its IRN -- are
     # left out in the query, not after it: a firm with more of them than a
@@ -358,7 +359,7 @@ def _attachments(session: Session, row: MessagingOutbox) -> tuple[Attachment, ..
         pdf, filename = CustomerStatementPdfService(session).render(
             row.document_id,
             firm_id=row.firm_id,
-            to_date=as_utc(row.created_at).date(),
+            to_date=firm_date_of(session, row.firm_id, row.created_at),
         )
         return (Attachment(filename=filename, content=pdf),)
     if row.document_type != "SALES_INVOICE":
@@ -370,7 +371,7 @@ def _attachments(session: Session, row: MessagingOutbox) -> tuple[Attachment, ..
             firm_id=row.firm_id,
             document_type=row.document_type or "",
             document_id=row.document_id,
-            on=as_utc(row.created_at).date(),
+            on=firm_date_of(session, row.firm_id, row.created_at),
         )
         if rendered is None:
             return ()

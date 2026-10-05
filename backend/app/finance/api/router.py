@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.common.firm_metadata import firm_today
 from app.common.scope import (
     ResolvedFirmScope,
     firm_any_permission_scope,
@@ -20,7 +21,6 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.pagination.reports import ReportWindow, mapped_like
 from app.core.responses.models import ApiResponse, PaginatedResponse
-from app.core.utils.dates import utc_now
 from app.document_framework.schemas.bulk_actions import (
     BulkActionResult,
     BulkApproveRequest,
@@ -1339,10 +1339,10 @@ def tds_194q_supplier(
 ) -> ApiResponse[Supplier194QRecord]:
     """Return what a payment to this supplier should deduct under 194Q.
 
-    ``on`` is the payment's date; absent is today (UTC).
+    ``on`` is the payment's date; absent is the firm's today.
     """
     row = Tds194QService(db).supplier(
-        vendor_id, firm_id=scope.firm_id, on=on or utc_now().date()
+        vendor_id, firm_id=scope.firm_id, on=on or firm_today(db, scope.firm_id)
     )
     return ApiResponse(data=Supplier194QRecord.model_validate(row))
 
@@ -1357,7 +1357,9 @@ def tds_194q_register(
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[Supplier194QRecord]]:
     """Every supplier bought from this Income-tax year: bought, due, deducted."""
-    rows = Tds194QService(db).register(firm_id=scope.firm_id, on=on or utc_now().date())
+    rows = Tds194QService(db).register(
+        firm_id=scope.firm_id, on=on or firm_today(db, scope.firm_id)
+    )
     return ApiResponse(data=[Supplier194QRecord.model_validate(r) for r in rows])
 
 
@@ -1423,12 +1425,12 @@ def tds_section_proposal(
     For a bill: ``bill_amount`` before GST, ``bill_total`` with it, and
     ``invoice_id`` so a draft is not counted as its own past. For a payment:
     ``advance_amount`` -- the part no bill takes -- and ``allocating``, what it
-    clears off open bills. ``on`` is the document's date; absent is today (UTC).
+    clears off open bills. ``on`` is the document's date; absent is the firm's today.
     """
     row = TdsSectionService(db).supplier(
         vendor_id,
         firm_id=scope.firm_id,
-        on=on or utc_now().date(),
+        on=on or firm_today(db, scope.firm_id),
         bill_amount=bill_amount,
         bill_total=bill_total,
         advance_amount=advance_amount,

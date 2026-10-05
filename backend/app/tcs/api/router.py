@@ -15,6 +15,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app.common.firm_metadata import firm_today
 from app.common.scope import (
     ResolvedFirmScope,
     firm_any_permission_scope,
@@ -25,7 +26,6 @@ from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
-from app.core.utils.dates import utc_now
 from app.tcs.schemas import (
     TcsBuyerPosition,
     TcsCollectionResponse,
@@ -118,7 +118,7 @@ def charged_versus_due(
     """
     return ApiResponse(
         data=TcsService(db).charged_versus_due(
-            firm_id=scope.firm_id, on=on or utc_now().date()
+            firm_id=scope.firm_id, on=on or firm_today(db, scope.firm_id)
         )
     )
 

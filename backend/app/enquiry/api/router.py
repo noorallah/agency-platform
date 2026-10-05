@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
+from app.common.firm_metadata import firm_today
 from app.common.scope import (
     ResolvedFirmScope,
     firm_any_permission_scope,
@@ -18,7 +19,6 @@ from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
-from app.core.utils.dates import utc_now
 from app.enquiry.services import (
     EnquiryConvertWrite,
     EnquiryFollowUpWrite,
@@ -97,7 +97,7 @@ def follow_ups_due(
         page=page,
         page_size=page_size,
         salesman_id=salesman_id,
-        due_on=on or utc_now().date(),
+        due_on=on or firm_today(db, scope.firm_id),
     )
     return PaginatedResponse(
         data=service.responses(rows),

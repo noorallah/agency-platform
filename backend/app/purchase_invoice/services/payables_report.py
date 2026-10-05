@@ -42,7 +42,7 @@ something, or are owed back, reach Python.
 """
 
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
@@ -60,6 +60,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Session, aliased
 
+from app.common.firm_metadata import firm_day_after
 from app.core.exceptions import ValidationError
 from app.core.utils.money import ZERO, quantize_ledger
 from app.debit_note.models import DebitNote
@@ -178,11 +179,6 @@ def _month_after(day: date) -> date:
         if day.month == 12
         else date(day.year, day.month + 1, 1)
     )
-
-
-def _day_after(as_of: date) -> datetime:
-    """Return the first instant after ``as_of`` in UTC."""
-    return datetime.combine(as_of + timedelta(days=1), time.min, tzinfo=UTC)
 
 
 def _money(value: object) -> Decimal:
@@ -331,7 +327,7 @@ class PayablesReportService:
         bill in its own subquery, so the bills that still owe nothing are
         dropped in SQL.
         """
-        day_after = _day_after(as_of)
+        day_after = firm_day_after(self._session, firm_id, as_of)
         bills_part = select(
             PurchaseInvoice.id.label("bill_id"),
             PurchaseInvoice.vendor_id.label("vendor_id"),
@@ -666,7 +662,7 @@ class PayablesReportService:
         self, firm_id: UUID, as_of: date, vendor_id: UUID | None
     ) -> dict[UUID, Decimal]:
         """Sum the money paid to each supplier and not allocated to a bill."""
-        day_after = _day_after(as_of)
+        day_after = firm_day_after(self._session, firm_id, as_of)
         allocated = (
             select(
                 SettlementAllocation.settlement_id.label("settlement_id"),
@@ -711,7 +707,7 @@ class PayablesReportService:
         self, firm_id: UUID, as_of: date, vendor_id: UUID | None
     ) -> dict[UUID, Decimal]:
         """Sum what suppliers paid back against their credit (Cr payable)."""
-        day_after = _day_after(as_of)
+        day_after = firm_day_after(self._session, firm_id, as_of)
         return {
             vendor: _money(amount)
             for vendor, amount in self._session.execute(
@@ -788,7 +784,7 @@ class PayablesReportService:
                 Settlement.is_deleted.is_(False),
                 Settlement.settlement_date >= starts[0],
                 Settlement.settlement_date <= as_of,
-                _settlement_stood(_day_after(as_of)),
+                _settlement_stood(firm_day_after(self._session, firm_id, as_of)),
                 *(() if vendor_id is None else (Settlement.vendor_id == vendor_id,)),
             )
             .group_by(Settlement.vendor_id, bucket)

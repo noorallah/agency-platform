@@ -12,7 +12,7 @@ modules can call it without an import cycle.
 """
 
 from collections.abc import Sequence
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -20,6 +20,7 @@ from uuid import UUID
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.common.firm_metadata import firm_day_after
 from app.core.utils.chunks import whole_past_a_chunk
 from app.core.utils.money import quantize_ledger
 from app.party_adjustments.models import (
@@ -71,7 +72,7 @@ def adjusted_against(
         standing: Any = PartyAdjustment.status == PartyAdjustmentStatus.APPROVED.value
         dated: tuple[Any, ...] = ()
     else:
-        day_after = datetime.combine(as_of + timedelta(days=1), time.min, tzinfo=UTC)
+        day_after = firm_day_after(session, firm_id, as_of)
         standing = or_(
             PartyAdjustment.status == PartyAdjustmentStatus.APPROVED.value,
             and_(

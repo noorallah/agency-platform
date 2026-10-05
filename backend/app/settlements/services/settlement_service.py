@@ -14,7 +14,7 @@ rather than recorded half-way.
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -24,6 +24,7 @@ from sqlalchemy import null as sa_null
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_day_after
 from app.common.report_names import customers_matching, vendors_matching
 from app.core.constants.core import MAX_PAGE_SIZE
 from app.core.database.batch import children_by_parent
@@ -303,7 +304,7 @@ def settled_against(
             Settlement.status == SettlementStatus.POSTED.value,
             and_(
                 Settlement.status == SettlementStatus.REVERSED.value,
-                Settlement.reversed_at >= _start_of_day_after(as_of),
+                Settlement.reversed_at >= firm_day_after(session, firm_id, as_of),
             ),
         )
         dated = (Settlement.settlement_date <= as_of,)
@@ -371,11 +372,6 @@ def settled_against(
     ).items():
         settled[invoice_id] = settled.get(invoice_id, ZERO) - amount
     return settled
-
-
-def _start_of_day_after(day: date) -> datetime:
-    """Return midnight UTC at the end of ``day`` -- the first instant after it."""
-    return datetime.combine(day + timedelta(days=1), time.min, tzinfo=UTC)
 
 
 @dataclass(frozen=True, slots=True)

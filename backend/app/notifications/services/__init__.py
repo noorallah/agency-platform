@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
+from app.common.firm_metadata import firm_today
 from app.core.security.authorization import Principal
 from app.core.utils.dates import as_utc, utc_now
 from app.inventory.models.adjustment_approval import StockAdjustmentRequest
@@ -240,7 +241,7 @@ class NotificationService:
         )
 
     def _stock_alerts(self, firm_id: UUID) -> Notification | None:
-        today = utc_now().date()
+        today = firm_today(self._session, firm_id)
         alerts = stock_alerts(self._session, firm_id, on=today)
         count = alerts.out + alerts.low
         if not count:

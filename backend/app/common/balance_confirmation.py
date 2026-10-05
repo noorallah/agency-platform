@@ -31,8 +31,8 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ResourceNotFoundError, ValidationError
-from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_ledger
 from app.customers.models import Customer, CustomerReceivableTransaction
 from app.document_framework.services.letter_pdf import LetterPage, LetterPdfRenderer
@@ -253,7 +253,7 @@ class BalanceConfirmationService:
             firm=firm,
             title="BALANCE CONFIRMATION",
             facts=[
-                ("Date", utc_now().date().strftime("%d-%m-%Y")),
+                ("Date", firm_today(self._session, firm_id).strftime("%d-%m-%Y")),
                 ("Balance as at", day),
                 ("Your account", f"{code} {addressee.name}"),
             ],

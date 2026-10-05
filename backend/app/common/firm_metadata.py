@@ -15,7 +15,7 @@ has to go to the platform connection.
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import Row, func, or_, select
@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config.settings import Settings
 from app.core.database.engine import DatabaseManager
-from app.core.utils.dates import business_date, business_today
+from app.core.utils.dates import business_date, business_day_start, business_today
 from app.firms.models import Firm
 from app.identity.models import PlatformAdmin, Role, User, UserFirm, UserRole
 
@@ -335,3 +335,23 @@ def firm_date_of(session: Session, firm_id: UUID | None, instant: datetime) -> d
     UTC date that is the day *before* a delivery note dated the 6th.
     """
     return business_date(instant, _firm_country(session, firm_id))
+
+
+def firm_day_start(session: Session, firm_id: UUID | None, day: date) -> datetime:
+    """Return the UTC instant the firm's calendar ``day`` begins at.
+
+    The lower bound of "happened on or after ``day``" for a stored timestamp.
+    """
+    return business_day_start(day, _firm_country(session, firm_id))
+
+
+def firm_day_after(session: Session, firm_id: UUID | None, day: date) -> datetime:
+    """Return the first UTC instant after the firm's calendar ``day``.
+
+    **The boundary every as-of report draws round a timestamp**: something
+    reversed or cancelled at or after this instant still stood on ``day``, and
+    a timestamp before it fell on ``day`` or earlier. Drawn at UTC midnight it
+    was five and a half hours late for a firm in India, so a bill cancelled at
+    01:00 on the 6th dropped out of an ageing as on the 5th (D-CFG-25).
+    """
+    return business_day_start(day + timedelta(days=1), _firm_country(session, firm_id))
