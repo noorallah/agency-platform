@@ -71,6 +71,8 @@ _FAMILIES = {
     "/api/v1/{}/{}/attachments/{}": "settlement attachments: receipts or payments",
     "/api/v1/post-dated-cheques/{}": "post-dated cheques: received or issued",
     "/api/v1/purchases/requisitions/{}/{}": "requisition: submit, approve or cancel",
+    "/api/v1/rfqs/{}/{}": "RFQ: send, close or cancel",
+    "/api/v1/rate-contracts/{}/{}": "rate contract: approve, close or cancel",
 }
 
 

@@ -179,6 +179,9 @@ List<CommandScreen> matchScreens(
     final String haystack =
         '$name ${screen.place.toLowerCase()} ${also.join(' ')}';
     if (!words.every(haystack.contains)) return null;
+    // A word people were told means this screen beats a name that merely
+    // starts with it: "bill" is Sales Invoices, not Bills of entry.
+    if (also.contains(q)) return -1;
     if (name.startsWith(q)) return 0;
     if (name.split(RegExp(r'[\s&-]+')).any((word) => word.startsWith(q))) {
       return 1;
