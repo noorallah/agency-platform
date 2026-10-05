@@ -7,25 +7,11 @@ import '../document_framework/document_status_gate.dart';
 import '../document_framework/document_steps.dart';
 import 'approve_bill_dialog.dart';
 
-/// The TDS the server would deduct on this bill (PG-5), or null where the
-/// bill names no supplier. Reads the bill, then the supplier's proposal for it.
-Future<Json?> _tdsProposal(ApiClient api, String billId) async {
-  final Json invoice = await api.purchaseInvoiceDetail(billId);
-  final Object? data = invoice['data'];
-  final Json bill = data is Map ? Map<String, dynamic>.from(data) : invoice;
-  final String vendorId = '${bill['vendor_id'] ?? ''}';
-  if (vendorId.isEmpty) return null;
-  final String date = '${bill['invoice_date'] ?? ''}';
-  return api.tdsSupplierProposal(
-    vendorId,
-    on: date.length >= 10
-        ? date.substring(0, 10)
-        : DateTime.now().toIso8601String().substring(0, 10),
-    billAmount: '${bill['subtotal'] ?? '0'}',
-    billTotal: '${bill['grand_total'] ?? '0'}',
-    invoiceId: billId,
-  );
-}
+/// The TDS the server would deduct on this bill (PG-5), worked by the server
+/// on the base it uses on approval (D-BUY-37): one call, no figure computed
+/// here. A bill with no supplier answers with no section.
+Future<Json?> _tdsProposal(ApiClient api, String billId) =>
+    api.purchaseInvoiceTdsProposal(billId);
 
 /// The currency the bill is in, blank for rupees or when it cannot be read.
 Future<String> _billCurrency(ApiClient api, String billId) async {

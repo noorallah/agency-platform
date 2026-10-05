@@ -253,7 +253,96 @@ Future<void> _pump(
   await tester.pumpAndSettle();
 }
 
+/// Records every ask of the supplier TDS proposal (D-BUY-36).
+class _ProposalApi extends _SettlementApi {
+  _ProposalApi({super.outstanding});
+
+  final List<Map<String, String?>> asked = [];
+
+  @override
+  Future<Json> tdsSupplierProposal(
+    String vendorId, {
+    required String on,
+    String? billAmount,
+    String? billTotal,
+    String? invoiceId,
+    String? advanceAmount,
+    String? allocating,
+  }) async {
+    asked.add(<String, String?>{
+      'advance_amount': advanceAmount,
+      'allocating': allocating,
+    });
+    return <String, dynamic>{
+      'section': '194C',
+      'proposed': advanceAmount == '1000.00' ? '20.00' : '7.00',
+    };
+  }
+}
+
 void main() {
+  group('the 194C/194J hint follows the amount paid (D-BUY-36)', () {
+    Future<void> openPayment(WidgetTester tester, _ProposalApi api) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => Phase2Scope(child: child!),
+          home: Scaffold(
+            body: RecordSettlementDialog(
+              api: api,
+              direction: SettlementDirection.payment,
+              parties: const [
+                PartyOption(id: 'v-1', code: 'V1', name: 'Kumar Stores'),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _chooseParty(tester, 'Kumar Stores');
+    }
+
+    testWidgets('an amount with no allocations is all advance',
+        (tester) async {
+      final _ProposalApi api = _ProposalApi();
+      await openPayment(tester, api);
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Amount'), '1000');
+      await tester.pump(const Duration(milliseconds: 100));
+      final int before = api.asked.length;
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+      expect(api.asked.length, greaterThan(before - 1));
+      expect(api.asked.last,
+          {'advance_amount': '1000.00', 'allocating': '0.00'});
+      expect(find.textContaining('194C proposes ₹20.00'), findsOneWidget);
+    });
+
+    testWidgets('allocating part of it sends the split', (tester) async {
+      final _ProposalApi api =
+          _ProposalApi(outstanding: [_invoice('i-1', 'PI-1', '5000.00')]);
+      await openPayment(tester, api);
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Amount'), '1000');
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.enterText(
+          find.descendant(
+              of: find.byType(DataTable), matching: find.byType(TextField)),
+          '400');
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+      expect(api.asked.last,
+          {'advance_amount': '600.00', 'allocating': '400.00'});
+      expect(find.textContaining('194C proposes ₹7.00'), findsOneWidget);
+      // Never written into the box.
+      final TextField box = tester
+          .widget<TextField>(find.byKey(const ValueKey('settlement-tds-amount')));
+      expect(box.controller!.text, isEmpty);
+    });
+  });
+
   group('tax deducted at source (53.1)', () {
     Future<void> openReceipt(WidgetTester tester, _SettlementApi api) async {
       tester.view.physicalSize = const Size(1400, 900);

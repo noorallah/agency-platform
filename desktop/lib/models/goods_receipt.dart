@@ -47,11 +47,16 @@ class GoodsReceiptLine {
     this.schemeName = '',
     this.returnedUnbilledQuantity = '',
     this.serialTracked = false,
+    this.isCapitalGoods = false,
     this.serialNumbers = const [],
   });
 
   /// Whether the product carries a serial per unit (PG-10).
   final bool serialTracked;
+
+  /// Received as a fixed asset: no stock movement, and the bill raises the
+  /// asset (D-BUY-40).
+  final bool isCapitalGoods;
 
   /// The serials the line holds, in the order they were entered.
   final List<String> serialNumbers;
@@ -155,6 +160,7 @@ class GoodsReceiptLine {
         returnedUnbilledQuantity:
             stringValue(json['returned_unbilled_quantity']),
         serialTracked: json['serial_tracked'] == true,
+        isCapitalGoods: json['is_capital_goods'] == true,
         serialNumbers: [
           for (final dynamic item
               in (json['serial_numbers'] as List<dynamic>? ?? const []))

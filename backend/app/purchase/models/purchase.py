@@ -77,6 +77,10 @@ class PurchaseOrder(BaseEntity):
     expected_delivery_date: Mapped[date | None] = mapped_column(Date)
     payment_terms: Mapped[str | None] = mapped_column(String(200))
     delivery_terms: Mapped[str | None] = mapped_column(String(200))
+    #: The currency the supplier bills in and the rupees one unit is worth
+    #: (PG-12, D-BUY-39). Blank or INR is rupees. Line prices are in this
+    #: currency; a receipt values its stock in rupees at this rate, and the
+    #: bill is in the same currency.
     currency_code: Mapped[str | None] = mapped_column(String(10))
     exchange_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
     reference_number: Mapped[str | None] = mapped_column(String(80))
@@ -215,6 +219,12 @@ class PurchaseOrderLine(BaseEntity):
         Boolean, nullable=False, default=False, server_default="false"
     )
     serial_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    #: Capital goods (PG-13, D-BUY-40): a machine, not stock. The receipt
+    #: raised off this line brings it in without a stock movement, and the
+    #: bill capitalises it.
+    is_capital_goods: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
     manufacturing_date: Mapped[date | None] = mapped_column(Date)

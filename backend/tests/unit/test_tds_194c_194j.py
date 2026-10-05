@@ -225,6 +225,40 @@ def test_one_bill_past_30000_under_194c_deducts_and_posts_to_tds_payable() -> No
     )
 
 
+def test_the_bills_own_proposal_is_worked_on_the_base_approval_uses() -> None:
+    """D-BUY-37: lines plus additional charges, shown as it will be posted."""
+    from app.purchase_invoice.api.router import purchase_invoice_tds_proposal
+
+    books = _books()
+    _supplier(books, "194C")
+    draft = _draft(books, "28000.00", tax="5040.00")
+    draft.additional_charges = Decimal("5000.00")
+    draft.grand_total = Decimal("38040.00")
+    books.session.commit()
+
+    shown = purchase_invoice_tds_proposal(
+        invoice_id=draft.id, scope=_scope(books, *APPROVER), db=books.session
+    ).data
+    assert shown is not None
+    # 28,000 of lines alone is under the 30,000 limit and proposes nothing,
+    # which is what the dialog used to show; 33,000 with the charges is past.
+    on_lines_alone = TdsSectionService(books.session).supplier(
+        books.vendor.id,
+        firm_id=books.firm.id,
+        on=WHEN,
+        bill_amount=Decimal("28000.00"),
+        bill_total=Decimal("38040.00"),
+        exclude_invoice_id=draft.id,
+    )
+    assert on_lines_alone.proposed == Decimal("0.00")
+    assert (shown.section, shown.this_document) == ("194C", Decimal("33000.00"))
+    assert shown.proposed == Decimal("660.00")
+
+    bill = _approve(books, draft)
+    assert bill.tds_base_amount == shown.this_document
+    assert bill.tds_proposed_amount == bill.tds_amount == shown.proposed
+
+
 def test_small_bills_deduct_on_the_whole_year_from_the_one_that_crosses() -> None:
     """The year's total past 1,00,000 is taxed whole, caught up on one bill."""
     books = _books()

@@ -6,9 +6,10 @@ import csv
 import io
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import Decimal
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import case, func, or_, select, true
@@ -127,6 +128,9 @@ from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService, assert_quantity_fits_unit
 from app.vendors.models import Vendor
+
+if TYPE_CHECKING:
+    from app.finance.services.tds_sections import TdsProposal
 
 ZERO = Decimal("0")
 
@@ -454,6 +458,11 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         )
 
         chain = PurchaseChainService(self._session)
+        # Read before anything fills it in: silence takes the order's
+        # currency ahead of the supplier's (D-BUY-39).
+        typed_currency = "currency_code" in data.model_fields_set
+        if not typed_currency:
+            data = self._with_order_currency(data, firm_id=firm_id)
         # Before the chain, so an order and receipt it raises carry the
         # bill's currency and rate and the stock lands in rupees (PG-12).
         data = self._with_supplier_currency(data, vendor_id=data.vendor_id)
@@ -474,6 +483,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         if branch_id != header["branch_id"]:
             raise ValidationError("Invoice branch must match all source documents.")
         data = self._with_supplier_currency(data, vendor_id=vendor_id)
+        self._refuse_another_currency(data, firm_id=firm_id)
         self._validate_supplier_invoice_number(
             firm_id=firm_id,
             vendor_id=vendor_id,
@@ -639,6 +649,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         )
         row.vendor_id = data.vendor_id or header["vendor_id"]
         self._refuse_blocked(row.vendor_id)
+        self._refuse_another_currency(data, firm_id=firm_scope)
         row.branch_id = data.branch_id or header["branch_id"]
         row.business_profile_id = data.business_profile_id
         row.invoice_date = data.invoice_date
@@ -1025,9 +1036,11 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         """Refuse a capital-goods line whose receipt already put it in stock.
 
         Capital goods never enter stock (PG-13). The bill's own receipt is
-        completed without a movement for them; a receipt a person completed
-        earlier has already moved the goods in, and taking them out again is
-        a stock issue, not a bill's business.
+        completed without a movement for them, and so is a receipt whose
+        line the order or the receiver marked capital goods (D-BUY-40). A
+        line a person received into stock has already moved the goods in,
+        and taking them out again is a stock issue, not a bill's business:
+        the message says how to receive it as capital goods instead.
 
         Raises:
             ValidationError: Naming the line and the receipt.
@@ -1054,9 +1067,10 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 raise ValidationError(
                     f"Line {line.line_number} is capital goods, but "
                     f"{line.source_document_number} already took it into "
-                    "stock. Capital goods are received on the bill itself: "
-                    "untick capital goods, or bill it without a completed "
-                    "receipt.",
+                    "stock. Untick capital goods on this line; or cancel "
+                    f"{line.source_document_number} and mark the line capital "
+                    "goods on the order or the receipt, so it is received "
+                    "without entering stock.",
                     details={"field": "is_capital_goods"},
                 )
 
@@ -1159,6 +1173,114 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             return data
         return data.model_copy(update={"currency_code": vendor.currency_code})
 
+    def _billed_orders(
+        self, data: PurchaseInvoiceCreate, *, firm_id: UUID
+    ) -> list[tuple[str, str | None, Decimal | None]]:
+        """Return each order behind the bill: its number, currency and rate.
+
+        The orders of the receipts the lines bill, and any order a line
+        bills directly (a firm that types no receipts). In order-number
+        order, a currency of None for rupees.
+        """
+        receipt_ids = {
+            line.source_document_id
+            for line in data.lines
+            if line.source_document_line_id is not None
+            and self._source_type(line.source_document_type)
+            == PurchaseInvoiceSourceType.GOODS_RECEIPT.value
+        }
+        order_ids = {
+            line.source_document_id
+            for line in data.lines
+            if line.source_document_line_id is not None
+            and self._source_type(line.source_document_type)
+            == PurchaseInvoiceSourceType.PURCHASE_ORDER.value
+        }
+        if receipt_ids:
+            order_ids |= set(
+                self._session.scalars(
+                    select(GoodsReceipt.purchase_order_id).where(
+                        GoodsReceipt.id.in_(receipt_ids),
+                        GoodsReceipt.firm_id == firm_id,
+                    )
+                ).all()
+            )
+        if not order_ids:
+            return []
+        return [
+            (
+                number,
+                normalize_currency(currency) if is_foreign(currency) else None,
+                rate,
+            )
+            for number, currency, rate in self._session.execute(
+                select(
+                    PurchaseOrder.po_number,
+                    PurchaseOrder.currency_code,
+                    PurchaseOrder.exchange_rate,
+                )
+                .where(
+                    PurchaseOrder.id.in_(order_ids),
+                    PurchaseOrder.firm_id == firm_id,
+                )
+                .order_by(PurchaseOrder.po_number)
+            ).all()
+        ]
+
+    def _with_order_currency(
+        self, data: PurchaseInvoiceCreate, *, firm_id: UUID
+    ) -> PurchaseInvoiceCreate:
+        """Start a bill that names no currency in its order's (D-BUY-39).
+
+        The order priced the goods in a currency and the receipt valued them
+        at its rate, so the bill for them is in that currency -- rupees for a
+        rupee order, whatever the supplier's own default. A rate the bill
+        does not type is the order's; the supplier's bill usually carries its
+        own, and the difference is then a price variance.
+        """
+        orders = self._billed_orders(data, firm_id=firm_id)
+        if not orders:
+            return data
+        _, currency, rate = orders[0]
+        # Set even when it is None: a currency the bill now states, so the
+        # supplier's default does not replace a rupee order's rupees.
+        update: dict[str, object] = {"currency_code": currency}
+        if currency is not None and "exchange_rate" not in data.model_fields_set:
+            update["exchange_rate"] = rate
+        return data.model_copy(update=update)
+
+    def _refuse_another_currency(
+        self, data: PurchaseInvoiceCreate, *, firm_id: UUID
+    ) -> None:
+        """Refuse a bill in a currency other than its order's (D-BUY-39).
+
+        The receipt valued the stock in rupees at the order's rate. A bill
+        in another currency -- 1,000 USD against goods ordered and received
+        for 1,000 rupees, or the reverse -- would post almost its whole
+        value to price variance, so it is refused by name instead.
+
+        Raises:
+            ValidationError: Naming the order and both currencies.
+
+        """
+        billed = (
+            normalize_currency(data.currency_code)
+            if is_foreign(data.currency_code)
+            else None
+        )
+        for number, currency, _ in self._billed_orders(data, firm_id=firm_id):
+            if currency == billed:
+                continue
+            raise ValidationError(
+                f"Purchase order {number} is in {currency or 'rupees'}, and "
+                f"its goods were received at that value, so its bill is in "
+                f"{currency or 'rupees'} too. This bill is in "
+                f"{billed or 'rupees'}: bill it in {currency or 'rupees'}, or "
+                "raise the order in the supplier's currency before receiving "
+                "the goods.",
+                details={"field": "currency_code"},
+            )
+
     @staticmethod
     def _stage_currency(row: PurchaseInvoice) -> None:
         """Check the bill's currency and stamp its rupee totals (PG-12).
@@ -1213,21 +1335,11 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 section.
 
         """
-        # Imported here: the finance services read this module's models.
-        from app.finance.services.tds_sections import TdsSectionService
-
         vendor = self._session.get(Vendor, row.vendor_id)
         if vendor is None:
             return None
-        base = quantize_ledger(row.subtotal + row.additional_charges)
-        proposal = TdsSectionService(self._session).propose(
-            vendor,
-            firm_id=firm_id,
-            on=row.invoice_date,
-            bill_amount=base,
-            bill_total=row.grand_total,
-            exclude_invoice_id=row.id,
-        )
+        base = self._tds_base(row)
+        proposal = self._tds_proposal(row, vendor, firm_id=firm_id)
         if proposal.section is None:
             if override is not None and override > ZERO:
                 raise ValidationError(
@@ -1256,6 +1368,63 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             "tds_amount": str(deducted),
             "tds_overridden": override is not None and deducted != proposal.proposed,
         }
+
+    @staticmethod
+    def _tds_base(row: PurchaseInvoice) -> Decimal:
+        """Return what 194C or 194J is worked on: the bill before GST.
+
+        The one place the base is decided (D-BUY-37): the lines and the
+        additional charges, which a contractor's or a professional's bill
+        carries as part of the fee.
+        """
+        return quantize_ledger(row.subtotal + row.additional_charges)
+
+    def _tds_proposal(
+        self, row: PurchaseInvoice, vendor: Vendor, *, firm_id: UUID
+    ) -> TdsProposal:
+        """Work out the bill's 194C/194J proposal, as approval stamps it."""
+        # Imported here: the finance services read this module's models.
+        from app.finance.services.tds_sections import TdsSectionService
+
+        return TdsSectionService(self._session).propose(
+            vendor,
+            firm_id=firm_id,
+            on=row.invoice_date,
+            bill_amount=self._tds_base(row),
+            bill_total=row.grand_total,
+            exclude_invoice_id=row.id,
+        )
+
+    def tds_proposal(self, invoice_id: UUID, *, firm_scope: UUID) -> TdsProposal:
+        """Return what approving this bill would propose under 194C or 194J.
+
+        Asked by the Approve dialog, so the figure it shows is worked on the
+        base approval uses and cannot drift from it (D-BUY-37). A bill in
+        another currency is outside both sections (PG-12) and is answered
+        with no section and nothing proposed, as approval treats it.
+
+        Raises:
+            ResourceNotFoundError: If the bill, or its supplier, is not the
+                firm's.
+
+        """
+        row = self.get_invoice(invoice_id, firm_scope=firm_scope)
+        vendor = self._session.get(Vendor, row.vendor_id)
+        if vendor is None:
+            raise ResourceNotFoundError("Supplier not found.")
+        proposal = self._tds_proposal(row, vendor, firm_id=firm_scope)
+        if is_foreign(row.currency_code):
+            return replace(
+                proposal,
+                section=None,
+                rate_percent=ZERO,
+                rate_basis="",
+                threshold_crossed="",
+                due=ZERO,
+                proposed=ZERO,
+                applies=False,
+            )
+        return proposal
 
     def tolerance_breaches(self, row: PurchaseInvoice, *, firm_id: UUID) -> list[str]:
         """Return how a bill runs over its order beyond the firm's tolerance.
@@ -1948,6 +2117,9 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         The supplier and the branch are named as well as identified, in one
         read each for the whole report: the grid derives its columns from the
         row, so a register of ids alone read as UUIDs (D-RPT-17).
+
+        The total is in rupees: a bill in another currency shows what its
+        journal posted, not its figure as typed (D-BUY-35).
         """
         rows = window.fetch(
             self._session,
@@ -1981,7 +2153,12 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 branch_name=branches.get(row.branch_id, str(row.branch_id)),
                 invoice_date=row.invoice_date,
                 due_date=row.due_date,
-                grand_total=row.grand_total,
+                grand_total=(
+                    row.base_grand_total
+                    if is_foreign(row.currency_code)
+                    and row.base_grand_total is not None
+                    else row.grand_total
+                ),
                 status=PurchaseInvoiceStatus(row.status),
             )
             for row in rows
@@ -2356,7 +2533,9 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 + charges_amount
                 + tax_amount
             )
-            capital, asset_class_id = self._capital_goods(spec, firm_id=firm_id)
+            capital, asset_class_id = self._capital_goods(
+                spec, firm_id=firm_id, source_line=source_line
+            )
             line = PurchaseInvoiceLine(
                 purchase_invoice_id=row.id,
                 firm_id=firm_id,
@@ -2871,19 +3050,38 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         return self._q(Decimal(str(total or 0)))
 
     def _capital_goods(
-        self, spec: dict[str, object], *, firm_id: UUID
+        self,
+        spec: dict[str, object],
+        *,
+        firm_id: UUID,
+        source_line: SourceLine | None = None,
     ) -> tuple[bool, UUID | None]:
         """Return whether a line is capital goods, and its asset class (PG-13).
 
         A class on a line that is not capital goods is dropped rather than
-        kept, so the two cannot disagree.
+        kept, so the two cannot disagree. A line billing a receipt line that
+        was received as capital goods is capital goods (D-BUY-40): silence
+        takes the mark, and unticking it is refused, because nothing came
+        into stock for the bill to clear.
 
         Raises:
             ValidationError: If a capital-goods line names no class, or one
-                that is not the firm's live, active class.
+                that is not the firm's live, active class; or a line received
+                as capital goods is billed as stock.
 
         """
-        if not spec.get("is_capital_goods"):
+        stated = spec.get("is_capital_goods")
+        received_as_capital = isinstance(source_line, GoodsReceiptLine) and bool(
+            source_line.is_capital_goods
+        )
+        if received_as_capital and stated is False:
+            raise ValidationError(
+                f"Line {spec.get('line_number')} was received as capital "
+                "goods, so nothing entered stock for this bill to clear. "
+                "Tick capital goods and choose its asset class.",
+                details={"field": "is_capital_goods"},
+            )
+        if not (stated or received_as_capital):
             return False, None
         # Imported here: fixed assets read this module's models.
         from app.fixed_assets.models import AssetClass

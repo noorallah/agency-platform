@@ -124,6 +124,8 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   bool _sectionDefaulted = false;
   String? _tdsNote;
   String? _tdsHint;
+  Timer? _tdsProposalTimer;
+  int _tdsProposalAsk = 0;
   List<OutstandingInvoice> _invoices = const [];
 
   /// PG-12: the currency this payment is made in; blank is rupees. Offered
@@ -162,6 +164,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
 
   @override
   void dispose() {
+    _tdsProposalTimer?.cancel();
     _partySearch.removeListener(_onPartyQueryChanged);
     _amount.dispose();
     _exchangeRate.dispose();
@@ -211,6 +214,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
         controller.clear();
       }
     });
+    _scheduleTdsProposal();
   }
 
   Future<void> _loadInvoices(String partyId) async {
@@ -341,17 +345,39 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
         entry.value.text = spread[entry.key] ?? '';
       }
     });
+    _scheduleTdsProposal();
+  }
+
+  /// Asks again once the amount or an allocation has stopped changing; each
+  /// keystroke restarts the wait.
+  void _scheduleTdsProposal() {
+    if (widget.direction != SettlementDirection.payment) return;
+    if (!Phase2Scope.of(context)) return;
+    _tdsProposalTimer?.cancel();
+    _tdsProposalTimer = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted || _partyId.isEmpty) return;
+      unawaited(_loadTdsProposal(_partyId));
+    });
   }
 
   /// What 194C or 194J would deduct from this supplier (PG-5), shown as the
   /// box's hint. Never written into the box: blank stays "take the proposal".
+  ///
+  /// Worked the way the server works it when the payment is saved: what is
+  /// not applied to a bill is advance, what is applied is `allocating`
+  /// (D-BUY-36). Only the newest answer is kept.
   Future<void> _loadTdsProposal(String partyId) async {
+    final int ask = ++_tdsProposalAsk;
+    final double allocated = _allocatedTotal;
+    final double advance = _amountEntered - allocated;
     try {
       final Json answer = await widget.api.tdsSupplierProposal(
         partyId,
         on: _date.toIso8601String().substring(0, 10),
+        advanceAmount: (advance < 0 ? 0 : advance).toStringAsFixed(2),
+        allocating: allocated.toStringAsFixed(2),
       );
-      if (!mounted || _partyId != partyId) return;
+      if (!mounted || _partyId != partyId || ask != _tdsProposalAsk) return;
       final String section = '${answer['section'] ?? ''}';
       final double proposed = _figure(answer['proposed']);
       setState(() {
@@ -1177,6 +1203,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
             unawaited(_loadTcs());
           } else {
             _applyTds194q();
+            _scheduleTdsProposal();
           }
         },
       );
@@ -1359,7 +1386,10 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
                     textAlign: TextAlign.right,
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(isDense: true),
-                    onChanged: (_) => setState(() {}),
+                    onChanged: (_) {
+                      setState(() {});
+                      _scheduleTdsProposal();
+                    },
                   ),
                 ),
               ),

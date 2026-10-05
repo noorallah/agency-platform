@@ -465,7 +465,9 @@ class GoodsReceiptService(TransactionalDocumentService):
 
         ``capital_line_ids`` names lines a bill completing its own receipt
         marked capital goods (PG-13): received, but put into no stock and
-        accrued nothing, since the bill debits them to a fixed asset.
+        accrued nothing, since the bill debits them to a fixed asset. A line
+        the order or the receiver marked capital goods is treated the same
+        way (D-BUY-40), and either way the line keeps the mark.
         """
         row = self.get_receipt(receipt_id, firm_scope=firm_scope)
         if row.status == GoodsReceiptStatus.COMPLETED.value:
@@ -1718,6 +1720,12 @@ class GoodsReceiptService(TransactionalDocumentService):
                 or (purchase_line.scheme_name if line.free_quantity > ZERO else None),
                 expiry_date=expiry_date,
                 manufacturing_date=line.manufacturing_date,
+                # Silence takes the order line's mark (D-BUY-40).
+                is_capital_goods=(
+                    purchase_line.is_capital_goods
+                    if line.is_capital_goods is None
+                    else line.is_capital_goods
+                ),
                 mrp=line.mrp,
                 selling_price=line.selling_price,
                 ptr=line.ptr,
@@ -1861,8 +1869,12 @@ class GoodsReceiptService(TransactionalDocumentService):
                 GoodsReceiptLine.is_deleted.is_(False),
             )
         ).all():
-            if line.id in capital_line_ids:
+            if line.id in capital_line_ids or line.is_capital_goods:
                 # A fixed asset, not stock: no movement, nothing accrued.
+                # The mark is kept so the bill, a return and anybody reading
+                # the receipt can tell it from a line that is in stock.
+                line.is_capital_goods = True
+                line.updated_by = actor_id
                 continue
             # The batch number is typed off the carton. Resolving it to a real
             # batch is what puts the goods in that batch's stock row instead of

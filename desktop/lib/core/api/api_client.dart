@@ -7586,7 +7586,8 @@ class ApiClient {
 
   /// What to deduct from this supplier, and why, before anything is saved.
   /// A bill sends [billAmount] (before GST), [billTotal] and [invoiceId];
-  /// a payment sends [advanceAmount] and [allocating].
+  /// a payment sends [advanceAmount] (what is not applied to a bill) and
+  /// [allocating] (what is), both decimal amounts.
   Future<Json> tdsSupplierProposal(
     String vendorId, {
     required String on,
@@ -7594,7 +7595,7 @@ class ApiClient {
     String? billTotal,
     String? invoiceId,
     String? advanceAmount,
-    bool? allocating,
+    String? allocating,
   }) async =>
       _unwrapMap(await request(
         'GET',
@@ -7605,9 +7606,15 @@ class ApiClient {
           if (billTotal != null) 'bill_total': billTotal,
           if (invoiceId != null) 'invoice_id': invoiceId,
           if (advanceAmount != null) 'advance_amount': advanceAmount,
-          if (allocating != null) 'allocating': '$allocating',
+          if (allocating != null) 'allocating': allocating,
         },
       ));
+
+  /// What the server would deduct on approving this bill, worked on its own
+  /// base (subtotal plus additional charges) and in the supplier-proposal
+  /// shape. `section` is null where nothing applies.
+  Future<Json> purchaseInvoiceTdsProposal(String id) async => _unwrapMap(
+      await request('GET', '/api/v1/purchase-invoices/$id/tds-proposal'));
 
   /// One supplier bill as the server holds it (TDS figures included).
   Future<Json> purchaseInvoiceDetail(String id) async =>

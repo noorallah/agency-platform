@@ -653,6 +653,33 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
               : (value) => _setState(() => line.warehouseId = value ?? ''),
         ),
       ),
+      // D-BUY-40: a fixed asset is received without entering stock. Starts
+      // at the order line's mark; only a change from it is sent.
+      Row(
+        children: [
+          Checkbox(
+            key: ValueKey<String>('goods-receipt-capital-${_order?.id}-$index'),
+            visualDensity: VisualDensity.compact,
+            value: line.capitalGoods,
+            onChanged: _saving
+                ? null
+                : (value) => _setState(() => line.capitalGoods = value ?? false),
+          ),
+          const Expanded(child: Text('Capital goods')),
+        ],
+      ),
+      Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Text(
+          line.capitalGoods
+              ? 'Received without entering stock; the bill raises the fixed '
+                  'asset.'
+              : 'A fixed asset, not stock: received without entering stock, '
+                  'and the bill raises the asset.',
+          key: const ValueKey('goods-receipt-capital-helper'),
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ),
       if (widget.features.isEnabled('EXPIRY_TRACKING'))
         DocumentField(
           label: line.expiryRequired ? 'Expiry date (required)' : 'Expiry date',

@@ -93,6 +93,11 @@ class PurchaseInvoiceDraftLine {
   bool capitalGoods = false;
   String assetClassId = '';
 
+  /// D-BUY-40: the receipt line was received as capital goods, so this line
+  /// is capital goods and the tick cannot be cleared; the server refuses a
+  /// bill that says otherwise.
+  bool capitalFromReceipt = false;
+
   bool get billsAnOrder => sourceDocumentType == 'PURCHASE_ORDER';
 
   /// What the receipt (or the order) still has to be billed for.
@@ -671,6 +676,8 @@ class _PurchaseInvoiceEditorDialogState
       invoiceQuantity: '0',
     );
     draft.invoiceQuantity = _trim(draft.outstanding);
+    draft.capitalFromReceipt = line.isCapitalGoods;
+    draft.capitalGoods = line.isCapitalGoods;
     return draft;
   }
 

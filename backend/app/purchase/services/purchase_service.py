@@ -52,6 +52,7 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
+from app.finance.currency import check_currency, normalize_currency
 from app.goods_receipt.models import GoodsReceipt
 from app.identity.models import User
 from app.products.models import Product
@@ -498,6 +499,9 @@ class PurchaseService(TransactionalDocumentService):
             feature="ATTACHMENTS",
             values={"attachments": data.attachments},
         )
+        # An order in another currency needs its rate where it is typed, not
+        # at the dock when the goods arrive (D-BUY-39).
+        check_currency(data.currency_code, data.exchange_rate)
         document_type, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
@@ -537,7 +541,7 @@ class PurchaseService(TransactionalDocumentService):
             expected_delivery_date=data.expected_delivery_date,
             payment_terms=data.payment_terms,
             delivery_terms=data.delivery_terms,
-            currency_code=data.currency_code,
+            currency_code=normalize_currency(data.currency_code),
             exchange_rate=data.exchange_rate,
             reference_number=data.reference_number,
             external_reference=data.external_reference,
@@ -667,6 +671,49 @@ class PurchaseService(TransactionalDocumentService):
         self._session.commit()
         return row
 
+    def _write_currency(
+        self, row: PurchaseOrder, data: PurchaseOrderUpdate | PurchaseOrderAmend
+    ) -> None:
+        """Write the order's currency and rate from an edit (D-BUY-39).
+
+        Absent keeps what the order holds: a client that never showed the
+        two fields cannot turn an import into a rupee order. Once goods have
+        been received the stock is valued, so neither may change.
+
+        Raises:
+            ValidationError: If a foreign currency has no rate, or either
+                changes after a receipt.
+
+        """
+        sent = data.model_fields_set
+        currency = (
+            normalize_currency(data.currency_code)
+            if "currency_code" in sent
+            else row.currency_code
+        )
+        rate = data.exchange_rate if "exchange_rate" in sent else row.exchange_rate
+        check_currency(currency, rate)
+        if (currency, rate) == (row.currency_code, row.exchange_rate):
+            return
+        received = self._session.scalar(
+            select(GoodsReceipt.grn_number)
+            .where(
+                GoodsReceipt.purchase_order_id == row.id,
+                GoodsReceipt.is_deleted.is_(False),
+                GoodsReceipt.status.in_(("COMPLETED", "CLOSED")),
+            )
+            .limit(1)
+        )
+        if received is not None:
+            raise ValidationError(
+                f"{received} has already valued this order's goods at its "
+                "currency and rate, so neither can change. A different rate "
+                "on the supplier's bill is typed on the bill.",
+                details={"field": "exchange_rate"},
+            )
+        row.currency_code = currency
+        row.exchange_rate = rate
+
     def _write_version(
         self,
         row: PurchaseOrder,
@@ -689,8 +736,7 @@ class PurchaseService(TransactionalDocumentService):
         row.expected_delivery_date = data.expected_delivery_date
         row.payment_terms = data.payment_terms
         row.delivery_terms = data.delivery_terms
-        row.currency_code = data.currency_code
-        row.exchange_rate = data.exchange_rate
+        self._write_currency(row, data)
         row.reference_number = data.reference_number
         row.external_reference = data.external_reference
         row.priority = data.priority
@@ -2126,6 +2172,7 @@ class PurchaseService(TransactionalDocumentService):
                 batch_required=line.batch_required,
                 expiry_required=line.expiry_required,
                 serial_required=line.serial_required,
+                is_capital_goods=line.is_capital_goods,
                 manufacturing_date=line.manufacturing_date,
                 expiry_date=line.expiry_date,
                 warehouse_id=line.warehouse_id or order.warehouse_id,

@@ -643,12 +643,32 @@ code and not yet run by hand.
 Four things about them that a reader of this file needs and the rule docs do
 not say in one place:
 
-- **Capital goods and imports are typed on the bill alone.** A capital-goods
-  line billed off a receipt somebody already completed is refused, because
-  the goods are in stock; and the purchase order window has no currency box,
-  so an import is typed as a bill with the order and receipt stages off
-  (*Stage switches* above), which raises the order and receipt at the bill's
-  rate. Both therefore belong to a firm, or a moment, that types only the bill.
+- **Imports and capital goods go through the whole chain** (D-BUY-39,
+  D-BUY-40, 2026-10-05), as well as on a bill typed alone.
+  - *An import.* The purchase order carries `currency_code` and
+    `exchange_rate` (rupees per unit; required for any currency but rupees,
+    refused where the order is typed). Its lines are priced in that currency.
+    A receipt values the stock in rupees at the order's rate. The bill is in
+    the order's currency: one that names none takes the order's currency and
+    rate ahead of the supplier's own default, and one in any other currency --
+    a USD bill off a rupee order, or rupees off a USD order -- is refused
+    naming the order, because it would post almost its whole value to price
+    variance. A bill at another rate than the order's posts only the rate
+    difference to price variance, through the same posting a bill typed
+    alone uses. An edit that leaves the two fields out keeps them; neither
+    can change once a receipt has valued goods at them.
+  - *A machine.* `is_capital_goods` on the order line is taken by the
+    receipt line (the receiver may set or clear it on a draft receipt).
+    Completing the receipt moves no stock and accrues nothing for that line,
+    and the line keeps the mark. The bill line billing it is capital goods --
+    silence takes the mark and needs an asset class, unticking is refused --
+    and approval capitalises it exactly as a bill typed alone does. A line a
+    receipt has already taken **into stock** is still refused as capital
+    goods at the bill, with a message saying to untick it, or to cancel the
+    receipt and mark the line on the order or the receipt.
+  - *Not built:* a purchase return or a debit note against a capital-goods
+    receipt line or a foreign-currency bill (D-BUY-41), and GSTR-2B, rule 37
+    and rule 42 for a bill in another currency (D-CMP-23).
 - **What a bill owes is `grand_total + tcs_amount - tds_amount`**, in every
   place a payable is read: Record Payment, the payables report, *Paid now*.
 - **Paid now, TDS and TCS are rupee matters.** A bill in another currency
@@ -696,7 +716,8 @@ optional other product given free, a period, and either one supplier or none
   bill into a draft (OCR); emailing an RFQ; a Bill of Entry in the GST
   purchase register and against GSTR-2B's import rows; purchase returns and
   debit notes in another currency; withholding on a payment abroad (section
-  195); capitalising goods already in stock; GST on the sale of an asset
+  195); capitalising goods already in stock (mark the line capital goods
+  on the order or the receipt instead, D-BUY-40); GST on the sale of an asset
   (raise a sales invoice); an Income-tax book posting.
 - **Purchase analytics.** The fixed reports exist (register, pending,
   overdue, by vendor, by buyer, by product under

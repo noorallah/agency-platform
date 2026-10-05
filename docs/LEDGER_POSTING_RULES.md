@@ -394,6 +394,18 @@ posts and reads exactly as it did.
   raised its own order and receipt clears the accrual with no variance. A
   receipt raised from an order at a different rate posts the gap to price
   variance, as any bill does.
+- **A bill is in its order's currency** (D-BUY-39). The order a person types
+  carries the currency and rate; a bill billing its receipt takes them when
+  it names none, and is refused by name in any other currency -- rupees off
+  a USD order or USD off a rupee one would put nearly the whole bill in
+  price variance. Ten at 100 USD ordered and received at 83, billed at 84.50:
+  Dr GRNI 83,000 / Dr Purchase Price Variance 1,500 / Cr Payables 84,500.
+- **Every report of these bills is in rupees** (D-BUY-35): the GST purchase
+  register, the HSN summary, the purchase invoice register, purchase analysis
+  and GSTR-3B's input credit and reverse charge read `base_grand_total`,
+  `base_tax_total` and each component at the bill's rate (`rupee_rate` /
+  `rupee_rate_sql` in `app/finance/currency.py`). GSTR-2B matching, rule 37
+  and rule 42 do not yet (D-CMP-23).
 - **Owed** is derived in both currencies from `settlement_allocations`: rupees
   as `base_grand_total` less each allocation's `base_amount`, the bill's
   currency as `grand_total` less each `currency_amount`. The outstanding
@@ -494,9 +506,12 @@ group), `DEPRECIATION_EXPENSE` (*6950*) and `ASSET_DISPOSAL_GAIN_LOSS`
   the bill's rate) and the bill's journal debits the class's asset account
   for it. The bill's own receipt (a firm typing only the bill) is completed
   with **no stock movement and no accrual** for that line, so the goods value
-  is not left to *Goods Received Not Invoiced* or price variance. A line
-  billing a receipt a person already completed is refused: the goods are in
-  stock, and taking them out is a stock issue, not the bill's business.
+  is not left to *Goods Received Not Invoiced* or price variance. A firm on
+  the whole chain marks the line capital goods on the order or the receipt
+  (D-BUY-40): that receipt completes with no movement and no accrual for the
+  line either, so the bill posts the same journal. A line billing a receipt
+  that already took it **into stock** is refused: the goods are in stock, and
+  taking them out is a stock issue, not the bill's business.
 - **Its GST is claimed in full** (current law, no five-year split) through
   the same input-tax legs as any line, and GSTR-3B counts it in 4(A)(5); the
   GST purchase register shows it apart as `capital_goods_tax`. Blocked or

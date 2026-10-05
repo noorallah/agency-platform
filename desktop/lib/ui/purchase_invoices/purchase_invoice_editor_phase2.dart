@@ -1218,15 +1218,22 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
     required bool ticked,
     required String classId,
     required void Function(bool ticked, String classId) onChanged,
-  }) =>
-      [
+    bool fixed = false,
+  }) {
+    // A receipt line received as capital goods starts ticked, so its class is
+    // wanted before anything is typed.
+    if (ticked && !_assetClassesAsked) {
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => unawaited(_loadAssetClasses()));
+    }
+    return [
         Row(
           children: [
             Checkbox(
               key: ValueKey<String>('purchase-invoice-capital-$keyPart'),
               visualDensity: VisualDensity.compact,
               value: ticked,
-              onChanged: _saving
+              onChanged: _saving || fixed
                   ? null
                   : (value) {
                       _setState(() => onChanged(value ?? false, classId));
@@ -1238,6 +1245,15 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
             ),
           ],
         ),
+        if (fixed)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(
+              'Received as capital goods.',
+              key: ValueKey<String>('purchase-invoice-capital-fixed-$keyPart'),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
         if (ticked)
           DocumentField(
             label: 'Asset class (required)',
@@ -1262,6 +1278,7 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
             ),
           ),
       ];
+  }
 
   /// The batch and expiry boxes for a line whose receipt this bill raises:
   /// nobody else will record them.
@@ -1403,9 +1420,10 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
         keyPart: '${_receipt?.id ?? _order?.id}-$index',
         ticked: line.capitalGoods,
         classId: line.assetClassId,
+        fixed: line.capitalFromReceipt,
         onChanged: (ticked, classId) {
-          line.capitalGoods = ticked;
-          line.assetClassId = ticked ? classId : '';
+          line.capitalGoods = ticked || line.capitalFromReceipt;
+          line.assetClassId = line.capitalGoods ? classId : '';
         },
       ),
       DocumentField(
