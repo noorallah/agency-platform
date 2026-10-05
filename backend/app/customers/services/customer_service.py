@@ -51,6 +51,10 @@ from app.customers.schemas import (
     CustomerUpdate,
 )
 from app.customers.schemas.customer import CustomerListFilters, CustomerStatus
+from app.customers.services.cash_customer import (
+    assert_cash_customer_stays,
+    assert_not_cash_customer,
+)
 from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
@@ -313,6 +317,7 @@ class CustomerService:
         # draft. An explicit null still clears, which is what keeps a complete
         # client able to empty a field.
         values = self._customer_values(data, partial=True)
+        assert_cash_customer_stays(customer, values)
         # Checked against what the row will hold, and only where the write
         # moves the PAN or the GSTIN: a PAN stored before the check existed
         # does not block an unrelated edit (backlog 53 item 2).
@@ -461,6 +466,7 @@ class CustomerService:
         account out by the balance in the other direction.
         """
         customer = self.get(customer_id, firm_scope=firm_scope)
+        assert_not_cash_customer(customer)
         self._assert_account_is_square(customer)
         before = self._audit_snapshot(customer)
         customer.is_deleted = True

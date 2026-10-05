@@ -6329,6 +6329,12 @@ class ApiClient {
         ),
       );
 
+  /// The firm's built-in *Cash sale* customer, made on the first ask
+  /// (87 row 2): who a counter bill names when the buyer has no record.
+  Future<Json> walkInCustomer() async => _unwrapMap(
+        await request('POST', '/api/v1/sales-invoices/walk-in-customer'),
+      );
+
   /// Price an offer as saving it would, and save nothing: what the
   /// new-quotation screen shows while its lines are typed.
   Future<QuotationPreviewRecord> previewQuotation(Json data) async =>

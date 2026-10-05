@@ -31,6 +31,7 @@ from app.core.pagination import PaginationParams, ReportWindow
 from app.core.pagination.reports import mapped_like
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.core.utils.dates import utc_now
+from app.customers.services.cash_customer import stage_cash_customer
 from app.document_framework.schemas import DocumentLifecycleEventResponse
 from app.document_framework.schemas.bulk_actions import (
     BulkActionResult,
@@ -220,6 +221,35 @@ def create_sales_invoice(
     service = SalesInvoiceService(db)
     row = service.create_invoice(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
     return ApiResponse(data=service.invoice_response(row))
+
+
+class WalkInCustomerResponse(BaseModel):
+    """The firm's built-in *Cash sale* customer (backlog §87 #2)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    code: str
+    name: str
+
+
+@router.post(
+    "/walk-in-customer",
+    response_model=ApiResponse[WalkInCustomerResponse],
+)
+def walk_in_customer(
+    scope: SalesInvoiceCreateScope,
+    db: Annotated[Session, Depends(get_db)],
+) -> ApiResponse[WalkInCustomerResponse]:
+    """Return the customer a walk-in bill names, making it on the first ask.
+
+    Under the permission that raises a bill, not the one that edits the
+    customer master: whoever is at the counter must be able to sell to a
+    buyer with no record without being able to open the master.
+    """
+    customer = stage_cash_customer(db, scope.firm_id, actor_id=scope.actor_id)
+    db.commit()
+    return ApiResponse(data=WalkInCustomerResponse.model_validate(customer))
 
 
 @router.post("/preview", response_model=ApiResponse[SalesInvoicePreview])

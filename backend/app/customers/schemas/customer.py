@@ -351,6 +351,8 @@ class CustomerResponse(CustomerSchema):
     status: CustomerStatus
     notes: str | None
     no_reminders: bool = False
+    #: The firm's built-in walk-in customer (SG-2); never writable.
+    is_cash_sale: bool = False
     minimum_shelf_life_days: int | None = None
     trade_class: str | None = None
     preferred_channel: str | None = None

@@ -166,6 +166,11 @@ class SalesInvoice(BaseEntity):
     #: CASH or BANK, as a receipt's method.
     received_now_method: Mapped[str | None] = mapped_column(String(10))
     received_now_reference: Mapped[str | None] = mapped_column(String(120))
+    #: Who a walk-in bill was made out to (backlog 87 #2): typed at the
+    #: counter and printed in place of the *Cash sale* customer's own name.
+    #: Null on a bill to a customer with a record.
+    buyer_name: Mapped[str | None] = mapped_column(String(200))
+    buyer_phone: Mapped[str | None] = mapped_column(String(30))
     #: The receipt approval recorded; set once, never re-recorded.
     received_now_settlement_id: Mapped[UUID | None] = mapped_column(UUIDType())
     #: Whether the rates typed on this bill include GST (backlog 64 row 4). A
