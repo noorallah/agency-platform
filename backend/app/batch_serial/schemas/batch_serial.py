@@ -79,6 +79,10 @@ class BatchCreate(BatchSchema):
     selling_price: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=2
     )
+    #: Price to retailer and to stockist, per stock unit before tax, never
+    #: above the MRP (PG-14). Needs the firm's BATCH_PTR_PTS feature.
+    ptr: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=2)
+    pts: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=2)
     remarks: str | None = None
 
 
@@ -103,6 +107,10 @@ class BatchUpdate(BatchSchema):
     selling_price: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=2
     )
+    #: Price to retailer and to stockist, per stock unit before tax, never
+    #: above the MRP (PG-14). Needs the firm's BATCH_PTR_PTS feature.
+    ptr: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=2)
+    pts: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=2)
     remarks: str | None = None
 
 
@@ -144,6 +152,9 @@ class BatchResponse(BatchSchema):
     shelf_life_days: int | None
     mrp: Decimal | None = None
     selling_price: Decimal | None = None
+    #: Price to retailer and to stockist (PG-14).
+    ptr: Decimal | None = None
+    pts: Decimal | None = None
     remarks: str | None
     is_deleted: bool
     #: Optimistic-concurrency counter, echoed back as ``If-Match``.
@@ -212,6 +223,10 @@ class BatchAvailability(BatchSchema):
     #: where the firm prices from the batch.
     mrp: Decimal | None = None
     selling_price: Decimal | None = None
+    #: Price to retailer and to stockist (PG-14): the rate a line takes when
+    #: the buyer's trade class is RETAILER or STOCKIST.
+    ptr: Decimal | None = None
+    pts: Decimal | None = None
 
 
 NearExpiryPolicy = Literal["WARN", "REASON"]

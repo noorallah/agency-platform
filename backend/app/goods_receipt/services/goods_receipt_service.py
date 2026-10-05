@@ -14,7 +14,10 @@ from sqlalchemy import ColumnElement, Select, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.batch_serial.services import BatchSerialService
-from app.batch_serial.services.batch_serial_service import expiry_from_shelf_life
+from app.batch_serial.services.batch_serial_service import (
+    assert_trade_rates_within_mrp,
+    expiry_from_shelf_life,
+)
 from app.branches.models import Warehouse, WarehouseStorageNode
 from app.business.gating import assert_feature_fields, feature_enabled
 from app.common.audit.services import record_audit
@@ -63,6 +66,7 @@ from app.goods_receipt.schemas import (
     GoodsReceiptAttachmentWrite,
     GoodsReceiptCreate,
     GoodsReceiptLineResponse,
+    GoodsReceiptLineWrite,
     GoodsReceiptListFilters,
     GoodsReceiptNoteResponse,
     GoodsReceiptNoteWrite,
@@ -1517,6 +1521,30 @@ class GoodsReceiptService(TransactionalDocumentService):
             )
         return "\n".join(lines)
 
+    def _check_trade_rates(self, line: GoodsReceiptLineWrite, *, firm_id: UUID) -> None:
+        """Judge a line's price to retailer and stockist (PG-14).
+
+        Refused where the firm's profile lacks BATCH_PTR_PTS -- only when the
+        line sends one, so every other firm's receipts are untouched -- where
+        the line names no batch, since the rates live on the batch and have
+        nowhere else to go, and above the MRP the line states. The batch's own
+        MRP is judged again when the receipt completes.
+        """
+        assert_feature_fields(
+            self._session,
+            firm_id,
+            feature="BATCH_PTR_PTS",
+            values={"ptr": line.ptr, "pts": line.pts},
+        )
+        if line.ptr is None and line.pts is None:
+            return
+        if not (line.batch_number or "").strip():
+            raise ValidationError(
+                f"Line {line.line_number}: PTR and PTS are kept on the batch, "
+                "so the line needs a batch number."
+            )
+        assert_trade_rates_within_mrp(mrp=line.mrp, ptr=line.ptr, pts=line.pts)
+
     @stamps_tax_rules(GoodsReceiptLine, "goods_receipt_id")
     def _replace_lines(
         self,
@@ -1577,6 +1605,7 @@ class GoodsReceiptService(TransactionalDocumentService):
             )
             if accepted < ZERO:
                 raise ValidationError("Accepted quantity cannot be negative.")
+            self._check_trade_rates(line, firm_id=firm_id)
             if total_sellable < ZERO:
                 raise ValidationError("Receipt quantity cannot be negative.")
             # Capped at what the order line still owes, for every receipt: a
@@ -1691,6 +1720,8 @@ class GoodsReceiptService(TransactionalDocumentService):
                 manufacturing_date=line.manufacturing_date,
                 mrp=line.mrp,
                 selling_price=line.selling_price,
+                ptr=line.ptr,
+                pts=line.pts,
                 remarks=line.remarks,
                 created_by=actor_id,
                 updated_by=actor_id,
@@ -1867,6 +1898,8 @@ class GoodsReceiptService(TransactionalDocumentService):
                         expiry_date=line.expiry_date,
                         mrp=line.mrp,
                         selling_price=line.selling_price,
+                        ptr=line.ptr,
+                        pts=line.pts,
                         manufacturing_date=line.manufacturing_date,
                         shelf_life_days=(
                             product.shelf_life_days if product is not None else None

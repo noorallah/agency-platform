@@ -166,9 +166,29 @@ class LinePrice:
     """The price a line starts at, and where it came from."""
 
     price: Decimal
-    #: PRICE_LIST, PRICE_LEVEL or PRODUCT on a sale; on a purchase also
-    #: RATE_CONTRACT, CATALOGUE, PRICE_REVISION or TYPED.
+    #: PRICE_LIST, BATCH_PTR, BATCH_PTS, PRICE_LEVEL or PRODUCT on a sale; on
+    #: a purchase also RATE_CONTRACT, CATALOGUE, PRICE_REVISION or TYPED.
     source: str
+
+
+def batch_trade_rate(
+    *,
+    trade_class: str | None,
+    ptr: Decimal | None,
+    pts: Decimal | None,
+) -> LinePrice | None:
+    """Return the batch rate a buyer of this trade class takes (PG-14).
+
+    A RETAILER takes the batch's price to retailer, a STOCKIST its price to
+    stockist; anyone else -- OTHER, or a customer nobody classed -- takes
+    neither, and so does a batch with no rate for the class. None is "no
+    batch rate", and the line falls through to the rest of the ranking.
+    """
+    if trade_class == "RETAILER" and ptr is not None:
+        return LinePrice(price=ptr, source="BATCH_PTR")
+    if trade_class == "STOCKIST" and pts is not None:
+        return LinePrice(price=pts, source="BATCH_PTS")
+    return None
 
 
 def resolve_unit_price(
@@ -176,16 +196,26 @@ def resolve_unit_price(
     product_price: Decimal | None,
     level_rate: Decimal | None = None,
     list_rate: Decimal | None = None,
+    batch_rate: LinePrice | None = None,
 ) -> LinePrice:
-    """Return the price a line starts at when none is typed (SEL-9).
+    """Return the price a line starts at when none is typed (SEL-9, PG-14).
 
-    A fixed price a list agreed for this customer beats the customer's price
-    level, which beats the product's own selling price -- the most specific
-    arrangement first, as the discount ranking above. A typed price beats all
-    three, which is why a caller asks only when the line names none.
+    Most specific arrangement first, as the discount ranking above: a fixed
+    price a list agreed for this customer, then the trade rate of the batch
+    the line sells from (``batch_trade_rate``), then the customer's price
+    level, then the product's own selling price. A typed price beats all
+    four, which is why a caller asks only when the line names none.
+
+    The batch rate sits below the list because a list is a price agreed with
+    this customer, and an agreement beats a rate printed for a whole trade
+    class; it sits above the level because it is the same kind of tier rate
+    made specific to the goods actually leaving -- the reason a pharma
+    distributor keeps PTR per batch at all.
     """
     if list_rate is not None:
         return LinePrice(price=list_rate, source="PRICE_LIST")
+    if batch_rate is not None:
+        return batch_rate
     if level_rate is not None:
         return LinePrice(price=level_rate, source="PRICE_LEVEL")
     return LinePrice(price=product_price or ZERO, source="PRODUCT")

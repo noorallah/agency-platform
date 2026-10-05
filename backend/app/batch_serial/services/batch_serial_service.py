@@ -60,6 +60,9 @@ _AUDITED_FIELDS: dict[str, tuple[str, ...]] = {
         "supplier_batch",
         "internal_batch",
         "shelf_life_days",
+        "mrp",
+        "ptr",
+        "pts",
     ),
     "lot": (
         "lot_number",
@@ -89,6 +92,28 @@ def _snapshot(entity_type: str, record: object) -> dict[str, object]:
         value = getattr(record, name, None)
         values[name] = None if value is None else str(value)
     return values
+
+
+def assert_trade_rates_within_mrp(
+    *, mrp: Decimal | None, ptr: Decimal | None, pts: Decimal | None
+) -> None:
+    """Refuse a price to retailer or stockist above the batch's MRP (PG-14).
+
+    Both are trade rates before tax and the MRP is the most anyone may charge
+    with tax, so a trade rate above it is a typing mistake, not a price.
+    Nothing to judge where either side is blank.
+
+    Raises:
+        ValidationError: When a rate exceeds the MRP.
+
+    """
+    if mrp is None:
+        return
+    for label, rate in (("PTR", ptr), ("PTS", pts)):
+        if rate is not None and rate > mrp:
+            raise ValidationError(
+                f"{label} {rate:.2f} cannot exceed the MRP {mrp:.2f}."
+            )
 
 
 def expiry_from_shelf_life(
@@ -292,6 +317,7 @@ class BatchSerialService:
             ("EXPIRY_TRACKING", ("expiry_date", "best_before_date")),
             ("MANUFACTURING_DATE", ("manufacturing_date",)),
             ("SHELF_LIFE", ("shelf_life_days",)),
+            ("BATCH_PTR_PTS", ("ptr", "pts")),
         ):
             assert_feature_fields(
                 self._session,
@@ -305,6 +331,7 @@ class BatchSerialService:
     ) -> BatchRecord:
         """Record a batch of a product."""
         self._assert_batch_features(firm_scope, data.model_dump())
+        assert_trade_rates_within_mrp(mrp=data.mrp, ptr=data.ptr, pts=data.pts)
         record = BatchRecord(
             firm_id=firm_scope,
             product_id=data.product_id,
@@ -322,6 +349,8 @@ class BatchSerialService:
             shelf_life_days=data.shelf_life_days,
             mrp=data.mrp,
             selling_price=data.selling_price,
+            ptr=data.ptr,
+            pts=data.pts,
             remarks=data.remarks,
             created_by=actor_id,
             updated_by=actor_id,
@@ -361,6 +390,8 @@ class BatchSerialService:
         selling_price: Decimal | None = None,
         manufacturing_date: date | None = None,
         shelf_life_days: int | None = None,
+        ptr: Decimal | None = None,
+        pts: Decimal | None = None,
     ) -> BatchRecord:
         """Return the batch a receipt named, creating it if it is new.
 
@@ -382,6 +413,12 @@ class BatchSerialService:
         delivery (backlog 79 row 7) are set when the batch is new, and filled
         on an existing batch only where it has none -- a later delivery of the
         same batch carries the same print.
+
+        The trade rates, price to retailer and price to stockist (PG-14), are
+        the distributor's own and do change between deliveries, so the batch
+        keeps its own unless a receipt states a different one: then the
+        receipt's stands and the change is audited (``batch.rates_updated``).
+        Either is refused above the MRP the batch will carry.
         """
         number = batch_number.strip()
         if not number:
@@ -399,7 +436,11 @@ class BatchSerialService:
                 existing.mrp = mrp
             if existing.selling_price is None and selling_price is not None:
                 existing.selling_price = selling_price
+            self._restate_trade_rates(
+                existing, ptr=ptr, pts=pts, actor_id=actor_id, firm_scope=firm_scope
+            )
             return existing
+        assert_trade_rates_within_mrp(mrp=mrp, ptr=ptr, pts=pts)
         self._assert_batch_features(
             firm_scope,
             {"expiry_date": expiry_date, "best_before_date": None},
@@ -428,6 +469,8 @@ class BatchSerialService:
             ),
             mrp=mrp,
             selling_price=selling_price,
+            ptr=ptr,
+            pts=pts,
             status=BatchStatus.AVAILABLE.value,
             created_by=actor_id,
             updated_by=actor_id,
@@ -450,6 +493,51 @@ class BatchSerialService:
             after_data=_snapshot("batch", record),
         )
         return record
+
+    def _restate_trade_rates(
+        self,
+        batch: BatchRecord,
+        *,
+        ptr: Decimal | None,
+        pts: Decimal | None,
+        actor_id: UUID,
+        firm_scope: UUID,
+    ) -> None:
+        """Take a receipt's PTR / PTS onto an existing batch, audited (PG-14).
+
+        Blank keeps the batch's own; only a rate the receipt states and the
+        batch does not already hold changes anything.
+        """
+        changed = {
+            name: value
+            for name, value in (("ptr", ptr), ("pts", pts))
+            if value is not None and getattr(batch, name) != value
+        }
+        if not changed:
+            return
+        assert_trade_rates_within_mrp(
+            mrp=batch.mrp,
+            ptr=changed.get("ptr", batch.ptr),
+            pts=changed.get("pts", batch.pts),
+        )
+        before: dict[str, object] = {
+            name: None if getattr(batch, name) is None else str(getattr(batch, name))
+            for name in ("ptr", "pts")
+        }
+        for name, value in changed.items():
+            setattr(batch, name, value)
+        batch.updated_by = actor_id
+        self._session.flush()
+        record_audit(
+            self._session,
+            action="batch.rates_updated",
+            entity_type="batch",
+            entity_id=batch.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            before_data=before,
+            after_data=_snapshot("batch", batch),
+        )
 
     def resolve_for_issue(
         self,
@@ -511,6 +599,13 @@ class BatchSerialService:
         }
         update_data = data.model_dump(exclude_unset=True)
         self._assert_batch_features(firm_scope, update_data)
+        # Judged on what the batch will hold, so lowering the MRP under a
+        # standing PTR is refused as surely as raising the PTR over it.
+        assert_trade_rates_within_mrp(
+            mrp=update_data.get("mrp", record.mrp),
+            ptr=update_data.get("ptr", record.ptr),
+            pts=update_data.get("pts", record.pts),
+        )
         for field, value in update_data.items():
             setattr(record, field, value)
         record.updated_by = actor_id
@@ -810,6 +905,8 @@ class BatchSerialService:
                     short_for_customer=short,
                     mrp=batch.mrp,
                     selling_price=batch.selling_price,
+                    ptr=batch.ptr,
+                    pts=batch.pts,
                 )
             )
         return result

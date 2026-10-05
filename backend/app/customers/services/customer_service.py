@@ -1248,6 +1248,8 @@ class CustomerService:
             "no_reminders": customer.no_reminders,
             "preferred_channel": customer.preferred_channel,
             "whatsapp_opt_in": customer.whatsapp_opt_in,
+            # Decides which batch trade rate the customer is sold at (PG-14).
+            "trade_class": customer.trade_class,
         }
 
     @staticmethod

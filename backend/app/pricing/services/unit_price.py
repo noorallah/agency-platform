@@ -1,10 +1,12 @@
 """The price a sales line starts at when nobody typed one (SEL-9, A89).
 
-Three arrangements can each name a price, and the most specific wins
+Four arrangements can each name a price, and the most specific wins
 (``resolve_unit_price``): a fixed rate on a price list that applies to this
-customer on this date and quantity, then the customer's price level (its own,
-or its group's), then the product's selling price. A typed price beats all
-three, so a document asks only for a line that names none.
+customer on this date and quantity, then the batch's price to retailer or to
+stockist by the customer's trade class where the line names a batch and the
+firm's profile has BATCH_PTR_PTS (PG-14), then the customer's price level (its
+own, or its group's), then the product's selling price. A typed price beats
+all of them, so a document asks only for a line that names none.
 
 Built once per document, like ``PriceListResolver``: the customer, its level,
 its territory and the date do not change between lines, so the lists and the
@@ -18,7 +20,9 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.utils.pricing import LinePrice, resolve_unit_price
+from app.batch_serial.models import BatchRecord
+from app.business.gating import feature_enabled
+from app.core.utils.pricing import LinePrice, batch_trade_rate, resolve_unit_price
 from app.customers.models import Customer, CustomerGroup
 from app.pricing.models import PriceLevel, ProductPriceLevel
 from app.pricing.services.price_list_service import PriceListResolver
@@ -63,6 +67,9 @@ class UnitPriceResolver:
             on=on,
         )
         customer = session.get(Customer, customer_id) if customer_id else None
+        self._trade_class = customer.trade_class if customer is not None else None
+        #: Read on the first line naming a batch, never for a document without.
+        self._batch_rates_on: bool | None = None
         self.level_id = customer_price_level(session, customer)
         level = session.get(PriceLevel, self.level_id) if self.level_id else None
         if level is None or level.is_deleted or not level.is_active:
@@ -81,12 +88,47 @@ class UnitPriceResolver:
             }
         self._products: dict[UUID, Decimal | None] = {}
 
-    def price(self, product_id: UUID, quantity: Decimal | None = None) -> LinePrice:
-        """Return the price one product's line starts at."""
+    def price(
+        self,
+        product_id: UUID,
+        quantity: Decimal | None = None,
+        *,
+        batch_id: UUID | None = None,
+    ) -> LinePrice:
+        """Return the price one product's line starts at.
+
+        ``batch_id`` is the batch the line sells from, where it names one: its
+        trade rate for this customer's class is offered to the ranking.
+        """
         return resolve_unit_price(
             product_price=self._product_price(product_id),
             level_rate=self._levels.get(product_id),
             list_rate=self._lists.price_for(product_id, quantity),
+            batch_rate=self._batch_rate(product_id, batch_id),
+        )
+
+    def _batch_rate(self, product_id: UUID, batch_id: UUID | None) -> LinePrice | None:
+        """Return the batch's PTR or PTS for this customer, if it applies."""
+        if batch_id is None or self._trade_class not in ("RETAILER", "STOCKIST"):
+            return None
+        if self._batch_rates_on is None:
+            self._batch_rates_on = feature_enabled(
+                self._session, self._firm_id, "BATCH_PTR_PTS"
+            )
+        if not self._batch_rates_on:
+            return None
+        batch = self._session.get(BatchRecord, batch_id)
+        if (
+            batch is None
+            or batch.is_deleted
+            or batch.firm_id != self._firm_id
+            or batch.product_id != product_id
+        ):
+            return None
+        return batch_trade_rate(
+            trade_class=self._trade_class,
+            ptr=None if batch.ptr is None else Decimal(str(batch.ptr)),
+            pts=None if batch.pts is None else Decimal(str(batch.pts)),
         )
 
     def _product_price(self, product_id: UUID) -> Decimal | None:
