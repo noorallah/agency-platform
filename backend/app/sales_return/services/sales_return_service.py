@@ -857,6 +857,7 @@ class SalesReturnService(TransactionalDocumentService):
                 actor_id=actor_id,
                 commit=False,
             )
+        self._take_back_loyalty(row, lines, firm_scope=firm_scope, actor_id=actor_id)
         before = row.status
         row.status = SalesReturnStatus.COMPLETED.value
         row.completed_at = utc_now()
@@ -917,6 +918,15 @@ class SalesReturnService(TransactionalDocumentService):
                 actor_id=actor_id,
                 reason=reason,
                 on=reversed_on,
+            )
+            from app.loyalty.services import LoyaltyService
+
+            LoyaltyService(self._session).stage_give_back(
+                source_type="SALES_RETURN",
+                source_id=row.id,
+                source_number=row.return_number,
+                firm_id=firm_scope,
+                actor_id=actor_id,
             )
         row.status = SalesReturnStatus.CANCELLED.value
         row.cancel_reason = reason
@@ -1008,6 +1018,77 @@ class SalesReturnService(TransactionalDocumentService):
             before_data={"status": row.status},
         )
         self._session.commit()
+
+    def _take_back_loyalty(
+        self,
+        row: SalesReturn,
+        lines: Sequence[SalesReturnLine],
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> None:
+        """Take back the points each bill earned on the goods now returned.
+
+        D-SELL-47. A line raised on a bill names it; a line raised on a
+        delivery note is traced to the approved bill that billed that note
+        line. Goods returned before any bill earned nothing, so they take
+        nothing back.
+        """
+        from app.loyalty.services import LoyaltyService
+
+        credited: dict[UUID, Decimal] = {}
+        note_lines: dict[UUID, Decimal] = {}
+        for line in lines:
+            value = Decimal(str(line.net_amount))
+            if line.source_document_type == SalesReturnSourceType.SALES_INVOICE.value:
+                credited[line.source_document_id] = (
+                    credited.get(line.source_document_id, ZERO) + value
+                )
+            elif line.source_document_type == SalesReturnSourceType.DELIVERY_NOTE.value:
+                note_lines[line.source_document_line_id] = (
+                    note_lines.get(line.source_document_line_id, ZERO) + value
+                )
+        if note_lines:
+            billed_by: dict[UUID, UUID] = {}
+            for note_line_id, invoice_id in self._session.execute(
+                select(
+                    SalesInvoiceLine.source_document_line_id,
+                    SalesInvoiceLine.sales_invoice_id,
+                )
+                .join(
+                    SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id
+                )
+                .where(
+                    SalesInvoiceLine.source_document_line_id.in_(list(note_lines)),
+                    SalesInvoiceLine.is_deleted.is_(False),
+                    SalesInvoice.firm_id == firm_scope,
+                    SalesInvoice.is_deleted.is_(False),
+                    SalesInvoice.status.in_(
+                        (
+                            SalesInvoiceStatus.APPROVED.value,
+                            SalesInvoiceStatus.CLOSED.value,
+                        )
+                    ),
+                )
+                .order_by(SalesInvoice.invoice_date, SalesInvoice.id)
+            ).all():
+                billed_by.setdefault(note_line_id, invoice_id)
+            for note_line_id, value in note_lines.items():
+                invoice_id = billed_by.get(note_line_id)
+                if invoice_id is not None:
+                    credited[invoice_id] = credited.get(invoice_id, ZERO) + value
+        loyalty = LoyaltyService(self._session)
+        for invoice_id, value in credited.items():
+            loyalty.stage_take_back(
+                invoice_id=invoice_id,
+                credited=value,
+                source_type="SALES_RETURN",
+                source_id=row.id,
+                source_number=row.return_number,
+                on=row.return_date,
+                firm_id=firm_scope,
+                actor_id=actor_id,
+            )
 
     # ---- reversal ------------------------------------------------------
 

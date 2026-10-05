@@ -430,6 +430,19 @@ class CreditNoteService(TransactionalDocumentService):
             commit=False,
         )
         row.receivable_transaction_id = transaction.id
+        # The points the bill earned on the value now credited (D-SELL-47).
+        from app.loyalty.services import LoyaltyService
+
+        LoyaltyService(self._session).stage_take_back(
+            invoice_id=row.sales_invoice_id,
+            credited=Decimal(str(row.total_amount)),
+            source_type="CREDIT_NOTE",
+            source_id=row.id,
+            source_number=row.credit_note_number,
+            on=row.credit_note_date,
+            firm_id=firm_scope,
+            actor_id=actor_id,
+        )
         row.status = CreditNoteStatus.APPROVED.value
         row.updated_by = actor_id
         self._session.flush()
@@ -506,6 +519,16 @@ class CreditNoteService(TransactionalDocumentService):
                 remarks=f"Cancelled credit note {row.credit_note_number}.",
                 commit=False,
                 on=reversed_on,
+            )
+        if row.status == CreditNoteStatus.APPROVED.value:
+            from app.loyalty.services import LoyaltyService
+
+            LoyaltyService(self._session).stage_give_back(
+                source_type="CREDIT_NOTE",
+                source_id=row.id,
+                source_number=row.credit_note_number,
+                firm_id=firm_scope,
+                actor_id=actor_id,
             )
         was = row.status
         row.status = CreditNoteStatus.CANCELLED.value

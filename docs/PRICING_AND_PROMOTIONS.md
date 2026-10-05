@@ -359,7 +359,12 @@ accrued as an earning is and points taken back are released as a lapse is,
 at the scheme's current value per point (D-SELL-19, 2026-09-19: it used to
 post nothing, so goodwill points spent on a bill debited `Loyalty Payable`
 for a debt never raised and drove it below zero); and expiry is a sweep that
-names the entry it takes, so it can be run twice. `expiry_months` NULL means points never
+names the entry it takes, so it can be run twice. A completed sales return and an
+approved credit note **take back the points the bill earned on the value
+credited** -- in proportion to the bill, capped at what is left of the batch,
+with their cost released as a lapse is -- and cancelling either gives them
+back (D-SELL-47, 2026-10-05: a customer who returned everything used to keep
+the points). `expiry_months` NULL means points never
 expire -- zero would mean they expire the day they are earned.
 
 ## Points expire out of what is left of a batch

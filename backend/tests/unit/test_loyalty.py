@@ -1120,3 +1120,104 @@ def test_a_redemption_names_itself_and_never_predates_its_bill() -> None:
     assert transaction.reference_type == "LOYALTY_ENTRY"
     assert transaction.reference_id == entry.id
     assert transaction.transaction_date == tomorrow
+
+
+def _returned(
+    books: _Books, invoice: SalesInvoice, value: str, number: str = "SR-1"
+) -> tuple[LoyaltyEntry | None, object]:
+    """Take back the points on ``value`` of a bill, as a completed return does."""
+    source_id = uuid4()
+    entry = LoyaltyService(books.session).stage_take_back(
+        invoice_id=invoice.id,
+        credited=Decimal(value),
+        source_type="SALES_RETURN",
+        source_id=source_id,
+        source_number=number,
+        on=WHEN,
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+    return entry, source_id
+
+
+def test_a_return_takes_back_the_points_its_value_earned() -> None:
+    """A quarter of the bill back takes a quarter of its points and their cost.
+
+    A sales return and a credit note left the points with the customer, who
+    could send everything back and still spend them (D-SELL-47, 2026-10-05).
+    """
+    books = _Books(_session_factory()())
+    invoice = books.invoice("SI-1", total="1000")
+    earned = books.earn(invoice)
+    assert earned is not None and _payable(books) == Decimal("20.00")
+
+    taken, source_id = _returned(books, invoice, "250")
+
+    assert taken is not None
+    assert taken.kind == LoyaltyEntryKind.REVERSED.value
+    assert taken.reverses_id == earned.id
+    assert (taken.source_type, taken.source_id) == ("SALES_RETURN", source_id)
+    assert Decimal(str(taken.points)) == Decimal("-5")
+    assert books.points() == Decimal("15.0000")
+    assert _payable(books) == Decimal("15.00"), "the cost comes back with them"
+    accrual = books.session.get(JournalEntry, earned.journal_entry_id)
+    assert accrual is not None and accrual.status == "POSTED", "the earning stands"
+
+
+def test_a_return_takes_only_what_is_left_of_the_batch() -> None:
+    """Points already spent settled a bill; a return cannot take them again."""
+    books = _Books(_session_factory()())
+    invoice = books.invoice("SI-1", total="1000")
+    books.earn(invoice)
+    books.spend("18", on=WHEN)
+
+    taken, _ = _returned(books, invoice, "1000")
+
+    assert taken is not None
+    assert Decimal(str(taken.points)) == Decimal("-2")
+    assert books.points() == Decimal("0.0000")
+
+
+def test_cancelling_the_return_gives_the_points_back_once() -> None:
+    """The take-back is answered by its own entry, and only the first time."""
+    books = _Books(_session_factory()())
+    invoice = books.invoice("SI-1", total="1000")
+    books.earn(invoice)
+    _, source_id = _returned(books, invoice, "250")
+    service = LoyaltyService(books.session)
+
+    def give_back() -> list[LoyaltyEntry]:
+        """Cancel the return's take-back."""
+        rows = service.stage_give_back(
+            source_type="SALES_RETURN",
+            source_id=source_id,  # type: ignore[arg-type]
+            source_number="SR-1",
+            firm_id=books.firm.id,
+            actor_id=books.actor_id,
+        )
+        books.session.commit()
+        return rows
+
+    first = give_back()
+
+    assert [Decimal(str(row.points)) for row in first] == [Decimal("5")]
+    assert books.points() == Decimal("20.0000")
+    assert _payable(books) == Decimal("20.00")
+    assert give_back() == []
+    assert books.points() == Decimal("20.0000")
+
+
+def test_a_bill_cancelled_after_a_return_gives_up_the_rest() -> None:
+    """The return's share is not the cancellation; what is left still comes back."""
+    books = _Books(_session_factory()())
+    invoice = books.invoice("SI-1", total="1000")
+    books.earn(invoice)
+    _returned(books, invoice, "250")
+
+    rest = _take_back(books, invoice)
+
+    assert rest is not None
+    assert Decimal(str(rest.points)) == Decimal("-15")
+    assert books.points() == Decimal("0.0000")
+    assert _payable(books) == Decimal("0.00")
