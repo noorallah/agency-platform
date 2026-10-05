@@ -521,6 +521,60 @@ const List<ReportDefinition> reportCatalog = [
     permission: 'SALES_VIEW',
     area: ReportArea.financial,
   ),
+  // A period's outward supplies by tax head, outside the GSTR-1 screen, as
+  // a CA asks for them (87 row 1). Every figure is GSTR-1's own.
+  ReportDefinition(
+    id: 'gst-sales-register',
+    label: 'GST sales register',
+    description: 'Approved invoices by tax head: GSTIN, place of supply, '
+        'taxable value, IGST, CGST, SGST and cess. Credit notes, sales '
+        'returns and late cancellations are rows of their own, in minus, '
+        'and customer debit notes in plus, each on its own date.',
+    path: '/api/v1/sales-invoices/reports/gst-register',
+    permission: 'SALES_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    columns: [
+      ReportColumn(key: 'document_date', label: 'Date'),
+      ReportColumn(key: 'document_type_label', label: 'Type'),
+      ReportColumn(key: 'document_number', label: 'Number'),
+      ReportColumn(key: 'against_invoice_number', label: 'Against invoice'),
+      ReportColumn(key: 'customer_name', label: 'Customer'),
+      ReportColumn(key: 'customer_gstin', label: 'GSTIN'),
+      ReportColumn(key: 'place_of_supply', label: 'Place of supply'),
+      ReportColumn(key: 'taxable_value', label: 'Taxable', numeric: true),
+      ReportColumn(key: 'igst', label: 'IGST', numeric: true),
+      ReportColumn(key: 'cgst', label: 'CGST', numeric: true),
+      ReportColumn(key: 'sgst', label: 'SGST', numeric: true),
+      ReportColumn(key: 'cess', label: 'Cess', numeric: true),
+      ReportColumn(key: 'total_tax', label: 'Total tax', numeric: true),
+      ReportColumn(key: 'document_total', label: 'Total', numeric: true),
+    ],
+  ),
+  // The same supplies folded by HSN code and rate, net of credits: GSTR-1's
+  // Table 12 for any period. A product with no HSN shows under a blank code.
+  ReportDefinition(
+    id: 'hsn-sales-summary',
+    label: 'HSN summary of sales',
+    description: 'Outward supplies by HSN code and rate, net of credit '
+        'notes and returns: quantity, taxable value and tax by head.',
+    path: '/api/v1/sales-invoices/reports/hsn-summary',
+    permission: 'SALES_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    columns: [
+      ReportColumn(key: 'hsn_code', label: 'HSN'),
+      ReportColumn(key: 'description', label: 'Description'),
+      ReportColumn(key: 'rate', label: 'Rate %', numeric: true),
+      ReportColumn(key: 'quantity', label: 'Quantity', numeric: true),
+      ReportColumn(key: 'taxable_value', label: 'Taxable', numeric: true),
+      ReportColumn(key: 'igst', label: 'IGST', numeric: true),
+      ReportColumn(key: 'cgst', label: 'CGST', numeric: true),
+      ReportColumn(key: 'sgst', label: 'SGST', numeric: true),
+      ReportColumn(key: 'cess', label: 'Cess', numeric: true),
+      ReportColumn(key: 'total_tax', label: 'Total tax', numeric: true),
+    ],
+  ),
   ReportDefinition(
     id: 'customer-outstanding',
     label: 'Customer outstanding',
