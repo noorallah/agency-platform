@@ -1929,8 +1929,13 @@ class DocumentPostingService:
         accrual_date: date,
         amount: Decimal,
         actor_id: UUID,
+        reference_number: str | None = None,
     ) -> JournalEntry:
         """Book a supplier's volume rebate earned over a period (BUY-13).
+
+        ``reference_number`` is the caller's when this is not the agreement's
+        first accrual: a reference is unique in a firm, and a reversed accrual
+        keeps the one it posted under (D-BUY-34).
 
         Dr supplier rebates receivable, Cr supplier incentives received: the
         supplier owes the firm the rebate from the day the period closes,
@@ -1952,7 +1957,7 @@ class DocumentPostingService:
             voucher_type_id=context.voucher_type_id,
             accounting_period_id=context.accounting_period_id,
             journal_date=accrual_date,
-            reference_number=f"REBATE-{agreement_code}",
+            reference_number=reference_number or f"REBATE-{agreement_code}",
             description=describe,
             lines=[
                 JournalLineData(

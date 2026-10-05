@@ -24,6 +24,7 @@ from app.core.database.base import Base
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
+import generate_transaction_history as history  # noqa: E402
 from generate_transaction_history import (  # noqa: E402
     CHILD_TABLES,
     RESET_ORDER,
@@ -121,3 +122,43 @@ def test_every_numbered_document_is_reset_with_its_counter() -> None:
     assert (
         not missing
     ), f"numbered from a series but left behind by reset_history: {missing}"
+
+
+def _configured() -> set[str]:
+    """Return the tables the reset clears, as ``reset_history`` builds the set."""
+    configured = set(RESET_ORDER)
+    configured.update(table for table, _, _ in CHILD_TABLES)
+    configured.update(parent for _, _, parent in CHILD_TABLES)
+    return configured
+
+
+def test_nothing_outside_the_list_holds_the_history_down() -> None:
+    """The reset's own guard passes against the models as they are today.
+
+    The guard ran only when somebody reseeded, so seventeen tables arrived
+    with a feature, referenced history without cascading, and were found by
+    nobody: the reset would have refused to start (D-CFG-24). Asked here, the
+    next one fails the build on the day it is added.
+    """
+    history._assert_nothing_holds_the_history_down(_configured())
+
+
+def test_each_table_is_cleared_before_what_it_points_at() -> None:
+    """A table goes before every listed table it references without cascading.
+
+    Deleting the parent first is refused by the foreign key, partway through
+    a reset. ``SET NULL`` and ``CASCADE`` cannot refuse, so they place no
+    order on the two tables.
+    """
+    position = {name: index for index, name in enumerate(RESET_ORDER)}
+    late: list[str] = []
+    for name, index in position.items():
+        for key in Base.metadata.tables[name].foreign_keys:
+            parent = key.column.table.name
+            if parent == name or parent not in position:
+                continue
+            if (key.ondelete or "").upper() in {"CASCADE", "SET NULL"}:
+                continue
+            if position[parent] < index:
+                late.append(f"{name} is cleared after {parent}, which it references")
+    assert not late, "; ".join(sorted(set(late)))
