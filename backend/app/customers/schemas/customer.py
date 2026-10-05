@@ -220,6 +220,9 @@ class CustomerWrite(CustomerSchema):
     #: Days of shelf life goods must have left on reaching this customer
     #: (backlog 79 row 6). Needs the firm's EXPIRY_TRACKING feature.
     minimum_shelf_life_days: int | None = Field(default=None, ge=1, le=3650)
+    #: Which batch trade rate this buyer takes (PG-14): RETAILER the price to
+    #: retailer, STOCKIST the price to stockist; blank or OTHER neither.
+    trade_class: Literal["RETAILER", "STOCKIST", "OTHER"] | None = None
     #: Tried first when an event offers it; blank follows the firm's order.
     preferred_channel: Literal["EMAIL", "WHATSAPP", "SMS"] | None = None
     #: The customer agreed to WhatsApp messages. The server records when.
@@ -349,6 +352,7 @@ class CustomerResponse(CustomerSchema):
     notes: str | None
     no_reminders: bool = False
     minimum_shelf_life_days: int | None = None
+    trade_class: str | None = None
     preferred_channel: str | None = None
     whatsapp_opt_in: bool = False
     whatsapp_opt_in_at: datetime | None = None

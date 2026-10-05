@@ -110,6 +110,11 @@ class GoodsReceiptLineWrite(GoodsReceiptSchema):
     selling_price: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=2
     )
+    #: Price to retailer and to stockist for the batch, per stock unit before
+    #: tax (PG-14): only with a batch number, never above the MRP, and only
+    #: where the firm's profile has BATCH_PTR_PTS.
+    ptr: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=2)
+    pts: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=2)
     remarks: str | None = None
     #: One serial per unit received, for a serial-tracked product (PG-10):
     #: typed, scanned or range-filled. Absent (or null) leaves what the line
@@ -248,6 +253,8 @@ class GoodsReceiptLineResponse(GoodsReceiptSchema):
     manufacturing_date: date | None
     mrp: Decimal | None = None
     selling_price: Decimal | None = None
+    ptr: Decimal | None = None
+    pts: Decimal | None = None
     inventory_transaction_id: UUID | None
     remarks: str | None
     created_at: datetime

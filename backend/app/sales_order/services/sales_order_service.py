@@ -407,8 +407,14 @@ class SalesOrderService(TransactionalDocumentService):
         firm_id: UUID,
         actor_id: UUID,
         raised_as: str = "sales order",
+        price_batches: Mapping[int, UUID] | None = None,
     ) -> SalesOrder:
         """Create one sales order without committing it.
+
+        ``price_batches`` names, by line number, the batch a line will leave
+        from where the caller knows it without pinning it -- a counter bill
+        that chose its batches (PG-14) -- so a blank price can take that
+        batch's trade rate. A pinned batch is read off the line itself.
 
         ``raised_as`` is what the person is actually raising, for the refusal a
         customer who is not ACTIVE gets, and for the one a product that is not
@@ -506,7 +512,7 @@ class SalesOrderService(TransactionalDocumentService):
         self._session.add(row)
         self._session.flush()
         lines, entered = self._typed_rates_before_tax(
-            row, data.lines, actor_id=actor_id
+            row, data.lines, actor_id=actor_id, price_batches=price_batches
         )
         totals = self._replace_lines(
             row,
@@ -2777,6 +2783,7 @@ class SalesOrderService(TransactionalDocumentService):
         lines: list[SalesOrderLineWrite],
         *,
         actor_id: UUID,
+        price_batches: Mapping[int, UUID] | None = None,
     ) -> tuple[list[SalesOrderLineWrite], dict[int, EnteredRate]]:
         """Read the order's GST-inclusive rates back to pre-tax (64 row 4).
 
@@ -2786,7 +2793,7 @@ class SalesOrderService(TransactionalDocumentService):
         never commits.
         """
         blank = {line.line_number for line in lines if line.unit_price is None}
-        lines = self._priced_from_arrangements(row, lines)
+        lines = self._priced_from_arrangements(row, lines, price_batches)
         if not row.rate_includes_tax:
             return lines, {}
 
@@ -2809,9 +2816,17 @@ class SalesOrderService(TransactionalDocumentService):
         )
 
     def _priced_from_arrangements(
-        self, row: SalesOrder, lines: list[SalesOrderLineWrite]
+        self,
+        row: SalesOrder,
+        lines: list[SalesOrderLineWrite],
+        price_batches: Mapping[int, UUID] | None = None,
     ) -> list[SalesOrderLineWrite]:
-        """Give each line with no price the customer's price (SEL-9, A89)."""
+        """Give each line with no price the customer's price (SEL-9, A89).
+
+        A line leaving from a known batch -- pinned, or chosen on the counter
+        bill that raised the order -- is offered that batch's PTR or PTS by
+        the customer's trade class (PG-14).
+        """
         if all(line.unit_price is not None for line in lines):
             return lines
         prices = UnitPriceResolver(
@@ -2827,7 +2842,12 @@ class SalesOrderService(TransactionalDocumentService):
                 if line.unit_price is not None
                 else line.model_copy(
                     update={
-                        "unit_price": prices.price(line.product_id, line.quantity).price
+                        "unit_price": prices.price(
+                            line.product_id,
+                            line.quantity,
+                            batch_id=line.pinned_batch_id
+                            or (price_batches or {}).get(line.line_number),
+                        ).price
                     }
                 )
             )

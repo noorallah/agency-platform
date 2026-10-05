@@ -558,6 +558,38 @@ any rate.
 
 §79 is complete.
 
+### Batch-wise PTR / PTS (PG-14, backlog 86 #22, 55 G5)
+
+A pharma or FMCG distributor keeps two trade rates on every batch beside its
+MRP, as Marg does: the **price to retailer** and the **price to stockist**
+(`batches.ptr` / `batches.pts`, per stock unit before tax; migration
+`20261005_0316`). Both are optional and belong to the business feature
+`BATCH_PTR_PTS` (seeded implemented, and switched on for the PHARMACY, FOOD and
+WHOLESALE profiles only where missing).
+
+**Captured at receipt.** A goods receipt line takes `ptr` / `pts` beside `mrp`;
+`assert_feature_fields` refuses them only when sent by a firm whose profile
+lacks the feature. A line sending one needs a batch number (the rates have
+nowhere else to go), and neither may exceed the MRP -- the line's own when it
+states one, and again on completion against the MRP the batch will carry
+(`assert_trade_rates_within_mrp`). Completion hands them to the batch: set on a
+new batch; on an existing one the batch keeps its own unless the receipt
+states a different rate, which then stands and is audited as
+`batch.rates_updated` with the old pair. Blank never clears. The batch's own
+create and update take the same fields under the same gate and cap.
+
+**Shown in the picker.** `BatchAvailability` (the batch picker's availability
+rows) and `BatchResponse` carry `ptr` and `pts` beside `mrp` and
+`selling_price`.
+
+**Charged by trade class.** `customers.trade_class` is RETAILER, STOCKIST or
+OTHER (null reads as OTHER). Where a sales line leaves from a known batch -- a
+pinned batch on the order, or a counter bill line whose `batches` name a single
+batch -- and its price is blank, the batch's PTR (retailer) or PTS (stockist)
+is the starting price: below an agreed price list, above the price level and
+the product's price, never above anything typed. See
+`docs/PRICING_AND_PROMOTIONS.md`, "The price a line starts at".
+
 ---
 
 ## Import / Export

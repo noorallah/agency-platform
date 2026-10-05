@@ -531,6 +531,20 @@ on the server, before the GST-inclusive conversion, which converts only typed
 prices (level and list prices are pre-tax). Downstream documents inherit the
 price of the line they continue, as before.
 
+**The batch's trade rate (PG-14, 2026-10-05).** Where the line leaves from a
+known batch -- `pinned_batch_id` on a sales order line, or a counter bill line
+whose `batches` all name one batch (handed to the order it raises as
+`price_batches`) -- and the firm's profile has `BATCH_PTR_PTS`, the batch's
+rate for the customer's `trade_class` joins the ranking: `batch_trade_rate`
+gives PTR to a RETAILER and PTS to a STOCKIST, nothing to OTHER or an unclassed
+customer, nothing where the batch has no rate for the class. The full order is
+**typed > price list > batch PTR/PTS > price level > product price**. The list
+outranks the batch because it is a price agreed with this customer; the batch
+outranks the level because it is the same kind of tier rate made specific to
+the goods actually leaving. `LinePrice.source` says `BATCH_PTR` or `BATCH_PTS`;
+sales lines store no price source, so it is not recorded on the line. A
+missing rate falls through unchanged.
+
 ## Buy X get Y at a discount, and combo prices (SEL-2, SEL-3, 2026-10-03)
 
 Both are line discounts, so tax stays per line and the best-offer valuation

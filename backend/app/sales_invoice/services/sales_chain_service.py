@@ -197,6 +197,13 @@ class SalesChainService:
             # The person is raising a bill, so a customer who is not ACTIVE is
             # refused in those words rather than for an order nobody typed.
             raised_as="bill",
+            # A line drawn wholly from one batch it chose may take that
+            # batch's PTR or PTS (PG-14); several batches name no one rate.
+            price_batches={
+                line.line_number: line.batches[0].batch_id
+                for line in data.lines
+                if line.batches and len({pick.batch_id for pick in line.batches}) == 1
+            },
         )
         # Checked for licences at the bill's approval, not here (backlog 54).
         SalesOrderService(self._session).stage_approval(

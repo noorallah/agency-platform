@@ -82,6 +82,12 @@ class BatchRecord(BaseEntity):
     #: The rate this batch is sold at, per stock unit before tax, where the
     #: firm prices from the batch (``batch_sale_settings.price_from_batch``).
     selling_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    #: Price to retailer and price to stockist, per stock unit before tax
+    #: (PG-14): the trade rates a pharma or FMCG distributor sells this batch
+    #: at, by the buyer's ``Customer.trade_class``. Captured at receipt, never
+    #: above the MRP, and only where the firm's profile has BATCH_PTR_PTS.
+    ptr: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    pts: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     remarks: Mapped[str | None] = mapped_column(Text)
 
     # A batch stores no quantities. It carries identity -- the number, who

@@ -250,6 +250,10 @@ class GoodsReceiptLine(BaseEntity):
     #: unit (backlog 79 row 7): handed to the batch it creates or names.
     mrp: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     selling_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    #: Price to retailer and to stockist for this delivery's batch (PG-14),
+    #: per stock unit before tax: handed to the batch on completion.
+    ptr: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    pts: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     inventory_transaction_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("inventory_transactions.id", ondelete="SET NULL")
     )

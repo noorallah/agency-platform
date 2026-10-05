@@ -207,6 +207,10 @@ class Customer(BaseEntity):
     #: months. Earliest-expiry allocation passes over a batch with less; one
     #: chosen by hand meets the firm's rule. None asks nothing.
     minimum_shelf_life_days: Mapped[int | None] = mapped_column(Integer)
+    #: RETAILER, STOCKIST or OTHER (PG-14): which trade rate of a batch this
+    #: buyer is sold at -- price to retailer or price to stockist. None reads
+    #: as OTHER, which takes neither.
+    trade_class: Mapped[str | None] = mapped_column(String(20))
     #: The customer agreed to be messaged on WhatsApp; nothing goes there
     #: without it. ``whatsapp_opt_in_at`` is when it was recorded, set by the
     #: server when the box is ticked and cleared when it is unticked.
