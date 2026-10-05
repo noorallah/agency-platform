@@ -432,7 +432,14 @@ void main() {
     testWidgets('the note\'s view says why the goods go out', (tester) async {
       final _GstApi api = _GstApi();
       await _pumpPage(tester, api);
-      await tester.tap(find.byKey(const ValueKey('selection-view')));
+      // View is the first of the note's actions. Since Attachments joined
+      // them (#1162) the row is wider than this test window, and the bar
+      // scrolls its actions rather than pushing the note's name off: bring
+      // the button into view the way a person would before pressing it.
+      final Finder view = find.byKey(const ValueKey('selection-view'));
+      await tester.ensureVisible(view);
+      await tester.pumpAndSettle();
+      await tester.tap(view);
       await tester.pumpAndSettle();
 
       expect(find.textContaining('Van or route sale'), findsWidgets);
