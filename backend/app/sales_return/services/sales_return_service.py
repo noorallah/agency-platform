@@ -73,6 +73,7 @@ from app.finance.services.journal_engine import JournalEntryEngine
 from app.inventory.models import StockLedgerEntry
 from app.inventory.services import InventoryService
 from app.products.models import Product
+from app.products.services.stockless import stockless_products
 from app.sales.services.document_preview import line_companions
 from app.sales.services.scope_resolution import resolve_sales_scope
 from app.sales_invoice.models import (
@@ -730,7 +731,14 @@ class SalesReturnService(TransactionalDocumentService):
         if not lines:
             raise ValidationError("Sales return must contain at least one line.")
         movement_ids: list[UUID] = []
+        services = stockless_products(
+            self._session, (line.product_id for line in lines)
+        )
         for line in lines:
+            if line.product_id in services:
+                # A service is credited; there is nothing to put back
+                # on a shelf (backlog 87 #3).
+                continue
             warehouse_id = line.warehouse_id or row.warehouse_id
             batch_id = self._resolve_return_batch(line)
             if batch_id is not None:
