@@ -412,6 +412,40 @@ recorded rate came off `percent or price_list_percent or customer_default
 or ...`, which is falsy for an explicit zero, so a refusal recorded the
 customer's rate. It reads the branch actually taken now.
 
+## An offer names only the firm's own masters
+
+**An offer names only the firm's own masters, and a bad one cannot stop a
+sale** (D-PRC-5, 2026-10-06). An ACTIVE offer giving away
+`00000000-0000-0000-0000-000000000001`, or another firm's product, was
+accepted with 201, and every quotation and order it matched then answered
+500. Two things were wrong and they were found together. Nothing looked the
+ids up: `assert_offer_references` in
+`app/promotions/services/references.py` now asks, of every id-typed condition
+(product, product category, customer, customer group, branch, territory,
+route -- an `IN` list entry by entry) and of every benefit (the product a
+`FREE_PRODUCT` gives, the products of a `COMBO_PRICE` set), that the row is
+**live and this firm's**, and refuses with 422 naming it: "Benefit 1: the
+free product was not found in this firm.", "Condition 2: the customer group
+was not found in this firm.", "Benefit 1: a product of the combo was not
+found in this firm." It reads the stored shape, so a new offer, an edited
+draft, the revision that supersedes a live one and a copy (prefixed with the
+offer's code, all or nothing) all ask through it. **An offer being switched
+INACTIVE is not checked**, or one holding a product retired since could not
+be stopped by the person who owns it. A salesman condition is not checked:
+`users` is a platform table.
+
+The second half is the reader. A product can be retired after the offer was
+written, and rows written before the check are still in the store, so
+`PromotionService._gift_product` passes over a gift whose product is not a
+live product of the firm and the trace says "The product this offer gives
+away is not one of this firm's products any more, so nothing was given."
+And **a `FREE_PRODUCT` offer with no buy quantity crashed on its own**: the
+stored shape spells a missing threshold as the text `"None"`, the engine
+read it as a number, and that -- not the product -- is what raised on the
+checked firms, whose offer was "nine bought, one free" with the nine on a
+condition. `_number` reads it as no threshold, which is "give it once".
+`tests/unit/test_promotion_references.py` is the guard.
+
 ## A downstream document inherits the price of the line it continues
 
 **A downstream document inherits the price of the line it continues.** A

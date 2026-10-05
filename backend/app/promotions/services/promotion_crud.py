@@ -39,6 +39,7 @@ from app.promotions.schemas import (
     PromotionWrite,
 )
 from app.promotions.services.promotion_service import BudgetRoom, budget_rooms
+from app.promotions.services.references import assert_offer_references
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 
 #: The condition fields whose `value_text` holds the id of a master row.
@@ -121,12 +122,31 @@ class PromotionCrudService:
         if principal is None or principal.is_deleted or principal.firm_id != firm_id:
             raise ValidationError("That principal is not one of this firm's.")
 
+    def _check_references(self, data: PromotionWrite, firm_id: UUID) -> None:
+        """Refuse an offer naming a master that is not this firm's (D-PRC-5).
+
+        An offer being switched off is let through: one already holding a
+        product retired since must still be something its owner can stop.
+        """
+        if data.status is PromotionStatus.INACTIVE:
+            return
+        assert_offer_references(
+            self._session,
+            firm_id=firm_id,
+            conditions=data.conditions,
+            actions=[
+                (action.sequence, action.action_type.value, self._parameters(action))
+                for action in data.actions
+            ],
+        )
+
     def create_promotion(
         self, data: PromotionWrite, *, firm_id: UUID, actor_id: UUID
     ) -> Promotion:
         """Record a new promotion at version one."""
         self._assert_code_is_free(data.code, firm_id=firm_id)
         self._check_principal(data, firm_id)
+        self._check_references(data, firm_id)
         row = Promotion(
             firm_id=firm_id,
             code=data.code.strip().upper(),
@@ -178,6 +198,7 @@ class PromotionCrudService:
         rewritten, because documents priced under it have to stay explicable.
         """
         self._check_principal(data, firm_scope)
+        self._check_references(data, firm_scope)
         row = self.get_promotion(promotion_id, firm_scope=firm_scope)
         # A budget left out of the request is left alone; an explicit null
         # clears it. The rest of this body replaces the offer whole, but an
