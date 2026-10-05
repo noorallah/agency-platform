@@ -748,3 +748,37 @@ def test_the_routes_are_served_and_the_list_bounds_its_page() -> None:
         for parameter in paths["/api/v1/sales-invoices"]["get"]["parameters"]
     }
     assert "is_held" in held
+
+
+def test_a_bill_goes_to_the_shift_of_the_cashier_who_made_it() -> None:
+    """D-SELL-51: the till that took the money is the maker's, not the approver's.
+
+    Counter staff raise bills and hold no approve code, so a manager approves
+    them. Stamping the approver's shift left the cashier's drawer at its float
+    and put the cash in the manager's shift, or in none.
+    """
+    counter = _Counter()
+    manager = uuid4()
+    till = counter.open("500")
+    tender = [SalesInvoiceTenderWrite(mode="CASH", amount=Decimal("100"))]
+
+    by_manager = counter.bills.approve_invoice(
+        counter.draft(tender).id, firm_scope=counter.firm_id, actor_id=manager
+    )
+    assert by_manager.counter_shift_id == till.id
+    assert counter.shifts.response(till).expected_cash == Decimal("600.00")
+
+    # A manager with a till of their own still does not take the cashier's bill.
+    own = counter.open("0", actor=manager)
+    again = counter.bills.approve_invoice(
+        counter.draft(tender).id, firm_scope=counter.firm_id, actor_id=manager
+    )
+    assert again.counter_shift_id == till.id
+    assert counter.shifts.response(own).expected_cash == Decimal("0.00")
+
+    # A bill whose maker has no till open falls to the approver's.
+    counter.close(till, "700")
+    fallen = counter.bills.approve_invoice(
+        counter.draft(tender).id, firm_scope=counter.firm_id, actor_id=manager
+    )
+    assert fallen.counter_shift_id == own.id
