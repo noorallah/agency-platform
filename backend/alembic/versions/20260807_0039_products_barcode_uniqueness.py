@@ -18,11 +18,15 @@ depends_on: Sequence[str] | None = None
 
 
 def _firm_schemas(bind: sa.engine.Connection) -> list[str]:
+    # Only the schema being migrated. Each store runs this revision for
+    # itself; walking every schema took locks on other firms' tables while
+    # one firm was provisioned, and deadlocked against their work (D-MIG-2).
     result = bind.execute(
         sa.text(
             "SELECT DISTINCT table_schema "
             "FROM information_schema.tables "
             "WHERE table_name = 'products' "
+            "  AND table_schema = current_schema() "
             "  AND table_schema NOT IN ('pg_catalog','information_schema')"
         )
     )
