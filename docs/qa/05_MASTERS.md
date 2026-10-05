@@ -74,6 +74,78 @@ that an edit changes what it names and nothing else.
 - **Expect**
   - Step 1: the segment holds.
   - Step 2: refused — "1 customer(s) are still in Wholesaler qa. Move them first, or the group would vanish from every list while staying on their records." `ondelete="RESTRICT"` is no guard on a soft-deleted table, so the service refuses.
+### TC-CUST-007 — A customer's money terms need the settings permission
+
+*Added 2026-10-06 after the fixes of 2026-10-05 and 06. **Server side driven** over HTTP; results in `docs/qa/PURCHASING_API_CHECK_ROUND_4_2026-10-06.md` and `docs/qa/BUYING_SELLING_API_CHECK_ROUND_6_2026-10-06.md`. **The screens are not yet driven.***
+
+- **Preconditions:** A firm administrator and a salesperson of QA01, and a customer `QA-CM` *Master Check* fully described: one billing address, one contact, credit limit 50,000, payment terms 30 days, standing discount 7.5%, segment `QA-RET`, phone +919800000100.
+- **Also needs:** a **Sales Manager** and a **Firm Manager** user in the firm, beside the prepared Firm admin and Seller (Field Sales). The prepared customer `QA-CM` carries credit limit 50,000, payment terms 30 days and standing discount 7.5%.
+- **Steps**
+  1. As the prepared **Seller**: Masters > Customers → **New**. Look at **Credit limit**, **Default discount %**, **Opening balance**, **Payment terms (days)**, **Cash discount (days)** and **Cash discount %**. Type a code and a name only → Save.
+  2. **(HTTP)** As the seller, `POST /api/v1/customers` five times, each with one of `credit_limit` 50000, `opening_balance` 1500, `payment_terms_days` 30, `cash_discount_percent` 2 with `cash_discount_days` 10, `default_discount_percent` 12.5. Then once with every one of them sent as 0.
+  3. As the **Sales Manager**: Masters > Customers → `QA-CM` → **Edit**. Look at the same six boxes. Change only the name → Save.
+  4. **(HTTP)** As the Sales Manager, `PUT /api/v1/customers/{id}` with the whole record and one figure changed: payment terms 30 to 45; then the credit limit; then the standing discount; then each set to 0.
+  5. As the Sales Manager: Masters > Customers → **Import**, a file that names `QA-CM` with *update existing* chosen and a changed credit limit, credit days, opening balance or discount; then a file that changes only its name.
+  6. As the **Firm Manager**, then the **Firm admin**: edit `QA-CM` and change payment terms to 45 → Save.
+- **Expect**
+  - Step 1: the six boxes are locked, with "Set by somebody with the manage customer settings permission." beneath; the customer saves with none of them.
+  - Step 2: each of the five is refused with **403** and nothing is created: "<code>: giving a customer a credit limit needs the manage customer settings permission (CUSTOMER_MANAGE_SETTINGS). Leave it at zero, or ask somebody who holds it.", and the same sentence for "an opening balance", "credit days", "cash-discount terms" and "a standing discount". Every term sent as zero is not a term: 201.
+  - Step 3: the six boxes are locked on an edit too; the name saves and the terms are as they were.
+  - Step 4: each is refused with **403**, "Changing a customer's credit days needs the manage customer settings permission (CUSTOMER_MANAGE_SETTINGS)." (and "…credit limit…", "…standing discount…"); setting one to zero is a change and is refused the same way. After every refusal the customer is unchanged.
+  - Step 5: the import reports the problem on the row in the same words and updates nothing; the file that changes only the name updates the name. The batch import (`POST /api/v1/customers/import`) answers the same way.
+  - Step 6: the Firm Manager's and the administrator's changes save.
+### TC-CUST-008 — An opening balance typed on the customer is collected as a bill
+
+*Added 2026-10-06 after the fixes of 2026-10-05 and 06. **Server side driven** over HTTP; results in `docs/qa/PURCHASING_API_CHECK_ROUND_4_2026-10-06.md` and `docs/qa/BUYING_SELLING_API_CHECK_ROUND_6_2026-10-06.md`. **The screens are not yet driven.***
+
+- **Preconditions:** A firm administrator and a salesperson of QA01, and a customer `QA-CM` *Master Check* fully described: one billing address, one contact, credit limit 50,000, payment terms 30 days, standing discount 7.5%, segment `QA-RET`, phone +919800000100.
+- **Also needs:** nothing beyond the prepared Firm admin; the case makes its own customers.
+- **Steps**
+  1. As the prepared **Firm admin**: Masters > Customers → **New**: code `QA-OB1`, a name, **Opening balance** `1500`, **Payment terms (days)** `30` → Save. Open it again and read **Opening bills**. Accounts > Journal Entries.
+  2. Sell > Receipts → **Record Receipt** → `QA-OB1`: read the bills offered. Sell > All Sell screens > Money > **Collection Sheet**. Masters > **Statements** → the customer's ageing and statement.
+  3. Record Receipt: Amount `2000`, applied to the row → Save. Then Amount `600`, Cash, applied to the row → Save. Read the three lists and the customer again.
+  4. Masters > Customers → `QA-OB1` → Opening bills → **Cancel** on the row, with a reason.
+  5. In **Opening bills** press **Add opening bill**: any reference, 250 → Save.
+  6. New customer `QA-OB2` with **Opening balance** `-300` → Save; read its Opening bills.
+- **Expect**
+  - Step 1: Outstanding **1,500.00**. Opening bills holds **one** row, 1,500.00, standing for the figure typed. One journal, reference `<code>-OB`: Dr 1100 Trade Receivables 1,500.00 / Cr 3000 Opening Balance Equity 1,500.00.
+  - Step 2: Record Receipt lists one row **Opening balance**, 1,500.00, due the day it was entered plus 30 days; the collection sheet and the ageing list the same row, and the statement shows the opening balance once, not twice.
+  - Step 3: 2,000 is refused: "Invoice Opening balance has 1500.00 outstanding, so 2000.00 cannot be allocated to it." The 600 is taken (Dr 1000 Cash 600.00 / Cr 1100 Trade Receivables 600.00) and the row reads **900.00** on Record Receipt, the collection sheet and the ageing, and the customer's Outstanding is 900.00. Paid in full, the row leaves all three.
+  - Step 4: refused: "OBC-… is the opening balance entered on the customer, not a bill of its own. Set the customer's opening balance to 0 to take it back; reverse any receipt taken against it first."
+  - Step 5: refused: "… carries an opening balance of 1500.00. Enter the opening balance either as one figure on the customer or bill by bill, not both…"
+  - Step 6: a negative opening balance (money the firm owes the customer) makes no bill.
+### TC-CUST-009 — Correcting an opening balance: after a reversed receipt, and after a cancelled invoice
+
+*Added 2026-10-06 after the fixes of 2026-10-05 and 06. **Server side driven** over HTTP; results in `docs/qa/PURCHASING_API_CHECK_ROUND_4_2026-10-06.md` and `docs/qa/BUYING_SELLING_API_CHECK_ROUND_6_2026-10-06.md`. **The screens are not yet driven.*** The cancelled-invoice half (D-MST-16) is unit-tested and **has not been driven on a running server**.
+
+- **Preconditions:** A firm administrator and a salesperson of QA01, and a customer `QA-CM` *Master Check* fully described: one billing address, one contact, credit limit 50,000, payment terms 30 days, standing discount 7.5%, segment `QA-RET`, phone +919800000100.
+- **Also needs:** a customer `QA-OB3` created by the Firm admin with **Opening balance** `1500`, and a receipt of `600` applied to its *Opening balance* row (as TC-CUST-008 steps 1 and 3). A second customer `QA-OB4` with **Opening balance** `1500` and nothing received.
+- **Steps**
+  1. As the prepared **Firm admin**: Masters > Customers → `QA-OB3` → Edit → **Opening balance** `400` → Save. Try `0`, then `2000`.
+  2. Sell > Receipts → select the receipt of 600 → **Reverse** with a reason. Edit the customer again: **Opening balance** `400` → Save. Read Opening bills, Record Receipt and Journal Entries.
+  3. Edit once more: **Opening balance** `0` → Save. Then **Delete** the customer.
+  4. For `QA-OB4`: sell it 1 of the prepared product `QA-P` and take the sale to an **approved** invoice. Edit the customer: **Opening balance** `400` → Save.
+  5. **Cancel** that invoice with a reason. Edit the customer: **Opening balance** `400` → Save.
+- **Expect**
+  - Step 1: each is refused and the figure stays 1,500: "Opening balance cannot be changed while other entries stand on <code>'s account: receipt RC-… of 600.00. Reverse or cancel them first. Where the customer has really traded, leave the opening balance and correct what is owed with a credit note or an adjustment."
+  - Step 2: with the receipt reversed the change saves. Opening bills shows the bill of 1,500.00 **Cancelled** ("The customer's opening balance was revised.") and **one** standing bill of **400.00**; Record Receipt lists one row of 400.00. Two journals: `<code>-OB-REV` mirrors the first, and `<code>-OB2` posts Dr 1100 Trade Receivables 400.00 / Cr 3000 Opening Balance Equity 400.00.
+  - Step 3: at 0 no bill stands, the lists are empty and one more journal takes the 400.00 back; the customer can then be deleted.
+  - Step 4: refused in the same words, naming the invoice: "…: invoice SI-… of …. Reverse or cancel them first. …"
+  - Step 5: once the invoice is cancelled it no longer holds the figure, and the change to 400 saves as in step 2.
+### TC-CUST-010 — Recording, cancelling and importing opening bills needs the settings permission
+
+*Added 2026-10-06 after the fixes of 2026-10-05 and 06. **Server side driven** over HTTP; results in `docs/qa/PURCHASING_API_CHECK_ROUND_4_2026-10-06.md` and `docs/qa/BUYING_SELLING_API_CHECK_ROUND_6_2026-10-06.md`. **The screens are not yet driven.***
+
+- **Preconditions:** A firm administrator and a salesperson of QA01, and a customer `QA-CM` *Master Check* fully described: one billing address, one contact, credit limit 50,000, payment terms 30 days, standing discount 7.5%, segment `QA-RET`, phone +919800000100.
+- **Also needs:** a **Sales Manager** and a **Firm Manager** user in the firm; a customer `QA-OB5` with one opening bill of `5000` the Firm admin entered (Masters > Customers → the customer → Opening bills → **Add opening bill**), and a customer `QA-OB6` with none.
+- **Steps**
+  1. As the **Sales Manager**: Masters > Customers → `QA-OB5` → **Opening bills**. Look for **Add opening bill** and for **Cancel** on the row; look for **Import opening bills** on the Customers toolbar.
+  2. **(HTTP)** As the Sales Manager: `POST /api/v1/customers/{id}/opening-bills` for `QA-OB6` with 900; `POST /api/v1/customers/opening-bills/{bill_id}/cancel` on the bill of 5,000; `POST /api/v1/customers/opening-bills/import`; `POST /api/v1/customers/opening-bills/import-file` with `apply=false`, then `apply=true`.
+  3. As the **Firm Manager**: on `QA-OB6` → Opening bills → **Add opening bill**: reference `OLD-7`, amount `900`, **dated today** → Save. Add another dated **tomorrow**. Then **Cancel** the bill of 900 with a reason. As the **Firm admin**: Customers toolbar → **Import opening bills** with a file of one bill: Check, then Apply.
+- **Expect**
+  - Step 1: the list of opening bills opens and reads the 5,000.00; **Add opening bill**, **Cancel** and **Import opening bills** are not offered.
+  - Step 2: each is refused with **403**: "Recording a customer's opening bill needs the manage customer settings permission (CUSTOMER_MANAGE_SETTINGS)."; "Cancelling a customer's opening bill needs the manage customer settings permission (CUSTOMER_MANAGE_SETTINGS)."; and for the import, the file check and the file apply, "Importing customers' opening bills needs the manage customer settings permission (CUSTOMER_MANAGE_SETTINGS)." After each the customer owes what it owed (0.00 and 5,000.00) and no journal is written. A Customer Support user is refused the two import routes earlier, with "You do not have permission to perform this action.", because the job cannot import customers at all.
+  - Step 3: the bill dated today saves and posts (Dr 1100 Trade Receivables 900.00); the one dated tomorrow is refused: "An opening bill is one raised before the books here start, so its date cannot be after <today>.", where today is the firm's own day. The cancel reverses the journal. The file check reports one bill to create and writes nothing; Apply posts it. The same date rule holds for a supplier's opening bill.
 ---
 
 ## Vendors, products, branches and warehouses
