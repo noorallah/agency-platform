@@ -739,6 +739,7 @@ class SalesOrderService(TransactionalDocumentService):
         licence_override_reason: str | None = None,
         check_licences: bool = True,
         price_override_reason: str | None = None,
+        held_batches: Mapping[int, Sequence[tuple[UUID, Decimal]]] | None = None,
     ) -> SalesOrder:
         """Approve one sales order without committing it.
 
@@ -748,6 +749,11 @@ class SalesOrderService(TransactionalDocumentService):
         person never typed: the invoice that raised it is checked at its own
         approval, on its own date, and checking here too would refuse -- or
         warn -- twice for one sale.
+
+        ``held_batches`` names, by line number, the batches a counter bill
+        chose for a line it split across several, in stock units: the hold
+        goes on those batches rather than on the earliest (D-SELL-81). A
+        line drawn from one batch is pinned instead (``pinned_batch_id``).
         """
         row = self.get_order(order_id, firm_scope=firm_scope)
         if row.status != SalesOrderStatus.DRAFT.value:
@@ -835,7 +841,7 @@ class SalesOrderService(TransactionalDocumentService):
         RedemptionService(self._session).claim(
             firm_id=firm_scope, document_id=row.id, actor_id=actor_id
         )
-        self._reserve_inventory(row, actor_id=actor_id)
+        self._reserve_inventory(row, actor_id=actor_id, held_batches=held_batches)
         row.status = SalesOrderStatus.APPROVED.value
         row.approved_at = utc_now()
         row.updated_by = actor_id
@@ -2633,7 +2639,67 @@ class SalesOrderService(TransactionalDocumentService):
             )
         return batch.id
 
-    def _reserve_inventory(self, row: SalesOrder, *, actor_id: UUID) -> None:
+    def _held_as_chosen(
+        self,
+        row: SalesOrder,
+        line: SalesOrderLine,
+        chosen: Sequence[tuple[UUID, Decimal]],
+    ) -> list[tuple[UUID | None, Decimal]] | None:
+        """Plan a line's hold on the batches its bill chose (D-SELL-81).
+
+        A counter bill that split a line across batches -- 1 of the early
+        batch and 3 of the late -- held all 4 on the early one, earliest
+        expiry first: 3 held that would never ship, and the 3 that would
+        left open to any other order. Each chosen batch is held for what was
+        chosen from it, exactly as a single pinned batch is: what a batch
+        cannot cover is a back order, not a hold on another batch.
+
+        Returns:
+            The batches to hold with any uncovered remainder last under
+            ``None`` -- or None where the choices do not add up to what the
+            line reserves (picks still being typed, or a gift an offer added),
+            and the line is held earliest expiry first as before.
+
+        """
+        wanted: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
+        for batch_id, quantity in chosen:
+            wanted[batch_id] += self._q(quantity)
+        if self._q(sum(wanted.values(), ZERO)) != self._q(line.reservable_quantity):
+            return None
+        held: list[tuple[UUID | None, Decimal]] = []
+        short = ZERO
+        for batch_id, quantity in wanted.items():
+            plan = self._inventory.allocate_for_reservation(
+                firm_scope=row.firm_id,
+                branch_id=row.branch_id,
+                warehouse_id=line.warehouse_id or row.warehouse_id,
+                storage_node_id=line.storage_node_id,
+                product_id=line.product_id,
+                quantity=quantity,
+                as_of=row.order_date,
+                only_batch=batch_id,
+            )
+            for held_batch, amount in plan.batches:
+                if held_batch is None:
+                    short += amount
+                else:
+                    held.append((held_batch, amount))
+        if short > ZERO:
+            held.append((None, short))
+        return held
+
+    def _reserve_inventory(
+        self,
+        row: SalesOrder,
+        *,
+        actor_id: UUID,
+        held_batches: Mapping[int, Sequence[tuple[UUID, Decimal]]] | None = None,
+    ) -> None:
+        """Hold the stock an approved order promises, batch by batch.
+
+        ``held_batches`` names, by line number, the batches a counter bill
+        chose for a line split across several (D-SELL-81).
+        """
         lines = list(
             self._session.scalars(
                 select(SalesOrderLine)
@@ -2683,25 +2749,34 @@ class SalesOrderService(TransactionalDocumentService):
                         f"Line {line.line_number}: the batch the customer asked "
                         f"for, {stale.batch_number}, has expired."
                     )
-            plan = self._inventory.allocate_for_reservation(
-                firm_scope=row.firm_id,
-                branch_id=row.branch_id,
-                warehouse_id=line.warehouse_id or row.warehouse_id,
-                storage_node_id=line.storage_node_id,
-                product_id=line.product_id,
-                quantity=line.reservable_quantity,
-                as_of=row.order_date,
-                only_batch=line.pinned_batch_id,
-                keep_until=keep_until,
+            chosen = (held_batches or {}).get(line.line_number)
+            as_chosen = (
+                self._held_as_chosen(row, line, chosen)
+                if chosen and line.pinned_batch_id is None
+                else None
             )
-            allocation = plan.batches
+            if as_chosen is not None:
+                allocation, expired_note = as_chosen, ""
+            else:
+                plan = self._inventory.allocate_for_reservation(
+                    firm_scope=row.firm_id,
+                    branch_id=row.branch_id,
+                    warehouse_id=line.warehouse_id or row.warehouse_id,
+                    storage_node_id=line.storage_node_id,
+                    product_id=line.product_id,
+                    quantity=line.reservable_quantity,
+                    as_of=row.order_date,
+                    only_batch=line.pinned_batch_id,
+                    keep_until=keep_until,
+                )
+                allocation, expired_note = plan.batches, plan.expired_note
             entered_total = self._q(line.quantity + line.free_quantity)
             for index, (batch_id, held) in enumerate(allocation):
                 remarks = f"sales_order reserve line {line.line_number}"
-                if plan.expired_note and index == len(allocation) - 1:
+                if expired_note and index == len(allocation) - 1:
                     # A note means the last pair is the back order; it says
                     # why, by batch, where the hold is.
-                    remarks = f"{remarks}:{plan.expired_note}"
+                    remarks = f"{remarks}:{expired_note}"
                 self._inventory.record_sales_order_reservation(
                     firm_scope=row.firm_id,
                     actor_id=actor_id,
@@ -2766,7 +2841,10 @@ class SalesOrderService(TransactionalDocumentService):
                 continue
             # Release the batches that actually hold the reservation, not the
             # ones holding stock: letting go of a batch nobody held would drive
-            # its reserved quantity negative.
+            # its reserved quantity negative. And this order's own holds
+            # first, as dispatch lets go of them (D-SELL-58): by expiry alone,
+            # withdrawing an order held on a later batch let go of another
+            # order's hold on the earlier one and kept its own (D-SELL-81).
             allocation = self._inventory.allocate_for_release(
                 firm_scope=row.firm_id,
                 branch_id=row.branch_id,
@@ -2774,6 +2852,12 @@ class SalesOrderService(TransactionalDocumentService):
                 storage_node_id=line.storage_node_id,
                 product_id=line.product_id,
                 quantity=line.reserved_quantity,
+                own=self._inventory.held_by_reference(
+                    firm_scope=row.firm_id,
+                    reference_number=row.order_number,
+                    product_id=line.product_id,
+                    warehouse_id=line.warehouse_id or row.warehouse_id,
+                ),
             )
             # What is still held can be less than the line once a note has
             # shipped part of it, and the movement's quantity is converted from

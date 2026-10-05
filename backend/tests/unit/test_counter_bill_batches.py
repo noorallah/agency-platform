@@ -13,6 +13,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.batch_serial.models.batch_serial import BatchRecord
 from app.core.exceptions import ValidationError
@@ -21,17 +22,22 @@ from app.delivery_note.schemas import DeliveryNoteBatchPick
 from app.inventory.models import InventoryRecord, InventoryTransaction
 from app.inventory.services import InventoryService
 from app.products.models import Product
+from app.sales_invoice.models import SalesInvoice
 from app.sales_invoice.schemas import SalesInvoiceCreate, SalesInvoiceLineWrite
 from app.sales_invoice.services.sales_invoice_service import SalesInvoiceService
-from tests.unit.test_sales_chain_synthesis import _Firm, _session_factory
+from tests.unit.test_sales_chain_synthesis import (
+    _Firm,
+    _request_session,
+    _session_factory,
+)
 
 
 class _Counter(_Firm):
     """A counter firm with a batch-tracked product in two batches."""
 
-    def __init__(self) -> None:
+    def __init__(self, session: Session | None = None) -> None:
         """Stock EARLY and LATE, ten each, of a batch-tracked product."""
-        super().__init__(_session_factory()())
+        super().__init__(session or _session_factory()())
         self.stages(quotation=False, sales_order=False, delivery_note=False)
         self.actor = uuid4()
         self.drug = Product(
@@ -234,3 +240,117 @@ def test_a_draft_counter_bill_reserves_the_batch_it_chose() -> None:
         for name, batch in shop.batches.items()
     }
     assert reserved == {"EARLY": Decimal("0.0000"), "LATE": Decimal("4.0000")}
+
+
+def _held(shop: _Counter) -> dict[str, Decimal]:
+    """Return what each batch of the batched product holds reserved."""
+    shop.session.expire_all()
+    return {
+        name: Decimal(
+            str(
+                shop.session.scalar(
+                    select(InventoryRecord.reserved_quantity).where(
+                        InventoryRecord.batch_id == batch.id
+                    )
+                )
+            )
+        )
+        for name, batch in shop.batches.items()
+    }
+
+
+def _sent_back_with(
+    shop: _Counter, draft: SalesInvoice, batches: list[DeliveryNoteBatchPick]
+) -> SalesInvoiceCreate:
+    """Send a draft's line back by its source fields with other batches."""
+    [line] = shop.bills.invoice_response(draft).lines
+    return SalesInvoiceCreate(
+        customer_id=shop.customer.id,
+        invoice_date=date(2026, 8, 4),
+        lines=[
+            SalesInvoiceLineWrite(
+                source_document_type="DELIVERY_NOTE",
+                source_document_id=line.source_document_id,
+                source_document_line_id=line.source_document_line_id,
+                line_number=1,
+                current_invoice_quantity=Decimal("4"),
+                unit_price=Decimal("100"),
+                batches=batches,
+            )
+        ],
+    )
+
+
+def test_a_line_split_across_batches_reserves_what_was_picked() -> None:
+    """D-SELL-81: 1 of EARLY and 3 of LATE held all 4 on EARLY.
+
+    Driven 2026-10-05: three of EARLY were held that would never ship, and
+    the three of LATE that would were open to any other order. The hold now
+    follows the picks, on a new bill and on a draft whose picks are changed.
+    """
+    shop = _Counter(_request_session())
+
+    split = shop.bills.create_invoice(
+        shop.bill([shop.pick("EARLY", "1"), shop.pick("LATE", "3")]),
+        firm_id=shop.firm.id,
+        actor_id=shop.actor,
+    )
+    assert _held(shop) == {"EARLY": Decimal("1.0000"), "LATE": Decimal("3.0000")}
+
+    whole = shop.bills.create_invoice(
+        shop.bill([shop.pick("LATE")]), firm_id=shop.firm.id, actor_id=shop.actor
+    )
+    assert _held(shop) == {"EARLY": Decimal("1.0000"), "LATE": Decimal("7.0000")}
+    shop.bills.update_invoice(
+        whole.id,
+        _sent_back_with(shop, whole, [shop.pick("EARLY", "2"), shop.pick("LATE", "2")]),
+        firm_id=shop.firm.id,
+        actor_id=shop.actor,
+    )
+    assert _held(shop) == {"EARLY": Decimal("3.0000"), "LATE": Decimal("5.0000")}
+
+    shop.bills.approve_invoice(split.id, firm_scope=shop.firm.id, actor_id=shop.actor)
+    assert shop.drawn() == {"EARLY": Decimal("1.0000"), "LATE": Decimal("3.0000")}
+    assert _held(shop) == {"EARLY": Decimal("2.0000"), "LATE": Decimal("2.0000")}
+    shop.bills.approve_invoice(whole.id, firm_scope=shop.firm.id, actor_id=shop.actor)
+    assert _held(shop) == {"EARLY": Decimal("0.0000"), "LATE": Decimal("0.0000")}
+
+
+def test_withdrawing_a_bill_lets_go_of_its_own_batch_and_nobody_elses() -> None:
+    """Found fixing D-SELL-81: a withdrawn order let go by expiry alone.
+
+    One draft holds 4 of EARLY, another chose LATE. Cancelling the second
+    released 4 of EARLY -- the first draft's hold -- and kept its own on
+    LATE, so the totals were right and each batch was wrong.
+    """
+    shop = _Counter(_request_session())
+    shop.bills.create_invoice(
+        shop.bill(None), firm_id=shop.firm.id, actor_id=shop.actor
+    )
+    late = shop.bills.create_invoice(
+        shop.bill([shop.pick("LATE")]), firm_id=shop.firm.id, actor_id=shop.actor
+    )
+    assert _held(shop) == {"EARLY": Decimal("4.0000"), "LATE": Decimal("4.0000")}
+
+    shop.bills.cancel_invoice(
+        late.id, firm_scope=shop.firm.id, actor_id=shop.actor, reason="Changed mind."
+    )
+
+    assert _held(shop) == {"EARLY": Decimal("4.0000"), "LATE": Decimal("0.0000")}
+
+
+def test_picks_that_do_not_cover_the_line_are_held_earliest_first() -> None:
+    """Half-typed picks hold as before; approval is what refuses them."""
+    shop = _Counter(_request_session())
+
+    draft = shop.bills.create_invoice(
+        shop.bill([shop.pick("EARLY", "1"), shop.pick("LATE", "2")]),
+        firm_id=shop.firm.id,
+        actor_id=shop.actor,
+    )
+
+    assert _held(shop) == {"EARLY": Decimal("4.0000"), "LATE": Decimal("0.0000")}
+    with pytest.raises(ValidationError, match="add up to 3.0000"):
+        shop.bills.approve_invoice(
+            draft.id, firm_scope=shop.firm.id, actor_id=shop.actor
+        )

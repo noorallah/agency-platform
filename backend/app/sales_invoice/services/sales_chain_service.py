@@ -195,7 +195,9 @@ class SalesChainService:
                         # A line drawn wholly from one batch it chose holds
                         # that batch, not the earliest: the draft showed its
                         # quantity reserved on a batch it would never ship
-                        # (D-SELL-58). Several batches name no one to hold.
+                        # (D-SELL-58). Several batches name no one to pin;
+                        # the approval below holds each for what was chosen
+                        # from it (D-SELL-81).
                         pinned_batch_id=self._one_batch(line),
                         remarks=line.remarks,
                     )
@@ -218,7 +220,21 @@ class SalesChainService:
         self.raised_orders.append(order)
         # Checked for licences at the bill's approval, not here (backlog 54).
         SalesOrderService(self._session).stage_approval(
-            order.id, firm_scope=firm_id, actor_id=actor_id, check_licences=False
+            order.id,
+            firm_scope=firm_id,
+            actor_id=actor_id,
+            check_licences=False,
+            # The order line has one batch to pin and a split line has
+            # several, so the split is handed to the approval that holds the
+            # stock rather than stored: 1 of one batch and 3 of another held
+            # all 4 on whichever expired first (D-SELL-81).
+            held_batches={
+                line.line_number: [
+                    (pick.batch_id, pick.quantity) for pick in line.batches
+                ]
+                for line in data.lines
+                if line.batches and self._one_batch(line) is None
+            },
         )
         # The order's lines were raised one per bill line, under its number.
         stated = {
