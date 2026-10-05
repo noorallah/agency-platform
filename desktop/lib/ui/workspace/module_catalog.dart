@@ -450,6 +450,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['PRODUCT_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'transporters',
+          label: 'Transporters',
+          requiredPermissions: ['SALES_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'vendors',
           label: 'Vendors',
           requiredPermissions: ['VENDOR_VIEW'],
@@ -1804,6 +1809,13 @@ abstract final class ModuleCatalog {
           label: 'Brands',
           path: 'brands',
           icon: Icons.sell_outlined,
+        ),
+      // The carriers a delivery note is dispatched with (SG-5).
+      if (visibleTabIds.contains('transporters'))
+        const WorkspaceNavigationNode(
+          label: 'Transporters',
+          path: 'transporters',
+          icon: Icons.local_shipping_outlined,
         ),
       // Vendors and the two masters a vendor record points at. `category_id`
       // and `type_id` have been columns on `vendors` from the start and the

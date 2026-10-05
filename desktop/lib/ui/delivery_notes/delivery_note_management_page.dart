@@ -6,6 +6,7 @@ import '../../core/api/api_client.dart';
 import '../../models/tax_framework.dart';
 import '../../models/line_tax_rule.dart';
 import '../../models/uom_packaging.dart';
+import '../../models/transporter.dart';
 import '../document_framework/document_line_labels.dart';
 import '../../core/business/business_features.dart';
 import '../../core/notifications/notification_service.dart';
@@ -1124,6 +1125,10 @@ class _DeliveryNoteManagementPageState
         cell: (item) => item.driver,
       ),
       ChoosableColumn(
+        column: const GridColumn(key: 'freight', label: 'Freight'),
+        cell: (item) => freightTermsLabel(item.freightTerms),
+      ),
+      ChoosableColumn(
         column: const GridColumn(key: 'quantity', label: 'Quantity Delivered', numeric: true),
         cell: (item) => item.quantity,
       ),
@@ -1364,6 +1369,7 @@ class _DeliveryNoteRecord {
     required this.lines,
     this.vehicle = '',
     this.driver = '',
+    this.freightTerms = '',
     this.quantity = '',
     this.isDelivered = false,
     this.deliveredAt = '',
@@ -1405,6 +1411,7 @@ class _DeliveryNoteRecord {
   /// For the list's optional columns (owner, 2026-09-27).
   final String vehicle;
   final String driver;
+  final String freightTerms;
   final String quantity;
 
   /// Proof of delivery (backlog 67 row 6), blank until recorded.
@@ -1458,6 +1465,7 @@ class _DeliveryNoteRecord {
       lines: lines,
       vehicle: stringValue(json['vehicle']),
       driver: stringValue(json['driver']),
+      freightTerms: stringValue(json['freight_terms']),
       quantity: stringValue(json['total_current_delivery_quantity']),
       isDelivered: json['is_delivered'] == true,
       deliveredAt: stringValue(json['delivered_at']),

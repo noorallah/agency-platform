@@ -28,6 +28,7 @@ import '../../models/document_framework.dart';
 import '../../models/print_template.dart';
 import '../../models/price_revision.dart';
 import '../../models/product.dart';
+import '../../models/transporter.dart';
 import '../../models/file_import.dart';
 import '../../models/quotation.dart';
 import '../../models/pricing.dart';
@@ -4285,6 +4286,39 @@ class ApiClient {
             needle.isEmpty ||
             row.name.toLowerCase().contains(needle) ||
             row.principalName.toLowerCase().contains(needle))
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    return PagedResult(items: rows, total: rows.length);
+  }
+
+  // The transporter master (SG-5). Unpaged and without search, so wrapped into
+  // a page here as `brandsPage` is; writes go through the generic
+  // `create`/`update`/`delete` with `resource: 'delivery-notes/transporters'`.
+  Future<List<TransporterRecord>> transporters({
+    bool activeOnly = false,
+  }) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/delivery-notes/transporters'
+          '${activeOnly ? '?active_only=true' : ''}',
+        ),
+        TransporterRecord.fromJson,
+      );
+
+  Future<PagedResult<TransporterRecord>> transportersPage({
+    int page = 1,
+    String search = '',
+    String sortBy = 'name',
+    bool descending = false,
+  }) async {
+    final String needle = search.trim().toLowerCase();
+    final List<TransporterRecord> rows = (await transporters())
+        .where((row) =>
+            needle.isEmpty ||
+            row.name.toLowerCase().contains(needle) ||
+            row.gstin.toLowerCase().contains(needle) ||
+            row.phone.toLowerCase().contains(needle))
         .toList()
       ..sort((a, b) => a.name.compareTo(b.name));
     return PagedResult(items: rows, total: rows.length);
