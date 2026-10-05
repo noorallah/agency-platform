@@ -1026,9 +1026,14 @@ class PayablesBooksCheckRecord(BaseModel):
     #: Owed: the payables balance at the as-of date. Paid: what payments
     #: debited payables with in the window. None when it cannot be compared.
     ledger_balance: Decimal | None
-    #: The total row's ``total`` less ``ledger_balance``; zero when they agree.
+    #: The total row's ``total`` less ``ledger_balance``, allowing for
+    #: ``unrealised_revaluation``; zero when they agree.
     difference: Decimal | None
     note: str | None
+    #: What a period-end exchange revaluation holds on the account at the
+    #: as-of date (PG-12). It is in ``ledger_balance`` and on no bill, and is
+    #: reversed the next day, so the check leaves it out (D-FIN-27).
+    unrealised_revaluation: Decimal = Decimal("0")
 
 
 class PayablesReportRecord(BaseModel):

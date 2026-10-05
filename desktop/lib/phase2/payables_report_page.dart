@@ -226,7 +226,10 @@ class _PayablesReportPageState extends State<PayablesReportPage> {
         : off
             ? 'Does not agree with the books: control account 2100 holds '
                 '$ledger, difference $diff. $note'
-            : 'Agrees with the books: control account 2100 holds $ledger.';
+            // The note explains an agreement that is not figure for figure:
+            // an unrealised revaluation the account holds for one day.
+            : 'Agrees with the books: control account 2100 holds $ledger.'
+                '${note.isEmpty ? '' : ' $note'}';
     final Color color =
         off ? theme.colorScheme.error : theme.colorScheme.onSurfaceVariant;
     return Row(
