@@ -38,7 +38,7 @@ from app.commission.services.commission_service import (
     CommissionService,
 )
 from app.common.audit.services import record_audit
-from app.common.firm_metadata import firm_today
+from app.common.firm_metadata import firm_date_of, firm_today
 from app.core.concurrency import assert_version
 from app.core.exceptions import (
     AuthorizationError,
@@ -686,7 +686,13 @@ class CommissionPayoutService:
         resolve theirs from the CASH / BANK purposes; this does the same.
 
         And not before it was accrued: a payment dated ahead of the accrual
-        leaves the payable in debit between the two dates.
+        leaves the payable in debit between the two dates. **Nor before it
+        was approved, nor on a day that has not come** (D-PRC-9): approval is
+        what raises the debt, so money dated before it paid a debt nobody had
+        agreed, and `paid_on` three days ahead read PAID with a journal dated
+        in the future -- cash the books said had left while it was still in
+        the till. Both are judged on the firm's own day (`firm_today`), and
+        the approval's day is the firm's date of `approved_at`.
 
         **The payer is a third person**: not the payee, and not the approver
         (D-TER-4). Whoever agreed the debt must not be the one who moves the
@@ -696,7 +702,8 @@ class CommissionPayoutService:
 
         Raises:
             ValidationError: If it has not been approved, the account is not
-                the firm's cash or bank, or the date precedes the accrual.
+                the firm's cash or bank, or the date precedes the accrual or
+                the approval, or has not come yet.
             AuthorizationError: If the actor is the payee or the approver.
 
         """
@@ -718,6 +725,17 @@ class CommissionPayoutService:
                 "A payout cannot be paid before it was accrued "
                 f"(accrued on {row.accrued_on.isoformat()})."
             )
+        if data.paid_on > firm_today(self._session, firm_id):
+            raise ValidationError(
+                "A payout cannot be paid on a day that has not happened yet."
+            )
+        if row.approved_at is not None:
+            approved_on = firm_date_of(self._session, firm_id, as_utc(row.approved_at))
+            if data.paid_on < approved_on:
+                raise ValidationError(
+                    "A payout cannot be paid before it was approved "
+                    f"(approved on {approved_on.isoformat()})."
+                )
         money_account_id = self._money_account(firm_id, data)
         before = self._snapshot(row)
         if row.payable_amount > ZERO:

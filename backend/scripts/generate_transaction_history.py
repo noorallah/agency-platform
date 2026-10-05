@@ -71,7 +71,7 @@ from app.commission.schemas.payout import (
     CommissionPayoutPay,
 )
 from app.commission.services import CommissionPayoutService, CommissionService
-from app.common.firm_metadata import FirmMetadataReader
+from app.common.firm_metadata import FirmMetadataReader, firm_today
 from app.core.config.settings import Settings
 from app.core.database.engine import DatabaseManager, EngineFactory
 from app.core.exceptions import (
@@ -1987,7 +1987,11 @@ class HistoryBuilder:
                     service.pay(
                         payout.id,
                         CommissionPayoutPay(
-                            paid_on=period_end,
+                            # The firm's own today: the approval above was
+                            # made just now, and a payout is not paid before
+                            # it was approved (D-PRC-9). It was the period's
+                            # last day, months before anybody agreed the debt.
+                            paid_on=firm_today(self._session, self._target.firm_id),
                             money_account_id=money_account,
                         ),
                         firm_id=self._target.firm_id,

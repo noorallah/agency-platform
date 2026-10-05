@@ -163,6 +163,24 @@ seeder signs as three people (`ACTOR`, `PAYOUT_APPROVER`, `PAYOUT_PAYER`)
 rather than being let off the rule. A ceiling on a positive adjustment is an
 owner decision still outstanding.
 
+**A payout is paid on a day between its approval and today (D-PRC-9,
+2026-10-06).** `pay` refused only a date before the accrual, so an APPROVED
+payout of 240.00 paid with `paid_on` three days ahead read PAID and its
+`COMM-…-PAY` journal was posted on a day that had not come -- cash the books
+said had left while it was still in the till. Now `paid_on` may not be after
+the firm's own today (`firm_today`, never the UTC day): "A payout cannot be
+paid on a day that has not happened yet." Nor before the day it was approved,
+which is the firm's date of `approved_at`: "A payout cannot be paid before it
+was approved (approved on 2026-10-06)." -- approval is what raises the debt,
+so money dated before it settled a debt nobody had agreed. A row approved
+before `approved_at` existed (`20260920_0151`) carries none and is held only
+to its accrual date, as before. Every other date in the flow was checked and
+already holds: `period_end` before today and not before `period_start`,
+`accrued_on` between the period's end and today, and approval and
+cancellation take no date -- both journals carry `accrued_on`. The history
+seeder pays on the firm's today rather than on the period's last day, for the
+same reason it signs as three people.
+
 ## Commission is a ladder, a basis and a ceiling, not one rate
 
 **Commission is a ladder, a basis and a ceiling, not one rate.**
