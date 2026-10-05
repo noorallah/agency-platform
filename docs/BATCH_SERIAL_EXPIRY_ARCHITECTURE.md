@@ -535,6 +535,17 @@ batch is not filtered: the customer asked for it, and it is judged when it
 ships. A counter bill line drawn wholly from one batch it chose pins that
 batch on the order it raises, so the draft holds the batch it will ship.
 
+**Dispatch lets go of the order's own hold first.** A stock row's
+`reserved_quantity` is the sum of every order's hold on that batch and does
+not say whose. The stock ledger does -- every hold and release carries the
+order's number -- so `InventoryService.held_by_reference` reads what one
+order still holds, batch by batch, and `allocate_for_release(own=)` frees
+those first, each up to what the order holds there. Releasing by expiry
+alone freed another order's hold on the earlier batch, kept this order's on
+the later one, and refused its dispatch "short by 6" for stock it had itself
+reserved (D-SELL-58, second half). The batch picker reads the same figure, so
+"available to line" and the pre-fill name the batch the line really holds.
+
 **The back-order report reads stock by batch** (D-SELL-60): stock in an
 expired batch is not counted, and a pinned line is measured against its own
 batch alone.

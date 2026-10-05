@@ -2902,6 +2902,15 @@ class DeliveryNoteService(TransactionalDocumentService):
                     # The batches a person chose are let go first, so this
                     # order's own hold never stands in the way of its own pick.
                     prefer=[batch_id for batch_id, _ in chosen or [] if batch_id],
+                    # And before either, what this order itself holds: the
+                    # row's reserved figure is every order's, and letting go
+                    # by expiry alone freed somebody else's batch (D-SELL-58).
+                    own=self._inventory.held_by_reference(
+                        firm_scope=row.firm_id,
+                        reference_number=row.sales_order_reference,
+                        product_id=line.product_id,
+                        warehouse_id=held_at.warehouse_id,
+                    ),
                 )
                 entered_release = self._q(
                     line.current_delivery_quantity + line.free_quantity

@@ -1712,12 +1712,14 @@ class SalesOrderService(TransactionalDocumentService):
         in_batches: dict[tuple[UUID, UUID | None], dict[UUID | None, Decimal]] = (
             defaultdict(dict)
         )
-        for product_id, warehouse_id, batch_id, total in self._session.execute(
+        expires: dict[UUID | None, date | None] = {}
+        for product_id, warehouse_id, batch_id, total, expiry in self._session.execute(
             select(
                 InventoryRecord.product_id,
                 InventoryRecord.warehouse_id,
                 InventoryRecord.batch_id,
                 func.coalesce(func.sum(InventoryRecord.current_quantity), 0),
+                func.max(BatchRecord.expiry_date),
             )
             .outerjoin(BatchRecord, BatchRecord.id == InventoryRecord.batch_id)
             .where(
@@ -1738,6 +1740,23 @@ class SalesOrderService(TransactionalDocumentService):
             in_batches[(product_id, warehouse_id)][batch_id] = self._q(
                 Decimal(str(total))
             )
+            expires[batch_id] = expiry
+        # A batch some open line asked for by name is left for it: a line
+        # that names none draws on the others first, earliest expiry first as
+        # its dispatch will, so the two orders are not both counted against
+        # the pinned batch.
+        asked_for = {line.pinned_batch_id for line, _ in rows if line.pinned_batch_id}
+
+        def drawn_in_order(batch_id: UUID | None) -> tuple[bool, bool, date, str]:
+            """Rank a batch for a line that names none."""
+            expiry = expires.get(batch_id)
+            return (
+                batch_id in asked_for,
+                expiry is None,
+                expiry or date.max,
+                str(batch_id or ""),
+            )
+
         on_hand: dict[tuple[UUID, UUID | None], Decimal] = {
             key: self._q(sum(batches.values(), ZERO))
             for key, batches in in_batches.items()
@@ -1770,11 +1789,11 @@ class SalesOrderService(TransactionalDocumentService):
             key = (line.product_id, line.warehouse_id or order.warehouse_id)
             shelf = in_batches.get(key, {})
             # A pinned line draws on its batch alone; any other on whatever
-            # batch still has some, in a fixed order so two reads agree.
+            # batch still has some, in the order its dispatch would.
             candidates = (
                 [line.pinned_batch_id]
                 if line.pinned_batch_id is not None
-                else sorted(shelf, key=lambda batch_id: str(batch_id or ""))
+                else sorted(shelf, key=drawn_in_order)
             )
             taken = ZERO
             for batch_id in candidates:
