@@ -1531,3 +1531,197 @@ def test_a_line_naming_a_warehouse_nobody_has_is_refused_by_name() -> None:
         )
     session.rollback()
     assert session.scalar(select(SalesOrder)) is None
+
+
+def _resent(
+    service: SalesInvoiceService,
+    invoice: SalesInvoice,
+    quantity: str,
+    **stated: object,
+) -> SalesInvoiceCreate:
+    """Send a draft's one line back by its source fields, plus what is stated.
+
+    The price goes back as the bill returned it, the way the desktop sends
+    it, unless the edit states another; a discount goes only when stated.
+    """
+    edit = _sent_back(service, invoice, quantity)
+    edit.lines[0] = edit.lines[0].model_copy(update=stated)
+    return edit
+
+
+def _live_terms(session: Session) -> list[tuple[Decimal, ...]]:
+    """Return quantity, price and discount of each live order and note line."""
+    session.expire_all()
+    orders = session.execute(
+        select(
+            SalesOrderLine.quantity,
+            SalesOrderLine.unit_price,
+            SalesOrderLine.discount_amount,
+        )
+        .join(SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id)
+        .where(SalesOrder.status == "APPROVED")
+    ).all()
+    notes = session.execute(
+        select(
+            DeliveryNoteLine.current_delivery_quantity,
+            DeliveryNoteLine.unit_price,
+            DeliveryNoteLine.discount_amount,
+        )
+        .join(DeliveryNote, DeliveryNote.id == DeliveryNoteLine.delivery_note_id)
+        .where(DeliveryNote.status == "APPROVED")
+    ).all()
+    return [tuple(row) for row in (*orders, *notes)]
+
+
+def _both_at(quantity: str, price: str) -> list[tuple[Decimal, ...]]:
+    """Describe an order line and a note line at one quantity and price."""
+    terms = (Decimal(quantity), Decimal(price), Decimal("0.0000"))
+    return [terms, terms]
+
+
+def test_a_discount_refused_on_a_saved_counter_bill_stays_refused() -> None:
+    """D-SELL-77: a discount taken off came back with the next quantity.
+
+    Driven 2026-10-05: 3 at 5%, saved again at 0%, then 4 by the source line
+    billed 4 at 5%. The 0% had changed the bill alone, and the order raised
+    again read the 5% back off the old order. The customer's standing 7% is
+    here to show the zero is still a refusal and not a silence.
+    """
+    session, setup, service, invoice = _counter_draft("3")
+    actor = uuid4()
+    setup.customer.default_discount_percent = Decimal("7")
+    session.commit()
+    service.update_invoice(
+        invoice.id,
+        _resent(service, invoice, "3", discount_percent=Decimal("5")),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+    session.refresh(invoice)
+    assert invoice.grand_total == Decimal("285.0000")
+
+    service.update_invoice(
+        invoice.id,
+        _resent(service, invoice, "3", discount_percent=Decimal("0")),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+    session.refresh(invoice)
+    assert invoice.grand_total == Decimal("300.0000")
+    assert _live_terms(session) == _both_at("3.0000", "100.0000")
+
+    service.update_invoice(
+        invoice.id,
+        _resent(service, invoice, "4"),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+
+    session.refresh(invoice)
+    assert invoice.grand_total == Decimal("400.0000")
+    assert _live_terms(session) == _both_at("4.0000", "100.0000")
+    # Saying nothing again ships the same and changes nothing.
+    before = _chain_of(session)
+    service.update_invoice(
+        invoice.id,
+        _resent(service, invoice, "4"),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+    assert _chain_of(session) == before
+    session.refresh(invoice)
+    assert invoice.grand_total == Decimal("400.0000")
+
+
+def test_a_price_changed_on_a_saved_counter_bill_survives_the_next_edit() -> None:
+    """D-SELL-77: 3 at 100, saved at 90, then 4 at the bill's own 90.
+
+    The 4 billed 400.00 at 100: the price sent back equalled the bill's, was
+    read as unchanged, and was replaced by the note's 100.
+    """
+    session, setup, service, invoice = _counter_draft("3")
+    actor = uuid4()
+
+    service.update_invoice(
+        invoice.id,
+        _resent(service, invoice, "3", unit_price=Decimal("90")),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+    session.refresh(invoice)
+    assert invoice.grand_total == Decimal("270.0000")
+    assert _live_terms(session) == _both_at("3.0000", "90.0000")
+
+    service.update_invoice(
+        invoice.id,
+        _resent(service, invoice, "4"),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+    session.refresh(invoice)
+    assert invoice.grand_total == Decimal("360.0000")
+
+    service.update_invoice(
+        invoice.id,
+        _resent(service, invoice, "5", unit_price=None),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+    session.refresh(invoice)
+    assert invoice.grand_total == Decimal("450.0000")
+    assert _live_terms(session) == _both_at("5.0000", "90.0000")
+    assert _reserved(session) == Decimal("5.0000")
+
+
+def test_a_bill_out_of_step_with_its_order_is_put_right_by_its_next_edit() -> None:
+    """A draft saved before D-SELL-77 holds terms its order does not.
+
+    Its bill line says 90, with a discount of nothing typed, while the order
+    and note say 100. The next edit raises the pair again at the bill's terms
+    though it states neither a price nor a discount -- and the customer's
+    standing 7% stays refused.
+    """
+    session, setup, service, invoice = _counter_draft("3")
+    setup.customer.default_discount_percent = Decimal("7")
+    line = session.scalars(select(SalesInvoiceLine)).one()
+    line.unit_price = Decimal("90")
+    line.discount_source = "percent"
+    line.discount_percent = Decimal("0")
+    session.commit()
+
+    service.update_invoice(
+        invoice.id,
+        _resent(service, invoice, "4", unit_price=None),
+        firm_id=setup.firm.id,
+        actor_id=uuid4(),
+    )
+
+    session.refresh(invoice)
+    assert invoice.grand_total == Decimal("360.0000")
+    assert _live_terms(session) == _both_at("4.0000", "90.0000")
+
+
+def test_an_arrangement_nobody_typed_is_resolved_again_when_the_bill_grows() -> None:
+    """The other half of D-SELL-77: inherited is not turned into typed."""
+    session = _request_session()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    setup.customer.default_discount_percent = Decimal("7")
+    session.commit()
+    service = SalesInvoiceService(session)
+    invoice = service.create_invoice(
+        setup.bare_bill(Decimal("3")), firm_id=setup.firm.id, actor_id=uuid4()
+    )
+    assert invoice.grand_total == Decimal("279.0000")
+    setup.customer.default_discount_percent = Decimal("10")
+    session.commit()
+
+    service.update_invoice(
+        invoice.id,
+        _resent(service, invoice, "4"),
+        firm_id=setup.firm.id,
+        actor_id=uuid4(),
+    )
+
+    session.refresh(invoice)
+    assert invoice.grand_total == Decimal("360.0000")
