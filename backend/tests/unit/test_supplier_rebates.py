@@ -18,7 +18,7 @@ from sqlalchemy import select
 
 from app.core.exceptions import ValidationError
 from app.core.utils.dates import utc_now
-from app.finance.models import GLPosting, LedgerAccount
+from app.finance.models import GLPosting, JournalEntry, LedgerAccount
 from app.party_adjustments.models import PartyAdjustment
 from app.party_adjustments.schemas import (
     PartyAdjustmentAllocationWrite,
@@ -292,3 +292,29 @@ def test_a_rebate_settlement_must_name_its_agreement() -> None:
             reason="Write back",
             rebate_agreement_id=uuid4(),
         )
+
+
+def test_a_reversed_rebate_can_be_accrued_again() -> None:
+    """D-BUY-34: the second accrual takes a reference the first did not."""
+    books = _books()
+    product = _product(books, "A")
+    _bill(books, "PI-1", product, "5900")
+    row = _accrue(books, _agreement(books))
+    first = row.accrual_journal_id
+    service = SupplierRebateService(books.session)
+    service.reverse_accrual(row.id, firm_id=books.firm.id, actor_id=books.actor_id)
+
+    again = _accrue(books, row)
+
+    assert again.status == "ACCRUED"
+    assert again.accrual_journal_id not in (None, first)
+    references = sorted(
+        books.session.scalars(
+            select(JournalEntry.reference_number).where(
+                JournalEntry.source_module == "supplier_rebates",
+                JournalEntry.source_id == row.id,
+                JournalEntry.reversal_of_id.is_(None),
+            )
+        ).all()
+    )
+    assert references == [f"REBATE-{row.code}", f"REBATE-{row.code}-2"]

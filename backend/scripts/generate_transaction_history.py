@@ -207,6 +207,52 @@ SALE_SHAPES: tuple[tuple[str, str], ...] = (
 #: them. Masters are deliberately absent: this clears trading history, never
 #: the customers, products or vendors it trades with.
 RESET_ORDER: tuple[str, ...] = (
+    # Seventeen tables that arrived with a feature and never reached this
+    # list (D-CFG-24, 2026-10-05): each references history without
+    # cascading, so the guard below refused to start the reset at all. They
+    # go first because everything they point at is cleared further down.
+    #
+    # An enquiry names the quotation it became; its lines and follow-ups
+    # cascade.
+    "enquiries",
+    # What was paid or reversed against GST names the journal it posted.
+    "gst_cash_deposits",
+    "gst_payments",
+    "itc_common_reversals",
+    "itc_reversals",
+    # A refund of supplier credit names the debit note or return it refunds.
+    "supplier_credit_refunds",
+    # Landed cost names the receipts it was spread over and its journal; the
+    # voucher's charges cascade.
+    "landed_cost_allocations",
+    "landed_cost_vouchers",
+    # A gift received names the receipt it came with.
+    "supplier_gifts",
+    # A payment run's lines name the payments they raised.
+    "payment_run_lines",
+    "payment_runs",
+    # A requisition line names the order raised from it.
+    "purchase_requisition_lines",
+    "purchase_requisitions",
+    # Repacks, transfers and adjustment requests name the stock movements
+    # they made, which go with the inventory below.
+    "repack_lines",
+    "repacks",
+    "stock_adjustment_requests",
+    "stock_transfer_lines",
+    "stock_transfers",
+    # Three that were in this list and cleared too late (D-CFG-24): each
+    # references a table that used to go before it.
+    #
+    # Supplier credit set against a bill names the purchase return, the debit
+    # note, the opening bill and the bill, RESTRICT each way (D-FIN-19).
+    "supplier_credit_applications",
+    # A registration names the invoice, credit note, debit note or return it
+    # registered, and an e-way bill names its registration.
+    "eway_bills",
+    "einvoice_registrations",
+    # A receivable movement names the journal behind it.
+    "customer_receivable_transactions",
     # Sales returns first: they hang off the delivery notes and invoices
     # below, and leaving them behind while the numbering counters are cleared
     # makes the next return collide with a number the surviving rows already
@@ -283,6 +329,12 @@ RESET_ORDER: tuple[str, ...] = (
     # A customer's rebate agreement names the journal its accrual posted,
     # RESTRICT, and the settlements above name it (SG-9). Its slabs cascade.
     "customer_rebate_agreements",
+    # The supplier's side of the same, and what a principal owes: both name
+    # their journals, and the party adjustments above name them, RESTRICT
+    # (D-CFG-24). A claim's lines and receipts' parent cascade.
+    "supplier_rebate_agreements",
+    "principal_claim_receipts",
+    "principal_claims",
     # Expenses name the journals they posted, RESTRICT, so they go before the
     # journals below -- the next table to arrive with a feature (2026-09-27).
     "expenses",
@@ -296,16 +348,6 @@ RESET_ORDER: tuple[str, ...] = (
     # And a customer's, the same way (backlog 36): numbered OBC- from a count
     # the reset puts back to one, pointed at by the allocations above.
     "customer_opening_bills",
-    # Supplier credit set against a bill names both the purchase return and
-    # the bill, RESTRICT each way (D-FIN-19).
-    "supplier_credit_applications",
-    # What the tax authority was told about a bill has to go before the bill.
-    # Both carry `ondelete="RESTRICT"`, so a firm that had registered even one
-    # invoice could not be reset at all -- the fourth table to arrive with a
-    # feature and not reach this list, after settlements, promotions and
-    # coupons. Found by a reseed failing outright on WHOLE01.
-    "eway_bills",
-    "einvoice_registrations",
     "sales_invoice_accounting_events",
     "sales_invoice_attachments",
     "sales_invoice_notes",
@@ -372,7 +414,6 @@ RESET_ORDER: tuple[str, ...] = (
     "journal_lines",
     "journal_entries",
     "ledger_balances",
-    "customer_receivable_transactions",
     "opening_stock_batches",
     # A count sheet is numbered from the PC series, so it goes with the
     # counters below: left behind, the next count opened after a reset is

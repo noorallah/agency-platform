@@ -21,6 +21,7 @@ from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_ledger
+from app.finance.models import JournalEntry
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.purchase_invoice.models import PurchaseInvoice, PurchaseInvoiceLine
@@ -350,6 +351,7 @@ class SupplierRebateService:
             accrual_date=on,
             amount=amount,
             actor_id=actor_id,
+            reference_number=self._accrual_reference(row),
         )
         row.accrued_volume = quantize_ledger(volume)
         row.accrued_rate = rate
@@ -362,6 +364,26 @@ class SupplierRebateService:
         self._audit("supplier_rebate.accrued", row, actor_id)
         self._session.commit()
         return row
+
+    def _accrual_reference(self, row: SupplierRebateAgreement) -> str:
+        """Return a journal reference no earlier accrual of this agreement took.
+
+        A reference is unique in a firm, and an accrual that was reversed
+        keeps the one it posted under, so the second accrual of an agreement
+        is numbered (D-BUY-34) -- as the customer side numbers its own.
+        """
+        earlier = self._session.scalar(
+            select(func.count())
+            .select_from(JournalEntry)
+            .where(
+                JournalEntry.firm_id == row.firm_id,
+                JournalEntry.source_module == "supplier_rebates",
+                JournalEntry.source_id == row.id,
+                JournalEntry.reversal_of_id.is_(None),
+            )
+        )
+        base = f"REBATE-{row.code}"
+        return base if not earlier else f"{base}-{int(earlier) + 1}"
 
     def reverse_accrual(
         self, agreement_id: UUID, *, firm_id: UUID, actor_id: UUID
