@@ -426,6 +426,21 @@ def _firm(scope: ResolvedFirmScope) -> UUID:
     return scope.firm_id
 
 
+def _opening_debt_authority(scope: ResolvedFirmScope, doing: str) -> None:
+    """Refuse an opening bill from somebody refused the opening balance.
+
+    D-MST-14: a customer's opening balance takes `CUSTOMER_MANAGE_SETTINGS`
+    on create and on edit, and the opening bill was a second door to the same
+    debt -- recording one posts it, and cancelling one takes it off, journal
+    and all. Each write here therefore answers to the route's own code *and*
+    to the settings code; listing stays with `CUSTOMER_VIEW`.
+    """
+    CustomerOpeningBillService.assert_may_write(
+        allowed=scope.principal.has_permission("CUSTOMER_MANAGE_SETTINGS"),
+        doing=doing,
+    )
+
+
 # Opening bills: what each customer owed the firm on its first day here, bill
 # by bill. The literal paths come before `/{customer_id}`, for the reason
 # given at `/ageing` below.
@@ -441,6 +456,7 @@ def import_customer_opening_bills(
 ) -> ApiResponse[list[CustomerOpeningBillResponse]]:
     """Record a file of opening bills, naming customers by code; all or none."""
     firm_id = _firm(scope)
+    _opening_debt_authority(scope, "Importing customers' opening bills")
     service = CustomerOpeningBillService(db)
     rows = service.import_bills(data.records, firm_id=firm_id, actor_id=scope.actor_id)
     return ApiResponse(
@@ -501,6 +517,9 @@ async def import_customer_opening_bill_file(
     writes nothing and says so with ``imported: false``.
     """
     firm_id = _firm(scope)
+    # The check as well as the apply: a file somebody may not post is not
+    # worth walking them through.
+    _opening_debt_authority(scope, "Importing customers' opening bills")
     file_format = file_format_of(file.filename)
     # A file mapped on the import screen is read as mapped (decision B3).
     content, file_format = mapped_content(
@@ -539,6 +558,7 @@ def cancel_customer_opening_bill(
 ) -> ApiResponse[CustomerOpeningBillResponse]:
     """Take back an opening bill entered in error; refused once received against."""
     firm_id = _firm(scope)
+    _opening_debt_authority(scope, "Cancelling a customer's opening bill")
     service = CustomerOpeningBillService(db)
     row = service.cancel(
         bill_id, reason=data.reason, firm_id=firm_id, actor_id=scope.actor_id
@@ -576,6 +596,7 @@ def create_customer_opening_bill(
 ) -> ApiResponse[CustomerOpeningBillResponse]:
     """Record one bill the customer owed at cutover, and post it."""
     firm_id = _firm(scope)
+    _opening_debt_authority(scope, "Recording a customer's opening bill")
     service = CustomerOpeningBillService(db)
     row = service.create(customer_id, data, firm_id=firm_id, actor_id=scope.actor_id)
     return ApiResponse(data=service.response_for(row, firm_id=firm_id))

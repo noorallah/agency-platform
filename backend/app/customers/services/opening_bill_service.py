@@ -20,7 +20,11 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
-from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.exceptions import (
+    AuthorizationError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger
 from app.customers.models import (
@@ -186,6 +190,25 @@ class CustomerOpeningBillService:
     def __init__(self, session: Session) -> None:
         """Bind the service to a session it does not own."""
         self._session = session
+
+    @staticmethod
+    def assert_may_write(*, allowed: bool, doing: str) -> None:
+        """Refuse an opening bill from somebody who may not set money terms.
+
+        An opening bill is a customer's opening debt by another name: one
+        recorded raises what the customer owes and posts a journal, one
+        cancelled takes both back. The opening balance on the customer takes
+        ``CUSTOMER_MANAGE_SETTINGS`` (D-SELL-76), so the bill does too, in the
+        same words -- otherwise the role the credit limit constrains could
+        type 900 of debt as a bill, or cancel 5,000 the office had entered
+        (D-MST-14). ``doing`` opens the sentence: "Recording a customer's
+        opening bill".
+        """
+        if not allowed:
+            raise AuthorizationError(
+                f"{doing} needs the manage customer settings permission "
+                "(CUSTOMER_MANAGE_SETTINGS)."
+            )
 
     def list_for_customer(
         self, customer_id: UUID, *, firm_id: UUID, include_cancelled: bool = True
