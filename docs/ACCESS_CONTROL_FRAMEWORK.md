@@ -1552,3 +1552,26 @@ refusal on a new customer lasted exactly one save.
 a form resending what is stored is not a change, and blank and zero are the
 same answer. The desktop locks the boxes on an edit as on a new customer and
 sends the stored figures back.
+
+**An opening bill is the opening balance by another name, so it takes the
+code too (D-MST-14, 2026-10-06).** Refused the figure on the customer, a
+Sales Manager typed the same 900 as `POST /customers/{id}/opening-bills`
+(201, journal and all), and cancelled a 5,000 bill the office had entered:
+those routes asked for `CUSTOMER_UPDATE`, and the two imports for
+`CUSTOMER_IMPORT`. Recording, cancelling and importing (the JSON batch, and
+the file's check as well as its apply) now need the route's own code **and**
+`CUSTOMER_MANAGE_SETTINGS`, refused 403 in the money terms' words --
+"Recording a customer's opening bill needs the manage customer settings
+permission (CUSTOMER_MANAGE_SETTINGS)." (`CustomerOpeningBillService.assert_may_write`).
+Listing stays with `CUSTOMER_VIEW` and the template download with
+`CUSTOMER_IMPORT`. **Who can still enter one:** the roles holding both
+codes, which among the seeded firm roles is `FIRM_ADMIN` and `FIRM_MANAGER`.
+`ACCOUNTANT` holds the settings code but neither `CUSTOMER_UPDATE` nor
+`CUSTOMER_IMPORT`, so it could not before and cannot now; a firm that wants
+its accountant to key opening bills adds those to a role of its own. The
+desktop still offers Add / Cancel on `CUSTOMER_UPDATE` and the import on
+`CUSTOMER_IMPORT`, so a Sales Manager sees the buttons and is refused by the
+server. **The supplier side has no such split to copy**: a supplier carries
+no opening balance on its master and there is no `VENDOR_MANAGE_SETTINGS`,
+so a supplier's opening bills stay on `VENDOR_UPDATE` / `VENDOR_IMPORT`,
+which `PURCHASE_MANAGER` holds.

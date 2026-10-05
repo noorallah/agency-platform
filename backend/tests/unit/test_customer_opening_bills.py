@@ -8,17 +8,35 @@ sales invoice, which the GST returns and sales registers would read as trading.
 And it is one figure on the master or bills, never both.
 """
 
+import asyncio
+import io
 from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import UploadFile
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.common.scope import ResolvedFirmScope
 from app.core.database.base import Base
-from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.enums import TokenType
+from app.core.exceptions import (
+    AuthorizationError,
+    ResourceNotFoundError,
+    ValidationError,
+)
+from app.core.security.authorization import Principal
+from app.core.security.jwt import TokenClaims
+from app.customers.api.router import (
+    cancel_customer_opening_bill,
+    create_customer_opening_bill,
+    import_customer_opening_bill_file,
+    import_customer_opening_bills,
+    list_customer_opening_bills,
+)
 from app.customers.models import (
     Customer,
     CustomerOpeningBill,
@@ -26,6 +44,8 @@ from app.customers.models import (
 )
 from app.customers.schemas.customer import CustomerUpdate
 from app.customers.schemas.opening_bill import (
+    CustomerOpeningBillCancel,
+    CustomerOpeningBillImportRequest,
     CustomerOpeningBillImportRow,
     CustomerOpeningBillWrite,
 )
@@ -39,6 +59,7 @@ from app.finance.services.control_accounts import (
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.gst_returns.services import GstReturnService
+from app.identity.system_seed import _SEEDED_ROLE_PERMISSION_CODES
 from app.sales_invoice.models import SalesInvoice
 from app.sales_invoice.services import SalesInvoiceService
 from app.settlements.api.router import _to_response
@@ -606,3 +627,156 @@ def test_an_opening_advance_is_not_a_bill() -> None:
 
     assert _standing(books) == []
     assert books.owed() == []
+
+
+# D-MST-14: the opening bill was a second door to the opening balance.
+_SETTINGS = "needs the manage customer settings permission"
+
+
+def _scope(books: _Books, *codes: str) -> ResolvedFirmScope:
+    """Return a firm scope whose caller holds exactly ``codes``."""
+    return ResolvedFirmScope(
+        principal=Principal(
+            subject=books.actor_id,
+            roles=frozenset(),
+            permissions=frozenset(codes),
+            claims=TokenClaims(
+                sub=str(books.actor_id),
+                type=TokenType.ACCESS,
+                iat=1,
+                exp=4_102_444_800,
+                permissions=sorted(codes),
+            ),
+        ),
+        firm_id=books.firm.id,
+    )
+
+
+def _bill_write(amount: str) -> CustomerOpeningBillWrite:
+    """Return one opening bill as the form sends it."""
+    return CustomerOpeningBillWrite(
+        bill_date=CUTOVER - timedelta(days=20),
+        posting_date=CUTOVER,
+        amount=Decimal(amount),
+    )
+
+
+def test_recording_an_opening_bill_needs_the_settings_code() -> None:
+    """Whoever is refused the opening balance is refused the same debt as a bill."""
+    books = _Books()
+    journals = books.session.scalar(select(func.count(JournalEntry.id)))
+
+    with pytest.raises(AuthorizationError) as refused:
+        create_customer_opening_bill(
+            books.customer.id,
+            _bill_write("900.00"),
+            _scope(books, "CUSTOMER_UPDATE"),
+            books.session,
+        )
+
+    assert refused.value.message == (
+        "Recording a customer's opening bill needs the manage customer "
+        "settings permission (CUSTOMER_MANAGE_SETTINGS)."
+    )
+    assert books.balance() == Decimal("0.00")
+    assert books.session.scalar(select(func.count(JournalEntry.id))) == journals
+    assert books.session.scalar(select(func.count(CustomerOpeningBill.id))) == 0
+
+    recorded = create_customer_opening_bill(
+        books.customer.id,
+        _bill_write("900.00"),
+        _scope(books, "CUSTOMER_UPDATE", "CUSTOMER_MANAGE_SETTINGS"),
+        books.session,
+    )
+    assert recorded.data is not None
+    assert recorded.data.amount == Decimal("900.00")
+    assert books.balance() == Decimal("900.00")
+
+
+def test_cancelling_an_opening_bill_needs_the_settings_code() -> None:
+    """The role the credit limit constrains cannot take the office's bill off."""
+    books = _Books()
+    bill = books.opening_bill("5000.00")
+
+    with pytest.raises(AuthorizationError) as refused:
+        cancel_customer_opening_bill(
+            bill.id,
+            CustomerOpeningBillCancel(reason="not owed"),
+            _scope(books, "CUSTOMER_UPDATE"),
+            books.session,
+        )
+
+    assert refused.value.message == (
+        "Cancelling a customer's opening bill needs the manage customer "
+        "settings permission (CUSTOMER_MANAGE_SETTINGS)."
+    )
+    assert bill.status == "POSTED"
+    assert books.balance() == Decimal("5000.00")
+
+    cancel_customer_opening_bill(
+        bill.id,
+        CustomerOpeningBillCancel(reason="not owed"),
+        _scope(books, "CUSTOMER_UPDATE", "CUSTOMER_MANAGE_SETTINGS"),
+        books.session,
+    )
+    assert bill.status == "CANCELLED"
+    assert books.balance() == Decimal("0.00")
+
+
+def test_importing_opening_bills_needs_the_settings_code() -> None:
+    """The batch and the file, the check as well as the apply."""
+    books = _Books()
+    batch = CustomerOpeningBillImportRequest(records=[_row("C1", "450.00")])
+
+    with pytest.raises(AuthorizationError) as refused:
+        import_customer_opening_bills(
+            batch, _scope(books, "CUSTOMER_IMPORT"), books.session
+        )
+    assert refused.value.message == (
+        "Importing customers' opening bills needs the manage customer "
+        "settings permission (CUSTOMER_MANAGE_SETTINGS)."
+    )
+    for apply in (False, True):
+        with pytest.raises(AuthorizationError, match=_SETTINGS):
+            asyncio.run(
+                import_customer_opening_bill_file(
+                    _scope(books, "CUSTOMER_IMPORT"),
+                    UploadFile(io.BytesIO(b""), filename="bills.csv"),
+                    books.session,
+                    apply=apply,
+                )
+            )
+    assert books.balance() == Decimal("0.00")
+    assert books.session.scalar(select(func.count(CustomerOpeningBill.id))) == 0
+
+    imported = import_customer_opening_bills(
+        batch,
+        _scope(books, "CUSTOMER_IMPORT", "CUSTOMER_MANAGE_SETTINGS"),
+        books.session,
+    )
+    assert imported.data is not None
+    assert [row.amount for row in imported.data] == [Decimal("450.00")]
+
+
+def test_listing_opening_bills_stays_with_the_view_code() -> None:
+    """Reading what was entered is not a money term."""
+    books = _Books()
+    books.opening_bill("250.00")
+
+    listed = list_customer_opening_bills(
+        books.customer.id, _scope(books, "CUSTOMER_VIEW"), books.session
+    )
+
+    assert listed.data is not None
+    assert [row.amount for row in listed.data] == [Decimal("250.00")]
+
+
+def test_the_roles_that_enter_opening_bills_at_go_live_still_can() -> None:
+    """The office keeps the door; the roles the limit constrains lose it."""
+    needed = {"CUSTOMER_UPDATE", "CUSTOMER_MANAGE_SETTINGS"}
+    holders = {
+        role for role, codes in _SEEDED_ROLE_PERMISSION_CODES.items() if needed <= codes
+    }
+
+    assert {"FIRM_ADMIN", "FIRM_MANAGER"} <= holders
+    assert not {"SALES_MANAGER", "CUSTOMER_SUPPORT", "SALES_EXECUTIVE"} & holders
