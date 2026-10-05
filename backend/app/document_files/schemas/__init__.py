@@ -14,6 +14,11 @@ class DocumentFileResponse(BaseModel):
     id: UUID
     purchase_invoice_id: UUID | None
     goods_receipt_id: UUID | None
+    sales_quotation_id: UUID | None = None
+    sales_order_id: UUID | None = None
+    delivery_note_id: UUID | None = None
+    sales_invoice_id: UUID | None = None
+    sales_return_id: UUID | None = None
     file_name: str
     content_type: str
     size_bytes: int

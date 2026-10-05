@@ -58,6 +58,7 @@ from app.customers.schemas import (
 from app.customers.services import CustomerService
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.delivery_note.rules import goods_have_left
+from app.document_files.services import FileParent, document_file_counts
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentTypeDefinition,
@@ -2323,7 +2324,7 @@ class SalesReturnService(TransactionalDocumentService):
                 )
             )
         }
-        return [
+        answer = [
             self._return_response(
                 row,
                 lines=lines[row.id],
@@ -2335,6 +2336,11 @@ class SalesReturnService(TransactionalDocumentService):
             )
             for row in rows
         ]
+        # Uploaded files, counted for the page in one grouped read (SG-6).
+        files = document_file_counts(self._session, FileParent.SALES_RETURN, ids)
+        for response in answer:
+            response.attached_file_count = files.get(response.id, 0)
+        return answer
 
     def _return_response(
         self,

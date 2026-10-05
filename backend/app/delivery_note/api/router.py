@@ -54,6 +54,9 @@ from app.delivery_note.services.transporters import (
     TransporterService,
     TransporterWrite,
 )
+from app.document_files.api import download_response, read_upload
+from app.document_files.schemas import DocumentFileResponse
+from app.document_files.services import DocumentFileService, FileParent
 from app.document_framework.schemas import DocumentLifecycleEventResponse
 from app.document_framework.schemas.bulk_actions import (
     BulkActionResult,
@@ -829,3 +832,78 @@ async def import_delivery_notes(
         actor_id=scope.actor_id,
     )
     return ApiResponse(data=service.note_responses(rows))
+
+
+# ---- the signed challan and other paper: uploaded files (SG-6) --------------
+
+
+@router.get("/{note_id}/files", response_model=ApiResponse[list[DocumentFileResponse]])
+def list_delivery_note_files(
+    note_id: UUID,
+    scope: DeliveryNoteViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[DocumentFileResponse]]:
+    """List the files uploaded onto one delivery note; metadata only."""
+    rows = DocumentFileService(db).list_files(
+        FileParent.DELIVERY_NOTE, note_id, firm_id=scope.firm_id
+    )
+    return ApiResponse(data=[DocumentFileResponse.model_validate(r) for r in rows])
+
+
+@router.post(
+    "/{note_id}/files",
+    response_model=ApiResponse[DocumentFileResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_delivery_note_file(
+    note_id: UUID,
+    scope: DeliveryNoteUpdateScope,
+    file: Annotated[UploadFile, File()],
+    caption: Annotated[str | None, Form(max_length=200)] = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[DocumentFileResponse]:
+    """Keep the signed challan with the delivery note (10 MB, PDF/JPG/PNG)."""
+    content = await read_upload(file)
+    row = DocumentFileService(db).attach(
+        FileParent.DELIVERY_NOTE,
+        note_id,
+        file_name=file.filename or "",
+        declared_type=file.content_type,
+        content=content,
+        caption=caption,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(data=DocumentFileResponse.model_validate(row))
+
+
+@router.get("/{note_id}/files/{file_id}/content")
+def download_delivery_note_file(
+    note_id: UUID,
+    file_id: UUID,
+    scope: DeliveryNoteViewScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Download one file kept with a delivery note, under its own name and type."""
+    row, content = DocumentFileService(db).download(
+        FileParent.DELIVERY_NOTE, note_id, file_id, firm_id=scope.firm_id
+    )
+    return download_response(row, content)
+
+
+@router.delete("/{note_id}/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_delivery_note_file(
+    note_id: UUID,
+    file_id: UUID,
+    scope: DeliveryNoteUpdateScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Remove one file from a delivery note; the trail keeps that it was there."""
+    DocumentFileService(db).remove(
+        FileParent.DELIVERY_NOTE,
+        note_id,
+        file_id,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

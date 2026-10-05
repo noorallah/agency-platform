@@ -52,6 +52,7 @@ from app.customers.services.trading_status import (
 )
 from app.delivery_note.models import DeliveryNote
 from app.delivery_note.rules import delivered_by_order_line
+from app.document_files.services import FileParent, document_file_counts
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentTypeDefinition,
@@ -1413,8 +1414,13 @@ class SalesOrderService(TransactionalDocumentService):
         fields = document_attributes.responses_for_many(
             self._session, AttributeEntityType.SALES_ORDER, [r.id for r in rows]
         )
+        # Uploaded files, counted for the page in one grouped read (SG-6).
+        files = document_file_counts(
+            self._session, FileParent.SALES_ORDER, [r.id for r in rows]
+        )
         for response in answer:
             response.attributes = fields.get(response.id, [])
+            response.attached_file_count = files.get(response.id, 0)
         return answer
 
     def _order_response(

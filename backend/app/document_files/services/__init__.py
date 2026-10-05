@@ -1,4 +1,9 @@
-"""Upload, list, download and remove files on bills and goods receipts (PG-4).
+"""Upload, list, download and remove files on documents (PG-4, SG-6).
+
+One implementation for every document that takes uploads: the purchase bill
+and the goods receipt (PG-4), and the sales quotation, order, delivery note,
+invoice and return (SG-6). A new kind of document joins ``FileParent`` and
+``_PARENTS`` and gains a nullable key on ``document_files``.
 
 Decision recorded in ``docs/API_AND_PERSISTENCE_CONVENTIONS.md``: the bytes
 live in the firm's own store, at most 10 MB a file, and only PDF, JPG and PNG.
@@ -9,6 +14,7 @@ the file name's extension must both agree with it, so an ``.exe`` renamed
 
 import hashlib
 from collections.abc import Sequence
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import PurePath
 from uuid import UUID
@@ -18,12 +24,18 @@ from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
+from app.core.database.entity import BaseEntity
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.chunks import over_chunks
 from app.core.utils.dates import utc_now
+from app.delivery_note.models import DeliveryNote
 from app.document_files.models import DocumentFile, DocumentFileContent
 from app.goods_receipt.models import GoodsReceipt
 from app.purchase_invoice.models import PurchaseInvoice
+from app.quotation.models import SalesQuotation
+from app.sales_invoice.models import SalesInvoice
+from app.sales_order.models import SalesOrder
+from app.sales_return.models import SalesReturn
 
 #: The most one file may be. A phone photo of a bill is 2-5 MB; a scanned
 #: multi-page PDF rarely passes 10.
@@ -52,6 +64,51 @@ class FileParent(StrEnum):
 
     PURCHASE_INVOICE = "PURCHASE_INVOICE"
     GOODS_RECEIPT = "GOODS_RECEIPT"
+    SALES_QUOTATION = "SALES_QUOTATION"
+    SALES_ORDER = "SALES_ORDER"
+    DELIVERY_NOTE = "DELIVERY_NOTE"
+    SALES_INVOICE = "SALES_INVOICE"
+    SALES_RETURN = "SALES_RETURN"
+
+
+@dataclass(frozen=True)
+class _Parent:
+    """How one kind of document is named on a file and found in the store."""
+
+    #: The nullable key on ``document_files`` that points at it.
+    column: str
+    model: type[BaseEntity]
+    #: What a refusal calls it.
+    label: str
+
+
+_PARENTS: dict[FileParent, _Parent] = {
+    FileParent.PURCHASE_INVOICE: _Parent(
+        "purchase_invoice_id", PurchaseInvoice, "Purchase invoice"
+    ),
+    FileParent.GOODS_RECEIPT: _Parent(
+        "goods_receipt_id", GoodsReceipt, "Goods receipt"
+    ),
+    FileParent.SALES_QUOTATION: _Parent(
+        "sales_quotation_id", SalesQuotation, "Quotation"
+    ),
+    FileParent.SALES_ORDER: _Parent("sales_order_id", SalesOrder, "Sales order"),
+    FileParent.DELIVERY_NOTE: _Parent(
+        "delivery_note_id", DeliveryNote, "Delivery note"
+    ),
+    FileParent.SALES_INVOICE: _Parent(
+        "sales_invoice_id", SalesInvoice, "Sales invoice"
+    ),
+    FileParent.SALES_RETURN: _Parent("sales_return_id", SalesReturn, "Sales return"),
+}
+
+
+def _parent_column(parent: FileParent) -> InstrumentedAttribute[UUID | None]:
+    """Name the foreign key that points at this kind of document."""
+    column: InstrumentedAttribute[UUID | None] = getattr(
+        DocumentFile, _PARENTS[parent].column
+    )
+    return column
 
 
 def file_content_type(
@@ -106,44 +163,44 @@ def file_content_type(
     return found
 
 
-@over_chunks("purchase_invoice_ids")
+@over_chunks("document_ids")
+def document_file_counts(
+    session: Session, parent: FileParent, document_ids: Sequence[UUID]
+) -> dict[UUID, int]:
+    """Count the live uploaded files on each document, in one grouped read.
+
+    This is what puts ``attached_file_count`` on a list page: one statement
+    for the page, whatever its length and however many rows carry files.
+    """
+    if not document_ids:
+        return {}
+    column = _parent_column(parent)
+    rows = session.execute(
+        select(column, func.count(DocumentFile.id))
+        .where(column.in_(document_ids), DocumentFile.is_deleted.is_(False))
+        .group_by(column)
+    )
+    return {found: int(count) for found, count in rows if found is not None}
+
+
 def purchase_invoice_file_counts(
     session: Session, purchase_invoice_ids: Sequence[UUID]
 ) -> dict[UUID, int]:
     """Count the live uploaded files on each bill, in one grouped read."""
-    if not purchase_invoice_ids:
-        return {}
-    rows = session.execute(
-        select(DocumentFile.purchase_invoice_id, func.count(DocumentFile.id))
-        .where(
-            DocumentFile.purchase_invoice_id.in_(purchase_invoice_ids),
-            DocumentFile.is_deleted.is_(False),
-        )
-        .group_by(DocumentFile.purchase_invoice_id)
+    return document_file_counts(
+        session, FileParent.PURCHASE_INVOICE, purchase_invoice_ids
     )
-    return {parent: int(count) for parent, count in rows if parent is not None}
 
 
-@over_chunks("goods_receipt_ids")
 def goods_receipt_file_counts(
     session: Session, goods_receipt_ids: Sequence[UUID]
 ) -> dict[UUID, int]:
     """Count the live uploaded files on each goods receipt, in one grouped read."""
-    if not goods_receipt_ids:
-        return {}
-    rows = session.execute(
-        select(DocumentFile.goods_receipt_id, func.count(DocumentFile.id))
-        .where(
-            DocumentFile.goods_receipt_id.in_(goods_receipt_ids),
-            DocumentFile.is_deleted.is_(False),
-        )
-        .group_by(DocumentFile.goods_receipt_id)
-    )
-    return {parent: int(count) for parent, count in rows if parent is not None}
+    return document_file_counts(session, FileParent.GOODS_RECEIPT, goods_receipt_ids)
 
 
 class DocumentFileService:
-    """Keep uploaded files with bills and goods receipts, in the firm's store."""
+    """Keep uploaded files with their documents, in the firm's own store."""
 
     def __init__(self, session: Session) -> None:
         """Bind the service to the request's firm store."""
@@ -158,7 +215,7 @@ class DocumentFileService:
             self._session.scalars(
                 select(DocumentFile)
                 .where(
-                    self._parent_column(parent) == document_id,
+                    _parent_column(parent) == document_id,
                     DocumentFile.firm_id == firm_id,
                     DocumentFile.is_deleted.is_(False),
                 )
@@ -196,12 +253,6 @@ class DocumentFileService:
         )
         row = DocumentFile(
             firm_id=firm_id,
-            purchase_invoice_id=(
-                document_id if parent is FileParent.PURCHASE_INVOICE else None
-            ),
-            goods_receipt_id=(
-                document_id if parent is FileParent.GOODS_RECEIPT else None
-            ),
             file_name=name,
             content_type=content_type,
             size_bytes=len(content),
@@ -210,6 +261,7 @@ class DocumentFileService:
             created_by=actor_id,
             updated_by=actor_id,
         )
+        setattr(row, _PARENTS[parent].column, document_id)
         self._session.add(row)
         self._session.flush()
         self._session.add(DocumentFileContent(file_id=row.id, content=content))
@@ -278,13 +330,6 @@ class DocumentFileService:
 
     # ---- internals -------------------------------------------------------
 
-    @staticmethod
-    def _parent_column(parent: FileParent) -> InstrumentedAttribute[UUID | None]:
-        """Name the foreign key that points at this kind of document."""
-        if parent is FileParent.PURCHASE_INVOICE:
-            return DocumentFile.purchase_invoice_id
-        return DocumentFile.goods_receipt_id
-
     def _parent_id(
         self, parent: FileParent, document_id: UUID, *, firm_id: UUID
     ) -> UUID:
@@ -293,26 +338,17 @@ class DocumentFileService:
         Another firm's document is "not found" rather than "forbidden", so the
         answer does not confirm that the id exists anywhere.
         """
-        if parent is FileParent.PURCHASE_INVOICE:
-            found = self._session.scalar(
-                select(PurchaseInvoice.id).where(
-                    PurchaseInvoice.id == document_id,
-                    PurchaseInvoice.firm_id == firm_id,
-                    PurchaseInvoice.is_deleted.is_(False),
-                )
+        kind = _PARENTS[parent]
+        columns = kind.model.__table__.c
+        found: UUID | None = self._session.scalar(
+            select(columns.id).where(
+                columns.id == document_id,
+                columns.firm_id == firm_id,
+                columns.is_deleted.is_(False),
             )
-            label = "Purchase invoice"
-        else:
-            found = self._session.scalar(
-                select(GoodsReceipt.id).where(
-                    GoodsReceipt.id == document_id,
-                    GoodsReceipt.firm_id == firm_id,
-                    GoodsReceipt.is_deleted.is_(False),
-                )
-            )
-            label = "Goods receipt"
+        )
         if found is None:
-            raise ResourceNotFoundError(f"{label} not found.")
+            raise ResourceNotFoundError(f"{kind.label} not found.")
         return found
 
     def _file(
@@ -328,7 +364,7 @@ class DocumentFileService:
         row = self._session.scalar(
             select(DocumentFile).where(
                 DocumentFile.id == file_id,
-                self._parent_column(parent) == document_id,
+                _parent_column(parent) == document_id,
                 DocumentFile.firm_id == firm_id,
                 DocumentFile.is_deleted.is_(False),
             )
@@ -357,6 +393,7 @@ __all__ = [
     "MAX_FILE_BYTES",
     "DocumentFileService",
     "FileParent",
+    "document_file_counts",
     "file_content_type",
     "goods_receipt_file_counts",
     "purchase_invoice_file_counts",

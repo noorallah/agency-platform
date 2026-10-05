@@ -282,6 +282,9 @@ class QuotationResponse(QuotationSchema):
 
     #: The firm's own fields on the document (MST-6).
     attributes: list[AttributeValueResponse] = Field(default_factory=list)
+    #: How many uploaded files the quotation carries (SG-6), so a list can
+    #: show a paper clip without asking per row. Counted once for the page.
+    attached_file_count: int = 0
 
     id: UUID
     firm_id: UUID

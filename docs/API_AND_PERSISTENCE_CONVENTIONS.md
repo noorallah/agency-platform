@@ -190,6 +190,47 @@ stored type with `X-Content-Type-Options: nosniff`. `app/document_files` is
 the one implementation; a new document that takes uploads adds a nullable
 parent key and a check, not a new table.
 
+**The five sales documents joined it on 2026-10-05 (SG-6)** -- the quotation,
+the sales order, the delivery note, the sales invoice and the sales return --
+exactly that way: five nullable keys on `document_files`, an index on each, and
+the check widened from "the bill or the receipt" to "exactly one of the seven"
+(migration `20261005_0321`, firm-owned and idempotent). No second service and
+no new table; a kind of document is one entry in `FileParent` and one in the
+`_PARENTS` map beside it. Each document has the same four routes under its own
+prefix (`/quotations`, `/sales-orders`, `/delivery-notes`, `/sales-invoices`,
+`/sales-returns`): `GET /{id}/files`, `POST /{id}/files`,
+`GET /{id}/files/{file_id}/content` and `DELETE /{id}/files/{file_id}`.
+
+- **Permission is the document's own, and no code was added.** Listing and
+  downloading take the module's view scope (`SALES_VIEW`); uploading and
+  removing take its update scope -- `SALES_UPDATE` on the quotation, the
+  delivery note and the return, and `SALES_UPDATE` *or* the create code on the
+  order and the invoice, because those two routers already let whoever may
+  raise the document edit its draft.
+- **A file belongs to one document of one firm.** Another firm's document, or
+  a file named under a document it is not on, is *not found* (404) rather than
+  forbidden, so the answer never confirms that an id exists somewhere.
+- **Status does not gate it.** PG-4 lets a file go on or come off a bill in any
+  status -- the supplier's paper usually turns up after the bill is approved --
+  and sales follows the same rule: the signed challan arrives after dispatch
+  and the customer's debit note after the return is closed. What protects the
+  record is the trail (`document_file.attached`, `document_file.removed`), not
+  the document's lifecycle.
+- **`attached_file_count` is on all five list rows and single responses**,
+  filled by `document_file_counts` in one grouped read for the page, never per
+  row and never touching `document_file_contents`.
+- **The older `*_attachments` tables on these documents are untouched.** They
+  still hold a name and a path the client typed and are still rewritten with
+  the document; an uploaded file is a different thing and lives only here.
+
+**A check constraint a migration names is not always called that in the
+store.** `alembic/env.py` hands the metadata's naming convention to `op`, so
+`20261005_0306` creating `CK_document_files_one_parent` deployed it as
+`CK_document_files_CK_document_files_one_parent`, while a store built by
+`Base.metadata.create_all` carries the name the model declares. `20261005_0321`
+therefore finds the check by what it says rather than by its name, and passes
+names through `op.f()` so they are used as written.
+
 ## `TaxRuleService.simulate` is the tax calculation, not a preview
 
 **`TaxRuleService.simulate` is the tax calculation, not a preview.** **Nine** modules call it once per line while building a document -- the eight above and `quotation`, which prices with tax even though it converts no units -- on their own session, so it must never commit — the `/simulate` endpoint owns that. It also derives `country_id` from the applied profile's tax system and `business_profile_id` from the firm's assignment, because no document sends either and rules scoped that way otherwise never match. `total_tax_amount` is only what the counterparty is billed: tax `included_in_price` and tax under `REVERSE_CHARGE` are reported in `inclusive_tax_amount` / `reverse_charge_tax_amount` and must not be added to a document total.
