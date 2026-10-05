@@ -665,7 +665,10 @@ nothing in the traced chain above changes for a firm that does not.
 - **Quality inspection.** For a product or category marked *Inspect on
   receipt*, received goods wait in quarantine until released or rejected
   (Buy > All Buy screens > Documents > Quality Inspection); the receipt's
-  ledger entry is unchanged.
+  ledger entry is unchanged. Goods rejected and kept *for a return* stay in
+  quarantine; the purchase return off that receipt line takes them from
+  quarantine first, and only what it returns beyond them from sellable stock
+  (D-BUY-44).
 - **Payment runs** (Buy > All Buy screens > Money > Payment Runs). Pick the
   bills due by a date, approve once (`PAYMENT_RUN_APPROVE`, which the cashier
   does not hold), and one payment per supplier is posted as step 7 posts it; a

@@ -2716,12 +2716,26 @@ class InventoryService:
         conversion_version: int | None = None,
         remarks: str | None = None,
         batch_id: UUID | None = None,
+        rejects_held: Decimal = Decimal("0"),
     ) -> InventoryTransaction:
         """Post the stock a purchase return sent back, from one batch.
 
         ``batch_id`` takes the goods out of that batch's row rather than the
         product's untracked one. Without it a batch could be received, sold
         from, and then returned to the supplier off stock that was never in it.
+
+        ``quarantine_quantity`` is the part of the return the line says is
+        standing in quarantine; it leaves that bucket and the rest leaves
+        sellable stock. ``rejects_held`` is how much of the receipt line was
+        rejected at inspection and kept for a return and has not gone back
+        yet, in the stock unit: the return takes those first, as far as the
+        location still holds them in quarantine, whether or not the line
+        says so.
+
+        Raises:
+            ValidationError: If more is returned from quarantine than the
+                location holds there.
+
         """
         (
             base_quantity,
@@ -2747,6 +2761,10 @@ class InventoryService:
         damaged_base = Decimal(str(damaged_quantity)) * conversion_factor
         scrap_base = Decimal(str(scrap_quantity)) * conversion_factor
         quarantine_base = Decimal(str(quarantine_quantity)) * conversion_factor
+        if quarantine_base > base_quantity:
+            raise ValidationError(
+                "Quarantined return quantity cannot exceed return quantity."
+            )
         inventory = self._ensure_inventory_projection(
             firm_id=firm_scope,
             branch_id=branch_id,
@@ -2755,6 +2773,19 @@ class InventoryService:
             product_id=product_id,
             actor_id=actor_id,
             batch_id=batch_id,
+        )
+        # Goods rejected at inspection and kept for a return are in the
+        # quarantine bucket, not the sellable one: they were moved out of it
+        # when they were held. Taking them from sellable stock left the
+        # rejects held for ever and removed good units instead (D-BUY-44).
+        if quarantine_base > inventory.quarantine_quantity:
+            raise ValidationError(
+                f"This location holds {inventory.quarantine_quantity} in "
+                f"quarantine, so {quarantine_base} cannot be returned from it."
+            )
+        quarantine_base = max(
+            quarantine_base,
+            min(base_quantity, rejects_held, inventory.quarantine_quantity),
         )
         transaction = self._stage_movement(
             inventory,
@@ -2766,10 +2797,12 @@ class InventoryService:
                 reference_type="PURCHASE_RETURN",
                 transaction_date=transaction_date,
                 quantity=base_quantity,
-                current_delta=-base_quantity,
+                current_delta=-(base_quantity - quarantine_base),
                 blocked_delta=ZERO,
                 damaged_delta=ZERO,
-                quarantine_delta=ZERO,
+                quarantine_delta=-quarantine_base,
+                # The whole amount leaves the firm, whichever bucket held it.
+                owned_delta=-base_quantity,
                 entered_quantity=entered_quantity,
                 entered_uom_id=entered_uom_id,
                 conversion_version=conversion_version,
