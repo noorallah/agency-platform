@@ -32,6 +32,9 @@ from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.document_files.api import download_response, read_upload
+from app.document_files.schemas import DocumentFileResponse
+from app.document_files.services import DocumentFileService, FileParent
 from app.document_framework.schemas import DocumentLifecycleEventResponse
 from app.document_framework.schemas.bulk_actions import (
     BulkActionResult,
@@ -796,3 +799,78 @@ async def import_sales_orders(
         actor_id=scope.actor_id,
     )
     return ApiResponse(data=service.order_responses(rows))
+
+
+# ---- the customer's purchase order and other paper: uploaded files (SG-6) ---
+
+
+@router.get("/{order_id}/files", response_model=ApiResponse[list[DocumentFileResponse]])
+def list_sales_order_files(
+    order_id: UUID,
+    scope: SalesOrderViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[DocumentFileResponse]]:
+    """List the files uploaded onto one sales order; metadata only."""
+    rows = DocumentFileService(db).list_files(
+        FileParent.SALES_ORDER, order_id, firm_id=scope.firm_id
+    )
+    return ApiResponse(data=[DocumentFileResponse.model_validate(r) for r in rows])
+
+
+@router.post(
+    "/{order_id}/files",
+    response_model=ApiResponse[DocumentFileResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_sales_order_file(
+    order_id: UUID,
+    scope: SalesOrderUpdateScope,
+    file: Annotated[UploadFile, File()],
+    caption: Annotated[str | None, Form(max_length=200)] = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[DocumentFileResponse]:
+    """Keep the customer's PO scan with the order (10 MB, PDF/JPG/PNG)."""
+    content = await read_upload(file)
+    row = DocumentFileService(db).attach(
+        FileParent.SALES_ORDER,
+        order_id,
+        file_name=file.filename or "",
+        declared_type=file.content_type,
+        content=content,
+        caption=caption,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(data=DocumentFileResponse.model_validate(row))
+
+
+@router.get("/{order_id}/files/{file_id}/content")
+def download_sales_order_file(
+    order_id: UUID,
+    file_id: UUID,
+    scope: SalesOrderViewScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Download one file kept with a sales order, under its own name and type."""
+    row, content = DocumentFileService(db).download(
+        FileParent.SALES_ORDER, order_id, file_id, firm_id=scope.firm_id
+    )
+    return download_response(row, content)
+
+
+@router.delete("/{order_id}/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_sales_order_file(
+    order_id: UUID,
+    file_id: UUID,
+    scope: SalesOrderUpdateScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Remove one file from a sales order; the trail keeps that it was there."""
+    DocumentFileService(db).remove(
+        FileParent.SALES_ORDER,
+        order_id,
+        file_id,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

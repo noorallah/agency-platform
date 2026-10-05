@@ -329,6 +329,10 @@ class SalesReturnLineResponse(SalesReturnSchema):
 class SalesReturnResponse(SalesReturnSchema):
     """Return one sales return."""
 
+    #: How many uploaded files the return carries (SG-6), so a list can show
+    #: a paper clip without asking per row. Counted once for the page.
+    attached_file_count: int = 0
+
     id: UUID
     firm_id: UUID
     customer_id: UUID

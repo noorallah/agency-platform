@@ -551,6 +551,9 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
 
     #: The firm's own fields on the document (MST-6).
     attributes: list[AttributeValueResponse] = Field(default_factory=list)
+    #: How many uploaded files the invoice carries (SG-6), so a list can show
+    #: a paper clip without asking per row. Counted once for the page.
+    attached_file_count: int = 0
 
     id: UUID
     #: Who raised it. The desktop offers Edit on a draft to its author when

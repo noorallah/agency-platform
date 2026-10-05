@@ -93,6 +93,7 @@ from app.delivery_note.schemas import (
     DeliveryProofWrite,
 )
 from app.delivery_note.services.transporters import TransporterService
+from app.document_files.services import FileParent, document_file_counts
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentTypeDefinition,
@@ -1340,8 +1341,13 @@ class DeliveryNoteService(TransactionalDocumentService):
         fields = document_attributes.responses_for_many(
             self._session, AttributeEntityType.DELIVERY_NOTE, [r.id for r in rows]
         )
+        # Uploaded files, counted for the page in one grouped read (SG-6).
+        files = document_file_counts(
+            self._session, FileParent.DELIVERY_NOTE, [r.id for r in rows]
+        )
         for response in answer:
             response.attributes = fields.get(response.id, [])
+            response.attached_file_count = files.get(response.id, 0)
         return answer
 
     def _note_response_from(

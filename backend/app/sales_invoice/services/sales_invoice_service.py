@@ -59,6 +59,7 @@ from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.delivery_note.rules import goods_have_left_clause, require_dispatched_note
 from app.delivery_note.schemas import DeliveryNoteBatchPick, DeliveryNoteStatus
 from app.delivery_note.services.delivery_note_service import DeliveryNoteService
+from app.document_files.services import FileParent, document_file_counts
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentTypeDefinition,
@@ -2330,8 +2331,13 @@ class SalesInvoiceService(TransactionalDocumentService):
         fields = document_attributes.responses_for_many(
             self._session, AttributeEntityType.SALES_INVOICE, [r.id for r in rows]
         )
+        # Uploaded files, counted for the page in one grouped read (SG-6).
+        files = document_file_counts(
+            self._session, FileParent.SALES_INVOICE, [r.id for r in rows]
+        )
         for response in answer:
             response.attributes = fields.get(response.id, [])
+            response.attached_file_count = files.get(response.id, 0)
         return answer
 
     def _invoice_response(

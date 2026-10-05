@@ -210,7 +210,7 @@ trigger each schema owns its own copy of.
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
 | `document_file_contents` | firm store | The bytes of one :class:`DocumentFile`, read only to download it. | `document_files` |
-| `document_files` | firm store ¹ | One uploaded file kept with a purchase bill or a goods receipt. | `purchase_invoices`, `goods_receipts` |
+| `document_files` | firm store ¹ | One uploaded file kept with a purchase or a sales document. | `purchase_invoices`, `goods_receipts`, `sales_quotations`, `sales_orders`, `delivery_notes`, `sales_invoices`, `sales_returns` |
 
 ### `app/document_framework`
 
