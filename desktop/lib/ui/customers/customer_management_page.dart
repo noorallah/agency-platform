@@ -2046,10 +2046,10 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         ]),
       );
 
-  /// Whether this is a new customer being added by somebody who may not
-  /// set its money terms.
-  bool get _newTermsLocked =>
-      widget.mode == CustomerDialogMode.create && !widget.mayChangeCreditLimit;
+  /// Whether the customer's money terms are somebody else's to set. On an
+  /// edit as on a new customer: the server refuses a moved figure either
+  /// way, so what is stored is shown and sent back unchanged.
+  bool get _newTermsLocked => !widget.mayChangeCreditLimit;
 
   static const String _newTermsHelper =
       'Set by somebody with the manage customer settings permission.';
@@ -2083,9 +2083,10 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
               lockedHelper: 'Setting a standing discount needs the manage '
                   'customer settings permission.',
             ),
-            // The rest of a new customer's money terms answer to the same
-            // code (D-SELL-76): whoever adds the shop leaves them for the
-            // office, and the form sends zero or blank.
+            // The rest of a customer's money terms answer to the same code
+            // (D-SELL-76): whoever adds the shop leaves them for the office
+            // and the form sends zero or blank; whoever edits it sends back
+            // what is stored.
             _number(
               'opening_balance',
               'Opening balance',

@@ -288,6 +288,8 @@ def test_a_customer_with_opening_bills_cannot_take_a_single_figure() -> None:
             ),
             firm_scope=books.firm.id,
             actor_id=books.actor_id,
+            may_change_credit_limit=True,
+            may_change_standing_discount=True,
         )
 
 

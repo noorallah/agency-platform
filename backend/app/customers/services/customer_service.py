@@ -267,7 +267,8 @@ class CustomerService:
         ``may_change_credit_limit`` and ``may_change_standing_discount`` each
         say the caller holds ``CUSTOMER_MANAGE_SETTINGS``. Without it a save
         that moves the limit or the standing discount is refused by name, and
-        one that resends the stored figure goes through.
+        one that resends the stored figure goes through. Without it credit
+        days, cash-discount terms and the opening balance cannot move either.
         """
         customer = self.get(customer_id, firm_scope=firm_scope)
         if (
@@ -374,6 +375,11 @@ class CustomerService:
         )
         self._assert_may_change_standing_discount(
             customer, values, allowed=may_change_standing_discount
+        )
+        self._assert_may_change_money_terms(
+            customer,
+            values,
+            allowed=may_change_credit_limit and may_change_standing_discount,
         )
         # The dump is untyped, so the figure is read back as a Decimal before
         # any of the balance arithmetic below touches it.
@@ -991,6 +997,36 @@ class CustomerService:
                 "Changing a customer's standing discount needs the manage "
                 "customer settings permission (CUSTOMER_MANAGE_SETTINGS)."
             )
+
+    @staticmethod
+    def _assert_may_change_money_terms(
+        customer: Customer, values: dict[str, object], *, allowed: bool
+    ) -> None:
+        """Refuse a change to the rest of a customer's money terms.
+
+        Credit days, cash-discount terms and the opening balance. A new
+        customer cannot be given them without ``CUSTOMER_MANAGE_SETTINGS``
+        (D-SELL-76), and an edit that could would undo that one save later:
+        the sales manager refused them on the new outlet opened it again and
+        typed them. A form resending the stored figure is not a change and is
+        not refused; blank and zero are the same answer.
+        """
+        if allowed:
+            return
+        for field, what in (
+            ("payment_terms_days", "credit days"),
+            ("cash_discount_days", "cash-discount terms"),
+            ("cash_discount_percent", "cash-discount terms"),
+            ("opening_balance", "opening balance"),
+        ):
+            if field not in values:
+                continue
+            sent = Decimal(str(values[field] or 0))
+            if sent != Decimal(str(getattr(customer, field) or 0)):
+                raise AuthorizationError(
+                    f"Changing a customer's {what} needs the manage customer "
+                    "settings permission (CUSTOMER_MANAGE_SETTINGS)."
+                )
 
     @staticmethod
     def _assert_may_set_standing_discount(
