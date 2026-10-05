@@ -111,6 +111,7 @@ from app.inventory.services import InventoryService, LineConversion
 from app.messaging.services import MessagingDocument, stage_document_event
 from app.products.models import Product
 from app.products.services.kits import KitService
+from app.products.services.stockless import stockless_products
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import SalesOrderStatus
@@ -2769,8 +2770,17 @@ class DeliveryNoteService(TransactionalDocumentService):
                 "Delivery note must contain at least one line before dispatch."
             )
         issued_cost = ZERO
+        services = stockless_products(
+            self._session, (line.product_id for line in lines)
+        )
         for line in lines:
             if line.inventory_transaction_id is not None:
+                continue
+            if line.product_id in services:
+                # A service is delivered without stock leaving (backlog 87
+                # #3): the order's nominal hold is let go, and there is no
+                # movement, no batch and no cost of goods sold.
+                self._deliver_service(line, actor_id=actor_id)
                 continue
             if line.warehouse_id is None:
                 raise ValidationError(
@@ -3057,6 +3067,18 @@ class DeliveryNoteService(TransactionalDocumentService):
             actor_id=actor_id,
         )
         return batch_notes
+
+    def _deliver_service(self, line: DeliveryNoteLine, *, actor_id: UUID) -> None:
+        """Let go of what the order held for a service line; move nothing."""
+        source_line = self._session.scalar(
+            select(SalesOrderLine).where(SalesOrderLine.id == line.sales_order_line_id)
+        )
+        if source_line is None:
+            raise ValidationError("Sales order line not found for dispatch.")
+        source_line.reserved_quantity = self._q(
+            max(source_line.reserved_quantity - line.delivered_quantity, ZERO)
+        )
+        line.updated_by = actor_id
 
     def _assert_chosen_in_stock(
         self,

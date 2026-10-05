@@ -187,6 +187,40 @@ and a migration in a firm store cannot name the firms in it.
 
 `tests/unit/test_walk_in_cash_sale.py` holds each rule.
 
+## A service rides the chain and moves no stock
+
+Backlog §87 #3 (SG-3, 2026-10-05). A product of type `SERVICE` -- freight,
+repair, installation -- is billed with its SAC like any line, but there is
+nothing to reserve, ship or take back. `stockless_products`
+(`app/products/services/stockless.py`) names the services among a document's
+products, once per document, and three places skip the stock half of their
+step for those lines:
+
+- **the order** (`_reserve_inventory` / `_release_inventory`) writes no
+  reservation movement. The line's `reserved_quantity` is still set to the
+  whole quantity, and cleared on cancel, so everything derived from the hold
+  reads the line as ready to deliver; the back-order report leaves it out.
+- **the delivery note** (`_dispatch_inventory`) writes no movement, picks no
+  batch and adds nothing to the cost of goods sold; it lets go of the order's
+  nominal hold. A bill of services alone posts no goods-issue journal at all.
+- **the sales return** (`complete_return`) credits the customer and puts
+  nothing back on a shelf.
+
+**Decided against the plan's first wording**, which refused a service line on
+a delivery note and billed it straight from the order. That needs the bill to
+take an order line as its source, which `_prepare_invoice_sources` refuses for
+the reason recorded above it (revenue with no movement behind it), and a
+second way of deriving what is billed. ERPNext carries a non-stock item on a
+delivery note with no stock ledger entry, and that is what this does: one
+chain, and the stock left out where there is none. A firm that types its
+delivery notes sees the service on the note as work delivered; a counter bill
+raises the note for itself.
+
+`tests/unit/test_service_invoices.py` drives a service bill, a mixed bill and
+a typed order through the real services. The return of a service is covered
+only by the zero-movement path the return already had, not by a test of its
+own.
+
 ## Where the goods go: the ship-to is chosen on the order and inherited
 
 Backlog 67 row 3, 2026-10-01. A customer keeps several addresses, and until

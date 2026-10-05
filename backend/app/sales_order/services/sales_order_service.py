@@ -72,6 +72,7 @@ from app.pricing.services.price_list_service import PriceListResolver
 from app.pricing.services.unit_price import UnitPriceResolver
 from app.products.models import Product
 from app.products.services.free_issue import assert_not_sold_at_a_price
+from app.products.services.stockless import is_stockless, stockless_products
 from app.products.services.trading_status import assert_product_takes_new_lines
 from app.promotions.schemas import (
     PromotionEvaluationRequest,
@@ -1713,6 +1714,9 @@ class SalesOrderService(TransactionalDocumentService):
         remaining = dict(on_hand)
         result: list[SalesOrderBackOrderRecord] = []
         for line, order in rows:
+            if is_stockless(products.get(line.product_id)):
+                # A service is never short of stock (backlog 87 #3).
+                continue
             sent = min(delivered.get(line.id, ZERO), line.reservable_quantity)
             owed = self._q(line.reservable_quantity - sent)
             if owed <= ZERO:
@@ -2525,8 +2529,18 @@ class SalesOrderService(TransactionalDocumentService):
                 .order_by(SalesOrderLine.line_number.asc())
             ).all()
         )
+        services = stockless_products(
+            self._session, (line.product_id for line in lines)
+        )
         for line in lines:
             if line.reservable_quantity <= ZERO:
+                continue
+            if line.product_id in services:
+                # A service holds no stock (backlog 87 #3). The line is
+                # marked as held in full so everything derived from the
+                # hold reads it as ready to deliver; nothing is moved.
+                line.reserved_quantity = line.reservable_quantity
+                line.updated_by = actor_id
                 continue
             # Stock is held per batch, so a reservation is held per batch too:
             # committing the product put the movement on the untracked row
@@ -2618,8 +2632,16 @@ class SalesOrderService(TransactionalDocumentService):
                 .order_by(SalesOrderLine.line_number.asc())
             ).all()
         )
+        services = stockless_products(
+            self._session, (line.product_id for line in lines)
+        )
         for line in lines:
             if line.reserved_quantity <= ZERO:
+                continue
+            if line.product_id in services:
+                # Nothing was moved to hold it, so nothing is moved back.
+                line.reserved_quantity = ZERO
+                line.updated_by = actor_id
                 continue
             # Release the batches that actually hold the reservation, not the
             # ones holding stock: letting go of a batch nobody held would drive
