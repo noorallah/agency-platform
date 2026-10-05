@@ -830,6 +830,29 @@ supplier charges nothing and the firm owes the tax itself:
   less. Cancelling the return or the note mirrors its journal, legs included,
   and 3B leaves a cancelled one out.
 
+## The GST sales register is GSTR-1 laid out by document
+
+Reports > Financial > *GST sales register* and *HSN summary of sales*
+(`GET /api/v1/sales-invoices/reports/gst-register` and `/hsn-summary`,
+`app/sales_invoice/services/gst_sales_register.py`, backlog §87 #1, SG-1) are
+what a CA asks for outside the return: each approved bill by tax head, and
+the outward supplies by HSN code and rate. Neither prices a document itself.
+Both read through `GstReturnService`'s own readers -- `_priced` for a bill and
+the `*_as_credits` shapers for a credit note, a customer debit note and a
+sales return -- so every head is settled to what the journal credited
+(`settle_to_ledger`) and the register, GSTR-1 and the ledger agree to the
+paisa. `tests/unit/test_gst_sales_register.py` adds both reports up against
+GSTR-1's Table 12 for the same days.
+
+What counts is what GSTR-1 counts: a credit note and a completed sales return
+are rows in minus on their own date, a customer debit note a row in plus, a
+bill cancelled before its month's return was due is left out, and one
+cancelled after it stays in its month with a *Cancelled invoice* row in minus
+on the day of the cancellation. The register covers every GSTIN of the firm
+at once; a firm with more than one compares it with the sum of its returns.
+The HSN summary takes any period (a year, for GSTR-9) where the return itself
+is held to three months, and has not been timed on the volume firm.
+
 ## A return before billing reverses the accrual, not the payable
 
 **A return off a goods receipt line is taken first off what that line still

@@ -13,7 +13,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -55,6 +55,7 @@ from app.sales_invoice.schemas import (
 )
 from app.sales_invoice.services import SalesInvoiceService
 from app.sales_invoice.services.discount_report import DiscountReportService
+from app.sales_invoice.services.gst_sales_register import GstSalesRegisterService
 from app.sales_invoice.services.invoice_print_service import (
     SalesInvoicePrintService,
 )
@@ -833,6 +834,107 @@ def get_sales_invoice_register(
     window = ReportWindow(from_date, to_date, page, page_size)
     return window.respond(
         service.register_report(firm_scope=scope.firm_id, window=window)
+    )
+
+
+class GstSalesRegisterRecord(BaseModel):
+    """One declared sales document by tax head (backlog §87 #1).
+
+    A credit note's, a sales return's and a late cancellation's row is
+    negative and names its bill.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    document_id: UUID
+    document_date: date
+    document_number: str
+    #: ``INVOICE``, ``CREDIT_NOTE``, ``DEBIT_NOTE``, ``SALES_RETURN`` or
+    #: ``CANCELLED_INVOICE``.
+    document_type: str
+    #: What the desktop's grid shows for ``document_type``.
+    document_type_label: str = "Invoice"
+    customer_id: UUID
+    customer_name: str
+    customer_gstin: str | None
+    place_of_supply: str
+    taxable_value: Decimal
+    igst: Decimal
+    cgst: Decimal
+    sgst: Decimal
+    cess: Decimal
+    total_tax: Decimal
+    document_total: Decimal
+    against_invoice_number: str = ""
+
+    @model_validator(mode="after")
+    def _label_the_type(self) -> "GstSalesRegisterRecord":
+        """Say the document type in words."""
+        self.document_type_label = {
+            "CREDIT_NOTE": "Credit note",
+            "DEBIT_NOTE": "Debit note",
+            "SALES_RETURN": "Sales return",
+            "CANCELLED_INVOICE": "Cancelled invoice",
+        }.get(self.document_type, "Invoice")
+        return self
+
+
+@router.get(
+    "/reports/gst-register",
+    response_model=PaginatedResponse[GstSalesRegisterRecord],
+)
+def gst_sales_register(
+    scope: SalesInvoiceReportScope,
+    db: Annotated[Session, Depends(get_db)],
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+) -> PaginatedResponse[GstSalesRegisterRecord]:
+    """Return a period's bills, notes and returns by tax head (§87 #1)."""
+    window = ReportWindow(from_date, to_date, page, page_size)
+    rows = GstSalesRegisterService(db).register(scope.firm_id, window)
+    return window.respond(
+        mapped_like(rows, [GstSalesRegisterRecord.model_validate(row) for row in rows])
+    )
+
+
+class HsnSalesRecord(BaseModel):
+    """The outward supplies of one HSN code at one rate (backlog §87 #1)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    hsn_code: str
+    description: str
+    rate: Decimal
+    quantity: Decimal
+    taxable_value: Decimal
+    igst: Decimal
+    cgst: Decimal
+    sgst: Decimal
+    cess: Decimal
+    total_tax: Decimal
+
+
+@router.get(
+    "/reports/hsn-summary",
+    response_model=PaginatedResponse[HsnSalesRecord],
+)
+def hsn_sales_summary(
+    scope: SalesInvoiceReportScope,
+    db: Annotated[Session, Depends(get_db)],
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+) -> PaginatedResponse[HsnSalesRecord]:
+    """Return a period's outward supplies by HSN code, net of credits (§87 #1)."""
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        [
+            HsnSalesRecord.model_validate(row)
+            for row in GstSalesRegisterService(db).hsn_summary(scope.firm_id, window)
+        ]
     )
 
 

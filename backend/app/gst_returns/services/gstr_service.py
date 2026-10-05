@@ -43,7 +43,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
-from typing import Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 from uuid import UUID
 
 from sqlalchemy import ColumnElement, Row, Select, func, select, true
@@ -84,6 +84,9 @@ from app.tax.services.gst_buckets import (
     settle_to_ledger,
     split_components,
 )
+
+if TYPE_CHECKING:
+    from app.customer_debit_note.models import CustomerDebitNote
 
 #: The place of supply a return gives a supply outside India.
 FOREIGN_PLACE = "96"
@@ -1844,6 +1847,10 @@ class GstReturnService:
                 .order_by(CreditNote.credit_note_date.asc())
             ).all()
         )
+        return self._credit_notes_as_credits(notes)
+
+    def _credit_notes_as_credits(self, notes: Sequence[CreditNote]) -> list[_Credit]:
+        """Bring these credit notes to the shape the return folds, in order."""
         if not notes:
             return []
         crossed_a_border = self._interstate_invoices(
@@ -1908,7 +1915,6 @@ class GstReturnService:
         # Imported here, as the other optional modules are.
         from app.customer_debit_note.models import (
             CustomerDebitNote,
-            CustomerDebitNoteLine,
             CustomerDebitNoteStatus,
         )
 
@@ -1926,6 +1932,14 @@ class GstReturnService:
                 .order_by(CustomerDebitNote.debit_note_date.asc())
             ).all()
         )
+        return self._debit_notes_as_credits(notes)
+
+    def _debit_notes_as_credits(
+        self, notes: Sequence["CustomerDebitNote"]
+    ) -> list[_Credit]:
+        """Bring these customer debit notes to negative credits, in order."""
+        from app.customer_debit_note.models import CustomerDebitNoteLine
+
         if not notes:
             return []
         crossed_a_border = self._interstate_invoices(
@@ -2056,6 +2070,10 @@ class GstReturnService:
                 .order_by(SalesReturn.return_date.asc())
             ).all()
         )
+        return self._returns_as_credits(returns)
+
+    def _returns_as_credits(self, returns: Sequence[SalesReturn]) -> list[_Credit]:
+        """Bring these sales returns to the shape the return folds, in order."""
         if not returns:
             return []
         lines = list(

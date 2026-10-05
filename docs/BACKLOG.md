@@ -6102,7 +6102,7 @@ section stays the place it is built from and this row points to it.
 
 | # | Gap | Today | What to build | Owner's decision | Older § |
 | --- | --- | --- | --- | --- | --- |
-| 1 | **GST sales register and HSN summary of sales** | Partial: the tables exist only inside the GSTR-1 screen | Both as reports of their own under Reports, with export, as purchasing has (§86 row 17) | **Build now** (SG-1) | none |
+| 1 | **GST sales register and HSN summary of sales** | **Built 2026-10-05 (SG-1).** `GET /sales-invoices/reports/gst-register` and `/hsn-summary`, Reports > Financial > *GST sales register* and *HSN summary of sales*; figures read through GSTR-1's own readers. Before: the tables existed only inside the GSTR-1 screen | Both as reports of their own under Reports, with export, as purchasing has (§86 row 17) | **Build now** (SG-1) | none |
 | 2 | **Walk-in cash sale** | Missing: every bill needs a customer record; no built-in cash customer | A built-in *Cash* customer, and the buyer's name and phone typed on the bill | **Build now** (SG-2) | none |
 | 3 | **Service invoices** | Missing: `ProductType.SERVICE` and `hsn_sac` exist, but nothing in the sales chain reads the type, so a service is reserved and dispatched like goods | A service line that reserves and moves no stock, billed with its SAC | **Build now** (SG-3) | none |
 | 4 | **Charges on the bill with their own GST** | Partial: freight is taxed at the goods' rate; other charges are untaxed | Packing, handling and other charges, each with a rate of its own | **Build now** (SG-4) | §64 row 4 |
