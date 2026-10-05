@@ -285,6 +285,10 @@ class SalesReturnLineResponse(SalesReturnSchema):
     dispatched_quantity: Decimal
     already_returned_quantity: Decimal
     current_return_quantity: Decimal
+    #: The part of the quantity that came back before any bill charged for
+    #: it (D-SELL-55): stock and cost only, no credit and no tax reversed.
+    #: Decided at completion; zero before it.
+    unbilled_quantity: Decimal = Decimal("0")
     restock_quantity: Decimal
     damaged_quantity: Decimal
     scrap_quantity: Decimal

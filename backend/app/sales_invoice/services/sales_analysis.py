@@ -48,6 +48,7 @@ from app.products.models.brand import Brand, Principal
 from app.sales.models.territory import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_order.models import SalesOrder, SalesOrderLine
+from app.sales_return.billing import billed_part
 from app.sales_return.models import SalesReturn, SalesReturnLine
 
 ZERO = Decimal("0")
@@ -469,10 +470,14 @@ class SalesAnalysisService:
             "route": literal(None),
             "branch": SalesReturn.branch_id,
             "document": SalesReturn.id,
-            "quantity": SalesReturnLine.current_return_quantity,
-            "taxable": SalesReturnLine.net_amount - SalesReturnLine.tax_amount,
-            "tax": SalesReturnLine.tax_amount,
-            "net": SalesReturnLine.net_amount,
+            # The billed part only: goods that came back before billing were
+            # never in billed sales to be taken out of them (D-SELL-55).
+            "quantity": billed_part(SalesReturnLine.current_return_quantity),
+            "taxable": billed_part(
+                SalesReturnLine.net_amount - SalesReturnLine.tax_amount
+            ),
+            "tax": billed_part(SalesReturnLine.tax_amount),
+            "net": billed_part(SalesReturnLine.net_amount),
         }
 
     def _dimension(self, kind: str, dimension: str | None) -> ColumnElement[Any]:

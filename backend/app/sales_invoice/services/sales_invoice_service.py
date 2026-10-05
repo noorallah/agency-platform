@@ -1486,6 +1486,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 to_ship.append(note)
             else:
                 require_dispatched_note(note, "billed")
+        self._refuse_billing_returned_goods(row)
         # Approval is what puts the amount on the customer's account, so it is
         # the last point at which a limit can still be enforced.
         #
@@ -3219,6 +3220,19 @@ class SalesInvoiceService(TransactionalDocumentService):
                 raise ValidationError(
                     "Invoice quantity exceeds the available source quantity."
                 )
+            # Goods that came back before any bill reached them are not the
+            # customer's to be charged for (D-SELL-55).
+            came_back = self._returned_before_billing(source_line.id)
+            if (
+                came_back > ZERO
+                and invoice_quantity + already_invoiced + came_back > source_quantity
+            ):
+                raise ValidationError(
+                    f"Line {index}: {came_back} of the {source_quantity} "
+                    "delivered came back before being billed, so "
+                    f"{max(source_quantity - already_invoiced - came_back, ZERO)} "
+                    "is left to bill."
+                )
             unit_price = self._invoice_unit_price(spec=spec, source_line=source_line)
             charges_amount = self._q(Decimal(str(spec.get("charges_amount", ZERO))))
             gross_amount = self._q(invoice_quantity * unit_price)
@@ -4123,14 +4137,39 @@ class SalesInvoiceService(TransactionalDocumentService):
         # candidates that are then filtered -- otherwise a firm whose newest
         # fifty notes are all billed sees an empty list while older billable
         # ones sit behind them. Found by asking for one and getting none.
+        # What came back of each delivery line before any bill charged for
+        # it: returned goods are not left to bill (D-SELL-55).
+        from app.sales_return.models import SalesReturn, SalesReturnLine
+
+        came_back = (
+            select(
+                SalesReturnLine.source_document_line_id.label("line_id"),
+                func.coalesce(func.sum(SalesReturnLine.unbilled_quantity), ZERO).label(
+                    "taken"
+                ),
+            )
+            .join(SalesReturn, SalesReturn.id == SalesReturnLine.sales_return_id)
+            .where(
+                SalesReturn.firm_id == firm_scope,
+                SalesReturn.is_deleted.is_(False),
+                SalesReturn.status.in_(("COMPLETED", "CLOSED")),
+                SalesReturnLine.is_deleted.is_(False),
+                SalesReturnLine.source_document_type == "DELIVERY_NOTE",
+                SalesReturnLine.unbilled_quantity > ZERO,
+            )
+            .group_by(SalesReturnLine.source_document_line_id)
+            .subquery()
+        )
         open_notes = (
             select(DeliveryNoteLine.delivery_note_id)
             .outerjoin(invoiced, invoiced.c.line_id == DeliveryNoteLine.id)
+            .outerjoin(came_back, came_back.c.line_id == DeliveryNoteLine.id)
             .where(
                 DeliveryNoteLine.is_deleted.is_(False),
                 or_(
                     DeliveryNoteLine.current_delivery_quantity
                     - func.coalesce(invoiced.c.taken, ZERO)
+                    - func.coalesce(came_back.c.taken, ZERO)
                     > ZERO,
                     # A note whose only content is a gift has no charged
                     # quantity left from the moment it is dispatched, so the
@@ -4410,7 +4449,11 @@ class SalesInvoiceService(TransactionalDocumentService):
         already = self._already_invoiced_quantity(
             firm_id=firm_id, source_document_line_id=line_id
         )
-        remaining = self._q(source_quantity - already)
+        # Less what came back before billing: returned goods are not left
+        # to bill (D-SELL-55).
+        remaining = self._q(
+            source_quantity - already - self._returned_before_billing(line_id)
+        )
         if remaining <= ZERO:
             gift_only = source_quantity <= ZERO < free_quantity
             if not gift_only or self._already_invoiced(
@@ -4446,6 +4489,58 @@ class SalesInvoiceService(TransactionalDocumentService):
             return ""
         customer = self._session.get(Customer, customer_id)
         return "" if customer is None else (customer.display_name or customer.name)
+
+    def _returned_before_billing(self, source_document_line_id: UUID) -> Decimal:
+        """Return what came back of a delivery line before any bill charged it.
+
+        A completed sales return takes its goods first from the part of the
+        note line nobody was billed for, and records it on its own line; that
+        quantity is no longer the customer's to be charged (D-SELL-55).
+        """
+        # Imported here: the return module imports this one's models.
+        from app.sales_return.billing import returned_unbilled
+
+        return self._q(
+            returned_unbilled(self._session, [source_document_line_id]).get(
+                source_document_line_id, ZERO
+            )
+        )
+
+    def _refuse_billing_returned_goods(self, row: SalesInvoice) -> None:
+        """Refuse to approve a bill for goods that came back while it waited.
+
+        A draft has charged nothing, so a return completed against its note
+        in the meantime took its goods off what was left to bill. Approving
+        the draft unchanged would charge the customer for goods the firm has
+        back on its shelf (D-SELL-55).
+        """
+        from app.sales_return.billing import note_line_billing
+
+        lines = self._session.scalars(
+            select(SalesInvoiceLine).where(
+                SalesInvoiceLine.sales_invoice_id == row.id,
+                SalesInvoiceLine.source_document_type
+                == SalesInvoiceSourceType.DELIVERY_NOTE.value,
+                SalesInvoiceLine.is_deleted.is_(False),
+            )
+        ).all()
+        positions = note_line_billing(
+            self._session,
+            {line.source_document_line_id for line in lines},
+            exclude_invoice_id=row.id,
+        )
+        for line in lines:
+            position = positions.get(line.source_document_line_id)
+            if position is None or position.returned_unbilled <= ZERO:
+                continue
+            if self._q(line.current_invoice_quantity) > position.left_to_bill:
+                raise ValidationError(
+                    f"{row.invoice_number} line {line.line_number}: "
+                    f"{self._q(position.returned_unbilled)} of the "
+                    f"{self._q(position.delivered)} delivered came back before "
+                    f"being billed, so {self._q(position.left_to_bill)} is left "
+                    "to bill. Change the bill to what the customer kept."
+                )
 
     def _already_invoiced_quantity(
         self, *, firm_id: UUID, source_document_line_id: UUID

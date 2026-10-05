@@ -75,6 +75,7 @@ from app.sales_invoice.models import (
     SalesInvoiceLine,
     SalesInvoiceLineTax,
 )
+from app.sales_return.billing import billed_share, credits_a_bill
 from app.sales_return.models import SalesReturn, SalesReturnLine, SalesReturnLineTax
 from app.tax.services.gst_buckets import (
     CESS,
@@ -2181,6 +2182,9 @@ class GstReturnService:
                     self._gstin_scope.applies(SalesReturn.branch_id),
                     SalesReturn.is_deleted.is_(False),
                     SalesReturn.status.in_(_CREDITED_RETURN_STATUSES),
+                    # A return wholly before billing is no credit note
+                    # (D-SELL-55).
+                    credits_a_bill(),
                     SalesReturn.return_date >= from_date,
                     SalesReturn.return_date <= to_date,
                 )
@@ -2193,14 +2197,18 @@ class GstReturnService:
         """Bring these sales returns to the shape the return folds, in order."""
         if not returns:
             return []
-        lines = list(
-            self._session.scalars(
+        # Only the part of a line that reversed a bill is a credit: what came
+        # back before billing reversed no tax (D-SELL-55).
+        lines = [
+            line
+            for line in self._session.scalars(
                 select(SalesReturnLine).where(
                     SalesReturnLine.sales_return_id.in_([row.id for row in returns]),
                     SalesReturnLine.is_deleted.is_(False),
                 )
             ).all()
-        )
+            if billed_share(line) > ZERO
+        ]
         taxes: dict[UUID, list[SalesReturnLineTax]] = defaultdict(list)
         if lines:
             for component in self._session.scalars(
@@ -2240,7 +2248,7 @@ class GstReturnService:
                             TaxComponent(
                                 code=component.component_code,
                                 percentage=_decimal(component.percentage),
-                                amount=_decimal(component.amount),
+                                amount=_decimal(component.amount) * billed_share(line),
                             )
                             for component in taxes.get(line.id, [])
                             if not component.included_in_price
@@ -2255,7 +2263,10 @@ class GstReturnService:
             for line, buckets in zip(ordered, settled, strict=True):
                 # What the line credited before tax: `net_amount` carries the
                 # tax, exactly as an invoice line's does.
-                taxable = Decimal(str(line.net_amount)) - Decimal(str(line.tax_amount))
+                share = billed_share(line)
+                taxable = (
+                    Decimal(str(line.net_amount)) - Decimal(str(line.tax_amount))
+                ) * share
                 rates.setdefault(buckets.rate, _RateRow(rate=buckets.rate)).add(
                     taxable, buckets
                 )
@@ -2268,7 +2279,7 @@ class GstReturnService:
                             if line.source_document_id in billed
                             else None
                         ),
-                        Decimal(str(line.current_return_quantity)),
+                        Decimal(str(line.current_return_quantity)) * share,
                         taxable,
                         buckets,
                     )

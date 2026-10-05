@@ -61,6 +61,7 @@ from app.gst_returns.services.gstr_service import (
     _LIVE_INVOICE_STATUSES,
 )
 from app.sales_invoice.models import SalesInvoice
+from app.sales_return.billing import unbilled_taxable
 from app.sales_return.models import SalesReturn
 
 #: Bills that count towards the turnover and returns that come off it: the
@@ -707,7 +708,12 @@ class CustomerRebateService:
                 "returned",
                 SalesReturn,
                 SalesReturn.return_date,
-                SalesReturn.grand_total - SalesReturn.tax_total - SalesReturn.round_off,
+                # Less what came back before billing: it was never in the
+                # turnover a bill made (D-SELL-55).
+                SalesReturn.grand_total
+                - SalesReturn.tax_total
+                - SalesReturn.round_off
+                - unbilled_taxable(),
                 SalesReturn.status.in_(RETURNED),
             ),
             (

@@ -83,6 +83,12 @@ from app.sales_invoice.models import (
     SalesInvoiceLineTax,
 )
 from app.sales_invoice.schemas import SalesInvoiceStatus
+from app.sales_return.billing import (
+    billed_share,
+    billed_tax_by_component,
+    note_line_billing,
+    return_billed_amounts,
+)
 from app.sales_return.models import (
     SalesReturn,
     SalesReturnAttachment,
@@ -153,35 +159,6 @@ def _decimal(value: object, default: Decimal = ZERO) -> Decimal:
 _RETURNABLE_INVOICE_STATES = frozenset(
     {SalesInvoiceStatus.APPROVED.value, SalesInvoiceStatus.CLOSED.value}
 )
-
-
-def _return_tax_by_component(session: Session, return_id: UUID) -> dict[str, Decimal]:
-    """Sum a return's reversed tax per component code (backlog 63.3).
-
-    Tax inside a price is left out, as the return's own tax total leaves it
-    out. Empty when the lines recorded no components, and the posting then
-    reverses `OUTPUT_TAX` whole.
-    """
-    totals: dict[str, Decimal] = {}
-    for code, amount in session.execute(
-        select(
-            SalesReturnLineTax.component_code,
-            func.coalesce(func.sum(SalesReturnLineTax.amount), 0),
-        )
-        .join(
-            SalesReturnLine,
-            SalesReturnLine.id == SalesReturnLineTax.sales_return_line_id,
-        )
-        .where(
-            SalesReturnLine.sales_return_id == return_id,
-            SalesReturnLine.is_deleted.is_(False),
-            SalesReturnLineTax.is_deleted.is_(False),
-            SalesReturnLineTax.included_in_price.is_(False),
-        )
-        .group_by(SalesReturnLineTax.component_code)
-    ).all():
-        totals[code] = Decimal(str(amount))
-    return totals
 
 
 def _refuse_unreturnable(document: DeliveryNote | SalesInvoice) -> None:
@@ -820,6 +797,15 @@ class SalesReturnService(TransactionalDocumentService):
         # customer is credited a selling price; stock returns at the cost it is
         # carried at, and the two are never the same number.
         stock_value = self._movement_value(movement_ids)
+        # What came back before any bill charged for it credits nothing and
+        # reverses no tax; only the rest is a credit note (D-SELL-55).
+        self._split_against_billing(row, lines)
+        self._session.flush()
+        credited_total, credited_tax = return_billed_amounts(self._session, [row])[
+            row.id
+        ]
+        credited_total = self._q(credited_total)
+        credited_tax = self._q(credited_tax)
         # Both postings run before the commit and either may fail the
         # completion. Stock that arrived with no journal behind it is how the
         # inventory control account stops reconciling, which is the whole
@@ -829,13 +815,13 @@ class SalesReturnService(TransactionalDocumentService):
             return_id=row.id,
             return_number=row.return_number,
             return_date=row.return_date,
-            taxable_amount=self._q(row.grand_total - row.tax_total),
-            tax_amount=row.tax_total,
-            total_amount=row.grand_total,
+            taxable_amount=self._q(credited_total - credited_tax),
+            tax_amount=credited_tax,
+            total_amount=credited_total,
             actor_id=actor_id,
             # Reversed per GST head, off the components the lines recorded
             # (backlog 63.3) -- the split 3B's credit-note rows read.
-            tax_by_component=_return_tax_by_component(self._session, row.id),
+            tax_by_component=billed_tax_by_component(self._session, row.id),
         )
         row.journal_entry_id = None if credit is None else credit.id
         cost_entry = self._posting.post_goods_return_to_stock(
@@ -849,14 +835,15 @@ class SalesReturnService(TransactionalDocumentService):
         )
         row.cost_journal_entry_id = None if cost_entry is None else cost_entry.id
         # A return worth nothing moves no balance either, and the receivable
-        # service refuses an amount of zero outright.
-        if row.grand_total > ZERO:
+        # service refuses an amount of zero outright. Nor does one whose goods
+        # were never billed: the customer was charged nothing for them.
+        if quantize_ledger(credited_total) > ZERO:
             self._customers.post_receivable_transaction(
                 row.customer_id,
                 CustomerReceivableTransactionCreate(
                     transaction_type=CustomerReceivableTransactionType.CREDIT_NOTE,
                     transaction_date=row.return_date,
-                    amount=quantize_ledger(row.grand_total),
+                    amount=quantize_ledger(credited_total),
                     reference_type="SALES_RETURN",
                     reference_id=row.id,
                     reference_number=row.return_number,
@@ -892,6 +879,53 @@ class SalesReturnService(TransactionalDocumentService):
         )
         self._session.commit()
         return row
+
+    def _split_against_billing(
+        self, row: SalesReturn, lines: Sequence[SalesReturnLine]
+    ) -> None:
+        """Take each note line's return off what was still to bill first.
+
+        A return raised off a delivery note line is set first against the
+        part of that line no bill has charged for -- delivered, less charged,
+        less what earlier returns took off it -- and only the rest against
+        what was billed (D-SELL-55, the selling twin of D-BUY-26; a sales
+        return against a delivery note in ERPNext, a rejection-in before the
+        sales voucher in Tally). The first part was never a receivable nor
+        output tax, so it moves stock and cost only and lowers what the note
+        may still be billed for; the rest is the credit note.
+
+        "Charged" is an approved or closed bill. A draft has charged nothing:
+        goods returned while one waits are returned before billing, and the
+        draft is refused at approval for what came back.
+        """
+        for line in lines:
+            line.unbilled_quantity = ZERO
+        on_notes = [
+            line
+            for line in lines
+            if line.source_document_type == SalesReturnSourceType.DELIVERY_NOTE.value
+        ]
+        if not on_notes:
+            return
+        positions = note_line_billing(
+            self._session,
+            {line.source_document_line_id for line in on_notes},
+            exclude_return_id=row.id,
+        )
+        taken: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
+        for line in sorted(on_notes, key=lambda item: item.line_number):
+            source_id = line.source_document_line_id
+            position = positions.get(source_id)
+            if position is None:
+                continue
+            open_quantity = max(position.left_to_bill - taken[source_id], ZERO)
+            unbilled = self._q(
+                min(Decimal(str(line.current_return_quantity)), open_quantity)
+            )
+            if unbilled <= ZERO:
+                continue
+            taken[source_id] += unbilled
+            line.unbilled_quantity = unbilled
 
     def cancel_return(
         self,
@@ -937,6 +971,10 @@ class SalesReturnService(TransactionalDocumentService):
                 firm_id=firm_scope,
                 actor_id=actor_id,
             )
+            # The goods are the customer's again, so what came back before
+            # billing is on the note to bill once more (D-SELL-55).
+            for line in self._lines_of(row.id):
+                line.unbilled_quantity = ZERO
         row.status = SalesReturnStatus.CANCELLED.value
         row.cancel_reason = reason
         row.updated_by = actor_id
@@ -1048,7 +1086,10 @@ class SalesReturnService(TransactionalDocumentService):
         credited: dict[UUID, Decimal] = {}
         note_lines: dict[UUID, Decimal] = {}
         for line in lines:
-            value = Decimal(str(line.net_amount))
+            # Only what a bill charged earned anything (D-SELL-55).
+            value = Decimal(str(line.net_amount)) * billed_share(line)
+            if value <= ZERO:
+                continue
             if line.source_document_type == SalesReturnSourceType.SALES_INVOICE.value:
                 credited[line.source_document_id] = (
                     credited.get(line.source_document_id, ZERO) + value

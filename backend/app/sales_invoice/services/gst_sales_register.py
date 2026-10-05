@@ -66,6 +66,7 @@ from app.gst_returns.services.gstr_service import (
     _Credit,
 )
 from app.sales_invoice.models import SalesInvoice
+from app.sales_return.billing import credits_a_bill
 from app.sales_return.models import SalesReturn
 from app.tax.services.gst_buckets import GstBuckets
 
@@ -301,6 +302,8 @@ class GstSalesRegisterService:
                 SalesReturn.firm_id == firm_id,
                 SalesReturn.is_deleted.is_(False),
                 SalesReturn.status.in_(_CREDITED_RETURN_STATUSES),
+                # A return wholly before billing is no credit note (D-SELL-55).
+                credits_a_bill(),
                 *window.dated(SalesReturn.return_date),
             ),
         ]

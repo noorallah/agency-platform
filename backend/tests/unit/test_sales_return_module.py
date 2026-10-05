@@ -22,7 +22,7 @@ from app.business.models import framework as _business_models  # noqa: F401
 from app.common.audit.models import AuditLog
 from app.core.database.base import Base
 from app.core.exceptions import ValidationError
-from app.customers.models import Customer
+from app.customers.models import Customer, CustomerReceivableTransaction
 from app.delivery_note.models import DeliveryNoteLine
 from app.delivery_note.schemas import DeliveryNoteCreate, DeliveryNoteLineWrite
 from app.delivery_note.services import DeliveryNoteService
@@ -57,6 +57,7 @@ from app.sales_invoice.services import SalesInvoiceService
 from app.sales_order.models import SalesOrderLine
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
+from app.sales_return.billing import billed_part, credits_a_bill
 from app.sales_return.models import SalesReturn, SalesReturnLine, SalesReturnLineTax
 from app.sales_return.schemas import (
     SalesReturnCreate,
@@ -166,11 +167,20 @@ def _product(session: Session, *, firm_id: UUID) -> Product:
 class _Dispatch:
     """Everything a sales return needs to exist: goods that already went out."""
 
-    def __init__(self, session: Session, *, ordered: Decimal = Decimal("4")) -> None:
+    def __init__(
+        self,
+        session: Session,
+        *,
+        ordered: Decimal = Decimal("4"),
+        billed: Decimal = Decimal("4"),
+        approve_bill: bool = True,
+    ) -> None:
         """Stock a warehouse, sell four units, and dispatch them.
 
         ``ordered`` leaves room on the order for a second note: nothing may
-        ship past the order line (D-SELL-31).
+        ship past the order line (D-SELL-31). ``billed`` is how many of the
+        four the bill charges for -- zero raises no bill at all -- and
+        ``approve_bill`` false leaves that bill a draft.
         """
         self.session = session
         self.actor_id = uuid4()
@@ -267,8 +277,18 @@ class _Dispatch:
         # Bill it. A return normally follows an invoice, and only then does it
         # reduce something: crediting a customer who owes nothing leaves them
         # in advance instead, which is true but not what these tests are about.
-        invoices = SalesInvoiceService(session)
-        invoice = invoices.create_invoice(
+        if billed <= 0:
+            return
+        self.invoice = self.bill(billed)
+        if approve_bill:
+            self.invoice = SalesInvoiceService(session).approve_invoice(
+                self.invoice.id, firm_scope=self.firm.id, actor_id=self.actor_id
+            )
+        session.refresh(self.customer)
+
+    def bill(self, quantity: Decimal) -> SalesInvoice:
+        """Raise a draft bill for some of the dispatched line."""
+        return SalesInvoiceService(self.session).create_invoice(
             SalesInvoiceCreate(
                 invoice_date=date(2026, 8, 4),
                 lines=[
@@ -277,7 +297,7 @@ class _Dispatch:
                         source_document_id=self.note.id,
                         source_document_line_id=self.note_line.id,
                         line_number=1,
-                        current_invoice_quantity=Decimal("4"),
+                        current_invoice_quantity=quantity,
                         unit_price=PRICE,
                     )
                 ],
@@ -285,10 +305,6 @@ class _Dispatch:
             firm_id=self.firm.id,
             actor_id=self.actor_id,
         )
-        self.invoice = invoices.approve_invoice(
-            invoice.id, firm_scope=self.firm.id, actor_id=self.actor_id
-        )
-        session.refresh(self.customer)
 
     def payload(
         self,
@@ -1424,3 +1440,168 @@ def test_the_return_reports_take_a_window_and_a_page() -> None:
         "/api/v1/sales-returns/reports/by-product",
         "/api/v1/sales-returns/reports/reconciliation",
     )
+
+
+def _credits(session: Session) -> list[CustomerReceivableTransaction]:
+    """Return the rows sales returns put on customers' accounts."""
+    return list(
+        session.scalars(
+            select(CustomerReceivableTransaction).where(
+                CustomerReceivableTransaction.reference_type == "SALES_RETURN"
+            )
+        ).all()
+    )
+
+
+def _left_to_bill(setup: _Dispatch) -> Decimal:
+    """Read what the note still offers for billing, as the bill screen does."""
+    documents = SalesInvoiceService(setup.session).billable_documents(
+        firm_scope=setup.firm.id
+    )
+    return sum(
+        (
+            line.remaining_quantity
+            for document in documents
+            if document.source_document_id == setup.note.id
+            for line in document.lines
+        ),
+        Decimal("0"),
+    )
+
+
+def test_goods_back_before_billing_credit_nothing_and_reverse_no_tax() -> None:
+    """D-SELL-55: a return against a note never billed credited its full price.
+
+    Driven 2026-10-05: an order of 5 dispatched and never billed, returned
+    whole -- the customer came out 590.00 in advance, the journal debited
+    Sales Returns 500 and reversed 90 of output tax never raised, and the note
+    still offered all 5 for billing. Goods back before billing move stock and
+    cost only (the selling twin of D-BUY-26).
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session, billed=Decimal("0"))
+    on_hand_before = _on_hand(
+        session, firm_id=setup.firm.id, product_id=setup.product.id
+    )
+    returns_before = _account_movement(session, setup.firm.id, "sales return")
+    cost_before = _account_movement(session, setup.firm.id, "cost of goods")
+
+    _service, row = setup.completed(quantity=Decimal("3"))
+
+    assert row.status == SalesReturnStatus.COMPLETED.value
+    assert row.grand_total == Decimal("300.0000"), "the document still states it"
+    # The shelf and its cost move.
+    assert _on_hand(
+        session, firm_id=setup.firm.id, product_id=setup.product.id
+    ) == on_hand_before + Decimal("3")
+    assert row.cost_journal_entry_id is not None
+    assert _account_movement(
+        session, setup.firm.id, "cost of goods"
+    ) - cost_before == -(COST * 3)
+    # The customer's account and the sales side do not.
+    assert _credits(session) == []
+    session.refresh(setup.customer)
+    assert Decimal(str(setup.customer.current_outstanding)) == Decimal("0")
+    assert Decimal(str(setup.customer.unapplied_advance_balance)) == Decimal("0")
+    assert row.journal_entry_id is None
+    assert _account_movement(session, setup.firm.id, "sales return") == returns_before
+    line = session.scalar(
+        select(SalesReturnLine).where(SalesReturnLine.sales_return_id == row.id)
+    )
+    assert line is not None and line.unbilled_quantity == Decimal("3.0000")
+    # And the note has one left to bill, not four.
+    assert _left_to_bill(setup) == Decimal("1.0000")
+    with pytest.raises(ValidationError, match="came back before being billed"):
+        setup.bill(Decimal("4"))
+    session.rollback()
+    assert setup.bill(Decimal("1")).grand_total == Decimal("100.0000")
+    # No credit note for the tax returns to declare.
+    assert session.scalars(select(SalesReturn).where(credits_a_bill())).all() == []
+
+
+def test_a_part_billed_note_is_credited_only_for_the_share_billed() -> None:
+    """Returned goods are taken first from the part nobody was billed for.
+
+    Four delivered, three billed, two come back: one was never charged and
+    one was. The customer is credited for one, and nothing is left to bill.
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session, billed=Decimal("3"))
+    owed_before = Decimal(str(setup.customer.current_outstanding))
+    returns_before = _account_movement(session, setup.firm.id, "sales return")
+
+    _service, row = setup.completed(quantity=Decimal("2"))
+
+    line = session.scalar(
+        select(SalesReturnLine).where(SalesReturnLine.sales_return_id == row.id)
+    )
+    assert line is not None and line.unbilled_quantity == Decimal("1.0000")
+    [credit] = _credits(session)
+    assert credit.amount == Decimal("100.00")
+    session.refresh(setup.customer)
+    assert Decimal(str(setup.customer.current_outstanding)) == owed_before - 100
+    assert _account_movement(
+        session, setup.firm.id, "sales return"
+    ) - returns_before == Decimal("100.00")
+    assert _left_to_bill(setup) == Decimal("0")
+    # The reports that net returns off billed sales read the billed part.
+    assert session.scalars(select(SalesReturn).where(credits_a_bill())).all() == [row]
+    billed_value = session.scalar(
+        select(func.sum(billed_part(SalesReturnLine.net_amount))).where(
+            SalesReturnLine.sales_return_id == row.id
+        )
+    )
+    assert Decimal(str(billed_value)).quantize(Decimal("0.01")) == Decimal("100.00")
+
+
+def test_goods_back_after_the_bill_was_cancelled_credit_nothing() -> None:
+    """A cancelled bill charged nothing, so its note is unbilled again."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    SalesInvoiceService(session).cancel_invoice(
+        setup.invoice.id,
+        firm_scope=setup.firm.id,
+        actor_id=setup.actor_id,
+        reason="Raised in error.",
+    )
+    session.refresh(setup.customer)
+    assert Decimal(str(setup.customer.current_outstanding)) == Decimal("0")
+
+    _service, row = setup.completed(quantity=Decimal("2"))
+
+    assert _credits(session) == []
+    assert row.journal_entry_id is None
+    session.refresh(setup.customer)
+    assert Decimal(str(setup.customer.unapplied_advance_balance)) == Decimal("0")
+    assert _left_to_bill(setup) == Decimal("2.0000")
+
+
+def test_a_draft_bill_is_refused_for_goods_that_came_back_while_it_waited() -> None:
+    """A draft has charged nothing, so the return is before billing."""
+    session = _session_factory()()
+    setup = _Dispatch(session, approve_bill=False)
+
+    _service, row = setup.completed(quantity=Decimal("1"))
+
+    assert _credits(session) == []
+    with pytest.raises(ValidationError, match="came back before being billed"):
+        SalesInvoiceService(session).approve_invoice(
+            setup.invoice.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+        )
+
+
+def test_cancelling_a_return_before_billing_puts_the_goods_back_to_bill() -> None:
+    """The goods are the customer's again, so the note may bill them."""
+    session = _session_factory()()
+    setup = _Dispatch(session, billed=Decimal("0"))
+    service, row = setup.completed(quantity=Decimal("3"))
+    assert _left_to_bill(setup) == Decimal("1.0000")
+
+    service.cancel_return(
+        row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id, reason="Miskeyed."
+    )
+
+    assert _left_to_bill(setup) == Decimal("4.0000")
+    assert _credits(session) == []
+    session.refresh(setup.customer)
+    assert Decimal(str(setup.customer.current_outstanding)) == Decimal("0")
