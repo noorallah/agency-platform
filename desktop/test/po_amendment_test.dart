@@ -242,7 +242,14 @@ void main() {
     PurchaseDialogMode.view,
     PurchaseDialogMode.amend,
   ]) {
-    for (final Size size in const <Size>[Size(800, 900), Size(1366, 768)]) {
+    // D-UI-12: a window 600 high ran 72px off the bottom; the order's own
+    // column now scrolls there instead.
+    for (final Size size in const <Size>[
+      Size(800, 900),
+      Size(1366, 768),
+      Size(800, 600),
+      Size(1366, 600),
+    ]) {
       testWidgets(
           'the editor fits a ${size.width.toInt()}x${size.height.toInt()} '
           'window (${mode.name})', (tester) async {
