@@ -108,6 +108,10 @@ MODULES: tuple[tuple[str, frozenset[str]], ...] = (
                 "supplier-rebates",
                 "landed-costs",
                 "principal-claims",
+                "rfqs",
+                "rate-contracts",
+                "supplier-schemes",
+                "bills-of-entry",
             }
         ),
     ),
@@ -122,6 +126,7 @@ MODULES: tuple[tuple[str, frozenset[str]], ...] = (
                 "party-adjustments",
                 "post-dated-cheques",
                 "bank-reconciliation",
+                "fixed-assets",
             }
         ),
     ),

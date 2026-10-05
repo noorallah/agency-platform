@@ -90,7 +90,7 @@ def test_the_statement_explains_the_change_in_cash_and_bank() -> None:
     receivables = _account(books, "1100")
     sales = _account(books, "4000")
     capital = _account(books, "3000")
-    furniture = _new_account(books, "FA", "Furniture", AccountTypeEnum.ASSET, "1590")
+    furniture = _account(books, "1500")
     loan = _new_account(books, "LTL", "Bank Loan", AccountTypeEnum.LIABILITY, "2590")
     _post(books, "CAPITAL", bank, capital, "100000")
     _post(books, "SALE", receivables, sales, "50000")
@@ -115,7 +115,7 @@ def test_the_statement_explains_the_change_in_cash_and_bank() -> None:
     ], "receivables up 20,000: sold but not collected"
     assert found.operating_total == D("30000.00")
     assert [(line.account_code, line.amount) for line in found.investing] == [
-        ("1590", D("-20000.00"))
+        ("1500", D("-20000.00"))
     ]
     assert sorted((line.account_code, line.amount) for line in found.financing) == [
         ("2590", D("40000.00")),

@@ -156,6 +156,10 @@ def test_every_entity_carries_the_counter(temp_schema: str, engine: Engine) -> N
     concurrency counter are the vocabulary of a record somebody edits. Two
     clients reporting at once are reporting two different failures, not
     competing to write one row.
+
+    ``document_file_contents`` holds the bytes of an attached file, one row per
+    ``document_files`` row, written once and never updated. The record somebody
+    edits or removes is the ``document_files`` row, which carries the counter.
     """
     with engine.connect() as connection:
         missing = (
@@ -166,7 +170,8 @@ def test_every_entity_carries_the_counter(temp_schema: str, engine: Engine) -> N
             where t.table_schema = %(schema)s
               and t.table_type = 'BASE TABLE'
               and t.table_name not in (
-                'alembic_version', 'audit_logs', 'error_reports'
+                'alembic_version', 'audit_logs', 'error_reports',
+                'document_file_contents'
               )
               and not exists (
                 select 1 from information_schema.columns c

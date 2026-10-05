@@ -7,7 +7,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    ResolvedFirmScope,
+    firm_any_permission_scope,
+    firm_permission_scope,
+)
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
@@ -39,6 +43,10 @@ router = APIRouter(
 
 ViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("FIXED_ASSET_VIEW")]
 ManageScope = Annotated[ResolvedFirmScope, firm_permission_scope("FIXED_ASSET_MANAGE")]
+#: A report opens to its module's readers and to ``REPORT_VIEW`` alike.
+ReportScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("FIXED_ASSET_VIEW", "REPORT_VIEW")
+]
 #: What posts a journal -- a depreciation run, its cancellation, a disposal --
 #: also needs the right to post journals.
 _POSTING_CODE = "JOURNAL_POST"
@@ -234,7 +242,7 @@ def cancel_depreciation_run(
 @router.get("/reports/it-block-schedule", response_model=ApiResponse[ItBlockSchedule])
 def it_block_schedule(
     financial_year_id: UUID,
-    scope: ViewScope,
+    scope: ReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[ItBlockSchedule]:
     """Return the Income-tax block schedule of a financial year; posts nothing."""

@@ -192,7 +192,10 @@ void main() {
     expect(_step('approve'), findsOneWidget);
     await tester.tap(_step('approve'));
     await tester.pumpAndSettle();
-    expect(api.calls, ['POST /api/v1/purchase-invoices/pi-1/approve']);
+    // PG-3 and PG-5: Approve opens a dialog, and the dialog approves.
+    await tester.tap(find.byKey(const ValueKey('approve-bill-confirm')));
+    await tester.pumpAndSettle();
+    expect(api.calls, contains('POST /api/v1/purchase-invoices/pi-1/approve'));
     expect(closed.single, isA<DocumentStepDone>());
   });
 

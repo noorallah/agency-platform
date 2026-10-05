@@ -281,7 +281,9 @@ class SupplierSchemeService:
         total = self._session.scalar(select(func.count()).select_from(query.subquery()))
         rows = self._session.scalars(
             query.order_by(
-                SupplierScheme.valid_from.desc(), SupplierScheme.created_at.desc()
+                SupplierScheme.valid_from.desc(),
+                SupplierScheme.created_at.desc(),
+                SupplierScheme.id,
             )
             .offset((page - 1) * page_size)
             .limit(page_size)
