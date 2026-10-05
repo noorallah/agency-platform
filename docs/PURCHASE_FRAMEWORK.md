@@ -402,6 +402,19 @@ cancelled return gives its quantity back.
   0; free goods go back off the goods receipt that brought them in. 4 of these
   goods have already gone back against the goods receipt that brought them in,
   or another bill for it."
+- **The figures the line stores use the same count** (D-BUY-66, 2026-10-06).
+  `already_returned_quantity` -- on the line, on the header total and on the
+  reconciliation report -- is what the cap counted: the bought units gone
+  back by either document, plus the free ones off this receipt line. It
+  counted only the returns naming the same source line, so with 10 + 2 free
+  received and billed, the 10 returned off the bill and the 2 free off the
+  receipt, the receipt-line row read already returned 0 and pending 10 while
+  a return of 1 off it was refused with 0 left; it reads 10 and 0. For a line
+  off a bill it is the billed quantity less what that line may still send
+  back, so 4 gone off the receipt of a line billed for 10 reads 4. **Pending
+  is what could still go back once that return had**: the figures are
+  written at save and a later return does not rewrite an earlier row, nor
+  does this fix rewrite rows saved before it.
 - **Free goods are counted apart.** After the 10 bought have gone back off the
   bill line, the 2 free still go back off the receipt line; with
   `free_quantity` left blank they are free, since "bought first" finds no
