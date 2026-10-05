@@ -2076,7 +2076,10 @@ def build_selling_firm(built: Built) -> None:
         "BULK5 7.5% at 25+; BIGORDER 200 off 4,500+ (ends stack); CLEARANCE 1% at 40+",
     )
     built.say("Coupons", "WELCOME 2.5%, codes WELCOME10 and WELCOME10B")
-    built.say("TCS", "on, threshold 0, 0.1% (1% without a PAN)")
+    built.say(
+        "TCS",
+        "on, threshold 0, 0.1% (1% without a PAN); collects nothing from 1 April 2025",
+    )
     built.say(
         "Loyalty", "2 points per 100, worth 1, 50 to redeem, expire after 24 months"
     )

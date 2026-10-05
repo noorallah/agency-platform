@@ -67,8 +67,8 @@ journals and the receivable; a return with no price takes the source line's.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
-
-None open (2026-10-01).
+| D-SELL-47 | Medium | **Loyalty points earned on a bill are not taken back when its goods come back or it is credited.** A completed sales return and an approved credit note reduce the receivable, sales and output tax, but the points the bill earned stay on the customer and the accrual stays in *Loyalty Payable*; a customer who returns everything keeps the points and can spend them on the next bill. Neither `app/sales_return` nor `app/credit_note` calls the loyalty service. Industry standard (ERPNext, Zoho): points are reversed in proportion to the value returned. | Live, `fx_t1005j1us_s`, 2026-10-05: bills of 1,159.70 earned 23.19; after a return of 193.28 and a credit note of 59.00, 2600 *Loyalty Payable* and 5700 *Loyalty Expense* still read 23.19 |
+| D-SELL-48 | Low | **Output CGST and Output SGST drift a paisa apart in the ledger.** A line's CGST and SGST are stored equal to four places (36.8550 each), but the journal rounds one head down and puts the residual on the other so the entry balances (36.85 and 36.86). The returns read the documents and are unaffected; the two ledger accounts, which an accountant expects to match, do not. | Live, `fx_t1005j1us_s`, 2026-10-05: two bills, 2220 *Output CGST* 88.44 against 2230 *Output SGST* 88.46 |
 
 ### Finance -- found writing the Finance data trail, 2026-09-19
 
