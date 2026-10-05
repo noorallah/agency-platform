@@ -345,7 +345,7 @@ class SalesChainService:
             [
                 line
                 for line in order_lines
-                if self._shipping(line, quantities) > ZERO and line.id not in serials
+                if self._ships(line, quantities) and line.id not in serials
             ]
         )
         notes = DeliveryNoteService(self._session)
@@ -368,7 +368,7 @@ class SalesChainService:
                         (batches or {}).get(line.id),
                     )
                     for line in order_lines
-                    if self._shipping(line, quantities) > ZERO
+                    if self._ships(line, quantities)
                 ],
             ),
             firm_id=firm_id,
@@ -454,6 +454,24 @@ class SalesChainService:
         if quantities is None:
             return line.quantity
         return quantities.get(line.id, ZERO)
+
+    @classmethod
+    def _ships(
+        cls, line: SalesOrderLine, quantities: dict[UUID, Decimal] | None
+    ) -> bool:
+        """Say whether this dispatch carries anything of one order line.
+
+        A line whose whole content is a gift charges for nothing and still
+        ships: it goes whenever the bill takes the whole order or names the
+        line. Judged on the charged quantity alone it was left off the note,
+        and a bill of nothing but free goods raised a note with no lines
+        (D-SELL-53).
+        """
+        if cls._shipping(line, quantities) > ZERO:
+            return True
+        return line.quantity <= ZERO < line.free_quantity and (
+            quantities is None or line.id in quantities
+        )
 
     def _rebind(
         self, data: SalesInvoiceCreate, *, note: DeliveryNote

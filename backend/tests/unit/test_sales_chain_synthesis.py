@@ -17,6 +17,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -27,7 +28,7 @@ from app.branches.models import Branch, Warehouse
 from app.business.models import framework as _business_models  # noqa: F401
 from app.core.database.base import Base
 from app.core.exceptions import ValidationError
-from app.customers.models import Customer
+from app.customers.models import Customer, CustomerReceivableTransaction
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.delivery_note.schemas import DeliveryNoteCreate, DeliveryNoteLineWrite
 from app.delivery_note.services.delivery_note_service import DeliveryNoteService
@@ -575,6 +576,152 @@ def test_cancelling_an_approved_counter_bill_leaves_no_stock_reserved() -> None:
     assert order.status == "DELIVERED"
     assert _reserved(session) == Decimal("0.0000")
     assert _dispatches(session) == 1
+
+
+def _sale_journals(session: Session) -> list[JournalEntry]:
+    """Return the journals bills posted for themselves."""
+    return list(
+        session.scalars(
+            select(JournalEntry).where(JournalEntry.source_module == "sales_invoice")
+        ).all()
+    )
+
+
+def test_a_bill_at_a_full_discount_approves_and_owes_nothing() -> None:
+    """D-SELL-53: a bill that came to nothing answered 500 at approval.
+
+    Driven 2026-10-05: a counter bill at ``discount_percent`` 100 saved at
+    0.0000 and its approval raised a receivable for 0, which that schema
+    refuses. The bill approves: the goods leave and their cost is posted, and
+    nothing is put on the customer's account or into a journal of zero lines.
+    """
+    session = _request_session()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    service = SalesInvoiceService(session)
+    actor = uuid4()
+    bill = setup.bare_bill()
+    bill.lines[0].discount_percent = Decimal("100")
+    invoice = service.create_invoice(bill, firm_id=setup.firm.id, actor_id=actor)
+    assert invoice.grand_total == Decimal("0.0000")
+
+    approved = service.approve_invoice(
+        invoice.id, firm_scope=setup.firm.id, actor_id=actor
+    )
+
+    assert approved.status == SalesInvoiceStatus.APPROVED.value
+    assert session.scalars(select(CustomerReceivableTransaction)).all() == []
+    assert _sale_journals(session) == [], "no journal of zero lines"
+    assert _dispatches(session) == 1, "the goods still leave"
+    cost = session.scalar(
+        select(JournalEntry).where(JournalEntry.source_module == "delivery_note")
+    )
+    assert cost is not None and cost.total_debit == Decimal("240.00")
+    billable = service.billable_documents(firm_scope=setup.firm.id)
+    assert billable == [], "and the note reads billed"
+
+    # Cancelling it takes nothing off an account it put nothing on.
+    service.cancel_invoice(
+        invoice.id, firm_scope=setup.firm.id, actor_id=actor, reason="keyed twice"
+    )
+    assert session.scalars(select(CustomerReceivableTransaction)).all() == []
+
+
+def test_a_bill_of_free_goods_alone_ships_them_and_owes_nothing() -> None:
+    """A line that charges for nothing and gives goods away is still a line."""
+    session = _request_session()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    service = SalesInvoiceService(session)
+    actor = uuid4()
+    bill = SalesInvoiceCreate(
+        customer_id=setup.customer.id,
+        invoice_date=date(2026, 8, 4),
+        lines=[
+            SalesInvoiceLineWrite(
+                product_id=setup.product.id,
+                line_number=1,
+                current_invoice_quantity=Decimal("0"),
+                free_quantity=Decimal("2"),
+                unit_price=Decimal("0"),
+            )
+        ],
+    )
+
+    invoice = service.create_invoice(bill, firm_id=setup.firm.id, actor_id=actor)
+    service.approve_invoice(invoice.id, firm_scope=setup.firm.id, actor_id=actor)
+
+    line = session.scalar(
+        select(SalesInvoiceLine).where(SalesInvoiceLine.sales_invoice_id == invoice.id)
+    )
+    assert line is not None and line.free_quantity == Decimal("2.0000")
+    moved = session.scalars(
+        select(InventoryTransaction).where(
+            InventoryTransaction.transaction_type == "DISPATCH"
+        )
+    ).all()
+    assert sum(abs(row.quantity) for row in moved) == Decimal("2.0000")
+    assert session.scalars(select(CustomerReceivableTransaction)).all() == []
+    assert _sale_journals(session) == []
+
+
+def test_a_line_of_nothing_is_refused_on_every_selling_document() -> None:
+    """D-SELL-53: quantity 0 with nothing free was accepted, then answered 500.
+
+    Refused where the request is read, so the answer is 422 naming the line.
+    A gift line -- nothing charged, goods free -- still stands on all three.
+    """
+    product, order_line = uuid4(), uuid4()
+    with pytest.raises(PydanticValidationError, match="quantity of 0"):
+        SalesInvoiceLineWrite(
+            product_id=product, line_number=1, current_invoice_quantity=Decimal("0")
+        )
+    with pytest.raises(PydanticValidationError, match="quantity of 0"):
+        SalesOrderLineWrite(line_number=1, product_id=product, quantity=Decimal("0"))
+    with pytest.raises(PydanticValidationError, match="quantity of 0"):
+        DeliveryNoteLineWrite(
+            sales_order_line_id=order_line,
+            line_number=1,
+            current_delivery_quantity=Decimal("0"),
+        )
+
+    SalesInvoiceLineWrite(
+        product_id=product,
+        line_number=1,
+        current_invoice_quantity=Decimal("0"),
+        free_quantity=Decimal("1"),
+    )
+    SalesOrderLineWrite(
+        line_number=1,
+        product_id=product,
+        quantity=Decimal("0"),
+        free_quantity=Decimal("1"),
+    )
+    DeliveryNoteLineWrite(
+        sales_order_line_id=order_line,
+        line_number=1,
+        current_delivery_quantity=Decimal("0"),
+        free_quantity=Decimal("1"),
+    )
+
+
+def test_a_bill_of_a_note_at_quantity_nothing_is_refused() -> None:
+    """A line billing a document for 0 is judged against what it inherits."""
+    session = _request_session()
+    setup = _Firm(session)
+    setup.stages(delivery_note=True)
+    note = _persons_note(setup)
+    DeliveryNoteService(session).stage_dispatch(
+        note.id, firm_scope=setup.firm.id, actor_id=uuid4()
+    )
+    session.commit()
+    bill = _bill_of(setup, note)
+    bill.lines[0].current_invoice_quantity = Decimal("0")
+
+    with pytest.raises(ValidationError, match="quantity of 0"):
+        SalesInvoiceService(session).create_invoice(
+            bill, firm_id=setup.firm.id, actor_id=uuid4()
+        )
 
 
 def _persons_note(setup: _Firm) -> DeliveryNote:

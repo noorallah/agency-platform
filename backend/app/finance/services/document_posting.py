@@ -507,7 +507,7 @@ class DocumentPostingService:
         actor_id: UUID,
         tax_by_component: dict[str, Decimal] | None = None,
         other_charges_amount: Decimal = ZERO,
-    ) -> JournalEntry:
+    ) -> JournalEntry | None:
         """Post revenue, output tax and the receivable for an approved invoice.
 
         Cost of goods sold is not posted here. Goods leave stock when a delivery
@@ -531,7 +531,8 @@ class DocumentPostingService:
                 to `OTHER_CHARGES_RECOVERED` and taken off the revenue leg.
 
         Returns:
-            The posted journal entry.
+            The posted journal entry, or None for a bill whose every leg is
+            nothing: no zero lines are written (D-SELL-53).
 
         Raises:
             ValidationError: If accounts or an open period are missing, or the
@@ -572,6 +573,11 @@ class DocumentPostingService:
         ledger_tax = quantize_ledger(tax)
         ledger_taxable = ledger_total - ledger_tax
 
+        # What is left for revenue once tax and charges are taken out of the
+        # total. On a bill that comes to nothing but still carries tax it is
+        # negative -- the firm bore the tax -- and is debited rather than
+        # credited as a negative (D-SELL-53).
+        ledger_revenue = ledger_taxable - ledger_charges
         lines = [
             JournalLineData(
                 ledger_account_id=accounts[ControlAccountPurpose.ACCOUNTS_RECEIVABLE],
@@ -580,7 +586,8 @@ class DocumentPostingService:
             ),
             JournalLineData(
                 ledger_account_id=accounts[ControlAccountPurpose.SALES_REVENUE],
-                credit_amount=ledger_taxable - ledger_charges,
+                debit_amount=max(-ledger_revenue, ZERO),
+                credit_amount=max(ledger_revenue, ZERO),
                 description=f"Invoice {invoice_number}",
             ),
         ]
@@ -602,6 +609,16 @@ class DocumentPostingService:
                 describe=f"on {invoice_number}",
             )
         )
+        # A bill that comes to nothing -- a 100% discount, or goods given
+        # free -- has legs of 0.00, and one whose every leg is nothing has no
+        # entry to post. The goods' cost was posted by the dispatch.
+        lines = [
+            line
+            for line in lines
+            if line.debit_amount != ZERO or line.credit_amount != ZERO
+        ]
+        if not lines:
+            return None
 
         entry = self._journals.create_entry(
             firm_id=firm_id,

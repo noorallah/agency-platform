@@ -6,7 +6,13 @@ from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.sales.schemas.document_preview import DocumentPreviewLine
@@ -91,6 +97,21 @@ class SalesOrderLineWrite(SalesOrderSchema):
     #: The batch the customer asked for; null takes earliest expiry (79.4).
     pinned_batch_id: UUID | None = None
     remarks: str | None = None
+
+    @model_validator(mode="after")
+    def _orders_something(self) -> "SalesOrderLineWrite":
+        """Refuse a line that orders nothing and gives nothing (D-SELL-53).
+
+        A quantity of 0 with free goods is a gift line and stands. With none
+        it is a line for nothing: it reserved nothing, shipped nothing, and
+        the bill at the end of it could never be approved.
+        """
+        if self.quantity <= 0 and not (self.free_quantity or 0) > 0:
+            raise ValueError(
+                f"Line {self.line_number} orders a quantity of 0 and supplies "
+                "nothing free. Type a quantity, or leave the line off the order."
+            )
+        return self
 
 
 class SalesOrderCreate(SalesOrderSchema):

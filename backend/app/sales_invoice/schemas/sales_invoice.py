@@ -226,6 +226,19 @@ class SalesInvoiceLineWrite(SalesInvoiceSchema):
             raise ValueError(
                 "A line must name either the source document it bills or a " "product."
             )
+        if (
+            self.product_id is not None
+            and self.current_invoice_quantity <= 0
+            and not (self.free_quantity or 0) > 0
+        ):
+            # A line of products with nothing charged and nothing given: the
+            # order raised behind it had nothing to ship, and the save
+            # answered 500 (D-SELL-53). A line billing a document is judged
+            # where its source is read, since only that says what it inherits.
+            raise ValueError(
+                f"Line {self.line_number} bills a quantity of 0 and supplies "
+                "nothing free. Type a quantity, or leave the line off the bill."
+            )
         return self
 
 
