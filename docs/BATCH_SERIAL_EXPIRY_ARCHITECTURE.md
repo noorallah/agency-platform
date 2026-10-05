@@ -521,8 +521,23 @@ if the rest fall short; so with nobody choosing, a compliant batch simply goes.
 The picker's availability takes `customer_id`, flags such a batch
 `short_for_customer` and never pre-fills it; `batch-check` reports
 `SHORT_SHELF_LIFE` and `would_block`. A batch chosen by hand anyway meets
-`shelf_life_policy`. The order's earlier reservation may sit on the short
-batch; dispatch lets it go and draws the compliant one.
+`shelf_life_policy`.
+
+**The reservation follows the same rule** (D-SELL-58). Approval reads the
+customer's minimum shelf life on the order's date and passes over a short
+batch exactly as dispatch will (`allocate_for_reservation(keep_until=)`; both
+go through `_without_short_dated`, which also applies the product's own
+stop-selling window). The hold used to go on the earliest batch regardless,
+so the next order took the only batch that suited and the first order's
+dispatch was refused with stock on the shelf. What suitable stock cannot
+cover is a back order whose movement names the batch passed over. A pinned
+batch is not filtered: the customer asked for it, and it is judged when it
+ships. A counter bill line drawn wholly from one batch it chose pins that
+batch on the order it raises, so the draft holds the batch it will ship.
+
+**The back-order report reads stock by batch** (D-SELL-60): stock in an
+expired batch is not counted, and a pinned line is measured against its own
+batch alone.
 
 ### Pinning a batch on the order (backlog 79 row 4)
 

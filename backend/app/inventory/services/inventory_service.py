@@ -3123,11 +3123,17 @@ class InventoryService:
         quantity: Decimal,
         as_of: date | None = None,
         only_batch: UUID | None = None,
+        keep_until: date | None = None,
     ) -> ReservationPlan:
         """Choose which batches a sales order holds, earliest expiry first.
 
         ``only_batch`` is a batch the customer asked for (backlog 79 row 4):
         only it is held, and what it cannot cover is the back order.
+
+        ``keep_until`` is the date the customer's minimum shelf life asks the
+        goods to last to, as ``allocate_for_dispatch`` takes it: a batch
+        expiring before it is passed over here as it will be there, so the
+        hold lands on stock the order can actually ship (D-SELL-58).
 
         Committing stock at approval is what stops two salespeople promising
         the same box, and until now it committed the *product*: the movement
@@ -3173,6 +3179,21 @@ class InventoryService:
         if only_batch is not None:
             rows = [row for row in rows if row.batch_id == only_batch]
         rows, expired, held_expired = self._without_expired(rows, as_of=as_of)
+        short: dict[UUID, tuple[str, date]] = {}
+        if only_batch is None:
+            # The batches dispatch will pass over for this customer are not
+            # held for them either (D-SELL-58): the hold went on the earliest
+            # batch, the next order took the only one that suited, and the
+            # first order's dispatch was refused with stock on the shelf. A
+            # batch the customer asked for by name is theirs to ask for, and
+            # is judged when it ships.
+            rows, short = self._without_short_dated(
+                rows,
+                firm_scope=firm_scope,
+                product_id=product_id,
+                as_of=as_of,
+                keep_until=keep_until,
+            )
         outstanding = Decimal(str(quantity))
         allocation: list[tuple[UUID | None, Decimal]] = []
         for row in rows:
@@ -3186,8 +3207,61 @@ class InventoryService:
         note = ""
         if outstanding > ZERO:
             allocation.append((None, outstanding))
-            note = self._expired_note(expired, held_expired, verb="reserved")
+            note = self._expired_note(
+                expired, held_expired, verb="reserved"
+            ) + self._short_dated_note(short)
         return ReservationPlan(batches=allocation, expired_note=note)
+
+    def _without_short_dated(
+        self,
+        rows: list[InventoryRecord],
+        *,
+        firm_scope: UUID,
+        product_id: UUID,
+        as_of: date | None,
+        keep_until: date | None,
+    ) -> tuple[list[InventoryRecord], dict[UUID, tuple[str, date]]]:
+        """Drop the rows whose batch will not last as long as it must.
+
+        One step for reservation and dispatch alike, as ``_without_expired``
+        is, and for the same reason: the hold has to be on the stock that
+        will ship. ``keep_until`` is the date a customer's minimum shelf life
+        asks the goods to last to; the product's own stop-selling window
+        (STK-5) is a date its goods must outlast in the same way, and the
+        later of the two rules.
+
+        Returns:
+            The rows that last long enough, and the batches passed over by
+            id (number and expiry date, for naming them).
+
+        """
+        from app.batch_serial.services.expiry_rules import expiry_rules
+
+        rule = expiry_rules(self._session, firm_scope, {product_id}).get(product_id)
+        stop_at = rule.sell_until(as_of or utc_now().date()) if rule else None
+        if stop_at is not None and (keep_until is None or stop_at > keep_until):
+            keep_until = stop_at
+        if keep_until is None:
+            return rows, {}
+        short = self._expired_batches(
+            {row.batch_id for row in rows if row.batch_id is not None},
+            as_of=keep_until,
+        )
+        return [row for row in rows if row.batch_id not in short], short
+
+    @staticmethod
+    def _short_dated_note(short: dict[UUID, tuple[str, date]]) -> str:
+        """Name the batches passed over for a customer's minimum shelf life."""
+        if not short:
+            return ""
+        return (
+            " Too short-dated for this customer's minimum shelf life: "
+            + ", ".join(
+                f"{number} (expires {expiry.isoformat()})"
+                for number, expiry in short.values()
+            )
+            + "."
+        )
 
     def allocate_for_release(
         self,
@@ -3408,19 +3482,13 @@ class InventoryService:
         rows, expired, held_expired = self._without_expired(rows, as_of=as_of)
         # The product's own stop-selling window (STK-5) is a date its goods
         # must outlast, like a customer's minimum shelf life.
-        from app.batch_serial.services.expiry_rules import expiry_rules
-
-        rule = expiry_rules(self._session, firm_scope, {product_id}).get(product_id)
-        stop_at = rule.sell_until(as_of or utc_now().date()) if rule else None
-        if stop_at is not None and (keep_until is None or stop_at > keep_until):
-            keep_until = stop_at
-        short: dict[UUID, tuple[str, date]] = {}
-        if keep_until is not None:
-            short = self._expired_batches(
-                {row.batch_id for row in rows if row.batch_id is not None},
-                as_of=keep_until,
-            )
-            rows = [row for row in rows if row.batch_id not in short]
+        rows, short = self._without_short_dated(
+            rows,
+            firm_scope=firm_scope,
+            product_id=product_id,
+            as_of=as_of,
+            keep_until=keep_until,
+        )
         outstanding = Decimal(str(quantity))
         allocation: list[tuple[UUID | None, Decimal]] = []
         for row in rows:
@@ -3441,16 +3509,7 @@ class InventoryService:
                     else ""
                 )
                 + self._expired_note(expired, held_expired, verb="dispatched")
-                + (
-                    " Too short-dated for this customer's minimum shelf life: "
-                    + ", ".join(
-                        f"{number} (expires {expiry.isoformat()})"
-                        for number, expiry in short.values()
-                    )
-                    + "."
-                    if short
-                    else ""
-                )
+                + self._short_dated_note(short)
             )
         return allocation
 
