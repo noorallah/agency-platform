@@ -31,6 +31,7 @@ from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
 from app.core.utils.dates import utc_now
 from app.core.utils.pricing import resolve_supplier_free_goods
+from app.finance.services.control_accounts import ControlAccountPurpose
 from app.goods_receipt.models import GoodsReceiptLine
 from app.goods_receipt.schemas import GoodsReceiptCreate
 from app.goods_receipt.services.goods_receipt_service import GoodsReceiptService
@@ -42,6 +43,11 @@ from app.purchase.services import PurchaseService
 from app.purchase_invoice.schemas import PurchaseInvoiceCreate
 from app.purchase_invoice.services.purchase_invoice_service import (
     PurchaseInvoiceService,
+)
+from app.purchase_return.models import PurchaseReturn
+from app.purchase_return.schemas import PurchaseReturnCreate
+from app.purchase_return.services.purchase_return_service import (
+    PurchaseReturnService,
 )
 from app.supplier_schemes.api.router import list_supplier_schemes, router
 from app.supplier_schemes.models import SupplierScheme
@@ -560,6 +566,161 @@ def test_a_receipt_line_for_nothing_is_refused(firm: _Firm) -> None:
         received("4", "0"), firm_id=firm.firm.id, actor_id=firm.actor_id
     )
     assert kept.status == "DRAFT"
+
+
+def _received_with_free(firm: _Firm, bought: str, free: str) -> GoodsReceiptLine:
+    """Order, approve and receive ``bought`` at 100 each with ``free`` free."""
+    order = _create(firm, _soap(firm, bought, free_quantity=free, unit_price="100"))
+    purchases = PurchaseService(firm.session)
+    purchases.submit_order(order.id, firm_scope=firm.firm.id, actor_id=firm.actor_id)
+    purchases.approve_order(order.id, firm_scope=firm.firm.id, actor_id=firm.actor_id)
+    (line,) = _lines(firm, order)
+    receipts = GoodsReceiptService(firm.session)
+    receipt = receipts.create_receipt(
+        GoodsReceiptCreate.model_validate(
+            {
+                "purchase_order_id": order.id,
+                "receipt_date": TODAY.isoformat(),
+                "lines": [
+                    {
+                        "purchase_order_line_id": line.id,
+                        "line_number": 1,
+                        "current_receipt_quantity": bought,
+                        "free_quantity": free,
+                        "unit_price": "100",
+                    }
+                ],
+            }
+        ),
+        firm_id=firm.firm.id,
+        actor_id=firm.actor_id,
+    )
+    receipts.complete_receipt(
+        receipt.id, firm_scope=firm.firm.id, actor_id=firm.actor_id
+    )
+    return firm.session.scalars(
+        select(GoodsReceiptLine).where(GoodsReceiptLine.goods_receipt_id == receipt.id)
+    ).one()
+
+
+def _return(
+    firm: _Firm, line: GoodsReceiptLine, quantity: str, **fields: object
+) -> PurchaseReturn:
+    """Save a return of ``quantity`` off the receipt line."""
+    source = {
+        "source_document_type": "GOODS_RECEIPT",
+        "source_document_id": line.goods_receipt_id,
+    }
+    return PurchaseReturnService(firm.session).create_return(
+        PurchaseReturnCreate.model_validate(
+            {
+                "return_date": TODAY.isoformat(),
+                "warehouse_id": line.warehouse_id,
+                "source_documents": [source],
+                "lines": [
+                    {
+                        **source,
+                        "source_document_line_id": line.id,
+                        "line_number": 1,
+                        "current_return_quantity": quantity,
+                        "warehouse_id": line.warehouse_id,
+                        **fields,
+                    }
+                ],
+            }
+        ),
+        firm_id=firm.firm.id,
+        actor_id=firm.actor_id,
+    )
+
+
+def _send_back(firm: _Firm, row: PurchaseReturn) -> None:
+    returns = PurchaseReturnService(firm.session)
+    returns.approve_return(row.id, firm_scope=firm.firm.id, actor_id=firm.actor_id)
+    returns.complete_return(row.id, firm_scope=firm.firm.id, actor_id=firm.actor_id)
+
+
+def test_what_was_received_can_go_back_free_goods_included(firm: _Firm) -> None:
+    """D-BUY-56: 10 bought and 2 free came in; at most 10 could go back.
+
+    The charged units are taken first and credited; the free ones go back
+    beside them and are credited nothing.
+    """
+    line = _received_with_free(firm, "10", "2")
+    assert firm.stock() == D("12")
+    with pytest.raises(ValidationError) as refusal:
+        _return(firm, line, "13")
+    assert str(refusal.value.message) == (
+        "Return quantity exceeds the available source quantity: line 1 can "
+        "still send back 10 bought and 2 free."
+    )
+    firm.session.rollback()
+
+    whole = _return(firm, line, "12")
+    returns = PurchaseReturnService(firm.session)
+    (sent,) = returns.return_response(whole).lines
+    assert (sent.current_return_quantity, sent.free_quantity) == (D("12"), D("2"))
+    # Ten at 100: the two free units are worth nothing to the supplier.
+    assert sent.gross_amount == D("1000.0000")
+    _send_back(firm, whole)
+    assert firm.stock() == D("0")
+    assert firm.balance(ControlAccountPurpose.INVENTORY) == 0
+    # Nothing was billed, so the receipt's accrual is what comes off, and the
+    # stock left at the cost the receipt spread over all twelve: no variance.
+    assert firm.balance(ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED) == 0
+    assert firm.balance(ControlAccountPurpose.PURCHASE_PRICE_VARIANCE) == 0
+
+    # Nothing is left to send, bought or free; cancelling gives both back.
+    with pytest.raises(ValidationError, match="0 bought and 0 free"):
+        _return(firm, line, "1")
+    firm.session.rollback()
+    returns.cancel_return(
+        whole.id, firm_scope=firm.firm.id, actor_id=firm.actor_id, reason="Kept"
+    )
+    assert firm.stock() == D("12")
+    assert _return(firm, line, "12").status == "DRAFT"
+
+
+def test_a_free_carton_goes_back_on_its_own_and_credits_nothing(firm: _Firm) -> None:
+    """D-BUY-56: the line says how many of what goes back are free."""
+    line = _received_with_free(firm, "10", "2")
+    accrued = firm.balance(ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED)
+    with pytest.raises(ValidationError, match="cannot exceed it"):
+        _return(firm, line, "1", free_quantity="2")
+    firm.session.rollback()
+
+    carton = _return(firm, line, "1", free_quantity="1")
+    returns = PurchaseReturnService(firm.session)
+    (sent,) = returns.return_response(carton).lines
+    assert (sent.current_return_quantity, sent.free_quantity) == (D("1"), D("1"))
+    assert (sent.gross_amount, sent.net_amount) == (D("0"), D("0"))
+    _send_back(firm, carton)
+    assert firm.stock() == D("11")
+    # No payable and no accrual moves: the supplier is owed nothing for it.
+    assert firm.balance(ControlAccountPurpose.ACCOUNTS_PAYABLE) == 0
+    assert firm.balance(ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED) == accrued
+    # It leaves stock at the cost the receipt gave each of the twelve.
+    assert firm.balance(ControlAccountPurpose.INVENTORY) == D("916.67")
+    # All ten bought are still returnable, and one free; not two.
+    with pytest.raises(ValidationError, match="10 bought and 1 free"):
+        _return(firm, line, "2", free_quantity="2")
+    firm.session.rollback()
+    rest = returns.return_response(_return(firm, line, "11")).lines[0]
+    assert (rest.current_return_quantity, rest.free_quantity) == (D("11"), D("1"))
+    assert rest.gross_amount == D("1000.0000")
+
+
+def test_a_line_of_free_goods_alone_can_be_returned(firm: _Firm) -> None:
+    """D-BUY-56: a free-only receipt line could never be returned."""
+    line = _received_with_free(firm, "0", "2")
+    assert firm.stock() == D("2")
+    one = _return(firm, line, "1")
+    (sent,) = PurchaseReturnService(firm.session).return_response(one).lines
+    assert (sent.current_return_quantity, sent.free_quantity) == (D("1"), D("1"))
+    _send_back(firm, one)
+    assert firm.stock() == D("1")
+    with pytest.raises(ValidationError, match="0 bought and 1 free"):
+        _return(firm, line, "2")
 
 
 def _codes(route: APIRoute) -> set[str]:
