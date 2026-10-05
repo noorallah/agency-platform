@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.common.report_names import vendor_names
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
@@ -151,7 +152,7 @@ class GoodsInspectionService:
                 "keep them for a return to the supplier."
             )
         inventory = InventoryService(self._session)
-        on = utc_now().date()
+        on = firm_today(self._session, firm_id)
         released = passed_quantity + (
             rejected_quantity if rejected_action == "WRITE_OFF" else ZERO
         )

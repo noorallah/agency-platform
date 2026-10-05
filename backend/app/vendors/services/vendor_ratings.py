@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_date_of
 from app.core.exceptions import ResourceNotFoundError
 from app.core.utils.dates import utc_now
 from app.vendors.models import Vendor
@@ -101,7 +102,7 @@ class VendorRatingService:
             firm_id=firm_id,
             vendor_id=vendor_id,
             rated_by=actor_id,
-            rated_on=now.date(),
+            rated_on=firm_date_of(self._session, firm_id, now),
             **data.model_dump(),
             created_by=actor_id,
             updated_by=actor_id,

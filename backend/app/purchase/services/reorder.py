@@ -47,6 +47,7 @@ from sqlalchemy.orm import Session
 
 from app.branches.models import Warehouse
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ValidationError
 from app.core.utils.dates import utc_now
 from app.inventory.models import InventoryRecord, InventoryTransaction
@@ -500,7 +501,7 @@ class ReorderService:
         if problems:
             raise ValidationError("No order was raised. " + " ".join(problems))
         service = PurchaseService(self._session)
-        today = utc_now().date()
+        today = firm_today(self._session, firm_id)
         orders: list[PurchaseOrder] = []
         for (supplier, branch, warehouse), lines in grouped.items():
             orders.append(
@@ -576,7 +577,7 @@ class ReorderService:
                     warehouse_id=warehouse,
                     lines=[(row.product_id, qty, vendor) for row, qty, vendor in items],
                     actor_id=actor_id,
-                    on=utc_now().date(),
+                    on=firm_today(self._session, firm_id),
                 )
             )
         self._session.commit()

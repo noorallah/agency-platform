@@ -2705,10 +2705,12 @@ def test_a_reversal_is_dated_the_day_it_happens(
     date, and sorted before what it undoes. The owner chose the cancel date
     (2026-09-18). The clock is pinned so this does not expire with the year.
     """
-    from app.finance.services import journal_engine
+    from app.core.utils import dates
 
+    # The clock the firm's day is read from (D-CFG-25); 10:00 UTC is the same
+    # calendar day in India.
     monkeypatch.setattr(
-        journal_engine,
+        dates,
         "utc_now",
         lambda: datetime(today.year, today.month, today.day, 10, tzinfo=UTC),
     )

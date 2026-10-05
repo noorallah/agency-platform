@@ -34,7 +34,7 @@ from sqlalchemy.orm import Session
 
 from app.branches.models import Branch
 from app.common.audit.services import record_audit
-from app.common.firm_metadata import FirmMetadataReader
+from app.common.firm_metadata import FirmMetadataReader, firm_date_of
 from app.core.exceptions import (
     AuthorizationError,
     ConflictError,
@@ -503,7 +503,7 @@ class CounterShiftService:
             firm_id=firm_id,
             shift_id=row.id,
             shift_number=row.shift_number,
-            closed_on=moment.date(),
+            closed_on=firm_date_of(self._session, firm_id, moment),
             cash_account_id=row.cash_account_id,
             difference=difference,
             actor_id=actor_id,

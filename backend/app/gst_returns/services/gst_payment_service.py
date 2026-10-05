@@ -47,6 +47,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger
@@ -314,7 +315,7 @@ class GstPaymentService:
             }
         credit = {head: brought[head] + net_itc[head] for head in HEADS}
         result = set_off(outward, credit)
-        paid_on = payment_date or utc_now().date()
+        paid_on = payment_date or firm_today(self._session, firm_id)
         days_late = max((paid_on - due).days, 0)
         cash = sum(
             (result.cash(head) + max(reverse_charge[head], ZERO) for head in HEADS),

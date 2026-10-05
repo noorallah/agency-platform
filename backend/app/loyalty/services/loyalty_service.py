@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
@@ -494,7 +495,7 @@ class LoyaltyService:
             points=-points,
             amount=worth,
             sales_invoice_id=invoice.id,
-            earned_on=utc_now().date(),
+            earned_on=firm_today(self._session, firm_id),
             reverses_id=earned.id,
             remarks=f"{invoice.invoice_number} cancelled.",
             created_by=actor_id,
@@ -818,11 +819,11 @@ class LoyaltyService:
             points=-asked,
             amount=amount,
             sales_invoice_id=invoice.id,
-            # The day it is spent, in UTC like every event -- but never before
-            # the bill it settles: a bill carries the user's local date, which
-            # runs ahead of UTC until 05:30 in India, and a settlement dated
-            # the day before its bill is the D-FIN-5 trap again (D-SELL-27).
-            earned_on=max(utc_now().date(), invoice.invoice_date),
+            # The day it is spent, on the firm's own calendar (D-CFG-25) --
+            # and never before the bill it settles, which may be dated
+            # ahead: a settlement dated the day before its bill is the
+            # D-FIN-5 trap again (D-SELL-27).
+            earned_on=max(firm_today(self._session, firm_scope), invoice.invoice_date),
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -942,7 +943,7 @@ class LoyaltyService:
             kind=LoyaltyEntryKind.ADJUSTED.value,
             points=change,
             amount=worth,
-            earned_on=utc_now().date(),
+            earned_on=firm_today(self._session, firm_scope),
             remarks=reason,
             created_by=actor_id,
             updated_by=actor_id,

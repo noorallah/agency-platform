@@ -20,6 +20,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.document_framework.services.transactional_document_service import (
@@ -217,7 +218,7 @@ class RfqService(TransactionalDocumentService):
             RfqCreate(
                 branch_id=requisition.branch_id,
                 warehouse_id=requisition.warehouse_id,
-                rfq_date=utc_now().date(),
+                rfq_date=firm_today(self._session, firm_id),
                 required_by=requisition.needed_by,
                 notes=f"From requisition {requisition.requisition_number}",
                 lines=[
@@ -581,7 +582,7 @@ class RfqService(TransactionalDocumentService):
                         "branch_id": row.branch_id,
                         "warehouse_id": row.warehouse_id,
                         "vendor_id": vendor_id,
-                        "purchase_date": utc_now().date(),
+                        "purchase_date": firm_today(self._session, firm_id),
                         "expected_delivery_date": row.required_by,
                         "reference_number": row.rfq_number,
                         "external_reference": (

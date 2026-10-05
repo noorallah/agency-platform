@@ -30,6 +30,7 @@ from app.common.file_import import (
     schema_issues,
     service_issue,
 )
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import (
     ApplicationError,
     ConflictError,
@@ -419,7 +420,9 @@ class SupplierCatalogueFileImporter(FileImporter[SupplierProduct]):
         before = len(report.issues)
         reader = RowReader(row, code, report.issues)
         raw_date = reader.text("EffectiveFrom")
-        effective = parse_date(raw_date) if raw_date else utc_now().date()
+        effective = (
+            parse_date(raw_date) if raw_date else firm_today(self._session, firm_id)
+        )
         if raw_date and effective is None:
             reader.fail("EffectiveFrom", f"'{raw_date}' is not a date.")
         values = {

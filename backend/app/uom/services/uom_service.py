@@ -24,6 +24,7 @@ from app.business.gating import resolve_profile_id
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit, record_change, row_state
+from app.common.firm_metadata import firm_today
 from app.core.concurrency import assert_version
 from app.core.database.base import Base
 from app.core.database.entity import BaseEntity
@@ -775,9 +776,10 @@ class UomService:
         self, request: ConversionRequest, *, firm_scope: UUID
     ) -> ConversionResponse:
         """Convert a quantity with the rule in force on the given date."""
-        # utc_now(), not date.today(): the server's local date can already be
-        # tomorrow, which selects a rule that is not yet effective.
-        on_date = request.conversion_date or utc_now().date()
+        # The firm's own day (`firm_today`, D-CFG-25), never the server's
+        # local date nor the UTC one: either can be a day out, which
+        # selects a rule not yet effective or one already replaced.
+        on_date = request.conversion_date or firm_today(self._session, firm_scope)
         rule = self._resolve_conversion_rule(
             firm_scope=firm_scope,
             product_id=request.product_id,

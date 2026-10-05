@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.finance.models import (
@@ -550,13 +551,17 @@ class JournalEntryEngine:
             # user's local date, which runs ahead of UTC until 05:30 in India,
             # so a bill raised and cancelled in those hours reversed on the
             # day before it was raised -- on the 1st, in the previous period.
+            # And "the day it happened" is the firm's own day (D-CFG-25): a
+            # bill of last week cancelled at 01:00 was undone "yesterday".
             if journal_date is not None and journal_date < original.journal_date:
                 raise ValidationError(
                     f"A reversal cannot be dated {journal_date.isoformat()}, "
                     f"before {original.reference_number} itself "
                     f"({original.journal_date.isoformat()})."
                 )
-            target_date = journal_date or max(utc_now().date(), original.journal_date)
+            target_date = journal_date or max(
+                firm_today(self._session, firm_id), original.journal_date
+            )
             open_period = self._open_period_covering(target_date, firm_id=firm_id)
             if open_period is None:
                 # Nothing is open on that day -- typically a new year not yet

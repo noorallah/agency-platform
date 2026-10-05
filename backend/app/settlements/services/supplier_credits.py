@@ -789,7 +789,7 @@ def apply_supplier_credit(
         vendor_id=source.vendor_id,
         purchase_invoice_id=None if bill.is_opening_bill else invoice_id,
         vendor_opening_bill_id=invoice_id if bill.is_opening_bill else None,
-        applied_on=utc_now().date(),
+        applied_on=firm_today(session, firm_id),
         amount=asked,
         created_by=actor_id,
         updated_by=actor_id,

@@ -28,6 +28,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_ledger
@@ -152,7 +153,7 @@ class GstCashDepositService:
                 f"A deposit for {return_period} is paid once the month has "
                 f"begun, not on {deposit_date.isoformat()}."
             )
-        if deposit_date > utc_now().date():
+        if deposit_date > firm_today(self._session, firm_id):
             raise ValidationError("A deposit cannot have been paid in the future.")
         quarter_end = quarter_months(return_period)[2]
         settled = self._settled_from(firm_id, quarter_end)

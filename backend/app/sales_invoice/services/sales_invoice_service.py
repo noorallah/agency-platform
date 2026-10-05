@@ -1231,7 +1231,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             SalesInvoiceCreate(
                 customer_id=note.customer_id,
                 branch_id=note.branch_id,
-                invoice_date=utc_now().date(),
+                invoice_date=firm_today(self._session, firm_scope),
                 source_documents=[
                     SalesInvoiceSourceWrite(
                         source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
@@ -2886,7 +2886,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                         # agree; and never before the bill (D-FIN-5), which a
                         # UTC "today" was until 05:30 in India.
                         transaction_date=reversed_on
-                        or max(utc_now().date(), row.invoice_date),
+                        or max(firm_today(self._session, firm_scope), row.invoice_date),
                         amount=_receivable_amount(row.grand_total),
                         reference_type="SALES_INVOICE",
                         reference_id=row.id,

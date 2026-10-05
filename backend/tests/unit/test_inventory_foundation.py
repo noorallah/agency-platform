@@ -14,6 +14,7 @@ from app.batch_serial.services import BatchSerialService
 from app.branches.models import Branch, Warehouse
 from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.common.audit.models import AuditLog
+from app.common.firm_metadata import firm_today
 from app.common.scope import (
     ResolvedFirmScope,
     optional_firm_scope,
@@ -2175,7 +2176,9 @@ def test_a_reversal_is_dated_when_the_goods_moved_back() -> None:
     )
     session.commit()
 
-    today = utc_now().date()
+    # The firm's own day, not the UTC one (D-CFG-25): this failed between
+    # midnight and 05:30 in India once the reversal was dated correctly.
+    today = firm_today(session, firm.id)
     assert reversal.transaction_date == max(date(2026, 8, 1), today)
     stock = session.get(InventoryRecord, receipt.inventory_id)
     assert stock is not None

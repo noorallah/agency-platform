@@ -28,6 +28,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.inventory.models import InventoryRecord
@@ -204,7 +205,7 @@ class KitService:
             branch_id=data.branch_id,
             warehouse_id=data.warehouse_id,
             quantity=data.quantity,
-            on=data.on or utc_now().date(),
+            on=data.on or firm_today(self._session, firm_id),
             remarks=data.remarks,
             firm_id=firm_id,
             actor_id=actor_id,
