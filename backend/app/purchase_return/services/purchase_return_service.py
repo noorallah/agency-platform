@@ -641,7 +641,9 @@ class PurchaseReturnService(TransactionalDocumentService):
                 raise ValidationError(
                     "Warehouse is required on all return lines before completion."
                 )
-            current_qty = line.current_return_quantity
+            # What leaves the shelf: the charged units and the free ones
+            # going back beside them (D-BUY-56).
+            current_qty = self._q(line.current_return_quantity + line.free_quantity)
             rejected_qty = line.rejected_quantity
             sellable_qty = self._q(current_qty - rejected_qty)
             if sellable_qty < ZERO:
@@ -1742,7 +1744,9 @@ class PurchaseReturnService(TransactionalDocumentService):
         amounts: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
         counts: dict[UUID, int] = defaultdict(int)
         for line, _ in lines:
-            quantities[line.product_id] += line.current_return_quantity
+            quantities[line.product_id] += (
+                line.current_return_quantity + line.free_quantity
+            )
             amounts[line.product_id] += line.net_amount
             counts[line.product_id] += 1
         products = {
@@ -2024,16 +2028,24 @@ class PurchaseReturnService(TransactionalDocumentService):
                 )
                 return_quantity = self._q(conversion.converted_quantity)
                 conversion_factor = self._q(conversion.conversion_factor)
-            already_returned = self._already_returned_quantity(
+            already_returned, already_free = self._already_returned(
                 firm_id=firm_id,
                 source_document_line_id=source_line.id,
             )
             # No request can lift this cap: a body flag the caller set was all
             # it took to send back more than was received (D-SELL-29).
-            if return_quantity + already_returned > source_quantity:
-                raise ValidationError(
-                    "Return quantity exceeds the available source quantity."
-                )
+            return_quantity, free_quantity = self._split_free_goods(
+                index,
+                total=return_quantity,
+                typed_free=self._typed_free(spec, requested_quantity, return_quantity),
+                charged_left=self._q(source_quantity - already_returned),
+                free_left=self._q(
+                    self._source_free_quantity(source_type, source_line) - already_free
+                ),
+                off_a_receipt=(
+                    source_type == PurchaseReturnSourceType.GOODS_RECEIPT.value
+                ),
+            )
             unit_price = self._unit_price(spec, source_line)
             charges_amount = self._q(Decimal(str(spec.get("charges_amount", ZERO))))
             gross_amount = self._q(return_quantity * unit_price)
@@ -2091,6 +2103,7 @@ class PurchaseReturnService(TransactionalDocumentService):
                 received_quantity=source_quantity,
                 already_returned_quantity=already_returned,
                 current_return_quantity=return_quantity,
+                free_quantity=free_quantity,
                 rejected_quantity=self._q(
                     Decimal(str(spec.get("rejected_quantity", ZERO)))
                 ),
@@ -2128,7 +2141,7 @@ class PurchaseReturnService(TransactionalDocumentService):
             self._session.add(line)
             totals["total_source_quantity"] += source_quantity
             totals["total_already_returned_quantity"] += already_returned
-            totals["total_current_return_quantity"] += return_quantity
+            totals["total_current_return_quantity"] += return_quantity + free_quantity
             totals["line_discount_total"] += discount_amount
             # subtotal is the taxable base: gross less discount, before tax and
             # before charges. Line charges used to be folded in here, which made
@@ -2516,14 +2529,21 @@ class PurchaseReturnService(TransactionalDocumentService):
             return self._q(getattr(source_line, "current_invoice_quantity", ZERO))
         return self._q(getattr(source_line, "ordered_quantity", ZERO))
 
-    def _already_returned_quantity(
+    def _already_returned(
         self, *, firm_id: UUID, source_document_line_id: UUID
-    ) -> Decimal:
-        total = self._session.scalar(
+    ) -> tuple[Decimal, Decimal]:
+        """Return what live returns already took off a source line.
+
+        Returns:
+            The charged units and the free units, in that order.
+
+        """
+        charged, free = self._session.execute(
             select(
                 func.coalesce(
                     func.sum(PurchaseReturnLine.current_return_quantity), ZERO
-                )
+                ),
+                func.coalesce(func.sum(PurchaseReturnLine.free_quantity), ZERO),
             )
             .join(
                 PurchaseReturn,
@@ -2536,8 +2556,88 @@ class PurchaseReturnService(TransactionalDocumentService):
                 PurchaseReturnLine.is_deleted.is_(False),
                 PurchaseReturnLine.source_document_line_id == source_document_line_id,
             )
-        )
-        return self._q(total or ZERO)
+        ).one()
+        return self._q(charged or ZERO), self._q(free or ZERO)
+
+    def _source_free_quantity(
+        self, source_type: str, source_line: SourceLine
+    ) -> Decimal:
+        """Return the free goods a source line brought in (D-BUY-56).
+
+        Free goods are the goods receipt's: it is the document that says how
+        many arrived, and a bill names them only by naming its receipt line.
+        So they go back off the receipt line, and a line raised off a bill
+        or an order has none to send.
+        """
+        if source_type != PurchaseReturnSourceType.GOODS_RECEIPT.value:
+            return ZERO
+        return self._q(getattr(source_line, "free_quantity", ZERO) or ZERO)
+
+    def _typed_free(
+        self, spec: dict[str, object], requested: Decimal, converted: Decimal
+    ) -> Decimal | None:
+        """Return the free quantity the line typed, in the source line's unit."""
+        typed = spec.get("free_quantity")
+        if typed is None:
+            return None
+        free = self._q(Decimal(str(typed)))
+        if requested > ZERO and converted != requested:
+            # Typed in the return's unit, like the quantity it is part of.
+            free = self._q(free * converted / requested)
+        return free
+
+    def _split_free_goods(
+        self,
+        line_number: int,
+        *,
+        total: Decimal,
+        typed_free: Decimal | None,
+        charged_left: Decimal,
+        free_left: Decimal,
+        off_a_receipt: bool,
+    ) -> tuple[Decimal, Decimal]:
+        """Split what a line sends back into charged units and free ones.
+
+        What was received can go back, free goods included (D-BUY-56). The
+        charged units are taken first, and only what goes back beyond them is
+        free, unless the line says how many are free -- a damaged free carton
+        returned on its own. The charged part is what is priced and credited;
+        the free part is credited nothing.
+
+        Returns:
+            The charged quantity and the free quantity.
+
+        Raises:
+            ValidationError: If the line sends back more charged units, or
+                more free ones, than the source line has left.
+
+        """
+        charged_left = max(charged_left, ZERO)
+        free_left = max(free_left, ZERO)
+        if typed_free is None:
+            charged = min(total, charged_left)
+            free = self._q(total - charged)
+        else:
+            if typed_free > total:
+                raise ValidationError(
+                    f"Line {line_number}: the free quantity is part of the "
+                    "return quantity and cannot exceed it."
+                )
+            free = typed_free
+            charged = self._q(total - free)
+        if charged > charged_left or free > free_left:
+            left = (
+                f"{charged_left.normalize():f} bought and "
+                f"{free_left.normalize():f} free"
+                if off_a_receipt
+                else f"{charged_left.normalize():f}; free goods go back off the "
+                "goods receipt that brought them in"
+            )
+            raise ValidationError(
+                "Return quantity exceeds the available source quantity: "
+                f"line {line_number} can still send back {left}."
+            )
+        return charged, free
 
     def _conversion_factor(self, spec: dict[str, object]) -> Decimal:
         return self._q(Decimal(str(spec.get("conversion_factor", Decimal("1")))))
@@ -2811,7 +2911,10 @@ class PurchaseReturnService(TransactionalDocumentService):
             description=row.description,
             received_quantity=row.received_quantity,
             already_returned_quantity=row.already_returned_quantity,
-            current_return_quantity=row.current_return_quantity,
+            current_return_quantity=self._q(
+                row.current_return_quantity + row.free_quantity
+            ),
+            free_quantity=row.free_quantity,
             rejected_quantity=row.rejected_quantity,
             unbilled_quantity=row.unbilled_quantity,
             grni_amount=row.grni_amount,

@@ -333,6 +333,31 @@ so 2.0000 cannot be returned to the supplier from it." -- unless the product
 is marked *allow negative stock*. Like a transfer and unlike a dispatch: goods
 that have been sold cannot be crated up for the supplier.
 
+**What was received can go back, free goods included** (D-BUY-56). A line off
+a goods receipt may return up to what the receipt line brought in -- bought
+and free -- less what earlier returns took. `current_return_quantity` on the
+request and the response is everything going back; `free_quantity` is how
+many of those are free:
+
+- **Left blank, the bought units are taken first** and only what goes back
+  beyond them is free: 12 back off 10 bought and 2 free is 10 and 2.
+- **A number says so outright**: `current_return_quantity` 1 with
+  `free_quantity` 1 is a damaged free carton going back on its own.
+- **Free goods are credited nothing.** The receipt brought them in at no
+  charge and no payable, so the line is priced, taxed and credited on its
+  bought units alone (stored as the line's `current_return_quantity`, with the
+  free ones beside it in `free_quantity`, migration `20261005_0329`). A line of
+  free goods alone is worth 0.00 and raises no supplier credit.
+- **The stock that leaves is both**, at the cost it is carried at -- the
+  receipt spread what was paid over every unit it brought in, free ones too.
+  Sending back the whole delivery therefore leaves no variance; sending back
+  only the free units takes their carried cost to purchase price variance.
+- A line of free goods alone (ordered 0, free 2) is returnable.
+- Free goods go back **off the goods receipt**, the document that says how
+  many arrived; a line raised off a bill sends back bought units only. The
+  refusal says how much is left: "... line 1 can still send back 10 bought and
+  2 free."
+
 ### What the supplier gives back, and a bill already paid (A34, D-BUY-20)
 
 A return records an **outcome**, changeable until it is cancelled because the

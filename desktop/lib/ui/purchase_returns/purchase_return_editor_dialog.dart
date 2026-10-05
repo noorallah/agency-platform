@@ -345,7 +345,12 @@ class _PurchaseReturnEditorDialogState
       lineNumber: lineNumber,
       productId: line.productId,
       description: line.description,
-      receivedQuantity: line.acceptedQuantity,
+      // What came in can go back, free goods included (D-BUY-56): the
+      // server credits the bought units and nothing for the free ones.
+      receivedQuantity: _trim(
+        (double.tryParse(line.acceptedQuantity) ?? 0) +
+            (double.tryParse(line.freeQuantity) ?? 0),
+      ),
       alreadyReturned: _trim(alreadyReturned),
       unitPrice: line.unitPrice,
       purchaseUomId: line.purchaseUomId,

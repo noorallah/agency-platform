@@ -205,6 +205,14 @@ class PurchaseReturnLine(BaseEntity):
     rejected_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: Free goods going back **beside** ``current_return_quantity`` (D-BUY-56).
+    #: The receipt brought them in at no charge, so they are priced at
+    #: nothing and credit the supplier nothing: ``current_return_quantity``
+    #: stays the charged units, which is what every price, tax, billing and
+    #: credit figure is worked on. The stock that leaves is the two together.
+    free_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
     #: The part of ``current_return_quantity`` taken off what the receipt
     #: line still had to bill, decided when the return completes (D-BUY-26).
     #: That part never reached a bill, so it reverses the receipt's accrual

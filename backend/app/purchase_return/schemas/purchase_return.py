@@ -85,7 +85,15 @@ class PurchaseReturnLineWrite(PurchaseReturnSchema):
     source_document_id: UUID
     source_document_line_id: UUID
     line_number: int = Field(ge=1)
+    #: Everything going back on this line, free goods included.
     current_return_quantity: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
+    #: How many of ``current_return_quantity`` are free goods (D-BUY-56).
+    #: Blank takes the charged units first and counts as free only what goes
+    #: back beyond them; a number says so outright -- a damaged free carton
+    #: going back on its own. Free goods are credited nothing.
+    free_quantity: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
+    )
     rejected_quantity: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
@@ -255,7 +263,10 @@ class PurchaseReturnLineResponse(PurchaseReturnSchema):
     description: str | None
     received_quantity: Decimal
     already_returned_quantity: Decimal
+    #: Everything going back, free goods included, as it was typed.
     current_return_quantity: Decimal
+    #: The free goods among them, credited nothing (D-BUY-56).
+    free_quantity: Decimal = Decimal("0")
     rejected_quantity: Decimal
     #: The part taken off what the receipt line still had to bill, and what
     #: it took off goods received not invoiced (D-BUY-26); the rest of the
