@@ -193,8 +193,17 @@ bill-wise breakup of an opening balance:
 - **One figure** on the master (`customers.opening_balance`), posted by
   `post_opening_balance`: Dr Receivables / Cr Opening Balance Equity (swapped
   for a customer in credit), with an `OPENING_BALANCE` receivable row. Quick,
-  but every receipt against it is money on account with nothing to clear, and
-  the ageing cannot say how old it is.
+  and it knows one date only, the day it was typed. **A figure that is owed
+  is given one bill that stands for it** (`covers_master_balance`, D-MST-13,
+  2026-10-05): it was on no receipt list, collection sheet or ageing report,
+  because each of those is a list of bills. That row is the figure seen as a
+  bill, not a second debt -- it posts **no journal** and writes **no
+  receivable row**, and its `journal_entry_id` is the master's own entry --
+  dated the day the figure was entered and due on the customer's terms. It
+  is revised and withdrawn with the figure and refuses to be cancelled from
+  the opening-bills screen. A customer who starts in credit gets none.
+  `20261005_0333` gave one to every customer already carrying such a figure;
+  a receipt taken on account before then stays on account beside it.
 - **Bill by bill** (`customer_opening_bills`, `OBC-00001` -- a prefix the
   supplier series `OB-` cannot produce, since both are journal references and
   those are unique per firm): the old bill number, the bill date, a due date

@@ -173,6 +173,8 @@ def opening_bills_owed_on(
 
 def opening_bill_label(row: CustomerOpeningBill) -> str:
     """Name an opening bill the way the customer would recognise it."""
+    if row.covers_master_balance:
+        return "Opening balance"
     if row.reference_number:
         return f"{row.reference_number} (opening)"
     return row.bill_number
@@ -338,6 +340,15 @@ class CustomerOpeningBillService:
         row = self.get(bill_id, firm_id=firm_id)
         if row.status == CustomerOpeningBillStatus.CANCELLED.value:
             raise ValidationError(f"{row.bill_number} is already cancelled.")
+        if row.covers_master_balance:
+            # Its journal is the customer's own opening-balance entry, which
+            # the figure on the customer owns; mirroring it from here would
+            # leave the master asserting a balance the ledger had taken back.
+            raise ValidationError(
+                f"{row.bill_number} is the opening balance entered on the "
+                "customer, not a bill of its own. Set the customer's opening "
+                "balance to 0 to take it back."
+            )
         received = opening_bill_receipts(
             self._session, firm_id=firm_id, bill_ids=[row.id]
         ).get(row.id, ZERO)
@@ -393,6 +404,69 @@ class CustomerOpeningBillService:
         self._session.commit()
         return row
 
+    def stage_for_master_balance(
+        self,
+        customer: Customer,
+        *,
+        amount: Decimal,
+        posting_date: date,
+        journal_entry_id: UUID,
+        actor_id: UUID,
+    ) -> CustomerOpeningBill:
+        """Add the bill that stands for the customer's opening balance.
+
+        D-MST-13: the figure posted Dr receivables / Cr opening balance
+        equity and raised what the customer owes, and was then on no receipt
+        list, collection sheet or ageing report, because each of those is a
+        list of bills. This is that figure as a bill, so a receipt can be
+        allocated to it and it ages from the day it was entered plus the
+        customer's terms. It posts nothing and moves no balance: the entry
+        and the receivable row are the master's, already written.
+        """
+        row = CustomerOpeningBill(
+            id=uuid4(),
+            firm_id=customer.firm_id,
+            customer_id=customer.id,
+            bill_number=self._next_number(firm_id=customer.firm_id),
+            bill_date=posting_date,
+            due_date=posting_date
+            + timedelta(days=int(customer.payment_terms_days or 0)),
+            posting_date=posting_date,
+            amount=quantize_ledger(amount),
+            narration="Opening balance entered on the customer.",
+            status=CustomerOpeningBillStatus.POSTED.value,
+            journal_entry_id=journal_entry_id,
+            covers_master_balance=True,
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+        self._session.add(row)
+        self._session.flush()
+        return row
+
+    def withdraw_master_balance(self, customer: Customer, *, actor_id: UUID) -> None:
+        """Stand down the bill for an opening balance that is being revised.
+
+        Only reachable while nothing is received against it: the customer
+        service refuses to move an opening balance once the account has any
+        other activity, and a receipt applied to this bill is such activity.
+        The journal is the master's to mirror, so nothing is posted here.
+        """
+        for row in self._session.scalars(
+            select(CustomerOpeningBill).where(
+                CustomerOpeningBill.customer_id == customer.id,
+                CustomerOpeningBill.covers_master_balance.is_(True),
+                CustomerOpeningBill.status == CustomerOpeningBillStatus.POSTED.value,
+                CustomerOpeningBill.is_deleted.is_(False),
+            )
+        ).all():
+            row.status = CustomerOpeningBillStatus.CANCELLED.value
+            row.cancelled_at = utc_now()
+            row.cancelled_by = actor_id
+            row.cancellation_reason = "The customer's opening balance was revised."
+            row.updated_by = actor_id
+        self._session.flush()
+
     def to_response(
         self,
         row: CustomerOpeningBill,
@@ -420,6 +494,7 @@ class CustomerOpeningBillService:
             narration=row.narration,
             status=row.status,
             journal_entry_id=row.journal_entry_id,
+            covers_master_balance=row.covers_master_balance,
             cancelled_at=row.cancelled_at,
             cancellation_reason=row.cancellation_reason,
             version=row.version,
