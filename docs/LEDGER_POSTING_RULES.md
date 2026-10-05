@@ -727,7 +727,12 @@ supplier statement reads **the payables lines of the general ledger** and
 traces each to its supplier through the document that posted it:
 `purchase_invoice` (bill, Cr), `vendor_opening_bills` (opening bill, Cr),
 `settlements` (payment, Dr), `purchase_return`, `debit_note` and
-`party_adjustments` (write-back or set-off), each Dr. A cancelled document's
+`party_adjustments` (write-back or set-off), each Dr, and
+`supplier_credit_refund` (money the supplier paid back against a return's or a
+debit note's credit, Cr -- left out until D-BUY-48, which put the statement,
+the balance confirmation and the per-supplier books check out by every
+refund). **A new document that posts to payables for one supplier joins
+`SUPPLIER_SOURCES`**, or all three close wrong. A cancelled document's
 mirror carries the same source, so it appears on the day it was undone as a
 `*_REVERSAL` line. Hand journals are refused on payables (D-FIN-11), so nothing
 else moves the account.

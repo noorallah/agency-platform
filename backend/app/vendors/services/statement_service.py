@@ -8,18 +8,24 @@ document that moves a supplier's balance already writes to, and writes in
 date order: **the payables lines of the general ledger**, each traced back to
 its supplier through the document that posted it.
 
-Six documents post to accounts payable, and each names its supplier:
+Seven documents post to accounts payable, and each names its supplier:
 
-=========================  ==========================  ======================
-``source_module``          Document                    Side
-=========================  ==========================  ======================
-``purchase_invoice``       Supplier bill               Cr: owed more
-``vendor_opening_bills``   Bill from the old books     Cr
-``settlements``            Payment                     Dr: owed less
-``purchase_return``        Goods sent back             Dr
-``debit_note``             Debit note                  Dr
-``party_adjustments``      Write-back or set-off       Dr
-=========================  ==========================  ======================
+==========================  ==========================  =====================
+``source_module``           Document                    Side
+==========================  ==========================  =====================
+``purchase_invoice``        Supplier bill               Cr: owed more
+``vendor_opening_bills``    Bill from the old books     Cr
+``settlements``             Payment                     Dr: owed less
+``purchase_return``         Goods sent back             Dr
+``debit_note``              Debit note                  Dr
+``party_adjustments``       Write-back or set-off       Dr
+``supplier_credit_refund``  Money the supplier paid     Cr: the credit a
+                            back for a return or note   return left is used
+==========================  ==========================  =====================
+
+The refund was left out when it was built (D-BUY-48): the statement, the
+balance confirmation and the per-supplier books check all closed wrong by
+every refund a supplier had paid.
 
 A cancelled document's mirror carries the same source (`reverse_entry` copies
 it), so a cancellation appears on the statement on the day it happened, as a
@@ -63,7 +69,7 @@ from app.finance.services.control_accounts import (
 from app.party_adjustments.models import PartyAdjustment
 from app.purchase_invoice.models import PurchaseInvoice
 from app.purchase_return.models import PurchaseReturn
-from app.settlements.models import Settlement
+from app.settlements.models import Settlement, SupplierCreditRefund
 from app.vendors.models import Vendor, VendorOpeningBill
 from app.vendors.schemas.statement import SupplierStatement, SupplierStatementLine
 
@@ -76,6 +82,7 @@ SUPPLIER_SOURCES: tuple[tuple[str, Any, str], ...] = (
     ("purchase_return", PurchaseReturn, "PURCHASE_RETURN"),
     ("debit_note", DebitNote, "DEBIT_NOTE"),
     ("party_adjustments", PartyAdjustment, "ADJUSTMENT"),
+    ("supplier_credit_refund", SupplierCreditRefund, "REFUND"),
 )
 
 _LINE_TYPES = {module: label for module, _, label in SUPPLIER_SOURCES}

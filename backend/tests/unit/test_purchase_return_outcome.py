@@ -18,13 +18,14 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.exceptions import ValidationError
-from app.finance.models import JournalEntry
+from app.finance.models import JournalEntry, JournalLine
 from app.goods_receipt.services.goods_receipt_service import GoodsReceiptService
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
 from app.purchase.services.line_quantities import order_line_quantities
+from app.purchase_invoice.services.payables_report import PayablesReportService
 from app.purchase_return.api.router import set_purchase_return_outcome
 from app.purchase_return.schemas import PurchaseReturnOutcomeRequest
 from app.settlements.api.router import (
@@ -40,8 +41,10 @@ from app.settlements.schemas import (
 )
 from app.settlements.services.supplier_credits import (
     refund_supplier_credit,
+    reverse_supplier_refund,
     supplier_credits,
 )
+from app.vendors.services.statement_service import SupplierStatementService
 from tests.unit.test_purchase_return_module import (
     _approved_return,
     _firm,
@@ -164,6 +167,78 @@ def test_a_refund_return_is_paid_back_and_the_credit_nets_it() -> None:
     # With nothing standing, the cancel goes through.
     service.cancel_return(row.id, firm_scope=firm.id, actor_id=uuid4(), reason="x")
     assert supplier_credits(session, firm_id=firm.id) == []
+
+
+def test_a_refund_and_its_reversal_are_on_the_supplier_statement() -> None:
+    """D-BUY-48: the statement closed wrong by every refund a supplier paid."""
+    session = _session_factory()()
+    firm = _firm(session)
+    service, row, _ = _approved_return(session, firm_id=firm.id)
+    service.complete_return(row.id, firm_scope=firm.id, actor_id=uuid4())
+    service.set_outcome(row.id, "REFUND", firm_scope=firm.id, actor_id=uuid4())
+    # The fixture's bill is a bare row with no journal, so the check starts
+    # out by its 1,000.00; what matters is that a refund does not move it.
+    unbooked = (
+        PayablesReportService(session)
+        .report(firm.id, as_of=date(2027, 3, 31), vendor_id=row.vendor_id)
+        .books_check.difference
+    )
+    refund = refund_supplier_credit(
+        session,
+        firm_id=firm.id,
+        source_id=row.id,
+        amount=Decimal("300"),
+        refunded_on=row.return_date,
+        method=SettlementMethod.BANK,
+        actor_id=uuid4(),
+    )
+    session.commit()
+    statements = SupplierStatementService(session)
+    period = {"from_date": date(2026, 4, 1), "to_date": date(2027, 3, 31)}
+
+    def payables() -> Decimal:
+        """Return what the payables account holds, straight off the journal."""
+        account = statements._payables_account(firm.id)
+        total = session.scalar(
+            select(
+                func.coalesce(
+                    func.sum(JournalLine.credit_amount - JournalLine.debit_amount), 0
+                )
+            ).where(JournalLine.ledger_account_id == account)
+        )
+        return Decimal(str(total))
+
+    def books_difference() -> Decimal | None:
+        """Return the books check of the report narrowed to this supplier."""
+        return (
+            PayablesReportService(session)
+            .report(firm.id, as_of=date(2027, 3, 31), vendor_id=row.vendor_id)
+            .books_check.difference
+        )
+
+    statement = statements.statement(row.vendor_id, firm_scope=firm.id, **period)
+    refunds = [line for line in statement.lines if line.transaction_type == "REFUND"]
+    assert [(line.debit, line.credit) for line in refunds] == [
+        (Decimal("0.00"), Decimal("300.00"))
+    ]
+    assert statement.closing_balance == payables()
+    assert statements.balances(firm_scope=firm.id, as_of=date(2027, 3, 31)) == {
+        row.vendor_id: payables()
+    }
+    assert books_difference() == unbooked
+
+    reverse_supplier_refund(
+        session, firm_id=firm.id, refund_id=refund.id, reason="x", actor_id=uuid4()
+    )
+    session.commit()
+    statement = statements.statement(row.vendor_id, firm_scope=firm.id, **period)
+    assert [
+        (line.debit, line.credit)
+        for line in statement.lines
+        if line.transaction_type == "REFUND_REVERSAL"
+    ] == [(Decimal("300.00"), Decimal("0.00"))]
+    assert statement.closing_balance == payables()
+    assert books_difference() == unbooked
 
 
 def test_a_refund_waits_for_the_return_and_never_runs_ahead_of_today() -> None:
