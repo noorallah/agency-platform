@@ -123,12 +123,20 @@ class BillOfEntryService(TransactionalDocumentService):
 
         Raises:
             ValidationError: If the supplier, branch, a bill, a receipt or a
-                product is not the firm's, or the currency and rate disagree.
+                product is not the firm's, the currency and rate disagree,
+                or customs' number, port and date are on another one.
 
         """
         self._check_vendor(data.vendor_id, firm_id)
         self._check_branch(data.branch_id, firm_id)
         currency, rate = _currency(data.currency_code, data.exchange_rate)
+        self._refuse_duplicate(
+            firm_id,
+            boe_number=data.boe_number,
+            port_code=data.port_code,
+            boe_date=data.boe_date,
+            excluding=None,
+        )
         _, rule = self._ensure_document_setup(firm_id=firm_id, actor_id=actor_id)
         branch_code, company_code = self._scope_codes(
             firm_id=firm_id, branch_id=data.branch_id
@@ -181,8 +189,9 @@ class BillOfEntryService(TransactionalDocumentService):
         """Change a draft; a field left out is left alone; commit.
 
         Raises:
-            ValidationError: If it is no longer a draft, or the change leaves
-                it invalid.
+            ValidationError: If it is no longer a draft, the change leaves
+                it invalid, or it now carries another one's number, port
+                and date.
 
         """
         row = self.get(boe_id, firm_id=firm_id)
@@ -209,6 +218,13 @@ class BillOfEntryService(TransactionalDocumentService):
         row.boe_number = str(values.get("boe_number", row.boe_number)).strip()
         row.boe_date = values.get("boe_date", row.boe_date)
         row.port_code = str(values.get("port_code", row.port_code)).strip().upper()
+        self._refuse_duplicate(
+            firm_id,
+            boe_number=row.boe_number,
+            port_code=row.port_code,
+            boe_date=row.boe_date,
+            excluding=row.id,
+        )
         row.vendor_id = vendor_id
         row.branch_id = branch_id
         row.currency_code = currency
@@ -285,17 +301,13 @@ class BillOfEntryService(TransactionalDocumentService):
         """
         row = self.get(boe_id, firm_id=firm_id)
         self._require(row, "DRAFT", "Only a draft Bill of Entry can be posted.")
-        clash = self._rows.duplicate(
+        self._refuse_duplicate(
             firm_id,
             boe_number=row.boe_number,
             port_code=row.port_code,
             boe_date=row.boe_date,
+            excluding=row.id,
         )
-        if clash is not None and clash.id != row.id:
-            raise ValidationError(
-                f"Bill of Entry {row.boe_number} at {row.port_code} on "
-                f"{row.boe_date.isoformat()} is already {clash.document_number}."
-            )
         lines = self._rows.lines([row.id]).get(row.id, [])
         if not lines:
             raise ValidationError("Add at least one line before posting.")
@@ -603,6 +615,39 @@ class BillOfEntryService(TransactionalDocumentService):
         """Refuse unless the Bill of Entry is in ``status``."""
         if row.status != status:
             raise ValidationError(message)
+
+    def _refuse_duplicate(
+        self,
+        firm_id: UUID,
+        *,
+        boe_number: str,
+        port_code: str,
+        boe_date: date,
+        excluding: UUID | None,
+    ) -> None:
+        """Refuse a number, port and date another live Bill of Entry holds.
+
+        Asked at save as well as at post, so the person is told while typing
+        it; ``excluding`` is the row itself, which would otherwise answer
+        the question for its own duplicate (D-BUY-50).
+
+        Raises:
+            ValidationError: If customs' number is already on another one.
+
+        """
+        clash = self._rows.duplicate(
+            firm_id,
+            boe_number=boe_number,
+            port_code=port_code,
+            boe_date=boe_date,
+            excluding=excluding,
+        )
+        if clash is not None:
+            raise ValidationError(
+                f"Bill of Entry {boe_number.strip()} at "
+                f"{port_code.strip().upper()} on {boe_date.isoformat()} is "
+                f"already {clash.document_number}."
+            )
 
     def _check_vendor(self, vendor_id: UUID, firm_id: UUID) -> None:
         """Refuse a supplier that is not the firm's."""

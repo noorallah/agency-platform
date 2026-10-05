@@ -274,11 +274,55 @@ def test_cancelling_reverses_the_posting_and_drops_it_from_3b() -> None:
 
 
 def test_customs_numbers_one_bill_of_entry_once() -> None:
+    """D-BUY-50: the second is refused when typed, whatever its case."""
     firm = _firm()
-    _post(firm, _create(firm))
-    second = _create(firm)
+    first = _post(firm, _create(firm, boe_number="ab1234567"))
+    with pytest.raises(ValidationError) as refusal:
+        _create(firm, boe_number="AB1234567")
+    assert str(refusal.value.message) == (
+        f"Bill of Entry AB1234567 at INNSA1 on 2026-08-20 is already "
+        f"{first.document_number}."
+    )
+    # A draft clashes as well: two drafts could otherwise both be typed.
+    other = _create(firm, boe_number="7654321")
+    service = BillOfEntryService(firm.session)
     with pytest.raises(ValidationError, match="already"):
-        _post(firm, second)
+        service.update(
+            other.id,
+            BillOfEntryUpdate.model_validate({"boe_number": "Ab1234567"}),
+            firm_id=firm.firm.id,
+            actor_id=firm.actor_id,
+        )
+    firm.session.rollback()
+    # Saving a draft again under its own number is not a clash with itself.
+    kept = service.update(
+        other.id,
+        BillOfEntryUpdate.model_validate({"boe_number": "7654321", "remarks": "x"}),
+        firm_id=firm.firm.id,
+        actor_id=firm.actor_id,
+    )
+    assert kept.remarks == "x"
+    assert firm.session.scalar(select(func.count()).select_from(BillOfEntry)) == 2
+
+
+def test_posting_a_duplicate_is_refused_even_when_the_draft_is_read_first() -> None:
+    """D-BUY-50: the lookup handed the draft back to itself and it posted.
+
+    The draft here is the older row, so it is the one an unordered lookup
+    returns. It reaches its duplicate number the way a store written before
+    the save-time check did: without passing through the service.
+    """
+    firm = _firm()
+    draft = _create(firm, boe_number="1111111")
+    posted = _post(firm, _create(firm, boe_number="2222222"))
+    draft.boe_number = "2222222"
+    firm.session.commit()
+    with pytest.raises(ValidationError) as refusal:
+        _post(firm, draft)
+    assert posted.document_number in str(refusal.value.message)
+    firm.session.rollback()
+    assert draft.status == "DRAFT"
+    assert firm.session.scalar(select(func.count()).select_from(JournalEntry)) == 1
 
 
 def test_an_update_leaves_out_what_it_does_not_send() -> None:

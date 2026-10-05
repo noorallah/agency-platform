@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.bill_of_entry.models import (
@@ -84,19 +84,39 @@ class BillOfEntryRepository:
         return list(rows), int(total or 0)
 
     def duplicate(
-        self, firm_id: UUID, *, boe_number: str, port_code: str, boe_date: date
+        self,
+        firm_id: UUID,
+        *,
+        boe_number: str,
+        port_code: str,
+        boe_date: date,
+        excluding: UUID | None = None,
     ) -> BillOfEntry | None:
-        """Return a live, uncancelled Bill of Entry customs already numbered so."""
-        return self._session.scalar(
-            select(BillOfEntry).where(
-                BillOfEntry.firm_id == firm_id,
-                BillOfEntry.is_deleted.is_(False),
-                BillOfEntry.status != "CANCELLED",
-                func.upper(BillOfEntry.boe_number) == boe_number.upper(),
-                func.upper(BillOfEntry.port_code) == port_code.upper(),
-                BillOfEntry.boe_date == boe_date,
-            )
+        """Return another live, uncancelled Bill of Entry customs numbered so.
+
+        ``excluding`` is the row being saved or posted. It matches its own
+        number, port and date, so a lookup that does not leave it out can
+        hand the draft back to itself and call that "no duplicate"
+        (D-BUY-50). Number and port are compared without regard to case.
+        """
+        query = select(BillOfEntry).where(
+            BillOfEntry.firm_id == firm_id,
+            BillOfEntry.is_deleted.is_(False),
+            BillOfEntry.status != "CANCELLED",
+            func.upper(BillOfEntry.boe_number) == boe_number.strip().upper(),
+            func.upper(BillOfEntry.port_code) == port_code.strip().upper(),
+            BillOfEntry.boe_date == boe_date,
         )
+        if excluding is not None:
+            query = query.where(BillOfEntry.id != excluding)
+        # A posted one is named before another draft, then the oldest.
+        return self._session.scalars(
+            query.order_by(
+                case((BillOfEntry.status == "POSTED", 0), else_=1),
+                BillOfEntry.document_number,
+                BillOfEntry.id,
+            ).limit(1)
+        ).first()
 
     def lines(self, boe_ids: Iterable[UUID]) -> dict[UUID, list[BillOfEntryLine]]:
         """Return the live lines of each Bill of Entry, in line order."""
